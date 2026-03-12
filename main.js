@@ -431,10 +431,13 @@ function populateCacheFromFilesystem() {
 function buildProjectsFromCache(showArchived) {
   const metaMap = getAllMeta();
   const cachedRows = getAllCached();
+  const global = getSetting('global') || {};
+  const hiddenProjects = new Set(global.hiddenProjects || []);
 
   // Group by folder
   const folderMap = new Map();
   for (const row of cachedRows) {
+    if (hiddenProjects.has(row.projectPath)) continue;
     if (!folderMap.has(row.folder)) {
       folderMap.set(row.folder, { folder: row.folder, projectPath: row.projectPath, sessions: [] });
     }
@@ -463,7 +466,7 @@ function buildProjectsFromCache(showArchived) {
     for (const d of dirs) {
       if (!folderMap.has(d.name)) {
         const projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name), d.name);
-        if (projectPath) {
+        if (projectPath && !hiddenProjects.has(projectPath)) {
           folderMap.set(d.name, { folder: d.name, projectPath, sessions: [] });
         }
       }
@@ -621,6 +624,13 @@ ipcMain.handle('add-project', (_event, projectPath) => {
     const stat = fs.statSync(projectPath);
     if (!stat.isDirectory()) return { error: 'Path is not a directory' };
 
+    // Unhide if previously hidden
+    const global = getSetting('global') || {};
+    if (global.hiddenProjects && global.hiddenProjects.includes(projectPath)) {
+      global.hiddenProjects = global.hiddenProjects.filter(p => p !== projectPath);
+      setSetting('global', global);
+    }
+
     // Create the corresponding folder in ~/.claude/projects/ so it persists
     const folder = projectPath.replace(/[/_]/g, '-').replace(/^-/, '-');
     const folderPath = path.join(PROJECTS_DIR, folder);
@@ -642,6 +652,29 @@ ipcMain.handle('add-project', (_event, projectPath) => {
     notifyRendererProjectsChanged();
 
     return { ok: true, folder, projectPath };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// --- IPC: remove-project ---
+ipcMain.handle('remove-project', (_event, projectPath) => {
+  try {
+    // Add to hidden projects list
+    const global = getSetting('global') || {};
+    const hidden = global.hiddenProjects || [];
+    if (!hidden.includes(projectPath)) hidden.push(projectPath);
+    global.hiddenProjects = hidden;
+    setSetting('global', global);
+
+    // Clean up DB cache and search index for this folder
+    const folder = projectPath.replace(/[/_]/g, '-').replace(/^-/, '-');
+    deleteCachedFolder(folder);
+    deleteSearchFolder(folder);
+    deleteSetting('project:' + projectPath);
+
+    notifyRendererProjectsChanged();
+    return { ok: true };
   } catch (err) {
     return { error: err.message };
   }

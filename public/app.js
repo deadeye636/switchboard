@@ -14,6 +14,7 @@ const terminalHeaderStatus = document.getElementById('terminal-header-status');
 const terminalStopBtn = document.getElementById('terminal-stop-btn');
 const terminalRestartBtn = document.getElementById('terminal-restart-btn');
 const runningToggle = document.getElementById('running-toggle');
+const todayToggle = document.getElementById('today-toggle');
 const planViewer = document.getElementById('plan-viewer');
 const planViewerTitle = document.getElementById('plan-viewer-title');
 const planViewerFilepath = document.getElementById('plan-viewer-filepath');
@@ -68,6 +69,7 @@ function saveExpandedSlugs() {
 let showArchived = false;
 let showStarredOnly = false;
 let showRunningOnly = false;
+let showTodayOnly = false;
 let cachedProjects = [];
 let cachedAllProjects = [];
 let activePtyIds = new Set();
@@ -390,6 +392,13 @@ runningToggle.addEventListener('click', () => {
   showRunningOnly = !showRunningOnly;
   if (showRunningOnly) { showStarredOnly = false; starToggle.classList.remove('active'); }
   runningToggle.classList.toggle('active', showRunningOnly);
+  renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+});
+
+// --- Today filter toggle ---
+todayToggle.addEventListener('click', () => {
+  showTodayOnly = !showTodayOnly;
+  todayToggle.classList.toggle('active', showTodayOnly);
   renderProjects(showArchived ? cachedAllProjects : cachedProjects);
 });
 
@@ -782,6 +791,15 @@ function renderProjects(projects, isSearchResult) {
     if (showRunningOnly) {
       filtered = filtered.filter(s => activePtyIds.has(s.sessionId));
     }
+    if (showTodayOnly) {
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      filtered = filtered.filter(s => {
+        if (!s.modified) return false;
+        const d = new Date(s.modified);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === todayStr;
+      });
+    }
     if (filtered.length === 0 && project.sessions.length > 0) continue;
 
     // === STEP 2: Sort ===
@@ -862,7 +880,7 @@ function renderProjects(projects, isSearchResult) {
     // === STEP 5: Truncate — split into visible vs older ===
     let visible = [];
     let older = [];
-    if (isSearchResult || showStarredOnly || showRunningOnly) {
+    if (isSearchResult || showStarredOnly || showRunningOnly || showTodayOnly) {
       visible = allItems;
     } else {
       let count = 0;
@@ -2758,6 +2776,7 @@ async function openSettingsViewer(scope, projectPath) {
       </div>
 
       <button class="settings-save-btn" id="sv-save-btn">Save Settings</button>
+      ${isProject ? '<button class="settings-remove-btn" id="sv-remove-btn">Remove Project</button>' : ''}
     </div>
   `;
 
@@ -2844,6 +2863,18 @@ async function openSettingsViewer(scope, projectPath) {
     btn.textContent = 'Saved!';
     setTimeout(() => { btn.classList.remove('saved'); btn.textContent = 'Save Settings'; }, 1500);
   });
+
+  // Remove project button
+  const removeBtn = settingsViewerBody.querySelector('#sv-remove-btn');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', async () => {
+      if (!confirm(`Remove project "${shortName}" from Switchboard?\n\nThis hides the project from the sidebar. Your session files are not deleted.`)) return;
+      await window.api.removeProject(projectPath);
+      settingsViewer.style.display = 'none';
+      placeholder.style.display = 'flex';
+      loadProjects();
+    });
+  }
 }
 
 // Global settings gear button

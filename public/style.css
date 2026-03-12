@@ -188,7 +188,7 @@ body { display: flex; flex-direction: column; }
   animation: loading-pulse 1.2s ease-in-out infinite;
 }
 
-#star-toggle, #archive-toggle, #running-toggle {
+#star-toggle, #archive-toggle, #running-toggle, #today-toggle {
   background: transparent;
   border: 1px solid rgba(255,255,255,0.08);
   color: #555568;
@@ -207,7 +207,7 @@ body { display: flex; flex-direction: column; }
   justify-content: center;
 }
 
-#star-toggle:hover, #archive-toggle:hover, #running-toggle:hover {
+#star-toggle:hover, #archive-toggle:hover, #running-toggle:hover, #today-toggle:hover {
   background: rgba(255,255,255,0.04);
   border-color: rgba(255,255,255,0.12);
   color: #888;
@@ -229,6 +229,12 @@ body { display: flex; flex-direction: column; }
   background: rgba(62,207,90,0.1);
   border-color: rgba(62,207,90,0.25);
   color: #3ecf5a;
+}
+
+#today-toggle.active {
+  background: rgba(80,180,255,0.1);
+  border-color: rgba(80,180,255,0.25);
+  color: #50b4ff;
 }
 
 /* ---- Search ---- */
@@ -2179,6 +2185,26 @@ body { display: flex; flex-direction: column; }
   background: rgba(62,207,90,0.12);
   border-color: rgba(62,207,90,0.3);
   color: #3ecf5a;
+}
+
+.settings-remove-btn {
+  background: rgba(255,80,80,0.08);
+  border: 1px solid rgba(255,80,80,0.2);
+  color: #cc4444;
+  font-size: 13px;
+  padding: 8px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 0.15s;
+  margin-top: 8px;
+}
+
+.settings-remove-btn:hover {
+  background: rgba(255,80,80,0.15);
+  border-color: rgba(255,80,80,0.4);
+  color: #ff5050;
 }
 
 /* ========== NEW SESSION DIALOG ========== */
