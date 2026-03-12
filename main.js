@@ -1533,16 +1533,11 @@ app.whenReady().then(() => {
   // Warm up node-pty so first real spawn is fast
   setTimeout(warmupPty, 500);
 
-  // Check for updates after launch (packaged only, skip placeholder config)
+  // Check for updates after launch
   if (autoUpdater) {
-    const pub = require('./package.json').build?.publish;
-    const hasRealRepo = pub && pub.owner && pub.owner !== 'OWNER';
-    log.info('[updater] pub config:', JSON.stringify(pub), 'hasRealRepo:', hasRealRepo);
-    if (hasRealRepo) {
-      setTimeout(() => autoUpdater.checkForUpdates().catch(e => log.error('[updater] check failed:', e?.message || String(e))), 5000);
-      // Re-check every 4 hours for long-running sessions
-      setInterval(() => autoUpdater.checkForUpdates().catch(e => log.error('[updater] check failed:', e?.message || String(e))), 4 * 60 * 60 * 1000);
-    }
+    setTimeout(() => autoUpdater.checkForUpdates().catch(e => log.error('[updater] check failed:', e?.message || String(e))), 5000);
+    // Re-check every 4 hours for long-running sessions
+    setInterval(() => autoUpdater.checkForUpdates().catch(e => log.error('[updater] check failed:', e?.message || String(e))), 4 * 60 * 60 * 1000);
   }
 
   app.on('activate', () => {
