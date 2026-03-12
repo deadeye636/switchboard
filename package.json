@@ -1,9 +1,9 @@
 {
   "name": "switchboard",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "private": true,
   "description": "A desktop app for browsing, searching, and managing CLI coding sessions",
-  "author": "Doctly <hello@doctly.ai>",
+  "author": "Doctly <support@doctly.ai>",
   "main": "main.js",
   "scripts": {
     "start": "npm run bundle:codemirror && electron .",
