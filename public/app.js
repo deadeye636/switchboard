@@ -372,10 +372,17 @@ function updateProgressIndicators(sessionId) {
   }
 }
 
+// --- Filter toggle helpers ---
+function resetSortDebouncing() {
+  sortSnapshot.clear();
+  lastProjectSortTime = 0;
+}
+
 // --- Archive toggle ---
 archiveToggle.addEventListener('click', () => {
   showArchived = !showArchived;
   archiveToggle.classList.toggle('active', showArchived);
+  resetSortDebouncing();
   renderProjects(showArchived ? cachedAllProjects : cachedProjects);
 });
 
@@ -384,6 +391,7 @@ starToggle.addEventListener('click', () => {
   showStarredOnly = !showStarredOnly;
   if (showStarredOnly) { showRunningOnly = false; runningToggle.classList.remove('active'); }
   starToggle.classList.toggle('active', showStarredOnly);
+  resetSortDebouncing();
   renderProjects(showArchived ? cachedAllProjects : cachedProjects);
 });
 
@@ -392,6 +400,7 @@ runningToggle.addEventListener('click', () => {
   showRunningOnly = !showRunningOnly;
   if (showRunningOnly) { showStarredOnly = false; starToggle.classList.remove('active'); }
   runningToggle.classList.toggle('active', showRunningOnly);
+  resetSortDebouncing();
   renderProjects(showArchived ? cachedAllProjects : cachedProjects);
 });
 
@@ -399,6 +408,7 @@ runningToggle.addEventListener('click', () => {
 todayToggle.addEventListener('click', () => {
   showTodayOnly = !showTodayOnly;
   todayToggle.classList.toggle('active', showTodayOnly);
+  resetSortDebouncing();
   renderProjects(showArchived ? cachedAllProjects : cachedProjects);
 });
 
