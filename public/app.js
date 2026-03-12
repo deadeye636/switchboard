@@ -1476,8 +1476,10 @@ async function openSession(session) {
     } else {
       entry.element.classList.add('visible');
       entry.fitAddon.fit();
-      entry.terminal.scrollToBottom();
       entry.terminal.focus();
+      // Defer scrollToBottom — fit() triggers an async re-render and
+      // scrolling before it completes lands at a stale viewport height.
+      requestAnimationFrame(() => entry.terminal.scrollToBottom());
       return;
     }
   }
