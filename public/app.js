@@ -185,43 +185,29 @@ function setupTerminalKeyBindings(terminal, container, getSessionId) {
   }
 }
 
+// Track whether the user is scrolled to the bottom of a terminal
+function trackScrollPosition(entry) {
+  entry.isAtBottom = true;
+  const vp = entry.terminal.element.querySelector('.xterm-viewport');
+  if (vp) {
+    vp.addEventListener('scroll', () => {
+      entry.isAtBottom = vp.scrollTop + vp.clientHeight >= vp.scrollHeight - 10;
+    });
+  }
+}
+
 // --- IPC listeners from main process ---
 // Synchronized output markers — TUI repaints, not meaningful content
 const ESC_SYNC_START = '\x1b[?2026h';
 const ESC_SYNC_END = '\x1b[?2026l';
 
-// Terminal escape sequences
-const ESC_SCREEN_CLEAR = '\x1b[2J';
-const ESC_ALT_SCREEN_ON = '\x1b[?1049h';
-
-// Scroll-to-bottom window: activated by resize or large redraws,
-// then write callbacks keep scrolling until the window expires.
-let redrawScrollActive = null;
-
 window.api.onTerminalData((sessionId, data) => {
   const entry = openSessions.get(sessionId);
   if (entry) {
-    // Detect full redraws and activate scroll window (same approach as resize)
-    // Only scan for escape sequences in chunks that contain ESC[
-    if (sessionId === activeSessionId && data.length > 3 && data.includes('\x1b[')) {
-      if (data.includes(ESC_SCREEN_CLEAR) || data.includes(ESC_ALT_SCREEN_ON)) {
-        clearTimeout(redrawScrollActive);
-        redrawScrollActive = setTimeout(() => { redrawScrollActive = null; }, 1000);
-      }
-    }
-
     entry.terminal.write(data, () => {
       if (sessionId !== activeSessionId) return;
-      if (resizeScrollActive !== null || redrawScrollActive !== null) {
-        setTimeout(() => entry.terminal.scrollToBottom(), 50);
-        if (resizeScrollActive !== null) {
-          clearTimeout(resizeScrollActive);
-          resizeScrollActive = setTimeout(() => { resizeScrollActive = null; }, 300);
-        }
-        if (redrawScrollActive !== null) {
-          clearTimeout(redrawScrollActive);
-          redrawScrollActive = setTimeout(() => { redrawScrollActive = null; }, 1000);
-        }
+      if (entry.isAtBottom) {
+        entry.terminal.scrollToBottom();
       }
     });
   }
@@ -1405,6 +1391,7 @@ async function launchNewSession(project, sessionOptions) {
   fitAddon.fit();
 
   const entry = { terminal, element: container, fitAddon, session, closed: false };
+  trackScrollPosition(entry);
   openSessions.set(sessionId, entry);
 
   // Wire up terminal input/resize via IPC
@@ -1489,13 +1476,13 @@ async function openSession(session) {
     } else {
       entry.element.classList.add('visible');
       entry.terminal.focus();
-      // Defer fit + scroll — the container just went from display:none
-      // to display:block, so the viewport has no dimensions yet.
-      // First rAF: layout is resolved, fit to actual size.
-      // Second rAF: xterm has re-rendered, scroll to bottom.
+      // Defer fit — the container just went from display:none to display:block,
+      // so the viewport has no dimensions yet.
       requestAnimationFrame(() => {
         entry.fitAddon.fit();
-        requestAnimationFrame(() => entry.terminal.scrollToBottom());
+        if (entry.isAtBottom) {
+          requestAnimationFrame(() => entry.terminal.scrollToBottom());
+        }
       });
       return;
     }
@@ -1522,6 +1509,7 @@ async function openSession(session) {
   fitAddon.fit();
 
   const entry = { terminal, element: container, fitAddon, session, closed: false };
+  trackScrollPosition(entry);
   openSessions.set(sessionId, entry);
 
   // Wire up terminal input/resize via IPC (use entry.session.sessionId so fork re-keying works)
@@ -1560,14 +1548,10 @@ async function openSession(session) {
 }
 
 // Handle window resize
-// Resize: fit immediately, scroll to bottom as PTY re-render data arrives
-let resizeScrollActive = null;
 window.addEventListener('resize', () => {
   if (activeSessionId && openSessions.has(activeSessionId)) {
     const entry = openSessions.get(activeSessionId);
     entry.fitAddon.fit();
-    clearTimeout(resizeScrollActive);
-    resizeScrollActive = setTimeout(() => { resizeScrollActive = null; }, 1000);
   }
 });
 
@@ -2501,6 +2485,7 @@ async function launchTerminalSession(project) {
   fitAddon.fit();
 
   const entry = { terminal, element: container, fitAddon, session, closed: false };
+  trackScrollPosition(entry);
   openSessions.set(sessionId, entry);
 
   terminal.onData(data => {
@@ -3015,8 +3000,6 @@ function showAddProjectDialog() {
     if (activeSessionId && openSessions.has(activeSessionId)) {
       const entry = openSessions.get(activeSessionId);
       entry.fitAddon.fit();
-      clearTimeout(resizeScrollActive);
-      resizeScrollActive = setTimeout(() => { resizeScrollActive = null; }, 1000);
     }
     // Save sidebar width to settings
     const width = parseInt(sidebar.style.width);
