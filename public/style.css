@@ -1812,6 +1812,7 @@ body { display: flex; flex-direction: column; }
 }
 
 /* ========== ADD PROJECT BUTTON ========== */
+#resort-btn,
 #add-project-btn {
   background: transparent;
   border: 1px solid rgba(255,255,255,0.08);
@@ -1829,9 +1830,12 @@ body { display: flex; flex-direction: column; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: auto;
 }
 
+#resort-btn { margin-left: auto; }
+#add-project-btn { margin-left: 2px; }
+
+#resort-btn:hover,
 #add-project-btn:hover {
   background: rgba(255,255,255,0.04);
   border-color: rgba(255,255,255,0.12);

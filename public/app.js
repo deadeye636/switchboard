@@ -44,6 +44,7 @@ const settingsViewerTitle = document.getElementById('settings-viewer-title');
 const settingsViewerBody = document.getElementById('settings-viewer-body');
 const globalSettingsBtn = document.getElementById('global-settings-btn');
 const addProjectBtn = document.getElementById('add-project-btn');
+const resortBtn = document.getElementById('resort-btn');
 const jsonlViewer = document.getElementById('jsonl-viewer');
 const jsonlViewerTitle = document.getElementById('jsonl-viewer-title');
 const jsonlViewerSessionId = document.getElementById('jsonl-viewer-session-id');
@@ -73,11 +74,13 @@ let showTodayOnly = false;
 let cachedProjects = [];
 let cachedAllProjects = [];
 let activePtyIds = new Set();
+let sortedOrder = []; // [{ projectPath, itemIds: [itemId, ...] }, ...] — single source of truth for sidebar order
 let activeTab = 'sessions';
 let cachedPlans = [];
 let visibleSessionCount = 10;
 let sessionMaxAgeDays = 3;
 const pendingSessions = new Map(); // sessionId → { session, projectPath, folder }
+let searchMatchIds = null; // null = no search active; Set<string> = matched session IDs
 
 // --- Activity tracking ---
 const unreadSessions = new Set(); // sessions with unseen output
@@ -313,7 +316,7 @@ window.api.onProcessExited((sessionId, exitCode) => {
       }
     }
     sessionMap.delete(sessionId);
-    renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+    refreshSidebar();
     pollActiveSessions();
     return;
   }
@@ -328,7 +331,7 @@ window.api.onProcessExited((sessionId, exitCode) => {
       }
     }
     sessionMap.delete(sessionId);
-    renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+    refreshSidebar();
   }
 
   pollActiveSessions();
@@ -382,18 +385,30 @@ function updateProgressIndicators(sessionId) {
   }
 }
 
-// --- Filter toggle helpers ---
-function resetSortDebouncing() {
-  sortSnapshot.clear();
-  lastProjectSortTime = 0;
+// --- Single entry point for all sidebar renders ---
+// resort=true: re-sort items by priority+time (use for user-initiated actions)
+// resort=false (default): preserve existing DOM order, new items go to top
+function refreshSidebar({ resort = false } = {}) {
+  // When searching, always use all projects (search ignores archive filter)
+  let projects = (searchMatchIds !== null)
+    ? cachedAllProjects
+    : (showArchived ? cachedAllProjects : cachedProjects);
+
+  if (searchMatchIds !== null) {
+    projects = projects.map(p => ({
+      ...p,
+      sessions: p.sessions.filter(s => searchMatchIds.has(s.sessionId)),
+    })).filter(p => p.sessions.length > 0);
+  }
+
+  renderProjects(projects, resort);
 }
 
 // --- Archive toggle ---
 archiveToggle.addEventListener('click', () => {
   showArchived = !showArchived;
   archiveToggle.classList.toggle('active', showArchived);
-  resetSortDebouncing();
-  renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+  refreshSidebar({ resort: true });
 });
 
 // --- Star filter toggle ---
@@ -401,8 +416,7 @@ starToggle.addEventListener('click', () => {
   showStarredOnly = !showStarredOnly;
   if (showStarredOnly) { showRunningOnly = false; runningToggle.classList.remove('active'); }
   starToggle.classList.toggle('active', showStarredOnly);
-  resetSortDebouncing();
-  renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+  refreshSidebar({ resort: true });
 });
 
 // --- Running filter toggle ---
@@ -410,16 +424,19 @@ runningToggle.addEventListener('click', () => {
   showRunningOnly = !showRunningOnly;
   if (showRunningOnly) { showStarredOnly = false; starToggle.classList.remove('active'); }
   runningToggle.classList.toggle('active', showRunningOnly);
-  resetSortDebouncing();
-  renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+  refreshSidebar({ resort: true });
 });
 
 // --- Today filter toggle ---
 todayToggle.addEventListener('click', () => {
   showTodayOnly = !showTodayOnly;
   todayToggle.classList.toggle('active', showTodayOnly);
-  resetSortDebouncing();
-  renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+  refreshSidebar({ resort: true });
+});
+
+// --- Re-sort button ---
+resortBtn.addEventListener('click', () => {
+  loadProjects({ resort: true });
 });
 
 // --- Search (debounced, per-tab FTS) ---
@@ -431,7 +448,8 @@ function clearSearch() {
   searchBar.classList.remove('has-query');
   if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
   if (activeTab === 'sessions') {
-    renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+    searchMatchIds = null;
+    refreshSidebar({ resort: true });
   } else if (activeTab === 'plans') {
     renderPlans(cachedPlans);
   } else if (activeTab === 'memory') {
@@ -461,13 +479,8 @@ searchInput.addEventListener('input', () => {
     try {
       if (activeTab === 'sessions') {
         const results = await window.api.search('session', query);
-        const matchIds = new Set(results.map(r => r.id));
-        // Always search all projects (including archived) so no results are hidden
-        const filtered = cachedAllProjects.map(p => ({
-          ...p,
-          sessions: p.sessions.filter(s => matchIds.has(s.sessionId)),
-        })).filter(p => p.sessions.length > 0);
-        renderProjects(filtered, true);
+        searchMatchIds = new Set(results.map(r => r.id));
+        refreshSidebar({ resort: true });
       } else if (activeTab === 'plans') {
         const results = await window.api.search('plan', query);
         const matchIds = new Set(results.map(r => r.id));
@@ -478,9 +491,9 @@ searchInput.addEventListener('input', () => {
         renderMemories(cachedMemories.filter(m => matchIds.has(m.filePath)));
       }
     } catch {
-      // Fallback to showing all on error
       if (activeTab === 'sessions') {
-        renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+        searchMatchIds = null;
+        refreshSidebar({ resort: true });
       }
     }
   }, 200);
@@ -495,7 +508,7 @@ terminalStopBtn.addEventListener('click', async () => {
   setActiveSession(null);
   terminalHeader.style.display = 'none';
   placeholder.style.display = '';
-  renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+  refreshSidebar();
 });
 
 terminalRestartBtn.addEventListener('click', () => {
@@ -592,7 +605,7 @@ function dedup(projects) {
   }
 }
 
-async function loadProjects() {
+async function loadProjects({ resort = false } = {}) {
   const wasEmpty = cachedProjects.length === 0;
   if (wasEmpty) {
     loadingStatus.textContent = 'Loading\u2026';
@@ -661,7 +674,7 @@ async function loadProjects() {
   } catch {}
 
   await pollActiveSessions();
-  renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+  refreshSidebar({ resort });
   renderDefaultStatus();
 }
 
@@ -769,38 +782,24 @@ function buildSlugGroup(slug, sessions) {
   return group;
 }
 
-// Sort debouncing: preserve order when timestamps change by small amounts (background refreshes).
-// Only re-sort an item when its timestamp jumps significantly (e.g. user opened an old session).
-// Snapshot stores the sortTime actually used, so small drifts accumulate and eventually trigger resort.
-const sortSnapshot = new Map(); // itemId → sortTime used in last render
-const SORT_DRIFT_THRESHOLD = 5 * 60 * 1000; // 5 minutes
-let lastProjectSortTime = 0; // timestamp of last project group re-sort
-
-let lastRenderWasSearch = false;
-function renderProjects(projects, isSearchResult) {
+function renderProjects(projects, resort) {
   const newSidebar = document.createElement('div');
 
-  // Debounce project group re-sorting: only re-sort if >5 min since last sort
-  const now = Date.now();
-  if (now - lastProjectSortTime > SORT_DRIFT_THRESHOLD || lastRenderWasSearch) {
-    lastProjectSortTime = now;
-    // projects arrive pre-sorted from main process — accept new order
-  } else if (!isSearchResult && sidebarContent.children.length > 0) {
-    // Preserve current project group order
-    const existingOrder = new Map();
-    let idx = 0;
-    for (const child of sidebarContent.children) {
-      if (child.id) existingOrder.set(child.id, idx++);
-    }
+  // Sort project groups using sortedOrder as source of truth
+  if (!resort && sortedOrder.length > 0) {
+    const orderIndex = new Map(sortedOrder.map((e, i) => [e.projectPath, i]));
     projects = [...projects].sort((a, b) => {
-      const aIdx = existingOrder.get(folderId(a.projectPath));
-      const bIdx = existingOrder.get(folderId(b.projectPath));
-      if (aIdx !== undefined && bIdx !== undefined) return aIdx - bIdx;
-      if (aIdx === undefined) return -1; // new projects go to top
-      if (bIdx === undefined) return -1;
+      const aPos = orderIndex.get(a.projectPath);
+      const bPos = orderIndex.get(b.projectPath);
+      if (aPos !== undefined && bPos !== undefined) return aPos - bPos;
+      if (aPos === undefined && bPos !== undefined) return -1;
+      if (aPos !== undefined && bPos === undefined) return 1;
       return 0;
     });
   }
+  // projects are now in the correct order (data order for resort, preserved order otherwise)
+
+  const newSortedOrder = [];
 
   for (const project of projects) {
     // === STEP 1: Filter ===
@@ -821,6 +820,7 @@ function renderProjects(projects, isSearchResult) {
       });
     }
     if (filtered.length === 0 && project.sessions.length > 0) continue;
+    const fId = folderId(project.projectPath);
 
     // === STEP 2: Sort ===
     // Priority: pinned+running > running > pinned > rest (by modified desc)
@@ -867,40 +867,35 @@ function renderProjects(projects, isSearchResult) {
       });
     }
 
-    // === STEP 4: Sort render items with debouncing ===
-    // Compare each item's sortTime against snapshot. If the change is small
-    // (background refresh touching mtime), keep the old sortTime to preserve order.
-    // If the change is large (user opened an old session), use new sortTime.
-    const fId = folderId(project.projectPath);
-    for (const item of allItems) {
-      const id = item.element.id;
-      const prev = sortSnapshot.get(id);
-      if (prev !== undefined) {
-        const delta = Math.abs(item.sortTime - prev);
-        if (delta < SORT_DRIFT_THRESHOLD) {
-          item.effectiveSortTime = prev; // small drift — keep old position
-        } else {
-          item.effectiveSortTime = item.sortTime; // big jump — allow resort
-        }
-      } else {
-        item.effectiveSortTime = item.sortTime; // new item
-      }
+    // === STEP 4: Sort render items ===
+    const prevEntry = sortedOrder.find(e => e.projectPath === project.projectPath);
+    if (resort || !prevEntry) {
+      // Full sort by priority + modified time
+      allItems.sort((a, b) => {
+        const aPri = (a.pinned && a.running ? 3 : a.running ? 2 : a.pinned ? 1 : 0);
+        const bPri = (b.pinned && b.running ? 3 : b.running ? 2 : b.pinned ? 1 : 0);
+        if (aPri !== bPri) return bPri - aPri;
+        return b.sortTime - a.sortTime;
+      });
+    } else {
+      // Preserve last-sorted order; new items go to top
+      const orderIndex = new Map(prevEntry.itemIds.map((id, i) => [id, i]));
+      allItems.sort((a, b) => {
+        const aPos = orderIndex.get(a.element.id);
+        const bPos = orderIndex.get(b.element.id);
+        if (aPos !== undefined && bPos !== undefined) return aPos - bPos;
+        if (aPos === undefined && bPos !== undefined) return -1;
+        if (aPos !== undefined && bPos === undefined) return 1;
+        return b.sortTime - a.sortTime;
+      });
     }
-    allItems.sort((a, b) => {
-      const aPri = (a.pinned && a.running ? 3 : a.running ? 2 : a.pinned ? 1 : 0);
-      const bPri = (b.pinned && b.running ? 3 : b.running ? 2 : b.pinned ? 1 : 0);
-      if (aPri !== bPri) return bPri - aPri;
-      return b.effectiveSortTime - a.effectiveSortTime;
-    });
-    // Save snapshot: use effectiveSortTime so small drifts accumulate
-    for (const item of allItems) {
-      sortSnapshot.set(item.element.id, item.effectiveSortTime);
-    }
+    // Save current order for this project
+    newSortedOrder.push({ projectPath: project.projectPath, itemIds: allItems.map(item => item.element.id) });
 
     // === STEP 5: Truncate — split into visible vs older ===
     let visible = [];
     let older = [];
-    if (isSearchResult || showStarredOnly || showRunningOnly || showTodayOnly) {
+    if (searchMatchIds !== null || showStarredOnly || showRunningOnly || showTodayOnly) {
       visible = allItems;
     } else {
       let count = 0;
@@ -975,7 +970,7 @@ function renderProjects(projects, isSearchResult) {
     }
 
     // Auto-collapse if most recent session is older than 5 days
-    if (!isSearchResult && !showStarredOnly && !showRunningOnly) {
+    if (searchMatchIds === null && !showStarredOnly && !showRunningOnly) {
       const mostRecent = filtered[0]?.modified;
       if (mostRecent && (Date.now() - new Date(mostRecent)) > sessionMaxAgeDays * 86400000) {
         header.classList.add('collapsed');
@@ -1030,8 +1025,10 @@ function renderProjects(projects, isSearchResult) {
     }
   });
 
+  // Save the full sorted order (project order + item order) as source of truth
+  sortedOrder = newSortedOrder;
+
   rebindSidebarEvents(projects);
-  lastRenderWasSearch = !!isSearchResult;
 
   // Restore terminal focus after morphdom DOM updates, but not if the user is typing in the search box
   if (activeSessionId && openSessions.has(activeSessionId) && document.activeElement !== searchInput) {
@@ -1138,7 +1135,7 @@ function rebindSidebarEvents(projects) {
         e.stopPropagation();
         const { starred } = await window.api.toggleStar(session.sessionId);
         session.starred = starred;
-        renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+        refreshSidebar({ resort: true });
       };
     }
 
@@ -1158,7 +1155,7 @@ function rebindSidebarEvents(projects) {
           terminalHeader.style.display = 'none';
           placeholder.style.display = '';
         }
-        renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+        refreshSidebar();
       };
     }
 
@@ -1210,6 +1207,12 @@ function buildSessionItem(session) {
   if (activePtyIds.has(session.sessionId)) item.classList.add('has-running-pty');
   if (unreadSessions.has(session.sessionId)) item.classList.add('has-unread');
   if (attentionSessions.has(session.sessionId)) item.classList.add('needs-attention');
+  const progressInfo = sessionProgressState.get(session.sessionId);
+  if (progressInfo) {
+    if (progressInfo.state === 3) item.classList.add('is-busy');
+    if (progressInfo.state === 1) item.classList.add('has-progress');
+    if (progressInfo.state === 2) item.classList.add('has-error');
+  }
   item.dataset.sessionId = session.sessionId;
 
   const modified = lastActivityTime.get(session.sessionId) || new Date(session.modified);
@@ -1369,7 +1372,7 @@ async function launchNewSession(project, sessionOptions) {
     }
     proj.sessions.unshift(session);
   }
-  renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+  refreshSidebar();
 
   // Update sidebar
   document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
@@ -1485,9 +1488,15 @@ async function openSession(session) {
       }
     } else {
       entry.element.classList.add('visible');
-      entry.fitAddon.fit();
-      entry.terminal.scrollToBottom();
       entry.terminal.focus();
+      // Defer fit + scroll — the container just went from display:none
+      // to display:block, so the viewport has no dimensions yet.
+      // First rAF: layout is resolved, fit to actual size.
+      // Second rAF: xterm has re-rendered, scroll to bottom.
+      requestAnimationFrame(() => {
+        entry.fitAddon.fit();
+        requestAnimationFrame(() => entry.terminal.scrollToBottom());
+      });
       return;
     }
   }
@@ -1600,6 +1609,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     // Clear search on tab switch
     searchInput.value = '';
     searchBar.classList.remove('has-query');
+    searchMatchIds = null;
 
     // Hide all sidebar content areas
     sidebarContent.style.display = 'none';
@@ -2458,7 +2468,7 @@ async function launchTerminalSession(project) {
     }
     proj.sessions.unshift(session);
   }
-  renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+  refreshSidebar();
 
   // Update sidebar
   document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
@@ -2874,7 +2884,7 @@ async function openSettingsViewer(scope, projectPath) {
           entry.terminal.options.theme = TERMINAL_THEME;
         }
       }
-      renderProjects(showArchived ? cachedAllProjects : cachedProjects);
+      refreshSidebar();
     }
 
     // Flash save confirmation
@@ -2956,8 +2966,6 @@ function showAddProjectDialog() {
     }
     close();
 
-    // Reload projects so the new one appears at the top (with fresh sort)
-    lastProjectSortTime = 0;
     await loadProjects();
   }
 
