@@ -185,15 +185,12 @@ function setupTerminalKeyBindings(terminal, container, getSessionId) {
   }
 }
 
-// Track whether the user is scrolled to the bottom of a terminal
-function trackScrollPosition(entry) {
-  entry.isAtBottom = true;
-  const vp = entry.terminal.element.querySelector('.xterm-viewport');
-  if (vp) {
-    vp.addEventListener('scroll', () => {
-      entry.isAtBottom = vp.scrollTop + vp.clientHeight >= vp.scrollHeight - 10;
-    });
-  }
+// Check whether a terminal is scrolled to the bottom using xterm's buffer API.
+// This avoids race conditions with DOM scroll events that fire when content
+// is added (changing scrollHeight) before the write callback runs.
+function isAtBottom(terminal) {
+  const buf = terminal.buffer.active;
+  return buf.viewportY >= buf.baseY;
 }
 
 // --- IPC listeners from main process ---
@@ -201,12 +198,29 @@ function trackScrollPosition(entry) {
 const ESC_SYNC_START = '\x1b[?2026h';
 const ESC_SYNC_END = '\x1b[?2026l';
 
+// Screen-clear / alt-screen escape sequences.
+const ESC_SCREEN_CLEAR = '\x1b[2J';
+const ESC_ALT_SCREEN_ON = '\x1b[?1049h';
+
+// After a screen redraw the content may arrive across multiple data chunks.
+// Keep scrolling to bottom for a short window after detecting a clear.
+let redrawScrollUntil = 0;
+
 window.api.onTerminalData((sessionId, data) => {
   const entry = openSessions.get(sessionId);
   if (entry) {
+    // Check scroll position *before* writing — the write may change scrollHeight
+    // and cause a DOM scroll event that would give a stale answer.
+    const wasAtBottom = isAtBottom(entry.terminal);
+    // Screen clears push content into scrollback, moving baseY away from
+    // viewportY, so isAtBottom would return false during the redraw.
+    if (data.includes(ESC_SCREEN_CLEAR) || data.includes(ESC_ALT_SCREEN_ON)) {
+      redrawScrollUntil = Date.now() + 1000;
+    }
+    const forceScroll = Date.now() < redrawScrollUntil;
     entry.terminal.write(data, () => {
       if (sessionId !== activeSessionId) return;
-      if (entry.isAtBottom) {
+      if (wasAtBottom || forceScroll) {
         entry.terminal.scrollToBottom();
       }
     });
@@ -1391,7 +1405,6 @@ async function launchNewSession(project, sessionOptions) {
   fitAddon.fit();
 
   const entry = { terminal, element: container, fitAddon, session, closed: false };
-  trackScrollPosition(entry);
   openSessions.set(sessionId, entry);
 
   // Wire up terminal input/resize via IPC
@@ -1480,7 +1493,7 @@ async function openSession(session) {
       // so the viewport has no dimensions yet.
       requestAnimationFrame(() => {
         entry.fitAddon.fit();
-        if (entry.isAtBottom) {
+        if (isAtBottom(entry.terminal)) {
           requestAnimationFrame(() => entry.terminal.scrollToBottom());
         }
       });
@@ -1509,7 +1522,6 @@ async function openSession(session) {
   fitAddon.fit();
 
   const entry = { terminal, element: container, fitAddon, session, closed: false };
-  trackScrollPosition(entry);
   openSessions.set(sessionId, entry);
 
   // Wire up terminal input/resize via IPC (use entry.session.sessionId so fork re-keying works)
@@ -2485,7 +2497,6 @@ async function launchTerminalSession(project) {
   fitAddon.fit();
 
   const entry = { terminal, element: container, fitAddon, session, closed: false };
-  trackScrollPosition(entry);
   openSessions.set(sessionId, entry);
 
   terminal.onData(data => {
