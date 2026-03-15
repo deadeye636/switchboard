@@ -520,7 +520,7 @@ body { display: flex; flex-direction: column; }
   color: #8088ff;
 }
 
-.slug-group.collapsed:not(.has-promoted) .slug-group-sessions { display: none; }
+.slug-group.collapsed .slug-group-sessions { display: none; }
 .slug-group.collapsed .slug-group-older { display: none; }
 .slug-group-more {
   padding: 4px 10px;
