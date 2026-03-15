@@ -138,6 +138,9 @@ const stmts = {
   searchMapDeleteByType: db.prepare('DELETE FROM search_map WHERE type = ?'),
   searchInsertFts: db.prepare('INSERT OR REPLACE INTO search_fts(rowid, title, body) VALUES (?, ?, ?)'),
   searchInsertMap: db.prepare('INSERT OR REPLACE INTO search_map(id, type, folder) VALUES (?, ?, ?)'),
+  searchMapLookup: db.prepare('SELECT rowid FROM search_map WHERE id = ? AND type = ?'),
+  searchDeleteByRowid: db.prepare('DELETE FROM search_fts WHERE rowid = ?'),
+  searchMapDeleteByRowid: db.prepare('DELETE FROM search_map WHERE rowid = ?'),
   // Settings statements
   settingsGet: db.prepare('SELECT value FROM settings WHERE key = ?'),
   settingsUpsert: db.prepare(`
@@ -241,6 +244,16 @@ function setFolderMeta(folder, projectPath, indexMtimeMs) {
 
 const upsertSearchEntriesBatch = db.transaction((entries) => {
   for (const e of entries) {
+    // Delete any existing FTS row for this (id, type) pair before inserting.
+    // search_map uses INSERT OR REPLACE which deletes the old row and creates
+    // a new one with a new rowid, but the orphaned FTS5 row keyed to the old
+    // rowid would never be cleaned up — causing duplicate search results and
+    // unbounded FTS table growth.
+    const existing = stmts.searchMapLookup.get(e.id, e.type);
+    if (existing) {
+      stmts.searchDeleteByRowid.run(existing.rowid);
+      stmts.searchMapDeleteByRowid.run(existing.rowid);
+    }
     const result = stmts.searchInsertMap.run(e.id, e.type, e.folder || null);
     stmts.searchInsertFts.run(result.lastInsertRowid, e.title || '', e.body || '');
   }
