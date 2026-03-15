@@ -182,6 +182,15 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    // On macOS the app stays alive in the dock after the last window closes.
+    // Kill all running PTY processes so orphaned `claude` processes don't
+    // accumulate in the background with no way for the user to interact.
+    for (const [id, session] of activeSessions) {
+      if (!session.exited) {
+        try { session.pty.kill(); } catch {}
+      }
+      activeSessions.delete(id);
+    }
     mainWindow = null;
   });
 }
@@ -599,6 +608,19 @@ function populateCacheViaWorker() {
     console.error('Worker error:', err);
     sendStatus('Worker error: ' + err.message, 'error');
     populatingCache = false;
+  });
+
+  // If the worker exits abnormally (SIGSEGV, OOM, uncaught exception) without
+  // sending a message, neither the 'message' nor 'error' handler will fire.
+  // Reset the flag here to prevent a permanent lockout where the session list
+  // stays empty because populateCacheViaWorker() returns immediately.
+  worker.on('exit', (code) => {
+    if (populatingCache) {
+      populatingCache = false;
+      if (code !== 0) {
+        sendStatus('Scan worker exited unexpectedly', 'error');
+      }
+    }
   });
 }
 
@@ -1222,8 +1244,16 @@ ipcMain.handle('open-terminal', (_event, sessionId, projectPath, isNew, sessionO
     const realId = session.realSessionId || sessionId;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('process-exited', realId, exitCode);
+      // If a fork/plan-accept transition re-keyed this session under realId
+      // but the PTY exited before transition detection ran, also notify the
+      // renderer for the original sessionId so it doesn't stay stuck as "Running".
+      if (realId !== sessionId && activeSessions.has(sessionId)) {
+        mainWindow.webContents.send('process-exited', sessionId, exitCode);
+      }
     }
     activeSessions.delete(realId);
+    // Clean up the original key too in case transition detection hasn't run yet
+    activeSessions.delete(sessionId);
   });
 
   if (sessionOptions?.forkFrom) {
