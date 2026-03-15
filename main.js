@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const pty = require('node-pty');
 const log = require('electron-log');
+const { getFolderIndexMtimeMs } = require('./folder-index-state');
 log.transports.file.level = app.isPackaged ? 'info' : 'debug';
 log.transports.console.level = app.isPackaged ? 'info' : 'debug';
 
@@ -181,6 +182,15 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    // On macOS the app stays alive in the dock after the last window closes.
+    // Kill all running PTY processes so orphaned `claude` processes don't
+    // accumulate in the background with no way for the user to interact.
+    for (const [id, session] of activeSessions) {
+      if (!session.exited) {
+        try { session.pty.kill(); } catch {}
+      }
+      activeSessions.delete(id);
+    }
     mainWindow = null;
   });
 }
@@ -347,10 +357,7 @@ function refreshFolder(folder) {
 
   const projectPath = deriveProjectPath(folderPath, folder);
   if (!projectPath) {
-    // Still record mtime so backgroundRefresh doesn't keep retrying
-    let mtimeMs = 0;
-    try { mtimeMs = fs.statSync(folderPath).mtimeMs; } catch {}
-    setFolderMeta(folder, null, mtimeMs);
+    setFolderMeta(folder, null, getFolderIndexMtimeMs(folderPath));
     return;
   }
 
@@ -407,9 +414,7 @@ function refreshFolder(folder) {
   }
 
   // Update folder mtime
-  let mtimeMs = 0;
-  try { mtimeMs = fs.statSync(folderPath).mtimeMs; } catch {}
-  setFolderMeta(folder, projectPath, mtimeMs);
+  setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
 }
 
 /** Populate entire cache from filesystem (cold start) */
@@ -505,8 +510,7 @@ function backgroundRefresh() {
     // Check for new/changed folders
     for (const folder of folders) {
       const folderPath = path.join(PROJECTS_DIR, folder);
-      let currentMtime = 0;
-      try { currentMtime = fs.statSync(folderPath).mtimeMs; } catch {}
+      const currentMtime = getFolderIndexMtimeMs(folderPath);
 
       const cached = metaMap.get(folder);
       if (!cached || cached.indexMtimeMs !== currentMtime) {
@@ -576,7 +580,7 @@ function populateCacheViaWorker() {
 
     // Write results to DB on main thread (fast)
     let sessionCount = 0;
-    for (const { folder, projectPath, sessions, mtimeMs } of msg.results) {
+    for (const { folder, projectPath, sessions, indexMtimeMs } of msg.results) {
       deleteCachedFolder(folder);
       deleteSearchFolder(folder);
       if (sessions.length > 0) {
@@ -590,7 +594,7 @@ function populateCacheViaWorker() {
           if (s.customTitle) setName(s.sessionId, s.customTitle);
         }
       }
-      setFolderMeta(folder, projectPath, mtimeMs);
+      setFolderMeta(folder, projectPath, indexMtimeMs);
     }
 
     populatingCache = false;
@@ -604,6 +608,19 @@ function populateCacheViaWorker() {
     console.error('Worker error:', err);
     sendStatus('Worker error: ' + err.message, 'error');
     populatingCache = false;
+  });
+
+  // If the worker exits abnormally (SIGSEGV, OOM, uncaught exception) without
+  // sending a message, neither the 'message' nor 'error' handler will fire.
+  // Reset the flag here to prevent a permanent lockout where the session list
+  // stays empty because populateCacheViaWorker() returns immediately.
+  worker.on('exit', (code) => {
+    if (populatingCache) {
+      populatingCache = false;
+      if (code !== 0) {
+        sendStatus('Scan worker exited unexpectedly', 'error');
+      }
+    }
   });
 }
 
@@ -1227,8 +1244,16 @@ ipcMain.handle('open-terminal', (_event, sessionId, projectPath, isNew, sessionO
     const realId = session.realSessionId || sessionId;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('process-exited', realId, exitCode);
+      // If a fork/plan-accept transition re-keyed this session under realId
+      // but the PTY exited before transition detection ran, also notify the
+      // renderer for the original sessionId so it doesn't stay stuck as "Running".
+      if (realId !== sessionId && activeSessions.has(sessionId)) {
+        mainWindow.webContents.send('process-exited', sessionId, exitCode);
+      }
     }
     activeSessions.delete(realId);
+    // Clean up the original key too in case transition detection hasn't run yet
+    activeSessions.delete(sessionId);
   });
 
   if (sessionOptions?.forkFrom) {
