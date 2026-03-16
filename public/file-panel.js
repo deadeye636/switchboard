@@ -154,6 +154,10 @@ function wireIpcListeners() {
   window.api.onMcpCloseAllDiffs((sessionId) => {
     closeAllDiffTabs(sessionId);
   });
+
+  window.api.onMcpCloseTab((sessionId, diffId) => {
+    closeDiffTabByDiffId(sessionId, diffId);
+  });
 }
 
 // ── Session State Helpers ───────────────────────────────────────────
@@ -317,6 +321,41 @@ function closeAllDiffTabs(sessionId) {
 
   // Update active tab
   if (state.activeTabId && !state.tabs.has(state.activeTabId)) {
+    const remaining = [...state.tabs.keys()];
+    state.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : null;
+  }
+
+  if (state.tabs.size === 0) {
+    state.panelVisible = false;
+    if (currentPanelSessionId === sessionId) hidePanel();
+  } else if (currentPanelSessionId === sessionId) {
+    renderPanel(sessionId);
+  }
+}
+
+/**
+ * Close a specific diff tab by diffId (called when CLI accepts/rejects in terminal).
+ * The pending diff is already resolved by mcp-bridge, so just remove the tab UI.
+ */
+function closeDiffTabByDiffId(sessionId, diffId) {
+  const state = filePanelState.get(sessionId);
+  if (!state) return;
+
+  const tabId = `diff:${diffId}`;
+  const tab = state.tabs.get(tabId);
+  if (!tab) return;
+
+  // Mark as resolved so closeTab doesn't send another IPC response
+  tab.resolved = true;
+
+  if (tab.editorView) {
+    tab.editorView.destroy();
+    tab.editorView = null;
+  }
+
+  state.tabs.delete(tabId);
+
+  if (state.activeTabId === tabId) {
     const remaining = [...state.tabs.keys()];
     state.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : null;
   }

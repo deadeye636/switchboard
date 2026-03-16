@@ -79,6 +79,9 @@ contextBridge.exposeInMainWorld('api', {
   onMcpCloseAllDiffs: (callback) => {
     ipcRenderer.on('mcp-close-all-diffs', (_event, sessionId) => callback(sessionId));
   },
+  onMcpCloseTab: (callback) => {
+    ipcRenderer.on('mcp-close-tab', (_event, sessionId, diffId) => callback(sessionId, diffId));
+  },
 
   // MCP bridge (renderer → main)
   mcpDiffResponse: (sessionId, diffId, action, editedContent) => {

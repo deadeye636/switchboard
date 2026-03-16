@@ -79,6 +79,15 @@ const MCP_TOOLS = [
     },
   },
   {
+    name: 'close_tab',
+    description: 'Close a specific diff tab by name',
+    inputSchema: {
+      type: 'object',
+      properties: { tab_name: { type: 'string' } },
+      required: ['tab_name'],
+    },
+  },
+  {
     name: 'closeAllDiffTabs',
     description: 'Close all open diff tabs',
     inputSchema: { type: 'object', properties: {} },
@@ -158,6 +167,8 @@ async function handleToolCall(entry, rpcId, params, log) {
       return handleOpenDiff(entry, rpcId, args, log);
     case 'openFile':
       return handleOpenFile(entry, rpcId, args, log);
+    case 'close_tab':
+      return handleCloseTab(entry, rpcId, args, log);
     case 'closeAllDiffTabs':
       return handleCloseAllDiffTabs(entry, rpcId, log);
     case 'getDiagnostics':
@@ -182,7 +193,7 @@ async function handleOpenDiff(entry, rpcId, args, log) {
 
   // Create a promise that will be resolved when the user acts on the diff
   const diffPromise = new Promise((resolve) => {
-    entry.pendingDiffs.set(diffId, { resolve, rpcId });
+    entry.pendingDiffs.set(diffId, { resolve, rpcId, tabName: tab_name });
   });
 
   // Send to renderer
@@ -238,6 +249,29 @@ async function handleOpenFile(entry, rpcId, args, log) {
       startText: startText || '',
       endText: endText || '',
     });
+  }
+
+  sendResult(entry, rpcId, {
+    content: [{ type: 'text', text: 'ok' }],
+  });
+}
+
+async function handleCloseTab(entry, rpcId, args, log) {
+  const { tab_name } = args;
+  log.debug(`[mcp] session=${entry.sessionId} close_tab: ${tab_name}`);
+
+  // Find the pending diff by tab_name
+  for (const [diffId, pending] of entry.pendingDiffs) {
+    if (pending.tabName === tab_name) {
+      entry.pendingDiffs.delete(diffId);
+      pending.resolve({ action: 'accept' });
+
+      // Notify renderer to close the tab
+      if (entry.mainWindow && !entry.mainWindow.isDestroyed()) {
+        entry.mainWindow.webContents.send('mcp-close-tab', entry.sessionId, diffId);
+      }
+      break;
+    }
   }
 
   sendResult(entry, rpcId, {

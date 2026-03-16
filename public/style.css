@@ -2153,6 +2153,7 @@ body { display: flex; flex-direction: column; }
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 4px;
 }
 
 .settings-checkbox-row input[type="checkbox"] {
