@@ -2602,6 +2602,7 @@ body { display: flex; flex-direction: column; }
 #file-panel-body .cm-merge-view {
   height: 100%;
   overflow: auto;
+  font-size: 12.5px;
 }
 
 /* Diff line backgrounds */
