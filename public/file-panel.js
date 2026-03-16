@@ -16,7 +16,7 @@
  *   tabs: Map<tabId, TabState>,
  *   activeTabId: string|null,
  *   panelVisible: boolean,
- *   mcpEnabled: boolean,
+ *   mcpActive: boolean,
  *   panelWidth: number,
  * }>
  */
@@ -56,6 +56,9 @@ const PANEL_WIDTH_KEY = 'filePanelWidth';
 const DEFAULT_PANEL_WIDTH = parseInt(localStorage.getItem(PANEL_WIDTH_KEY), 10) || 450;
 const MIN_PANEL_WIDTH = 280;
 
+const DIFF_MODE_KEY = 'filePanelDiffMode';
+let diffMode = localStorage.getItem(DIFF_MODE_KEY) || 'side-by-side'; // 'side-by-side' | 'inline'
+
 // ── Initialization ──────────────────────────────────────────────────
 
 function initFilePanel() {
@@ -84,9 +87,36 @@ function initFilePanel() {
   filePanelHeaderEl.id = 'file-panel-header';
   filePanelEl.appendChild(filePanelHeaderEl);
 
+  // Toolbar: path + diff mode toggle
+  const toolbarEl = document.createElement('div');
+  toolbarEl.id = 'file-panel-toolbar';
+
   filePanelPathEl = document.createElement('div');
   filePanelPathEl.className = 'file-panel-path';
-  filePanelEl.appendChild(filePanelPathEl);
+  toolbarEl.appendChild(filePanelPathEl);
+
+  const diffToggleBtn = document.createElement('button');
+  diffToggleBtn.id = 'diff-mode-toggle';
+  diffToggleBtn.title = diffMode === 'inline' ? 'Switch to side-by-side diff' : 'Switch to inline diff';
+  diffToggleBtn.textContent = diffMode === 'inline' ? 'Side-by-Side' : 'Inline';
+  diffToggleBtn.addEventListener('click', () => {
+    diffMode = diffMode === 'inline' ? 'side-by-side' : 'inline';
+    localStorage.setItem(DIFF_MODE_KEY, diffMode);
+    diffToggleBtn.textContent = diffMode === 'inline' ? 'Side-by-Side' : 'Inline';
+    diffToggleBtn.title = diffMode === 'inline' ? 'Switch to side-by-side diff' : 'Switch to inline diff';
+    // Re-render active tab if it's a diff
+    if (currentPanelSessionId) {
+      const state = getSessionState(currentPanelSessionId);
+      const activeTab = state.activeTabId ? state.tabs.get(state.activeTabId) : null;
+      if (activeTab && activeTab.type === 'diff') {
+        activeTab.editorView = null; // force re-create
+        renderTabContent(currentPanelSessionId, activeTab);
+      }
+    }
+  });
+  toolbarEl.appendChild(diffToggleBtn);
+
+  filePanelEl.appendChild(toolbarEl);
 
   filePanelBodyEl = document.createElement('div');
   filePanelBodyEl.id = 'file-panel-body';
@@ -134,11 +164,23 @@ function getSessionState(sessionId) {
       tabs: new Map(),
       activeTabId: null,
       panelVisible: false,
-      mcpEnabled: true,
       panelWidth: DEFAULT_PANEL_WIDTH,
+      mcpActive: false,
     });
   }
   return filePanelState.get(sessionId);
+}
+
+/**
+ * Called from app.js after openTerminal returns.
+ * Single entry point for setting MCP status — updates state and indicator.
+ */
+function setSessionMcpActive(sessionId, active) {
+  const state = getSessionState(sessionId);
+  state.mcpActive = active;
+  if (currentPanelSessionId === sessionId) {
+    updateMcpIndicator();
+  }
 }
 
 function rekeyFilePanelState(oldId, newId) {
@@ -153,12 +195,6 @@ function rekeyFilePanelState(oldId, newId) {
 
 function openDiffTab(sessionId, diffId, data) {
   const state = getSessionState(sessionId);
-
-  // If MCP is disabled, auto-respond as TAB_CLOSED
-  if (!state.mcpEnabled) {
-    window.api.mcpDiffResponse(sessionId, diffId, 'accept', null);
-    return;
-  }
 
   const tabId = `diff:${diffId}`;
   const label = data.tabName || basename(data.oldFilePath);
@@ -187,8 +223,6 @@ function openDiffTab(sessionId, diffId, data) {
 
 function openFileTab(sessionId, data) {
   const state = getSessionState(sessionId);
-
-  if (!state.mcpEnabled) return;
 
   const tabId = `file:${data.filePath}`;
   const label = basename(data.filePath);
@@ -227,8 +261,6 @@ function openFileTab(sessionId, data) {
  * Reads the file via IPC and creates a file tab.
  */
 async function openFileInPanel(sessionId, filePath) {
-  const state = getSessionState(sessionId);
-  if (!state.mcpEnabled) return;
 
   const result = await window.api.readFileForPanel(filePath);
   if (!result.ok) return;
@@ -325,6 +357,9 @@ function switchPanel(sessionId) {
   // Destroy any visible editors from previous session
   clearPanelEditors();
 
+  // Update IDE Emulation indicator from file-panel state
+  updateMcpIndicator();
+
   if (!sessionId) {
     hidePanel();
     return;
@@ -332,15 +367,22 @@ function switchPanel(sessionId) {
 
   const state = getSessionState(sessionId);
 
-  // Update MCP toggle state
-  updateMcpToggle(state.mcpEnabled);
-
   if (state.panelVisible && state.tabs.size > 0) {
     showPanel(state);
     renderPanel(sessionId);
   } else {
     hidePanel();
   }
+}
+
+function updateMcpIndicator() {
+  if (!mcpIndicatorEl) return;
+  if (!currentPanelSessionId) {
+    mcpIndicatorEl.style.display = 'none';
+    return;
+  }
+  const state = filePanelState.get(currentPanelSessionId);
+  mcpIndicatorEl.style.display = (state && state.mcpActive) ? '' : 'none';
 }
 
 // ── Panel Rendering ─────────────────────────────────────────────────
@@ -397,9 +439,12 @@ function renderTabContent(sessionId, tab) {
   // Clear previous editor
   clearPanelEditors();
 
+  const toggleBtn = document.getElementById('diff-mode-toggle');
+
   if (!tab) {
     filePanelPathEl.textContent = '';
     filePanelActionsEl.style.display = 'none';
+    if (toggleBtn) toggleBtn.style.display = 'none';
     return;
   }
 
@@ -407,21 +452,34 @@ function renderTabContent(sessionId, tab) {
   filePanelPathEl.textContent = tab.filePath || '';
 
   if (tab.type === 'diff') {
+    if (toggleBtn) toggleBtn.style.display = '';
     renderDiffContent(sessionId, tab);
   } else {
+    if (toggleBtn) toggleBtn.style.display = 'none';
     renderFileContent(tab);
   }
 }
 
 function renderDiffContent(sessionId, tab) {
-  // Create merge viewer if not already created
+  // Create viewer if not already created (or recreated after mode switch)
   if (!tab.editorView) {
-    tab.editorView = window.createMergeViewer(
-      filePanelBodyEl,
-      tab.oldContent,
-      tab.newContent,
-      tab.filePath,
-    );
+    if (diffMode === 'inline') {
+      tab.editorView = window.createUnifiedMergeViewer(
+        filePanelBodyEl,
+        tab.oldContent,
+        tab.newContent,
+        tab.filePath,
+      );
+      tab._diffMode = 'inline';
+    } else {
+      tab.editorView = window.createMergeViewer(
+        filePanelBodyEl,
+        tab.oldContent,
+        tab.newContent,
+        tab.filePath,
+      );
+      tab._diffMode = 'side-by-side';
+    }
   } else {
     filePanelBodyEl.appendChild(tab.editorView.dom);
   }
@@ -479,10 +537,16 @@ function handleDiffAction(sessionId, tab, action) {
   tab.resolved = true;
 
   if (action === 'accept') {
-    // Get content from the right side of the merge view (user may have edited)
+    // Get content from the editor (user may have edited or partially accepted chunks)
     let editedContent = null;
-    if (tab.editorView && tab.editorView.b) {
-      editedContent = tab.editorView.b.state.doc.toString();
+    if (tab.editorView) {
+      if (tab._diffMode === 'inline') {
+        // Unified view: content is in the EditorView's doc directly
+        editedContent = tab.editorView.state.doc.toString();
+      } else if (tab.editorView.b) {
+        // Side-by-side: content is in the right (b) editor
+        editedContent = tab.editorView.b.state.doc.toString();
+      }
     }
 
     // If user edited the content, send accept-edited; otherwise just accept
@@ -501,51 +565,26 @@ function handleDiffAction(sessionId, tab, action) {
   filePanelActionsEl.style.display = 'none';
 }
 
-// ── MCP Toggle ──────────────────────────────────────────────────────
+// ── IDE Emulation Indicator ─────────────────────────────────────────
 
-let mcpToggleEl = null;
-let mcpToggleCheckbox = null;
+let mcpIndicatorEl = null;
 
 function addMcpToggle() {
   const controls = document.getElementById('terminal-header-controls');
   if (!controls) return;
 
-  mcpToggleEl = document.createElement('label');
-  mcpToggleEl.className = 'mcp-toggle';
-  mcpToggleEl.title = 'Auto-open file diffs and opens in side panel';
-
-  mcpToggleCheckbox = document.createElement('input');
-  mcpToggleCheckbox.type = 'checkbox';
-  mcpToggleCheckbox.checked = true;
-
-  const label = document.createElement('span');
-  label.textContent = 'Auto Open Files';
-
-  mcpToggleEl.appendChild(mcpToggleCheckbox);
-  mcpToggleEl.appendChild(label);
-
-  mcpToggleCheckbox.addEventListener('change', () => {
-    if (!currentPanelSessionId) return;
-    const state = getSessionState(currentPanelSessionId);
-    state.mcpEnabled = mcpToggleCheckbox.checked;
-    mcpToggleEl.classList.toggle('enabled', state.mcpEnabled);
-  });
+  mcpIndicatorEl = document.createElement('span');
+  mcpIndicatorEl.className = 'mcp-toggle enabled';
+  mcpIndicatorEl.title = 'IDE Emulation is active. Go to Global Settings to disable.';
+  mcpIndicatorEl.textContent = 'IDE Emulation';
+  mcpIndicatorEl.style.display = 'none';
 
   // Insert before the stop button
   const stopBtn = document.getElementById('terminal-stop-btn');
   if (stopBtn) {
-    controls.insertBefore(mcpToggleEl, stopBtn);
+    controls.insertBefore(mcpIndicatorEl, stopBtn);
   } else {
-    controls.appendChild(mcpToggleEl);
-  }
-}
-
-function updateMcpToggle(enabled) {
-  if (mcpToggleCheckbox) {
-    mcpToggleCheckbox.checked = enabled;
-  }
-  if (mcpToggleEl) {
-    mcpToggleEl.classList.toggle('enabled', enabled);
+    controls.appendChild(mcpIndicatorEl);
   }
 }
 

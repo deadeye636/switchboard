@@ -13,9 +13,20 @@ Switchboard is a desktop app that gives you a unified view of all your Claude Co
 - **Status Notifications** — In-app alerts when a session is waiting for permission approval or user input
 - **Fork & Resume** — Branch off from any point in a session's history
 - **Full-Text Search** — Find any session by what was discussed, not just when it happened
+- **IDE Emulation** — Switchboard acts as an IDE for Claude CLI, showing file diffs and opens in a side panel where you can accept, reject, or edit changes before they're applied. Supports both inline and side-by-side diff views. Disable this in Global Settings if you prefer Claude to use your own editor (VS Code, Cursor, etc.)
 - **Plans & Memory** — Browse and edit your plan files and CLAUDE.md memory in one place
 - **Activity Stats** — Heatmap of your coding activity across all projects
 - **Session Names** — Picks up session names from Claude Code's `/rename` command automatically
+
+## IDE Emulation
+
+Switchboard can act as an IDE for your Claude Code sessions. When enabled, Claude's file opens and proposed edits appear in a side panel next to the terminal instead of being sent to an external editor.
+
+- **Diff review** — When Claude proposes a file change, it shows up as a diff in the side panel. You can review the changes and accept or reject them directly.
+- **Inline & side-by-side** — Toggle between inline (unified) and side-by-side diff views. Your preference is remembered across sessions.
+- **Partial acceptance** — In inline mode, you can accept or reject individual chunks within a diff, then submit the final result.
+- **File viewer** — Clickable file links in terminal output (OSC 8 hyperlinks) open in the side panel with syntax highlighting.
+To disable IDE emulation entirely (e.g. if you want Claude to use VS Code or Cursor instead), uncheck **IDE Emulation** in **Global Settings**. This stops Switchboard from registering as an IDE, so Claude CLI will discover and connect to your real editor. Changes take effect on new sessions — running sessions are not affected.
 
 ## Download
 

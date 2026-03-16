@@ -7,7 +7,7 @@ import { syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, fol
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { dracula } from '@ddietr/codemirror-themes/theme/dracula';
 import { tags } from '@lezer/highlight';
-import { MergeView } from '@codemirror/merge';
+import { MergeView, unifiedMergeView } from '@codemirror/merge';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
 import { json } from '@codemirror/lang-json';
@@ -26,7 +26,7 @@ const markdownExtras = HighlightStyle.define([
 ]);
 
 const appThemePatch = EditorView.theme({
-  '&': { height: '100%' },
+  '&': { height: '100%', fontSize: '12.5px' },
   '.cm-content': { padding: '20px 8px' },
   '.cm-scroller': {
     scrollbarWidth: 'thin',
@@ -166,11 +166,39 @@ function createMergeViewer(parent, originalContent, modifiedContent, filename) {
   });
 }
 
+function createUnifiedMergeViewer(parent, originalContent, modifiedContent, filename) {
+  const langExt = getLanguageExt(filename);
+  const state = EditorState.create({
+    doc: modifiedContent,
+    extensions: [
+      lineNumbers(),
+      highlightSpecialChars(),
+      foldGutter(),
+      bracketMatching(),
+      highlightSelectionMatches(),
+      keymap.of([...foldKeymap, ...searchKeymap]),
+      langExt,
+      dracula,
+      syntaxHighlighting(markdownExtras),
+      appThemePatch,
+      unifiedMergeView({
+        original: originalContent,
+        gutter: true,
+        highlightChanges: true,
+        syntaxHighlightDeletions: true,
+        collapseUnchanged: { margin: 3, minSize: 4 },
+      }),
+    ],
+  });
+  return new EditorView({ state, parent });
+}
+
 // ── Exports ─────────────────────────────────────────────────────────
 
 window.createPlanEditor = createPlanEditor;
 window.createReadOnlyViewer = createReadOnlyViewer;
 window.createMergeViewer = createMergeViewer;
+window.createUnifiedMergeViewer = createUnifiedMergeViewer;
 window.CMEditorView = EditorView;
 window.CMEditorState = EditorState;
 window.CMMergeView = MergeView;

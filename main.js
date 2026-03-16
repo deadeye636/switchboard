@@ -906,7 +906,7 @@ const SETTING_DEFAULTS = {
   visibleSessionCount: 5,
   sidebarWidth: 340,
   terminalTheme: 'switchboard',
-  mcpEmulation: true,
+  mcpEmulation: false,
 };
 
 ipcMain.handle('get-effective-settings', (_event, projectPath) => {
@@ -1018,7 +1018,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       mainWindow.webContents.send('terminal-data', sessionId, '\x1b[?25l');
     }
 
-    return { ok: true, reattached: true };
+    return { ok: true, reattached: true, mcpActive: !!session.mcpServer };
   }
 
   // Spawn new PTY
@@ -1263,7 +1263,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     log.info(`[fork-spawn] tempId=${sessionId} forkFrom=${sessionOptions.forkFrom} folder=${projectFolder} knownFiles=${knownJsonlFiles.size}`);
   }
 
-  return { ok: true, reattached: false };
+  return { ok: true, reattached: false, mcpActive: !!mcpServer };
 });
 
 // --- IPC: terminal-input (fire-and-forget) ---

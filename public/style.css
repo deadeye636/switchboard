@@ -2191,6 +2191,16 @@ body { display: flex; flex-direction: column; }
   color: #3ecf5a;
 }
 
+.settings-notice {
+  background: rgba(255, 190, 60, 0.1);
+  border: 1px solid rgba(255, 190, 60, 0.25);
+  color: #e0a830;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
 .settings-remove-btn {
   background: rgba(255,80,80,0.08);
   border: 1px solid rgba(255,80,80,0.2);
@@ -2541,17 +2551,41 @@ body { display: flex; flex-direction: column; }
   color: #e05070;
 }
 
+#file-panel-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 3px 12px;
+  background: #18181f;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  flex-shrink: 0;
+  gap: 8px;
+}
+
 .file-panel-path {
   font-size: 10px;
   color: #3a3a50;
   font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
-  padding: 4px 12px;
-  background: #18181f;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+#diff-mode-toggle {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.55);
+  cursor: pointer;
+  white-space: nowrap;
   flex-shrink: 0;
+}
+#diff-mode-toggle:hover {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.8);
 }
 
 #file-panel-body {
@@ -2568,6 +2602,23 @@ body { display: flex; flex-direction: column; }
 #file-panel-body .cm-merge-view {
   height: 100%;
   overflow: auto;
+}
+
+/* Diff line backgrounds */
+#file-panel-body .cm-merge-a .cm-changedLine,
+#file-panel-body .cm-deletedChunk {
+  background-color: rgba(248, 81, 73, 0.12) !important;
+}
+#file-panel-body .cm-merge-b .cm-changedLine {
+  background-color: rgba(63, 185, 80, 0.12) !important;
+}
+/* Inner word-level change highlighting (replace underlines with backgrounds) */
+#file-panel-body .cm-merge-a .cm-changedText,
+#file-panel-body .cm-deletedChunk .cm-deletedText {
+  background: rgba(248, 81, 73, 0.35) !important;
+}
+#file-panel-body .cm-merge-b .cm-changedText {
+  background: rgba(63, 185, 80, 0.35) !important;
 }
 
 #file-panel-actions {
@@ -2612,18 +2663,9 @@ body { display: flex; flex-direction: column; }
 
 /* MCP toggle in terminal header */
 .mcp-toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
   font-size: 10px;
   color: #555568;
-  cursor: pointer;
   margin-right: 8px;
-}
-
-.mcp-toggle input {
-  cursor: pointer;
-  accent-color: #8088ff;
 }
 
 .mcp-toggle.enabled {

@@ -1454,6 +1454,7 @@ async function launchNewSession(project, sessionOptions) {
     entry.closed = true;
     return;
   }
+  if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
   // Send initial resize
   window.api.resizeTerminal(sessionId, terminal.cols, terminal.rows);
@@ -1588,6 +1589,7 @@ async function openSession(session) {
     entry.closed = true;
     return;
   }
+  if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
   // Send initial resize
   window.api.resizeTerminal(sessionId, terminal.cols, terminal.rows);
@@ -2577,7 +2579,6 @@ async function launchTerminalSession(project) {
     entry.closed = true;
     return;
   }
-
   window.api.resizeTerminal(sessionId, terminal.cols, terminal.rows);
   terminal.focus();
   pollActiveSessions();
@@ -2863,7 +2864,7 @@ async function openSettingsViewer(scope, projectPath) {
             <input type="checkbox" id="sv-mcp-emulation" ${mcpEmulationValue ? 'checked' : ''}>
             <label for="sv-mcp-emulation">Emulate an IDE for Claude CLI sessions</label>
           </div>
-          <div class="settings-hint">When enabled, Switchboard acts as an IDE so Claude can open files and diffs in a side panel. Disable this if you want Claude to use your own IDE (e.g. VS Code, Cursor) instead.</div>
+          <div class="settings-hint">When enabled, Switchboard acts as an IDE so Claude can open files and diffs in a side panel. Disable this if you want Claude to use your own IDE (e.g. VS Code, Cursor) instead. Changes take effect for new sessions only — running sessions are not affected.</div>
         </div>` : ''}
       </div>
 
@@ -2948,6 +2949,16 @@ async function openSettingsViewer(scope, projectPath) {
         }
       }
       refreshSidebar();
+    }
+
+    // Notify if IDE Emulation changed
+    if (!isProject && settings.mcpEmulation !== mcpEmulationValue) {
+      const notice = document.createElement('div');
+      notice.className = 'settings-notice';
+      notice.textContent = 'IDE Emulation setting changed. New sessions will use the updated setting \u2014 running sessions are not affected.';
+      const saveBtn = settingsViewerBody.querySelector('#sv-save-btn');
+      saveBtn.parentElement.insertBefore(notice, saveBtn);
+      setTimeout(() => notice.remove(), 8000);
     }
 
     // Flash save confirmation
