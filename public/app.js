@@ -57,6 +57,8 @@ function setActiveSession(id) {
   activeSessionId = id;
   if (id) sessionStorage.setItem('activeSessionId', id);
   else sessionStorage.removeItem('activeSessionId');
+  // Update file panel to show this session's open files/diffs
+  if (typeof switchPanel === 'function') switchPanel(id);
 }
 // Persist slug group expand state across reloads
 function getExpandedSlugs() {
@@ -267,6 +269,9 @@ window.api.onSessionForked((oldId, newId) => {
 
   openSessions.delete(oldId);
   openSessions.set(newId, entry);
+
+  // Re-key file panel state for the new session ID
+  if (typeof rekeyFilePanelState === 'function') rekeyFilePanelState(oldId, newId);
 
   // Clean up pending session so it doesn't duplicate the real .jsonl entry
   pendingSessions.delete(oldId);
@@ -1396,11 +1401,27 @@ async function launchNewSession(project, sessionOptions) {
     cursorBlink: true,
     scrollback: 10000,
     convertEol: true,
+    linkHandler: {
+      activate: (_event, uri) => {
+        if (uri.startsWith('file://') && typeof openFileInPanel === 'function') {
+          try { openFileInPanel(sessionId, decodeURIComponent(new URL(uri).pathname)); } catch {}
+        } else {
+          window.api.openExternal(uri);
+        }
+      },
+      allowNonHttpProtocols: true,
+    },
   });
 
   const fitAddon = new FitAddon.FitAddon();
   terminal.loadAddon(fitAddon);
-  terminal.loadAddon(new WebLinksAddon.WebLinksAddon((_event, url) => window.api.openExternal(url)));
+  terminal.loadAddon(new WebLinksAddon.WebLinksAddon((_event, url) => {
+    if (url.startsWith('file://') && typeof openFileInPanel === 'function') {
+      try { openFileInPanel(sessionId, decodeURIComponent(new URL(url).pathname)); } catch {}
+    } else {
+      window.api.openExternal(url);
+    }
+  }));
   terminal.open(container);
   fitAddon.fit();
 
@@ -1513,11 +1534,27 @@ async function openSession(session) {
     cursorBlink: true,
     scrollback: 10000,
     convertEol: true,
+    linkHandler: {
+      activate: (_event, uri) => {
+        if (uri.startsWith('file://') && typeof openFileInPanel === 'function') {
+          try { openFileInPanel(sessionId, decodeURIComponent(new URL(uri).pathname)); } catch {}
+        } else {
+          window.api.openExternal(uri);
+        }
+      },
+      allowNonHttpProtocols: true,
+    },
   });
 
   const fitAddon = new FitAddon.FitAddon();
   terminal.loadAddon(fitAddon);
-  terminal.loadAddon(new WebLinksAddon.WebLinksAddon((_event, url) => window.api.openExternal(url)));
+  terminal.loadAddon(new WebLinksAddon.WebLinksAddon((_event, url) => {
+    if (url.startsWith('file://') && typeof openFileInPanel === 'function') {
+      try { openFileInPanel(sessionId, decodeURIComponent(new URL(url).pathname)); } catch {}
+    } else {
+      window.api.openExternal(url);
+    }
+  }));
   terminal.open(container);
   fitAddon.fit();
 
@@ -2377,6 +2414,7 @@ async function resolveDefaultSessionOptions(project) {
   if (effective.chrome) options.chrome = true;
   if (effective.preLaunchCmd) options.preLaunchCmd = effective.preLaunchCmd;
   if (effective.addDirs) options.addDirs = effective.addDirs;
+  if (effective.mcpEmulation === false) options.mcpEmulation = false;
   return options;
 }
 
@@ -2488,11 +2526,27 @@ async function launchTerminalSession(project) {
     cursorBlink: true,
     scrollback: 10000,
     convertEol: true,
+    linkHandler: {
+      activate: (_event, uri) => {
+        if (uri.startsWith('file://') && typeof openFileInPanel === 'function') {
+          try { openFileInPanel(sessionId, decodeURIComponent(new URL(uri).pathname)); } catch {}
+        } else {
+          window.api.openExternal(uri);
+        }
+      },
+      allowNonHttpProtocols: true,
+    },
   });
 
   const fitAddon = new FitAddon.FitAddon();
   terminal.loadAddon(fitAddon);
-  terminal.loadAddon(new WebLinksAddon.WebLinksAddon((_event, url) => window.api.openExternal(url)));
+  terminal.loadAddon(new WebLinksAddon.WebLinksAddon((_event, url) => {
+    if (url.startsWith('file://') && typeof openFileInPanel === 'function') {
+      try { openFileInPanel(sessionId, decodeURIComponent(new URL(url).pathname)); } catch {}
+    } else {
+      window.api.openExternal(url);
+    }
+  }));
   terminal.open(container);
   fitAddon.fit();
 
@@ -2694,6 +2748,7 @@ async function openSettingsViewer(scope, projectPath) {
   const visCountValue = fieldValue('visibleSessionCount', 10);
   const maxAgeValue = fieldValue('sessionMaxAgeDays', 3);
   const themeValue = fieldValue('terminalTheme', 'switchboard');
+  const mcpEmulationValue = fieldValue('mcpEmulation', true);
 
   settingsViewerBody.innerHTML = `
     <div class="settings-form">
@@ -2799,6 +2854,17 @@ async function openSettingsViewer(scope, projectPath) {
           <div class="settings-hint">Sessions older than this are hidden behind "+N older" even if under the count limit</div>
           <input type="number" class="settings-input" id="sv-max-age" min="1" max="365" value="${maxAgeValue}">
         </div>` : ''}
+
+        ${!isProject ? `<div class="settings-field">
+          <div class="settings-field-header">
+            <span class="settings-label">IDE Emulation</span>
+          </div>
+          <div class="settings-checkbox-row">
+            <input type="checkbox" id="sv-mcp-emulation" ${mcpEmulationValue ? 'checked' : ''}>
+            <label for="sv-mcp-emulation">Emulate an IDE for Claude CLI sessions</label>
+          </div>
+          <div class="settings-hint">When enabled, Switchboard acts as an IDE so Claude can open files and diffs in a side panel. Disable this if you want Claude to use your own IDE (e.g. VS Code, Cursor) instead.</div>
+        </div>` : ''}
       </div>
 
       <button class="settings-save-btn" id="sv-save-btn">Save Settings</button>
@@ -2857,6 +2923,7 @@ async function openSettingsViewer(scope, projectPath) {
       settings.visibleSessionCount = parseInt(settingsViewerBody.querySelector('#sv-visible-count').value) || 10;
       settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
       settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
+      settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
     }
 
     // Preserve windowBounds and sidebarWidth if they exist
@@ -3156,3 +3223,6 @@ const updaterHandler = (type, data) => {
   }
 };
 window.api.onUpdaterEvent(updaterHandler);
+
+// --- Initialize file panel (MCP bridge UI) ---
+if (typeof initFilePanel === 'function') initFilePanel();

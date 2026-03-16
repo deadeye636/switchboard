@@ -2432,3 +2432,200 @@ body { display: flex; flex-direction: column; }
   background: #3ecf5a;
   box-shadow: 0 0 6px rgba(62,207,90,0.5);
 }
+
+/* ========== FILE PANEL (MCP Bridge) ========== */
+
+#terminal-split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+#terminal-split > #terminals {
+  flex: 1;
+  min-width: 200px;
+}
+
+#file-panel-resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  display: none;
+  align-self: stretch;
+  border-left: 1px solid rgba(255,255,255,0.06);
+  transition: background 0.15s;
+}
+
+#file-panel-resize-handle:hover,
+#file-panel-resize-handle.dragging {
+  background: rgba(120,130,255,0.3);
+}
+
+#file-panel {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #111118;
+}
+
+#file-panel.open {
+  min-width: 280px;
+  border-left: 1px solid rgba(255,255,255,0.06);
+}
+
+#file-panel-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  background: #18181f;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+#file-panel-header::-webkit-scrollbar { display: none; }
+
+.file-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #6e6e88;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+
+.file-tab:hover {
+  background: rgba(255,255,255,0.04);
+  color: #b0b0c4;
+}
+
+.file-tab.active {
+  background: rgba(120,130,255,0.12);
+  color: #b0b0c4;
+}
+
+.file-tab.is-diff {
+  border-left: 2px solid #8088ff;
+}
+
+.file-tab.is-diff.resolved {
+  border-left-color: #3ecf5a;
+}
+
+.file-tab-close {
+  font-size: 14px;
+  color: #555568;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  background: none;
+  border: none;
+  font-family: inherit;
+}
+
+.file-tab-close:hover {
+  color: #e05070;
+}
+
+.file-panel-path {
+  font-size: 10px;
+  color: #3a3a50;
+  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+  padding: 4px 12px;
+  background: #18181f;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+#file-panel-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+#file-panel-body .cm-editor {
+  height: 100%;
+}
+
+#file-panel-body .cm-merge-view {
+  height: 100%;
+  overflow: auto;
+}
+
+#file-panel-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #18181f;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+
+#file-panel-actions button {
+  padding: 6px 16px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  border: 1px solid rgba(255,255,255,0.08);
+  transition: all 0.15s;
+}
+
+.file-panel-accept-btn {
+  background: rgba(62,207,90,0.1);
+  color: #3ecf5a;
+  border-color: rgba(62,207,90,0.3) !important;
+}
+
+.file-panel-accept-btn:hover {
+  background: rgba(62,207,90,0.2);
+}
+
+.file-panel-reject-btn {
+  background: transparent;
+  color: #e05070;
+  border-color: rgba(224,80,112,0.3) !important;
+}
+
+.file-panel-reject-btn:hover {
+  background: rgba(224,80,112,0.1);
+}
+
+/* MCP toggle in terminal header */
+.mcp-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #555568;
+  cursor: pointer;
+  margin-right: 8px;
+}
+
+.mcp-toggle input {
+  cursor: pointer;
+  accent-color: #8088ff;
+}
+
+.mcp-toggle.enabled {
+  color: #8088ff;
+}

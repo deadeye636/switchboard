@@ -6,6 +6,7 @@ const os = require('os');
 const pty = require('node-pty');
 const log = require('electron-log');
 const { getFolderIndexMtimeMs } = require('./folder-index-state');
+const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rekeyMcpServer, cleanStaleLockFiles } = require('./mcp-bridge');
 log.transports.file.level = app.isPackaged ? 'info' : 'debug';
 log.transports.console.level = app.isPackaged ? 'info' : 'debug';
 
@@ -496,46 +497,6 @@ function buildProjectsFromCache(showArchived) {
   return projects;
 }
 
-/** Background refresh: check mtimes, refresh stale folders */
-function backgroundRefresh() {
-  try {
-    const folders = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
-      .filter(d => d.isDirectory() && d.name !== '.git')
-      .map(d => d.name);
-
-    const metaMap = getAllFolderMeta();
-    const existingFolders = new Set(folders);
-    let changed = false;
-
-    // Check for new/changed folders
-    for (const folder of folders) {
-      const folderPath = path.join(PROJECTS_DIR, folder);
-      const currentMtime = getFolderIndexMtimeMs(folderPath);
-
-      const cached = metaMap.get(folder);
-      if (!cached || cached.indexMtimeMs !== currentMtime) {
-        refreshFolder(folder);
-        changed = true;
-      }
-    }
-
-    // Check for removed folders
-    for (const folder of metaMap.keys()) {
-      if (!existingFolders.has(folder)) {
-        deleteCachedFolder(folder);
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      sendStatus('Refresh complete', 'done');
-      setTimeout(() => sendStatus(''), 3000);
-      notifyRendererProjectsChanged();
-    }
-  } catch (err) {
-    console.error('Error in background refresh:', err);
-  }
-}
 
 function notifyRendererProjectsChanged() {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -703,6 +664,20 @@ ipcMain.handle('open-external', (_event, url) => {
   if (/^https?:\/\//i.test(url)) return shell.openExternal(url);
 });
 
+// --- IPC: MCP bridge ---
+ipcMain.on('mcp-diff-response', (_event, sessionId, diffId, action, editedContent) => {
+  resolvePendingDiff(sessionId, diffId, action, editedContent);
+});
+
+ipcMain.handle('read-file-for-panel', async (_event, filePath) => {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    return { ok: true, content };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 ipcMain.handle('get-projects', (_event, showArchived) => {
   try {
     const needsPopulate = !isCachePopulated() || !isSearchIndexPopulated();
@@ -712,14 +687,7 @@ ipcMain.handle('get-projects', (_event, showArchived) => {
       return [];
     }
 
-    const projects = buildProjectsFromCache(showArchived);
-
-    // Non-blocking background refresh
-    if (!populatingCache) {
-      setImmediate(backgroundRefresh);
-    }
-
-    return projects;
+    return buildProjectsFromCache(showArchived);
   } catch (err) {
     console.error('Error listing projects:', err);
     return [];
@@ -936,6 +904,7 @@ const SETTING_DEFAULTS = {
   visibleSessionCount: 5,
   sidebarWidth: 340,
   terminalTheme: 'switchboard',
+  mcpEmulation: true,
 };
 
 ipcMain.handle('get-effective-settings', (_event, projectPath) => {
@@ -1018,7 +987,7 @@ ipcMain.handle('archive-session', (_event, sessionId, archived) => {
 });
 
 // --- IPC: open-terminal ---
-ipcMain.handle('open-terminal', (_event, sessionId, projectPath, isNew, sessionOptions) => {
+ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, sessionOptions) => {
   if (!mainWindow) return { ok: false, error: 'no window' };
 
   // Reattach to existing session
@@ -1085,6 +1054,7 @@ ipcMain.handle('open-terminal', (_event, sessionId, projectPath, isNew, sessionO
   }
 
   let ptyProcess;
+  let mcpServer = null;
   try {
     if (isPlainTerminal) {
       // Plain terminal: interactive login shell, no claude command
@@ -1150,6 +1120,26 @@ ipcMain.handle('open-terminal', (_event, sessionId, projectPath, isNew, sessionO
         claudeCmd = sessionOptions.preLaunchCmd + ' ' + claudeCmd;
       }
 
+      // Start MCP server for this session so Claude CLI sends diffs/file opens to Switchboard
+      // (skip if user disabled IDE emulation in global settings)
+      if (sessionOptions?.mcpEmulation !== false) {
+        try {
+          mcpServer = await startMcpServer(sessionId, [projectPath], mainWindow, log);
+          claudeCmd += ' --ide';
+        } catch (err) {
+          log.error(`[mcp] Failed to start MCP server for ${sessionId}: ${err.message}`);
+        }
+      }
+
+      const ptyEnv = {
+        ...cleanPtyEnv,
+        TERM: 'xterm-256color', COLORTERM: 'truecolor',
+        TERM_PROGRAM: 'iTerm.app', FORCE_COLOR: '3', ITERM_SESSION_ID: '1',
+      };
+      if (mcpServer) {
+        ptyEnv.CLAUDE_CODE_SSE_PORT = String(mcpServer.port);
+      }
+
       ptyProcess = pty.spawn(shell, ['-l', '-i', '-c', claudeCmd], {
         name: 'xterm-256color',
         cols: 120,
@@ -1158,8 +1148,9 @@ ipcMain.handle('open-terminal', (_event, sessionId, projectPath, isNew, sessionO
         // TERM_PROGRAM=iTerm.app: Claude Code checks this to decide whether to emit
         // OSC 9 notifications (e.g. "needs your attention"). Without it, the packaged
         // app's minimal Electron environment won't trigger those sequences.
-        env: { ...cleanPtyEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'iTerm.app', FORCE_COLOR: '3', ITERM_SESSION_ID: '1' },
+        env: ptyEnv,
       });
+
     }
   } catch (err) {
     return { ok: false, error: `Error spawning PTY: ${err.message}` };
@@ -1171,6 +1162,7 @@ ipcMain.handle('open-terminal', (_event, sessionId, projectPath, isNew, sessionO
     projectPath, firstResize: true,
     projectFolder, knownJsonlFiles, sessionSlug,
     isPlainTerminal, forkFrom: sessionOptions?.forkFrom || null,
+    mcpServer,
   };
   activeSessions.set(sessionId, session);
 
@@ -1241,6 +1233,11 @@ ipcMain.handle('open-terminal', (_event, sessionId, projectPath, isNew, sessionO
 
   ptyProcess.onExit(({ exitCode }) => {
     session.exited = true;
+    // Clean up MCP server
+    const mcpId = session.realSessionId || sessionId;
+    shutdownMcpServer(mcpId);
+    session.mcpServer = null;
+
     const realId = session.realSessionId || sessionId;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('process-exited', realId, exitCode);
@@ -1437,6 +1434,8 @@ function detectSessionTransitions(folder) {
         if (signals.slug) session.sessionSlug = signals.slug;
         activeSessions.delete(sessionId);
         activeSessions.set(newId, session);
+        // Re-key MCP server to match new session ID
+        rekeyMcpServer(sessionId, newId);
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('session-forked', sessionId, newId);
         }
@@ -1575,6 +1574,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  // Shut down all MCP servers
+  shutdownAllMcp();
+
   // Close filesystem watcher
   if (projectsWatcher) {
     projectsWatcher.close();

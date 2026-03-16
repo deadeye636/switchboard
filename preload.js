@@ -68,4 +68,21 @@ contextBridge.exposeInMainWorld('api', {
   onUpdaterEvent: (callback) => {
     ipcRenderer.on('updater-event', (_event, type, data) => callback(type, data));
   },
+
+  // MCP bridge (main → renderer)
+  onMcpOpenDiff: (callback) => {
+    ipcRenderer.on('mcp-open-diff', (_event, sessionId, diffId, data) => callback(sessionId, diffId, data));
+  },
+  onMcpOpenFile: (callback) => {
+    ipcRenderer.on('mcp-open-file', (_event, sessionId, data) => callback(sessionId, data));
+  },
+  onMcpCloseAllDiffs: (callback) => {
+    ipcRenderer.on('mcp-close-all-diffs', (_event, sessionId) => callback(sessionId));
+  },
+
+  // MCP bridge (renderer → main)
+  mcpDiffResponse: (sessionId, diffId, action, editedContent) => {
+    ipcRenderer.send('mcp-diff-response', sessionId, diffId, action, editedContent);
+  },
+  readFileForPanel: (filePath) => ipcRenderer.invoke('read-file-for-panel', filePath),
 });
