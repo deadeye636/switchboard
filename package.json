@@ -55,6 +55,7 @@
       "preload.js",
       "db.js",
       "mcp-bridge.js",
+      "folder-index-state.js",
       "workers/**/*",
       "public/**/*",
       "node_modules/**/*"
