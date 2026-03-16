@@ -52,10 +52,10 @@ if (app.isPackaged || process.env.FORCE_UPDATER) {
 }
 const {
   getAllMeta, toggleStar, setName, setArchived,
-  isCachePopulated, getAllCached, getCachedByFolder, getCachedFolder, upsertCachedSessions,
+  isCachePopulated, getAllCached, getCachedByFolder, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
-  upsertSearchEntries, deleteSearchSession, deleteSearchFolder, deleteSearchType,
+  upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated,
   getSetting, setSetting, deleteSetting,
 } = require('./db');
@@ -396,11 +396,12 @@ function refreshFolder(folder) {
     if (s) {
       upsertCachedSessions([s]);
       deleteSearchSession(sessionId);
+      if (s.customTitle) setName(s.sessionId, s.customTitle);
       upsertSearchEntries([{
         id: s.sessionId, type: 'session', folder: s.folder,
-        title: s.summary, body: s.textContent,
+        title: (s.customTitle ? s.customTitle + ' ' : '') + s.summary,
+        body: s.textContent,
       }]);
-      if (s.customTitle) setName(s.sessionId, s.customTitle);
     }
     changed = true;
   }
@@ -547,13 +548,14 @@ function populateCacheViaWorker() {
       if (sessions.length > 0) {
         sessionCount += sessions.length;
         upsertCachedSessions(sessions);
-        upsertSearchEntries(sessions.map(s => ({
-          id: s.sessionId, type: 'session', folder: s.folder,
-          title: s.summary, body: s.textContent,
-        })));
         for (const s of sessions) {
           if (s.customTitle) setName(s.sessionId, s.customTitle);
         }
+        upsertSearchEntries(sessions.map(s => ({
+          id: s.sessionId, type: 'session', folder: s.folder,
+          title: (s.customTitle ? s.customTitle + ' ' : '') + s.summary,
+          body: s.textContent,
+        })));
       }
       setFolderMeta(folder, projectPath, indexMtimeMs);
     }
@@ -959,6 +961,10 @@ ipcMain.handle('toggle-star', (_event, sessionId) => {
 // --- IPC: rename-session ---
 ipcMain.handle('rename-session', (_event, sessionId, name) => {
   setName(sessionId, name || null);
+  // Update search index title to include the new name
+  const cached = getCachedSession(sessionId);
+  const summary = cached?.summary || '';
+  updateSearchTitle(sessionId, 'session', (name ? name + ' ' : '') + summary);
   return { name: name || null };
 });
 

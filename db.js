@@ -117,6 +117,7 @@ const stmts = {
   `),
   cacheGetByFolder: db.prepare('SELECT sessionId, modified FROM session_cache WHERE folder = ?'),
   cacheGetFolder: db.prepare('SELECT folder FROM session_cache WHERE sessionId = ?'),
+  cacheGetSession: db.prepare('SELECT * FROM session_cache WHERE sessionId = ?'),
   cacheDeleteSession: db.prepare('DELETE FROM session_cache WHERE sessionId = ?'),
   cacheDeleteFolder: db.prepare('DELETE FROM session_cache WHERE folder = ?'),
   // Cache meta statements
@@ -139,6 +140,7 @@ const stmts = {
   searchInsertFts: db.prepare('INSERT OR REPLACE INTO search_fts(rowid, title, body) VALUES (?, ?, ?)'),
   searchInsertMap: db.prepare('INSERT OR REPLACE INTO search_map(id, type, folder) VALUES (?, ?, ?)'),
   searchMapLookup: db.prepare('SELECT rowid FROM search_map WHERE id = ? AND type = ?'),
+  searchUpdateTitle: db.prepare('UPDATE search_fts SET title = ? WHERE rowid = (SELECT rowid FROM search_map WHERE id = ? AND type = ?)'),
   searchDeleteByRowid: db.prepare('DELETE FROM search_fts WHERE rowid = ?'),
   searchMapDeleteByRowid: db.prepare('DELETE FROM search_map WHERE rowid = ?'),
   // Settings statements
@@ -216,6 +218,10 @@ function getCachedFolder(sessionId) {
   return row ? row.folder : null;
 }
 
+function getCachedSession(sessionId) {
+  return stmts.cacheGetSession.get(sessionId) || null;
+}
+
 function deleteCachedSession(sessionId) {
   stmts.cacheDeleteSession.run(sessionId);
 }
@@ -278,6 +284,12 @@ function upsertSearchEntries(entries) {
   upsertSearchEntriesBatch(entries);
 }
 
+function updateSearchTitle(id, type, title) {
+  try {
+    stmts.searchUpdateTitle.run(title, id, type);
+  } catch {}
+}
+
 function searchByType(type, query, limit = 50) {
   try {
     // Wrap in double quotes for exact substring matching with trigram tokenizer.
@@ -312,10 +324,10 @@ function deleteSetting(key) {
 
 module.exports = {
   getMeta, getAllMeta, setName, toggleStar, setArchived,
-  isCachePopulated, getAllCached, getCachedByFolder, getCachedFolder, upsertCachedSessions,
+  isCachePopulated, getAllCached, getCachedByFolder, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
-  upsertSearchEntries, deleteSearchSession, deleteSearchFolder, deleteSearchType,
+  upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated,
   getSetting, setSetting, deleteSetting,
 };
