@@ -379,6 +379,12 @@ function refreshFolder(folder) {
   const currentIds = new Set();
   let changed = false;
 
+  // Collect all changes first, then batch DB writes to minimize lock duration
+  const sessionsToUpsert = [];
+  const searchEntriesToUpsert = [];
+  const namesToSet = [];
+  const sessionsToDelete = [];
+
   for (const file of jsonlFiles) {
     const filePath = path.join(folderPath, file);
     const sessionId = path.basename(file, '.jsonl');
@@ -395,14 +401,12 @@ function refreshFolder(folder) {
     // File is new or modified — re-read it
     const s = readSessionFile(filePath, folder, projectPath);
     if (s) {
-      upsertCachedSessions([s]);
-      deleteSearchSession(sessionId);
-      if (s.customTitle) setName(s.sessionId, s.customTitle);
-      upsertSearchEntries([{
+      sessionsToUpsert.push(s);
+      searchEntriesToUpsert.push({
         id: s.sessionId, type: 'session', folder: s.folder,
-        title: (s.customTitle ? s.customTitle + ' ' : '') + s.summary,
-        body: s.textContent,
-      }]);
+        title: s.summary, body: s.textContent,
+      });
+      if (s.customTitle) namesToSet.push({ id: s.sessionId, name: s.customTitle });
     }
     changed = true;
   }
@@ -410,10 +414,27 @@ function refreshFolder(folder) {
   // Remove sessions whose .jsonl files were deleted
   for (const sessionId of cachedMap.keys()) {
     if (!currentIds.has(sessionId)) {
-      deleteCachedSession(sessionId);
-      deleteSearchSession(sessionId);
+      sessionsToDelete.push(sessionId);
       changed = true;
     }
+  }
+
+  // Batch all DB writes to reduce lock contention
+  if (sessionsToUpsert.length > 0) {
+    upsertCachedSessions(sessionsToUpsert);
+  }
+  for (const entry of searchEntriesToUpsert) {
+    deleteSearchSession(entry.id);
+  }
+  if (searchEntriesToUpsert.length > 0) {
+    upsertSearchEntries(searchEntriesToUpsert);
+  }
+  for (const { id, name } of namesToSet) {
+    setName(id, name);
+  }
+  for (const sessionId of sessionsToDelete) {
+    deleteCachedSession(sessionId);
+    deleteSearchSession(sessionId);
   }
 
   // Update folder mtime
