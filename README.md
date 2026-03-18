@@ -22,11 +22,24 @@ Switchboard is a desktop app that gives you a unified view of all your Claude Co
 
 Switchboard can act as an IDE for your Claude Code sessions. When enabled, Claude's file opens and proposed edits appear in a side panel next to the terminal instead of being sent to an external editor.
 
+![IDE Emulation](build/screenshot-ide.png)
+
 - **Diff review** — When Claude proposes a file change, it shows up as a diff in the side panel. You can review the changes and accept or reject them directly.
 - **Inline & side-by-side** — Toggle between inline (unified) and side-by-side diff views. Your preference is remembered across sessions.
 - **Partial acceptance** — In inline mode, you can accept or reject individual chunks within a diff, then submit the final result.
 - **File viewer** — Clickable file links in terminal output (OSC 8 hyperlinks) open in the side panel with syntax highlighting.
+
 To disable IDE emulation entirely (e.g. if you want Claude to use VS Code or Cursor instead), uncheck **IDE Emulation** in **Global Settings**. This stops Switchboard from registering as an IDE, so Claude CLI will discover and connect to your real editor. Changes take effect on new sessions — running sessions are not affected.
+
+## Status Notifications
+
+Switchboard monitors all your sessions in the background and shows status indicators in the sidebar so you can tell at a glance which sessions need attention — even when you're working in a different one.
+
+![Status Notifications](build/screenshot-notifications.png)
+
+- **Waiting for input** — A session that needs your response is highlighted so you don't miss it.
+- **Permission approval** — When Claude is blocked waiting for a permission grant, the session badge lets you know immediately.
+- **Activity indicators** — See which sessions are actively running, idle, or finished.
 
 ## Download
 
