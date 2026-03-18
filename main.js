@@ -19,7 +19,8 @@ const cleanPtyEnv = Object.fromEntries(
     !k.startsWith('ELECTRON_') &&
     !k.startsWith('GOOGLE_API_KEY') &&
     k !== 'NODE_OPTIONS' &&
-    k !== 'ORIGINAL_XDG_CURRENT_DESKTOP'
+    k !== 'ORIGINAL_XDG_CURRENT_DESKTOP' &&
+    k !== 'WT_SESSION'
   )
 );
 
@@ -845,7 +846,7 @@ ipcMain.handle('get-stats', () => {
 
 // --- IPC: refresh-stats (run /stats + /usage via PTY) ---
 ipcMain.handle('refresh-stats', async () => {
-  const shell = process.env.SHELL || '/bin/zsh';
+  const shell = resolveShell();
   const ptyEnv = {
     ...cleanPtyEnv,
     TERM: 'xterm-256color',
@@ -874,7 +875,7 @@ ipcMain.handle('refresh-stats', async () => {
       };
 
       const claudeCmd = `claude ${args}`;
-      const p = pty.spawn(shell, ['-l', '-i', '-c', claudeCmd], {
+      const p = pty.spawn(shell, shellArgs(shell, claudeCmd), {
         name: 'xterm-256color',
         cols: 120,
         rows: 40,
@@ -1405,10 +1406,10 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       const osc9Matches = data.matchAll(/\x1b\]9;([^\x07\x1b]*)(?:\x07|\x1b\\)/g);
       for (const osc9 of osc9Matches) {
         const payload = osc9[1];
-        // OSC 9;4 progress: 4;3; = working, 4;0; = done (fires even for background sessions)
+        // OSC 9;4 progress: 4;0; = clear/done, 4;1;N = running at N%, 4;2;N = error, 4;3; = indeterminate
         if (payload.startsWith('4;')) {
           const level = payload.split(';')[1];
-          if (level === '3' && !session._cliBusy) {
+          if ((level === '1' || level === '2' || level === '3') && !session._cliBusy) {
             session._cliBusy = true;
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, true);
