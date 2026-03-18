@@ -2264,6 +2264,39 @@ body { display: flex; flex-direction: column; }
   color: #ff5050;
 }
 
+.settings-updates-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings-current-version {
+  color: #888;
+  font-size: 12px;
+}
+.settings-update-status {
+  color: #666;
+  font-size: 12px;
+}
+.settings-check-updates-btn {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #888;
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.settings-check-updates-btn:hover {
+  border-color: rgba(120,130,255,0.4);
+  color: #8088ff;
+}
+.settings-check-updates-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* ========== NEW SESSION DIALOG ========== */
 .new-session-overlay {
   position: fixed;

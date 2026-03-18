@@ -62,6 +62,9 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('status-update', (_event, text, type) => callback(text, type));
   },
 
+  // App version
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+
   // Auto-updater
   updaterCheck: () => ipcRenderer.invoke('updater-check'),
   updaterDownload: () => ipcRenderer.invoke('updater-download'),

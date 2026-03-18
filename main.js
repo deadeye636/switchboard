@@ -1778,6 +1778,9 @@ function startProjectsWatcher() {
   }
 }
 
+// --- IPC: app version ---
+ipcMain.handle('get-app-version', () => app.getVersion());
+
 // --- IPC: auto-updater ---
 ipcMain.handle('updater-check', () => {
   if (!autoUpdater) return { available: false, dev: true };

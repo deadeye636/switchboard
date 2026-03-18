@@ -3029,6 +3029,15 @@ async function openSettingsViewer(scope, projectPath) {
         </div>` : ''}
       </div>
 
+      ${!isProject ? `<div class="settings-section settings-updates-section">
+        <div class="settings-section-title">Updates</div>
+        <div class="settings-updates-row">
+          <span class="settings-current-version" id="sv-current-version"></span>
+          <span class="settings-update-status" id="sv-update-status"></span>
+          <button class="settings-check-updates-btn" id="sv-check-updates-btn">Check for Updates</button>
+        </div>
+      </div>` : ''}
+
       <button class="settings-save-btn" id="sv-save-btn">Save Settings</button>
       ${isProject ? '<button class="settings-remove-btn" id="sv-remove-btn">Remove Project</button>' : ''}
     </div>
@@ -3128,6 +3137,31 @@ async function openSettingsViewer(scope, projectPath) {
     btn.textContent = 'Saved!';
     setTimeout(() => { btn.classList.remove('saved'); btn.textContent = 'Save Settings'; }, 1500);
   });
+
+  // Check for updates button + current version + inline status
+  const checkUpdatesBtn = settingsViewerBody.querySelector('#sv-check-updates-btn');
+  if (checkUpdatesBtn) {
+    const updateStatusEl = settingsViewerBody.querySelector('#sv-update-status');
+    window.api.getAppVersion().then(v => {
+      const el = settingsViewerBody.querySelector('#sv-current-version');
+      if (el) el.textContent = `v${v}`;
+    });
+    const settingsUpdaterHandler = (type, data) => {
+      if (!updateStatusEl) return;
+      switch (type) {
+        case 'checking': updateStatusEl.textContent = '— checking…'; break;
+        case 'update-available': updateStatusEl.textContent = `— v${data.version} available`; break;
+        case 'update-not-available': updateStatusEl.textContent = '— up to date'; break;
+        case 'download-progress': updateStatusEl.textContent = `— downloading ${Math.round(data.percent)}%`; break;
+        case 'update-downloaded': updateStatusEl.textContent = `— v${data.version} ready, restart to update`; break;
+        case 'error': updateStatusEl.textContent = '— check failed'; break;
+      }
+    };
+    window.api.onUpdaterEvent(settingsUpdaterHandler);
+    checkUpdatesBtn.addEventListener('click', () => {
+      window.api.updaterCheck();
+    });
+  }
 
   // Remove project button
   const removeBtn = settingsViewerBody.querySelector('#sv-remove-btn');
