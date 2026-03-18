@@ -36,8 +36,14 @@ body { display: flex; flex-direction: column; }
   animation: toast-slide-in 0.3s ease-out;
 }
 #update-toast.hidden { display: none; }
-#update-toast-msg { white-space: nowrap; line-height: 1.4; }
+#update-toast-msg { white-space: nowrap; line-height: 1.4; margin-right: 6px; }
 .update-version { color: #8088ff; font-size: 11px; }
+.update-notes-link {
+  color: #8088ff;
+  font-size: 11px;
+  text-decoration: none;
+}
+.update-notes-link:hover { text-decoration: underline; }
 #update-restart-btn {
   background: #8088ff;
   color: #fff;

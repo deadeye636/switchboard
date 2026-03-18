@@ -3380,7 +3380,7 @@ const updaterHandler = (type, data) => {
       if (dismissed === data.version) return;
       const toast = document.getElementById('update-toast');
       const msg = document.getElementById('update-toast-msg');
-      msg.innerHTML = `New Version Ready<br><span class="update-version">v${data.version}</span>`;
+      msg.innerHTML = `New Version Ready<br><span class="update-version">v${data.version}</span> (<a href="https://github.com/doctly/switchboard/releases" target="_blank" class="update-notes-link">release notes</a>)`;
       toast.classList.remove('hidden');
       document.getElementById('update-restart-btn').onclick = () => window.api.updaterInstall();
       document.getElementById('update-dismiss-btn').onclick = () => {
