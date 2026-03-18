@@ -155,11 +155,10 @@ function trackActivity(sessionId, data) {
 function clearUnread(sessionId) {
   unreadSessions.delete(sessionId);
   responseReadySessions.delete(sessionId);
-  sessionBusyState.delete(sessionId);
   clearIdleTimer(sessionId);
   const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
   if (item) {
-    item.classList.remove('response-ready', 'cli-busy');
+    item.classList.remove('response-ready');
   }
 }
 
@@ -1054,6 +1053,10 @@ function renderProjects(projects, resort) {
   morphdom(sidebarContent, newSidebar, {
     childrenOnly: true,
     onBeforeElUpdated(fromEl, toEl) {
+      // Skip updating session items that have an active rename input
+      if (fromEl.classList.contains('session-item') && fromEl.querySelector('.session-rename-input')) {
+        return false;
+      }
       if (fromEl.classList.contains('project-header')) {
         if (fromEl.classList.contains('collapsed')) {
           toEl.classList.add('collapsed');
@@ -1093,8 +1096,11 @@ function renderProjects(projects, resort) {
 
   rebindSidebarEvents(projects);
 
-  // Restore terminal focus after morphdom DOM updates, but not if the user is typing in the search box
-  if (activeSessionId && openSessions.has(activeSessionId) && document.activeElement !== searchInput) {
+  // Restore terminal focus after morphdom DOM updates, but not if the user is
+  // interacting with an input/textarea (search box, rename input, dialogs, etc.)
+  const ae = document.activeElement;
+  const isUserTyping = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable || ae.closest('.modal-overlay'));
+  if (activeSessionId && openSessions.has(activeSessionId) && !isUserTyping) {
     openSessions.get(activeSessionId).terminal.focus();
   }
 }
@@ -2060,34 +2066,126 @@ async function showJsonlViewer(session) {
 }
 
 // --- Stats ---
+let cachedUsage = null;
+
 async function loadStats() {
-  const stats = await window.api.getStats();
   statsViewerBody.innerHTML = '';
-  if (!stats) {
+
+  // Show spinner while refreshing
+  const spinner = document.createElement('div');
+  spinner.className = 'stats-spinner';
+  spinner.innerHTML = `<div class="stats-spinner-icon"></div><span>Updating stats\u2026</span>`;
+  statsViewerBody.appendChild(spinner);
+
+  // Refresh stats cache via PTY (/stats + /usage)
+  let stats, usage;
+  try {
+    const result = await window.api.refreshStats();
+    stats = result?.stats;
+    usage = result?.usage || {};
+    cachedUsage = usage;
+  } catch {
+    // Fallback to cached stats
+    stats = await window.api.getStats();
+    usage = cachedUsage || {};
+  }
+
+  statsViewerBody.innerHTML = '';
+
+  if (!stats && !Object.keys(usage).length) {
     statsViewerBody.innerHTML = '<div class="plans-empty">No stats data found. Run some Claude sessions first.</div>';
     return;
   }
-  // dailyActivity may be an array of {date, messageCount, ...} or an object
-  const rawDaily = stats.dailyActivity || {};
-  let dailyMap = {};
-  if (Array.isArray(rawDaily)) {
-    for (const entry of rawDaily) {
-      dailyMap[entry.date] = entry.messageCount || 0;
-    }
-  } else {
-    for (const [date, data] of Object.entries(rawDaily)) {
-      dailyMap[date] = typeof data === 'number' ? data : (data?.messageCount || data?.messages || data?.count || 0);
-    }
-  }
-  buildHeatmap(dailyMap);
-  buildDailyBarChart(stats);
-  buildStatsSummary(stats, dailyMap);
 
-  const notice = document.createElement('div');
-  notice.className = 'stats-notice';
-  const lastDate = stats.lastComputedDate || 'unknown';
-  notice.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-2px;margin-right:6px;flex-shrink:0"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor" stroke="none"/></svg>Data sourced from Claude\u2019s stats cache (last updated ${escapeHtml(lastDate)}). Run <code>/stats</code> in a Claude session to refresh.`;
-  statsViewerBody.appendChild(notice);
+  if (stats) {
+    // dailyActivity may be an array of {date, messageCount, ...} or an object
+    const rawDaily = stats.dailyActivity || {};
+    let dailyMap = {};
+    if (Array.isArray(rawDaily)) {
+      for (const entry of rawDaily) {
+        dailyMap[entry.date] = entry.messageCount || 0;
+      }
+    } else {
+      for (const [date, data] of Object.entries(rawDaily)) {
+        dailyMap[date] = typeof data === 'number' ? data : (data?.messageCount || data?.messages || data?.count || 0);
+      }
+    }
+    buildHeatmap(dailyMap);
+    buildDailyBarChart(stats);
+    buildStatsSummary(stats, dailyMap);
+  }
+
+  // Build usage section below charts (from /usage output)
+  if (Object.keys(usage).length) {
+    buildUsageSection(usage);
+  }
+
+  if (stats) {
+    const notice = document.createElement('div');
+    notice.className = 'stats-notice';
+    const lastDate = stats.lastComputedDate || 'unknown';
+    notice.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-2px;margin-right:6px;flex-shrink:0"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor" stroke="none"/></svg>Data sourced from Claude\u2019s stats cache (last updated ${escapeHtml(lastDate)}).`;
+    statsViewerBody.appendChild(notice);
+  }
+}
+
+function buildUsageSection(usage) {
+  const container = document.createElement('div');
+  container.className = 'usage-container';
+
+  const title = document.createElement('div');
+  title.className = 'daily-chart-title';
+  title.textContent = 'Rate Limits';
+  container.appendChild(title);
+
+  const grid = document.createElement('div');
+  grid.className = 'usage-grid';
+
+  const items = [
+    { key: 'session', label: 'Current session', resetKey: 'sessionReset' },
+    { key: 'weekAll', label: 'Week (all models)', resetKey: 'weekAllReset' },
+    { key: 'weekSonnet', label: 'Week (Sonnet)', resetKey: 'weekSonnetReset' },
+    { key: 'weekOpus', label: 'Week (Opus)', resetKey: 'weekOpusReset' },
+  ];
+
+  for (const item of items) {
+    if (usage[item.key] === undefined) continue;
+    const pct = usage[item.key];
+    const card = document.createElement('div');
+    card.className = 'usage-card';
+
+    const header = document.createElement('div');
+    header.className = 'usage-card-header';
+    const label = document.createElement('span');
+    label.className = 'usage-card-label';
+    label.textContent = item.label;
+    header.appendChild(label);
+    const pctEl = document.createElement('span');
+    pctEl.className = 'usage-card-pct';
+    pctEl.textContent = pct + '%';
+    header.appendChild(pctEl);
+    card.appendChild(header);
+
+    const track = document.createElement('div');
+    track.className = 'usage-track';
+    const fill = document.createElement('div');
+    fill.className = 'usage-fill' + (pct >= 80 ? ' usage-fill-high' : '');
+    fill.style.width = Math.max(pct, 1) + '%';
+    track.appendChild(fill);
+    card.appendChild(track);
+
+    if (usage[item.resetKey]) {
+      const reset = document.createElement('div');
+      reset.className = 'usage-card-reset';
+      reset.textContent = 'Resets ' + usage[item.resetKey];
+      card.appendChild(reset);
+    }
+
+    grid.appendChild(card);
+  }
+
+  container.appendChild(grid);
+  statsViewerBody.appendChild(container);
 }
 
 function buildDailyBarChart(stats) {
@@ -2747,6 +2845,7 @@ async function showNewSessionDialog(project) {
     const preLaunch = dialog.querySelector('#nsd-pre-launch').value.trim();
     if (preLaunch) options.preLaunchCmd = preLaunch;
     options.addDirs = dialog.querySelector('#nsd-add-dirs').value.trim();
+    if (effective.mcpEmulation === false) options.mcpEmulation = false;
     close();
     launchNewSession(project, options);
   }

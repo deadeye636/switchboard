@@ -843,6 +843,137 @@ ipcMain.handle('get-stats', () => {
   }
 });
 
+// --- IPC: refresh-stats (run /stats + /usage via PTY) ---
+ipcMain.handle('refresh-stats', async () => {
+  const shell = process.env.SHELL || '/bin/zsh';
+  const ptyEnv = {
+    ...cleanPtyEnv,
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    TERM_PROGRAM: 'iTerm.app',
+    TERM_PROGRAM_VERSION: '3.6.6',
+    FORCE_COLOR: '3',
+    ITERM_SESSION_ID: '1',
+  };
+
+  // Helper: spawn claude with args, collect output, auto-accept trust, kill when idle
+  // waitFor: optional regex tested against stripped output — finish only when matched
+  function runClaude(args, { timeoutMs = 15000, waitFor = null } = {}) {
+    return new Promise((resolve) => {
+      let output = '';
+      let settled = false;
+      let trustAccepted = false;
+      // Track idle: ✳ in OSC title means Claude is idle and waiting for input
+      let sawActivity = false;
+
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        try { p.kill(); } catch {}
+        resolve(output);
+      };
+
+      const claudeCmd = `claude ${args}`;
+      const p = pty.spawn(shell, ['-l', '-i', '-c', claudeCmd], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 40,
+        cwd: os.homedir(),
+        env: ptyEnv,
+      });
+
+      const strip = (s) => s
+        .replace(/\x1b\[[^@-~]*[@-~]/g, '')
+        .replace(/\x1b\][^\x07]*\x07/g, '')
+        .replace(/\x1b[^[\]].?/g, '');
+
+      p.onData((data) => {
+        output += data;
+
+        // Auto-accept trust directory prompt (Enter selects "1. Yes")
+        if (!trustAccepted) {
+          if (/trust\s*this\s*folder/i.test(strip(output))) {
+            trustAccepted = true;
+            try { p.write('\r'); } catch {}
+            return;
+          }
+        }
+
+        // If waitFor is set, finish when that pattern appears in stripped output
+        if (waitFor) {
+          if (waitFor.test(strip(output))) {
+            finish();
+          }
+          return;
+        }
+
+        // Default: detect busy→idle transition via OSC title containing ✳
+        if (!sawActivity) {
+          const oscTitle = data.match(/\x1b\]0;([^\x07\x1b]*)/);
+          if (oscTitle) {
+            const first = oscTitle[1].charAt(0);
+            if (first.charCodeAt(0) >= 0x2800 && first.charCodeAt(0) <= 0x28FF) {
+              sawActivity = true;
+            }
+          }
+        } else if (data.includes('\u2733')) {
+          finish();
+        }
+      });
+
+      p.onExit(() => finish());
+      setTimeout(finish, timeoutMs);
+    });
+  }
+
+  try {
+    // Run both commands — each passed as initial arg, runs automatically
+    const [, usageRaw] = await Promise.all([
+      runClaude('"/stats"', { waitFor: /streak/i, timeoutMs: 10000 }),
+      runClaude('"/usage"', { waitFor: /current\s*week/i, timeoutMs: 25000 }),
+    ]);
+
+    // Read refreshed stats cache
+    let stats = null;
+    try {
+      if (fs.existsSync(STATS_CACHE_PATH)) {
+        stats = JSON.parse(fs.readFileSync(STATS_CACHE_PATH, 'utf8'));
+      }
+    } catch {}
+
+    // Parse usage output — strip ANSI codes and control chars
+    const plain = usageRaw
+      .replace(/\x1b\[[^@-~]*[@-~]/g, '')   // CSI sequences (including [?2026h etc)
+      .replace(/\x1b\][^\x07]*\x07/g, '')    // OSC sequences
+      .replace(/\x1b[^[\]].?/g, '')          // other escapes
+      .replace(/[\x00-\x09\x0b-\x1f]/g, '');
+
+    const usage = {};
+    const lines = plain.split('\n').map(l => l.trim()).filter(Boolean);
+    let currentSection = '';
+    for (const line of lines) {
+      // Space-tolerant section matching (TUI strips spaces)
+      if (/current\s*session/i.test(line)) currentSection = 'session';
+      else if (/current\s*week.*all\s*models/i.test(line)) currentSection = 'weekAll';
+      else if (/current\s*week.*sonnet/i.test(line)) currentSection = 'weekSonnet';
+      else if (/current\s*week.*opus/i.test(line)) currentSection = 'weekOpus';
+      const pctMatch = line.match(/(\d+)\s*%\s*used/i);
+      if (pctMatch && currentSection) {
+        usage[currentSection] = parseInt(pctMatch[1], 10);
+      }
+      const resetLine = line.match(/Resets?\s*(.+)/i);
+      if (resetLine && currentSection) {
+        usage[currentSection + 'Reset'] = resetLine[1].trim();
+      }
+    }
+
+    return { stats, usage };
+  } catch (err) {
+    log.error('Error refreshing stats:', err);
+    return { stats: null, usage: {} };
+  }
+});
+
 // --- IPC: get-memories ---
 function folderToShortPath(folder) {
   // Convert "-Users-home-dev-MyClaude" → "dev/MyClaude"
@@ -1144,7 +1275,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         cwd: projectPath,
         env: {
           ...cleanPtyEnv,
-          TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'iTerm.app', FORCE_COLOR: '3', ITERM_SESSION_ID: '1',
+          TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'iTerm.app', TERM_PROGRAM_VERSION: '3.6.6', FORCE_COLOR: '3', ITERM_SESSION_ID: '1',
           CLAUDECODE: '1',
           // ZDOTDIR trick won't work reliably; instead inject via ENV (sh/bash) or precmd
           ENV: claudeShim,
@@ -1211,7 +1342,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       const ptyEnv = {
         ...cleanPtyEnv,
         TERM: 'xterm-256color', COLORTERM: 'truecolor',
-        TERM_PROGRAM: 'iTerm.app', FORCE_COLOR: '3', ITERM_SESSION_ID: '1',
+        TERM_PROGRAM: 'iTerm.app', TERM_PROGRAM_VERSION: '3.6.6', FORCE_COLOR: '3', ITERM_SESSION_ID: '1',
       };
       if (mcpServer) {
         ptyEnv.CLAUDE_CODE_SSE_PORT = String(mcpServer.port);
@@ -1670,7 +1801,7 @@ function warmupPty() {
       cols: 80,
       rows: 24,
       cwd: os.homedir(),
-      env: { ...cleanPtyEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'iTerm.app', FORCE_COLOR: '3', ITERM_SESSION_ID: '1' },
+      env: { ...cleanPtyEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'iTerm.app', TERM_PROGRAM_VERSION: '3.6.6', FORCE_COLOR: '3', ITERM_SESSION_ID: '1' },
     });
     p.onExit(() => {
       sendStatus('Terminal ready', 'done');
