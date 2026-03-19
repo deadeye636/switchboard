@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   // Invoke (request-response)
@@ -62,6 +62,9 @@ contextBridge.exposeInMainWorld('api', {
   onStatusUpdate: (callback) => {
     ipcRenderer.on('status-update', (_event, text, type) => callback(text, type));
   },
+
+  // File drag-and-drop
+  getPathForFile: (file) => webUtils.getPathForFile(file),
 
   // App version
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),

@@ -993,6 +993,11 @@ body { display: flex; flex-direction: column; }
   display: block;
 }
 
+.terminal-container.drag-over {
+  outline: 2px solid rgba(128, 136, 255, 0.6);
+  outline-offset: -2px;
+}
+
 /* Prevent terminal content from rendering under xterm's scrollbar */
 .terminal-container .xterm-viewport {
   scrollbar-width: thin;

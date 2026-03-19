@@ -1477,6 +1477,7 @@ async function launchNewSession(project, sessionOptions) {
     window.api.sendInput(session.sessionId, data);
   });
   setupTerminalKeyBindings(terminal, container, () => session.sessionId);
+  setupDragAndDrop(container, () => session.sessionId);
 
   terminal.onResize(({ cols, rows }) => {
     window.api.resizeTerminal(session.sessionId, cols, rows);
@@ -1621,6 +1622,7 @@ async function openSession(session) {
     window.api.sendInput(entry.session.sessionId, data);
   });
   setupTerminalKeyBindings(terminal, container, () => entry.session.sessionId);
+  setupDragAndDrop(container, () => entry.session.sessionId);
 
   terminal.onResize(({ cols, rows }) => {
     window.api.resizeTerminal(entry.session.sessionId, cols, rows);
@@ -1685,6 +1687,39 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function shellEscape(path) {
+  return "'" + path.replace(/'/g, "'\\''") + "'";
+}
+
+function setupDragAndDrop(container, getSessionId) {
+  let dragCounter = 0;
+  container.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    container.classList.add('drag-over');
+  });
+  container.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  container.addEventListener('dragleave', () => {
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      container.classList.remove('drag-over');
+    }
+  });
+  container.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    container.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (!files.length) return;
+    const paths = Array.from(files).map(f => shellEscape(window.api.getPathForFile(f)));
+    window.api.sendInput(getSessionId(), paths.join(' '));
+  });
 }
 
 // --- Tab switching ---
@@ -2796,6 +2831,7 @@ async function launchTerminalSession(project) {
     window.api.sendInput(session.sessionId, data);
   });
   setupTerminalKeyBindings(terminal, container, () => session.sessionId);
+  setupDragAndDrop(container, () => session.sessionId);
 
   terminal.onResize(({ cols, rows }) => {
     window.api.resizeTerminal(session.sessionId, cols, rows);
