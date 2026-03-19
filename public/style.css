@@ -907,6 +907,16 @@ body { display: flex; flex-direction: column; }
   font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
 }
 
+#terminal-header-shell {
+  font-size: 10px;
+  color: #8a8aa0;
+  background: rgba(255,255,255,0.06);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+  white-space: nowrap;
+}
+
 #terminal-header-controls {
   display: flex;
   align-items: center;

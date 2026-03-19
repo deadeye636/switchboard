@@ -8,6 +8,14 @@ try {
   execSync('npx electron-builder install-app-deps', { stdio: 'inherit' });
 } catch (err) {
   console.error('electron-builder install-app-deps failed:', err.message);
+  // Fallback: rebuild only better-sqlite3 for Electron (node-pty uses prebuilds)
+  console.log('Attempting fallback: rebuilding better-sqlite3 for Electron...');
+  try {
+    execSync('npx @electron/rebuild -f -m . -o better-sqlite3', { stdio: 'inherit' });
+    console.log('Fallback rebuild succeeded.');
+  } catch (err2) {
+    console.error('Fallback rebuild also failed:', err2.message);
+  }
 }
 
 // macOS/Linux: ad-hoc codesign native modules & fix node-pty permissions

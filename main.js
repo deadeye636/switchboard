@@ -27,10 +27,123 @@ const cleanPtyEnv = Object.fromEntries(
 // --- Cross-platform shell resolution ---
 const isWindows = process.platform === 'win32';
 
-function resolveShell() {
+// Discover available shell profiles on this system.
+// Returns an array of { id, name, path, args? } objects.
+function discoverShellProfiles() {
+  const profiles = [];
+
+  if (isWindows) {
+    const { execSync } = require('child_process');
+
+    // CMD
+    const comspec = process.env.COMSPEC || 'C:\\WINDOWS\\system32\\cmd.exe';
+    if (fs.existsSync(comspec)) {
+      profiles.push({ id: 'cmd', name: 'Command Prompt', path: comspec });
+    }
+
+    // PowerShell 7+ (pwsh)
+    const pwshCandidates = [
+      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe'),
+      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7-preview', 'pwsh.exe'),
+    ];
+    for (const p of pwshCandidates) {
+      if (fs.existsSync(p)) {
+        profiles.push({ id: 'pwsh', name: 'PowerShell 7', path: p });
+        break;
+      }
+    }
+
+    // Windows PowerShell 5.x
+    const ps5 = path.join(process.env.SystemRoot || 'C:\\WINDOWS', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    if (fs.existsSync(ps5)) {
+      profiles.push({ id: 'powershell', name: 'Windows PowerShell', path: ps5 });
+    }
+
+    // Git Bash
+    const gitBashCandidates = [
+      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'bash.exe'),
+      path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Git', 'bin', 'bash.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'bin', 'bash.exe'),
+    ];
+    for (const p of gitBashCandidates) {
+      if (p && fs.existsSync(p)) {
+        profiles.push({ id: 'git-bash', name: 'Git Bash', path: p });
+        break;
+      }
+    }
+
+    // MSYS2
+    if (fs.existsSync('C:\\msys64\\usr\\bin\\bash.exe')) {
+      profiles.push({ id: 'msys2', name: 'MSYS2', path: 'C:\\msys64\\usr\\bin\\bash.exe' });
+    }
+
+    // WSL distributions
+    try {
+      const raw = execSync('wsl.exe --list --quiet', { timeout: 5000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+      const distros = raw.replace(/\0/g, '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      for (const distro of distros) {
+        profiles.push({ id: 'wsl:' + distro, name: 'WSL — ' + distro, path: 'wsl.exe', args: ['-d', distro] });
+      }
+    } catch {}
+  } else {
+    // macOS / Linux: read /etc/shells for the canonical list
+    const seen = new Set();
+    const shellNames = {
+      'zsh': 'Zsh', 'bash': 'Bash', 'sh': 'POSIX Shell',
+      'fish': 'Fish', 'nu': 'Nushell', 'pwsh': 'PowerShell',
+      'dash': 'Dash', 'ksh': 'Korn Shell', 'tcsh': 'tcsh', 'csh': 'C Shell',
+    };
+    try {
+      const lines = fs.readFileSync('/etc/shells', 'utf8').split('\n')
+        .map(l => l.trim())
+        .filter(l => l && !l.startsWith('#'));
+      for (const shellPath of lines) {
+        if (!fs.existsSync(shellPath)) continue;
+        const base = path.basename(shellPath);
+        // Deduplicate by basename (e.g. /bin/bash and /usr/bin/bash)
+        if (seen.has(base)) continue;
+        seen.add(base);
+        const name = shellNames[base] || base;
+        profiles.push({ id: base, name, path: shellPath });
+      }
+    } catch {
+      // Fallback if /etc/shells is unreadable
+      for (const [id, name, p] of [
+        ['zsh', 'Zsh', '/bin/zsh'],
+        ['bash', 'Bash', '/bin/bash'],
+        ['sh', 'POSIX Shell', '/bin/sh'],
+      ]) {
+        if (fs.existsSync(p)) {
+          profiles.push({ id, name, path: p });
+        }
+      }
+    }
+  }
+
+  return profiles;
+}
+
+// Cache profiles (discovered once on startup, refreshed via IPC if needed)
+let _shellProfiles = null;
+function getShellProfiles() {
+  if (!_shellProfiles) _shellProfiles = discoverShellProfiles();
+  return _shellProfiles;
+}
+
+function resolveShell(profileId) {
+  // If a profile is selected, use it
+  if (profileId && profileId !== 'auto') {
+    const profiles = getShellProfiles();
+    const profile = profiles.find(p => p.id === profileId);
+    if (profile && (profile.path === 'wsl.exe' || fs.existsSync(profile.path))) {
+      return profile;
+    }
+  }
+
+  // Auto: original detection logic
   // 1. Respect explicit SHELL env (set by Git Bash, MSYS2, WSL, etc.)
   if (process.env.SHELL && fs.existsSync(process.env.SHELL)) {
-    return process.env.SHELL;
+    return { id: 'auto', name: 'Auto', path: process.env.SHELL };
   }
 
   if (isWindows) {
@@ -42,36 +155,40 @@ function resolveShell() {
       'C:\\msys64\\usr\\bin\\bash.exe',
     ];
     for (const c of candidates) {
-      if (c && fs.existsSync(c)) return c;
+      if (c && fs.existsSync(c)) return { id: 'auto', name: 'Auto', path: c };
     }
     // 3. Fall back to PowerShell / cmd
-    return process.env.COMSPEC || 'powershell.exe';
+    return { id: 'auto', name: 'Auto', path: process.env.COMSPEC || 'powershell.exe' };
   }
 
   // Unix fallback chain
   for (const s of ['/bin/zsh', '/bin/bash', '/bin/sh']) {
-    if (fs.existsSync(s)) return s;
+    if (fs.existsSync(s)) return { id: 'auto', name: 'Auto', path: s };
   }
-  return '/bin/sh';
+  return { id: 'auto', name: 'Auto', path: '/bin/sh' };
 }
 
 // Returns spawn args appropriate for the resolved shell
-function shellArgs(shell, cmd) {
-  const base = path.basename(shell).toLowerCase();
+function shellArgs(shellPath, cmd, extraArgs) {
+  const base = path.basename(shellPath).toLowerCase();
   const isBashLike = base.includes('bash') || base.includes('zsh') || base === 'sh';
 
+  // WSL: pass command via -- to the distribution shell
+  if (base === 'wsl.exe' || base === 'wsl') {
+    if (cmd) return [...(extraArgs || []), '--', 'bash', '-l', '-i', '-c', cmd];
+    return [...(extraArgs || []), '--', 'bash', '-l', '-i'];
+  }
+
   if (cmd) {
-    // Execute a command then exit
     if (isBashLike) return ['-l', '-i', '-c', cmd];
     if (base.includes('powershell') || base.includes('pwsh')) return ['-NoLogo', '-Command', cmd];
-    // cmd.exe
     return ['/C', cmd];
   }
-  // Interactive shell
   if (isBashLike) return ['-l', '-i'];
   if (base.includes('powershell') || base.includes('pwsh')) return ['-NoLogo', '-NoExit'];
   return [];
 }
+
 
 // --- Auto-updater (only in packaged builds) ---
 let autoUpdater = null;
@@ -846,7 +963,12 @@ ipcMain.handle('get-stats', () => {
 
 // --- IPC: refresh-stats (run /stats + /usage via PTY) ---
 ipcMain.handle('refresh-stats', async () => {
-  const shell = resolveShell();
+  // For stats, use the configured shell profile
+  const globalSettings = getSetting('global') || {};
+  const statsProfileId = globalSettings.shellProfile || SETTING_DEFAULTS.shellProfile;
+  const statsShellProfile = resolveShell(statsProfileId);
+  const statsShell = statsShellProfile.path;
+  const statsShellExtraArgs = statsShellProfile.args || [];
   const ptyEnv = {
     ...cleanPtyEnv,
     TERM: 'xterm-256color',
@@ -875,7 +997,7 @@ ipcMain.handle('refresh-stats', async () => {
       };
 
       const claudeCmd = `claude ${args}`;
-      const p = pty.spawn(shell, shellArgs(shell, claudeCmd), {
+      const p = pty.spawn(statsShell, shellArgs(statsShell, claudeCmd, statsShellExtraArgs), {
         name: 'xterm-256color',
         cols: 120,
         rows: 40,
@@ -1175,7 +1297,13 @@ const SETTING_DEFAULTS = {
   sidebarWidth: 340,
   terminalTheme: 'switchboard',
   mcpEmulation: false,
+  shellProfile: 'auto',
 };
+
+ipcMain.handle('get-shell-profiles', () => {
+  _shellProfiles = null; // refresh on each request
+  return getShellProfiles();
+});
 
 ipcMain.handle('get-effective-settings', (_event, projectPath) => {
   const global = getSetting('global') || {};
@@ -1294,7 +1422,19 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     return { ok: false, error: `project directory no longer exists: ${projectPath}` };
   }
 
-  const shell = resolveShell();
+  // Resolve shell profile from effective settings
+  const effectiveSettings = (() => {
+    const global = getSetting('global') || {};
+    const project = projectPath ? (getSetting('project:' + projectPath) || {}) : {};
+    let profileId = SETTING_DEFAULTS.shellProfile;
+    if (global.shellProfile !== undefined && global.shellProfile !== null) profileId = global.shellProfile;
+    if (project.shellProfile !== undefined && project.shellProfile !== null) profileId = project.shellProfile;
+    return profileId;
+  })();
+  const shellProfile = resolveShell(effectiveSettings);
+  const shell = shellProfile.path;
+  const shellExtraArgs = shellProfile.args || [];
+  log.info(`[shell] profile=${shellProfile.id} shell=${shell} args=${JSON.stringify(shellExtraArgs)}`);
   const isPlainTerminal = sessionOptions?.type === 'terminal';
 
   let knownJsonlFiles = new Set();
@@ -1334,7 +1474,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       // Plain terminal: interactive login shell, no claude command
       // Inject a shell function to override `claude` with a helpful message
       const claudeShim = 'claude() { echo "\\033[33mTo start a Claude session, use the + button in the sidebar.\\033[0m"; return 1; }; export -f claude 2>/dev/null;';
-      ptyProcess = pty.spawn(shell, shellArgs(shell), {
+      ptyProcess = pty.spawn(shell, shellArgs(shell, undefined, shellExtraArgs), {
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
@@ -1414,7 +1554,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         ptyEnv.CLAUDE_CODE_SSE_PORT = String(mcpServer.port);
       }
 
-      ptyProcess = pty.spawn(shell, shellArgs(shell, claudeCmd), {
+      ptyProcess = pty.spawn(shell, shellArgs(shell, claudeCmd, shellExtraArgs), {
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
