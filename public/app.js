@@ -11,6 +11,7 @@ const terminalHeader = document.getElementById('terminal-header');
 const terminalHeaderName = document.getElementById('terminal-header-name');
 const terminalHeaderId = document.getElementById('terminal-header-id');
 const terminalHeaderStatus = document.getElementById('terminal-header-status');
+const terminalHeaderShell = document.getElementById('terminal-header-shell');
 const terminalStopBtn = document.getElementById('terminal-stop-btn');
 const terminalRestartBtn = document.getElementById('terminal-restart-btn');
 const runningToggle = document.getElementById('running-toggle');
@@ -1513,12 +1514,28 @@ function openNewSession(project) {
   return launchNewSession(project);
 }
 
-function showTerminalHeader(session) {
+async function showTerminalHeader(session) {
   const displayName = cleanDisplayName(session.name || session.summary);
   terminalHeaderName.textContent = displayName;
   terminalHeaderId.textContent = session.sessionId;
   terminalHeader.style.display = '';
   updateTerminalHeader();
+
+  // Show active shell profile
+  try {
+    const effective = await window.api.getEffectiveSettings(session.projectPath);
+    const profileId = effective.shellProfile || 'auto';
+    if (profileId === 'auto') {
+      terminalHeaderShell.style.display = 'none';
+    } else {
+      const profiles = await window.api.getShellProfiles();
+      const profile = profiles.find(p => p.id === profileId);
+      terminalHeaderShell.textContent = profile ? profile.name : profileId;
+      terminalHeaderShell.style.display = '';
+    }
+  } catch {
+    terminalHeaderShell.style.display = 'none';
+  }
 }
 
 async function openSession(session) {
@@ -3024,6 +3041,11 @@ async function openSettingsViewer(scope, projectPath) {
   const maxAgeValue = fieldValue('sessionMaxAgeDays', 3);
   const themeValue = fieldValue('terminalTheme', 'switchboard');
   const mcpEmulationValue = fieldValue('mcpEmulation', true);
+  const shellProfileValue = fieldValue('shellProfile', 'auto');
+
+  // Discover available shell profiles
+  let shellProfiles = [];
+  try { shellProfiles = await window.api.getShellProfiles(); } catch {};
 
   settingsViewerBody.innerHTML = `
     <div class="settings-form">
@@ -3115,6 +3137,20 @@ async function openSettingsViewer(scope, projectPath) {
 
         <div class="settings-field">
           <div class="settings-field-header">
+            <span class="settings-label">Shell Profile</span>
+            ${useGlobalCheckbox('shellProfile')}
+          </div>
+          <div class="settings-hint">Shell used for terminal and Claude sessions. Changes take effect for new sessions only.</div>
+          <select class="settings-select" id="sv-shell-profile" ${fieldDisabled('shellProfile')}>
+            <option value="auto" ${shellProfileValue === 'auto' ? 'selected' : ''}>Auto (detect)</option>
+            ${shellProfiles.map(p =>
+              `<option value="${escapeHtml(p.id)}" ${shellProfileValue === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+            ).join('')}
+          </select>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-header">
             <span class="settings-label">Max Visible Sessions</span>
             ${useGlobalCheckbox('visibleSessionCount')}
           </div>
@@ -3170,6 +3206,7 @@ async function openSettingsViewer(scope, projectPath) {
         preLaunchCmd: 'sv-pre-launch',
         addDirs: 'sv-add-dirs',
         visibleSessionCount: 'sv-visible-count',
+        shellProfile: 'sv-shell-profile',
       };
       const input = settingsViewerBody.querySelector('#' + fieldMap[field]);
       if (input) input.disabled = cb.checked;
@@ -3193,6 +3230,7 @@ async function openSettingsViewer(scope, projectPath) {
             preLaunchCmd: () => settingsViewerBody.querySelector('#sv-pre-launch').value.trim(),
             addDirs: () => settingsViewerBody.querySelector('#sv-add-dirs').value.trim(),
             visibleSessionCount: () => parseInt(settingsViewerBody.querySelector('#sv-visible-count').value) || 10,
+            shellProfile: () => settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto',
           };
           if (fieldMap[field]) settings[field] = fieldMap[field]();
         }
@@ -3208,6 +3246,7 @@ async function openSettingsViewer(scope, projectPath) {
       settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
       settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
       settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
+      settings.shellProfile = settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto';
     }
 
     // Preserve windowBounds and sidebarWidth if they exist
