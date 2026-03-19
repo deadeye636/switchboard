@@ -1864,36 +1864,11 @@ ipcMain.handle('updater-install', () => {
   autoUpdater.quitAndInstall();
 });
 
-// --- PTY warmup (preload native module + shell profile + claude TUI) ---
-function warmupPty() {
-  sendStatus('Warming up terminal\u2026', 'active');
-  try {
-    const shell = resolveShell();
-    const p = pty.spawn(shell, shellArgs(shell, 'claude'), {
-      name: 'xterm-256color',
-      cols: 80,
-      rows: 24,
-      cwd: os.homedir(),
-      env: { ...cleanPtyEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'iTerm.app', TERM_PROGRAM_VERSION: '3.6.6', FORCE_COLOR: '3', ITERM_SESSION_ID: '1' },
-    });
-    p.onExit(() => {
-      sendStatus('Terminal ready', 'done');
-      setTimeout(() => sendStatus(''), 3000);
-    });
-    setTimeout(() => { try { p.kill(); } catch {} }, 5000);
-  } catch {
-    sendStatus('');
-  }
-}
-
 // --- App lifecycle ---
 app.whenReady().then(() => {
   buildMenu();
   createWindow();
   startProjectsWatcher();
-
-  // Warm up node-pty so first real spawn is fast
-  setTimeout(warmupPty, 500);
 
   // Check for updates after launch
   if (autoUpdater) {
