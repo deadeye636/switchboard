@@ -381,7 +381,7 @@ body { display: flex; flex-direction: column; }
   padding: 0;
   line-height: 1;
   transition: all 0.15s;
-  opacity: 0;
+  opacity: 0.5;
 }
 
 .project-header:hover .project-archive-btn,
@@ -637,20 +637,15 @@ body { display: flex; flex-direction: column; }
   50% { opacity: 0.5; }
 }
 
-/* ---- CLI busy spinner (braille spinner detected) — high specificity to override unread/attention ---- */
-.session-item.cli-busy .session-status-dot,
-.session-item.cli-busy .session-status-dot.running,
-.session-item.cli-busy.needs-attention .session-status-dot {
+/* ---- CLI busy spinner (braille spinner detected) ---- */
+/* needs-attention takes precedence — when both are set, attention ripple shows */
+.session-item.cli-busy:not(.needs-attention) .session-status-dot,
+.session-item.cli-busy:not(.needs-attention) .session-status-dot.running {
   background: transparent !important;
   border: 1.5px solid #8088ff;
   border-top-color: transparent;
   animation: spin-dot 0.8s linear infinite !important;
   box-shadow: none !important;
-}
-
-.session-item.cli-busy.needs-attention .session-status-dot::before,
-.session-item.cli-busy.needs-attention .session-status-dot::after {
-  display: none;
 }
 
 @keyframes spin-dot {
@@ -2140,7 +2135,7 @@ body { display: flex; flex-direction: column; }
   padding: 0;
   line-height: 1;
   transition: all 0.15s;
-  opacity: 0;
+  opacity: 0.5;
 }
 
 .project-header:hover .project-settings-btn {
@@ -2579,8 +2574,6 @@ body { display: flex; flex-direction: column; }
 .popover-option-terminal .popover-option-icon,
 .terminal-icon {
   color: #3ecf5a;
-  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
-  font-weight: 700;
 }
 
 .popover-option-terminal:hover {
@@ -2589,18 +2582,11 @@ body { display: flex; flex-direction: column; }
 
 /* ========== TERMINAL BADGE ========== */
 .terminal-badge {
-  display: inline-block;
-  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
-  font-size: 9px;
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
   color: #3ecf5a;
-  background: rgba(62,207,90,0.12);
-  border: 1px solid rgba(62,207,90,0.2);
-  padding: 3px 4px;
-  border-radius: 3px;
-  line-height: 1;
-  margin-right: 6px;
-  vertical-align: baseline;
+  margin-right: 5px;
+  vertical-align: middle;
   position: relative;
   top: -1px;
 }

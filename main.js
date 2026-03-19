@@ -1436,7 +1436,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     projectPath, firstResize: true,
     projectFolder, knownJsonlFiles, sessionSlug,
     isPlainTerminal, forkFrom: sessionOptions?.forkFrom || null,
-    mcpServer,
+    mcpServer, _openedAt: Date.now(),
   };
   activeSessions.set(sessionId, session);
 
@@ -1454,13 +1454,18 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
           const firstChar = payload.charAt(0);
           const isBusy = firstChar.charCodeAt(0) >= 0x2800 && firstChar.charCodeAt(0) <= 0x28FF;
           const isIdle = firstChar === '\u2733'; // ✳
+          log.info(`[OSC 0] session=${currentId} char=U+${firstChar.charCodeAt(0).toString(16).toUpperCase()} busy=${isBusy} idle=${isIdle} wasBusy=${!!session._cliBusy}`);
           if (isBusy && !session._cliBusy) {
             session._cliBusy = true;
+            session._oscIdle = false;
+            log.info(`[OSC 0] session=${currentId} → BUSY`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, true);
             }
           } else if (isIdle && session._cliBusy) {
             session._cliBusy = false;
+            session._oscIdle = true;
+            log.info(`[OSC 0] session=${currentId} → IDLE`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, false);
             }
@@ -1474,20 +1479,19 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         // OSC 9;4 progress: 4;0; = clear/done, 4;1;N = running at N%, 4;2;N = error, 4;3; = indeterminate
         if (payload.startsWith('4;')) {
           const level = payload.split(';')[1];
+          if (level === '0') continue; // 4;0 is unreliable, skip
+          log.info(`[OSC 9;4] session=${currentId} level=${level} payload="${payload}" wasBusy=${!!session._cliBusy}`);
           if ((level === '1' || level === '2' || level === '3') && !session._cliBusy) {
             session._cliBusy = true;
+            session._oscIdle = false;
+            log.info(`[OSC 9;4] session=${currentId} → BUSY`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, true);
-            }
-          } else if (level === '0' && session._cliBusy) {
-            session._cliBusy = false;
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('cli-busy-state', currentId, false);
             }
           }
         } else {
           // Regular notification (attention, permission, etc.)
-          log.debug(`[OSC 9] session=${currentId} message="${payload}"`);
+          log.info(`[OSC 9] session=${currentId} message="${payload}"`);
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('terminal-notification', currentId, payload);
           }
