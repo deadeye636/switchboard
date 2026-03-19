@@ -17,4 +17,4 @@ Perform a release for this project. Steps:
    ### {Category}
    - {change description}
    ```
-   Group changes by category (e.g. "Sidebar", "Keyboard", "Build", etc.) based on the commit messages. The release notes must cover ALL commits between the previous tag and the new tag — don't skip any.
+   Group changes by category (e.g. "Features", "Bug Fixes", "Performance Improvements", etc.) based on the commit messages. The release notes must cover ALL commits between the previous tag and the new tag — don't skip any.
