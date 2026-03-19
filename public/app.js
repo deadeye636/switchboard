@@ -37,7 +37,10 @@ const statsViewerBody = document.getElementById('stats-viewer-body');
 const memoryViewer = document.getElementById('memory-viewer');
 const memoryViewerTitle = document.getElementById('memory-viewer-title');
 const memoryViewerFilename = document.getElementById('memory-viewer-filename');
-const memoryViewerBody = document.getElementById('memory-viewer-body');
+const memoryViewerEditorEl = document.getElementById('memory-viewer-editor');
+const memoryCopyPathBtn = document.getElementById('memory-copy-path-btn');
+const memoryCopyContentBtn = document.getElementById('memory-copy-content-btn');
+const memorySaveBtn = document.getElementById('memory-save-btn');
 const terminalArea = document.getElementById('terminal-area');
 const settingsViewer = document.getElementById('settings-viewer');
 const settingsViewerTitle = document.getElementById('settings-viewer-title');
@@ -93,24 +96,22 @@ let searchMatchIds = null; // null = no search active; Set<string> = matched ses
 // Both feed into setActivity(sessionId, active):
 //   active=true  → cli-busy (spinner dot), + has-unread if not focused
 //   active=false → response-ready if has-unread (terminal state until user clicks)
+// OSC 0 idle signal is the authoritative source for marking sessions as idle.
 //
-// The idle timer (5s silence) calls setActivity(id, false) as a fallback
-// in case the OSC 0 idle signal is missed.
-
 const unreadSessions = new Set(); // activity happened while session not focused
 const attentionSessions = new Set(); // sessions needing user action (OSC 9)
 const responseReadySessions = new Set(); // Claude finished, user hasn't looked (terminal state)
 const sessionBusyState = new Map(); // sessionId → boolean (currently active)
-const sessionIdleTimers = new Map(); // sessionId → silence timeout
 const lastActivityTime = new Map(); // sessionId → Date of last terminal output
-const IDLE_TIMEOUT_MS = 5000; // silence threshold for idle fallback
 
 // Noise patterns — these don't count as activity
 const activityNoiseRe = /file-history-snapshot|^\s*$/;
 
 // Central activity dispatcher
 function setActivity(sessionId, active) {
-  if (responseReadySessions.has(sessionId)) return; // response-ready is terminal
+  if (responseReadySessions.has(sessionId)) {
+    return;
+  }
 
   const wasActive = sessionBusyState.get(sessionId) || false;
   sessionBusyState.set(sessionId, active);
@@ -120,12 +121,10 @@ function setActivity(sessionId, active) {
     if (sessionId !== activeSessionId) {
       unreadSessions.add(sessionId);
     }
-    clearIdleTimer(sessionId);
   }
 
   if (wasActive && !active) {
     // Activity ended → response-ready (gated by has-unread)
-    clearIdleTimer(sessionId);
     if (unreadSessions.has(sessionId)) {
       responseReadySessions.add(sessionId);
       const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
@@ -143,37 +142,19 @@ function setActivity(sessionId, active) {
   }
 }
 
-// Terminal output activity — noise-filtered, resets idle timer
+// Terminal output activity — updates lastActivityTime only, busy state driven by backend
 function trackActivity(sessionId, data) {
-  if (sessionId === activeSessionId) return;
   if (activityNoiseRe.test(data)) return;
-  if (responseReadySessions.has(sessionId)) return;
-  setActivity(sessionId, true);
-  resetIdleTimer(sessionId);
+  lastActivityTime.set(sessionId, new Date());
 }
 
 function clearUnread(sessionId) {
   unreadSessions.delete(sessionId);
   responseReadySessions.delete(sessionId);
-  clearIdleTimer(sessionId);
   const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
   if (item) {
     item.classList.remove('response-ready');
   }
-}
-
-function resetIdleTimer(sessionId) {
-  if (responseReadySessions.has(sessionId)) return;
-  clearIdleTimer(sessionId);
-  sessionIdleTimers.set(sessionId, setTimeout(() => {
-    sessionIdleTimers.delete(sessionId);
-    setActivity(sessionId, false);
-  }, IDLE_TIMEOUT_MS));
-}
-
-function clearIdleTimer(sessionId) {
-  const timer = sessionIdleTimers.get(sessionId);
-  if (timer) { clearTimeout(timer); sessionIdleTimers.delete(sessionId); }
 }
 
 // --- Terminal themes ---
@@ -263,9 +244,6 @@ function isAtBottom(terminal) {
 }
 
 // --- IPC listeners from main process ---
-// Synchronized output markers — TUI repaints, not meaningful content
-const ESC_SYNC_START = '\x1b[?2026h';
-const ESC_SYNC_END = '\x1b[?2026l';
 
 // Screen-clear / alt-screen escape sequences.
 const ESC_SCREEN_CLEAR = '\x1b[2J';
@@ -294,12 +272,8 @@ window.api.onTerminalData((sessionId, data) => {
       }
     });
   }
-  // Don't mark activity for synchronized output (TUI repaints)
-  const isSyncRedraw = data.startsWith(ESC_SYNC_START) && data.endsWith(ESC_SYNC_END);
-  if (!isSyncRedraw) {
-    if (!activityNoiseRe.test(data)) lastActivityTime.set(sessionId, new Date());
-    trackActivity(sessionId, data);
-  }
+  // Update last activity time (noise-filtered)
+  trackActivity(sessionId, data);
 });
 
 window.api.onSessionDetected((tempId, realId) => {
@@ -428,7 +402,7 @@ window.api.onTerminalNotification((sessionId, message) => {
     if (item) item.classList.add('needs-attention');
   } else if (/waiting for your input/i.test(message)) {
     // "Claude is waiting for your input" — delayed idle notification, mark response-ready
-    markResponseReady(sessionId);
+    setActivity(sessionId, false);
   } else {
     console.log(`[notification] session=${sessionId} (no attention match) message="${message}"`);
   }
@@ -465,6 +439,7 @@ function refreshSidebar({ resort = false } = {}) {
 }
 
 // --- Archive toggle ---
+archiveToggle.innerHTML = ICONS.archive(18);
 archiveToggle.addEventListener('click', () => {
   showArchived = !showArchived;
   archiveToggle.classList.toggle('active', showArchived);
@@ -513,7 +488,7 @@ function clearSearch() {
   } else if (activeTab === 'plans') {
     renderPlans(cachedPlans);
   } else if (activeTab === 'memory') {
-    renderMemories(cachedMemories);
+    renderMemories();
   }
 }
 
@@ -548,7 +523,7 @@ searchInput.addEventListener('input', () => {
       } else if (activeTab === 'memory') {
         const results = await window.api.search('memory', query);
         const matchIds = new Set(results.map(r => r.id));
-        renderMemories(cachedMemories.filter(m => matchIds.has(m.filePath)));
+        renderMemories(matchIds);
       }
     } catch {
       if (activeTab === 'sessions') {
@@ -603,7 +578,6 @@ function updateRunningIndicators() {
       attentionSessions.delete(id);
       responseReadySessions.delete(id);
       sessionBusyState.delete(id);
-      clearIdleTimer(id);
     }
     const dot = item.querySelector('.session-status-dot');
     if (dot) dot.classList.toggle('running', running);
@@ -790,7 +764,7 @@ function buildSlugGroup(slug, sessions) {
   const archiveSlugBtn = document.createElement('button');
   archiveSlugBtn.className = 'slug-group-archive-btn';
   archiveSlugBtn.title = 'Archive all sessions in group';
-  archiveSlugBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1,1 L11,1 L11,4 L1,4 Z"/><path d="M1,4 L1,11 L11,11 L11,4"/><line x1="5" y1="6.5" x2="7" y2="6.5"/></svg>';
+  archiveSlugBtn.innerHTML = ICONS.archive(14);
 
   info.appendChild(nameEl);
   info.appendChild(meta);
@@ -992,13 +966,13 @@ function renderProjects(projects, resort) {
     const settingsBtn = document.createElement('button');
     settingsBtn.className = 'project-settings-btn';
     settingsBtn.title = 'Project settings';
-    settingsBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.6 1h2.8l.4 2.1a5.5 5.5 0 0 1 1.3.8l2-.8 1.4 2.4-1.6 1.4a5.6 5.6 0 0 1 0 1.5l1.6 1.4-1.4 2.4-2-.8a5.5 5.5 0 0 1-1.3.8L9.4 15H6.6l-.4-2.1a5.5 5.5 0 0 1-1.3-.8l-2 .8-1.4-2.4 1.6-1.4a5.6 5.6 0 0 1 0-1.5L1.5 6.2l1.4-2.4 2 .8a5.5 5.5 0 0 1 1.3-.8L6.6 1z"/><circle cx="8" cy="8" r="2.5"/></svg>';
+    settingsBtn.innerHTML = ICONS.gear(12);
     header.appendChild(settingsBtn);
 
     const archiveGroupBtn = document.createElement('button');
     archiveGroupBtn.className = 'project-archive-btn';
     archiveGroupBtn.title = 'Archive all sessions';
-    archiveGroupBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1,1 L11,1 L11,4 L1,4 Z"/><path d="M1,4 L1,11 L11,11 L11,4"/><line x1="5" y1="6.5" x2="7" y2="6.5"/></svg>';
+    archiveGroupBtn.innerHTML = ICONS.archive(16);
     header.appendChild(archiveGroupBtn);
 
     const newBtn = document.createElement('button');
@@ -1326,7 +1300,7 @@ function buildSessionItem(session) {
   if (session.type === 'terminal') {
     const badge = document.createElement('span');
     badge.className = 'terminal-badge';
-    badge.textContent = '>_';
+    badge.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>';
     summaryEl.prepend(badge);
   }
   info.appendChild(summaryEl);
@@ -1345,24 +1319,24 @@ function buildSessionItem(session) {
   const archiveBtn = document.createElement('button');
   archiveBtn.className = 'session-archive-btn';
   archiveBtn.title = session.archived ? 'Unarchive' : 'Archive';
-  archiveBtn.innerHTML = session.archived
-    ? '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="4,7 6,5 8,7"/><line x1="6" y1="5" x2="6" y2="10"/><path d="M1,4 L1,11 L11,11 L11,4"/></svg>'
-    : '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1,1 L11,1 L11,4 L1,4 Z"/><path d="M1,4 L1,11 L11,11 L11,4"/><line x1="5" y1="6.5" x2="7" y2="6.5"/></svg>';
+  archiveBtn.innerHTML = ICONS.archive(16);
 
   const forkBtn = document.createElement('button');
   forkBtn.className = 'session-fork-btn';
   forkBtn.title = 'Fork session';
-  forkBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="2.5" r="1.5"/><circle cx="3" cy="9.5" r="1.5"/><circle cx="9" cy="9.5" r="1.5"/><line x1="6" y1="4" x2="6" y2="6"/><line x1="6" y1="6" x2="3" y2="8"/><line x1="6" y1="6" x2="9" y2="8"/></svg>';
+  forkBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3h-5v5"/><path d="M21 3l-7.536 7.536a5 5 0 0 0-1.464 3.534v6.93"/><path d="M3 3l7.536 7.536a5 5 0 0 1 1.464 3.534v.93"/></svg>';
 
   const jsonlBtn = document.createElement('button');
   jsonlBtn.className = 'session-jsonl-btn';
   jsonlBtn.title = 'View messages';
-  jsonlBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h8M2 6h6M2 9h4"/></svg>';
+  jsonlBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>';
 
   actions.appendChild(stopBtn);
-  actions.appendChild(forkBtn);
-  actions.appendChild(jsonlBtn);
-  actions.appendChild(archiveBtn);
+  if (session.type !== 'terminal') {
+    actions.appendChild(forkBtn);
+    actions.appendChild(jsonlBtn);
+    actions.appendChild(archiveBtn);
+  }
 
   row.appendChild(pin);
   row.appendChild(dot);
@@ -1499,6 +1473,7 @@ async function launchNewSession(project, sessionOptions) {
 
   // Wire up terminal input/resize via IPC
   terminal.onData(data => {
+    if (data === '\x1b[I' || data === '\x1b[O') return; // suppress focus reports — stops Claude braille spinner
     window.api.sendInput(session.sessionId, data);
   });
   setupTerminalKeyBindings(terminal, container, () => session.sessionId);
@@ -1582,7 +1557,17 @@ async function openSession(session) {
       // Defer fit — the container just went from display:none to display:block,
       // so the viewport has no dimensions yet.
       requestAnimationFrame(() => {
+        const prevCols = entry.terminal.cols;
+        const prevRows = entry.terminal.rows;
         entry.fitAddon.fit();
+        // fitAddon.fit() skips resize() when dimensions are unchanged, but
+        // xterm's viewport scroll-area can be stale if data was written while
+        // the terminal was display:none.  This causes scrollbar corruption
+        // when the user scrolls.  Force a resize cycle to re-sync the viewport.
+        if (entry.terminal.cols === prevCols && entry.terminal.rows === prevRows && prevRows > 1) {
+          entry.terminal.resize(prevCols, prevRows - 1);
+          entry.terminal.resize(prevCols, prevRows);
+        }
         if (isAtBottom(entry.terminal)) {
           requestAnimationFrame(() => entry.terminal.scrollToBottom());
         }
@@ -1632,6 +1617,7 @@ async function openSession(session) {
 
   // Wire up terminal input/resize via IPC (use entry.session.sessionId so fork re-keying works)
   terminal.onData(data => {
+    if (data === '\x1b[I' || data === '\x1b[O') return; // suppress focus reports — stops Claude braille spinner
     window.api.sendInput(entry.session.sessionId, data);
   });
   setupTerminalKeyBindings(terminal, container, () => entry.session.sessionId);
@@ -1725,6 +1711,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     if (tabName === 'sessions') {
       sessionFilters.style.display = '';
       searchBar.style.display = '';
+      searchInput.placeholder = 'Search sessions...';
       sidebarContent.style.display = '';
       // Restore terminal area if a session is open
       hideAllViewers();
@@ -1738,6 +1725,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       }
     } else if (tabName === 'plans') {
       searchBar.style.display = '';
+      searchInput.placeholder = 'Search plans...';
       plansContent.style.display = '';
       loadPlans();
     } else if (tabName === 'stats') {
@@ -1752,6 +1740,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       loadStats();
     } else if (tabName === 'memory') {
       searchBar.style.display = '';
+      searchInput.placeholder = 'Search agent files...';
       memoryContent.style.display = '';
       loadMemories();
     }
@@ -2475,77 +2464,137 @@ function buildStatsSummary(stats, dailyMap) {
 }
 
 // --- Memory ---
-let cachedMemories = [];
+let cachedMemoryData = { global: { files: [] }, projects: [] };
+let memoryEditorView = null;
+let currentMemoryFilePath = null;
+let currentMemoryContent = '';
+const memoryCollapsedState = new Map(); // key → boolean (true = collapsed)
 
 async function loadMemories() {
-  cachedMemories = await window.api.getMemories();
+  cachedMemoryData = await window.api.getMemories();
   renderMemories();
 }
 
-function renderMemories(memories) {
-  memories = memories || cachedMemories;
+function renderMemories(filterIds) {
   memoryContent.innerHTML = '';
-  if (memories.length === 0) {
+  const data = cachedMemoryData;
+  const allFiles = [...data.global.files, ...data.projects.flatMap(p => p.files)];
+  if (allFiles.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'plans-empty';
     empty.textContent = 'No memory files found.';
     memoryContent.appendChild(empty);
     return;
   }
-  for (const mem of memories) {
-    memoryContent.appendChild(buildMemoryItem(mem));
+
+  // Global group
+  if (data.global.files.length > 0) {
+    const globalFiles = filterIds ? data.global.files.filter(f => filterIds.has(f.filePath)) : data.global.files;
+    if (globalFiles.length > 0) {
+      memoryContent.appendChild(buildMemoryGroup('__global__', 'Global', globalFiles));
+    }
+  }
+
+  // Per-project groups
+  for (const proj of data.projects) {
+    const projFiles = filterIds ? proj.files.filter(f => filterIds.has(f.filePath)) : proj.files;
+    if (projFiles.length === 0) continue;
+    memoryContent.appendChild(buildMemoryGroup(proj.folder, proj.shortName, projFiles));
   }
 }
 
-function buildMemoryItem(mem) {
+function buildMemoryGroup(key, label, files) {
+  const group = document.createElement('div');
+  group.className = 'project-group';
+  const isCollapsed = memoryCollapsedState.get(key) === true; // default expanded
+  if (isCollapsed) group.classList.add('collapsed');
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'project-header';
+
+  const arrow = document.createElement('span');
+  arrow.className = 'arrow';
+  arrow.innerHTML = '&#9660;';
+  header.appendChild(arrow);
+
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'project-name';
+  nameSpan.textContent = label;
+  header.appendChild(nameSpan);
+
+  const countBadge = document.createElement('span');
+  countBadge.className = 'memory-file-count';
+  countBadge.textContent = files.length;
+  header.appendChild(countBadge);
+
+  header.addEventListener('click', () => {
+    const nowCollapsed = !group.classList.contains('collapsed');
+    group.classList.toggle('collapsed');
+    memoryCollapsedState.set(key, nowCollapsed);
+  });
+
+  group.appendChild(header);
+
+  // Files list
+  const filesList = document.createElement('div');
+  filesList.className = 'project-sessions';
+  for (const file of files) {
+    filesList.appendChild(buildMemoryItem(file));
+  }
+  group.appendChild(filesList);
+
+  return group;
+}
+
+function buildMemoryItem(file) {
   const item = document.createElement('div');
   item.className = 'session-item memory-item';
+  item.dataset.filepath = file.filePath;
 
   const row = document.createElement('div');
   row.className = 'session-row';
+
+  // Brain icon (same position as session pin)
+  const brain = document.createElement('span');
+  brain.className = 'memory-brain-icon';
+  brain.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>';
+  row.appendChild(brain);
 
   const info = document.createElement('div');
   info.className = 'session-info';
 
   const titleEl = document.createElement('div');
   titleEl.className = 'session-summary';
+  titleEl.textContent = file.filename;
 
-  const badge = document.createElement('span');
-  badge.className = `memory-type-badge type-${mem.type}`;
-  badge.textContent = mem.type;
-  titleEl.appendChild(badge);
-  titleEl.appendChild(document.createTextNode(mem.label));
-
-  const filenameEl = document.createElement('div');
-  filenameEl.className = 'session-id';
-  filenameEl.textContent = mem.filename;
+  const pathEl = document.createElement('div');
+  pathEl.className = 'session-id';
+  pathEl.textContent = file.displayPath;
 
   const metaEl = document.createElement('div');
   metaEl.className = 'session-meta';
-  metaEl.textContent = formatDate(new Date(mem.modified));
+  metaEl.textContent = formatDate(new Date(file.modified));
 
   info.appendChild(titleEl);
-  info.appendChild(filenameEl);
+  info.appendChild(pathEl);
   info.appendChild(metaEl);
   row.appendChild(info);
   item.appendChild(row);
 
-  item.addEventListener('click', () => openMemory(mem));
+  item.addEventListener('click', () => openMemory(file));
   return item;
 }
 
-async function openMemory(mem) {
+async function openMemory(file) {
   // Mark active in sidebar
   memoryContent.querySelectorAll('.memory-item.active').forEach(el => el.classList.remove('active'));
-  const items = memoryContent.querySelectorAll('.memory-item');
-  items.forEach(el => {
-    if (el.querySelector('.session-id')?.textContent === mem.filename &&
-        el.querySelector('.session-summary')?.textContent.includes(mem.label)) {
-      el.classList.add('active');
-    }
-  });
+  const target = memoryContent.querySelector(`.memory-item[data-filepath="${CSS.escape(file.filePath)}"]`);
+  if (target) target.classList.add('active');
 
-  const content = await window.api.readMemory(mem.filePath);
+  const content = await window.api.readMemory(file.filePath);
+  currentMemoryFilePath = file.filePath;
+  currentMemoryContent = content;
 
   // Show memory viewer in main area
   placeholder.style.display = 'none';
@@ -2555,10 +2604,37 @@ async function openMemory(mem) {
   settingsViewer.style.display = 'none';
   memoryViewer.style.display = 'flex';
 
-  memoryViewerTitle.textContent = `${mem.label} — ${mem.filename}`;
-  memoryViewerFilename.textContent = mem.filePath;
-  memoryViewerBody.textContent = content;
+  memoryViewerTitle.textContent = file.filename;
+  memoryViewerFilename.textContent = file.filePath;
+
+  // Create or update CodeMirror editor
+  if (!memoryEditorView) {
+    memoryEditorView = window.createPlanEditor(memoryViewerEditorEl);
+  }
+  memoryEditorView.dispatch({
+    changes: { from: 0, to: memoryEditorView.state.doc.length, insert: content },
+  });
 }
+
+// Memory toolbar handlers
+memoryCopyPathBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText(currentMemoryFilePath);
+  flashButtonText(memoryCopyPathBtn, 'Copied!');
+});
+
+memoryCopyContentBtn.addEventListener('click', () => {
+  const content = memoryEditorView ? memoryEditorView.state.doc.toString() : currentMemoryContent;
+  navigator.clipboard.writeText(content);
+  flashButtonText(memoryCopyContentBtn, 'Copied!');
+});
+
+memorySaveBtn.addEventListener('click', async () => {
+  if (memoryEditorView && currentMemoryFilePath) {
+    currentMemoryContent = memoryEditorView.state.doc.toString();
+    await window.api.saveMemory(currentMemoryFilePath, currentMemoryContent);
+    flashButtonText(memorySaveBtn, 'Saved!');
+  }
+});
 
 // --- New session dialog ---
 async function resolveDefaultSessionOptions(project) {
@@ -2595,17 +2671,17 @@ function showNewSessionPopover(project, anchorEl) {
 
   const claudeBtn = document.createElement('button');
   claudeBtn.className = 'popover-option';
-  claudeBtn.innerHTML = '<img src="https://claude.ai/favicon.ico" class="popover-option-icon claude-icon" alt=""> Claude';
+  claudeBtn.innerHTML = '<svg class="popover-option-icon claude-icon" width="16" height="16" viewBox="0 0 1200 1200" fill="#d97757" stroke="none"><path d="M 233.959793 800.214905 L 468.644287 668.536987 L 472.590637 657.100647 L 468.644287 650.738403 L 457.208069 650.738403 L 417.986633 648.322144 L 283.892639 644.69812 L 167.597321 639.865845 L 54.926208 633.825623 L 26.577238 627.785339 L 3.3e-05 592.751709 L 2.73832 575.27533 L 26.577238 559.248352 L 60.724873 562.228149 L 136.187973 567.382629 L 249.422867 575.194763 L 331.570496 580.026978 L 453.261841 592.671082 L 472.590637 592.671082 L 475.328857 584.859009 L 468.724915 580.026978 L 463.570557 575.194763 L 346.389313 495.785217 L 219.543671 411.865906 L 153.100723 363.543762 L 117.181267 339.060425 L 99.060455 316.107361 L 91.248367 266.01355 L 123.865784 230.093994 L 167.677887 233.073853 L 178.872513 236.053772 L 223.248367 270.201477 L 318.040283 343.570496 L 441.825592 434.738342 L 459.946411 449.798706 L 467.194672 444.64447 L 468.080597 441.020203 L 459.946411 427.409485 L 392.617493 305.718323 L 320.778564 181.932983 L 288.80542 130.630859 L 280.348999 99.865845 C 277.369171 87.221436 275.194641 76.590698 275.194641 63.624268 L 312.322174 13.20813 L 332.8591 6.604126 L 382.389313 13.20813 L 403.248352 31.328979 L 434.013519 101.71814 L 483.865753 212.537048 L 561.181274 363.221497 L 583.812134 407.919434 L 595.892639 449.315491 L 600.40271 461.959839 L 608.214783 461.959839 L 608.214783 454.711609 L 614.577271 369.825623 L 626.335632 265.61084 L 637.771851 131.516846 L 641.718201 93.745117 L 660.402832 48.483276 L 697.530334 24.000122 L 726.52356 37.852417 L 750.362549 72 L 747.060486 94.067139 L 732.886047 186.201416 L 705.100708 330.52356 L 686.979919 427.167847 L 697.530334 427.167847 L 709.61084 415.087341 L 758.496704 350.174561 L 840.644348 247.490051 L 876.885925 206.738342 L 919.167847 161.71814 L 946.308838 140.29541 L 997.61084 140.29541 L 1035.38269 196.429626 L 1018.469849 254.416199 L 965.637634 321.422852 L 921.825562 378.201538 L 859.006714 462.765259 L 819.785278 530.41626 L 823.409424 535.812073 L 832.75177 534.92627 L 974.657776 504.724915 L 1051.328979 490.872559 L 1142.818848 475.167786 L 1184.214844 494.496582 L 1188.724854 514.147644 L 1172.456421 554.335693 L 1074.604126 578.496765 L 959.838989 601.449829 L 788.939636 641.879272 L 786.845764 643.409485 L 789.261841 646.389343 L 866.255127 653.637634 L 899.194702 655.409424 L 979.812134 655.409424 L 1129.932861 666.604187 L 1169.154419 692.537109 L 1192.671265 724.268677 L 1188.724854 748.429688 L 1128.322144 779.194641 L 1046.818848 759.865845 L 856.590759 714.604126 L 791.355774 698.335754 L 782.335693 698.335754 L 782.335693 703.731567 L 836.69812 756.885986 L 936.322205 846.845581 L 1061.073975 962.81897 L 1067.436279 991.490112 L 1051.409424 1014.120911 L 1034.496704 1011.704712 L 924.885986 929.234924 L 882.604126 892.107544 L 786.845764 811.48999 L 780.483276 811.48999 L 780.483276 819.946289 L 802.550415 852.241699 L 919.087341 1027.409424 L 925.127625 1081.127686 L 916.671204 1098.604126 L 886.469849 1109.154419 L 853.288696 1103.114136 L 785.073914 1007.355835 L 714.684631 899.516785 L 657.906067 802.872498 L 650.979858 806.81897 L 617.476624 1167.704834 L 601.771851 1186.147705 L 565.530212 1200 L 535.328857 1177.046997 L 519.302124 1139.919556 L 535.328857 1066.550537 L 554.657776 970.792053 L 570.362488 894.68457 L 584.536926 800.134277 L 592.993347 768.724976 L 592.429626 766.630859 L 585.503479 767.516968 L 514.22821 865.369263 L 405.825531 1011.865906 L 320.053711 1103.677979 L 299.516815 1111.812256 L 263.919525 1093.369263 L 267.221497 1060.429688 L 287.114136 1031.114136 L 405.825531 880.107361 L 477.422913 786.52356 L 523.651062 732.483276 L 523.328918 724.671265 L 520.590698 724.671265 L 205.288605 929.395935 L 149.154434 936.644409 L 124.993355 914.01355 L 127.973183 876.885986 L 139.409409 864.80542 L 234.201385 799.570435 L 233.879227 799.8927 Z"/></svg> Claude';
   claudeBtn.onclick = async () => { popover.remove(); launchNewSession(project, await resolveDefaultSessionOptions(project)); };
 
   const claudeOptsBtn = document.createElement('button');
   claudeOptsBtn.className = 'popover-option';
-  claudeOptsBtn.innerHTML = '<img src="https://claude.ai/favicon.ico" class="popover-option-icon claude-icon" alt=""> Claude (Configure...)';
+  claudeOptsBtn.innerHTML = '<svg class="popover-option-icon claude-icon" width="16" height="16" viewBox="0 0 1200 1200" fill="#d97757" stroke="none"><path d="M 233.959793 800.214905 L 468.644287 668.536987 L 472.590637 657.100647 L 468.644287 650.738403 L 457.208069 650.738403 L 417.986633 648.322144 L 283.892639 644.69812 L 167.597321 639.865845 L 54.926208 633.825623 L 26.577238 627.785339 L 3.3e-05 592.751709 L 2.73832 575.27533 L 26.577238 559.248352 L 60.724873 562.228149 L 136.187973 567.382629 L 249.422867 575.194763 L 331.570496 580.026978 L 453.261841 592.671082 L 472.590637 592.671082 L 475.328857 584.859009 L 468.724915 580.026978 L 463.570557 575.194763 L 346.389313 495.785217 L 219.543671 411.865906 L 153.100723 363.543762 L 117.181267 339.060425 L 99.060455 316.107361 L 91.248367 266.01355 L 123.865784 230.093994 L 167.677887 233.073853 L 178.872513 236.053772 L 223.248367 270.201477 L 318.040283 343.570496 L 441.825592 434.738342 L 459.946411 449.798706 L 467.194672 444.64447 L 468.080597 441.020203 L 459.946411 427.409485 L 392.617493 305.718323 L 320.778564 181.932983 L 288.80542 130.630859 L 280.348999 99.865845 C 277.369171 87.221436 275.194641 76.590698 275.194641 63.624268 L 312.322174 13.20813 L 332.8591 6.604126 L 382.389313 13.20813 L 403.248352 31.328979 L 434.013519 101.71814 L 483.865753 212.537048 L 561.181274 363.221497 L 583.812134 407.919434 L 595.892639 449.315491 L 600.40271 461.959839 L 608.214783 461.959839 L 608.214783 454.711609 L 614.577271 369.825623 L 626.335632 265.61084 L 637.771851 131.516846 L 641.718201 93.745117 L 660.402832 48.483276 L 697.530334 24.000122 L 726.52356 37.852417 L 750.362549 72 L 747.060486 94.067139 L 732.886047 186.201416 L 705.100708 330.52356 L 686.979919 427.167847 L 697.530334 427.167847 L 709.61084 415.087341 L 758.496704 350.174561 L 840.644348 247.490051 L 876.885925 206.738342 L 919.167847 161.71814 L 946.308838 140.29541 L 997.61084 140.29541 L 1035.38269 196.429626 L 1018.469849 254.416199 L 965.637634 321.422852 L 921.825562 378.201538 L 859.006714 462.765259 L 819.785278 530.41626 L 823.409424 535.812073 L 832.75177 534.92627 L 974.657776 504.724915 L 1051.328979 490.872559 L 1142.818848 475.167786 L 1184.214844 494.496582 L 1188.724854 514.147644 L 1172.456421 554.335693 L 1074.604126 578.496765 L 959.838989 601.449829 L 788.939636 641.879272 L 786.845764 643.409485 L 789.261841 646.389343 L 866.255127 653.637634 L 899.194702 655.409424 L 979.812134 655.409424 L 1129.932861 666.604187 L 1169.154419 692.537109 L 1192.671265 724.268677 L 1188.724854 748.429688 L 1128.322144 779.194641 L 1046.818848 759.865845 L 856.590759 714.604126 L 791.355774 698.335754 L 782.335693 698.335754 L 782.335693 703.731567 L 836.69812 756.885986 L 936.322205 846.845581 L 1061.073975 962.81897 L 1067.436279 991.490112 L 1051.409424 1014.120911 L 1034.496704 1011.704712 L 924.885986 929.234924 L 882.604126 892.107544 L 786.845764 811.48999 L 780.483276 811.48999 L 780.483276 819.946289 L 802.550415 852.241699 L 919.087341 1027.409424 L 925.127625 1081.127686 L 916.671204 1098.604126 L 886.469849 1109.154419 L 853.288696 1103.114136 L 785.073914 1007.355835 L 714.684631 899.516785 L 657.906067 802.872498 L 650.979858 806.81897 L 617.476624 1167.704834 L 601.771851 1186.147705 L 565.530212 1200 L 535.328857 1177.046997 L 519.302124 1139.919556 L 535.328857 1066.550537 L 554.657776 970.792053 L 570.362488 894.68457 L 584.536926 800.134277 L 592.993347 768.724976 L 592.429626 766.630859 L 585.503479 767.516968 L 514.22821 865.369263 L 405.825531 1011.865906 L 320.053711 1103.677979 L 299.516815 1111.812256 L 263.919525 1093.369263 L 267.221497 1060.429688 L 287.114136 1031.114136 L 405.825531 880.107361 L 477.422913 786.52356 L 523.651062 732.483276 L 523.328918 724.671265 L 520.590698 724.671265 L 205.288605 929.395935 L 149.154434 936.644409 L 124.993355 914.01355 L 127.973183 876.885986 L 139.409409 864.80542 L 234.201385 799.570435 L 233.879227 799.8927 Z"/></svg> Claude (Configure...)';
   claudeOptsBtn.onclick = () => { popover.remove(); showNewSessionDialog(project); };
 
   const termBtn = document.createElement('button');
   termBtn.className = 'popover-option popover-option-terminal';
-  termBtn.innerHTML = '<span class="popover-option-icon terminal-icon">&gt;_</span> Terminal';
+  termBtn.innerHTML = '<svg class="popover-option-icon terminal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg> Terminal';
   termBtn.onclick = () => { popover.remove(); launchTerminalSession(project); };
 
   popover.appendChild(claudeBtn);
@@ -2716,6 +2792,7 @@ async function launchTerminalSession(project) {
   openSessions.set(sessionId, entry);
 
   terminal.onData(data => {
+    if (data === '\x1b[I' || data === '\x1b[O') return; // suppress focus reports — stops Claude braille spinner
     window.api.sendInput(session.sessionId, data);
   });
   setupTerminalKeyBindings(terminal, container, () => session.sessionId);
@@ -3177,6 +3254,7 @@ async function openSettingsViewer(scope, projectPath) {
 }
 
 // Global settings gear button
+globalSettingsBtn.innerHTML = ICONS.gear(18);
 globalSettingsBtn.addEventListener('click', () => {
   openSettingsViewer('global');
 });

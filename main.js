@@ -979,70 +979,109 @@ ipcMain.handle('refresh-stats', async () => {
 function folderToShortPath(folder) {
   // Convert "-Users-home-dev-MyClaude" → "dev/MyClaude"
   const parts = folder.replace(/^-/, '').split('-');
-  // Take last 2 meaningful segments
   const meaningful = parts.filter(Boolean);
   return meaningful.slice(-2).join('/');
 }
 
-ipcMain.handle('get-memories', () => {
-  const memories = [];
+/** Scan a directory for .md files (non-recursive). Returns array of { filename, filePath, modified }. */
+function scanMdFiles(dir) {
+  const results = [];
   try {
-    // Global CLAUDE.md
-    const globalClaude = path.join(CLAUDE_DIR, 'CLAUDE.md');
-    if (fs.existsSync(globalClaude)) {
-      const content = fs.readFileSync(globalClaude, 'utf8').trim();
-      if (content) {
-        const stat = fs.statSync(globalClaude);
-        memories.push({
-          type: 'global',
-          label: 'Global',
-          filename: 'CLAUDE.md',
-          filePath: globalClaude,
-          modified: stat.mtime.toISOString(),
-        });
+    if (!fs.existsSync(dir)) return results;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      if (e.isFile() && e.name.endsWith('.md')) {
+        const fp = path.join(dir, e.name);
+        const content = fs.readFileSync(fp, 'utf8').trim();
+        if (content) {
+          const stat = fs.statSync(fp);
+          results.push({ filename: e.name, filePath: fp, modified: stat.mtime.toISOString() });
+        }
       }
     }
+  } catch {}
+  return results;
+}
 
-    // Per-project CLAUDE.md and memory/MEMORY.md
+ipcMain.handle('get-memories', () => {
+  const global = getSetting('global') || {};
+  const hiddenProjects = new Set(global.hiddenProjects || []);
+
+  // --- Global files ---
+  const globalFiles = scanMdFiles(CLAUDE_DIR).map(f => ({ ...f, displayPath: '~/.claude' }));
+
+  // --- Per-project files ---
+  const projects = [];
+  try {
     if (fs.existsSync(PROJECTS_DIR)) {
       const folders = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
         .filter(d => d.isDirectory() && d.name !== '.git')
         .map(d => d.name);
 
       for (const folder of folders) {
-        const shortPath = folderToShortPath(folder);
         const folderPath = path.join(PROJECTS_DIR, folder);
+        const projectPath = deriveProjectPath(folderPath, folder);
+        if (projectPath && hiddenProjects.has(projectPath)) continue;
 
-        // CLAUDE.md in project folder
-        const claudeMd = path.join(folderPath, 'CLAUDE.md');
-        if (fs.existsSync(claudeMd)) {
-          const content = fs.readFileSync(claudeMd, 'utf8').trim();
-          if (content) {
-            const stat = fs.statSync(claudeMd);
-            memories.push({
-              type: 'project',
-              label: shortPath,
-              filename: 'CLAUDE.md',
-              filePath: claudeMd,
-              modified: stat.mtime.toISOString(),
-            });
+        // Use same 2-deep short path as Sessions tab (e.g. "dev/MyClaude")
+        const shortName = projectPath
+          ? projectPath.split('/').filter(Boolean).slice(-2).join('/')
+          : folderToShortPath(folder);
+        const files = [];
+        const seenPaths = new Set();
+
+        // 1. ~/.claude/projects/{folder}/ — claude-home .md files
+        const claudeHomeFiles = scanMdFiles(folderPath);
+        for (const f of claudeHomeFiles) {
+          files.push({ ...f, displayPath: '~/.claude', source: 'claude-home' });
+          seenPaths.add(f.filePath);
+        }
+        // memory/MEMORY.md
+        const memoryDir = path.join(folderPath, 'memory');
+        const memoryFiles = scanMdFiles(memoryDir);
+        for (const f of memoryFiles) {
+          files.push({ ...f, displayPath: '~/.claude', source: 'claude-home' });
+          seenPaths.add(f.filePath);
+        }
+
+        // 2. {projectPath}/ — project root CLAUDE.md, agents.md
+        if (projectPath) {
+          for (const name of ['CLAUDE.md', 'GEMINI.md', 'agents.md']) {
+            const fp = path.join(projectPath, name);
+            try {
+              if (fs.existsSync(fp)) {
+                const content = fs.readFileSync(fp, 'utf8').trim();
+                if (content && !seenPaths.has(fp)) {
+                  const stat = fs.statSync(fp);
+                  files.push({ filename: name, filePath: fp, modified: stat.mtime.toISOString(), displayPath: shortName + '/', source: 'project' });
+                  seenPaths.add(fp);
+                }
+              }
+            } catch {}
+          }
+
+          // 3. {projectPath}/.claude/ — commands/*.md and other .md files
+          const dotClaudeDir = path.join(projectPath, '.claude');
+          const dotClaudeFiles = scanMdFiles(dotClaudeDir);
+          for (const f of dotClaudeFiles) {
+            if (!seenPaths.has(f.filePath)) {
+              files.push({ ...f, displayPath: shortName + '/.claude/', source: 'project' });
+              seenPaths.add(f.filePath);
+            }
+          }
+          // commands/*.md
+          const commandsDir = path.join(dotClaudeDir, 'commands');
+          const commandFiles = scanMdFiles(commandsDir);
+          for (const f of commandFiles) {
+            if (!seenPaths.has(f.filePath)) {
+              files.push({ ...f, displayPath: shortName + '/.claude/commands/', source: 'project' });
+              seenPaths.add(f.filePath);
+            }
           }
         }
 
-        // memory/MEMORY.md in project folder
-        const memoryMd = path.join(folderPath, 'memory', 'MEMORY.md');
-        if (fs.existsSync(memoryMd)) {
-          const content = fs.readFileSync(memoryMd, 'utf8').trim();
-          if (content) {
-            const stat = fs.statSync(memoryMd);
-            memories.push({
-              type: 'auto',
-              label: shortPath,
-              filename: 'MEMORY.md',
-              filePath: memoryMd,
-              modified: stat.mtime.toISOString(),
-            });
-          }
+        if (files.length > 0) {
+          projects.push({ folder, projectPath: projectPath || '', shortName, files });
         }
       }
     }
@@ -1050,31 +1089,57 @@ ipcMain.handle('get-memories', () => {
     console.error('Error scanning memories:', err);
   }
 
-  // Index memories for FTS
+  // Sort projects by most recent file modified date
+  projects.sort((a, b) => {
+    const aMax = Math.max(...a.files.map(f => new Date(f.modified).getTime()));
+    const bMax = Math.max(...b.files.map(f => new Date(f.modified).getTime()));
+    return bMax - aMax;
+  });
+
+  const result = { global: { files: globalFiles }, projects };
+
+  // Index all files for FTS
   try {
     deleteSearchType('memory');
-    upsertSearchEntries(memories.map(m => ({
-      id: m.filePath, type: 'memory', folder: null,
-      title: m.label + ' ' + m.filename,
-      body: fs.readFileSync(m.filePath, 'utf8'),
+    const allFiles = [
+      ...globalFiles.map(f => ({ ...f, label: 'Global' })),
+      ...projects.flatMap(p => p.files.map(f => ({ ...f, label: p.shortName }))),
+    ];
+    upsertSearchEntries(allFiles.map(f => ({
+      id: f.filePath, type: 'memory', folder: null,
+      title: f.label + ' ' + f.filename,
+      body: fs.readFileSync(f.filePath, 'utf8'),
     })));
   } catch {}
 
-  return memories;
+  return result;
 });
 
 // --- IPC: read-memory ---
 ipcMain.handle('read-memory', (_event, filePath) => {
   try {
-    // Validate path is under ~/.claude/
     const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(CLAUDE_DIR)) {
-      return '';
-    }
+    // Allow paths under ~/.claude/ or any .md file that exists
+    if (!resolved.endsWith('.md')) return '';
+    if (!resolved.startsWith(CLAUDE_DIR) && !fs.existsSync(resolved)) return '';
     return fs.readFileSync(resolved, 'utf8');
   } catch (err) {
     console.error('Error reading memory file:', err);
     return '';
+  }
+});
+
+// --- IPC: save-memory ---
+ipcMain.handle('save-memory', (_event, filePath, content) => {
+  try {
+    const resolved = path.resolve(filePath);
+    if (!resolved.endsWith('.md')) return { ok: false, error: 'not a .md file' };
+    if (!fs.existsSync(resolved)) return { ok: false, error: 'file does not exist' };
+    fs.writeFileSync(resolved, content, 'utf8');
+    return { ok: true };
+  } catch (err) {
+    console.error('Error saving memory file:', err);
+    return { ok: false, error: err.message };
   }
 });
 
@@ -1371,7 +1436,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     projectPath, firstResize: true,
     projectFolder, knownJsonlFiles, sessionSlug,
     isPlainTerminal, forkFrom: sessionOptions?.forkFrom || null,
-    mcpServer,
+    mcpServer, _openedAt: Date.now(),
   };
   activeSessions.set(sessionId, session);
 
@@ -1389,13 +1454,18 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
           const firstChar = payload.charAt(0);
           const isBusy = firstChar.charCodeAt(0) >= 0x2800 && firstChar.charCodeAt(0) <= 0x28FF;
           const isIdle = firstChar === '\u2733'; // ✳
+          log.debug(`[OSC 0] session=${currentId} char=U+${firstChar.charCodeAt(0).toString(16).toUpperCase()} busy=${isBusy} idle=${isIdle} wasBusy=${!!session._cliBusy}`);
           if (isBusy && !session._cliBusy) {
             session._cliBusy = true;
+            session._oscIdle = false;
+            log.debug(`[OSC 0] session=${currentId} → BUSY`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, true);
             }
           } else if (isIdle && session._cliBusy) {
             session._cliBusy = false;
+            session._oscIdle = true;
+            log.debug(`[OSC 0] session=${currentId} → IDLE`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, false);
             }
@@ -1409,20 +1479,19 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         // OSC 9;4 progress: 4;0; = clear/done, 4;1;N = running at N%, 4;2;N = error, 4;3; = indeterminate
         if (payload.startsWith('4;')) {
           const level = payload.split(';')[1];
+          if (level === '0') continue; // 4;0 is unreliable, skip
+          log.debug(`[OSC 9;4] session=${currentId} level=${level} payload="${payload}" wasBusy=${!!session._cliBusy}`);
           if ((level === '1' || level === '2' || level === '3') && !session._cliBusy) {
             session._cliBusy = true;
+            session._oscIdle = false;
+            log.debug(`[OSC 9;4] session=${currentId} → BUSY`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, true);
-            }
-          } else if (level === '0' && session._cliBusy) {
-            session._cliBusy = false;
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('cli-busy-state', currentId, false);
             }
           }
         } else {
           // Regular notification (attention, permission, etc.)
-          log.debug(`[OSC 9] session=${currentId} message="${payload}"`);
+          log.info(`[OSC 9] session=${currentId} message="${payload}"`);
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('terminal-notification', currentId, payload);
           }
