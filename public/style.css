@@ -156,11 +156,19 @@ body { display: flex; flex-direction: column; }
   color: #555568;
   font-size: 13px;
   font-weight: 600;
-  padding: 6px 16px;
+  padding: 8px 12px;
   cursor: pointer;
   transition: all 0.15s;
   font-family: inherit;
   letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-tab svg {
+  width: 18px;
+  height: 18px;
 }
 
 .sidebar-tab:hover {
@@ -301,20 +309,29 @@ body { display: flex; flex-direction: column; }
 #sidebar-content {
   flex: 1;
   overflow-y: auto;
-  padding: 0 0 16px;
+  padding: 0 0 12px;
 }
 
 /* ---- Project groups ---- */
 .project-group {
-  margin-bottom: 0;
+  margin: 6px 8px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  overflow: hidden;
+  transition: background 0.15s, border-color 0.15s;
 }
 
-.project-group + .project-group {
-  margin-top: 6px;
+.project-group:first-child {
+  margin-top: 8px;
+}
+
+.project-group:hover {
+  border-color: rgba(255,255,255,0.10);
 }
 
 .project-header {
-  padding: 10px 16px;
+  padding: 10px 12px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -325,8 +342,7 @@ body { display: flex; flex-direction: column; }
   gap: 8px;
   user-select: none;
   transition: all 0.15s;
-  background: rgba(255,255,255,0.03);
-  border-top: 1px solid rgba(120,130,255,0.12);
+  background: transparent;
   margin: 0;
   position: sticky;
   top: 0;
@@ -335,12 +351,8 @@ body { display: flex; flex-direction: column; }
   -webkit-backdrop-filter: blur(8px);
 }
 
-.project-group:first-child .project-header {
-  border-top: none;
-}
-
 .project-header:hover {
-  background: rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.03);
   color: #d8d8f0;
 }
 
@@ -368,10 +380,13 @@ body { display: flex; flex-direction: column; }
   padding: 0;
   line-height: 1;
   transition: all 0.15s;
-  opacity: 1;
+  opacity: 0;
 }
 
-
+.project-header:hover .project-archive-btn,
+.project-header:hover .project-new-btn {
+  opacity: 1;
+}
 
 .project-new-btn:hover {
   background: rgba(100,220,120,0.1);
@@ -395,7 +410,7 @@ body { display: flex; flex-direction: column; }
 }
 
 .project-sessions {
-  padding: 2px 0;
+  padding: 0 0 4px;
 }
 
 .project-header.collapsed + .project-sessions {
@@ -2052,6 +2067,10 @@ body { display: flex; flex-direction: column; }
   padding: 0;
   line-height: 1;
   transition: all 0.15s;
+  opacity: 0;
+}
+
+.project-header:hover .project-settings-btn {
   opacity: 1;
 }
 
