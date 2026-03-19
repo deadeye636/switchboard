@@ -1046,7 +1046,7 @@ ipcMain.handle('get-memories', () => {
 
         // 2. {projectPath}/ — project root CLAUDE.md, agents.md
         if (projectPath) {
-          for (const name of ['CLAUDE.md', 'agents.md']) {
+          for (const name of ['CLAUDE.md', 'GEMINI.md', 'agents.md']) {
             const fp = path.join(projectPath, name);
             try {
               if (fs.existsSync(fp)) {

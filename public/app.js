@@ -1737,6 +1737,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     if (tabName === 'sessions') {
       sessionFilters.style.display = '';
       searchBar.style.display = '';
+      searchInput.placeholder = 'Search sessions...';
       sidebarContent.style.display = '';
       // Restore terminal area if a session is open
       hideAllViewers();
@@ -1750,6 +1751,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       }
     } else if (tabName === 'plans') {
       searchBar.style.display = '';
+      searchInput.placeholder = 'Search plans...';
       plansContent.style.display = '';
       loadPlans();
     } else if (tabName === 'stats') {
@@ -1764,6 +1766,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       loadStats();
     } else if (tabName === 'memory') {
       searchBar.style.display = '';
+      searchInput.placeholder = 'Search agent files...';
       memoryContent.style.display = '';
       loadMemories();
     }
