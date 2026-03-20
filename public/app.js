@@ -30,7 +30,7 @@ let currentPlanContent = '';
 let currentPlanFilePath = '';
 let currentPlanFilename = '';
 let planEditorView = null;
-let planPreviewMode = false;
+let planPreviewMode = localStorage.getItem('planPreviewMode') === 'true';
 const loadingStatus = document.getElementById('loading-status');
 const sessionFilters = document.getElementById('session-filters');
 const searchBar = document.getElementById('search-bar');
@@ -1883,9 +1883,9 @@ async function openPlan(plan) {
   planViewerTitle.textContent = plan.title;
   planViewerFilepath.textContent = currentPlanFilePath;
 
-  // Reset preview mode when switching files
+  // Reset to edit mode first so the editor can be updated
   if (planPreviewMode) {
-    planPreviewMode = toggleMarkdownPreview({
+    toggleMarkdownPreview({
       editorEl: planViewerEditorEl, previewEl: planViewerPreviewEl,
       toggleBtn: planPreviewBtn, editorView: planEditorView, isPreview: true,
     });
@@ -1898,6 +1898,14 @@ async function openPlan(plan) {
   planEditorView.dispatch({
     changes: { from: 0, to: planEditorView.state.doc.length, insert: currentPlanContent },
   });
+
+  // Apply saved preview preference
+  if (planPreviewMode) {
+    toggleMarkdownPreview({
+      editorEl: planViewerEditorEl, previewEl: planViewerPreviewEl,
+      toggleBtn: planPreviewBtn, editorView: planEditorView, isPreview: false,
+    });
+  }
 }
 
 // Plan toolbar button handlers
@@ -1926,7 +1934,7 @@ planSaveBtn.addEventListener('click', async () => {
   flashButtonText(planSaveBtn, 'Saved!');
 });
 
-function toggleMarkdownPreview({ editorEl, previewEl, toggleBtn, editorView, isPreview }) {
+function toggleMarkdownPreview({ editorEl, previewEl, toggleBtn, editorView, isPreview, storageKey }) {
   if (!isPreview) {
     const content = editorView ? editorView.state.doc.toString() : '';
     previewEl.innerHTML = window.marked.parse(content);
@@ -1934,12 +1942,14 @@ function toggleMarkdownPreview({ editorEl, previewEl, toggleBtn, editorView, isP
     previewEl.style.display = 'block';
     toggleBtn.textContent = 'Edit';
     toggleBtn.classList.add('active');
+    if (storageKey) localStorage.setItem(storageKey, 'true');
     return true;
   } else {
     previewEl.style.display = 'none';
     editorEl.style.display = '';
     toggleBtn.textContent = 'Preview';
     toggleBtn.classList.remove('active');
+    if (storageKey) localStorage.setItem(storageKey, 'false');
     return false;
   }
 }
@@ -1951,6 +1961,7 @@ planPreviewBtn.addEventListener('click', () => {
     toggleBtn: planPreviewBtn,
     editorView: planEditorView,
     isPreview: planPreviewMode,
+    storageKey: 'planPreviewMode',
   });
 });
 
@@ -2561,7 +2572,7 @@ let cachedMemoryData = { global: { files: [] }, projects: [] };
 let memoryEditorView = null;
 let currentMemoryFilePath = null;
 let currentMemoryContent = '';
-let memoryPreviewMode = false;
+let memoryPreviewMode = localStorage.getItem('memoryPreviewMode') === 'true';
 const memoryCollapsedState = new Map(); // key → boolean (true = collapsed)
 
 async function loadMemories() {
@@ -2701,9 +2712,9 @@ async function openMemory(file) {
   memoryViewerTitle.textContent = file.filename;
   memoryViewerFilename.textContent = file.filePath;
 
-  // Reset preview mode when switching files
+  // Reset to edit mode first so the editor can be updated
   if (memoryPreviewMode) {
-    memoryPreviewMode = toggleMarkdownPreview({
+    toggleMarkdownPreview({
       editorEl: memoryViewerEditorEl, previewEl: memoryViewerPreviewEl,
       toggleBtn: memoryPreviewBtn, editorView: memoryEditorView, isPreview: true,
     });
@@ -2716,6 +2727,14 @@ async function openMemory(file) {
   memoryEditorView.dispatch({
     changes: { from: 0, to: memoryEditorView.state.doc.length, insert: content },
   });
+
+  // Apply saved preview preference
+  if (memoryPreviewMode) {
+    toggleMarkdownPreview({
+      editorEl: memoryViewerEditorEl, previewEl: memoryViewerPreviewEl,
+      toggleBtn: memoryPreviewBtn, editorView: memoryEditorView, isPreview: false,
+    });
+  }
 }
 
 // Memory toolbar handlers
@@ -2745,6 +2764,7 @@ memoryPreviewBtn.addEventListener('click', () => {
     toggleBtn: memoryPreviewBtn,
     editorView: memoryEditorView,
     isPreview: memoryPreviewMode,
+    storageKey: 'memoryPreviewMode',
   });
 });
 
