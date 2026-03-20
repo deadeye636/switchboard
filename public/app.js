@@ -58,6 +58,9 @@ const jsonlViewer = document.getElementById('jsonl-viewer');
 const jsonlViewerTitle = document.getElementById('jsonl-viewer-title');
 const jsonlViewerSessionId = document.getElementById('jsonl-viewer-session-id');
 const jsonlViewerBody = document.getElementById('jsonl-viewer-body');
+const gridViewer = document.getElementById('grid-viewer');
+const gridViewerCount = document.getElementById('grid-viewer-count');
+let gridViewActive = localStorage.getItem('gridViewActive') === '1';
 
 // Map<sessionId, { terminal, element, fitAddon, session, closed }>
 const openSessions = new Map();
@@ -163,6 +166,13 @@ function clearUnread(sessionId) {
   }
 }
 
+function clearNotifications(sessionId) {
+  clearUnread(sessionId);
+  attentionSessions.delete(sessionId);
+  const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+  if (item) item.classList.remove('needs-attention');
+}
+
 // --- Terminal themes ---
 const TERMINAL_THEMES = {
   switchboard: {
@@ -222,6 +232,11 @@ let TERMINAL_THEME = getTerminalTheme();
 //   2. preventDefault on capture-phase keydown — prevents browser inserting \n into textarea
 function setupTerminalKeyBindings(terminal, container, getSessionId) {
   terminal.attachCustomKeyEventHandler((e) => {
+    // Cmd/Ctrl+Shift+G → toggle grid overview
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'G') {
+      if (e.type === 'keydown') toggleGridView();
+      return false;
+    }
     if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       if (e.type === 'keydown') {
         window.api.sendInput(getSessionId(), '\x1b[13;2u');
@@ -247,6 +262,27 @@ function setupTerminalKeyBindings(terminal, container, getSessionId) {
 function isAtBottom(terminal) {
   const buf = terminal.buffer.active;
   return buf.viewportY >= buf.baseY;
+}
+
+// Fit a terminal that just became visible (from display:none or reparent).
+// Defers to requestAnimationFrame so the container has dimensions, forces a
+// resize cycle to re-sync xterm's viewport scroll-area, then scrolls to bottom.
+function fitAndScroll(entry) {
+  // Capture scroll position before any layout changes
+  const wasAtBottom = isAtBottom(entry.terminal);
+  requestAnimationFrame(() => {
+    const prevCols = entry.terminal.cols;
+    const prevRows = entry.terminal.rows;
+    entry.fitAddon.fit();
+    // Force resize cycle to re-sync viewport when dimensions didn't change
+    if (entry.terminal.cols === prevCols && entry.terminal.rows === prevRows && prevRows > 1) {
+      entry.terminal.resize(prevCols, prevRows - 1);
+      entry.terminal.resize(prevCols, prevRows);
+    }
+    if (wasAtBottom) {
+      requestAnimationFrame(() => entry.terminal.scrollToBottom());
+    }
+  });
 }
 
 // --- IPC listeners from main process ---
@@ -351,14 +387,13 @@ window.api.onProcessExited((sessionId, exitCode) => {
     entry.closed = true;
   }
 
-  // Clean up terminal UI on exit
+  // Clean up terminal UI on exit (uses destroySession to handle grid cards too)
   if (entry) {
-    window.api.closeTerminal(sessionId);
-    entry.terminal.dispose();
-    entry.element.remove();
-    openSessions.delete(sessionId);
+    destroySession(sessionId);
   }
-  if (activeSessionId === sessionId) {
+  if (gridViewActive) {
+    gridViewerCount.textContent = gridCards.size + ' session' + (gridCards.size !== 1 ? 's' : '');
+  } else if (activeSessionId === sessionId) {
     setActiveSession(null);
     terminalHeader.style.display = 'none';
     placeholder.style.display = '';
@@ -594,6 +629,15 @@ function updateRunningIndicators() {
     const dot = group.querySelector('.slug-group-dot');
     if (dot) dot.classList.toggle('running', hasRunning);
   });
+  // Update grid card dots and status text
+  for (const [sid, card] of gridCards) {
+    const running = activePtyIds.has(sid);
+    const busy = sessionBusyState.get(sid) || false;
+    const dot = card.querySelector('.grid-card-dot');
+    if (dot) dot.className = 'grid-card-dot ' + (busy ? 'busy' : (running ? 'running' : 'stopped'));
+    const footer = card.querySelector('.grid-card-footer');
+    if (footer) footer.children[0].textContent = running ? 'Running' : 'Stopped';
+  }
 }
 
 function updateTerminalHeader() {
@@ -1199,7 +1243,7 @@ function rebindSidebarEvents(projects) {
         e.stopPropagation();
         await window.api.stopSession(session.sessionId);
         activePtyIds.delete(session.sessionId);
-        if (activeSessionId === session.sessionId) {
+        if (!gridViewActive && activeSessionId === session.sessionId) {
           setActiveSession(null);
           terminalHeader.style.display = 'none';
           placeholder.style.display = '';
@@ -1428,89 +1472,18 @@ async function launchNewSession(project, sessionOptions) {
   }
   refreshSidebar();
 
-  // Update sidebar
-  document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
-  const item = document.querySelector(`[data-session-id="${sessionId}"]`);
-  if (item) item.classList.add('active');
-  document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('visible'));
-  placeholder.style.display = 'none';
-  hidePlanViewer();
-  setActiveSession(sessionId);
-  showTerminalHeader(session);
-
-  // Create terminal
-  const container = document.createElement('div');
-  container.className = 'terminal-container visible';
-  terminalsEl.appendChild(container);
-
-  const terminal = new Terminal({
-    fontSize: 12,
-    fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
-    theme: TERMINAL_THEME,
-    cursorBlink: true,
-    scrollback: 10000,
-    convertEol: true,
-    linkHandler: {
-      activate: (_event, uri) => {
-        if (uri.startsWith('file://') && typeof openFileInPanel === 'function') {
-          try { openFileInPanel(sessionId, decodeURIComponent(new URL(uri).pathname)); } catch {}
-        } else {
-          window.api.openExternal(uri);
-        }
-      },
-      allowNonHttpProtocols: true,
-    },
-  });
-
-  const fitAddon = new FitAddon.FitAddon();
-  terminal.loadAddon(fitAddon);
-  terminal.loadAddon(new WebLinksAddon.WebLinksAddon((_event, url) => {
-    if (url.startsWith('file://') && typeof openFileInPanel === 'function') {
-      try { openFileInPanel(sessionId, decodeURIComponent(new URL(url).pathname)); } catch {}
-    } else {
-      window.api.openExternal(url);
-    }
-  }));
-  terminal.open(container);
-  fitAddon.fit();
-
-  const entry = { terminal, element: container, fitAddon, session, closed: false };
-  openSessions.set(sessionId, entry);
-
-  // Wire up terminal input/resize via IPC
-  terminal.onData(data => {
-    if (data === '\x1b[I' || data === '\x1b[O') return; // suppress focus reports — stops Claude braille spinner
-    window.api.sendInput(session.sessionId, data);
-  });
-  setupTerminalKeyBindings(terminal, container, () => session.sessionId);
-  setupDragAndDrop(container, () => session.sessionId);
-
-  terminal.onResize(({ cols, rows }) => {
-    window.api.resizeTerminal(session.sessionId, cols, rows);
-  });
-
-  terminal.onTitleChange(title => {
-    entry.ptyTitle = title;
-    if (activeSessionId === session.sessionId) updatePtyTitle();
-  });
-
-  terminal.onBell(() => {
-    trackActivity(session.sessionId, '\x07');
-  });
+  const entry = createTerminalEntry(session);
 
   // Open terminal in main process with session options
   const result = await window.api.openTerminal(sessionId, projectPath, true, sessionOptions || null);
   if (!result.ok) {
-    terminal.write(`\r\nError: ${result.error}\r\n`);
+    entry.terminal.write(`\r\nError: ${result.error}\r\n`);
     entry.closed = true;
     return;
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
-  // Send initial resize
-  window.api.resizeTerminal(sessionId, terminal.cols, terminal.rows);
-
-  terminal.focus();
+  showSession(sessionId);
   pollActiveSessions();
 }
 
@@ -1543,65 +1516,14 @@ async function showTerminalHeader(session) {
   }
 }
 
-async function openSession(session) {
-  const { sessionId, projectPath } = session;
+// --- Shared terminal lifecycle helpers ---
 
-  // Update sidebar active state
-  document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
-  const item = document.querySelector(`[data-session-id="${sessionId}"]`);
-  if (item) item.classList.add('active');
-
-  // Hide all terminal containers and plan viewer
-  document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('visible'));
-  placeholder.style.display = 'none';
-  hidePlanViewer();
-  setActiveSession(sessionId);
-  clearUnread(sessionId);
-  attentionSessions.delete(sessionId);
-  const attentionItem = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-  if (attentionItem) attentionItem.classList.remove('needs-attention');
-  showTerminalHeader(session);
-
-  if (openSessions.has(sessionId)) {
-    const entry = openSessions.get(sessionId);
-    if (entry.closed) {
-      window.api.closeTerminal(sessionId);
-      entry.terminal.dispose();
-      entry.element.remove();
-      openSessions.delete(sessionId);
-      // Terminal sessions re-spawn fresh
-      if (session.type === 'terminal') {
-        launchTerminalSession({ projectPath: session.projectPath });
-        return;
-      }
-    } else {
-      entry.element.classList.add('visible');
-      entry.terminal.focus();
-      // Defer fit — the container just went from display:none to display:block,
-      // so the viewport has no dimensions yet.
-      requestAnimationFrame(() => {
-        const prevCols = entry.terminal.cols;
-        const prevRows = entry.terminal.rows;
-        entry.fitAddon.fit();
-        // fitAddon.fit() skips resize() when dimensions are unchanged, but
-        // xterm's viewport scroll-area can be stale if data was written while
-        // the terminal was display:none.  This causes scrollbar corruption
-        // when the user scrolls.  Force a resize cycle to re-sync the viewport.
-        if (entry.terminal.cols === prevCols && entry.terminal.rows === prevRows && prevRows > 1) {
-          entry.terminal.resize(prevCols, prevRows - 1);
-          entry.terminal.resize(prevCols, prevRows);
-        }
-        if (isAtBottom(entry.terminal)) {
-          requestAnimationFrame(() => entry.terminal.scrollToBottom());
-        }
-      });
-      return;
-    }
-  }
-
-  // Create new terminal
+// Create an xterm instance, wire up IPC, and register in openSessions.
+// Returns the entry. Does NOT make it visible or fit it — call showSession() for that.
+function createTerminalEntry(session) {
+  const { sessionId } = session;
   const container = document.createElement('div');
-  container.className = 'terminal-container visible';
+  container.className = 'terminal-container';
   terminalsEl.appendChild(container);
 
   const terminal = new Terminal({
@@ -1633,51 +1555,130 @@ async function openSession(session) {
     }
   }));
   terminal.open(container);
-  fitAddon.fit();
 
   const entry = { terminal, element: container, fitAddon, session, closed: false };
   openSessions.set(sessionId, entry);
 
-  // Wire up terminal input/resize via IPC (use entry.session.sessionId so fork re-keying works)
+  // Wire up IPC (use entry.session.sessionId so fork re-keying works)
   terminal.onData(data => {
-    if (data === '\x1b[I' || data === '\x1b[O') return; // suppress focus reports — stops Claude braille spinner
+    if (data === '\x1b[I' || data === '\x1b[O') return;
     window.api.sendInput(entry.session.sessionId, data);
   });
   setupTerminalKeyBindings(terminal, container, () => entry.session.sessionId);
   setupDragAndDrop(container, () => entry.session.sessionId);
-
   terminal.onResize(({ cols, rows }) => {
     window.api.resizeTerminal(entry.session.sessionId, cols, rows);
   });
-
   terminal.onTitleChange(title => {
     entry.ptyTitle = title;
     if (activeSessionId === entry.session.sessionId) updatePtyTitle();
   });
-
   terminal.onBell(() => {
     trackActivity(entry.session.sessionId, '\x07');
   });
 
-  // Open terminal in main process with resolved default settings
+  return entry;
+}
+
+// Clean up a closed session entry (dispose terminal, remove DOM, remove from maps).
+function destroySession(sessionId) {
+  const entry = openSessions.get(sessionId);
+  if (!entry) return;
+  window.api.closeTerminal(sessionId);
+  entry.terminal.dispose();
+  entry.element.remove();
+  openSessions.delete(sessionId);
+  const card = gridCards.get(sessionId);
+  if (card) { card.remove(); gridCards.delete(sessionId); }
+}
+
+// Make a session visible in the current view mode (grid or single).
+// Handles sidebar highlight, notifications, header, fit, and focus.
+function showSession(sessionId) {
+  const entry = openSessions.get(sessionId);
+  const session = sessionMap.get(sessionId) || (entry && entry.session);
+
+  // Update sidebar active state
+  document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
+  const item = document.querySelector(`[data-session-id="${sessionId}"]`);
+  if (item) item.classList.add('active');
+  setActiveSession(sessionId);
+  clearNotifications(sessionId);
+
+  if (gridViewActive) {
+    // Ensure grid layout is set up (e.g. on first session after startup restore)
+    if (!terminalsEl.classList.contains('grid-layout')) {
+      showGridView();
+    }
+    if (entry && gridCards.has(sessionId)) {
+      // Already in grid — just focus it
+      focusGridCard(sessionId);
+    } else if (entry) {
+      // New entry not yet in grid — wrap and focus
+      wrapInGridCard(sessionId);
+      fitAndScroll(entry);
+      requestAnimationFrame(() => focusGridCard(sessionId));
+      gridViewerCount.textContent = gridCards.size + ' session' + (gridCards.size !== 1 ? 's' : '');
+    }
+  } else {
+    // Single terminal view
+    document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('visible'));
+    placeholder.style.display = 'none';
+    hidePlanViewer();
+    if (session) showTerminalHeader(session);
+    if (entry) {
+      entry.element.classList.add('visible');
+      entry.terminal.focus();
+      fitAndScroll(entry);
+    }
+  }
+}
+
+// --- End shared terminal lifecycle helpers ---
+
+async function openSession(session) {
+  const { sessionId, projectPath } = session;
+
+  // If already open, handle closed-session cleanup or just show it
+  if (openSessions.has(sessionId)) {
+    const entry = openSessions.get(sessionId);
+    if (entry.closed) {
+      destroySession(sessionId);
+      if (session.type === 'terminal') {
+        launchTerminalSession({ projectPath: session.projectPath });
+        return;
+      }
+    } else {
+      showSession(sessionId);
+      return;
+    }
+  }
+
+  // Create new terminal entry (hidden until showSession)
+  const entry = createTerminalEntry(session);
+
+  // Open terminal in main process
   const resumeOptions = await resolveDefaultSessionOptions({ projectPath });
   const result = await window.api.openTerminal(sessionId, projectPath, false, resumeOptions);
   if (!result.ok) {
-    terminal.write(`\r\nError: ${result.error}\r\n`);
+    entry.terminal.write(`\r\nError: ${result.error}\r\n`);
     entry.closed = true;
     return;
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
-  // Send initial resize
-  window.api.resizeTerminal(sessionId, terminal.cols, terminal.rows);
-
-  terminal.focus();
+  showSession(sessionId);
   pollActiveSessions();
 }
 
 // Handle window resize
 window.addEventListener('resize', () => {
+  if (gridViewActive) {
+    for (const entry of openSessions.values()) {
+      fitAndScroll(entry);
+    }
+    return;
+  }
   if (activeSessionId && openSessions.has(activeSessionId)) {
     const entry = openSessions.get(activeSessionId);
     entry.fitAddon.fit();
@@ -1770,9 +1771,19 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       searchBar.style.display = '';
       searchInput.placeholder = 'Search sessions...';
       sidebarContent.style.display = '';
-      // Restore terminal area if a session is open
+      // Restore terminal area
       hideAllViewers();
-      if (!activeSessionId) {
+      if (gridViewActive) {
+        // Grid is still set up — just re-show it and refit
+        placeholder.style.display = 'none';
+        terminalHeader.style.display = 'none';
+        gridViewer.style.display = 'block';
+        for (const entry of openSessions.values()) {
+          if (!entry.closed) fitAndScroll(entry);
+        }
+      } else if (activeSessionId && openSessions.has(activeSessionId)) {
+        showSession(activeSessionId);
+      } else {
         placeholder.style.display = '';
       }
       // Catch up on changes that happened while on another tab
@@ -1976,6 +1987,266 @@ function hideAllViewers() {
 
 function hidePlanViewer() {
   hideAllViewers();
+}
+
+// --- Session Grid Overview ---
+// No reparenting — terminals stay in #terminals. We wrap each terminal container
+// with an in-place card overlay (header/footer) and switch #terminals to grid layout.
+
+let gridCards = new Map(); // sessionId → card wrapper element
+let gridFocusedSessionId = null;
+
+function wrapInGridCard(sessionId) {
+  const entry = openSessions.get(sessionId);
+  const session = sessionMap.get(sessionId) || (entry && entry.session);
+  if (!session || !entry) return;
+
+  const displayName = cleanDisplayName(session.name || session.summary) || sessionId;
+  const shortProject = session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '';
+
+  // Create card wrapper
+  const card = document.createElement('div');
+  card.className = 'grid-card';
+  card.dataset.sessionId = sessionId;
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'grid-card-header';
+  const dot = document.createElement('span');
+  dot.className = 'grid-card-dot';
+  header.appendChild(dot);
+  const name = document.createElement('span');
+  name.className = 'grid-card-name';
+  name.textContent = displayName;
+  header.appendChild(name);
+  const project = document.createElement('span');
+  project.className = 'grid-card-project';
+  project.textContent = shortProject;
+  header.appendChild(project);
+
+  // Footer
+  const footer = document.createElement('div');
+  footer.className = 'grid-card-footer';
+  const statusSpan = document.createElement('span');
+  const timeSpan = document.createElement('span');
+  timeSpan.textContent = formatDate(lastActivityTime.get(sessionId) || new Date(session.modified));
+  footer.appendChild(statusSpan);
+  footer.appendChild(timeSpan);
+
+  // Build the card DOM
+  card.appendChild(header);
+  entry.element.classList.add('visible', 'grid-mode');
+  card.appendChild(entry.element);
+  card.appendChild(footer);
+
+  // Insert card into the correct project group in the grid
+  if (gridViewActive) {
+    const pp = session.projectPath || '';
+    // Find or create the project heading for this session
+    let targetHeading = null;
+    for (const h of terminalsEl.querySelectorAll('.grid-project-heading')) {
+      if (h.dataset.projectPath === pp) { targetHeading = h; break; }
+    }
+    if (!targetHeading) {
+      targetHeading = document.createElement('div');
+      targetHeading.className = 'grid-project-heading';
+      targetHeading.dataset.projectPath = pp;
+      targetHeading.textContent = pp ? pp.split('/').filter(Boolean).slice(-2).join('/') : 'Other';
+      // Insert heading in sortedOrder position
+      const orderIndex = new Map(sortedOrder.map((e, i) => [e.projectPath, i]));
+      const myIdx = orderIndex.get(pp);
+      let inserted = false;
+      if (myIdx !== undefined) {
+        for (const h of terminalsEl.querySelectorAll('.grid-project-heading')) {
+          const hIdx = orderIndex.get(h.dataset.projectPath);
+          if (hIdx !== undefined && hIdx > myIdx) {
+            terminalsEl.insertBefore(targetHeading, h);
+            inserted = true;
+            break;
+          }
+        }
+      }
+      if (!inserted) terminalsEl.appendChild(targetHeading);
+    }
+    // Insert card after the heading and any existing cards in this group
+    // (find next heading or end of container)
+    let insertBefore = targetHeading.nextSibling;
+    while (insertBefore && !insertBefore.classList.contains('grid-project-heading')) {
+      insertBefore = insertBefore.nextSibling;
+    }
+    terminalsEl.insertBefore(card, insertBefore);
+  } else {
+    // Not in grid view — just place where the terminal container was
+    terminalsEl.appendChild(card);
+  }
+
+  // Click header or footer to focus
+  header.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    focusGridCard(sessionId);
+  });
+  // Double-click header to switch to full terminal view
+  header.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    gridFocusedSessionId = sessionId;
+    toggleGridView();
+  });
+  footer.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    focusGridCard(sessionId);
+  });
+
+  // Clicking/focusing the terminal area also selects the card
+  entry.element.addEventListener('focusin', () => {
+    if (gridViewActive && gridFocusedSessionId !== sessionId) {
+      focusGridCard(sessionId);
+    }
+  });
+
+  gridCards.set(sessionId, card);
+  // Set initial status from the single source of truth
+  updateRunningIndicators();
+}
+
+function unwrapGridCards() {
+  for (const [sid, card] of gridCards) {
+    const entry = openSessions.get(sid);
+    if (entry) {
+      entry.element.classList.remove('grid-mode', 'visible');
+      // Move terminal container back out of the card, before the card
+      card.parentNode.insertBefore(entry.element, card);
+    }
+    card.remove();
+  }
+  gridCards.clear();
+  // Remove project headings inserted by showGridView
+  terminalsEl.querySelectorAll('.grid-project-heading').forEach(el => el.remove());
+}
+
+function focusGridCard(sessionId) {
+  gridFocusedSessionId = sessionId;
+  setActiveSession(sessionId);
+  clearNotifications(sessionId);
+  // Update sidebar active highlight
+  document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
+  const sidebarItem = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+  if (sidebarItem) sidebarItem.classList.add('active');
+  // Update visual focus
+  document.querySelectorAll('.grid-card').forEach(c => c.classList.remove('focused'));
+  const card = gridCards.get(sessionId);
+  if (card) card.classList.add('focused');
+  const entry = openSessions.get(sessionId);
+  if (entry) entry.terminal.focus();
+}
+
+function showGridView() {
+  gridViewActive = true;
+  localStorage.setItem('gridViewActive', '1');
+  placeholder.style.display = 'none';
+  terminalHeader.style.display = 'none';
+
+  // Hide other viewers but keep terminal-area visible
+  planViewer.style.display = 'none';
+  statsViewer.style.display = 'none';
+  memoryViewer.style.display = 'none';
+  settingsViewer.style.display = 'none';
+  jsonlViewer.style.display = 'none';
+  terminalArea.style.display = '';
+
+  // Switch #terminals to grid layout
+  terminalsEl.classList.add('grid-layout');
+
+  // Collect open (non-closed) session IDs
+  const openSet = new Set();
+  for (const [sid, entry] of openSessions) {
+    if (!entry.closed) openSet.add(sid);
+  }
+
+  // Use cachedProjects sorted by sortedOrder — same grouping & order as sidebar
+  let projects = [...cachedProjects];
+  if (sortedOrder.length > 0) {
+    const orderIndex = new Map(sortedOrder.map((e, i) => [e.projectPath, i]));
+    projects.sort((a, b) => {
+      const aPos = orderIndex.get(a.projectPath);
+      const bPos = orderIndex.get(b.projectPath);
+      if (aPos !== undefined && bPos !== undefined) return aPos - bPos;
+      if (aPos === undefined && bPos !== undefined) return -1;
+      if (aPos !== undefined && bPos === undefined) return 1;
+      return 0;
+    });
+  }
+
+  // Hide all terminals first, then wrap each group with a heading + cards
+  document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('visible'));
+  const sessionIds = [];
+  for (const project of projects) {
+    const openInProject = project.sessions
+      .filter(s => openSet.has(s.sessionId))
+      .sort((a, b) => {
+        const aRun = activePtyIds.has(a.sessionId) ? 1 : 0;
+        const bRun = activePtyIds.has(b.sessionId) ? 1 : 0;
+        if (aRun !== bRun) return bRun - aRun;
+        const aTime = (lastActivityTime.get(a.sessionId) || new Date(0)).getTime();
+        const bTime = (lastActivityTime.get(b.sessionId) || new Date(0)).getTime();
+        return bTime - aTime;
+      });
+    if (openInProject.length === 0) continue;
+    // Add project heading
+    const heading = document.createElement('div');
+    heading.className = 'grid-project-heading';
+    heading.dataset.projectPath = project.projectPath;
+    heading.textContent = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
+    terminalsEl.appendChild(heading);
+    // Add cards for this project
+    for (const s of openInProject) {
+      wrapInGridCard(s.sessionId);
+      sessionIds.push(s.sessionId);
+    }
+  }
+
+  // Show grid header bar with session count
+  gridViewer.style.display = 'block';
+  gridViewerCount.textContent = sessionIds.length + ' session' + (sessionIds.length !== 1 ? 's' : '');
+
+  const btn = document.getElementById('grid-toggle-btn');
+  if (btn) btn.classList.add('active');
+
+  // Fit all terminals after layout resolves
+  for (const sid of sessionIds) {
+    const entry = openSessions.get(sid);
+    if (entry) fitAndScroll(entry);
+  }
+  // Focus active or first (deferred so fitAndScroll's rAF runs first)
+  requestAnimationFrame(() => {
+    const toFocus = activeSessionId && sessionIds.includes(activeSessionId) ? activeSessionId : sessionIds[0];
+    if (toFocus) focusGridCard(toFocus);
+  });
+}
+
+function hideGridView() {
+  gridViewActive = false;
+  localStorage.setItem('gridViewActive', '0');
+  unwrapGridCards();
+  terminalsEl.classList.remove('grid-layout');
+  gridViewer.style.display = 'none';
+  const btn = document.getElementById('grid-toggle-btn');
+  if (btn) btn.classList.remove('active');
+}
+
+function toggleGridView() {
+  if (gridViewActive) {
+    const restoreId = gridFocusedSessionId || activeSessionId;
+    hideGridView();
+    gridFocusedSessionId = null;
+    if (restoreId && openSessions.has(restoreId)) {
+      showSession(restoreId);
+    } else {
+      placeholder.style.display = '';
+    }
+  } else {
+    terminalHeader.style.display = 'none';
+    showGridView();
+  }
 }
 
 // --- JSONL Message History Viewer ---
@@ -2874,83 +3145,16 @@ async function launchTerminalSession(project) {
   }
   refreshSidebar();
 
-  // Update sidebar
-  document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
-  const item = document.querySelector(`[data-session-id="${sessionId}"]`);
-  if (item) item.classList.add('active');
-  document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('visible'));
-  placeholder.style.display = 'none';
-  hidePlanViewer();
-  setActiveSession(sessionId);
-  showTerminalHeader(session);
-
-  // Create terminal
-  const container = document.createElement('div');
-  container.className = 'terminal-container visible';
-  terminalsEl.appendChild(container);
-
-  const terminal = new Terminal({
-    fontSize: 12,
-    fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
-    theme: TERMINAL_THEME,
-    cursorBlink: true,
-    scrollback: 10000,
-    convertEol: true,
-    linkHandler: {
-      activate: (_event, uri) => {
-        if (uri.startsWith('file://') && typeof openFileInPanel === 'function') {
-          try { openFileInPanel(sessionId, decodeURIComponent(new URL(uri).pathname)); } catch {}
-        } else {
-          window.api.openExternal(uri);
-        }
-      },
-      allowNonHttpProtocols: true,
-    },
-  });
-
-  const fitAddon = new FitAddon.FitAddon();
-  terminal.loadAddon(fitAddon);
-  terminal.loadAddon(new WebLinksAddon.WebLinksAddon((_event, url) => {
-    if (url.startsWith('file://') && typeof openFileInPanel === 'function') {
-      try { openFileInPanel(sessionId, decodeURIComponent(new URL(url).pathname)); } catch {}
-    } else {
-      window.api.openExternal(url);
-    }
-  }));
-  terminal.open(container);
-  fitAddon.fit();
-
-  const entry = { terminal, element: container, fitAddon, session, closed: false };
-  openSessions.set(sessionId, entry);
-
-  terminal.onData(data => {
-    if (data === '\x1b[I' || data === '\x1b[O') return; // suppress focus reports — stops Claude braille spinner
-    window.api.sendInput(session.sessionId, data);
-  });
-  setupTerminalKeyBindings(terminal, container, () => session.sessionId);
-  setupDragAndDrop(container, () => session.sessionId);
-
-  terminal.onResize(({ cols, rows }) => {
-    window.api.resizeTerminal(session.sessionId, cols, rows);
-  });
-
-  terminal.onTitleChange(title => {
-    entry.ptyTitle = title;
-    if (activeSessionId === session.sessionId) updatePtyTitle();
-  });
-
-  terminal.onBell(() => {
-    trackActivity(session.sessionId, '\x07');
-  });
+  const entry = createTerminalEntry(session);
 
   const result = await window.api.openTerminal(sessionId, projectPath, true, { type: 'terminal' });
   if (!result.ok) {
-    terminal.write(`\r\nError: ${result.error}\r\n`);
+    entry.terminal.write(`\r\nError: ${result.error}\r\n`);
     entry.closed = true;
     return;
   }
-  window.api.resizeTerminal(sessionId, terminal.cols, terminal.rows);
-  terminal.focus();
+
+  showSession(sessionId);
   pollActiveSessions();
 }
 
@@ -3514,7 +3718,7 @@ function showAddProjectDialog() {
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     // Refit active terminal
-    if (activeSessionId && openSessions.has(activeSessionId)) {
+    if (!gridViewActive && activeSessionId && openSessions.has(activeSessionId)) {
       const entry = openSessions.get(activeSessionId);
       entry.fitAddon.fit();
     }
@@ -3529,6 +3733,26 @@ function showAddProjectDialog() {
     }
   });
 }
+
+// --- Grid view toggle button (next to resort button in sidebar filters) ---
+{
+  const gridToggleBtn = document.createElement('button');
+  gridToggleBtn.id = 'grid-toggle-btn';
+  gridToggleBtn.title = 'Session overview (⌘⇧G)';
+  gridToggleBtn.innerHTML = '<svg width="14" height="14" stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>';
+  gridToggleBtn.addEventListener('click', toggleGridView);
+  // Insert next to the resort button
+  resortBtn.parentElement.insertBefore(gridToggleBtn, resortBtn);
+}
+
+// --- Global keyboard shortcuts ---
+document.addEventListener('keydown', (e) => {
+  // Cmd/Ctrl+Shift+G → toggle grid overview
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'G') {
+    e.preventDefault();
+    toggleGridView();
+  }
+});
 
 // Warm up xterm.js renderer so first terminal open is fast
 setTimeout(() => {
@@ -3568,6 +3792,10 @@ setTimeout(() => {
 })();
 
 loadProjects().then(() => {
+  // Restore grid view preference before opening sessions so they enter grid mode
+  if (localStorage.getItem('gridViewActive') === '1') {
+    showGridView();
+  }
   // Restore active session after reload
   if (activeSessionId && !openSessions.has(activeSessionId)) {
     const session = sessionMap.get(activeSessionId);
@@ -3647,7 +3875,8 @@ const updaterHandler = (type, data) => {
       if (dismissed === data.version) return;
       const toast = document.getElementById('update-toast');
       const msg = document.getElementById('update-toast-msg');
-      msg.innerHTML = `New Version Ready<br><span class="update-version">v${data.version}</span> (<a href="https://github.com/doctly/switchboard/releases" target="_blank" class="update-notes-link">release notes</a>)`;
+      const notice = (data.releaseName && data.releaseName !== `v${data.version}` && data.releaseName !== data.version) ? `<span class="update-summary">${escapeHtml(data.releaseName)}</span>` : '';
+      msg.innerHTML = `New Version Ready<br><span class="update-version">v${data.version}</span> (<a href="https://github.com/doctly/switchboard/releases" target="_blank" class="update-notes-link">release notes</a>)${notice}`;
       toast.classList.remove('hidden');
       document.getElementById('update-restart-btn').onclick = () => window.api.updaterInstall();
       document.getElementById('update-dismiss-btn').onclick = () => {
