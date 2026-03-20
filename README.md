@@ -29,7 +29,7 @@ Toggle the grid overview from the sidebar for a bird's-eye view of all your open
 - **Click to focus, double-click to expand** — Click a card header to focus it; double-click to switch back to single-terminal view for that session.
 - **Persistent** — Grid preference is saved across restarts.
 
-## IDE Emulation
+## File Preview Side Panel & Claude IDE MCP Emulator
 
 Switchboard can act as an IDE for your Claude Code sessions. When enabled, Claude's file opens and proposed edits appear in a side panel next to the terminal instead of being sent to an external editor.
 
