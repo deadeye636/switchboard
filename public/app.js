@@ -232,11 +232,6 @@ let TERMINAL_THEME = getTerminalTheme();
 //   2. preventDefault on capture-phase keydown — prevents browser inserting \n into textarea
 function setupTerminalKeyBindings(terminal, container, getSessionId) {
   terminal.attachCustomKeyEventHandler((e) => {
-    // Cmd/Ctrl+Shift+G → toggle grid overview
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'G') {
-      if (e.type === 'keydown') toggleGridView();
-      return false;
-    }
     if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       if (e.type === 'keydown') {
         window.api.sendInput(getSessionId(), '\x1b[13;2u');
@@ -3738,21 +3733,12 @@ function showAddProjectDialog() {
 {
   const gridToggleBtn = document.createElement('button');
   gridToggleBtn.id = 'grid-toggle-btn';
-  gridToggleBtn.title = 'Session overview (⌘⇧G)';
+  gridToggleBtn.title = 'Session overview';
   gridToggleBtn.innerHTML = '<svg width="14" height="14" stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>';
   gridToggleBtn.addEventListener('click', toggleGridView);
   // Insert next to the resort button
   resortBtn.parentElement.insertBefore(gridToggleBtn, resortBtn);
 }
-
-// --- Global keyboard shortcuts ---
-document.addEventListener('keydown', (e) => {
-  // Cmd/Ctrl+Shift+G → toggle grid overview
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'G') {
-    e.preventDefault();
-    toggleGridView();
-  }
-});
 
 // Warm up xterm.js renderer so first terminal open is fast
 setTimeout(() => {

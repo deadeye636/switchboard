@@ -18,6 +18,17 @@ Switchboard is a desktop app that gives you a unified view of all your Claude Co
 - **Activity Stats** — Heatmap of your coding activity across all projects
 - **Session Names** — Picks up session names from Claude Code's `/rename` command automatically
 
+## Session Grid Overview
+
+Toggle the grid overview from the sidebar for a bird's-eye view of all your open sessions at once, grouped by project.
+
+![Session Grid Overview](build/screenshot-grid.png)
+
+- **Live terminals** — Every open session renders its full terminal in a card, so you can monitor multiple Claude agents simultaneously.
+- **Status at a glance** — Each card shows a running/stopped/busy indicator dot and last-activity timestamp.
+- **Click to focus, double-click to expand** — Click a card header to focus it; double-click to switch back to single-terminal view for that session.
+- **Persistent** — Grid preference is saved across restarts.
+
 ## IDE Emulation
 
 Switchboard can act as an IDE for your Claude Code sessions. When enabled, Claude's file opens and proposed edits appear in a side panel next to the terminal instead of being sent to an external editor.
