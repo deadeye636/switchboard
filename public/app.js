@@ -23,11 +23,14 @@ const planViewerEditorEl = document.getElementById('plan-viewer-editor');
 const planCopyPathBtn = document.getElementById('plan-copy-path-btn');
 const planCopyContentBtn = document.getElementById('plan-copy-content-btn');
 const planSaveBtn = document.getElementById('plan-save-btn');
+const planPreviewBtn = document.getElementById('plan-preview-btn');
+const planViewerPreviewEl = document.getElementById('plan-viewer-preview');
 
 let currentPlanContent = '';
 let currentPlanFilePath = '';
 let currentPlanFilename = '';
 let planEditorView = null;
+let planPreviewMode = false;
 const loadingStatus = document.getElementById('loading-status');
 const sessionFilters = document.getElementById('session-filters');
 const searchBar = document.getElementById('search-bar');
@@ -42,6 +45,8 @@ const memoryViewerEditorEl = document.getElementById('memory-viewer-editor');
 const memoryCopyPathBtn = document.getElementById('memory-copy-path-btn');
 const memoryCopyContentBtn = document.getElementById('memory-copy-content-btn');
 const memorySaveBtn = document.getElementById('memory-save-btn');
+const memoryPreviewBtn = document.getElementById('memory-preview-btn');
+const memoryViewerPreviewEl = document.getElementById('memory-viewer-preview');
 const terminalArea = document.getElementById('terminal-area');
 const settingsViewer = document.getElementById('settings-viewer');
 const settingsViewerTitle = document.getElementById('settings-viewer-title');
@@ -1878,6 +1883,14 @@ async function openPlan(plan) {
   planViewerTitle.textContent = plan.title;
   planViewerFilepath.textContent = currentPlanFilePath;
 
+  // Reset preview mode when switching files
+  if (planPreviewMode) {
+    planPreviewMode = toggleMarkdownPreview({
+      editorEl: planViewerEditorEl, previewEl: planViewerPreviewEl,
+      toggleBtn: planPreviewBtn, editorView: planEditorView, isPreview: true,
+    });
+  }
+
   // Create or update CodeMirror editor
   if (!planEditorView) {
     planEditorView = window.createPlanEditor(planViewerEditorEl);
@@ -1911,6 +1924,34 @@ planSaveBtn.addEventListener('click', async () => {
   }
   await window.api.savePlan(currentPlanFilePath, currentPlanContent);
   flashButtonText(planSaveBtn, 'Saved!');
+});
+
+function toggleMarkdownPreview({ editorEl, previewEl, toggleBtn, editorView, isPreview }) {
+  if (!isPreview) {
+    const content = editorView ? editorView.state.doc.toString() : '';
+    previewEl.innerHTML = window.marked.parse(content);
+    editorEl.style.display = 'none';
+    previewEl.style.display = 'block';
+    toggleBtn.textContent = 'Edit';
+    toggleBtn.classList.add('active');
+    return true;
+  } else {
+    previewEl.style.display = 'none';
+    editorEl.style.display = '';
+    toggleBtn.textContent = 'Preview';
+    toggleBtn.classList.remove('active');
+    return false;
+  }
+}
+
+planPreviewBtn.addEventListener('click', () => {
+  planPreviewMode = toggleMarkdownPreview({
+    editorEl: planViewerEditorEl,
+    previewEl: planViewerPreviewEl,
+    toggleBtn: planPreviewBtn,
+    editorView: planEditorView,
+    isPreview: planPreviewMode,
+  });
 });
 
 function hideAllViewers() {
@@ -2520,6 +2561,7 @@ let cachedMemoryData = { global: { files: [] }, projects: [] };
 let memoryEditorView = null;
 let currentMemoryFilePath = null;
 let currentMemoryContent = '';
+let memoryPreviewMode = false;
 const memoryCollapsedState = new Map(); // key → boolean (true = collapsed)
 
 async function loadMemories() {
@@ -2659,6 +2701,14 @@ async function openMemory(file) {
   memoryViewerTitle.textContent = file.filename;
   memoryViewerFilename.textContent = file.filePath;
 
+  // Reset preview mode when switching files
+  if (memoryPreviewMode) {
+    memoryPreviewMode = toggleMarkdownPreview({
+      editorEl: memoryViewerEditorEl, previewEl: memoryViewerPreviewEl,
+      toggleBtn: memoryPreviewBtn, editorView: memoryEditorView, isPreview: true,
+    });
+  }
+
   // Create or update CodeMirror editor
   if (!memoryEditorView) {
     memoryEditorView = window.createPlanEditor(memoryViewerEditorEl);
@@ -2686,6 +2736,16 @@ memorySaveBtn.addEventListener('click', async () => {
     await window.api.saveMemory(currentMemoryFilePath, currentMemoryContent);
     flashButtonText(memorySaveBtn, 'Saved!');
   }
+});
+
+memoryPreviewBtn.addEventListener('click', () => {
+  memoryPreviewMode = toggleMarkdownPreview({
+    editorEl: memoryViewerEditorEl,
+    previewEl: memoryViewerPreviewEl,
+    toggleBtn: memoryPreviewBtn,
+    editorView: memoryEditorView,
+    isPreview: memoryPreviewMode,
+  });
 });
 
 // --- New session dialog ---
