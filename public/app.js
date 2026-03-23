@@ -230,14 +230,44 @@ let TERMINAL_THEME = getTerminalTheme();
 // Two layers needed:
 //   1. attachCustomKeyEventHandler returning false — blocks xterm's key pipeline (onKey/onData)
 //   2. preventDefault on capture-phase keydown — prevents browser inserting \n into textarea
+const isMac = window.api.platform === 'darwin';
 function setupTerminalKeyBindings(terminal, container, getSessionId) {
   terminal.attachCustomKeyEventHandler((e) => {
+    // Shift+Enter → newline (kitty protocol CSI 13;2u) so Claude Code treats it as newline, not submit.
     if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       if (e.type === 'keydown') {
         window.api.sendInput(getSessionId(), '\x1b[13;2u');
       }
       return false;
     }
+
+    // Ctrl+Enter → newline on Windows/Linux (matches PowerShell convention).
+    // Send the same Shift+Enter kitty sequence that Claude Code recognizes as newline.
+    if (!isMac && e.key === 'Enter' && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+      if (e.type === 'keydown') {
+        window.api.sendInput(getSessionId(), '\x1b[13;2u');
+      }
+      return false;
+    }
+
+    // On Windows/Linux, Ctrl+V is captured by xterm as a control character (0x16)
+    // instead of triggering a paste. Return false to block xterm's key pipeline and
+    // let Electron's Edit menu { role: 'paste' } handle the actual clipboard paste.
+    if (!isMac && e.key === 'v' && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+      return false;
+    }
+
+    // On Windows/Linux, Ctrl+C with a selection should copy instead of sending SIGINT.
+    // When nothing is selected, Ctrl+C falls through to xterm (sends SIGINT as normal).
+    if (!isMac && e.key === 'c' && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+      if (terminal.hasSelection()) {
+        if (e.type === 'keydown') {
+          navigator.clipboard.writeText(terminal.getSelection()).catch(() => {});
+        }
+        return false;
+      }
+    }
+
     return true;
   });
 
