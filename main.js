@@ -168,13 +168,29 @@ function resolveShell(profileId) {
   return { id: 'auto', name: 'Auto', path: '/bin/sh' };
 }
 
+// Convert a Windows path to a WSL /mnt/ path
+function windowsToWslPath(winPath) {
+  if (!winPath) return winPath;
+  // C:\Users\foo → /mnt/c/Users/foo
+  const normalized = winPath.replace(/\\/g, '/');
+  const match = normalized.match(/^([A-Za-z]):(\/.*)/);
+  if (match) return '/mnt/' + match[1].toLowerCase() + match[2];
+  return normalized;
+}
+
+function isWslShell(shellPath) {
+  const base = path.basename(shellPath).toLowerCase();
+  return base === 'wsl.exe' || base === 'wsl';
+}
+
 // Returns spawn args appropriate for the resolved shell
 function shellArgs(shellPath, cmd, extraArgs) {
   const base = path.basename(shellPath).toLowerCase();
   const isBashLike = base.includes('bash') || base.includes('zsh') || base === 'sh';
 
   // WSL: pass command via -- to the distribution shell
-  if (base === 'wsl.exe' || base === 'wsl') {
+  // cwd is handled separately via --cd in the spawn call
+  if (isWslShell(shellPath)) {
     if (cmd) return [...(extraArgs || []), '--', 'bash', '-l', '-i', '-c', cmd];
     return [...(extraArgs || []), '--', 'bash', '-l', '-i'];
   }
@@ -1434,6 +1450,13 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
   const shellProfile = resolveShell(effectiveSettings);
   const shell = shellProfile.path;
   const shellExtraArgs = shellProfile.args || [];
+  const isWsl = isWslShell(shell);
+  // For WSL, convert Windows path to /mnt/ path and pass via --cd;
+  // the spawn cwd must remain a valid Windows path for wsl.exe itself.
+  if (isWsl) {
+    const wslCwd = windowsToWslPath(projectPath);
+    shellExtraArgs.unshift('--cd', wslCwd);
+  }
   log.info(`[shell] profile=${shellProfile.id} shell=${shell} args=${JSON.stringify(shellExtraArgs)}`);
   const isPlainTerminal = sessionOptions?.type === 'terminal';
 
@@ -1478,7 +1501,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
-        cwd: projectPath,
+        cwd: isWsl ? os.homedir() : projectPath,
         env: {
           ...cleanPtyEnv,
           TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'iTerm.app', TERM_PROGRAM_VERSION: '3.6.6', FORCE_COLOR: '3', ITERM_SESSION_ID: '1',
@@ -1558,7 +1581,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
-        cwd: projectPath,
+        cwd: isWsl ? os.homedir() : projectPath,
         // TERM_PROGRAM=iTerm.app: Claude Code checks this to decide whether to emit
         // OSC 9 notifications (e.g. "needs your attention"). Without it, the packaged
         // app's minimal Electron environment won't trigger those sequences.
