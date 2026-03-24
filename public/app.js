@@ -103,11 +103,10 @@ let searchMatchIds = null; // null = no search active; Set<string> = matched ses
 //   2. Noise-filtered terminal output (fallback: non-noise, non-TUI-repaint data)
 //
 // Both feed into setActivity(sessionId, active):
-//   active=true  → cli-busy (spinner dot), + has-unread if not focused
-//   active=false → response-ready if has-unread (terminal state until user clicks)
+//   active=true  → cli-busy (spinner dot)
+//   active=false → response-ready if not focused (terminal state until user clicks)
 // OSC 0 idle signal is the authoritative source for marking sessions as idle.
 //
-const unreadSessions = new Set(); // activity happened while session not focused
 const attentionSessions = new Set(); // sessions needing user action (OSC 9)
 const responseReadySessions = new Set(); // Claude finished, user hasn't looked (terminal state)
 const sessionBusyState = new Map(); // sessionId → boolean (currently active)
@@ -125,16 +124,9 @@ function setActivity(sessionId, active) {
   const wasActive = sessionBusyState.get(sessionId) || false;
   sessionBusyState.set(sessionId, active);
 
-  if (active) {
-    // Mark has-unread if not focused
-    if (sessionId !== activeSessionId) {
-      unreadSessions.add(sessionId);
-    }
-  }
-
   if (wasActive && !active) {
-    // Activity ended → response-ready (gated by has-unread)
-    if (unreadSessions.has(sessionId)) {
+    // Activity ended → response-ready if user isn't looking at this session
+    if (sessionId !== activeSessionId) {
       responseReadySessions.add(sessionId);
       const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
       if (item) {
@@ -158,7 +150,6 @@ function trackActivity(sessionId, data) {
 }
 
 function clearUnread(sessionId) {
-  unreadSessions.delete(sessionId);
   responseReadySessions.delete(sessionId);
   const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
   if (item) {
@@ -640,7 +631,6 @@ function updateRunningIndicators() {
     item.classList.toggle('has-running-pty', running);
     if (!running) {
       item.classList.remove('needs-attention', 'response-ready', 'cli-busy');
-      unreadSessions.delete(id);
       attentionSessions.delete(id);
       responseReadySessions.delete(id);
       sessionBusyState.delete(id);
@@ -930,7 +920,8 @@ function renderProjects(projects, resort) {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === todayStr;
       });
     }
-    if (filtered.length === 0 && project.sessions.length > 0) continue;
+    const anyFilterActive = showStarredOnly || showRunningOnly || showTodayOnly || searchMatchIds !== null;
+    if (filtered.length === 0 && (project.sessions.length > 0 || anyFilterActive)) continue;
     const fId = folderId(project.projectPath);
 
     // === STEP 2: Sort ===
