@@ -281,54 +281,81 @@ function isAtBottom(terminal) {
 }
 
 // Fit a terminal that just became visible (from display:none or reparent).
-// Defers to requestAnimationFrame so the container has dimensions, forces a
-// resize cycle to re-sync xterm's viewport scroll-area, then scrolls to bottom.
+// Defers to requestAnimationFrame so the container has dimensions.
 function fitAndScroll(entry) {
-  // Capture scroll position before any layout changes
   const wasAtBottom = isAtBottom(entry.terminal);
   requestAnimationFrame(() => {
-    const prevCols = entry.terminal.cols;
-    const prevRows = entry.terminal.rows;
     entry.fitAddon.fit();
-    // Force resize cycle to re-sync viewport when dimensions didn't change
-    if (entry.terminal.cols === prevCols && entry.terminal.rows === prevRows && prevRows > 1) {
-      entry.terminal.resize(prevCols, prevRows - 1);
-      entry.terminal.resize(prevCols, prevRows);
-    }
     if (wasAtBottom) {
-      requestAnimationFrame(() => entry.terminal.scrollToBottom());
+      entry.terminal.scrollToBottom();
     }
   });
 }
 
 // --- IPC listeners from main process ---
 
-// Screen-clear / alt-screen escape sequences.
-const ESC_SCREEN_CLEAR = '\x1b[2J';
-const ESC_ALT_SCREEN_ON = '\x1b[?1049h';
+// Batch incoming terminal data to coalesce IPC chunks into fewer write() calls.
+// PTY output arrives in ~1KB IPC chunks which can split synchronized update
+// markers (ESC[?2026h / ESC[?2026l) across calls. We hold data until the sync
+// end marker arrives so xterm can process the complete update atomically.
+// A safety timeout ensures we never hold data indefinitely.
+const ESC_SYNC_START = '\x1b[?2026h';
+const ESC_SYNC_END = '\x1b[?2026l';
+const SYNC_BUFFER_TIMEOUT = 500; // max ms to hold data waiting for sync end
+const terminalWriteBuffers = new Map(); // sessionId → { chunks, syncDepth, rafId, timerId }
 
-// After a screen redraw the content may arrive across multiple data chunks.
-// Keep scrolling to bottom for a short window after detecting a clear.
-let redrawScrollUntil = 0;
+function flushTerminalBuffer(sessionId) {
+  const buf = terminalWriteBuffers.get(sessionId);
+  if (!buf) return;
+  clearTimeout(buf.timerId);
+  cancelAnimationFrame(buf.rafId);
+  terminalWriteBuffers.delete(sessionId);
+
+  const entry = openSessions.get(sessionId);
+  if (!entry) return;
+
+  const data = buf.chunks.join('');
+  const wasAtBottom = isAtBottom(entry.terminal);
+  entry.terminal.write(data, () => {
+    if (sessionId !== activeSessionId) return;
+    if (wasAtBottom) {
+      entry.terminal.scrollToBottom();
+    }
+  });
+}
+
+function scheduleFlush(sessionId, buf) {
+  cancelAnimationFrame(buf.rafId);
+  buf.rafId = requestAnimationFrame(() => flushTerminalBuffer(sessionId));
+}
 
 window.api.onTerminalData((sessionId, data) => {
   const entry = openSessions.get(sessionId);
   if (entry) {
-    // Check scroll position *before* writing — the write may change scrollHeight
-    // and cause a DOM scroll event that would give a stale answer.
-    const wasAtBottom = isAtBottom(entry.terminal);
-    // Screen clears push content into scrollback, moving baseY away from
-    // viewportY, so isAtBottom would return false during the redraw.
-    if (data.includes(ESC_SCREEN_CLEAR) || data.includes(ESC_ALT_SCREEN_ON)) {
-      redrawScrollUntil = Date.now() + 1000;
+    let buf = terminalWriteBuffers.get(sessionId);
+    if (!buf) {
+      buf = { chunks: [], syncDepth: 0, rafId: 0, timerId: 0 };
+      terminalWriteBuffers.set(sessionId, buf);
     }
-    const forceScroll = Date.now() < redrawScrollUntil;
-    entry.terminal.write(data, () => {
-      if (sessionId !== activeSessionId) return;
-      if (wasAtBottom || forceScroll) {
-        entry.terminal.scrollToBottom();
+    buf.chunks.push(data);
+
+    // Track sync start/end nesting
+    if (data.includes(ESC_SYNC_START)) buf.syncDepth++;
+    if (data.includes(ESC_SYNC_END)) buf.syncDepth = Math.max(0, buf.syncDepth - 1);
+
+    if (buf.syncDepth > 0) {
+      // Inside a synchronized update — keep buffering.
+      // Set a safety timeout so we never hold data forever.
+      cancelAnimationFrame(buf.rafId);
+      if (!buf.timerId) {
+        buf.timerId = setTimeout(() => flushTerminalBuffer(sessionId), SYNC_BUFFER_TIMEOUT);
       }
-    });
+    } else {
+      // Not in a sync block (or sync just ended) — flush on next frame.
+      clearTimeout(buf.timerId);
+      buf.timerId = 0;
+      scheduleFlush(sessionId, buf);
+    }
   }
   // Update last activity time (noise-filtered)
   trackActivity(sessionId, data);
@@ -591,16 +618,22 @@ searchInput.addEventListener('input', () => {
   }, 200);
 });
 
-// --- Terminal header controls ---
-terminalStopBtn.addEventListener('click', async () => {
-  if (!activeSessionId) return;
-  const sid = activeSessionId;
-  await window.api.stopSession(sid);
-  activePtyIds.delete(sid);
-  setActiveSession(null);
-  terminalHeader.style.display = 'none';
-  placeholder.style.display = '';
+// --- Stop session helper ---
+async function confirmAndStopSession(sessionId) {
+  if (!confirm('Stop this session?')) return;
+  await window.api.stopSession(sessionId);
+  activePtyIds.delete(sessionId);
+  if (!gridViewActive && activeSessionId === sessionId) {
+    setActiveSession(null);
+    terminalHeader.style.display = 'none';
+    placeholder.style.display = '';
+  }
   refreshSidebar();
+}
+
+// --- Terminal header controls ---
+terminalStopBtn.addEventListener('click', () => {
+  if (activeSessionId) confirmAndStopSession(activeSessionId);
 });
 
 terminalRestartBtn.addEventListener('click', () => {
@@ -652,6 +685,8 @@ function updateRunningIndicators() {
     if (dot) dot.className = 'grid-card-dot ' + (busy ? 'busy' : (running ? 'running' : 'stopped'));
     const footer = card.querySelector('.grid-card-footer');
     if (footer) footer.children[0].textContent = running ? 'Running' : 'Stopped';
+    const stopBtn = card.querySelector('.grid-card-stop-btn');
+    if (stopBtn) stopBtn.style.display = running ? '' : 'none';
   }
 }
 
@@ -1255,16 +1290,9 @@ function rebindSidebarEvents(projects) {
 
     const stopBtn = item.querySelector('.session-stop-btn');
     if (stopBtn) {
-      stopBtn.onclick = async (e) => {
+      stopBtn.onclick = (e) => {
         e.stopPropagation();
-        await window.api.stopSession(session.sessionId);
-        activePtyIds.delete(session.sessionId);
-        if (!gridViewActive && activeSessionId === session.sessionId) {
-          setActiveSession(null);
-          terminalHeader.style.display = 'none';
-          placeholder.style.display = '';
-        }
-        refreshSidebar();
+        confirmAndStopSession(session.sessionId);
       };
     }
 
@@ -2039,6 +2067,17 @@ function wrapInGridCard(sessionId) {
   project.className = 'grid-card-project';
   project.textContent = shortProject;
   header.appendChild(project);
+
+  const stopBtn = document.createElement('button');
+  stopBtn.className = 'grid-card-stop-btn';
+  stopBtn.title = 'Stop session';
+  stopBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><rect x="2" y="2" width="8" height="8" rx="1"/></svg>';
+  stopBtn.style.display = activePtyIds.has(sessionId) ? '' : 'none';
+  stopBtn.onclick = (e) => {
+    e.stopPropagation();
+    confirmAndStopSession(sessionId);
+  };
+  header.appendChild(stopBtn);
 
   // Footer
   const footer = document.createElement('div');
