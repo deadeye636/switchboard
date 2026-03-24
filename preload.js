@@ -67,6 +67,9 @@ contextBridge.exposeInMainWorld('api', {
   // File drag-and-drop
   getPathForFile: (file) => webUtils.getPathForFile(file),
 
+  // Platform
+  platform: process.platform,
+
   // App version
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 
