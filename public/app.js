@@ -265,7 +265,7 @@ function setupTerminalKeyBindings(terminal, container, getSessionId) {
   const textarea = container.querySelector('.xterm-helper-textarea');
   if (textarea) {
     textarea.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.key === 'Enter' && (e.shiftKey || (!isMac && e.ctrlKey)) && !e.altKey && !e.metaKey) {
         e.preventDefault();
       }
     }, { capture: true });
