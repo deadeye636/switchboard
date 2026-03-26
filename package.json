@@ -55,6 +55,7 @@
       "main.js",
       "preload.js",
       "db.js",
+      "claude-auth.js",
       "mcp-bridge.js",
       "folder-index-state.js",
       "workers/**/*",

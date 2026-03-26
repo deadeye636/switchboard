@@ -2555,13 +2555,55 @@ async function loadStats() {
 }
 
 function buildUsageSection(usage) {
+  // Remove existing usage container if present (for refresh)
+  const existing = statsViewerBody.querySelector('.usage-container');
+  if (existing) existing.remove();
+
   const container = document.createElement('div');
   container.className = 'usage-container';
 
+  const titleRow = document.createElement('div');
+  titleRow.className = 'usage-title-row';
   const title = document.createElement('div');
   title.className = 'daily-chart-title';
   title.textContent = 'Rate Limits';
-  container.appendChild(title);
+  titleRow.appendChild(title);
+
+  const refreshBtn = document.createElement('button');
+  refreshBtn.className = 'usage-refresh-btn';
+  refreshBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>';
+  refreshBtn.title = 'Refresh usage';
+  refreshBtn.onclick = async () => {
+    refreshBtn.classList.add('usage-refresh-spinning');
+    refreshBtn.disabled = true;
+    try {
+      const freshUsage = await window.api.getUsage();
+      if (freshUsage && Object.keys(freshUsage).length) {
+        cachedUsage = freshUsage;
+        buildUsageSection(freshUsage);
+      }
+    } catch {}
+    refreshBtn.classList.remove('usage-refresh-spinning');
+    refreshBtn.disabled = false;
+  };
+  titleRow.appendChild(refreshBtn);
+  container.appendChild(titleRow);
+
+  // Show rate limit notice if API returned 429
+  if (usage._rateLimited) {
+    const notice = document.createElement('div');
+    notice.className = 'usage-rate-limited';
+    const secs = usage.retryAfterSeconds || 0;
+    const mins = Math.ceil(secs / 60);
+    notice.textContent = secs > 0
+      ? `Usage API rate limited. Try again in ~${mins} min${mins !== 1 ? 's' : ''}.`
+      : 'Usage API rate limited. Try again later.';
+    container.appendChild(notice);
+    const statsNotice = statsViewerBody.querySelector('.stats-notice');
+    if (statsNotice) statsViewerBody.insertBefore(container, statsNotice);
+    else statsViewerBody.appendChild(container);
+    return;
+  }
 
   const grid = document.createElement('div');
   grid.className = 'usage-grid';
@@ -2610,7 +2652,10 @@ function buildUsageSection(usage) {
   }
 
   container.appendChild(grid);
-  statsViewerBody.appendChild(container);
+  // Insert before the stats notice footer if it exists, otherwise append
+  const statsNotice = statsViewerBody.querySelector('.stats-notice');
+  if (statsNotice) statsViewerBody.insertBefore(container, statsNotice);
+  else statsViewerBody.appendChild(container);
 }
 
 function buildDailyBarChart(stats) {

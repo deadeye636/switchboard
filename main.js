@@ -7,6 +7,7 @@ const pty = require('node-pty');
 const log = require('electron-log');
 const { getFolderIndexMtimeMs } = require('./folder-index-state');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rekeyMcpServer, cleanStaleLockFiles } = require('./mcp-bridge');
+const { fetchAndTransformUsage } = require('./claude-auth');
 log.transports.file.level = app.isPackaged ? 'info' : 'debug';
 log.transports.console.level = app.isPackaged ? 'info' : 'debug';
 
@@ -1086,10 +1087,10 @@ ipcMain.handle('refresh-stats', async () => {
   }
 
   try {
-    // Run both commands — each passed as initial arg, runs automatically
-    const [, usageRaw] = await Promise.all([
+    // Run /stats via PTY (for heatmap/chart data) and fetch usage via API in parallel
+    const [, usage] = await Promise.all([
       runClaude('"/stats"', { waitFor: /streak/i, timeoutMs: 10000 }),
-      runClaude('"/usage"', { waitFor: /current\s*week/i, timeoutMs: 25000 }),
+      fetchAndTransformUsage().catch(() => ({})),
     ]);
 
     // Read refreshed stats cache
@@ -1100,36 +1101,20 @@ ipcMain.handle('refresh-stats', async () => {
       }
     } catch {}
 
-    // Parse usage output — strip ANSI codes and control chars
-    const plain = usageRaw
-      .replace(/\x1b\[[^@-~]*[@-~]/g, '')   // CSI sequences (including [?2026h etc)
-      .replace(/\x1b\][^\x07]*\x07/g, '')    // OSC sequences
-      .replace(/\x1b[^[\]].?/g, '')          // other escapes
-      .replace(/[\x00-\x09\x0b-\x1f]/g, '');
-
-    const usage = {};
-    const lines = plain.split('\n').map(l => l.trim()).filter(Boolean);
-    let currentSection = '';
-    for (const line of lines) {
-      // Space-tolerant section matching (TUI strips spaces)
-      if (/current\s*session/i.test(line)) currentSection = 'session';
-      else if (/current\s*week.*all\s*models/i.test(line)) currentSection = 'weekAll';
-      else if (/current\s*week.*sonnet/i.test(line)) currentSection = 'weekSonnet';
-      else if (/current\s*week.*opus/i.test(line)) currentSection = 'weekOpus';
-      const pctMatch = line.match(/(\d+)\s*%\s*used/i);
-      if (pctMatch && currentSection) {
-        usage[currentSection] = parseInt(pctMatch[1], 10);
-      }
-      const resetLine = line.match(/Resets?\s*(.+)/i);
-      if (resetLine && currentSection) {
-        usage[currentSection + 'Reset'] = resetLine[1].trim();
-      }
-    }
-
-    return { stats, usage };
+    return { stats, usage: usage || {} };
   } catch (err) {
     log.error('Error refreshing stats:', err);
     return { stats: null, usage: {} };
+  }
+});
+
+// --- IPC: get-usage (lightweight, API-only, no PTY) ---
+ipcMain.handle('get-usage', async () => {
+  try {
+    return await fetchAndTransformUsage() || {};
+  } catch (err) {
+    log.error('Error fetching usage:', err);
+    return {};
   }
 });
 
