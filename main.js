@@ -1640,7 +1640,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         const code = m[1];
         const payload = m[2].slice(0, 120);
         // Detect Claude CLI busy state from OSC 0 title (spinner chars = busy, ✳ = idle)
-        if (code === '0' && payload.includes('Claude Code')) {
+        if (code === '0') {
           const firstChar = payload.charAt(0);
           const isBusy = firstChar.charCodeAt(0) >= 0x2800 && firstChar.charCodeAt(0) <= 0x28FF;
           const isIdle = firstChar === '\u2733'; // ✳
@@ -1669,7 +1669,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         // OSC 9;4 progress: 4;0; = clear/done, 4;1;N = running at N%, 4;2;N = error, 4;3; = indeterminate
         if (payload.startsWith('4;')) {
           const level = payload.split(';')[1];
-          if (level === '0') continue; // 4;0 is unreliable, skip
+          if (level === '0') continue; // 4;0 is also used for clearing, making it unreliable as an idle signal
           log.debug(`[OSC 9;4] session=${currentId} level=${level} payload="${payload}" wasBusy=${!!session._cliBusy}`);
           if ((level === '1' || level === '2' || level === '3') && !session._cliBusy) {
             session._cliBusy = true;
