@@ -280,12 +280,22 @@ function isAtBottom(terminal) {
   return buf.viewportY >= buf.baseY;
 }
 
+// Fit terminal to container, subtracting 1 row to avoid partial-row clipping.
+function safeFit(entry) {
+  const dims = entry.fitAddon.proposeDimensions();
+  if (dims && dims.rows > 1) {
+    entry.terminal.resize(dims.cols, dims.rows);
+  } else {
+    entry.fitAddon.fit();
+  }
+}
+
 // Fit a terminal that just became visible (from display:none or reparent).
 // Defers to requestAnimationFrame so the container has dimensions.
 function fitAndScroll(entry) {
   const wasAtBottom = isAtBottom(entry.terminal);
   requestAnimationFrame(() => {
-    entry.fitAddon.fit();
+    safeFit(entry);
     if (wasAtBottom) {
       entry.terminal.scrollToBottom();
     }
@@ -786,30 +796,21 @@ async function loadProjects({ resort = false } = {}) {
     }
   }
 
-  // Restore active plain terminals from main process (survives renderer reload)
+  // Track active plain terminals in pendingSessions/sessionMap (data now comes from backend)
   try {
     const activeTerminals = await window.api.getActiveTerminals();
     for (const { sessionId, projectPath } of activeTerminals) {
       if (pendingSessions.has(sessionId)) continue; // already tracked
       const folder = projectPath.replace(/[/_]/g, '-').replace(/^-/, '-');
-      const session = {
-        sessionId, summary: 'Terminal', firstPrompt: '', projectPath,
-        name: null, starred: 0, archived: 0, messageCount: 0,
-        modified: new Date().toISOString(), created: new Date().toISOString(),
-        type: 'terminal',
-      };
+      // Find the session object already injected by the backend
+      let session;
+      for (const proj of cachedAllProjects) {
+        session = proj.sessions.find(s => s.sessionId === sessionId);
+        if (session) break;
+      }
+      if (!session) continue;
       pendingSessions.set(sessionId, { session, projectPath, folder });
       sessionMap.set(sessionId, session);
-      for (const projList of [cachedProjects, cachedAllProjects]) {
-        let proj = projList.find(p => p.projectPath === projectPath);
-        if (!proj) {
-          proj = { folder, projectPath, sessions: [] };
-          projList.push(proj);
-        }
-        if (!proj.sessions.some(s => s.sessionId === sessionId)) {
-          proj.sessions.unshift(session);
-        }
-      }
     }
   } catch {}
 
@@ -1071,13 +1072,13 @@ function renderProjects(projects, resort) {
     const settingsBtn = document.createElement('button');
     settingsBtn.className = 'project-settings-btn';
     settingsBtn.title = 'Project settings';
-    settingsBtn.innerHTML = ICONS.gear(12);
+    settingsBtn.innerHTML = ICONS.gear(16);
     header.appendChild(settingsBtn);
 
     const archiveGroupBtn = document.createElement('button');
     archiveGroupBtn.className = 'project-archive-btn';
     archiveGroupBtn.title = 'Archive all sessions';
-    archiveGroupBtn.innerHTML = ICONS.archive(16);
+    archiveGroupBtn.innerHTML = ICONS.archive(18);
     header.appendChild(archiveGroupBtn);
 
     const newBtn = document.createElement('button');
@@ -1603,6 +1604,7 @@ function createTerminalEntry(session) {
     }
   }));
   terminal.open(container);
+  container.style.backgroundColor = TERMINAL_THEME.background;
 
   const entry = { terminal, element: container, fitAddon, session, closed: false };
   openSessions.set(sessionId, entry);
@@ -1729,7 +1731,7 @@ window.addEventListener('resize', () => {
   }
   if (activeSessionId && openSessions.has(activeSessionId)) {
     const entry = openSessions.get(activeSessionId);
-    entry.fitAddon.fit();
+    safeFit(entry);
   }
 });
 
@@ -3336,6 +3338,18 @@ async function showNewSessionDialog(project) {
 }
 
 // --- Settings viewer ---
+function closeSettingsViewer() {
+  settingsViewer.style.display = 'none';
+  if (activeSessionId && openSessions.has(activeSessionId)) {
+    terminalArea.style.display = '';
+    terminalHeader.style.display = '';
+  } else if (gridViewActive) {
+    terminalArea.style.display = '';
+  } else {
+    placeholder.style.display = '';
+  }
+}
+
 async function openSettingsViewer(scope, projectPath) {
   const isProject = scope === 'project';
   const settingsKey = isProject ? 'project:' + projectPath : 'global';
@@ -3530,7 +3544,10 @@ async function openSettingsViewer(scope, projectPath) {
         </div>
       </div>` : ''}
 
-      <button class="settings-save-btn" id="sv-save-btn">Save Settings</button>
+      <div class="settings-btn-row">
+        <button class="settings-cancel-btn" id="sv-cancel-btn">Cancel</button>
+        <button class="settings-save-btn" id="sv-save-btn">Save Settings</button>
+      </div>
       ${isProject ? '<button class="settings-remove-btn" id="sv-remove-btn">Remove Project</button>' : ''}
     </div>
   `;
@@ -3611,6 +3628,7 @@ async function openSettingsViewer(scope, projectPath) {
         // Apply to all open terminals
         for (const [, entry] of openSessions) {
           entry.terminal.options.theme = TERMINAL_THEME;
+          entry.element.style.backgroundColor = TERMINAL_THEME.background;
         }
       }
       refreshSidebar();
@@ -3626,11 +3644,12 @@ async function openSettingsViewer(scope, projectPath) {
       setTimeout(() => notice.remove(), 8000);
     }
 
-    // Flash save confirmation
-    const btn = settingsViewerBody.querySelector('#sv-save-btn');
-    btn.classList.add('saved');
-    btn.textContent = 'Saved!';
-    setTimeout(() => { btn.classList.remove('saved'); btn.textContent = 'Save Settings'; }, 1500);
+    closeSettingsViewer();
+  });
+
+  // Cancel button
+  settingsViewerBody.querySelector('#sv-cancel-btn').addEventListener('click', () => {
+    closeSettingsViewer();
   });
 
   // Check for updates button + current version + inline status
@@ -3779,7 +3798,7 @@ function showAddProjectDialog() {
     // Refit active terminal
     if (!gridViewActive && activeSessionId && openSessions.has(activeSessionId)) {
       const entry = openSessions.get(activeSessionId);
-      entry.fitAddon.fit();
+      safeFit(entry);
     }
     // Save sidebar width to settings
     const width = parseInt(sidebar.style.width);
