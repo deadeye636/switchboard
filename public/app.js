@@ -3832,6 +3832,16 @@ function showAddProjectDialog() {
   document.addEventListener('keydown', onKey);
 }
 
+// --- Sidebar toggle ---
+{
+  const sidebar = document.getElementById('sidebar');
+  const collapseBtn = document.getElementById('sidebar-collapse-btn');
+  const expandBtn = document.getElementById('sidebar-expand-btn');
+
+  collapseBtn.addEventListener('click', () => sidebar.classList.add('collapsed'));
+  expandBtn.addEventListener('click', () => sidebar.classList.remove('collapsed'));
+}
+
 // --- Sidebar resize ---
 {
   const sidebar = document.getElementById('sidebar');

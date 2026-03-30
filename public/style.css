@@ -872,6 +872,58 @@ body { display: flex; flex-direction: column; }
   background: #111118;
 }
 
+#sidebar-collapse-btn {
+  background: none;
+  border: none;
+  color: #7a7a90;
+  cursor: pointer;
+  padding: 4px;
+  margin-right: -5px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+#sidebar-collapse-btn:hover {
+  color: #888;
+  background: rgba(255,255,255,0.04);
+}
+
+#sidebar-expand-btn {
+  background: none;
+  border: none;
+  color: #7a7a90;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+  margin: 12px auto 0;
+}
+#sidebar-expand-btn:hover {
+  color: #888;
+  background: rgba(255,255,255,0.04);
+}
+
+#sidebar.collapsed {
+  width: 42px;
+  min-width: 42px;
+  max-width: 42px;
+}
+#sidebar.collapsed > *:not(#sidebar-expand-btn) {
+  display: none;
+}
+#sidebar.collapsed #sidebar-expand-btn {
+  display: flex;
+}
+#sidebar.collapsed + #sidebar-resize-handle {
+  display: none;
+}
+
 #placeholder {
   display: flex;
   align-items: center;
@@ -2443,10 +2495,11 @@ body { display: flex; flex-direction: column; }
 /* ========== GLOBAL SETTINGS BUTTON ========== */
 #global-settings-btn {
   margin-left: auto;
+  margin-right: 3px;
   background: transparent;
   border: none;
   color: #7a7a90;
-  padding: 8px 12px;
+  padding: 4px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
