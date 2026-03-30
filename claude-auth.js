@@ -27,33 +27,54 @@ function readFromKeychain() {
   try {
     const service = getKeychainServiceName();
     const user = process.env.USER || os.userInfo().username;
+    log.info('[claude-auth] Keychain lookup: service=' + service + ', user=' + user);
     const json = execSync(
       `security find-generic-password -a "${user}" -w -s "${service}"`,
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     ).trim();
-    return JSON.parse(json);
-  } catch {
+    const parsed = JSON.parse(json);
+    log.info('[claude-auth] Keychain: found keys:', Object.keys(parsed || {}));
+    return parsed;
+  } catch (err) {
+    log.info('[claude-auth] Keychain: not found or error');
     return null;
   }
 }
 
 function readFromFile() {
+  const credPath = path.join(getConfigDir(), '.credentials.json');
   try {
-    const credPath = path.join(getConfigDir(), '.credentials.json');
-    return JSON.parse(fs.readFileSync(credPath, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(credPath, 'utf8'));
+    log.info('[claude-auth] File: found keys:', Object.keys(parsed || {}));
+    return parsed;
   } catch {
+    log.info('[claude-auth] File: not found at', credPath);
     return null;
   }
 }
 
 function getOAuthToken() {
   const creds = readFromKeychain() || readFromFile();
-  return creds?.claudeAiOauth || null;
+  const oauth = creds?.claudeAiOauth || null;
+  if (oauth) {
+    const tokenPrefix = oauth.accessToken?.substring(0, 20) + '...';
+    log.info('[claude-auth] Token prefix:', tokenPrefix, '| scopes:', oauth.scopes);
+  }
+  return oauth;
 }
 
-function formatResetTime(unixTimestamp) {
-  if (!unixTimestamp) return null;
-  const resetDate = new Date(unixTimestamp * 1000);
+function formatResetTime(value) {
+  if (!value) return null;
+  // Handle seconds, milliseconds, or ISO string
+  let resetDate;
+  if (typeof value === 'string') {
+    resetDate = new Date(value);
+  } else if (value > 1e12) {
+    resetDate = new Date(value); // already milliseconds
+  } else {
+    resetDate = new Date(value * 1000); // seconds → ms
+  }
+  if (isNaN(resetDate.getTime())) return null;
   const now = new Date();
   const diffMs = resetDate - now;
 
@@ -77,40 +98,56 @@ function formatResetTime(unixTimestamp) {
   return `${month} ${day} at ${timeStr} (${tz})`;
 }
 
+function mapBucket(apiUsage, apiKey, usageKey, usage) {
+  try {
+    const u = apiUsage[apiKey];
+    if (!u || u.utilization === null || u.utilization === undefined) return;
+    usage[usageKey] = Math.floor(u.utilization);
+    if (u.resets_at) usage[usageKey + 'Reset'] = formatResetTime(u.resets_at);
+  } catch (err) {
+    log.warn('[claude-auth] Error mapping bucket', apiKey, err.message);
+  }
+}
+
 function transformUsageResponse(apiUsage) {
   if (!apiUsage) return {};
   const usage = {};
-
-  if (apiUsage.five_hour) {
-    const u = apiUsage.five_hour;
-    if (u.utilization !== null && u.utilization !== undefined) {
-      usage.session = Math.floor(u.utilization);
-      if (u.resets_at) usage.sessionReset = formatResetTime(u.resets_at);
-    }
-  }
-  if (apiUsage.seven_day) {
-    const u = apiUsage.seven_day;
-    if (u.utilization !== null && u.utilization !== undefined) {
-      usage.weekAll = Math.floor(u.utilization);
-      if (u.resets_at) usage.weekAllReset = formatResetTime(u.resets_at);
-    }
-  }
-  if (apiUsage.seven_day_sonnet) {
-    const u = apiUsage.seven_day_sonnet;
-    if (u.utilization !== null && u.utilization !== undefined) {
-      usage.weekSonnet = Math.floor(u.utilization);
-      if (u.resets_at) usage.weekSonnetReset = formatResetTime(u.resets_at);
-    }
-  }
-  if (apiUsage.seven_day_opus) {
-    const u = apiUsage.seven_day_opus;
-    if (u.utilization !== null && u.utilization !== undefined) {
-      usage.weekOpus = Math.floor(u.utilization);
-      if (u.resets_at) usage.weekOpusReset = formatResetTime(u.resets_at);
-    }
-  }
-
+  mapBucket(apiUsage, 'five_hour', 'session', usage);
+  mapBucket(apiUsage, 'seven_day', 'weekAll', usage);
+  mapBucket(apiUsage, 'seven_day_sonnet', 'weekSonnet', usage);
+  mapBucket(apiUsage, 'seven_day_opus', 'weekOpus', usage);
   return usage;
+}
+
+// Test token validity using the lightweight /api/oauth/profile endpoint
+async function testAuth() {
+  const oauth = getOAuthToken();
+  if (!oauth?.accessToken) {
+    log.warn('[claude-auth] No OAuth token found');
+    return { valid: false, error: 'no_token' };
+  }
+  log.info('[claude-auth] Token found, expires:', oauth.expiresAt);
+  try {
+    const res = await fetch('https://api.anthropic.com/api/oauth/profile', {
+      headers: {
+        'Authorization': `Bearer ${oauth.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    log.info('[claude-auth] Profile API status:', res.status);
+    if (res.ok) {
+      const data = await res.json();
+      log.info('[claude-auth] Profile API success:', JSON.stringify(data).substring(0, 200));
+      return { valid: true, profile: data };
+    }
+    const body = await res.text().catch(() => '');
+    log.warn('[claude-auth] Profile API error:', res.status, body.substring(0, 200));
+    return { valid: false, error: `${res.status} ${res.statusText}`, body };
+  } catch (err) {
+    log.error('[claude-auth] Profile API exception:', err.message);
+    return { valid: false, error: err.message };
+  }
 }
 
 async function fetchUsage() {
@@ -126,7 +163,7 @@ async function fetchUsage() {
       'Authorization': `Bearer ${oauth.accessToken}`,
       'Content-Type': 'application/json',
       'User-Agent': 'claude-code/2.1.74',
-      'anthropic-beta': 'prompt-caching-2024-07-31',
+      'anthropic-beta': 'oauth-2025-04-20',
     },
     signal: AbortSignal.timeout(10000),
   });
@@ -142,6 +179,7 @@ async function fetchUsage() {
   }
   const json = await res.json();
   log.info('[claude-auth] Usage API success, keys:', Object.keys(json));
+  log.info('[claude-auth] Usage API raw:', JSON.stringify(json, null, 2));
   return json;
 }
 
@@ -163,4 +201,4 @@ async function fetchAndTransformUsage() {
   }
 }
 
-module.exports = { getOAuthToken, fetchUsage, fetchAndTransformUsage, getConfigDir };
+module.exports = { getOAuthToken, fetchUsage, fetchAndTransformUsage, testAuth, getConfigDir };
