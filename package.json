@@ -58,6 +58,7 @@
       "claude-auth.js",
       "mcp-bridge.js",
       "folder-index-state.js",
+      "derive-project-path.js",
       "workers/**/*",
       "public/**/*",
       "node_modules/**/*"

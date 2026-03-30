@@ -5,45 +5,7 @@ const { getFolderIndexMtimeMs } = require('../folder-index-state');
 
 const PROJECTS_DIR = workerData.projectsDir;
 
-function deriveProjectPath(folderPath, folder) {
-  try {
-    const entries = fs.readdirSync(folderPath, { withFileTypes: true });
-    for (const e of entries) {
-      if (e.isFile() && e.name.endsWith('.jsonl')) {
-        const firstLine = fs.readFileSync(path.join(folderPath, e.name), 'utf8').split('\n')[0];
-        if (firstLine) {
-          const parsed = JSON.parse(firstLine);
-          if (parsed.cwd) return parsed.cwd;
-        }
-      }
-    }
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const subDir = path.join(folderPath, e.name);
-      try {
-        const subFiles = fs.readdirSync(subDir, { withFileTypes: true });
-        for (const sf of subFiles) {
-          let jsonlPath;
-          if (sf.isFile() && sf.name.endsWith('.jsonl')) {
-            jsonlPath = path.join(subDir, sf.name);
-          } else if (sf.isDirectory() && sf.name === 'subagents') {
-            const agentFiles = fs.readdirSync(path.join(subDir, 'subagents')).filter(f => f.endsWith('.jsonl'));
-            if (agentFiles.length > 0) jsonlPath = path.join(subDir, 'subagents', agentFiles[0]);
-          }
-          if (jsonlPath) {
-            const firstLine = fs.readFileSync(jsonlPath, 'utf8').split('\n')[0];
-            if (firstLine) {
-              const parsed = JSON.parse(firstLine);
-              if (parsed.cwd) return parsed.cwd;
-            }
-          }
-        }
-      } catch {}
-    }
-  } catch {}
-  // No cwd found — return null so callers can skip this folder
-  return null;
-}
+const { deriveProjectPath } = require('../derive-project-path');
 
 function readFolderFromFilesystem(folder) {
   const folderPath = path.join(PROJECTS_DIR, folder);

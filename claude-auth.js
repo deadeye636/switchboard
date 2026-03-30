@@ -115,7 +115,11 @@ function transformUsageResponse(apiUsage) {
 
 async function fetchUsage() {
   const oauth = getOAuthToken();
-  if (!oauth?.accessToken) return null;
+  if (!oauth?.accessToken) {
+    log.warn('[claude-auth] No OAuth token found');
+    return null;
+  }
+  log.info('[claude-auth] Token found, expires:', oauth.expiresAt);
 
   const res = await fetch('https://api.anthropic.com/api/oauth/usage', {
     headers: {
@@ -132,16 +136,31 @@ async function fetchUsage() {
     return { _rateLimited: true, retryAfterSeconds: retryAfter };
   }
 
-  if (!res.ok) return null;
-  return await res.json();
+  if (!res.ok) {
+    log.warn('[claude-auth] Usage API error:', res.status, res.statusText);
+    return null;
+  }
+  const json = await res.json();
+  log.info('[claude-auth] Usage API success, keys:', Object.keys(json));
+  return json;
 }
 
 async function fetchAndTransformUsage() {
-  const raw = await fetchUsage();
-  if (raw?._rateLimited) {
-    return { _rateLimited: true, retryAfterSeconds: raw.retryAfterSeconds };
+  try {
+    const raw = await fetchUsage();
+    if (raw === null) {
+      return { _error: true, message: 'Could not fetch usage (no token or API error)' };
+    }
+    if (raw?._rateLimited) {
+      return { _rateLimited: true, retryAfterSeconds: raw.retryAfterSeconds };
+    }
+    const transformed = transformUsageResponse(raw);
+    log.info('[claude-auth] Transformed usage:', JSON.stringify(transformed));
+    return transformed;
+  } catch (err) {
+    log.error('[claude-auth] fetchAndTransformUsage error:', err.message);
+    return { _error: true, message: err.message };
   }
-  return transformUsageResponse(raw);
 }
 
 module.exports = { getOAuthToken, fetchUsage, fetchAndTransformUsage, getConfigDir };
