@@ -7,7 +7,7 @@ const pty = require('node-pty');
 const log = require('electron-log');
 const { getFolderIndexMtimeMs } = require('./folder-index-state');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rekeyMcpServer, cleanStaleLockFiles } = require('./mcp-bridge');
-const { fetchAndTransformUsage, testAuth } = require('./claude-auth');
+const { fetchAndTransformUsage } = require('./claude-auth');
 log.transports.file.level = app.isPackaged ? 'info' : 'debug';
 log.transports.console.level = app.isPackaged ? 'info' : 'debug';
 
@@ -1073,16 +1073,6 @@ ipcMain.handle('get-usage', async () => {
   } catch (err) {
     log.error('Error fetching usage:', err);
     return {};
-  }
-});
-
-// --- IPC: test-auth (validate OAuth token via /api/oauth/profile) ---
-ipcMain.handle('test-auth', async () => {
-  try {
-    return await testAuth();
-  } catch (err) {
-    log.error('Error testing auth:', err);
-    return { valid: false, error: err.message };
   }
 });
 
