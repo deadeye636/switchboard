@@ -52,6 +52,13 @@ Switchboard monitors all your sessions in the background and shows status indica
 - **Permission approval** — When Claude is blocked waiting for a permission grant, the session badge lets you know immediately.
 - **Activity indicators** — See which sessions are actively running, idle, or finished.
 
+## Editor
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+F` / `Ctrl+F` | Find in file (also works in terminal) |
+| `Cmd+G` / `Ctrl+G` | Go to line |
+
 ## Download
 
 Grab the latest release for your platform:

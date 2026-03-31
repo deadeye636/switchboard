@@ -52,38 +52,8 @@
       </div>
       <div id="stats-viewer-body"></div>
     </div>
-    <div id="memory-viewer" style="display:none;">
-      <div id="memory-viewer-header">
-        <div id="memory-viewer-header-info">
-          <span id="memory-viewer-title"></span>
-          <span id="memory-viewer-filename"></span>
-          <button id="memory-copy-path-btn" title="Copy file path"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M5.5 10.5h-1a1.5 1.5 0 0 1-1.5-1.5v-5a1.5 1.5 0 0 1 1.5-1.5h5a1.5 1.5 0 0 1 1.5 1.5v1"/></svg></button>
-        </div>
-        <div id="memory-viewer-header-controls">
-          <button id="memory-preview-btn" title="Toggle markdown preview">Preview</button>
-          <button id="memory-copy-content-btn" title="Copy raw content">Copy</button>
-          <button id="memory-save-btn" title="Save changes">Save</button>
-        </div>
-      </div>
-      <div id="memory-viewer-editor"></div>
-      <div id="memory-viewer-preview" class="markdown-preview" style="display:none;"></div>
-    </div>
-    <div id="plan-viewer" style="display:none;">
-      <div id="plan-viewer-header">
-        <div id="plan-viewer-header-info">
-          <span id="plan-viewer-title"></span>
-          <span id="plan-viewer-filepath"></span>
-          <button id="plan-copy-path-btn" title="Copy file path"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M5.5 10.5h-1a1.5 1.5 0 0 1-1.5-1.5v-5a1.5 1.5 0 0 1 1.5-1.5h5a1.5 1.5 0 0 1 1.5 1.5v1"/></svg></button>
-        </div>
-        <div id="plan-viewer-header-controls">
-          <button id="plan-preview-btn" title="Toggle markdown preview">Preview</button>
-          <button id="plan-copy-content-btn" title="Copy raw content">Copy</button>
-          <button id="plan-save-btn" title="Save changes">Save</button>
-        </div>
-      </div>
-      <div id="plan-viewer-editor"></div>
-      <div id="plan-viewer-preview" class="markdown-preview" style="display:none;"></div>
-    </div>
+    <div id="memory-viewer" style="display:none;"></div>
+    <div id="plan-viewer" style="display:none;"></div>
     <div id="settings-viewer" style="display:none;">
       <div id="settings-viewer-header">
         <span id="settings-viewer-title">Settings</span>
@@ -107,8 +77,7 @@
         </div>
         <div id="terminal-header-controls">
           <span id="terminal-header-status"></span>
-          <button id="terminal-stop-btn" title="Stop process">Stop</button>
-          <button id="terminal-restart-btn" title="Restart session">Restart</button>
+          <button id="terminal-stop-btn" title="Stop process"><svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2" y="2" width="8" height="8" rx="1"/></svg></button>
         </div>
       </div>
       <div id="grid-viewer" style="display:none;">
@@ -130,9 +99,12 @@
   <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
+  <script src="../node_modules/@xterm/addon-search/lib/addon-search.js"></script>
   <script src="../node_modules/morphdom/dist/morphdom-umd.js"></script>
   <script src="codemirror-bundle.js"></script>
   <script src="icons.js"></script>
+  <script src="viewer-toolbar.js"></script>
+  <script src="viewer-panel.js"></script>
   <script src="file-panel.js"></script>
   <script src="app.js"></script>
 </body>

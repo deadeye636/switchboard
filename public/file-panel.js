@@ -2,62 +2,43 @@
  * file-panel.js — Renderer-side file/diff side panel for Switchboard.
  *
  * Manages a collapsible panel to the right of the terminal that shows
- * files and diffs received from the MCP bridge. Each session has its
- * own set of tabs and panel state.
+ * files and diffs received from the MCP bridge.
  *
- * Globals expected: window.api, window.createReadOnlyViewer,
- *   window.createMergeViewer, window.CMMergeView, openSessions (from app.js)
+ * For files: delegates to a ViewerPanel instance (shared component).
+ * For diffs: uses its own MergeView rendering with accept/reject.
+ *
+ * Globals expected: window.api, window.ViewerPanel,
+ *   window.createMergeViewer, window.createUnifiedMergeViewer,
+ *   window.createViewerToolbar, openSessions (from app.js)
  */
 
 // ── Per-Session State ───────────────────────────────────────────────
 
-/**
- * Map<sessionId, {
- *   tabs: Map<tabId, TabState>,
- *   activeTabId: string|null,
- *   panelVisible: boolean,
- *   mcpActive: boolean,
- *   panelWidth: number,
- * }>
- */
 const filePanelState = new Map();
-
-/**
- * TabState:
- * {
- *   tabId: string,
- *   type: 'diff' | 'file',
- *   label: string,
- *   filePath: string,
- *   // diff-specific:
- *   diffId: string,
- *   oldContent: string,
- *   newContent: string,
- *   resolved: boolean,
- *   // file-specific:
- *   content: string,
- *   // runtime:
- *   editorView: EditorView|MergeView|null,
- * }
- */
 
 // ── DOM References ──────────────────────────────────────────────────
 
 let filePanelEl = null;
-let filePanelHeaderEl = null;
-let filePanelPathEl = null;
-let filePanelBodyEl = null;
-let filePanelActionsEl = null;
+let filePanelContentEl = null;  // container for ViewerPanel or diff content
 let filePanelResizeHandle = null;
 let terminalSplitEl = null;
 let currentPanelSessionId = null;
+
+// ViewerPanel instance for file-type tabs
+let fpViewerPanel = null;
+
+// Diff-specific DOM
+let diffToolbarEl = null;
+let diffBodyEl = null;
+let diffActionsEl = null;
+let diffToggleBtn = null;
 
 const PANEL_WIDTH_KEY = 'filePanelWidth';
 const DEFAULT_PANEL_WIDTH = parseInt(localStorage.getItem(PANEL_WIDTH_KEY), 10) || 450;
 const MIN_PANEL_WIDTH = 280;
 
 const DIFF_MODE_KEY = 'filePanelDiffMode';
-let diffMode = localStorage.getItem(DIFF_MODE_KEY) || 'side-by-side'; // 'side-by-side' | 'inline'
+let diffMode = localStorage.getItem(DIFF_MODE_KEY) || 'side-by-side';
 
 // ── Initialization ──────────────────────────────────────────────────
 
@@ -70,7 +51,6 @@ function initFilePanel() {
   terminalSplitEl = document.createElement('div');
   terminalSplitEl.id = 'terminal-split';
 
-  // Reparent #terminals into the split
   terminalArea.removeChild(terminalsEl);
   terminalSplitEl.appendChild(terminalsEl);
 
@@ -83,61 +63,141 @@ function initFilePanel() {
   filePanelEl = document.createElement('div');
   filePanelEl.id = 'file-panel';
 
-  filePanelHeaderEl = document.createElement('div');
-  filePanelHeaderEl.id = 'file-panel-header';
-  filePanelEl.appendChild(filePanelHeaderEl);
+  // Content container — holds either ViewerPanel or diff UI
+  filePanelContentEl = document.createElement('div');
+  filePanelContentEl.id = 'file-panel-content';
+  filePanelEl.appendChild(filePanelContentEl);
 
-  // Toolbar: path + diff mode toggle
-  const toolbarEl = document.createElement('div');
-  toolbarEl.id = 'file-panel-toolbar';
+  // ── ViewerPanel for file-type tabs ──
+  const vpContainer = document.createElement('div');
+  vpContainer.id = 'file-panel-viewer';
+  vpContainer.style.display = 'none';
+  filePanelContentEl.appendChild(vpContainer);
 
-  filePanelPathEl = document.createElement('div');
-  filePanelPathEl.className = 'file-panel-path';
-  toolbarEl.appendChild(filePanelPathEl);
-
-  const diffToggleBtn = document.createElement('button');
-  diffToggleBtn.id = 'diff-mode-toggle';
-  diffToggleBtn.title = diffMode === 'inline' ? 'Switch to side-by-side diff' : 'Switch to inline diff';
-  diffToggleBtn.textContent = diffMode === 'inline' ? 'Side-by-Side' : 'Inline';
-  diffToggleBtn.addEventListener('click', () => {
-    diffMode = diffMode === 'inline' ? 'side-by-side' : 'inline';
-    localStorage.setItem(DIFF_MODE_KEY, diffMode);
-    diffToggleBtn.textContent = diffMode === 'inline' ? 'Side-by-Side' : 'Inline';
-    diffToggleBtn.title = diffMode === 'inline' ? 'Switch to side-by-side diff' : 'Switch to inline diff';
-    // Re-render active tab if it's a diff
-    if (currentPanelSessionId) {
-      const state = getSessionState(currentPanelSessionId);
-      const activeTab = state.activeTabId ? state.tabs.get(state.activeTabId) : null;
-      if (activeTab && activeTab.type === 'diff') {
-        activeTab.editorView = null; // force re-create
-        renderTabContent(currentPanelSessionId, activeTab);
-      }
-    }
+  fpViewerPanel = new ViewerPanel(vpContainer, {
+    language: 'auto',
+    onSave: (filePath, content) => window.api.saveFileForPanel(filePath, content),
+    onClose: handleClose,
   });
-  toolbarEl.appendChild(diffToggleBtn);
 
-  filePanelEl.appendChild(toolbarEl);
+  // ── Diff-specific UI ──
+  const diffContainer = document.createElement('div');
+  diffContainer.id = 'file-panel-diff';
+  diffContainer.style.display = 'none';
+  filePanelContentEl.appendChild(diffContainer);
 
-  filePanelBodyEl = document.createElement('div');
-  filePanelBodyEl.id = 'file-panel-body';
-  filePanelEl.appendChild(filePanelBodyEl);
+  // Diff toolbar
+  diffToolbarEl = document.createElement('div');
+  diffToolbarEl.className = 'viewer-toolbar';
 
-  filePanelActionsEl = document.createElement('div');
-  filePanelActionsEl.id = 'file-panel-actions';
-  filePanelActionsEl.style.display = 'none';
-  filePanelEl.appendChild(filePanelActionsEl);
+  const diffInfo = document.createElement('div');
+  diffInfo.className = 'viewer-toolbar-info';
+  diffInfo.innerHTML = '<span class="viewer-toolbar-title" id="diff-title"></span><span class="viewer-toolbar-path" id="diff-path"></span>';
+  diffToolbarEl.appendChild(diffInfo);
+
+  const diffControls = document.createElement('div');
+  diffControls.className = 'viewer-toolbar-controls';
+
+  diffToggleBtn = document.createElement('button');
+  diffToggleBtn.className = 'fp-toolbar-btn';
+  diffToggleBtn.textContent = diffMode === 'inline' ? 'Side-by-Side' : 'Inline';
+  diffToggleBtn.title = diffMode === 'inline' ? 'Switch to side-by-side diff' : 'Switch to inline diff';
+  diffToggleBtn.addEventListener('click', handleDiffModeToggle);
+  diffControls.appendChild(diffToggleBtn);
+
+  const diffSaveBtn = document.createElement('button');
+  diffSaveBtn.className = 'fp-toolbar-btn fp-save-btn fp-icon-btn';
+  diffSaveBtn.title = 'Save changes';
+  diffSaveBtn.innerHTML = '<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 448 512" width="14" height="14" xmlns="http://www.w3.org/2000/svg"><path d="M433.941 129.941l-83.882-83.882A48 48 0 0 0 316.118 32H48C21.49 32 0 53.49 0 80v352c0 26.51 21.49 48 48 48h352c26.51 0 48-21.49 48-48V163.882a48 48 0 0 0-14.059-33.941zM272 80v80H144V80h128zm122 352H54a6 6 0 0 1-6-6V86a6 6 0 0 1 6-6h42v104c0 13.255 10.745 24 24 24h176c13.255 0 24-10.745 24-24V83.882l78.243 78.243a6 6 0 0 1 1.757 4.243V426a6 6 0 0 1-6 6zM224 232c-48.523 0-88 39.477-88 88s39.477 88 88 88 88-39.477 88-88-39.477-88-88-88zm0 128c-22.056 0-40-17.944-40-40s17.944-40 40-40 40 17.944 40 40-17.944 40-40 40z"></path></svg>';
+  diffSaveBtn.addEventListener('click', handleDiffSave);
+  diffControls.appendChild(diffSaveBtn);
+
+  const diffCloseBtn = document.createElement('button');
+  diffCloseBtn.className = 'fp-toolbar-btn fp-close-btn fp-icon-btn';
+  diffCloseBtn.innerHTML = '<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 512 512" width="14" height="14" xmlns="http://www.w3.org/2000/svg"><path d="M400 145.49 366.51 112 256 222.51 145.49 112 112 145.49 222.51 256 112 366.51 145.49 400 256 289.49 366.51 400 400 366.51 289.49 256 400 145.49z"></path></svg>';
+  diffCloseBtn.title = 'Close panel';
+  diffCloseBtn.addEventListener('click', handleClose);
+  diffControls.appendChild(diffCloseBtn);
+
+  diffToolbarEl.appendChild(diffControls);
+  diffContainer.appendChild(diffToolbarEl);
+
+  diffBodyEl = document.createElement('div');
+  diffBodyEl.id = 'file-panel-body';
+  diffContainer.appendChild(diffBodyEl);
+
+  diffActionsEl = document.createElement('div');
+  diffActionsEl.id = 'file-panel-actions';
+  diffActionsEl.style.display = 'none';
+  diffContainer.appendChild(diffActionsEl);
 
   terminalSplitEl.appendChild(filePanelEl);
   terminalArea.appendChild(terminalSplitEl);
 
-  // Wire up IPC listeners
   wireIpcListeners();
-
-  // Wire up resize handle
   setupPanelResizeHandle();
-
-  // Add MCP toggle to terminal header
   addMcpToggle();
+}
+
+// ── Handlers ────────────────────────────────────────────────────────
+
+function handleClose() {
+  if (!currentPanelSessionId) return;
+  const state = getSessionState(currentPanelSessionId);
+  const tab = state.currentTab;
+
+  if (tab) {
+    if (tab.type === 'diff' && !tab.resolved) {
+      window.api.mcpDiffResponse(currentPanelSessionId, tab.diffId, 'reject', null);
+    }
+    if (tab.type === 'diff' && tab.editorView) {
+      tab.editorView.destroy();
+      tab.editorView = null;
+    }
+    if (tab.type === 'file') {
+      fpViewerPanel.destroy();
+    }
+    state.currentTab = null;
+  }
+
+  state.panelVisible = false;
+  hidePanel();
+}
+
+async function handleDiffSave() {
+  const state = currentPanelSessionId ? getSessionState(currentPanelSessionId) : null;
+  const tab = state?.currentTab;
+  if (!tab || tab.type !== 'diff' || !tab.editorView || !tab.filePath) return;
+
+  let content;
+  if (tab._diffMode === 'inline') {
+    content = tab.editorView.state.doc.toString();
+  } else if (tab.editorView.b) {
+    content = tab.editorView.b.state.doc.toString();
+  }
+  if (content == null) return;
+
+  const result = await window.api.saveFileForPanel(tab.filePath, content);
+  if (result.ok) {
+    const btn = diffToolbarEl.querySelector('.fp-save-btn');
+    if (btn) flashButtonText(btn, 'Saved!');
+  }
+}
+
+function handleDiffModeToggle() {
+  diffMode = diffMode === 'inline' ? 'side-by-side' : 'inline';
+  localStorage.setItem(DIFF_MODE_KEY, diffMode);
+  diffToggleBtn.textContent = diffMode === 'inline' ? 'Side-by-Side' : 'Inline';
+  diffToggleBtn.title = diffMode === 'inline' ? 'Switch to side-by-side diff' : 'Switch to inline diff';
+
+  if (currentPanelSessionId) {
+    const state = getSessionState(currentPanelSessionId);
+    const tab = state.currentTab;
+    if (tab && tab.type === 'diff') {
+      if (tab.editorView) { tab.editorView.destroy(); tab.editorView = null; }
+      renderTabContent(currentPanelSessionId, tab);
+    }
+  }
 }
 
 // ── IPC Wiring ──────────────────────────────────────────────────────
@@ -152,11 +212,11 @@ function wireIpcListeners() {
   });
 
   window.api.onMcpCloseAllDiffs((sessionId) => {
-    closeAllDiffTabs(sessionId);
+    closeAllDiffs(sessionId);
   });
 
   window.api.onMcpCloseTab((sessionId, diffId) => {
-    closeDiffTabByDiffId(sessionId, diffId);
+    closeDiffByDiffId(sessionId, diffId);
   });
 }
 
@@ -165,8 +225,7 @@ function wireIpcListeners() {
 function getSessionState(sessionId) {
   if (!filePanelState.has(sessionId)) {
     filePanelState.set(sessionId, {
-      tabs: new Map(),
-      activeTabId: null,
+      currentTab: null,
       panelVisible: false,
       panelWidth: DEFAULT_PANEL_WIDTH,
       mcpActive: false,
@@ -175,16 +234,10 @@ function getSessionState(sessionId) {
   return filePanelState.get(sessionId);
 }
 
-/**
- * Called from app.js after openTerminal returns.
- * Single entry point for setting MCP status — updates state and indicator.
- */
 function setSessionMcpActive(sessionId, active) {
   const state = getSessionState(sessionId);
   state.mcpActive = active;
-  if (currentPanelSessionId === sessionId) {
-    updateMcpIndicator();
-  }
+  if (currentPanelSessionId === sessionId) updateMcpIndicator();
 }
 
 function rekeyFilePanelState(oldId, newId) {
@@ -200,25 +253,22 @@ function rekeyFilePanelState(oldId, newId) {
 function openDiffTab(sessionId, diffId, data) {
   const state = getSessionState(sessionId);
 
-  const tabId = `diff:${diffId}`;
-  const label = data.tabName || basename(data.oldFilePath);
+  // Destroy previous
+  destroyCurrentTab(state);
 
-  state.tabs.set(tabId, {
-    tabId,
+  state.currentTab = {
     type: 'diff',
-    label,
+    label: data.tabName || basename(data.oldFilePath),
     filePath: data.oldFilePath,
     diffId,
     oldContent: data.oldContent,
     newContent: data.newContent,
     resolved: false,
     editorView: null,
-  });
+  };
 
-  state.activeTabId = tabId;
   state.panelVisible = true;
 
-  // If this is the active session, update the UI
   if (currentPanelSessionId === sessionId) {
     showPanel(state);
     renderPanel(sessionId);
@@ -228,30 +278,16 @@ function openDiffTab(sessionId, diffId, data) {
 function openFileTab(sessionId, data) {
   const state = getSessionState(sessionId);
 
-  const tabId = `file:${data.filePath}`;
-  const label = basename(data.filePath);
+  // Destroy previous
+  destroyCurrentTab(state);
 
-  // Reuse existing tab for same file
-  if (state.tabs.has(tabId)) {
-    const tab = state.tabs.get(tabId);
-    tab.content = data.content;
-    // Destroy old editor so it re-renders
-    if (tab.editorView) {
-      tab.editorView.destroy();
-      tab.editorView = null;
-    }
-  } else {
-    state.tabs.set(tabId, {
-      tabId,
-      type: 'file',
-      label,
-      filePath: data.filePath,
-      content: data.content,
-      editorView: null,
-    });
-  }
+  state.currentTab = {
+    type: 'file',
+    label: basename(data.filePath),
+    filePath: data.filePath,
+    content: data.content,
+  };
 
-  state.activeTabId = tabId;
   state.panelVisible = true;
 
   if (currentPanelSessionId === sessionId) {
@@ -260,112 +296,46 @@ function openFileTab(sessionId, data) {
   }
 }
 
-/**
- * Open a file in the panel from an OSC 8 file:// link click.
- * Reads the file via IPC and creates a file tab.
- */
-async function openFileInPanel(sessionId, filePath) {
+function destroyCurrentTab(state) {
+  const tab = state.currentTab;
+  if (!tab) return;
+  if (tab.type === 'diff' && tab.editorView) {
+    tab.editorView.destroy();
+    tab.editorView = null;
+  }
+  if (tab.type === 'file') {
+    fpViewerPanel.destroy();
+  }
+}
 
+async function openFileInPanel(sessionId, filePath) {
   const result = await window.api.readFileForPanel(filePath);
   if (!result.ok) return;
-
   openFileTab(sessionId, { filePath, content: result.content });
 }
 
-function closeTab(sessionId, tabId) {
-  const state = getSessionState(sessionId);
-  const tab = state.tabs.get(tabId);
-  if (!tab) return;
-
-  // If it's an unresolved diff, respond as rejected
-  if (tab.type === 'diff' && !tab.resolved) {
-    window.api.mcpDiffResponse(sessionId, tab.diffId, 'reject', null);
-  }
-
-  // Destroy editor
-  if (tab.editorView) {
-    tab.editorView.destroy();
-    tab.editorView = null;
-  }
-
-  state.tabs.delete(tabId);
-
-  // Switch to another tab or hide panel
-  if (state.activeTabId === tabId) {
-    const remaining = [...state.tabs.keys()];
-    state.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : null;
-  }
-
-  if (state.tabs.size === 0) {
-    state.panelVisible = false;
-    if (currentPanelSessionId === sessionId) {
-      hidePanel();
-    }
-  } else if (currentPanelSessionId === sessionId) {
-    renderPanel(sessionId);
-  }
-}
-
-function closeAllDiffTabs(sessionId) {
-  const state = getSessionState(sessionId);
-
-  for (const [tabId, tab] of state.tabs) {
-    if (tab.type === 'diff') {
-      if (tab.editorView) {
-        tab.editorView.destroy();
-        tab.editorView = null;
-      }
-      state.tabs.delete(tabId);
-    }
-  }
-
-  // Update active tab
-  if (state.activeTabId && !state.tabs.has(state.activeTabId)) {
-    const remaining = [...state.tabs.keys()];
-    state.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : null;
-  }
-
-  if (state.tabs.size === 0) {
-    state.panelVisible = false;
-    if (currentPanelSessionId === sessionId) hidePanel();
-  } else if (currentPanelSessionId === sessionId) {
-    renderPanel(sessionId);
-  }
-}
-
-/**
- * Close a specific diff tab by diffId (called when CLI accepts/rejects in terminal).
- * The pending diff is already resolved by mcp-bridge, so just remove the tab UI.
- */
-function closeDiffTabByDiffId(sessionId, diffId) {
+function closeAllDiffs(sessionId) {
   const state = filePanelState.get(sessionId);
   if (!state) return;
 
-  const tabId = `diff:${diffId}`;
-  const tab = state.tabs.get(tabId);
-  if (!tab) return;
-
-  // Mark as resolved so closeTab doesn't send another IPC response
-  tab.resolved = true;
-
-  if (tab.editorView) {
-    tab.editorView.destroy();
-    tab.editorView = null;
-  }
-
-  state.tabs.delete(tabId);
-
-  if (state.activeTabId === tabId) {
-    const remaining = [...state.tabs.keys()];
-    state.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : null;
-  }
-
-  if (state.tabs.size === 0) {
+  if (state.currentTab?.type === 'diff') {
+    destroyCurrentTab(state);
+    state.currentTab = null;
     state.panelVisible = false;
     if (currentPanelSessionId === sessionId) hidePanel();
-  } else if (currentPanelSessionId === sessionId) {
-    renderPanel(sessionId);
   }
+}
+
+function closeDiffByDiffId(sessionId, diffId) {
+  const state = filePanelState.get(sessionId);
+  if (!state || !state.currentTab) return;
+  if (state.currentTab.type !== 'diff' || state.currentTab.diffId !== diffId) return;
+
+  state.currentTab.resolved = true;
+  destroyCurrentTab(state);
+  state.currentTab = null;
+  state.panelVisible = false;
+  if (currentPanelSessionId === sessionId) hidePanel();
 }
 
 // ── Panel Show/Hide ─────────────────────────────────────────────────
@@ -386,17 +356,8 @@ function hidePanel() {
   refitActiveTerminal();
 }
 
-/**
- * Called when the active session changes. Shows/hides the panel
- * based on the new session's state.
- */
 function switchPanel(sessionId) {
   currentPanelSessionId = sessionId;
-
-  // Destroy any visible editors from previous session
-  clearPanelEditors();
-
-  // Update IDE Emulation indicator from file-panel state
   updateMcpIndicator();
 
   if (!sessionId) {
@@ -406,7 +367,7 @@ function switchPanel(sessionId) {
 
   const state = getSessionState(sessionId);
 
-  if (state.panelVisible && state.tabs.size > 0) {
+  if (state.panelVisible && state.currentTab) {
     showPanel(state);
     renderPanel(sessionId);
   } else {
@@ -432,140 +393,77 @@ function renderPanel(sessionId) {
   const state = getSessionState(sessionId);
   if (!state) return;
 
-  // Render tab bar
-  renderTabBar(sessionId, state);
-
-  // Render active tab content
-  const activeTab = state.activeTabId ? state.tabs.get(state.activeTabId) : null;
-  renderTabContent(sessionId, activeTab);
-}
-
-function renderTabBar(sessionId, state) {
-  filePanelHeaderEl.innerHTML = '';
-
-  for (const [tabId, tab] of state.tabs) {
-    const tabEl = document.createElement('button');
-    tabEl.className = 'file-tab';
-    if (tabId === state.activeTabId) tabEl.classList.add('active');
-    if (tab.type === 'diff') {
-      tabEl.classList.add('is-diff');
-      if (tab.resolved) tabEl.classList.add('resolved');
-    }
-
-    const labelSpan = document.createElement('span');
-    labelSpan.textContent = tab.label;
-    tabEl.appendChild(labelSpan);
-
-    const closeBtn = document.createElement('span');
-    closeBtn.className = 'file-tab-close';
-    closeBtn.textContent = '\u00d7';
-    closeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      closeTab(sessionId, tabId);
-    });
-    tabEl.appendChild(closeBtn);
-
-    tabEl.addEventListener('click', () => {
-      state.activeTabId = tabId;
-      renderPanel(sessionId);
-    });
-
-    filePanelHeaderEl.appendChild(tabEl);
-  }
+  renderTabContent(sessionId, state.currentTab);
 }
 
 function renderTabContent(sessionId, tab) {
-  // Clear previous editor
-  clearPanelEditors();
-
-  const toggleBtn = document.getElementById('diff-mode-toggle');
+  const vpContainer = document.getElementById('file-panel-viewer');
+  const diffContainer = document.getElementById('file-panel-diff');
 
   if (!tab) {
-    filePanelPathEl.textContent = '';
-    filePanelActionsEl.style.display = 'none';
-    if (toggleBtn) toggleBtn.style.display = 'none';
+    vpContainer.style.display = 'none';
+    diffContainer.style.display = 'none';
     return;
   }
 
-  // Show file path
-  filePanelPathEl.textContent = tab.filePath || '';
-
-  if (tab.type === 'diff') {
-    if (toggleBtn) toggleBtn.style.display = '';
-    renderDiffContent(sessionId, tab);
+  if (tab.type === 'file') {
+    // Use ViewerPanel
+    diffContainer.style.display = 'none';
+    vpContainer.style.display = 'flex';
+    fpViewerPanel.open(tab.label, tab.filePath, tab.content);
   } else {
-    if (toggleBtn) toggleBtn.style.display = 'none';
-    renderFileContent(tab);
+    // Diff mode
+    vpContainer.style.display = 'none';
+    diffContainer.style.display = 'flex';
+    renderDiffContent(sessionId, tab);
   }
 }
 
 function renderDiffContent(sessionId, tab) {
-  // Create viewer if not already created (or recreated after mode switch)
+  diffBodyEl.innerHTML = '';
+
+  // Update diff toolbar info
+  const titleEl = diffToolbarEl.querySelector('#diff-title');
+  const pathEl = diffToolbarEl.querySelector('#diff-path');
+  if (titleEl) titleEl.textContent = tab.label;
+  if (pathEl) pathEl.textContent = tab.filePath || '';
+
   if (!tab.editorView) {
     if (diffMode === 'inline') {
       tab.editorView = window.createUnifiedMergeViewer(
-        filePanelBodyEl,
-        tab.oldContent,
-        tab.newContent,
-        tab.filePath,
+        diffBodyEl, tab.oldContent, tab.newContent, tab.filePath,
       );
       tab._diffMode = 'inline';
     } else {
       tab.editorView = window.createMergeViewer(
-        filePanelBodyEl,
-        tab.oldContent,
-        tab.newContent,
-        tab.filePath,
+        diffBodyEl, tab.oldContent, tab.newContent, tab.filePath,
       );
       tab._diffMode = 'side-by-side';
     }
+    tab.editorView.dom.addEventListener('click', () => tab.editorView.dom.focus());
   } else {
-    filePanelBodyEl.appendChild(tab.editorView.dom);
+    diffBodyEl.appendChild(tab.editorView.dom);
   }
 
-  // Show accept/reject buttons (unless already resolved)
+  // Accept/reject buttons
   if (!tab.resolved) {
-    filePanelActionsEl.style.display = 'flex';
-    filePanelActionsEl.innerHTML = '';
+    diffActionsEl.style.display = 'flex';
+    diffActionsEl.innerHTML = '';
 
     const acceptBtn = document.createElement('button');
     acceptBtn.className = 'file-panel-accept-btn';
     acceptBtn.textContent = 'Accept';
-    acceptBtn.addEventListener('click', () => {
-      handleDiffAction(sessionId, tab, 'accept');
-    });
+    acceptBtn.addEventListener('click', () => handleDiffAction(sessionId, tab, 'accept'));
 
     const rejectBtn = document.createElement('button');
     rejectBtn.className = 'file-panel-reject-btn';
     rejectBtn.textContent = 'Reject';
-    rejectBtn.addEventListener('click', () => {
-      handleDiffAction(sessionId, tab, 'reject');
-    });
+    rejectBtn.addEventListener('click', () => handleDiffAction(sessionId, tab, 'reject'));
 
-    filePanelActionsEl.appendChild(acceptBtn);
-    filePanelActionsEl.appendChild(rejectBtn);
+    diffActionsEl.appendChild(acceptBtn);
+    diffActionsEl.appendChild(rejectBtn);
   } else {
-    filePanelActionsEl.style.display = 'none';
-  }
-}
-
-function renderFileContent(tab) {
-  filePanelActionsEl.style.display = 'none';
-
-  if (!tab.editorView) {
-    tab.editorView = window.createReadOnlyViewer(
-      filePanelBodyEl,
-      tab.content,
-      tab.filePath,
-    );
-  } else {
-    filePanelBodyEl.appendChild(tab.editorView.dom);
-  }
-}
-
-function clearPanelEditors() {
-  if (filePanelBodyEl) {
-    filePanelBodyEl.innerHTML = '';
+    diffActionsEl.style.display = 'none';
   }
 }
 
@@ -576,19 +474,15 @@ function handleDiffAction(sessionId, tab, action) {
   tab.resolved = true;
 
   if (action === 'accept') {
-    // Get content from the editor (user may have edited or partially accepted chunks)
     let editedContent = null;
     if (tab.editorView) {
       if (tab._diffMode === 'inline') {
-        // Unified view: content is in the EditorView's doc directly
         editedContent = tab.editorView.state.doc.toString();
       } else if (tab.editorView.b) {
-        // Side-by-side: content is in the right (b) editor
         editedContent = tab.editorView.b.state.doc.toString();
       }
     }
 
-    // If user edited the content, send accept-edited; otherwise just accept
     if (editedContent && editedContent !== tab.newContent) {
       window.api.mcpDiffResponse(sessionId, tab.diffId, 'accept-edited', editedContent);
     } else {
@@ -598,10 +492,7 @@ function handleDiffAction(sessionId, tab, action) {
     window.api.mcpDiffResponse(sessionId, tab.diffId, 'reject', null);
   }
 
-  // Update tab UI
-  const tabEl = filePanelHeaderEl.querySelector(`.file-tab.active`);
-  if (tabEl) tabEl.classList.add('resolved');
-  filePanelActionsEl.style.display = 'none';
+  diffActionsEl.style.display = 'none';
 }
 
 // ── IDE Emulation Indicator ─────────────────────────────────────────
@@ -618,7 +509,6 @@ function addMcpToggle() {
   mcpIndicatorEl.textContent = 'IDE Emulation';
   mcpIndicatorEl.style.display = 'none';
 
-  // Insert before the stop button
   const stopBtn = document.getElementById('terminal-stop-btn');
   if (stopBtn) {
     controls.insertBefore(mcpIndicatorEl, stopBtn);
@@ -647,7 +537,6 @@ function setupPanelResizeHandle() {
   }
 
   function onMouseMove(e) {
-    // Panel is on the right, so dragging left increases width
     const delta = startX - e.clientX;
     const newWidth = Math.max(MIN_PANEL_WIDTH, startWidth + delta);
     filePanelEl.style.width = newWidth + 'px';
@@ -660,7 +549,6 @@ function setupPanelResizeHandle() {
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
 
-    // Save width globally (persists across sessions and restarts)
     const w = filePanelEl.offsetWidth;
     localStorage.setItem(PANEL_WIDTH_KEY, w);
     if (currentPanelSessionId) {
@@ -677,7 +565,6 @@ function setupPanelResizeHandle() {
 // ── Terminal Refit ──────────────────────────────────────────────────
 
 function refitActiveTerminal() {
-  // Refit terminal after panel resize — uses openSessions from app.js
   requestAnimationFrame(() => {
     if (typeof openSessions !== 'undefined' && currentPanelSessionId) {
       const entry = openSessions.get(currentPanelSessionId);

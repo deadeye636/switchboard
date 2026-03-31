@@ -864,6 +864,51 @@ ipcMain.handle('read-file-for-panel', async (_event, filePath) => {
   }
 });
 
+ipcMain.handle('save-file-for-panel', async (_event, filePath, content) => {
+  try {
+    const resolved = path.resolve(filePath);
+    if (!fs.existsSync(resolved)) return { ok: false, error: 'File does not exist' };
+    fs.writeFileSync(resolved, content, 'utf8');
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// ── File Watching (for viewer panels) ────────────────────────────────
+const fileWatchers = new Map(); // filePath → FSWatcher
+
+ipcMain.handle('watch-file', (_event, filePath) => {
+  const resolved = path.resolve(filePath);
+  if (fileWatchers.has(resolved)) return { ok: true };
+  try {
+    let debounce = null;
+    const watcher = fs.watch(resolved, (eventType) => {
+      if (eventType !== 'change') return;
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('file-changed', resolved);
+        }
+      }, 300);
+    });
+    fileWatchers.set(resolved, watcher);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('unwatch-file', (_event, filePath) => {
+  const resolved = path.resolve(filePath);
+  const watcher = fileWatchers.get(resolved);
+  if (watcher) {
+    watcher.close();
+    fileWatchers.delete(resolved);
+  }
+  return { ok: true };
+});
+
 ipcMain.handle('get-projects', (_event, showArchived) => {
   try {
     const needsPopulate = !isCachePopulated() || !isSearchIndexPopulated();

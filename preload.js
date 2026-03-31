@@ -101,4 +101,10 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.send('mcp-diff-response', sessionId, diffId, action, editedContent);
   },
   readFileForPanel: (filePath) => ipcRenderer.invoke('read-file-for-panel', filePath),
+  saveFileForPanel: (filePath, content) => ipcRenderer.invoke('save-file-for-panel', filePath, content),
+  watchFile: (filePath) => ipcRenderer.invoke('watch-file', filePath),
+  unwatchFile: (filePath) => ipcRenderer.invoke('unwatch-file', filePath),
+  onFileChanged: (callback) => {
+    ipcRenderer.on('file-changed', (_event, filePath) => callback(filePath));
+  },
 });

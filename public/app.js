@@ -13,24 +13,18 @@ const terminalHeaderId = document.getElementById('terminal-header-id');
 const terminalHeaderStatus = document.getElementById('terminal-header-status');
 const terminalHeaderShell = document.getElementById('terminal-header-shell');
 const terminalStopBtn = document.getElementById('terminal-stop-btn');
-const terminalRestartBtn = document.getElementById('terminal-restart-btn');
 const runningToggle = document.getElementById('running-toggle');
 const todayToggle = document.getElementById('today-toggle');
 const planViewer = document.getElementById('plan-viewer');
-const planViewerTitle = document.getElementById('plan-viewer-title');
-const planViewerFilepath = document.getElementById('plan-viewer-filepath');
-const planViewerEditorEl = document.getElementById('plan-viewer-editor');
-const planCopyPathBtn = document.getElementById('plan-copy-path-btn');
-const planCopyContentBtn = document.getElementById('plan-copy-content-btn');
-const planSaveBtn = document.getElementById('plan-save-btn');
-const planPreviewBtn = document.getElementById('plan-preview-btn');
-const planViewerPreviewEl = document.getElementById('plan-viewer-preview');
+const planPanel = new ViewerPanel(planViewer, {
+  copyPath: true, copyContent: true,
+  language: 'markdown', storageKey: 'planPreviewMode',
+  onSave: (filePath, content) => window.api.savePlan(filePath, content),
+});
 
 let currentPlanContent = '';
 let currentPlanFilePath = '';
 let currentPlanFilename = '';
-let planEditorView = null;
-let planPreviewMode = localStorage.getItem('planPreviewMode') === 'true';
 const loadingStatus = document.getElementById('loading-status');
 const sessionFilters = document.getElementById('session-filters');
 const searchBar = document.getElementById('search-bar');
@@ -39,14 +33,11 @@ const memoryContent = document.getElementById('memory-content');
 const statsViewer = document.getElementById('stats-viewer');
 const statsViewerBody = document.getElementById('stats-viewer-body');
 const memoryViewer = document.getElementById('memory-viewer');
-const memoryViewerTitle = document.getElementById('memory-viewer-title');
-const memoryViewerFilename = document.getElementById('memory-viewer-filename');
-const memoryViewerEditorEl = document.getElementById('memory-viewer-editor');
-const memoryCopyPathBtn = document.getElementById('memory-copy-path-btn');
-const memoryCopyContentBtn = document.getElementById('memory-copy-content-btn');
-const memorySaveBtn = document.getElementById('memory-save-btn');
-const memoryPreviewBtn = document.getElementById('memory-preview-btn');
-const memoryViewerPreviewEl = document.getElementById('memory-viewer-preview');
+const memoryPanel = new ViewerPanel(memoryViewer, {
+  copyPath: true, copyContent: true,
+  language: 'markdown', storageKey: 'memoryPreviewMode',
+  onSave: (filePath, content) => window.api.saveMemory(filePath, content),
+});
 const terminalArea = document.getElementById('terminal-area');
 const settingsViewer = document.getElementById('settings-viewer');
 const settingsViewerTitle = document.getElementById('settings-viewer-title');
@@ -222,8 +213,14 @@ let TERMINAL_THEME = getTerminalTheme();
 //   1. attachCustomKeyEventHandler returning false — blocks xterm's key pipeline (onKey/onData)
 //   2. preventDefault on capture-phase keydown — prevents browser inserting \n into textarea
 const isMac = window.api.platform === 'darwin';
-function setupTerminalKeyBindings(terminal, container, getSessionId) {
+function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } = {}) {
   terminal.attachCustomKeyEventHandler((e) => {
+    // Cmd/Ctrl+F → open terminal search bar
+    if (e.key === 'f' && (isMac ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      if (e.type === 'keydown' && onFind) onFind();
+      return false;
+    }
+
     // Shift+Enter → newline (kitty protocol CSI 13;2u) so Claude Code treats it as newline, not submit.
     if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       if (e.type === 'keydown') {
@@ -501,8 +498,6 @@ window.api.onTerminalNotification((sessionId, message) => {
   } else if (/waiting for your input/i.test(message)) {
     // "Claude is waiting for your input" — delayed idle notification, mark response-ready
     setActivity(sessionId, false);
-  } else {
-    console.log(`[notification] session=${sessionId} (no attention match) message="${message}"`);
   }
 
   // Show in header if active
@@ -650,16 +645,6 @@ terminalStopBtn.addEventListener('click', () => {
   if (activeSessionId) confirmAndStopSession(activeSessionId);
 });
 
-terminalRestartBtn.addEventListener('click', () => {
-  if (!activeSessionId) return;
-  const entry = openSessions.get(activeSessionId);
-  if (!entry) return;
-  window.api.closeTerminal(activeSessionId);
-  entry.terminal.dispose();
-  entry.element.remove();
-  openSessions.delete(activeSessionId);
-  openSession(entry.session);
-});
 
 // --- Poll for active PTY sessions ---
 async function pollActiveSessions() {
@@ -1582,6 +1567,7 @@ function createTerminalEntry(session) {
     cursorBlink: true,
     scrollback: 10000,
     convertEol: true,
+    allowProposedApi: true,
     linkHandler: {
       activate: (_event, uri) => {
         if (uri.startsWith('file://') && typeof openFileInPanel === 'function') {
@@ -1603,10 +1589,54 @@ function createTerminalEntry(session) {
       window.api.openExternal(url);
     }
   }));
+  const searchAddon = new SearchAddon.SearchAddon();
+  terminal.loadAddon(searchAddon);
   terminal.open(container);
   container.style.backgroundColor = TERMINAL_THEME.background;
 
-  const entry = { terminal, element: container, fitAddon, session, closed: false };
+  // --- Terminal search bar (Cmd/Ctrl+F) ---
+  const searchBar = document.createElement('div');
+  searchBar.className = 'terminal-search-bar';
+  searchBar.style.display = 'none';
+  searchBar.innerHTML = `
+    <input type="text" class="terminal-search-input" placeholder="Find..." />
+    <span class="terminal-search-count"></span>
+    <button class="terminal-search-prev" title="Previous (Shift+Enter)">&#x25B2;</button>
+    <button class="terminal-search-next" title="Next (Enter)">&#x25BC;</button>
+    <button class="terminal-search-close" title="Close (Escape)">&times;</button>
+  `;
+  container.appendChild(searchBar);
+  const searchInput = searchBar.querySelector('.terminal-search-input');
+  const searchCount = searchBar.querySelector('.terminal-search-count');
+  const searchOpts = { decorations: { matchBackground: '#515C6A', activeMatchBackground: '#EAA549', matchOverviewRuler: '#515C6A', activeMatchColorOverviewRuler: '#EAA549' } };
+
+  function openSearchBar() {
+    searchBar.style.display = 'flex';
+    searchInput.focus();
+    const sel = terminal.getSelection();
+    if (sel) { searchInput.value = sel; searchAddon.findNext(sel, searchOpts); }
+  }
+  function closeSearchBar() {
+    searchBar.style.display = 'none';
+    searchAddon.clearDecorations();
+    searchInput.value = '';
+    searchCount.textContent = '';
+    terminal.focus();
+  }
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value;
+    if (q) { searchAddon.findNext(q, searchOpts); } else { searchAddon.clearDecorations(); searchCount.textContent = ''; }
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeSearchBar(); e.preventDefault(); }
+    else if (e.key === 'Enter' && e.shiftKey) { searchAddon.findPrevious(searchInput.value, searchOpts); e.preventDefault(); }
+    else if (e.key === 'Enter') { searchAddon.findNext(searchInput.value, searchOpts); e.preventDefault(); }
+  });
+  searchBar.querySelector('.terminal-search-next').addEventListener('click', () => searchAddon.findNext(searchInput.value, searchOpts));
+  searchBar.querySelector('.terminal-search-prev').addEventListener('click', () => searchAddon.findPrevious(searchInput.value, searchOpts));
+  searchBar.querySelector('.terminal-search-close').addEventListener('click', closeSearchBar);
+
+  const entry = { terminal, element: container, fitAddon, searchAddon, openSearchBar, closeSearchBar, session, closed: false };
   openSessions.set(sessionId, entry);
 
   // Wire up IPC (use entry.session.sessionId so fork re-keying works)
@@ -1614,7 +1644,7 @@ function createTerminalEntry(session) {
     if (data === '\x1b[I' || data === '\x1b[O') return;
     window.api.sendInput(entry.session.sessionId, data);
   });
-  setupTerminalKeyBindings(terminal, container, () => entry.session.sessionId);
+  setupTerminalKeyBindings(terminal, container, () => entry.session.sessionId, { onFind: openSearchBar });
   setupDragAndDrop(container, () => entry.session.sessionId);
   terminal.onResize(({ cols, rows }) => {
     window.api.resizeTerminal(entry.session.sessionId, cols, rows);
@@ -1945,90 +1975,8 @@ async function openPlan(plan) {
   settingsViewer.style.display = 'none';
   planViewer.style.display = 'flex';
 
-  planViewerTitle.textContent = plan.title;
-  planViewerFilepath.textContent = currentPlanFilePath;
-
-  // Reset to edit mode first so the editor can be updated
-  if (planPreviewMode) {
-    toggleMarkdownPreview({
-      editorEl: planViewerEditorEl, previewEl: planViewerPreviewEl,
-      toggleBtn: planPreviewBtn, editorView: planEditorView, isPreview: true,
-    });
-  }
-
-  // Create or update CodeMirror editor
-  if (!planEditorView) {
-    planEditorView = window.createPlanEditor(planViewerEditorEl);
-  }
-  planEditorView.dispatch({
-    changes: { from: 0, to: planEditorView.state.doc.length, insert: currentPlanContent },
-  });
-
-  // Apply saved preview preference
-  if (planPreviewMode) {
-    toggleMarkdownPreview({
-      editorEl: planViewerEditorEl, previewEl: planViewerPreviewEl,
-      toggleBtn: planPreviewBtn, editorView: planEditorView, isPreview: false,
-    });
-  }
+  planPanel.open(plan.title, currentPlanFilePath, currentPlanContent);
 }
-
-// Plan toolbar button handlers
-function flashButtonText(btn, text, duration = 1200) {
-  const original = btn.textContent;
-  btn.textContent = text;
-  setTimeout(() => { btn.textContent = original; }, duration);
-}
-
-planCopyPathBtn.addEventListener('click', () => {
-  navigator.clipboard.writeText(currentPlanFilePath);
-  flashButtonText(planCopyPathBtn, 'Copied!');
-});
-
-planCopyContentBtn.addEventListener('click', () => {
-  const content = planEditorView ? planEditorView.state.doc.toString() : currentPlanContent;
-  navigator.clipboard.writeText(content);
-  flashButtonText(planCopyContentBtn, 'Copied!');
-});
-
-planSaveBtn.addEventListener('click', async () => {
-  if (planEditorView) {
-    currentPlanContent = planEditorView.state.doc.toString();
-  }
-  await window.api.savePlan(currentPlanFilePath, currentPlanContent);
-  flashButtonText(planSaveBtn, 'Saved!');
-});
-
-function toggleMarkdownPreview({ editorEl, previewEl, toggleBtn, editorView, isPreview, storageKey }) {
-  if (!isPreview) {
-    const content = editorView ? editorView.state.doc.toString() : '';
-    previewEl.innerHTML = window.marked.parse(content);
-    editorEl.style.display = 'none';
-    previewEl.style.display = 'block';
-    toggleBtn.textContent = 'Edit';
-    toggleBtn.classList.add('active');
-    if (storageKey) localStorage.setItem(storageKey, 'true');
-    return true;
-  } else {
-    previewEl.style.display = 'none';
-    editorEl.style.display = '';
-    toggleBtn.textContent = 'Preview';
-    toggleBtn.classList.remove('active');
-    if (storageKey) localStorage.setItem(storageKey, 'false');
-    return false;
-  }
-}
-
-planPreviewBtn.addEventListener('click', () => {
-  planPreviewMode = toggleMarkdownPreview({
-    editorEl: planViewerEditorEl,
-    previewEl: planViewerPreviewEl,
-    toggleBtn: planPreviewBtn,
-    editorView: planEditorView,
-    isPreview: planPreviewMode,
-    storageKey: 'planPreviewMode',
-  });
-});
 
 function hideAllViewers() {
   planViewer.style.display = 'none';
@@ -2968,10 +2916,8 @@ function buildStatsSummary(stats, dailyMap) {
 
 // --- Memory ---
 let cachedMemoryData = { global: { files: [] }, projects: [] };
-let memoryEditorView = null;
 let currentMemoryFilePath = null;
 let currentMemoryContent = '';
-let memoryPreviewMode = localStorage.getItem('memoryPreviewMode') === 'true';
 const memoryCollapsedState = new Map(); // key → boolean (true = collapsed)
 
 async function loadMemories() {
@@ -3108,64 +3054,8 @@ async function openMemory(file) {
   settingsViewer.style.display = 'none';
   memoryViewer.style.display = 'flex';
 
-  memoryViewerTitle.textContent = file.filename;
-  memoryViewerFilename.textContent = file.filePath;
-
-  // Reset to edit mode first so the editor can be updated
-  if (memoryPreviewMode) {
-    toggleMarkdownPreview({
-      editorEl: memoryViewerEditorEl, previewEl: memoryViewerPreviewEl,
-      toggleBtn: memoryPreviewBtn, editorView: memoryEditorView, isPreview: true,
-    });
-  }
-
-  // Create or update CodeMirror editor
-  if (!memoryEditorView) {
-    memoryEditorView = window.createPlanEditor(memoryViewerEditorEl);
-  }
-  memoryEditorView.dispatch({
-    changes: { from: 0, to: memoryEditorView.state.doc.length, insert: content },
-  });
-
-  // Apply saved preview preference
-  if (memoryPreviewMode) {
-    toggleMarkdownPreview({
-      editorEl: memoryViewerEditorEl, previewEl: memoryViewerPreviewEl,
-      toggleBtn: memoryPreviewBtn, editorView: memoryEditorView, isPreview: false,
-    });
-  }
+  memoryPanel.open(file.filename, file.filePath, content);
 }
-
-// Memory toolbar handlers
-memoryCopyPathBtn.addEventListener('click', () => {
-  navigator.clipboard.writeText(currentMemoryFilePath);
-  flashButtonText(memoryCopyPathBtn, 'Copied!');
-});
-
-memoryCopyContentBtn.addEventListener('click', () => {
-  const content = memoryEditorView ? memoryEditorView.state.doc.toString() : currentMemoryContent;
-  navigator.clipboard.writeText(content);
-  flashButtonText(memoryCopyContentBtn, 'Copied!');
-});
-
-memorySaveBtn.addEventListener('click', async () => {
-  if (memoryEditorView && currentMemoryFilePath) {
-    currentMemoryContent = memoryEditorView.state.doc.toString();
-    await window.api.saveMemory(currentMemoryFilePath, currentMemoryContent);
-    flashButtonText(memorySaveBtn, 'Saved!');
-  }
-});
-
-memoryPreviewBtn.addEventListener('click', () => {
-  memoryPreviewMode = toggleMarkdownPreview({
-    editorEl: memoryViewerEditorEl,
-    previewEl: memoryViewerPreviewEl,
-    toggleBtn: memoryPreviewBtn,
-    editorView: memoryEditorView,
-    isPreview: memoryPreviewMode,
-    storageKey: 'memoryPreviewMode',
-  });
-});
 
 // --- New session dialog ---
 async function resolveDefaultSessionOptions(project) {
