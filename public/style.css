@@ -2516,7 +2516,9 @@ body { display: flex; flex-direction: column; }
 #settings-viewer-body {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 32px 40px;
+  display: flex;
+  justify-content: center;
 }
 
 #settings-viewer-body::-webkit-scrollbar { width: 5px; }
@@ -2524,69 +2526,179 @@ body { display: flex; flex-direction: column; }
 #settings-viewer-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
 
 .settings-form {
-  max-width: 520px;
+  width: 100%;
+  max-width: 680px;
 }
 
+/* --- Section titles --- */
 .settings-section {
-  margin-bottom: 24px;
+  margin-bottom: 4px;
 }
 
 .settings-section-title {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #7a7a90;
-  margin-bottom: 12px;
+  color: #8a8aa0;
+  margin-bottom: 8px;
+  padding-left: 4px;
 }
 
+/* --- Setting rows (card style) --- */
 .settings-field {
-  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.035);
+  background: rgba(255,255,255,0.02);
+  margin-bottom: 0;
+  min-height: 52px;
+}
+
+.settings-section > .settings-field:first-of-type,
+.settings-section > .settings-section-title + .settings-field {
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+.settings-section > .settings-field:last-child {
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+  border-bottom: none;
+  margin-bottom: 20px;
+}
+
+.settings-field-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .settings-field-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
+  gap: 6px;
+  margin-bottom: 0;
 }
 
 .settings-label {
-  font-size: 13px;
-  color: #b0b0c4;
-  font-weight: 500;
+  font-size: 13.5px;
+  color: #e0e0f0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
+.settings-description {
+  font-size: 12.5px;
+  color: #7a7a90;
+  margin-top: 3px;
+  line-height: 1.45;
+}
+
+.settings-field-control {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* --- Hint (below control area, full-width) --- */
 .settings-hint {
   font-size: 11px;
-  color: #8888a0;
+  color: #6a6a80;
   margin: -2px 0 6px;
+  padding-left: 18px;
 }
 
+/* --- Use-global checkbox --- */
 .settings-use-global {
   font-size: 11px;
   color: #7a7a90;
   display: flex;
   align-items: center;
+  margin-left: 12px;
   gap: 4px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .settings-use-global input {
   accent-color: #8088ff;
 }
 
+/* --- Toggle switch --- */
+.settings-toggle {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.settings-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.settings-toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.1);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.settings-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: #666;
+  border-radius: 50%;
+  transition: all 0.25s ease;
+}
+
+.settings-toggle input:checked + .settings-toggle-slider {
+  background: #3ecf5a;
+}
+
+.settings-toggle input:checked + .settings-toggle-slider::before {
+  transform: translateX(18px);
+  background: #fff;
+}
+
+.settings-toggle input:disabled + .settings-toggle-slider {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* --- Inputs & selects (compact, right-aligned) --- */
 .settings-input {
   width: 100%;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: 8px;
+  padding: 7px 12px;
   font-size: 13px;
   color: #c0c0d0;
   outline: none;
   font-family: inherit;
   transition: all 0.2s;
+}
+
+.settings-input.settings-input-compact {
+  width: 56px;
+  text-align: left;
+  -moz-appearance: textfield;
+}
+.settings-input.settings-input-compact::-webkit-inner-spin-button,
+.settings-input.settings-input-compact::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .settings-input:focus {
@@ -2601,16 +2713,22 @@ body { display: flex; flex-direction: column; }
 }
 
 .settings-select {
-  width: 100%;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: 8px;
+  padding: 7px 32px 7px 12px;
   font-size: 13px;
   color: #c0c0d0;
   outline: none;
   font-family: inherit;
-  appearance: auto;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  min-width: 140px;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%237a7a90' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
 }
 
 .settings-select:disabled {
@@ -2618,29 +2736,26 @@ body { display: flex; flex-direction: column; }
   cursor: not-allowed;
 }
 
-.settings-checkbox-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+/* --- Wide input fields (full-width row below) --- */
+.settings-field.settings-field-wide {
+  flex-direction: column;
+  align-items: stretch;
 }
 
-.settings-checkbox-row input[type="checkbox"] {
-  accent-color: #8088ff;
-  width: 16px;
-  height: 16px;
+.settings-field-wide .settings-field-control {
+  margin-top: 8px;
 }
 
-.settings-checkbox-row label {
-  font-size: 13px;
-  color: #b0b0c4;
-  cursor: pointer;
+.settings-field-wide .settings-input {
+  width: 100%;
 }
 
+/* --- Buttons --- */
 .settings-btn-row {
   display: flex;
   gap: 10px;
   align-items: center;
+  margin-top: 8px;
 }
 
 .settings-cancel-btn {
@@ -2649,7 +2764,7 @@ body { display: flex; flex-direction: column; }
   color: #9090a8;
   font-size: 13px;
   padding: 8px 24px;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-family: inherit;
   font-weight: 500;
@@ -2668,7 +2783,7 @@ body { display: flex; flex-direction: column; }
   color: #8088ff;
   font-size: 13px;
   padding: 8px 24px;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-family: inherit;
   font-weight: 500;
@@ -2692,7 +2807,7 @@ body { display: flex; flex-direction: column; }
   color: #e0a830;
   font-size: 12px;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   margin-bottom: 8px;
 }
 
@@ -2702,12 +2817,12 @@ body { display: flex; flex-direction: column; }
   color: #cc4444;
   font-size: 13px;
   padding: 8px 24px;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-family: inherit;
   font-weight: 500;
   transition: all 0.15s;
-  margin-top: 8px;
+  margin-left: auto;
 }
 
 .settings-remove-btn:hover {
@@ -2716,33 +2831,30 @@ body { display: flex; flex-direction: column; }
   color: #ff5050;
 }
 
-.settings-updates-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
 .settings-current-version {
-  color: #888;
-  font-size: 12px;
+  color: #7a7a90;
+  font-size: 12.5px;
 }
 .settings-update-status {
   color: #666;
-  font-size: 12px;
+  font-size: 12.5px;
 }
 .settings-check-updates-btn {
-  background: none;
+  background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.1);
-  color: #888;
+  color: #b0b0c4;
   font-size: 12px;
-  padding: 5px 14px;
-  border-radius: 4px;
+  padding: 6px 16px;
+  border-radius: 8px;
   cursor: pointer;
   font-family: inherit;
+  font-weight: 500;
   transition: all 0.15s;
 }
 .settings-check-updates-btn:hover {
-  border-color: rgba(120,130,255,0.4);
-  color: #8088ff;
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.2);
+  color: #d0d0e8;
 }
 .settings-check-updates-btn:disabled {
   opacity: 0.6;
@@ -2767,7 +2879,7 @@ body { display: flex; flex-direction: column; }
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px;
   padding: 24px;
-  width: 440px;
+  width: 540px;
   max-width: 90vw;
   box-shadow: 0 16px 48px rgba(0,0,0,0.4);
 }
@@ -2780,6 +2892,22 @@ body { display: flex; flex-direction: column; }
 }
 
 .new-session-dialog .settings-field {
+  margin-bottom: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.035);
+  background: rgba(255,255,255,0.02);
+  padding: 14px 18px;
+  border-radius: 0;
+}
+
+.new-session-dialog .settings-field:first-of-type {
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+.new-session-dialog .settings-field:last-of-type {
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+  border-bottom: none;
   margin-bottom: 16px;
 }
 
