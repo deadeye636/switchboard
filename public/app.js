@@ -221,6 +221,18 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
       return false;
     }
 
+    // Cmd/Ctrl+G → toggle grid view
+    if (e.key === 'g' && (isMac ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      if (e.type === 'keydown') { e._handled = true; toggleGridView(); }
+      return false;
+    }
+
+    // Session navigation: Cmd+Shift+[/], Cmd+Arrow
+    if (isSessionNavKey(e)) {
+      if (e.type === 'keydown') { e._handled = true; handleSessionNavKey(e); }
+      return false;
+    }
+
     // Shift+Enter → newline (kitty protocol CSI 13;2u) so Claude Code treats it as newline, not submit.
     if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       if (e.type === 'keydown') {
@@ -2147,7 +2159,10 @@ function focusGridCard(sessionId) {
   // Update visual focus
   document.querySelectorAll('.grid-card').forEach(c => c.classList.remove('focused'));
   const card = gridCards.get(sessionId);
-  if (card) card.classList.add('focused');
+  if (card) {
+    card.classList.add('focused');
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
   const entry = openSessions.get(sessionId);
   if (entry) entry.terminal.focus();
 }
@@ -2189,32 +2204,29 @@ function showGridView() {
     });
   }
 
-  // Hide all terminals first, then wrap each group with a heading + cards
+  // Hide all terminals first, then wrap cards in sidebar order (grouped by project)
   document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('visible'));
   const sessionIds = [];
-  for (const project of projects) {
-    const openInProject = project.sessions
-      .filter(s => openSet.has(s.sessionId))
-      .sort((a, b) => {
-        const aRun = activePtyIds.has(a.sessionId) ? 1 : 0;
-        const bRun = activePtyIds.has(b.sessionId) ? 1 : 0;
-        if (aRun !== bRun) return bRun - aRun;
-        const aTime = (lastActivityTime.get(a.sessionId) || new Date(0)).getTime();
-        const bTime = (lastActivityTime.get(b.sessionId) || new Date(0)).getTime();
-        return bTime - aTime;
-      });
-    if (openInProject.length === 0) continue;
-    // Add project heading
-    const heading = document.createElement('div');
-    heading.className = 'grid-project-heading';
-    heading.dataset.projectPath = project.projectPath;
-    heading.textContent = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
-    terminalsEl.appendChild(heading);
-    // Add cards for this project
-    for (const s of openInProject) {
-      wrapInGridCard(s.sessionId);
-      sessionIds.push(s.sessionId);
+  // Walk sidebar items to get sessions in display order, grouped by project
+  const sidebarItems = sidebarContent.querySelectorAll('.session-item[data-session-id]');
+  let currentProjectPath = null;
+  for (const item of sidebarItems) {
+    const sid = item.dataset.sessionId;
+    if (!openSet.has(sid)) continue;
+    // Determine project path for this session
+    const session = sessionMap.get(sid);
+    const projectPath = session ? session.projectPath : null;
+    // Add project heading when project changes
+    if (projectPath && projectPath !== currentProjectPath) {
+      currentProjectPath = projectPath;
+      const heading = document.createElement('div');
+      heading.className = 'grid-project-heading';
+      heading.dataset.projectPath = projectPath;
+      heading.textContent = projectPath.split('/').filter(Boolean).slice(-2).join('/');
+      terminalsEl.appendChild(heading);
     }
+    wrapInGridCard(sid);
+    sessionIds.push(sid);
   }
 
   // Show grid header bar with session count
@@ -2274,6 +2286,129 @@ function toggleGridView() {
     terminalHeader.style.display = 'none';
     showGridView();
   }
+}
+
+// --- Session navigation (Cmd+Shift+[/], Cmd+Arrow) ---
+
+// Returns ordered list of open (non-closed) session IDs matching sidebar order.
+function getOrderedOpenSessionIds() {
+  const items = sidebarContent.querySelectorAll('.session-item[data-session-id]');
+  const ids = [];
+  for (const item of items) {
+    const sid = item.dataset.sessionId;
+    const entry = openSessions.get(sid);
+    if (entry && !entry.closed) ids.push(sid);
+  }
+  return ids;
+}
+
+function navigateSession(direction) {
+  const ids = getOrderedOpenSessionIds();
+  const current = gridViewActive ? gridFocusedSessionId : activeSessionId;
+  const idx = ids.indexOf(current);
+  let next;
+  if (idx === -1) {
+    next = ids[0];
+  } else {
+    next = ids[(idx + direction + ids.length) % ids.length];
+  }
+  if (ids.length === 0 || !next) return;
+  if (gridViewActive) {
+    focusGridCard(next);
+  } else {
+    showSession(next);
+  }
+}
+
+// Navigate the grid in 2D by visual position using bounding rects.
+// Project headings break the simple index math, so we use actual screen positions.
+function navigateGrid(direction) {
+  if (!gridViewActive) return;
+  const cards = [...terminalsEl.querySelectorAll('.grid-card')];
+  if (cards.length === 0) return;
+  const currentCard = gridCards.get(gridFocusedSessionId || activeSessionId);
+  if (!currentCard || !cards.includes(currentCard)) {
+    for (const [sid, card] of gridCards) {
+      if (card === cards[0]) { focusGridCard(sid); return; }
+    }
+    return;
+  }
+  const cur = currentCard.getBoundingClientRect();
+  const curCx = cur.left + cur.width / 2;
+  const curCy = cur.top + cur.height / 2;
+  let best = null;
+  let bestDist = Infinity;
+  for (const card of cards) {
+    if (card === currentCard) continue;
+    const r = card.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    // Filter by direction
+    const dx = cx - curCx;
+    const dy = cy - curCy;
+    let valid = false;
+    switch (direction) {
+      case 'left':  valid = dx < -10; break;
+      case 'right': valid = dx > 10; break;
+      case 'up':    valid = dy < -10; break;
+      case 'down':  valid = dy > 10; break;
+    }
+    if (!valid) continue;
+    // For left/right prefer same row (small dy), for up/down prefer same column (small dx)
+    let dist;
+    if (direction === 'left' || direction === 'right') {
+      dist = Math.abs(dy) * 3 + Math.abs(dx);
+    } else {
+      dist = Math.abs(dx) * 3 + Math.abs(dy);
+    }
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = card;
+    }
+  }
+  if (!best) return;
+  for (const [sid, card] of gridCards) {
+    if (card === best) { focusGridCard(sid); return; }
+  }
+}
+
+// Returns true if the key combo is a session nav shortcut (used by xterm to block without acting)
+function isSessionNavKey(e) {
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (!mod || e.altKey) return false;
+  if (e.shiftKey && (e.code === 'BracketLeft' || e.code === 'BracketRight')) return true;
+  if (!e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return true;
+  return false;
+}
+
+function handleSessionNavKey(e) {
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (!mod || e.altKey) return false;
+
+  // Cmd+Shift+[ or Cmd+Shift+] — prev/next session
+  // On macOS, Shift changes e.key to { / }, so check code for reliable matching
+  if (e.shiftKey && (e.code === 'BracketLeft' || e.code === 'BracketRight')) {
+    e.preventDefault();
+    if (e.type === 'keydown') navigateSession(e.code === 'BracketLeft' ? -1 : 1);
+    return true;
+  }
+
+  // Cmd+Arrow — in grid view: 2D grid navigation; in single view: left/right cycle sessions
+  if (!e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+    e.preventDefault();
+    if (e.type === 'keydown') {
+      if (gridViewActive) {
+        const dirMap = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
+        navigateGrid(dirMap[e.key]);
+      } else {
+        const dir = (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 1;
+        navigateSession(dir);
+      }
+    }
+    return true;
+  }
+
+  return false;
 }
 
 // --- JSONL Message History Viewer ---
@@ -3788,6 +3923,22 @@ function showAddProjectDialog() {
   gridToggleBtn.addEventListener('click', toggleGridView);
   // Insert next to the resort button
   resortBtn.parentElement.insertBefore(gridToggleBtn, resortBtn);
+
+  // Global keyboard shortcuts (covers non-terminal focus)
+  // When a terminal is focused, xterm's customKeyEventHandler fires first and sets
+  // e._handled to prevent the document listener from double-firing the same action.
+  document.addEventListener('keydown', (e) => {
+    if (e._handled) return;
+    // Cmd/Ctrl+G → toggle grid view
+    const mod = isMac ? e.metaKey : e.ctrlKey;
+    if (e.key === 'g' && mod && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      toggleGridView();
+      return;
+    }
+    // Session navigation: Cmd+Shift+[/], Cmd+Arrow
+    handleSessionNavKey(e);
+  });
 }
 
 // Warm up xterm.js renderer so first terminal open is fast
