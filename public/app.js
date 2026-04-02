@@ -1324,6 +1324,14 @@ function rebindSidebarEvents(projects) {
       };
     }
 
+    const launchConfigBtn = item.querySelector('.session-launch-config-btn');
+    if (launchConfigBtn) {
+      launchConfigBtn.onclick = (e) => {
+        e.stopPropagation();
+        showResumeSessionDialog(session);
+      };
+    }
+
     const forkBtn = item.querySelector('.session-fork-btn');
     if (forkBtn) {
       forkBtn.onclick = async (e) => {
@@ -1453,11 +1461,17 @@ function buildSessionItem(session) {
   jsonlBtn.title = 'View messages';
   jsonlBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>';
 
+  const launchConfigBtn = document.createElement('button');
+  launchConfigBtn.className = 'session-launch-config-btn';
+  launchConfigBtn.title = 'Resume with config';
+  launchConfigBtn.innerHTML = ICONS.launchConfig(14);
+
   actions.appendChild(stopBtn);
   if (session.type !== 'terminal') {
     actions.appendChild(forkBtn);
     actions.appendChild(jsonlBtn);
     actions.appendChild(archiveBtn);
+    actions.appendChild(launchConfigBtn);
   }
 
   row.appendChild(pin);
@@ -1754,7 +1768,7 @@ function showSession(sessionId) {
 
 // --- End shared terminal lifecycle helpers ---
 
-async function openSession(session) {
+async function openSession(session, customOptions) {
   const { sessionId, projectPath } = session;
 
   // If already open, handle closed-session cleanup or just show it
@@ -1776,7 +1790,7 @@ async function openSession(session) {
   const entry = createTerminalEntry(session);
 
   // Open terminal in main process
-  const resumeOptions = await resolveDefaultSessionOptions({ projectPath });
+  const resumeOptions = customOptions || await resolveDefaultSessionOptions({ projectPath });
   const result = await window.api.openTerminal(sessionId, projectPath, false, resumeOptions);
   if (!result.ok) {
     entry.terminal.write(`\r\nError: ${result.error}\r\n`);
@@ -3467,6 +3481,127 @@ async function showNewSessionDialog(project) {
   function onKey(e) {
     if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
     if (e.key === 'Enter' && !e.target.matches('input')) { start(); document.removeEventListener('keydown', onKey); }
+  }
+  document.addEventListener('keydown', onKey);
+}
+
+async function showResumeSessionDialog(session) {
+  const effective = await window.api.getEffectiveSettings(session.projectPath);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'new-session-overlay';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'new-session-dialog';
+
+  let selectedMode = effective.permissionMode || null;
+  let dangerousSkip = effective.dangerouslySkipPermissions || false;
+
+  const modes = [
+    { value: null, label: 'Default', desc: 'Prompt for all actions' },
+    { value: 'acceptEdits', label: 'Accept Edits', desc: 'Auto-accept file edits, prompt for others' },
+    { value: 'plan', label: 'Plan Mode', desc: 'Read-only exploration, no writes' },
+    { value: 'dontAsk', label: "Don't Ask", desc: 'Auto-deny tools not explicitly allowed' },
+    { value: 'bypassPermissions', label: 'Bypass', desc: 'Auto-accept all tool calls' },
+  ];
+
+  function renderModeGrid() {
+    return modes.map(m => {
+      const isSelected = !dangerousSkip && selectedMode === m.value;
+      return `<button class="permission-option${isSelected ? ' selected' : ''}" data-mode="${m.value}"><span class="perm-name">${m.label}</span><span class="perm-desc">${m.desc}</span></button>`;
+    }).join('') +
+    `<button class="permission-option dangerous${dangerousSkip ? ' selected' : ''}" data-mode="dangerous-skip"><span class="perm-name">Dangerous Skip</span><span class="perm-desc">Skip all safety prompts (use with caution)</span></button>`;
+  }
+
+  const sessionName = session.name || session.summary || session.sessionId.slice(0, 8);
+
+  dialog.innerHTML = `
+    <h3>Resume Session — ${escapeHtml(sessionName)}</h3>
+    <div class="settings-field">
+      <div class="settings-label">Permission Mode</div>
+      <div class="permission-grid" id="rsd-mode-grid">${renderModeGrid()}</div>
+    </div>
+    <div class="settings-field">
+      <div class="settings-field-info">
+        <span class="settings-label">Chrome</span>
+        <div class="settings-description">Enable Chrome browser automation</div>
+      </div>
+      <div class="settings-field-control">
+        <label class="settings-toggle"><input type="checkbox" id="rsd-chrome" ${effective.chrome ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+      </div>
+    </div>
+    <div class="settings-field settings-field-wide">
+      <div class="settings-field-info">
+        <span class="settings-label">Pre-launch Command</span>
+        <div class="settings-description">Prepended to the claude command</div>
+      </div>
+      <div class="settings-field-control">
+        <input type="text" class="settings-input" id="rsd-pre-launch" placeholder="e.g. aws-vault exec profile --" value="${escapeHtml(effective.preLaunchCmd || '')}">
+      </div>
+    </div>
+    <div class="settings-field settings-field-wide">
+      <div class="settings-field-info">
+        <span class="settings-label">Additional Directories</span>
+        <div class="settings-description">Extra directories to include (comma-separated)</div>
+      </div>
+      <div class="settings-field-control">
+        <input type="text" class="settings-input" id="rsd-add-dirs" placeholder="/path/to/dir1, /path/to/dir2" value="${escapeHtml(effective.addDirs || '')}">
+      </div>
+    </div>
+    <div class="new-session-actions">
+      <button class="new-session-cancel-btn">Cancel</button>
+      <button class="new-session-start-btn">Resume</button>
+    </div>
+  `;
+
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  // Bind mode grid clicks
+  const modeGrid = dialog.querySelector('#rsd-mode-grid');
+  modeGrid.addEventListener('click', (e) => {
+    const btn = e.target.closest('.permission-option');
+    if (!btn) return;
+    const mode = btn.dataset.mode;
+    if (mode === 'dangerous-skip') {
+      dangerousSkip = !dangerousSkip;
+      if (dangerousSkip) selectedMode = null;
+    } else {
+      dangerousSkip = false;
+      selectedMode = mode === 'null' ? null : mode;
+    }
+    modeGrid.innerHTML = renderModeGrid();
+  });
+
+  function close() {
+    overlay.remove();
+  }
+
+  function resume() {
+    const options = {};
+    if (dangerousSkip) {
+      options.dangerouslySkipPermissions = true;
+    } else if (selectedMode) {
+      options.permissionMode = selectedMode;
+    }
+    if (dialog.querySelector('#rsd-chrome').checked) {
+      options.chrome = true;
+    }
+    const preLaunch = dialog.querySelector('#rsd-pre-launch').value.trim();
+    if (preLaunch) options.preLaunchCmd = preLaunch;
+    options.addDirs = dialog.querySelector('#rsd-add-dirs').value.trim();
+    if (effective.mcpEmulation === false) options.mcpEmulation = false;
+    close();
+    openSession(session, options);
+  }
+
+  dialog.querySelector('.new-session-cancel-btn').onclick = close;
+  dialog.querySelector('.new-session-start-btn').onclick = resume;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+  function onKey(e) {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+    if (e.key === 'Enter' && !e.target.matches('input')) { resume(); document.removeEventListener('keydown', onKey); }
   }
   document.addEventListener('keydown', onKey);
 }
