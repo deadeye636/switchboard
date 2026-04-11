@@ -188,6 +188,8 @@ function isWslShell(shellPath) {
 function shellArgs(shellPath, cmd, extraArgs) {
   const base = path.basename(shellPath).toLowerCase();
   const isBashLike = base.includes('bash') || base.includes('zsh') || base === 'sh';
+  const isFish = base === 'fish';
+  const isNushell = base === 'nu';
 
   // WSL: pass command via -- to the distribution shell
   // cwd is handled separately via --cd in the spawn call
@@ -198,10 +200,14 @@ function shellArgs(shellPath, cmd, extraArgs) {
 
   if (cmd) {
     if (isBashLike) return ['-l', '-i', '-c', cmd];
+    if (isFish) return ['-l', '-c', cmd];
+    if (isNushell) return ['-l', '-c', cmd];
     if (base.includes('powershell') || base.includes('pwsh')) return ['-NoLogo', '-Command', cmd];
     return ['/C', cmd];
   }
   if (isBashLike) return ['-l', '-i'];
+  if (isFish) return ['-l', '-i'];
+  if (isNushell) return ['-l', '-i'];
   if (base.includes('powershell') || base.includes('pwsh')) return ['-NoLogo', '-NoExit'];
   return [];
 }
