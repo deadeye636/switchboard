@@ -24,6 +24,21 @@ function formatDuration(ms) {
   return s + 's';
 }
 
+function makeInlineContent(className, bodyContent) {
+  const wrapper = document.createElement('div');
+  wrapper.className = className;
+  const body = document.createElement('pre');
+  body.className = 'jsonl-tool-body';
+  body.style.display = '';
+  if (typeof bodyContent === 'string') {
+    body.textContent = bodyContent;
+  } else {
+    try { body.textContent = JSON.stringify(bodyContent, null, 2); } catch { body.textContent = String(bodyContent); }
+  }
+  wrapper.appendChild(body);
+  return wrapper;
+}
+
 function makeCollapsible(className, headerText, bodyContent, startExpanded) {
   const wrapper = document.createElement('div');
   wrapper.className = className;
@@ -187,8 +202,7 @@ const toolRenderers = {
     const pattern = input.pattern || '';
     const path = input.path || '';
     const sp = path ? shortPath(path) : '';
-    const summary = '<code>' + escapeHtml(pattern) + '</code>'
-      + (sp ? ' <span class="jsonl-tool-detail">in ' + escapeHtml(sp) + '</span>' : '');
+    const summary = '<code>' + escapeHtml(pattern) + (sp ? ' in ' + escapeHtml(sp) : '') + '</code>';
     return toolBlock('#c090e0', 'Grep', summary, null);
   },
 
@@ -333,7 +347,7 @@ function renderToolResult(resultData, container) {
   const textParts = extractResultText(resultData);
 
   if (textParts) {
-    container.appendChild(makeCollapsible('jsonl-tool-result', 'Result', textParts, true));
+    container.appendChild(makeInlineContent('jsonl-tool-result', textParts));
   }
   for (const img of images) {
     const imgEl = document.createElement('img');

@@ -2081,6 +2081,8 @@ body { display: flex; flex-direction: column; }
 .jsonl-text pre { background: rgba(0,0,0,0.3); border-radius: 4px; padding: 8px 10px; overflow-x: auto; font-size: 12px; line-height: 1.4; }
 .jsonl-text code { font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 12px; }
 .jsonl-text :not(pre) > code { background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; color: #c8b0e0; }
+.jsonl-text a { color: #6cb6ff; }
+.jsonl-text a:hover { color: #8ccbff; }
 
 .jsonl-code-block {
   background: rgba(0,0,0,0.3);
@@ -2138,22 +2140,25 @@ body { display: flex; flex-direction: column; }
 
 .jsonl-tool-name {
   font-weight: 600;
-  font-size: 12px;
+  font-size: 11px;
   flex-shrink: 0;
   color: #80c0e0;
 }
 
 .jsonl-tool-summary {
   color: #909098;
-  font-size: 12px;
+  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .jsonl-tool-summary code {
   font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
-  font-size: 12px;
+  font-size: 11px;
   color: #909098;
+  background: rgba(255,255,255,0.04);
+  padding: 1px 5px;
+  border-radius: 3px;
 }
 
 .jsonl-tool-detail {
@@ -2162,9 +2167,9 @@ body { display: flex; flex-direction: column; }
 }
 
 .jsonl-tool-content {
-  margin-left: 20px;
-  border-left: 1px solid rgba(255,255,255,0.06);
-  padding-left: 10px;
+  margin-left: 6px;
+  border-left: 1.5px solid rgba(255,255,255,0.15);
+  padding-left: 14px;
   margin-top: 1px;
   margin-bottom: 2px;
 }
