@@ -53,13 +53,7 @@
     "appId": "ai.doctly.switchboard",
     "productName": "Switchboard",
     "files": [
-      "main.js",
-      "preload.js",
-      "db.js",
-      "claude-auth.js",
-      "mcp-bridge.js",
-      "folder-index-state.js",
-      "derive-project-path.js",
+      "*.js",
       "workers/**/*",
       "public/**/*",
       "node_modules/**/*"

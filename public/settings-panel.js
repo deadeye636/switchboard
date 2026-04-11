@@ -252,7 +252,7 @@
       <div class="settings-btn-row">
         <button class="settings-cancel-btn" id="sv-cancel-btn">Cancel</button>
         <button class="settings-save-btn" id="sv-save-btn">Save Settings</button>
-        ${isProject ? '<button class="settings-remove-btn" id="sv-remove-btn">Remove Project</button>' : ''}
+        ${isProject ? '<button class="settings-remove-btn" id="sv-remove-btn">Hide Project</button>' : ''}
       </div>
     </div>
   `;
@@ -276,7 +276,7 @@
 
     // Save button
     settingsViewerBody.querySelector('#sv-save-btn').addEventListener('click', async () => {
-      const settings = {};
+      let settings = {};
 
       if (isProject) {
         // Only save fields where "use global" is unchecked
@@ -308,11 +308,10 @@
         settings.shellProfile = settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto';
       }
 
-      // Preserve windowBounds and sidebarWidth if they exist
+      // Merge form values into existing settings to preserve keys not managed by the form
       if (!isProject) {
         const existing = (await window.api.getSetting('global')) || {};
-        if (existing.windowBounds) settings.windowBounds = existing.windowBounds;
-        if (existing.sidebarWidth) settings.sidebarWidth = existing.sidebarWidth;
+        settings = { ...existing, ...settings };
       }
 
       await window.api.setSetting(settingsKey, settings);
@@ -341,7 +340,11 @@
         setTimeout(() => notice.remove(), 8000);
       }
 
-      closeSettingsViewer();
+      const saveBtn = settingsViewerBody.querySelector('#sv-save-btn');
+      saveBtn.textContent = '✓ Saved';
+      saveBtn.style.background = '#2ea043';
+      saveBtn.style.color = '#fff';
+      setTimeout(() => closeSettingsViewer(), 600);
     });
 
     // Cancel button
@@ -378,7 +381,7 @@
     const removeBtn = settingsViewerBody.querySelector('#sv-remove-btn');
     if (removeBtn) {
       removeBtn.addEventListener('click', async () => {
-        if (!confirm(`Remove project "${shortName}" from Switchboard?\n\nThis hides the project from the sidebar. Your session files are not deleted.`)) return;
+        if (!confirm(`Hide project "${shortName}" from Switchboard?\n\nThis hides the project from the sidebar. Your session files are not deleted.`)) return;
         await window.api.removeProject(projectPath);
         settingsViewer.style.display = 'none';
         document.getElementById('placeholder').style.display = 'flex';

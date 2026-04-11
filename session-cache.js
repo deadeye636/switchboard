@@ -170,12 +170,12 @@ function buildProjectsFromCache(showArchived) {
   const global = getSetting('global') || {};
   const hiddenProjects = new Set(global.hiddenProjects || []);
 
-  // Group by folder
-  const folderMap = new Map();
+  // Group by resolved projectPath (merges worktree folders into parent project)
+  const projectMap = new Map();
   for (const row of cachedRows) {
     if (hiddenProjects.has(row.projectPath)) continue;
-    if (!folderMap.has(row.folder)) {
-      folderMap.set(row.folder, { folder: row.folder, projectPath: row.projectPath, sessions: [] });
+    if (!projectMap.has(row.projectPath)) {
+      projectMap.set(row.projectPath, { folder: row.folder, projectPath: row.projectPath, sessions: [] });
     }
     const meta = metaMap.get(row.sessionId);
     const s = {
@@ -192,7 +192,7 @@ function buildProjectsFromCache(showArchived) {
       archived: meta?.archived || 0,
     };
     if (!showArchived && s.archived) continue;
-    folderMap.get(row.folder).sessions.push(s);
+    projectMap.get(row.projectPath).sessions.push(s);
   }
 
   // Include empty project directories (no sessions yet)
@@ -200,11 +200,9 @@ function buildProjectsFromCache(showArchived) {
     const dirs = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
       .filter(d => d.isDirectory() && d.name !== '.git');
     for (const d of dirs) {
-      if (!folderMap.has(d.name)) {
-        const projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name), d.name);
-        if (projectPath && !hiddenProjects.has(projectPath)) {
-          folderMap.set(d.name, { folder: d.name, projectPath, sessions: [] });
-        }
+      const projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name), d.name);
+      if (projectPath && !hiddenProjects.has(projectPath) && !projectMap.has(projectPath)) {
+        projectMap.set(projectPath, { folder: d.name, projectPath, sessions: [] });
       }
     }
   } catch {}
@@ -212,12 +210,12 @@ function buildProjectsFromCache(showArchived) {
   // Inject active plain terminal sessions so they participate in sorting
   for (const [sessionId, session] of activeSessions) {
     if (session.exited || !session.isPlainTerminal) continue;
-    const folder = session.projectPath.replace(/[/_]/g, '-').replace(/^-/, '-');
     if (hiddenProjects.has(session.projectPath)) continue;
-    if (!folderMap.has(folder)) {
-      folderMap.set(folder, { folder, projectPath: session.projectPath, sessions: [] });
+    if (!projectMap.has(session.projectPath)) {
+      const folder = session.projectPath.replace(/[/_]/g, '-').replace(/^-/, '-');
+      projectMap.set(session.projectPath, { folder, projectPath: session.projectPath, sessions: [] });
     }
-    const proj = folderMap.get(folder);
+    const proj = projectMap.get(session.projectPath);
     if (!proj.sessions.some(s => s.sessionId === sessionId)) {
       proj.sessions.push({
         sessionId, summary: 'Terminal', firstPrompt: '', projectPath: session.projectPath,
@@ -230,7 +228,7 @@ function buildProjectsFromCache(showArchived) {
   }
 
   const projects = [];
-  for (const proj of folderMap.values()) {
+  for (const proj of projectMap.values()) {
     proj.sessions.sort((a, b) => new Date(b.modified) - new Date(a.modified));
     projects.push(proj);
   }
