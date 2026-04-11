@@ -2,10 +2,10 @@ const { parentPort, workerData } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
 const { getFolderIndexMtimeMs } = require('../folder-index-state');
+const { deriveProjectPath } = require('../derive-project-path');
+const { readSessionFile } = require('../read-session-file');
 
 const PROJECTS_DIR = workerData.projectsDir;
-
-const { deriveProjectPath } = require('../derive-project-path');
 
 function readFolderFromFilesystem(folder) {
   const folderPath = path.join(PROJECTS_DIR, folder);
@@ -17,47 +17,8 @@ function readFolderFromFilesystem(folder) {
   try {
     const jsonlFiles = fs.readdirSync(folderPath).filter(f => f.endsWith('.jsonl'));
     for (const file of jsonlFiles) {
-      const filePath = path.join(folderPath, file);
-      const sessionId = path.basename(file, '.jsonl');
-      const stat = fs.statSync(filePath);
-      let summary = '';
-      let messageCount = 0;
-      let textContent = '';
-      let slug = null;
-      let customTitle = null;
-      try {
-        const content = fs.readFileSync(filePath, 'utf8');
-        const lines = content.split('\n').filter(Boolean);
-        for (const line of lines) {
-          const entry = JSON.parse(line);
-          if (entry.slug && !slug) slug = entry.slug;
-          if (entry.type === 'custom-title' && entry.customTitle) {
-            customTitle = entry.customTitle;
-          }
-          if (entry.type === 'user' || entry.type === 'assistant' ||
-              (entry.type === 'message' && (entry.role === 'user' || entry.role === 'assistant'))) {
-            messageCount++;
-          }
-          const msg = entry.message;
-          const text = typeof msg === 'string' ? msg :
-            (typeof msg?.content === 'string' ? msg.content :
-            (msg?.content?.[0]?.text || ''));
-          if (!summary && (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user'))) {
-            if (text) summary = text.slice(0, 120);
-          }
-          if (text && textContent.length < 8000) {
-            textContent += text.slice(0, 500) + '\n';
-          }
-        }
-      } catch {}
-      if (!summary || messageCount < 1) continue;
-      sessions.push({
-        sessionId, folder, projectPath,
-        summary, firstPrompt: summary,
-        created: stat.birthtime.toISOString(),
-        modified: stat.mtime.toISOString(),
-        messageCount, textContent, slug, customTitle,
-      });
+      const s = readSessionFile(path.join(folderPath, file), folder, projectPath);
+      if (s) sessions.push(s);
     }
   } catch {}
 

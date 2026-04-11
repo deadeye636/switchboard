@@ -15,13 +15,24 @@ function extractCwdFromJsonl(filePath) {
   return null;
 }
 
+function resolveWorktreePath(cwd) {
+  if (!cwd) return cwd;
+  // Detect worktree paths: <project>/.claude-worktrees/<name> or <project>/.worktrees/<name>
+  const worktreeMatch = cwd.match(/^(.+?)\/\.(?:claude-)?worktrees\/[^/]+\/?$/);
+  if (worktreeMatch) {
+    const parent = worktreeMatch[1];
+    if (fs.existsSync(parent)) return parent;
+  }
+  return cwd;
+}
+
 function deriveProjectPath(folderPath) {
   try {
     const entries = fs.readdirSync(folderPath, { withFileTypes: true });
     // Check direct .jsonl files first
     for (const e of entries) {
       if (e.isFile() && e.name.endsWith('.jsonl')) {
-        const cwd = extractCwdFromJsonl(path.join(folderPath, e.name));
+        const cwd = resolveWorktreePath(extractCwdFromJsonl(path.join(folderPath, e.name)));
         if (cwd) return cwd;
       }
     }
@@ -40,7 +51,7 @@ function deriveProjectPath(folderPath) {
             if (agentFiles.length > 0) jsonlPath = path.join(subDir, 'subagents', agentFiles[0]);
           }
           if (jsonlPath) {
-            const cwd = extractCwdFromJsonl(jsonlPath);
+            const cwd = resolveWorktreePath(extractCwdFromJsonl(jsonlPath));
             if (cwd) return cwd;
           }
         }
