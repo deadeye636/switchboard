@@ -97,6 +97,7 @@ window._applyTerminalTheme = (themeName) => {
   }
 };
 let searchMatchIds = null; // null = no search active; Set<string> = matched session IDs
+let searchMatchProjectPaths = null; // Set<string> of project paths matched by name
 
 // --- Activity tracking ---
 //
@@ -560,10 +561,16 @@ function refreshSidebar({ resort = false } = {}) {
     : (showArchived ? cachedAllProjects : cachedProjects);
 
   if (searchMatchIds !== null) {
-    projects = projects.map(p => ({
-      ...p,
-      sessions: p.sessions.filter(s => searchMatchIds.has(s.sessionId)),
-    })).filter(p => p.sessions.length > 0);
+    projects = projects.map(p => {
+      const hasMatchingSessions = p.sessions.some(s => searchMatchIds.has(s.sessionId));
+      const projectMatched = searchMatchProjectPaths && searchMatchProjectPaths.has(p.projectPath);
+      if (!hasMatchingSessions && !projectMatched) return null;
+      return {
+        ...p,
+        sessions: hasMatchingSessions ? p.sessions.filter(s => searchMatchIds.has(s.sessionId)) : [],
+        _projectMatchedOnly: projectMatched && !hasMatchingSessions,
+      };
+    }).filter(Boolean);
   }
 
   renderProjects(projects, resort);
@@ -608,6 +615,28 @@ resortBtn.addEventListener('click', () => {
 // --- Search (debounced, per-tab FTS) ---
 let searchDebounceTimer = null;
 const searchClear = document.getElementById('search-clear');
+const searchTitlesToggle = document.getElementById('search-titles-toggle');
+let searchTitlesOnly = false;
+
+// Load persisted preference
+(async () => {
+  const saved = await window.api.getSetting('searchTitlesOnly');
+  if (saved) {
+    searchTitlesOnly = true;
+    searchTitlesToggle.classList.add('active');
+  }
+})();
+
+searchTitlesToggle.addEventListener('click', async () => {
+  searchTitlesOnly = !searchTitlesOnly;
+  searchTitlesToggle.classList.toggle('active', searchTitlesOnly);
+  await window.api.setSetting('searchTitlesOnly', searchTitlesOnly);
+  // Re-run current search if there's a query
+  const query = searchInput.value.trim();
+  if (query) {
+    searchInput.dispatchEvent(new Event('input'));
+  }
+});
 
 function clearSearch() {
   searchInput.value = '';
@@ -615,6 +644,7 @@ function clearSearch() {
   if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
   if (activeTab === 'sessions') {
     searchMatchIds = null;
+    searchMatchProjectPaths = null;
     refreshSidebar({ resort: true });
   } else if (activeTab === 'plans') {
     renderPlans(cachedPlans);
@@ -644,21 +674,34 @@ searchInput.addEventListener('input', () => {
 
     try {
       if (activeTab === 'sessions') {
-        const results = await window.api.search('session', query);
+        const results = await window.api.search('session', query, searchTitlesOnly);
         searchMatchIds = new Set(results.map(r => r.id));
+        // When title-only, also match project names
+        searchMatchProjectPaths = null;
+        if (searchTitlesOnly) {
+          const lowerQ = query.toLowerCase();
+          for (const p of cachedAllProjects) {
+            const shortName = p.projectPath.split('/').filter(Boolean).slice(-2).join('/');
+            if (shortName.toLowerCase().includes(lowerQ)) {
+              if (!searchMatchProjectPaths) searchMatchProjectPaths = new Set();
+              searchMatchProjectPaths.add(p.projectPath);
+            }
+          }
+        }
         refreshSidebar({ resort: true });
       } else if (activeTab === 'plans') {
-        const results = await window.api.search('plan', query);
+        const results = await window.api.search('plan', query, searchTitlesOnly);
         const matchIds = new Set(results.map(r => r.id));
         renderPlans(cachedPlans.filter(p => matchIds.has(p.filename)));
       } else if (activeTab === 'memory') {
-        const results = await window.api.search('memory', query);
+        const results = await window.api.search('memory', query, searchTitlesOnly);
         const matchIds = new Set(results.map(r => r.id));
         renderMemories(matchIds);
       }
     } catch {
       if (activeTab === 'sessions') {
         searchMatchIds = null;
+        searchMatchProjectPaths = null;
         refreshSidebar({ resort: true });
       }
     }
@@ -984,7 +1027,7 @@ function renderProjects(projects, resort) {
       });
     }
     const anyFilterActive = showStarredOnly || showRunningOnly || showTodayOnly || searchMatchIds !== null;
-    if (filtered.length === 0 && (project.sessions.length > 0 || anyFilterActive)) continue;
+    if (filtered.length === 0 && !project._projectMatchedOnly && (project.sessions.length > 0 || anyFilterActive)) continue;
     const fId = folderId(project.projectPath);
 
     // === STEP 2: Sort ===
@@ -1134,8 +1177,10 @@ function renderProjects(projects, resort) {
       sessionsList.appendChild(olderList);
     }
 
-    // Auto-collapse if most recent session is older than 5 days
-    if (searchMatchIds === null && !showStarredOnly && !showRunningOnly) {
+    // Auto-collapse if most recent session is older than 5 days, or project matched with no sessions
+    if (project._projectMatchedOnly) {
+      header.classList.add('collapsed');
+    } else if (searchMatchIds === null && !showStarredOnly && !showRunningOnly) {
       const mostRecent = filtered[0]?.modified;
       if (mostRecent && (Date.now() - new Date(mostRecent)) > sessionMaxAgeDays * 86400000) {
         header.classList.add('collapsed');
@@ -1893,6 +1938,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     searchInput.value = '';
     searchBar.classList.remove('has-query');
     searchMatchIds = null;
+    searchMatchProjectPaths = null;
 
     // Hide all sidebar content areas
     sidebarContent.style.display = 'none';

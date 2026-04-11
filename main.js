@@ -235,12 +235,12 @@ if (app.isPackaged || process.env.FORCE_UPDATER) {
   });
 }
 const {
-  getAllMeta, toggleStar, setName, setArchived,
+  getMeta, getAllMeta, toggleStar, setName, setArchived,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
-  searchByType, isSearchIndexPopulated,
+  searchByType, isSearchIndexPopulated, searchFtsRecreated,
   getSetting, setSetting, deleteSetting,
   closeDb,
 } = require('./db');
@@ -544,9 +544,10 @@ function refreshFolder(folder) {
     const s = readSessionFile(filePath, folder, projectPath);
     if (s) {
       sessionsToUpsert.push(s);
+      const name = s.customTitle || getMeta(s.sessionId)?.name || '';
       searchEntriesToUpsert.push({
         id: s.sessionId, type: 'session', folder: s.folder,
-        title: s.summary, body: s.textContent,
+        title: (name ? name + ' ' : '') + s.summary, body: s.textContent,
       });
       if (s.customTitle) namesToSet.push({ id: s.sessionId, name: s.customTitle });
     }
@@ -735,11 +736,15 @@ function populateCacheViaWorker() {
         for (const s of sessions) {
           if (s.customTitle) setName(s.sessionId, s.customTitle);
         }
-        upsertSearchEntries(sessions.map(s => ({
-          id: s.sessionId, type: 'session', folder: s.folder,
-          title: (s.customTitle ? s.customTitle + ' ' : '') + s.summary,
-          body: s.textContent,
-        })));
+        upsertSearchEntries(sessions.map(s => {
+          // customTitle comes from jsonl; fall back to session_meta.name (set via rename)
+          const name = s.customTitle || getMeta(s.sessionId)?.name || '';
+          return {
+            id: s.sessionId, type: 'session', folder: s.folder,
+            title: (name ? name + ' ' : '') + s.summary,
+            body: s.textContent,
+          };
+        }));
       }
       setFolderMeta(folder, projectPath, indexMtimeMs);
     }
@@ -1290,8 +1295,8 @@ ipcMain.handle('save-memory', (_event, filePath, content) => {
 });
 
 // --- IPC: search ---
-ipcMain.handle('search', (_event, type, query) => {
-  return searchByType(type, query, 50);
+ipcMain.handle('search', (_event, type, query, titleOnly) => {
+  return searchByType(type, query, 50, !!titleOnly);
 });
 
 // --- IPC: settings ---
@@ -2047,6 +2052,9 @@ app.whenReady().then(() => {
   buildMenu();
   createWindow();
   startProjectsWatcher();
+
+  // Re-index search if FTS table was recreated (e.g. tokenizer config change)
+  if (searchFtsRecreated) populateCacheViaWorker();
 
   // Check for updates after launch
   if (autoUpdater) {

@@ -71,10 +71,36 @@ db.exec(`
 db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_folder ON session_cache(folder)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_slug ON session_cache(slug)');
 
+// --- Migrations ---
+// Each migration runs once, in order. Add new migrations to the end.
+let searchFtsRecreated = false;
+const migrations = [
+  // v1: Recreate FTS with case-insensitive trigram + fix title indexing
+  (db) => {
+    try { db.exec('DROP TABLE IF EXISTS search_fts'); } catch {}
+    try { db.exec('DELETE FROM search_map'); } catch {}
+    searchFtsRecreated = true;
+  },
+];
+
+const currentDbVersion = (() => {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'db_version'").get();
+    return row ? JSON.parse(row.value) : 0;
+  } catch { return 0; }
+})();
+
+for (let i = currentDbVersion; i < migrations.length; i++) {
+  migrations[i](db);
+}
+if (migrations.length > currentDbVersion) {
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_version', ?)").run(JSON.stringify(migrations.length));
+}
+
 // --- FTS5 full-text search ---
 db.exec(`
   CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
-    title, body, tokenize='trigram'
+    title, body, tokenize='trigram case_sensitive 0'
   )
 `);
 
@@ -291,12 +317,14 @@ function updateSearchTitle(id, type, title) {
   } catch {}
 }
 
-function searchByType(type, query, limit = 50) {
+function searchByType(type, query, limit = 50, titleOnly = false) {
   try {
     // Wrap in double quotes for exact substring matching with trigram tokenizer.
     // This prevents FTS5 from splitting on punctuation (e.g. "spec.md" → "spec" + "md")
     const escaped = '"' + query.replace(/"/g, '""') + '"';
-    return stmts.searchQuery.all(type, escaped, limit);
+    // FTS5 column filter: prefix with "title:" to restrict match to title column
+    const match = titleOnly ? 'title:' + escaped : escaped;
+    return stmts.searchQuery.all(type, match, limit);
   } catch {
     return [];
   }
@@ -333,7 +361,7 @@ module.exports = {
   deleteCachedSession, deleteCachedFolder,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
-  searchByType, isSearchIndexPopulated,
+  searchByType, isSearchIndexPopulated, searchFtsRecreated,
   getSetting, setSetting, deleteSetting,
   closeDb,
 };
