@@ -61,7 +61,10 @@ function readSessionFile(filePath, folder, projectPath) {
         (typeof msg?.content === 'string' ? msg.content :
         (msg?.content?.[0]?.text || ''));
       if (!summary && (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user'))) {
-        if (text) summary = text.slice(0, 120);
+        // Skip local command messages (! prefix) — use the next real user message
+        if (text && !/<bash-input>|<local-command-caveat>/.test(text)) {
+          summary = text.slice(0, 120);
+        }
       }
       if (text && textContent.length < 8000) {
         textContent += text.slice(0, 500) + '\n';
