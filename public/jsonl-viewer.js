@@ -179,4 +179,7 @@ async function showJsonlViewer(session) {
   if (rendered === 0) {
     jsonlViewerBody.innerHTML = '<div class="plans-empty">No messages found in this session.</div>';
   }
+
+  // Scroll to the bottom so the most recent messages are visible
+  jsonlViewerBody.scrollTop = jsonlViewerBody.scrollHeight;
 }
