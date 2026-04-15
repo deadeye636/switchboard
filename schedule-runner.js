@@ -193,7 +193,7 @@ function createScheduleSession(schedule) {
     uuid: msgId,
     timestamp,
     todos: [],
-    permissionMode: schedule.cli['permission-mode'] || 'default',
+    permissionMode: schedule.cli['permission-mode'] || 'acceptEdits',
   });
 
   fs.writeFileSync(jsonlPath, snapshot + '\n' + userMsg + '\n');
@@ -205,10 +205,11 @@ function buildScheduleCommand(sessionId, schedule) {
   let cmd = `claude --resume "${sessionId}" -p "${schedule.prompt.replace(/"/g, '\\"')}"`;
 
   const cli = schedule.cli;
-  cmd += ` --permission-mode "${cli['permission-mode'] || 'default'}"`;
+  cmd += ` --permission-mode "${cli['permission-mode'] || 'acceptEdits'}"`;
   if (cli.model) cmd += ` --model "${cli.model}"`;
   if (cli['max-budget-usd']) cmd += ` --max-budget-usd ${cli['max-budget-usd']}`;
-  if (cli['allowed-tools']) cmd += ` --allowedTools "${cli['allowed-tools']}"`;
+  const allowedTools = cli['allowed-tools'] || 'Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch';
+  cmd += ` --allowedTools "${allowedTools}"`;
   if (cli['append-system-prompt']) cmd += ` --append-system-prompt "${cli['append-system-prompt'].replace(/"/g, '\\"')}"`;
   if (cli['add-dirs']) {
     for (const dir of cli['add-dirs'].split(',').map(d => d.trim()).filter(Boolean)) {

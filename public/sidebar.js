@@ -130,17 +130,28 @@ function renderProjects(projects, resort) {
   }
   // projects are now in the correct order (data order for resort, preserved order otherwise)
 
+  // Detect worktree projects and group them under their parent
+  const worktreePattern = /^(.+?)\/\.claude\/worktrees\/([^/]+)\/?$/;
+  const worktreeMap = new Map(); // parentPath → [worktreeProject, ...]
+  const worktreeSet = new Set();
+  for (const project of projects) {
+    const match = project.projectPath.match(worktreePattern);
+    if (match) {
+      const parentPath = match[1];
+      if (!worktreeMap.has(parentPath)) worktreeMap.set(parentPath, []);
+      worktreeMap.get(parentPath).push(project);
+      worktreeSet.add(project.projectPath);
+    }
+  }
+
   const newSortedOrder = [];
 
-  for (const project of projects) {
-    // === STEP 1: Filter ===
+  // Process a project's sessions: filter, sort, slug-group, order, and truncate.
+  // Returns { filtered, visible, older, sortOrderEntry } or null if project should be skipped.
+  function processProjectSessions(project, resort) {
     let filtered = project.sessions;
-    if (showStarredOnly) {
-      filtered = filtered.filter(s => s.starred);
-    }
-    if (showRunningOnly) {
-      filtered = filtered.filter(s => activePtyIds.has(s.sessionId));
-    }
+    if (showStarredOnly) filtered = filtered.filter(s => s.starred);
+    if (showRunningOnly) filtered = filtered.filter(s => activePtyIds.has(s.sessionId));
     if (showTodayOnly) {
       const now = new Date();
       const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -151,11 +162,9 @@ function renderProjects(projects, resort) {
       });
     }
     const anyFilterActive = showStarredOnly || showRunningOnly || showTodayOnly || searchMatchIds !== null;
-    if (filtered.length === 0 && !project._projectMatchedOnly && (project.sessions.length > 0 || anyFilterActive)) continue;
-    const fId = folderId(project.projectPath);
+    if (filtered.length === 0 && !project._projectMatchedOnly && (project.sessions.length > 0 || anyFilterActive)) return null;
 
-    // === STEP 2: Sort ===
-    // Priority: pinned+running > running > pinned > rest (by modified desc)
+    // Sort
     filtered = [...filtered].sort((a, b) => {
       const aRunning = activePtyIds.has(a.sessionId) || pendingSessions.has(a.sessionId);
       const bRunning = activePtyIds.has(b.sessionId) || pendingSessions.has(b.sessionId);
@@ -165,8 +174,8 @@ function renderProjects(projects, resort) {
       return new Date(b.modified) - new Date(a.modified);
     });
 
-    // === STEP 3: Slug grouping ===
-    const slugMap = new Map(); // slug → sessions[]
+    // Slug grouping
+    const slugMap = new Map();
     const ungrouped = [];
     for (const session of filtered) {
       if (session.slug) {
@@ -176,33 +185,22 @@ function renderProjects(projects, resort) {
         ungrouped.push(session);
       }
     }
-
-    // Build render items (slug group = 1 item)
     const allItems = [];
     for (const session of ungrouped) {
       const isRunning = activePtyIds.has(session.sessionId) || pendingSessions.has(session.sessionId);
-      allItems.push({
-        sortTime: new Date(session.modified).getTime(),
-        pinned: !!session.starred, running: isRunning,
-        element: buildSessionItem(session),
-      });
+      allItems.push({ sortTime: new Date(session.modified).getTime(), pinned: !!session.starred, running: isRunning, element: buildSessionItem(session) });
     }
     for (const [slug, sessions] of slugMap) {
       const mostRecentTime = Math.max(...sessions.map(s => new Date(s.modified).getTime()));
       const hasRunning = sessions.some(s => activePtyIds.has(s.sessionId) || pendingSessions.has(s.sessionId));
       const hasPinned = sessions.some(s => s.starred);
       const element = sessions.length === 1 ? buildSessionItem(sessions[0]) : buildSlugGroup(slug, sessions);
-      allItems.push({
-        sortTime: mostRecentTime,
-        pinned: hasPinned, running: hasRunning,
-        element,
-      });
+      allItems.push({ sortTime: mostRecentTime, pinned: hasPinned, running: hasRunning, element });
     }
 
-    // === STEP 4: Sort render items ===
+    // Sort render items
     const prevEntry = sortedOrder.find(e => e.projectPath === project.projectPath);
     if (resort || !prevEntry) {
-      // Full sort by priority + modified time
       allItems.sort((a, b) => {
         const aPri = (a.pinned && a.running ? 3 : a.running ? 2 : a.pinned ? 1 : 0);
         const bPri = (b.pinned && b.running ? 3 : b.running ? 2 : b.pinned ? 1 : 0);
@@ -210,7 +208,6 @@ function renderProjects(projects, resort) {
         return b.sortTime - a.sortTime;
       });
     } else {
-      // Preserve last-sorted order; new items go to top
       const orderIndex = new Map(prevEntry.itemIds.map((id, i) => [id, i]));
       allItems.sort((a, b) => {
         const aPos = orderIndex.get(a.element.id);
@@ -221,10 +218,8 @@ function renderProjects(projects, resort) {
         return b.sortTime - a.sortTime;
       });
     }
-    // Save current order for this project
-    newSortedOrder.push({ projectPath: project.projectPath, itemIds: allItems.map(item => item.element.id) });
 
-    // === STEP 5: Truncate — split into visible vs older ===
+    // Truncate
     let visible = [];
     let older = [];
     if (searchMatchIds !== null || showStarredOnly || showRunningOnly || showTodayOnly) {
@@ -233,7 +228,6 @@ function renderProjects(projects, resort) {
       let count = 0;
       const ageCutoff = Date.now() - sessionMaxAgeDays * 86400000;
       for (const item of allItems) {
-        // Running and pinned always show; others must be within count AND age limit
         if (item.running || item.pinned || (count < visibleSessionCount && item.sortTime >= ageCutoff)) {
           visible.push(item);
           count++;
@@ -241,14 +235,48 @@ function renderProjects(projects, resort) {
           older.push(item);
         }
       }
-      // If visible is empty but older has items, show them directly
-      if (visible.length === 0 && older.length > 0) {
-        visible = older;
-        older = [];
-      }
+      if (visible.length === 0 && older.length > 0) { visible = older; older = []; }
     }
 
-    // === STEP 6: Build DOM ===
+    return {
+      filtered, visible, older,
+      sortOrderEntry: { projectPath: project.projectPath, itemIds: allItems.map(item => item.element.id) },
+    };
+  }
+
+  // Build the sessions list DOM (shared between projects and worktrees)
+  function buildSessionsList(fId, visible, older) {
+    const sessionsList = document.createElement('div');
+    sessionsList.className = 'project-sessions';
+    sessionsList.id = 'sessions-' + fId;
+    for (const item of visible) sessionsList.appendChild(item.element);
+    if (older.length > 0) {
+      const moreBtn = document.createElement('div');
+      moreBtn.className = 'sessions-more-toggle';
+      moreBtn.id = 'older-' + fId;
+      moreBtn.textContent = `+ ${older.length} older`;
+      const olderList = document.createElement('div');
+      olderList.className = 'sessions-older';
+      olderList.id = 'older-list-' + fId;
+      olderList.style.display = 'none';
+      for (const item of older) olderList.appendChild(item.element);
+      sessionsList.appendChild(moreBtn);
+      sessionsList.appendChild(olderList);
+    }
+    return sessionsList;
+  }
+
+  for (const project of projects) {
+    // Skip worktree projects — they'll be rendered nested under their parent
+    if (worktreeSet.has(project.projectPath)) continue;
+
+    const result = processProjectSessions(project, resort);
+    if (!result) continue;
+    const { filtered, visible, older, sortOrderEntry } = result;
+    newSortedOrder.push(sortOrderEntry);
+    const fId = folderId(project.projectPath);
+
+    // Build DOM
     const group = document.createElement('div');
     group.className = 'project-group';
     group.id = fId;
@@ -283,31 +311,9 @@ function renderProjects(projects, resort) {
     newBtn.title = 'New session';
     header.appendChild(newBtn);
 
-    const sessionsList = document.createElement('div');
-    sessionsList.className = 'project-sessions';
-    sessionsList.id = 'sessions-' + fId;
+    const sessionsList = buildSessionsList(fId, visible, older);
 
-    for (const item of visible) {
-      sessionsList.appendChild(item.element);
-    }
-
-    if (older.length > 0) {
-      const moreBtn = document.createElement('div');
-      moreBtn.className = 'sessions-more-toggle';
-      moreBtn.id = 'older-' + fId;
-      moreBtn.textContent = `+ ${older.length} older`;
-      const olderList = document.createElement('div');
-      olderList.className = 'sessions-older';
-      olderList.id = 'older-list-' + fId;
-      olderList.style.display = 'none';
-      for (const item of older) {
-        olderList.appendChild(item.element);
-      }
-      sessionsList.appendChild(moreBtn);
-      sessionsList.appendChild(olderList);
-    }
-
-    // Auto-collapse if most recent session is older than 5 days, or project matched with no sessions
+    // Auto-collapse if most recent session is older than threshold, or project matched with no sessions
     if (project._projectMatchedOnly) {
       header.classList.add('collapsed');
     } else if (searchMatchIds === null && !showStarredOnly && !showRunningOnly) {
@@ -319,6 +325,54 @@ function renderProjects(projects, resort) {
 
     group.appendChild(header);
     group.appendChild(sessionsList);
+
+    // Render nested worktree sub-groups
+    const childWorktrees = worktreeMap.get(project.projectPath) || [];
+    for (const wt of childWorktrees) {
+      const wtResult = processProjectSessions(wt, resort);
+      if (!wtResult) continue;
+      newSortedOrder.push(wtResult.sortOrderEntry);
+
+      const wtName = wt.projectPath.match(worktreePattern)?.[2] || wt.projectPath.split('/').pop();
+      const wtFId = folderId(wt.projectPath);
+
+      const wtGroup = document.createElement('div');
+      wtGroup.className = 'worktree-group';
+      wtGroup.id = wtFId;
+
+      const wtHeader = document.createElement('div');
+      wtHeader.className = 'worktree-header';
+      wtHeader.id = 'ph-' + wtFId;
+      wtHeader.innerHTML = `<span class="worktree-branch-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8c0-2.76-2.46-5-5.5-5S2 5.24 2 8h2l1-1 1 1h4"/><path d="M13 7.14A5.82 5.82 0 0 1 16.5 6c3.04 0 5.5 2.24 5.5 5h-3l-1-1-1 1h-3"/><path d="M5.89 9.71c-2.15 2.15-2.3 5.47-.35 7.43l4.24-4.25.7-.7.71-.71 2.12-2.12c-1.95-1.96-5.27-1.8-7.42.35"/><path d="M11 15.5c.5 2.5-.17 4.5-1 6.5h4c2-5.5-.5-12-1-14"/></svg></span> <span class="worktree-name">${escapeHtml(wtName)}</span>`;
+
+      const wtHideBtn = document.createElement('button');
+      wtHideBtn.className = 'worktree-hide-btn';
+      wtHideBtn.title = 'Hide worktree';
+      wtHideBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+      wtHeader.appendChild(wtHideBtn);
+
+      const wtNewBtn = document.createElement('button');
+      wtNewBtn.className = 'project-new-btn worktree-new-btn';
+      wtNewBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="10"/><line x1="2" y1="6" x2="10" y2="6"/></svg>';
+      wtNewBtn.title = 'New session in worktree';
+      wtHeader.appendChild(wtNewBtn);
+
+      const wtSessionsList = buildSessionsList(wtFId, wtResult.visible, wtResult.older);
+      wtSessionsList.className = 'worktree-sessions';
+
+      // Auto-collapse worktree if stale
+      if (searchMatchIds === null && !showStarredOnly && !showRunningOnly) {
+        const mostRecent = wtResult.filtered[0]?.modified;
+        if (mostRecent && (Date.now() - new Date(mostRecent)) > sessionMaxAgeDays * 86400000) {
+          wtHeader.classList.add('collapsed');
+        }
+      }
+
+      wtGroup.appendChild(wtHeader);
+      wtGroup.appendChild(wtSessionsList);
+      sessionsList.appendChild(wtGroup);
+    }
+
     newSidebar.appendChild(group);
   }
 
@@ -342,7 +396,7 @@ function renderProjects(projects, resort) {
           toEl.classList.remove('collapsed');
         }
       }
-      if (fromEl.classList.contains('slug-group')) {
+      if (fromEl.classList.contains('slug-group') || fromEl.classList.contains('worktree-header')) {
         if (fromEl.classList.contains('collapsed')) {
           toEl.classList.add('collapsed');
         } else {
@@ -424,6 +478,32 @@ function rebindSidebarEvents(projects) {
       header.classList.toggle('collapsed');
     };
   }
+
+  // Bind worktree header events
+  sidebarContent.querySelectorAll('.worktree-header').forEach(wtHeader => {
+    const wtFId = wtHeader.id.replace('ph-', '');
+    const wtProject = projects.find(p => folderId(p.projectPath) === wtFId);
+    if (!wtProject) return;
+
+    const wtNewBtn = wtHeader.querySelector('.worktree-new-btn');
+    if (wtNewBtn) {
+      wtNewBtn.onclick = (e) => { e.stopPropagation(); showNewSessionPopover(wtProject, wtNewBtn); };
+    }
+    const wtHideBtn = wtHeader.querySelector('.worktree-hide-btn');
+    if (wtHideBtn) {
+      wtHideBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const name = wtProject.projectPath.split('/').pop();
+        if (!confirm(`Hide worktree "${name}"?\n\nSession files are not deleted.`)) return;
+        await window.api.removeProject(wtProject.projectPath);
+        loadProjects();
+      };
+    }
+    wtHeader.onclick = (e) => {
+      if (e.target.closest('.worktree-new-btn') || e.target.closest('.worktree-hide-btn')) return;
+      wtHeader.classList.toggle('collapsed');
+    };
+  });
 
   sidebarContent.querySelectorAll('.slug-group-header').forEach(header => {
     const archiveBtn = header.querySelector('.slug-group-archive-btn');

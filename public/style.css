@@ -470,6 +470,93 @@ body { display: flex; flex-direction: column; }
   display: none;
 }
 
+/* Worktree nested groups */
+.worktree-group {
+  margin-left: 12px;
+  border-left: 1px solid rgba(128, 136, 255, 0.15);
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
+.worktree-header {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9898b0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+  transition: all 0.15s;
+}
+
+.worktree-header:hover {
+  color: #c0c0d8;
+}
+
+.worktree-branch-icon {
+  color: #5ec46a;
+  display: flex;
+  align-items: center;
+  opacity: 0.7;
+}
+
+.worktree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worktree-new-btn,
+.worktree-hide-btn {
+  width: 16px;
+  height: 16px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  background: transparent;
+  border: none;
+  color: #808098;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 4px;
+}
+
+.worktree-new-btn {
+  border: 1px solid #555570;
+}
+
+.worktree-header:hover .worktree-new-btn,
+.worktree-header:hover .worktree-hide-btn {
+  opacity: 0.7;
+}
+
+.worktree-new-btn:hover {
+  opacity: 1 !important;
+  background: rgba(100,220,120,0.1);
+  color: #5ec46a;
+}
+
+.worktree-hide-btn:hover {
+  opacity: 1 !important;
+  background: rgba(255,100,100,0.1);
+  color: #e06060;
+}
+
+.worktree-sessions {
+  padding: 0 0 2px;
+}
+
+.worktree-header.collapsed + .worktree-sessions,
+.worktree-header.collapsed + .project-sessions {
+  display: none;
+}
+
 .sessions-more-toggle {
   padding: 4px 10px;
   margin: 4px 12px 10px 40px;

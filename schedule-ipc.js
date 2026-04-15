@@ -41,11 +41,11 @@ cron: <5-field cron expression>
 enabled: true
 slug: <short-kebab-case-id>
 cli:
-  permission-mode: default
+  permission-mode: acceptEdits
+  allowed-tools: <select based on task needs>
   # only include these if the user specified them:
   # model: <model>
   # max-budget-usd: <number>
-  # allowed-tools: <comma-separated>
   # append-system-prompt: <extra context>
   # add-dirs: <comma-separated paths>
 ---
@@ -53,11 +53,33 @@ cli:
 <The full prompt that will be sent to Claude when this task runs>
 \`\`\`
 
+## Selecting permissions
+
+Scheduled tasks run headless, so choose the minimum tools needed for the task. Available tools:
+
+| Tool | Use when the task needs to... |
+|------|-------------------------------|
+| Bash | Run shell commands, scripts, tests, git operations |
+| Read | Read files from the project |
+| Write | Create new files |
+| Edit | Modify existing files |
+| Glob | Find files by name pattern |
+| Grep | Search file contents |
+| WebFetch | Fetch URLs, APIs, web pages |
+| WebSearch | Search the web |
+
+Examples:
+- **Web scraping task** → \`Bash,Read,Write,Glob,WebFetch\`
+- **Test runner** → \`Bash,Read,Glob,Grep\`
+- **Code refactor** → \`Bash,Read,Write,Edit,Glob,Grep\`
+- **Report generator** → \`Bash,Read,Write,Glob,Grep,WebFetch\`
+
+Default permission-mode is \`acceptEdits\`. Always include at least \`Read\` and \`Glob\`.
+
 ## Rules
 
 - The slug must be kebab-case, short, and descriptive
 - The prompt in the body must be fully self-contained — it runs without any conversation history
-- Default permission-mode is \`default\` unless the user asks for something else
 - If the \`.claude/commands/\` directory doesn't exist, create it
 - After saving, tell the user: "Your scheduled task is saved! It will appear in Switchboard's brain tab with a schedule icon. You can enable/disable it or edit the schedule from there."
 - If the user wants to see existing schedules, list any \`schedule-*.md\` files in \`.claude/commands/\`
