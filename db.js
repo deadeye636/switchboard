@@ -75,10 +75,14 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_slug ON session_cache(slug
 // Each migration runs once, in order. Add new migrations to the end.
 let searchFtsRecreated = false;
 const migrations = [
-  // v1: Recreate FTS with case-insensitive trigram + fix title indexing
+  // v1: (superseded by v2)
+  () => {},
+  // v2: Clear session cache to re-index with corrected worktree paths
   (db) => {
-    try { db.exec('DROP TABLE IF EXISTS search_fts'); } catch {}
+    try { db.exec('DELETE FROM session_cache'); } catch {}
+    try { db.exec('DELETE FROM cache_meta'); } catch {}
     try { db.exec('DELETE FROM search_map'); } catch {}
+    try { db.exec('DROP TABLE IF EXISTS search_fts'); } catch {}
     searchFtsRecreated = true;
   },
 ];

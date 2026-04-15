@@ -2427,6 +2427,56 @@ body { display: flex; flex-direction: column; }
   color: #8888a8;
 }
 
+.memory-schedule-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  margin-top: 5px;
+  color: #e0a030;
+}
+
+.schedule-play-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid rgba(100,220,120,0.3);
+  color: #5ec46a;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 0;
+  opacity: 0;
+  transition: all 0.15s;
+  margin-left: auto;
+  align-self: center;
+}
+
+.memory-item:hover .schedule-play-btn {
+  opacity: 0.7;
+}
+
+.schedule-play-btn:hover {
+  opacity: 1 !important;
+  background: rgba(100,220,120,0.1);
+  color: #5ec46a;
+}
+
+.schedule-play-btn.running {
+  opacity: 1 !important;
+  color: #e0a030;
+  border-color: rgba(224,160,48,0.3);
+  animation: pulse-schedule 1s infinite;
+}
+
+@keyframes pulse-schedule {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
 .memory-file-count {
   font-size: 10px;
   color: #7a7a90;
@@ -2654,6 +2704,38 @@ body { display: flex; flex-direction: column; }
   background: rgba(120,130,255,0.1);
   border-color: rgba(120,130,255,0.25);
   color: #8088ff;
+}
+
+/* Project header schedule button */
+.project-schedule-btn {
+  background: transparent;
+  border: none;
+  color: #7a7a90;
+  font-size: 16px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 0;
+  transition: all 0.15s;
+  opacity: 0.7;
+}
+
+.project-schedule-btn svg {
+  display: block;
+}
+
+.project-header:hover .project-schedule-btn {
+  opacity: 1;
+}
+
+.project-schedule-btn:hover {
+  background: rgba(255,180,50,0.1);
+  color: #e0a030;
 }
 
 /* Project header gear button */

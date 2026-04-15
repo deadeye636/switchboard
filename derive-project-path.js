@@ -32,7 +32,7 @@ function deriveProjectPath(folderPath) {
     // Check direct .jsonl files first
     for (const e of entries) {
       if (e.isFile() && e.name.endsWith('.jsonl')) {
-        const cwd = resolveWorktreePath(extractCwdFromJsonl(path.join(folderPath, e.name)));
+        const cwd = extractCwdFromJsonl(path.join(folderPath, e.name));
         if (cwd) return cwd;
       }
     }
@@ -51,7 +51,7 @@ function deriveProjectPath(folderPath) {
             if (agentFiles.length > 0) jsonlPath = path.join(subDir, 'subagents', agentFiles[0]);
           }
           if (jsonlPath) {
-            const cwd = resolveWorktreePath(extractCwdFromJsonl(jsonlPath));
+            const cwd = extractCwdFromJsonl(jsonlPath);
             if (cwd) return cwd;
           }
         }
