@@ -2,7 +2,7 @@
 // macOS: Keychain (primary) → ~/.claude/.credentials.json (fallback)
 // Linux/Windows: ~/.claude/.credentials.json only
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -26,8 +26,12 @@ function readFromKeychain() {
   try {
     const service = getKeychainServiceName();
     const user = process.env.USER || os.userInfo().username;
-    const json = execSync(
-      `security find-generic-password -a "${user}" -w -s "${service}"`,
+    // execFileSync (not execSync): argv is passed directly to `security` with no
+    // shell in between, so metacharacters in $USER or the service name cannot be
+    // interpreted. No string-escaping required.
+    const json = execFileSync(
+      'security',
+      ['find-generic-password', '-a', user, '-w', '-s', service],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
     ).trim();
     return JSON.parse(json);
