@@ -1035,46 +1035,44 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         }
       }, 300);
     } else {
-      // Build claude argv — each token is passed as a separate arg and shell-quoted
-      // below. This is the sole defense against injection from renderer-supplied
-      // session options (worktreeName, addDirs, permissionMode, appendSystemPrompt).
-      const claudeArgv = [];
+      // Build claude command, using array to prevent accidental shell injection
+      const claudeArgs = [];
       if (sessionOptions?.forkFrom) {
-        claudeArgv.push('--resume', String(sessionOptions.forkFrom), '--fork-session');
+        claudeArgs.push('--resume', String(sessionOptions.forkFrom), '--fork-session');
       } else if (isNew) {
-        claudeArgv.push('--session-id', String(sessionId));
+        claudeArgs.push('--session-id', String(sessionId));
       } else {
-        claudeArgv.push('--resume', String(sessionId));
+        claudeArgs.push('--resume', String(sessionId));
       }
 
       if (sessionOptions) {
         if (sessionOptions.dangerouslySkipPermissions) {
-          claudeArgv.push('--dangerously-skip-permissions');
+          claudeArgs.push('--dangerously-skip-permissions');
         } else if (sessionOptions.permissionMode) {
-          claudeArgv.push('--permission-mode', String(sessionOptions.permissionMode));
+          claudeArgs.push('--permission-mode', String(sessionOptions.permissionMode));
         }
         if (sessionOptions.worktree) {
-          claudeArgv.push('--worktree');
+          claudeArgs.push('--worktree');
           if (sessionOptions.worktreeName) {
-            claudeArgv.push(String(sessionOptions.worktreeName));
+            claudeArgs.push(String(sessionOptions.worktreeName));
           }
         }
         if (sessionOptions.chrome) {
-          claudeArgv.push('--chrome');
+          claudeArgs.push('--chrome');
         }
         if (sessionOptions.addDirs) {
           const dirs = String(sessionOptions.addDirs).split(',').map(d => d.trim()).filter(Boolean);
           for (const dir of dirs) {
-            claudeArgv.push('--add-dir', dir);
+            claudeArgs.push('--add-dir', dir);
           }
         }
       }
 
       if (sessionOptions?.appendSystemPrompt) {
-        claudeArgv.push('--append-system-prompt', String(sessionOptions.appendSystemPrompt));
+        claudeArgs.push('--append-system-prompt', String(sessionOptions.appendSystemPrompt));
       }
 
-      let claudeCmd = 'claude ' + quoteArgvForShell(shell, claudeArgv);
+      let claudeCmd = 'claude ' + quoteArgvForShell(shell, claudeArgs);
 
       // preLaunchCmd is intentionally a raw shell snippet (docs: "e.g. aws-vault exec
       // profile --") so we cannot quote it. Reject newlines to prevent multi-line
