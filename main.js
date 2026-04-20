@@ -1384,12 +1384,18 @@ app.whenReady().then(() => {
   scheduleIpc.ensureScheduleCreatorCommand();
 
   // Shared runCommand for both cron scheduler and manual "run now"
+  // Accepts a claude-argv array (not a shell string) — values from untrusted schedule files
+  // MUST flow through here as argv so the shell quoter can escape them safely.
   const { spawn: cpSpawn } = require('child_process');
-  function runScheduleCommand(cmd, cwd, name, onDone) {
+  const { quoteArgvForShell } = require('./shell-profiles');
+  function runScheduleCommand(claudeArgv, cwd, name, onDone) {
     const globalSettings = getSetting('global') || {};
     const profileId = globalSettings.shellProfile || SETTING_DEFAULTS.shellProfile;
     const profile = resolveShell(profileId);
     const shell = profile.path;
+    // Prepend the claude binary and shell-quote every token — this is the sole defense
+    // against injection from .claude/commands/schedule-*.md frontmatter.
+    const cmd = 'claude ' + quoteArgvForShell(shell, claudeArgv);
     const args = shellArgs(shell, cmd, profile.args || []);
 
     log.info(`[schedule] Running: ${shell} ${args.join(' ')}`);

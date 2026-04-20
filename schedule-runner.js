@@ -146,24 +146,61 @@ function createScheduleSession(schedule) {
   return { sessionId, jsonlPath };
 }
 
-/** Build a claude CLI command string for a scheduled task. */
-function buildScheduleCommand(sessionId, schedule) {
-  let cmd = `claude --resume "${sessionId}" -p "Run the scheduled task"`;
+// Reject frontmatter values that contain shell-dangerous characters. Defense-in-depth:
+// the shell-quoter already prevents injection, but rejecting obvious metachars catches
+// malformed or malicious schedule files early and keeps the command auditable in logs.
+function isSafeScalar(s) {
+  if (s == null) return true;
+  const str = String(s);
+  // No control chars (except normal whitespace within append-system-prompt, handled separately)
+  if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(str)) return false;
+  return true;
+}
 
-  const cli = schedule.cli;
-  cmd += ` --permission-mode "${cli['permission-mode'] || 'acceptEdits'}"`;
-  if (cli.model) cmd += ` --model "${cli.model}"`;
-  if (cli['max-budget-usd']) cmd += ` --max-budget-usd ${cli['max-budget-usd']}`;
-  const allowedTools = cli['allowed-tools'] || 'Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch';
-  cmd += ` --allowedTools "${allowedTools}"`;
-  if (cli['append-system-prompt']) cmd += ` --append-system-prompt "${cli['append-system-prompt'].replace(/"/g, '\\"')}"`;
+function assertSafe(field, value) {
+  if (!isSafeScalar(value)) {
+    throw new Error(`Schedule field "${field}" contains unsafe characters`);
+  }
+  return value;
+}
+
+/**
+ * Build the argv for a scheduled claude invocation.
+ * Returns `{ claudeArgs: string[] }` — a plain argv array, with zero shell interpretation.
+ * The caller is responsible for shell-quoting when constructing a shell command string.
+ */
+function buildScheduleCommand(sessionId, schedule) {
+  const cli = schedule.cli || {};
+  const args = [
+    '--resume', assertSafe('sessionId', sessionId),
+    '-p', 'Run the scheduled task',
+    '--permission-mode', assertSafe('permission-mode', cli['permission-mode'] || 'acceptEdits'),
+  ];
+
+  if (cli.model) args.push('--model', assertSafe('model', cli.model));
+  if (cli['max-budget-usd']) {
+    const budget = String(cli['max-budget-usd']).trim();
+    if (!/^\d+(\.\d+)?$/.test(budget)) {
+      throw new Error(`Schedule field "max-budget-usd" must be a number, got: ${cli['max-budget-usd']}`);
+    }
+    args.push('--max-budget-usd', budget);
+  }
+  args.push('--allowedTools', assertSafe('allowed-tools', cli['allowed-tools'] || 'Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch'));
+  if (cli['append-system-prompt']) {
+    // Allow newlines in prompt text, but not control chars other than \n, \r, \t
+    const prompt = String(cli['append-system-prompt']);
+    if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(prompt)) {
+      throw new Error('Schedule field "append-system-prompt" contains unsafe characters');
+    }
+    args.push('--append-system-prompt', prompt);
+  }
   if (cli['add-dirs']) {
-    for (const dir of cli['add-dirs'].split(',').map(d => d.trim()).filter(Boolean)) {
-      cmd += ` --add-dir "${dir}"`;
+    for (const dir of String(cli['add-dirs']).split(',').map(d => d.trim()).filter(Boolean)) {
+      args.push('--add-dir', assertSafe('add-dirs', dir));
     }
   }
 
-  return cmd;
+  return { claudeArgs: args };
 }
 
 /**
@@ -192,10 +229,10 @@ function startScheduler(log, runCommand) {
       log.info(`[schedule] Triggering: ${schedule.name} (${schedule.cron})`);
       try {
         const { sessionId } = createScheduleSession(schedule);
-        const cmd = buildScheduleCommand(sessionId, schedule);
+        const { claudeArgs } = buildScheduleCommand(sessionId, schedule);
 
         runningTasks.add(taskKey);
-        runCommand(cmd, schedule.projectPath, schedule.name, () => {
+        runCommand(claudeArgs, schedule.projectPath, schedule.name, () => {
           runningTasks.delete(taskKey);
         });
       } catch (err) {
