@@ -1074,9 +1074,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
 
       let claudeCmd = 'claude ' + quoteArgvForShell(shell, claudeArgs);
 
-      // preLaunchCmd is intentionally a raw shell snippet (docs: "e.g. aws-vault exec
-      // profile --") so we cannot quote it. Reject newlines to prevent multi-line
-      // injection that would hide a second command from log inspection.
+      // preLaunchCmd is raw shell by design (e.g. "aws-vault exec profile --") — block newlines only
       if (sessionOptions?.preLaunchCmd) {
         const pre = String(sessionOptions.preLaunchCmd);
         if (/[\r\n]/.test(pre)) {
@@ -1389,17 +1387,13 @@ app.whenReady().then(() => {
   startProjectsWatcher();
   scheduleIpc.ensureScheduleCreatorCommand();
 
-  // Shared runCommand for both cron scheduler and manual "run now"
-  // Accepts a claude-argv array (not a shell string) — values from untrusted schedule files
-  // MUST flow through here as argv so the shell quoter can escape them safely.
+  // Shared runCommand for cron scheduler and "run now" — takes argv, not a shell string
   const { spawn: cpSpawn } = require('child_process');
   function runScheduleCommand(claudeArgv, cwd, name, onDone) {
     const globalSettings = getSetting('global') || {};
     const profileId = globalSettings.shellProfile || SETTING_DEFAULTS.shellProfile;
     const profile = resolveShell(profileId);
     const shell = profile.path;
-    // Prepend the claude binary and shell-quote every token — this is the sole defense
-    // against injection from .claude/commands/schedule-*.md frontmatter.
     const cmd = 'claude ' + quoteArgvForShell(shell, claudeArgv);
     const args = shellArgs(shell, cmd, profile.args || []);
 

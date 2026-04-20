@@ -160,8 +160,7 @@ function isWslShell(shellPath) {
   return base === 'wsl.exe' || base === 'wsl';
 }
 
-// Shell-quote a single argv token so it survives the shell verbatim.
-// Dispatches on shell family — POSIX single-quote, PowerShell single-quote, or cmd double-quote.
+// Shell-quote one argv token per shell family
 function quoteArgForShell(shellPath, value) {
   const s = value == null ? '' : String(value);
   const base = path.basename(shellPath).toLowerCase();

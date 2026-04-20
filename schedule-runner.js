@@ -146,15 +146,10 @@ function createScheduleSession(schedule) {
   return { sessionId, jsonlPath };
 }
 
-// Reject frontmatter values that contain shell-dangerous characters. Defense-in-depth:
-// the shell-quoter already prevents injection, but rejecting obvious metachars catches
-// malformed or malicious schedule files early and keeps the command auditable in logs.
+// Defense-in-depth: reject control chars in frontmatter values (shell-quoter is the real defense)
 function isSafeScalar(s) {
   if (s == null) return true;
-  const str = String(s);
-  // No control chars (except normal whitespace within append-system-prompt, handled separately)
-  if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(str)) return false;
-  return true;
+  return !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(String(s));
 }
 
 function assertSafe(field, value) {

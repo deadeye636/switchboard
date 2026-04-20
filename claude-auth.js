@@ -26,9 +26,7 @@ function readFromKeychain() {
   try {
     const service = getKeychainServiceName();
     const user = process.env.USER || os.userInfo().username;
-    // execFileSync (not execSync): argv is passed directly to `security` with no
-    // shell in between, so metacharacters in $USER or the service name cannot be
-    // interpreted. No string-escaping required.
+    // execFileSync (no shell) so $USER can't be interpolated into a command string
     const json = execFileSync(
       'security',
       ['find-generic-password', '-a', user, '-w', '-s', service],
