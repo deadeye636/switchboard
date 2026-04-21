@@ -212,7 +212,9 @@ function createTerminalEntry(session) {
     const webglAddon = new WebglAddon.WebglAddon();
     webglAddon.onContextLoss(() => webglAddon.dispose());
     terminal.loadAddon(webglAddon);
-  } catch {}
+  } catch (e) {
+    console.warn('[terminal] WebGL addon failed, falling back to DOM renderer', e);
+  }
 
   // --- Terminal search bar (Cmd/Ctrl+F) ---
   const searchBar = document.createElement('div');
