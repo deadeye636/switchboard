@@ -202,6 +202,8 @@ function createTerminalEntry(session) {
   }));
   const searchAddon = new SearchAddon.SearchAddon();
   terminal.loadAddon(searchAddon);
+  terminal.loadAddon(new UnicodeGraphemesAddon.UnicodeGraphemesAddon());
+  terminal.unicode.activeVersion = '15';
   terminal.open(container);
   container.style.backgroundColor = TERMINAL_THEME.background;
 
