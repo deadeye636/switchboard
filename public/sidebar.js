@@ -585,6 +585,14 @@ function rebindSidebarEvents(projects) {
     const session = sessionMap.get(sessionId);
     if (!session) return;
 
+    // Sessions under missing projects can't be opened — the path no longer exists
+    if (item.closest('.project-group.missing')) {
+      item.classList.add('disabled');
+      item.title = 'Project path no longer exists — use "Change path" to fix';
+      item.onclick = () => {};
+      return;
+    }
+
     item.onclick = () => openSession(session);
 
     const pin = item.querySelector('.session-pin');

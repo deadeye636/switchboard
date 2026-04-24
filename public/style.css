@@ -493,11 +493,15 @@ body { display: flex; flex-direction: column; }
   display: none;
   align-items: center;
 }
-.project-group.missing .project-header:hover .project-remap-btn {
+.project-group.missing .project-remap-btn {
   display: inline-flex;
 }
 .project-remap-btn:hover {
   background: rgba(232, 168, 56, 0.15);
+}
+.session-item.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* Worktree nested groups */
