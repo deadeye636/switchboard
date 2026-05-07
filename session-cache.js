@@ -4,6 +4,7 @@ const { Worker } = require('worker_threads');
 const { getFolderIndexMtimeMs } = require('./folder-index-state');
 const { deriveProjectPath } = require('./derive-project-path');
 const { readSessionFile } = require('./read-session-file');
+const { encodeProjectPath } = require('./encode-project-path');
 
 /**
  * Session cache module.
@@ -170,17 +171,17 @@ function buildProjectsFromCache(showArchived) {
   const global = getSetting('global') || {};
   const hiddenProjects = new Set(global.hiddenProjects || []);
 
-  // Group by projectPath. Multiple ~/.claude/projects/<folder>/ directories can resolve
-  // to the same projectPath (Claude Code's folder-name encoding scheme has changed over
-  // time, leaving stragglers), so we merge them into a single sidebar group to avoid
-  // duplicate-id collisions in the morphdom render.
+  // Group by projectPath, not on-disk folder name. Multiple ~/.claude/projects/<folder>/
+  // directories can resolve to the same projectPath (Claude Code's folder-name encoding
+  // scheme has changed over time, leaving legacy stragglers around), so we merge them into
+  // a single sidebar group to avoid duplicate-id collisions in the morphdom render.
+  // Only insert a project entry once we have a session that survives the archive filter —
+  // otherwise folders whose sessions are all archived would appear in the sidebar as
+  // undismissable phantom entries.
   const projectMap = new Map();
   for (const row of cachedRows) {
     if (!row.projectPath) continue;
     if (hiddenProjects.has(row.projectPath)) continue;
-    if (!projectMap.has(row.projectPath)) {
-      projectMap.set(row.projectPath, { folder: row.folder, projectPath: row.projectPath, sessions: [] });
-    }
     const meta = metaMap.get(row.sessionId);
     const s = {
       sessionId: row.sessionId,
@@ -196,6 +197,9 @@ function buildProjectsFromCache(showArchived) {
       archived: meta?.archived || 0,
     };
     if (!showArchived && s.archived) continue;
+    if (!projectMap.has(row.projectPath)) {
+      projectMap.set(row.projectPath, { folder: row.folder, projectPath: row.projectPath, sessions: [] });
+    }
     projectMap.get(row.projectPath).sessions.push(s);
   }
 
@@ -219,8 +223,11 @@ function buildProjectsFromCache(showArchived) {
     if (!session.projectPath) continue;
     if (hiddenProjects.has(session.projectPath)) continue;
     if (!projectMap.has(session.projectPath)) {
-      const folder = session.projectPath.replace(/[/_]/g, '-').replace(/^-/, '-');
-      projectMap.set(session.projectPath, { folder, projectPath: session.projectPath, sessions: [] });
+      projectMap.set(session.projectPath, {
+        folder: encodeProjectPath(session.projectPath),
+        projectPath: session.projectPath,
+        sessions: [],
+      });
     }
     const proj = projectMap.get(session.projectPath);
     if (!proj.sessions.some(s => s.sessionId === sessionId)) {
