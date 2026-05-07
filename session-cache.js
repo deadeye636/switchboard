@@ -170,12 +170,16 @@ function buildProjectsFromCache(showArchived) {
   const global = getSetting('global') || {};
   const hiddenProjects = new Set(global.hiddenProjects || []);
 
-  // Group by folder (worktree sessions appear as separate projects)
+  // Group by projectPath. Multiple ~/.claude/projects/<folder>/ directories can resolve
+  // to the same projectPath (Claude Code's folder-name encoding scheme has changed over
+  // time, leaving stragglers), so we merge them into a single sidebar group to avoid
+  // duplicate-id collisions in the morphdom render.
   const projectMap = new Map();
   for (const row of cachedRows) {
+    if (!row.projectPath) continue;
     if (hiddenProjects.has(row.projectPath)) continue;
-    if (!projectMap.has(row.folder)) {
-      projectMap.set(row.folder, { folder: row.folder, projectPath: row.projectPath, sessions: [] });
+    if (!projectMap.has(row.projectPath)) {
+      projectMap.set(row.projectPath, { folder: row.folder, projectPath: row.projectPath, sessions: [] });
     }
     const meta = metaMap.get(row.sessionId);
     const s = {
@@ -192,7 +196,7 @@ function buildProjectsFromCache(showArchived) {
       archived: meta?.archived || 0,
     };
     if (!showArchived && s.archived) continue;
-    projectMap.get(row.folder).sessions.push(s);
+    projectMap.get(row.projectPath).sessions.push(s);
   }
 
   // Include empty project directories (no sessions yet)
@@ -200,11 +204,11 @@ function buildProjectsFromCache(showArchived) {
     const dirs = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
       .filter(d => d.isDirectory() && d.name !== '.git');
     for (const d of dirs) {
-      if (!projectMap.has(d.name)) {
-        const projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name), d.name);
-        if (projectPath && !hiddenProjects.has(projectPath)) {
-          projectMap.set(d.name, { folder: d.name, projectPath, sessions: [] });
-        }
+      const projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name), d.name);
+      if (!projectPath) continue;
+      if (hiddenProjects.has(projectPath)) continue;
+      if (!projectMap.has(projectPath)) {
+        projectMap.set(projectPath, { folder: d.name, projectPath, sessions: [] });
       }
     }
   } catch {}
@@ -212,12 +216,13 @@ function buildProjectsFromCache(showArchived) {
   // Inject active plain terminal sessions so they participate in sorting
   for (const [sessionId, session] of activeSessions) {
     if (session.exited || !session.isPlainTerminal) continue;
-    const folder = session.projectPath.replace(/[/_]/g, '-').replace(/^-/, '-');
+    if (!session.projectPath) continue;
     if (hiddenProjects.has(session.projectPath)) continue;
-    if (!projectMap.has(folder)) {
-      projectMap.set(folder, { folder, projectPath: session.projectPath, sessions: [] });
+    if (!projectMap.has(session.projectPath)) {
+      const folder = session.projectPath.replace(/[/_]/g, '-').replace(/^-/, '-');
+      projectMap.set(session.projectPath, { folder, projectPath: session.projectPath, sessions: [] });
     }
-    const proj = projectMap.get(folder);
+    const proj = projectMap.get(session.projectPath);
     if (!proj.sessions.some(s => s.sessionId === sessionId)) {
       proj.sessions.push({
         sessionId, summary: 'Terminal', firstPrompt: '', projectPath: session.projectPath,
