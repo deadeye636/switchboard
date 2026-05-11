@@ -13,7 +13,7 @@ const { encodeProjectPath } = require('./encode-project-path');
 let PROJECTS_DIR, activeSessions, getMainWindow, log;
 let deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSession;
 let deleteSearchFolder, deleteSearchSession, upsertSearchEntries;
-let setFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName;
+let setFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName;
 
 function init(ctx) {
   PROJECTS_DIR = ctx.PROJECTS_DIR;
@@ -29,6 +29,7 @@ function init(ctx) {
   deleteSearchSession = ctx.db.deleteSearchSession;
   upsertSearchEntries = ctx.db.upsertSearchEntries;
   setFolderMeta = ctx.db.setFolderMeta;
+  getAllFolderMeta = ctx.db.getAllFolderMeta;
   getAllMeta = ctx.db.getAllMeta;
   getAllCached = ctx.db.getAllCached;
   getSetting = ctx.db.getSetting;
@@ -198,21 +199,38 @@ function buildProjectsFromCache(showArchived) {
     };
     if (!showArchived && s.archived) continue;
     if (!projectMap.has(row.projectPath)) {
-      projectMap.set(row.projectPath, { folder: row.folder, projectPath: row.projectPath, sessions: [] });
+      projectMap.set(row.projectPath, {
+        folder: encodeProjectPath(row.projectPath),
+        projectPath: row.projectPath,
+        sessions: [],
+      });
     }
     projectMap.get(row.projectPath).sessions.push(s);
   }
 
-  // Include empty project directories (no sessions yet)
+  // Include empty project directories (no sessions yet). Resolve folder→projectPath
+  // through cache_meta (populated by the indexer) instead of re-reading a JSONL off
+  // disk for every directory on every render. Fall back to deriveProjectPath only
+  // for folders the indexer hasn't seen yet, and backfill cache_meta so subsequent
+  // renders are pure DB reads.
   try {
+    const folderMeta = getAllFolderMeta();
     const dirs = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
       .filter(d => d.isDirectory() && d.name !== '.git');
     for (const d of dirs) {
-      const projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name), d.name);
+      let projectPath = folderMeta.get(d.name)?.projectPath;
+      if (!projectPath) {
+        projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name), d.name);
+        if (projectPath) setFolderMeta(d.name, projectPath, 0);
+      }
       if (!projectPath) continue;
       if (hiddenProjects.has(projectPath)) continue;
       if (!projectMap.has(projectPath)) {
-        projectMap.set(projectPath, { folder: d.name, projectPath, sessions: [] });
+        projectMap.set(projectPath, {
+          folder: encodeProjectPath(projectPath),
+          projectPath,
+          sessions: [],
+        });
       }
     }
   } catch {}
