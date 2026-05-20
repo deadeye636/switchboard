@@ -331,7 +331,7 @@ async function showResumeSessionDialog(session) {
     `<button class="permission-option dangerous${dangerousSkip ? ' selected' : ''}" data-mode="dangerous-skip"><span class="perm-name">Dangerous Skip</span><span class="perm-desc">Skip all safety prompts (use with caution)</span></button>`;
   }
 
-  const sessionName = session.name || session.summary || session.sessionId.slice(0, 8);
+  const sessionName = session.name || session.aiTitle || session.summary || session.sessionId.slice(0, 8);
 
   dialog.innerHTML = `
     <h3>Resume Session — ${escapeHtml(sessionName)}</h3>

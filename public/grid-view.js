@@ -16,7 +16,7 @@ function wrapInGridCard(sessionId) {
   const session = sessionMap.get(sessionId) || (entry && entry.session);
   if (!session || !entry) return;
 
-  const displayName = cleanDisplayName(session.name || session.summary) || sessionId;
+  const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary) || sessionId;
   const shortProject = session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '';
 
   // Create card wrapper

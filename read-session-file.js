@@ -49,7 +49,7 @@ function readSessionFile(filePath, folder, projectPath) {
       summary, firstPrompt: summary,
       created: stat.birthtime.toISOString(),
       modified: stat.mtime.toISOString(),
-      messageCount, textContent, slug, customTitle: customTitle || aiTitle,
+      messageCount, textContent, slug, customTitle, aiTitle,
     };
   } catch {
     return null;

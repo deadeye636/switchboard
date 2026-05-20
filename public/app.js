@@ -745,7 +745,7 @@ function openNewSession(project) {
 }
 
 async function showTerminalHeader(session) {
-  const displayName = cleanDisplayName(session.name || session.summary);
+  const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary);
   terminalHeaderName.textContent = displayName;
   terminalHeaderId.textContent = session.sessionId;
   terminalHeader.style.display = '';
