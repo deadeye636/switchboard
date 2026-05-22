@@ -740,7 +740,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
 
     const result = processProjectSessions(project, resort);
     if (!result) continue;
-    const { filtered, visible, older, sortOrderEntry } = result;
+    const { filtered, visible, older, subagentIndex, sortOrderEntry } = result;
     newSortedOrder.push(sortOrderEntry);
     const fId = folderId(project.projectPath);
 
