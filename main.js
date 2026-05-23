@@ -421,6 +421,7 @@ sessionCache.init({
 });
 const { readSessionFile, readFolderFromFilesystem, refreshFolder, reconcileCacheFromFilesystem,
         buildProjectsFromCache, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker } = sessionCache;
+const { resolveJsonlPath } = require('./read-session-file');
 
 
 // --- IPC: browse-folder ---
@@ -1358,7 +1359,7 @@ ipcMain.handle('read-session-jsonl', (_event, sessionId) => {
 ipcMain.handle('read-subagent-jsonl', (_event, parentSessionId, agentId) => {
   const row = getCachedSession('sub:' + parentSessionId + ':' + agentId);
   if (!row) return { error: 'Subagent session not found in cache' };
-  const jsonlPath = path.join(PROJECTS_DIR, row.folder, parentSessionId, 'subagents', 'agent-' + agentId + '.jsonl');
+  const jsonlPath = resolveJsonlPath(PROJECTS_DIR, row);
   try {
     const content = fs.readFileSync(jsonlPath, 'utf-8');
     const entries = [];
@@ -1388,7 +1389,7 @@ ipcMain.handle('list-subagents', (_event, parentSessionId) => {
 ipcMain.handle('start-subagent-watch', (_event, parentSessionId, agentId) => {
   const row = getCachedSession('sub:' + parentSessionId + ':' + agentId);
   if (!row) return { error: 'Subagent not found in cache' };
-  const filePath = path.join(PROJECTS_DIR, row.folder, parentSessionId, 'subagents', 'agent-' + agentId + '.jsonl');
+  const filePath = resolveJsonlPath(PROJECTS_DIR, row);
 
   const watchId = ++subagentWatcherSeq;
   let offset = 0;
