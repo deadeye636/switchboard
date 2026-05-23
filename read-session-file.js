@@ -32,6 +32,8 @@ function addUsageTotals(totals, usage) {
  *  exactly like top-level sessions (search, archive, rename, etc).
  */
 function subagentSessionId(parentSessionId, agentId) {
+  if (parentSessionId.includes(':')) throw new TypeError(`parentSessionId must not contain ':': ${parentSessionId}`);
+  if (agentId.includes(':')) throw new TypeError(`agentId must not contain ':': ${agentId}`);
   return `sub:${parentSessionId}:${agentId}`;
 }
 
