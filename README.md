@@ -122,6 +122,13 @@ sudo pacman -S libxcrypt-compat
 
 `AppImage` builds without it.
 
+The pacman package is published as **`switchboard-doctly`** rather than
+`switchboard` because the Arch `extra` repo already ships a package named
+`switchboard` (elementary OS's Pantheon Control Center). Renaming avoids the
+file-conflict that would block installation alongside it. The app itself is
+still called Switchboard everywhere users see it — only the package identity
+changes. Uninstall later with `sudo pacman -R switchboard-doctly`.
+
 ## Releasing
 
 Releases are driven by git tags:

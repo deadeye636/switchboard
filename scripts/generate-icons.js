@@ -2,6 +2,8 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const png2icons = require('png2icons');
+const { loadImage, createCanvas } = require('@napi-rs/canvas');
 
 const OUTPUT_DIR = path.join(__dirname, '..', 'build');
 const pngPath = path.join(OUTPUT_DIR, 'icon.png');
@@ -10,7 +12,6 @@ fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 // If icon.png already exists, use it; otherwise generate a placeholder
 if (!fs.existsSync(pngPath)) {
-  const { createCanvas } = require('@napi-rs/canvas');
   const SIZE = 1024;
   const canvas = createCanvas(SIZE, SIZE);
   const ctx = canvas.getContext('2d');
@@ -94,7 +95,6 @@ bg.save('${paddedPath}')
   console.log(`Created ${icnsPath} (with macOS padding)`);
 } else {
   // Non-macOS fallback: use png2icons
-  const png2icons = require('png2icons');
   const pngBuffer = fs.readFileSync(pngPath);
   const icnsBuffer = png2icons.createICNS(pngBuffer, png2icons.BICUBIC2, 0);
   if (icnsBuffer) {
@@ -104,7 +104,6 @@ bg.save('${paddedPath}')
 }
 
 // ICO (Windows) — png2icons on all platforms
-const png2icons = require('png2icons');
 const pngBuffer = fs.readFileSync(pngPath);
 const icoBuffer = png2icons.createICO(pngBuffer, png2icons.BICUBIC2, 0, true);
 if (icoBuffer) {
@@ -115,7 +114,6 @@ if (icoBuffer) {
 
 // Linux: hicolor-sized PNGs for /usr/share/icons/hicolor/<size>x<size>/apps/
 // electron-builder picks these up when linux.icon points at the directory.
-const { loadImage, createCanvas } = require('@napi-rs/canvas');
 (async () => {
   const linuxDir = path.join(OUTPUT_DIR, 'icons');
   fs.mkdirSync(linuxDir, { recursive: true });
