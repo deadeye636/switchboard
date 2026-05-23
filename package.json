@@ -109,7 +109,20 @@
         "deb",
         "pacman"
       ],
+      "icon": "build/icons",
       "category": "Development"
+    },
+    "pacman": {
+      "packageName": "switchboard-doctly",
+      "depends": [
+        "gtk3",
+        "nss",
+        "libnotify",
+        "libxtst",
+        "libxss",
+        "xdg-utils",
+        "libsecret"
+      ]
     },
     "dmg": {
       "background": "build/dmg-background.png",

@@ -113,4 +113,21 @@ if (icoBuffer) {
   console.log(`Created ${icoPath} (${icoBuffer.length} bytes)`);
 }
 
-console.log('Icon generation complete.');
+// Linux: hicolor-sized PNGs for /usr/share/icons/hicolor/<size>x<size>/apps/
+// electron-builder picks these up when linux.icon points at the directory.
+const { loadImage, createCanvas } = require('@napi-rs/canvas');
+(async () => {
+  const linuxDir = path.join(OUTPUT_DIR, 'icons');
+  fs.mkdirSync(linuxDir, { recursive: true });
+  const img = await loadImage(pngPath);
+  for (const size of [16, 32, 48, 64, 128, 256, 512]) {
+    const c = createCanvas(size, size);
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, size, size);
+    fs.writeFileSync(path.join(linuxDir, `${size}x${size}.png`), c.toBuffer('image/png'));
+  }
+  console.log(`Created ${linuxDir} (Linux hicolor sizes)`);
+  console.log('Icon generation complete.');
+})();
