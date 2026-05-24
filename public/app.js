@@ -38,6 +38,12 @@ const memoryPanel = new ViewerPanel(memoryViewer, {
   language: 'markdown', storageKey: 'markdownPreviewMode',
   onSave: (filePath, content) => window.api.saveMemory(filePath, content),
 });
+const workFilesContent = document.getElementById('work-files-content');
+const workFilesViewer = document.getElementById('work-files-viewer');
+const workFilesPanel = new ViewerPanel(workFilesViewer, {
+  copyPath: true, copyContent: true,
+  language: 'auto', storageKey: 'workFilesPreviewMode',
+});
 const terminalArea = document.getElementById('terminal-area');
 const settingsViewer = document.getElementById('settings-viewer');
 const globalSettingsBtn = document.getElementById('global-settings-btn');
@@ -1125,6 +1131,8 @@ function clearSearch() {
     renderPlans(cachedPlans);
   } else if (activeTab === 'memory') {
     renderMemories();
+  } else if (activeTab === 'work-files') {
+    renderWorkFiles();
   }
 }
 
@@ -1172,6 +1180,10 @@ searchInput.addEventListener('input', () => {
         const results = await window.api.search('memory', query, searchTitlesOnly);
         const matchIds = new Set(results.map(r => r.id));
         renderMemories(matchIds);
+      } else if (activeTab === 'work-files') {
+        const results = await window.api.search('work-file', query, searchTitlesOnly);
+        const matchIds = new Set(results.map(r => r.id));
+        renderWorkFiles(matchIds);
       }
     } catch {
       if (activeTab === 'sessions') {
@@ -1732,6 +1744,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     plansContent.style.display = 'none';
     statsContent.style.display = 'none';
     memoryContent.style.display = 'none';
+    workFilesContent.style.display = 'none';
     sessionFilters.style.display = 'none';
     searchBar.style.display = 'none';
 
@@ -1781,6 +1794,11 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       searchInput.placeholder = 'Search agent files...';
       memoryContent.style.display = '';
       loadMemories();
+    } else if (tabName === 'work-files') {
+      searchBar.style.display = '';
+      searchInput.placeholder = 'Search work files...';
+      workFilesContent.style.display = '';
+      loadWorkFiles();
     }
   });
 });
