@@ -13,3 +13,5 @@ dev-app-update.yml
 # Transient: handoff bridges + local screenshots/scratch
 prompts/
 temp/
+# Scratch space (work-files workspace convention)
+.work-files/
