@@ -5072,6 +5072,12 @@ input:focus-visible {
   background: rgba(224,80,112,0.06);
 }
 
+.fp-delete-btn:hover {
+  border-color: rgba(224,80,112,0.45);
+  color: #e05070;
+  background: rgba(224,80,112,0.10);
+}
+
 #file-panel-content {
   flex: 1;
   display: flex;
