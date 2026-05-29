@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, screen, shell } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, shell } = require('electron');
 const { Worker } = require('worker_threads');
 const path = require('path');
 const fs = require('fs');
@@ -346,6 +346,14 @@ ipcMain.handle('remove-project', (_event, projectPath) => {
 ipcMain.handle('open-external', (_event, url) => {
   log.info('[open-external IPC]', url);
   if (/^https?:\/\//i.test(url)) return shell.openExternal(url);
+});
+
+// --- IPC: clipboard write ---
+// The renderer's navigator.clipboard.writeText is gated on focus/user-activation and
+// is flaky-to-dead on Linux/Wayland (Ozone). The main-process clipboard has no such
+// strings attached, so all terminal copies go through here.
+ipcMain.handle('clipboard-write-text', (_event, text) => {
+  if (typeof text === 'string') clipboard.writeText(text);
 });
 
 // --- IPC: MCP bridge ---
