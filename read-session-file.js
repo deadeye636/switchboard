@@ -57,6 +57,84 @@ function readSubagentMeta(jsonlPath) {
   }
 }
 
+/** A user turn that contains ONLY tool_result blocks isn't a real message —
+ *  it's the harness feeding tool output back to the model. Counting these
+ *  inflates per-day message counts dramatically (observed 116991 msg/day).
+ *  Returns true only when content is a non-empty array whose every item is a
+ *  {type:'tool_result'} block. */
+function isToolResultOnly(content) {
+  if (!Array.isArray(content) || content.length === 0) return false;
+  return content.every(c => c && c.type === 'tool_result');
+}
+
+/** Pure helper: given an array of raw JSONL lines (strings) and a fallback date
+ *  (YYYY-MM-DD, used when a line has no usable timestamp), accumulate per-(date,
+ *  model) metrics. Returns an array of:
+ *    { date, model, messageCount, toolCallCount, inputTokens, outputTokens,
+ *      cacheReadTokens, cacheCreationTokens }
+ *  Tokens and tool calls are only attributed to assistant lines; synthetic /
+ *  model-less assistant lines bucket under model '' (counted as a message but
+ *  with zero tokens). User turns that are purely tool_result aren't counted as
+ *  messages. Non-message line types are ignored entirely.
+ */
+function extractDailyMetrics(lines, fallbackDate) {
+  const map = new Map();
+  const bucket = (date, model) => {
+    const key = `${date}|${model}`;
+    let m = map.get(key);
+    if (!m) {
+      m = {
+        date, model,
+        messageCount: 0, toolCallCount: 0,
+        inputTokens: 0, outputTokens: 0,
+        cacheReadTokens: 0, cacheCreationTokens: 0,
+      };
+      map.set(key, m);
+    }
+    return m;
+  };
+
+  for (const line of lines) {
+    if (!line) continue;
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+
+    const ts = typeof entry.timestamp === 'string' && entry.timestamp.length >= 10
+      ? entry.timestamp.slice(0, 10)
+      : fallbackDate;
+
+    const isAssistant = entry.type === 'assistant' ||
+      (entry.type === 'message' && entry.role === 'assistant');
+    const isUser = entry.type === 'user' ||
+      (entry.type === 'message' && entry.role === 'user');
+
+    if (isAssistant) {
+      let model = entry.message?.model || '';
+      if (model === '<synthetic>') model = '';
+      const m = bucket(ts, model);
+      m.messageCount += 1;
+      if (model) {
+        const usage = entry.message?.usage || {};
+        m.inputTokens += usage.input_tokens | 0;
+        m.outputTokens += usage.output_tokens | 0;
+        m.cacheReadTokens += usage.cache_read_input_tokens | 0;
+        m.cacheCreationTokens += usage.cache_creation_input_tokens | 0;
+      }
+      const content = entry.message?.content;
+      if (Array.isArray(content)) {
+        for (const c of content) {
+          if (c && c.type === 'tool_use') m.toolCallCount += 1;
+        }
+      }
+    } else if (isUser) {
+      if (isToolResultOnly(entry.message?.content)) continue;
+      bucket(ts, '').messageCount += 1;
+    }
+  }
+
+  return Array.from(map.values());
+}
+
 /** Parse a single .jsonl file into a session object (or null if invalid).
  *  opts.parentSessionId — if set, treat as a subagent transcript and stamp the
  *  parent reference into the returned row.
@@ -139,6 +217,9 @@ function readSessionFile(filePath, folder, projectPath, opts = {}) {
       ? Math.max(0, Math.round((new Date(lastEntryAt) - new Date(startedAt)) / 60000))
       : 0;
 
+    const fallbackDate = stat.mtime.toISOString().slice(0, 10);
+    const dailyMetrics = extractDailyMetrics(lines, fallbackDate);
+
     if (isSubagent) {
       // Sidechain marker must be present — otherwise the file lives under a
       // subagents/ directory but isn't actually a subagent transcript. Bail.
@@ -164,6 +245,7 @@ function readSessionFile(filePath, folder, projectPath, opts = {}) {
         agentId,
         subagentType,
         description,
+        dailyMetrics,
       };
     }
 
@@ -175,6 +257,7 @@ function readSessionFile(filePath, folder, projectPath, opts = {}) {
       messageCount, textContent, slug, customTitle, aiTitle,
       userMessageCount, largestUserPromptWords, startedAt, lastEntryAt, activeMinutes,
       ...usageTotals,
+      dailyMetrics,
     };
   } catch {
     return null;
@@ -239,4 +322,92 @@ function enumerateSessionFiles(folderPath) {
   return out;
 }
 
-module.exports = { readSessionFile, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles };
+/** Lightweight refresh path. Reads only the first ~256 KB / 500 lines of a
+ *  jsonl file to extract display-level metadata (summary, slug, titles,
+ *  agentId). Does NOT compute textContent or messageCount — the caller is
+ *  expected to merge with the cached row for unchanged fields. Designed so
+ *  the fs.watch flush can update a live 200+ MB host-session JSONL in ~ms
+ *  instead of seconds.
+ *
+ *  Returns the same shape as the display subset of readSessionFile() so it
+ *  can be merged into a cached row before upsert. Returns null if the chunk
+ *  doesn't yet contain a usable first-user-message.
+ */
+function readSessionDisplayHeader(filePath, opts = {}) {
+  const fileBase = path.basename(filePath, '.jsonl');
+  const isSubagent = Boolean(opts.parentSessionId);
+  const MAX_BYTES = 256 * 1024;
+  const MAX_LINES = 500;
+  try {
+    const stat = fs.statSync(filePath);
+    const readLen = Math.min(MAX_BYTES, stat.size);
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(readLen);
+    const n = fs.readSync(fd, buf, 0, readLen, 0);
+    fs.closeSync(fd);
+    const text = buf.toString('utf8', 0, n);
+    const lines = text.split('\n');
+    // Drop the potentially-partial last line unless we read the whole file
+    if (n < stat.size) lines.pop();
+
+    let summary = '';
+    let slug = null, customTitle = null, aiTitle = null, agentId = null;
+    let sidechainSeen = false;
+    let lineCount = 0;
+    for (const line of lines) {
+      if (!line) continue;
+      if (++lineCount > MAX_LINES) break;
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if (entry.slug && !slug) slug = entry.slug;
+      if (entry.agentId && !agentId) agentId = entry.agentId;
+      if (entry.isSidechain) sidechainSeen = true;
+      if (entry.type === 'custom-title' && entry.customTitle && !customTitle) customTitle = entry.customTitle;
+      if (entry.type === 'ai-title' && entry.aiTitle && !aiTitle) aiTitle = entry.aiTitle;
+      const msg = entry.message;
+      const txt = typeof msg === 'string' ? msg :
+        (typeof msg?.content === 'string' ? msg.content :
+        (msg?.content?.[0]?.text || ''));
+      if (!summary && (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user'))) {
+        if (txt && !/<bash-input>|<bash-stdout>|<local-command-caveat>/.test(txt)) {
+          const taskMatch = txt.match(/<scheduled-task\s+name="([^"]+)"/);
+          summary = taskMatch ? 'Scheduled: ' + taskMatch[1] : txt.slice(0, 120);
+        }
+      }
+    }
+
+    if (!summary) return null;
+
+    if (isSubagent) {
+      if (!sidechainSeen) return null;
+      if (!agentId) {
+        const m = fileBase.match(/^agent-(.+)$/);
+        if (m) agentId = m[1];
+      }
+      if (!agentId) return null;
+      const meta = readSubagentMeta(filePath) || {};
+      return {
+        sessionId: subagentSessionId(opts.parentSessionId, agentId),
+        summary: meta.description || summary,
+        firstPrompt: summary,
+        modified: stat.mtime.toISOString(),
+        slug, customTitle, aiTitle,
+        parentSessionId: opts.parentSessionId,
+        agentId,
+        subagentType: meta.agentType || null,
+        description: meta.description || null,
+      };
+    }
+
+    return {
+      sessionId: fileBase,
+      summary, firstPrompt: summary,
+      modified: stat.mtime.toISOString(),
+      slug, customTitle, aiTitle,
+    };
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { readSessionFile, readSessionDisplayHeader, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly };
