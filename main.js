@@ -265,7 +265,7 @@ sessionCache.init({
     setFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
   },
 });
-const { readSessionFile, readFolderFromFilesystem, refreshFolder, populateCacheFromFilesystem,
+const { readSessionFile, readFolderFromFilesystem, refreshFolder, reconcileCacheFromFilesystem,
         buildProjectsFromCache, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker } = sessionCache;
 
 
@@ -416,6 +416,10 @@ ipcMain.handle('get-projects', (_event, showArchived) => {
       return [];
     }
 
+    // Pick up folders changed while the app was closed, or never indexed by an
+    // older build, so sessions/worktrees don't silently go missing. Stat-gated,
+    // so it's cheap when nothing has changed.
+    reconcileCacheFromFilesystem();
     return buildProjectsFromCache(showArchived);
   } catch (err) {
     console.error('Error listing projects:', err);
