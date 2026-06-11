@@ -411,7 +411,7 @@ sessionCache.init({
   db: {
     deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSession,
     deleteSearchFolder, deleteSearchSession, upsertSearchEntries,
-    setFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
+    setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
   },
 });
 const { readSessionFile, readFolderFromFilesystem, refreshFolder, reconcileCacheFromFilesystem,
