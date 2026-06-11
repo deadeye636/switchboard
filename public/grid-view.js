@@ -1512,12 +1512,18 @@ function showGridView() {
   updateGridColumns();
 
   // Fit all terminals after layout resolves (skip cards hidden in a collapsed
-  // region — a display:none terminal can't be measured/fit).
+  // region — a display:none terminal can't be measured/fit). Grid cards also
+  // drop to the thumbnail scrollback budget: xterm trims the buffer immediately
+  // when the new limit is below the current row count, so content scrolled past
+  // SCROLLBACK_GRID rows is lost on entering the grid — accepted trade-off, the
+  // full budget is restored (for future output) when a session returns to
+  // single view (see showSession).
   for (const sid of sessionIds) {
     const entry = openSessions.get(sid);
     if (!entry) continue;
     const card = gridCards.get(sid);
     if (card && card.closest('.grid-region.collapsed')) continue;
+    entry.terminal.options.scrollback = SCROLLBACK_GRID;
     fitAndScroll(entry);
   }
   // Focus active or first (deferred so fitAndScroll's rAF runs first). This
@@ -1566,6 +1572,13 @@ function hideGridView() {
   gridViewActive = false;
   localStorage.setItem('gridViewActive', '0');
   closeSnapLayoutPopover();
+  // Restore the full scrollback budget for every session, not just the one
+  // about to be focused — background sessions keep producing output after the
+  // grid closes and would otherwise stay silently capped at the thumbnail
+  // budget until individually shown.
+  for (const entry of openSessions.values()) {
+    if (!entry.closed) entry.terminal.options.scrollback = SCROLLBACK_SINGLE;
+  }
   unwrapGridCards();
   terminalsEl.classList.remove('grid-layout');
   terminalsEl.classList.remove('grid-few-cards', 'grid-single-card');
