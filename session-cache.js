@@ -206,6 +206,7 @@ function buildProjectsFromCache(showArchived) {
       projectMap.set(row.projectPath, {
         folder: encodeProjectPath(row.projectPath),
         projectPath: row.projectPath,
+        missing: !fs.existsSync(row.projectPath),
         sessions: [],
       });
     }
@@ -233,6 +234,7 @@ function buildProjectsFromCache(showArchived) {
         projectMap.set(projectPath, {
           folder: encodeProjectPath(projectPath),
           projectPath,
+          missing: !fs.existsSync(projectPath),
           sessions: [],
         });
       }
@@ -270,6 +272,9 @@ function buildProjectsFromCache(showArchived) {
   }
 
   projects.sort((a, b) => {
+    // Missing projects go to the bottom
+    if (a.missing && !b.missing) return 1;
+    if (!a.missing && b.missing) return -1;
     // Empty projects go to the bottom
     if (a.sessions.length === 0 && b.sessions.length > 0) return 1;
     if (b.sessions.length === 0 && a.sessions.length > 0) return -1;
