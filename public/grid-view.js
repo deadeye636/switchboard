@@ -10,6 +10,63 @@
 
 let gridCards = new Map(); // sessionId → card wrapper element
 let gridFocusedSessionId = null;
+let gridStatusFilter = localStorage.getItem('gridStatusFilter') || 'all';
+
+function getGridRuntimeState() {
+  return {
+    activePtyIds,
+    attentionSessions,
+    responseReadySessions,
+    sessionBusyState,
+    openSessions,
+    lastActivityTime,
+    activeSessionId,
+  };
+}
+
+function getGridOpenSessions() {
+  const sessions = [];
+  for (const [sid, entry] of openSessions) {
+    if (entry.closed) continue;
+    const session = sessionMap.get(sid) || entry.session;
+    if (session) sessions.push(session);
+  }
+  return sessions;
+}
+
+function getGridAllowedSessionIds() {
+  const filtered = getFilteredSessionsByStatus(getGridOpenSessions(), getGridRuntimeState(), gridStatusFilter);
+  return new Set(filtered.map(session => session.sessionId));
+}
+
+function renderGridStatusFilters() {
+  const container = document.getElementById('grid-status-filters');
+  if (!container) return;
+
+  const counts = getStatusCounts(getGridOpenSessions(), getGridRuntimeState());
+  const filters = [
+    ['all', 'All', counts.all],
+    ['attention', 'Needs You', counts.attention],
+    ['ready', 'Ready', counts.ready],
+    ['active', 'Running', counts.active],
+  ];
+
+  container.innerHTML = '';
+  for (const [key, label, count] of filters) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'grid-status-filter' + (gridStatusFilter === key ? ' active' : '');
+    btn.dataset.filter = key;
+    btn.textContent = `${label} ${count}`;
+    btn.disabled = key !== 'all' && count === 0;
+    btn.addEventListener('click', () => {
+      gridStatusFilter = key;
+      localStorage.setItem('gridStatusFilter', gridStatusFilter);
+      showGridView();
+    });
+    container.appendChild(btn);
+  }
+}
 
 function wrapInGridCard(sessionId) {
   const entry = openSessions.get(sessionId);
@@ -18,10 +75,11 @@ function wrapInGridCard(sessionId) {
 
   const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary) || sessionId;
   const shortProject = session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '';
+  const status = getSessionStatus(session, getGridRuntimeState());
 
   // Create card wrapper
   const card = document.createElement('div');
-  card.className = 'grid-card';
+  card.className = `grid-card ${status.className}`;
   card.dataset.sessionId = sessionId;
 
   // Header
@@ -34,6 +92,10 @@ function wrapInGridCard(sessionId) {
   name.className = 'grid-card-name';
   name.textContent = displayName;
   header.appendChild(name);
+  const statusChip = document.createElement('span');
+  statusChip.className = `grid-card-status-chip ${status.className}`;
+  statusChip.textContent = status.label;
+  header.appendChild(statusChip);
   const project = document.createElement('span');
   project.className = 'grid-card-project';
   project.textContent = shortProject;
@@ -77,7 +139,8 @@ function wrapInGridCard(sessionId) {
       targetHeading = document.createElement('div');
       targetHeading.className = 'grid-project-heading';
       targetHeading.dataset.projectPath = pp;
-      targetHeading.textContent = pp ? pp.split('/').filter(Boolean).slice(-2).join('/') : 'Other';
+      targetHeading.dataset.projectName = pp ? pp.split('/').filter(Boolean).slice(-2).join('/') : 'Other';
+      targetHeading.textContent = targetHeading.dataset.projectName;
       // Insert heading in sortedOrder position
       const orderIndex = new Map(sortedOrder.map((e, i) => [e.projectPath, i]));
       const myIdx = orderIndex.get(pp);
@@ -107,20 +170,21 @@ function wrapInGridCard(sessionId) {
   }
 
   // Click header or footer to focus
-  header.addEventListener('mousedown', (e) => {
+  const focusFromCardChrome = (e) => {
+    if (e?.target?.closest?.('button')) return;
     e.stopPropagation();
     focusGridCard(sessionId);
-  });
+  };
+  header.addEventListener('mousedown', focusFromCardChrome);
+  makeButtonLike(header, focusFromCardChrome, `Focus ${displayName}`);
   // Double-click header to switch to full terminal view
   header.addEventListener('dblclick', (e) => {
     e.stopPropagation();
     gridFocusedSessionId = sessionId;
     toggleGridView();
   });
-  footer.addEventListener('mousedown', (e) => {
-    e.stopPropagation();
-    focusGridCard(sessionId);
-  });
+  footer.addEventListener('mousedown', focusFromCardChrome);
+  makeButtonLike(footer, focusFromCardChrome, `Focus ${displayName}`);
 
   // Clicking/focusing the terminal area also selects the card
   entry.element.addEventListener('focusin', () => {
@@ -130,6 +194,7 @@ function wrapInGridCard(sessionId) {
   });
 
   gridCards.set(sessionId, card);
+  syncTitleToAriaLabel(card);
   // Set initial status from the single source of truth
   updateRunningIndicators();
 }
@@ -147,6 +212,19 @@ function unwrapGridCards() {
   gridCards.clear();
   // Remove project headings inserted by showGridView
   terminalsEl.querySelectorAll('.grid-project-heading').forEach(el => el.remove());
+}
+
+function updateGridProjectCounts() {
+  terminalsEl.querySelectorAll('.grid-project-heading').forEach(heading => {
+    let count = 0;
+    let node = heading.nextElementSibling;
+    while (node && !node.classList.contains('grid-project-heading')) {
+      if (node.classList.contains('grid-card')) count++;
+      node = node.nextElementSibling;
+    }
+    heading.dataset.count = String(count);
+    heading.textContent = `${heading.dataset.projectName || heading.textContent} · ${count}`;
+  });
 }
 
 function focusGridCard(sessionId) {
@@ -171,6 +249,8 @@ function focusGridCard(sessionId) {
 function showGridView() {
   gridViewActive = true;
   localStorage.setItem('gridViewActive', '1');
+  renderGridStatusFilters();
+  unwrapGridCards();
   placeholder.style.display = 'none';
   terminalHeader.style.display = 'none';
 
@@ -189,6 +269,12 @@ function showGridView() {
   const openSet = new Set();
   for (const [sid, entry] of openSessions) {
     if (!entry.closed) openSet.add(sid);
+  }
+  const allowedSet = getGridAllowedSessionIds();
+  if (gridStatusFilter !== 'all' && allowedSet.size === 0) {
+    gridStatusFilter = 'all';
+    localStorage.setItem('gridStatusFilter', gridStatusFilter);
+    renderGridStatusFilters();
   }
 
   // Use cachedProjects sorted by sortedOrder — same grouping & order as sidebar
@@ -213,7 +299,7 @@ function showGridView() {
   let currentProjectPath = null;
   for (const item of sidebarItems) {
     const sid = item.dataset.sessionId;
-    if (!openSet.has(sid)) continue;
+    if (!openSet.has(sid) || !allowedSet.has(sid)) continue;
     // Determine project path for this session
     const session = sessionMap.get(sid);
     const projectPath = session ? session.projectPath : null;
@@ -223,7 +309,8 @@ function showGridView() {
       const heading = document.createElement('div');
       heading.className = 'grid-project-heading';
       heading.dataset.projectPath = projectPath;
-      heading.textContent = projectPath.split('/').filter(Boolean).slice(-2).join('/');
+      heading.dataset.projectName = projectPath.split('/').filter(Boolean).slice(-2).join('/');
+      heading.textContent = heading.dataset.projectName;
       terminalsEl.appendChild(heading);
     }
     wrapInGridCard(sid);
@@ -233,6 +320,7 @@ function showGridView() {
   // Show grid header bar with session count
   gridViewer.style.display = 'block';
   gridViewerCount.textContent = sessionIds.length + ' session' + (sessionIds.length !== 1 ? 's' : '');
+  updateGridProjectCounts();
 
   const btn = document.getElementById('grid-toggle-btn');
   if (btn) btn.classList.add('active');

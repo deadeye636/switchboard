@@ -45,6 +45,7 @@ function toggleMarkdownPreview({ editorEl, previewEl, toggleBtn, editorView, isP
     previewEl.style.display = 'block';
     toggleBtn.classList.add('active');
     toggleBtn.title = 'Back to editor';
+    toggleBtn.setAttribute('aria-label', toggleBtn.title);
     if (storageKey) localStorage.setItem(storageKey, 'true');
     return true;
   } else {
@@ -52,6 +53,7 @@ function toggleMarkdownPreview({ editorEl, previewEl, toggleBtn, editorView, isP
     editorEl.style.display = '';
     toggleBtn.classList.remove('active');
     toggleBtn.title = 'Toggle markdown preview';
+    toggleBtn.setAttribute('aria-label', toggleBtn.title);
     if (storageKey) localStorage.setItem(storageKey, 'false');
     return false;
   }
@@ -201,6 +203,7 @@ function createViewerToolbar(opts = {}) {
       if (!previewBtn) return;
       previewBtn.classList.toggle('active', active);
       previewBtn.title = active ? 'Back to editor' : 'Toggle markdown preview';
+      previewBtn.setAttribute('aria-label', previewBtn.title);
     },
 
     setWrapMode(active) {
@@ -224,6 +227,7 @@ function createViewerToolbar(opts = {}) {
     },
   };
 
+  syncTitleToAriaLabel(el);
   return toolbar;
 }
 

@@ -84,6 +84,7 @@
       <div id="grid-viewer" style="display:none;">
         <div id="grid-viewer-header">
           <span id="grid-viewer-title">Session Overview</span>
+        <div id="grid-status-filters" aria-label="Grid status filters"></div>
           <span id="grid-viewer-count"></span>
         </div>
       </div>
@@ -96,6 +97,7 @@
     <button id="update-restart-btn">Restart</button>
     <button id="update-dismiss-btn">Later</button>
   </div>
+  <div id="app-live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
   <div id="status-bar"><span id="status-bar-info"></span><span id="status-bar-activity"></span><span id="status-bar-updater"></span></div>
   <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
@@ -112,6 +114,8 @@
   <script src="file-panel.js"></script>
   <script src="settings-panel.js"></script>
   <script src="utils.js"></script>
+  <script src="a11y-utils.js"></script>
+  <script src="session-status.js"></script>
   <script src="terminal-themes.js"></script>
   <script src="terminal-manager.js"></script>
   <script src="grid-view.js"></script>

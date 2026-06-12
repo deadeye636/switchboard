@@ -248,6 +248,7 @@ function createTerminalEntry(session) {
     <button class="terminal-search-close" title="Close (Escape)">&times;</button>
   `;
   container.appendChild(searchBar);
+  syncTitleToAriaLabel(searchBar);
   const searchInput = searchBar.querySelector('.terminal-search-input');
   const searchCount = searchBar.querySelector('.terminal-search-count');
   const searchOpts = { decorations: { matchBackground: '#515C6A', activeMatchBackground: '#EAA549', matchOverviewRuler: '#515C6A', activeMatchColorOverviewRuler: '#EAA549' } };

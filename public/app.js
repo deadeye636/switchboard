@@ -47,6 +47,7 @@ const jsonlViewerSessionId = document.getElementById('jsonl-viewer-session-id');
 const jsonlViewerBody = document.getElementById('jsonl-viewer-body');
 const gridViewer = document.getElementById('grid-viewer');
 const gridViewerCount = document.getElementById('grid-viewer-count');
+const appLiveRegion = document.getElementById('app-live-region');
 let gridViewActive = localStorage.getItem('gridViewActive') === '1';
 
 // Map<sessionId, { terminal, element, fitAddon, session, closed }>
@@ -115,6 +116,43 @@ const lastActivityTime = new Map(); // sessionId → Date of last terminal outpu
 
 // Noise patterns — these don't count as activity
 const activityNoiseRe = /file-history-snapshot|^\s*$/;
+let lastAnnouncedAttentionSummary = '';
+
+function getAllKnownSessionsForStatus() {
+  const sessionsById = new Map();
+  for (const session of sessionMap.values()) sessionsById.set(session.sessionId, session);
+  for (const project of [...cachedProjects, ...cachedAllProjects]) {
+    for (const session of project.sessions || []) sessionsById.set(session.sessionId, session);
+  }
+  return [...sessionsById.values()];
+}
+
+function announceAttentionSummary() {
+  if (!appLiveRegion || typeof getStatusCounts !== 'function') return;
+  const counts = getStatusCounts(getAllKnownSessionsForStatus(), {
+    activePtyIds,
+    attentionSessions,
+    responseReadySessions,
+    sessionBusyState,
+    openSessions,
+    lastActivityTime,
+    activeSessionId,
+  });
+  const parts = [];
+  if (counts.attention) parts.push(`${counts.attention} need${counts.attention === 1 ? 's' : ''} attention`);
+  if (counts.ready) parts.push(`${counts.ready} ready`);
+  if (counts.active) parts.push(`${counts.active} running`);
+  const next = parts.length ? `Agent status: ${parts.join(', ')}.` : '';
+  if (next === lastAnnouncedAttentionSummary) return;
+  lastAnnouncedAttentionSummary = next;
+  appLiveRegion.textContent = next;
+}
+
+function refreshSessionStatusViews() {
+  if (activeTab === 'sessions') refreshSidebar();
+  if (gridViewActive) showGridView();
+  announceAttentionSummary();
+}
 
 // Central activity dispatcher
 function setActivity(sessionId, active) {
@@ -134,6 +172,7 @@ function setActivity(sessionId, active) {
         item.classList.remove('cli-busy');
         item.classList.add('response-ready');
       }
+      refreshSessionStatusViews();
     }
   }
 
@@ -142,6 +181,7 @@ function setActivity(sessionId, active) {
     const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
     if (item) item.classList.toggle('cli-busy', active);
   }
+  if (wasActive !== active) refreshSessionStatusViews();
 }
 
 // Terminal output activity — updates lastActivityTime only, busy state driven by backend
@@ -151,18 +191,20 @@ function trackActivity(sessionId, data) {
 }
 
 function clearUnread(sessionId) {
-  responseReadySessions.delete(sessionId);
+  const changed = responseReadySessions.delete(sessionId);
   const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
   if (item) {
     item.classList.remove('response-ready');
   }
+  if (changed) refreshSessionStatusViews();
 }
 
 function clearNotifications(sessionId) {
   clearUnread(sessionId);
-  attentionSessions.delete(sessionId);
+  const changed = attentionSessions.delete(sessionId);
   const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
   if (item) item.classList.remove('needs-attention');
+  if (changed) refreshSessionStatusViews();
 }
 // Terminal themes, utils (cleanDisplayName, formatDate, escapeHtml, shellEscape)
 // are defined in terminal-themes.js and utils.js (loaded before app.js).
@@ -330,9 +372,11 @@ window.api.onTerminalNotification((sessionId, message) => {
   // 3. "Claude needs your permission to use {tool}"   → permission, needs your
   // 4. "Claude Code wants to enter plan mode"         → wants to enter
   if (/attention|approval|permission|needs your|wants to enter/i.test(message) && sessionId !== activeSessionId) {
+    const wasAttention = attentionSessions.has(sessionId);
     attentionSessions.add(sessionId);
     const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
     if (item) item.classList.add('needs-attention');
+    if (!wasAttention) refreshSessionStatusViews();
   } else if (/waiting for your input/i.test(message)) {
     // "Claude is waiting for your input" — delayed idle notification, mark response-ready
     setActivity(sessionId, false);
@@ -421,6 +465,8 @@ globalSettingsBtn.addEventListener('click', () => {
 addProjectBtn.addEventListener('click', () => {
   showAddProjectDialog();
 });
+
+syncTitleToAriaLabel(document);
 
 // --- Search (debounced, per-tab FTS) ---
 let searchDebounceTimer = null;
@@ -565,11 +611,16 @@ async function pollActiveSessions() {
 }
 
 function updateRunningIndicators() {
+  let statusChanged = false;
   document.querySelectorAll('.session-item').forEach(item => {
     const id = item.dataset.sessionId;
     const running = activePtyIds.has(id);
+    if (item.classList.contains('has-running-pty') !== running) statusChanged = true;
     item.classList.toggle('has-running-pty', running);
     if (!running) {
+      if (attentionSessions.has(id) || responseReadySessions.has(id) || sessionBusyState.has(id)) {
+        statusChanged = true;
+      }
       item.classList.remove('needs-attention', 'response-ready', 'cli-busy');
       attentionSessions.delete(id);
       responseReadySessions.delete(id);
@@ -586,15 +637,25 @@ function updateRunningIndicators() {
   });
   // Update grid card dots and status text
   for (const [sid, card] of gridCards) {
-    const running = activePtyIds.has(sid);
-    const busy = sessionBusyState.get(sid) || false;
+    const session = sessionMap.get(sid);
+    if (!session) continue;
+    const status = getSessionStatus(session, getGridRuntimeState());
+    const running = status.key === 'running' || status.key === 'busy' || status.key === 'needs-attention' || status.key === 'response-ready';
     const dot = card.querySelector('.grid-card-dot');
-    if (dot) dot.className = 'grid-card-dot ' + (busy ? 'busy' : (running ? 'running' : 'stopped'));
+    if (dot) dot.className = 'grid-card-dot ' + (status.key === 'busy' ? 'busy' : (running ? 'running' : 'stopped'));
+    card.classList.remove('status-needs-attention', 'status-response-ready', 'status-busy', 'status-running', 'status-exited', 'status-idle');
+    card.classList.add(status.className);
+    const chip = card.querySelector('.grid-card-status-chip');
+    if (chip) {
+      chip.className = `grid-card-status-chip ${status.className}`;
+      chip.textContent = status.label;
+    }
     const footer = card.querySelector('.grid-card-footer');
-    if (footer) footer.children[0].textContent = running ? 'Running' : 'Stopped';
+    if (footer) footer.children[0].textContent = status.label;
     const stopBtn = card.querySelector('.grid-card-stop-btn');
     if (stopBtn) stopBtn.style.display = running ? '' : 'none';
   }
+  if (statusChanged) refreshSessionStatusViews();
 }
 
 function updateTerminalHeader() {
@@ -624,7 +685,7 @@ setInterval(() => {
   for (const [sessionId, time] of lastActivityTime) {
     const item = document.getElementById('si-' + sessionId);
     if (!item) continue;
-    const meta = item.querySelector('.session-meta');
+    const meta = item.querySelector('.session-meta-text');
     if (!meta) continue;
     const session = sessionMap.get(sessionId);
     const msgSuffix = session?.messageCount ? ' \u00b7 ' + session.messageCount + ' msgs' : '';

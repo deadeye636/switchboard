@@ -17,6 +17,76 @@ function folderId(projectPath) {
   return 'project-' + projectPath.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+function getSessionRuntimeState() {
+  return {
+    activePtyIds,
+    attentionSessions,
+    responseReadySessions,
+    sessionBusyState,
+    openSessions,
+    lastActivityTime,
+    activeSessionId,
+  };
+}
+
+function getSessionProjectLabel(session) {
+  return session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : 'Other';
+}
+
+function getAllRenderableSessions(projects) {
+  const sessionsById = new Map();
+  for (const project of projects) {
+    for (const session of project.sessions || []) {
+      sessionsById.set(session.sessionId, session);
+    }
+  }
+  return [...sessionsById.values()];
+}
+
+function buildAttentionInbox(projects) {
+  const items = getAttentionInboxItems(getAllRenderableSessions(projects), getSessionRuntimeState());
+  if (items.length === 0) return null;
+
+  const section = document.createElement('section');
+  section.className = 'attention-inbox';
+  section.setAttribute('aria-label', 'Sessions needing attention');
+
+  const header = document.createElement('div');
+  header.className = 'attention-inbox-header';
+  header.innerHTML = `<span>Attention</span><span>${items.length}</span>`;
+  section.appendChild(header);
+
+  const list = document.createElement('div');
+  list.className = 'attention-inbox-list';
+
+  for (const { session, status } of items.slice(0, 8)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `attention-inbox-item ${status.className}`;
+    button.dataset.sessionId = session.sessionId;
+
+    const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId;
+    const modified = lastActivityTime.get(session.sessionId) || new Date(session.modified);
+    const timeStr = formatDate(modified);
+    button.innerHTML = `
+      <span class="attention-inbox-status">${escapeHtml(status.label)}</span>
+      <span class="attention-inbox-title">${escapeHtml(displayName)}</span>
+      <span class="attention-inbox-meta">${escapeHtml(getSessionProjectLabel(session))} · ${escapeHtml(timeStr)}</span>
+    `;
+    list.appendChild(button);
+  }
+
+  if (items.length > 8) {
+    const more = document.createElement('div');
+    more.className = 'attention-inbox-more';
+    more.textContent = `+ ${items.length - 8} more in project list`;
+    list.appendChild(more);
+  }
+
+  section.appendChild(list);
+  return section;
+}
+
 function buildSlugGroup(slug, sessions) {
   const group = document.createElement('div');
   const id = slugId(slug);
@@ -115,6 +185,8 @@ function buildSlugGroup(slug, sessions) {
 
 function renderProjects(projects, resort) {
   const newSidebar = document.createElement('div');
+  const attentionInbox = buildAttentionInbox(projects);
+  if (attentionInbox) newSidebar.appendChild(attentionInbox);
 
   // Sort project groups using sortedOrder as source of truth
   if (!resort && sortedOrder.length > 0) {
@@ -449,6 +521,13 @@ function renderProjects(projects, resort) {
 }
 
 function rebindSidebarEvents(projects) {
+  sidebarContent.querySelectorAll('.attention-inbox-item').forEach(item => {
+    const sessionId = item.dataset.sessionId;
+    const session = sessionMap.get(sessionId);
+    if (!session) return;
+    item.onclick = () => openSession(session);
+  });
+
   for (const project of projects) {
     const fId = folderId(project.projectPath);
     const header = document.getElementById('ph-' + fId);
@@ -500,10 +579,12 @@ function rebindSidebarEvents(projects) {
         loadProjects();
       };
     }
-    header.onclick = (e) => {
+    const toggleProject = (e) => {
       if (e.target.closest('.project-new-btn') || e.target.closest('.project-archive-btn') || e.target.closest('.project-settings-btn') || e.target.closest('.project-schedule-btn') || e.target.closest('.project-remap-btn')) return;
       header.classList.toggle('collapsed');
     };
+    header.onclick = toggleProject;
+    makeButtonLike(header, toggleProject, `Toggle ${project.projectPath.split('/').filter(Boolean).slice(-2).join('/')} sessions`);
   }
 
   // Bind worktree header events
@@ -526,10 +607,12 @@ function rebindSidebarEvents(projects) {
         loadProjects();
       };
     }
-    wtHeader.onclick = (e) => {
+    const toggleWorktree = (e) => {
       if (e.target.closest('.worktree-new-btn') || e.target.closest('.worktree-hide-btn')) return;
       wtHeader.classList.toggle('collapsed');
     };
+    wtHeader.onclick = toggleWorktree;
+    makeButtonLike(wtHeader, toggleWorktree, `Toggle ${wtProject.projectPath.split('/').pop()} worktree sessions`);
   });
 
   sidebarContent.querySelectorAll('.slug-group-header').forEach(header => {
@@ -551,33 +634,40 @@ function rebindSidebarEvents(projects) {
         loadProjects();
       };
     }
-    header.onclick = (e) => {
+    const toggleSlugGroup = (e) => {
       if (e.target.closest('.slug-group-archive-btn')) return;
       header.parentElement.classList.toggle('collapsed');
       saveExpandedSlugs();
     };
+    header.onclick = toggleSlugGroup;
+    const name = header.querySelector('.slug-group-name')?.textContent || 'session group';
+    makeButtonLike(header, toggleSlugGroup, `Toggle ${name}`);
   });
 
   sidebarContent.querySelectorAll('.slug-group-more').forEach(moreBtn => {
-    moreBtn.onclick = () => {
+    const expandSlugGroup = () => {
       const group = moreBtn.closest('.slug-group');
       if (group) {
         group.classList.remove('collapsed');
         saveExpandedSlugs();
       }
     };
+    moreBtn.onclick = expandSlugGroup;
+    makeButtonLike(moreBtn, expandSlugGroup, moreBtn.textContent);
   });
 
   sidebarContent.querySelectorAll('.sessions-more-toggle').forEach(moreBtn => {
     const olderList = moreBtn.nextElementSibling;
     if (!olderList || !olderList.classList.contains('sessions-older')) return;
     const count = olderList.children.length;
-    moreBtn.onclick = () => {
+    const toggleOlderSessions = () => {
       const showing = olderList.style.display !== 'none';
       olderList.style.display = showing ? 'none' : '';
       moreBtn.classList.toggle('expanded', !showing);
       moreBtn.textContent = showing ? `+ ${count} older` : '- hide older';
     };
+    moreBtn.onclick = toggleOlderSessions;
+    makeButtonLike(moreBtn, toggleOlderSessions, moreBtn.textContent);
   });
 
   sidebarContent.querySelectorAll('.session-item').forEach(item => {
@@ -593,16 +683,23 @@ function rebindSidebarEvents(projects) {
       return;
     }
 
-    item.onclick = () => openSession(session);
+    const openSessionFromRow = (e) => {
+      if (e?.target?.closest?.('.session-actions, .session-pin')) return;
+      openSession(session);
+    };
+    item.onclick = openSessionFromRow;
+    makeButtonLike(item, openSessionFromRow, `Open ${cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId}`);
 
     const pin = item.querySelector('.session-pin');
     if (pin) {
-      pin.onclick = async (e) => {
+      const togglePin = async (e) => {
         e.stopPropagation();
         const { starred } = await window.api.toggleStar(session.sessionId);
         session.starred = starred;
         refreshSidebar({ resort: true });
       };
+      pin.onclick = togglePin;
+      makeButtonLike(pin, togglePin, pin.title);
     }
 
     const summaryEl = item.querySelector('.session-summary');
@@ -663,6 +760,7 @@ function rebindSidebarEvents(projects) {
       };
     }
   });
+  syncTitleToAriaLabel(sidebarContent);
 
   // Auto-expand slug group if it contains the active session
   if (activeSessionId) {
@@ -690,6 +788,8 @@ function buildSessionItem(session) {
   const modified = lastActivityTime.get(session.sessionId) || new Date(session.modified);
   const timeStr = formatDate(modified);
   const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary);
+  const status = getSessionStatus(session, getSessionRuntimeState());
+  item.classList.add(status.className);
 
   const row = document.createElement('div');
   row.className = 'session-row';
@@ -697,6 +797,8 @@ function buildSessionItem(session) {
   // Pin
   const pin = document.createElement('span');
   pin.className = 'session-pin' + (session.starred ? ' pinned' : '');
+  pin.title = session.starred ? 'Unpin session' : 'Pin session';
+  pin.setAttribute('aria-label', pin.title);
   pin.innerHTML = session.starred
     ? '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1-.707.707c-.28-.28-.576-.49-.888-.656L10.073 9.333l-.07 3.181a.5.5 0 0 1-.853.354l-3.535-3.536-4.243 4.243a.5.5 0 1 1-.707-.707l4.243-4.243L1.372 5.11a.5.5 0 0 1 .354-.854l3.18-.07L8.37 .722A3.37 3.37 0 0 1 9.12.074a.5.5 0 0 1 .708.002l-.707.707z"/></svg>'
     : '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1-.707.707c-.28-.28-.576-.49-.888-.656L10.073 9.333l-.07 3.181a.5.5 0 0 1-.853.354l-3.535-3.536-4.243 4.243a.5.5 0 1 1-.707-.707l4.243-4.243L1.372 5.11a.5.5 0 0 1 .354-.854l3.18-.07L8.37 .722A3.37 3.37 0 0 1 9.12.074a.5.5 0 0 1 .708.002l-.707.707z"/></svg>';
@@ -719,7 +821,14 @@ function buildSessionItem(session) {
 
   const metaEl = document.createElement('div');
   metaEl.className = 'session-meta';
-  metaEl.textContent = timeStr + (session.messageCount ? ' \u00b7 ' + session.messageCount + ' msgs' : '');
+  const statusChip = document.createElement('span');
+  statusChip.className = `session-status-chip ${status.className}`;
+  statusChip.textContent = status.label;
+  const metaText = document.createElement('span');
+  metaText.className = 'session-meta-text';
+  metaText.textContent = timeStr + (session.messageCount ? ' \u00b7 ' + session.messageCount + ' msgs' : '');
+  metaEl.appendChild(statusChip);
+  metaEl.appendChild(metaText);
 
   if (session.type === 'terminal') {
     const badge = document.createElement('span');
