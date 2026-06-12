@@ -801,6 +801,11 @@ async function openSession(session, customOptions) {
 
   // Open terminal in main process
   const resumeOptions = customOptions || await resolveDefaultSessionOptions({ projectPath });
+  // The `worktree` default applies to NEW sessions only. Resuming must reuse the
+  // session's existing directory, so never pass --worktree on resume — otherwise
+  // a plain-click resume tries to spin up a fresh git worktree and fails to attach
+  // (the Resume-with-config dialog already omits worktree, which is why it works).
+  if (resumeOptions) { delete resumeOptions.worktree; delete resumeOptions.worktreeName; }
   const result = await window.api.openTerminal(sessionId, projectPath, false, resumeOptions);
   if (!result.ok) {
     entry.terminal.write(`\r\nError: ${result.error}\r\n`);
