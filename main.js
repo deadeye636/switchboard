@@ -26,7 +26,7 @@ const cleanPtyEnv = Object.fromEntries(
 );
 
 // Shell profiles → shell-profiles.js
-const { discoverShellProfiles, getShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs } = require('./shell-profiles');
+const { discoverShellProfiles, getShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, quoteArgvForShell } = require('./shell-profiles');
 const { startScheduler } = require('./schedule-runner');
 const { encodeProjectPath } = require('./encode-project-path');
 
@@ -1089,48 +1089,52 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         }
       }, 300);
     } else {
-      // Build claude command with session options
-      let claudeCmd;
+      // Build claude command, using array to prevent accidental shell injection
+      const claudeArgs = [];
       if (sessionOptions?.forkFrom) {
-        claudeCmd = `claude --resume "${sessionOptions.forkFrom}" --fork-session`;
+        claudeArgs.push('--resume', String(sessionOptions.forkFrom), '--fork-session');
       } else if (isNew) {
-        claudeCmd = `claude --session-id "${sessionId}"`;
+        claudeArgs.push('--session-id', String(sessionId));
       } else {
-        claudeCmd = `claude --resume "${sessionId}"`;
+        claudeArgs.push('--resume', String(sessionId));
       }
 
       if (sessionOptions) {
         if (sessionOptions.dangerouslySkipPermissions) {
-          claudeCmd += ' --dangerously-skip-permissions';
+          claudeArgs.push('--dangerously-skip-permissions');
         } else if (sessionOptions.permissionMode) {
-          claudeCmd += ` --permission-mode "${sessionOptions.permissionMode}"`;
+          claudeArgs.push('--permission-mode', String(sessionOptions.permissionMode));
         }
         if (sessionOptions.worktree) {
-          claudeCmd += ' --worktree';
+          claudeArgs.push('--worktree');
           if (sessionOptions.worktreeName) {
-            claudeCmd += ` "${sessionOptions.worktreeName}"`;
+            claudeArgs.push(String(sessionOptions.worktreeName));
           }
         }
         if (sessionOptions.chrome) {
-          claudeCmd += ' --chrome';
+          claudeArgs.push('--chrome');
         }
         if (sessionOptions.addDirs) {
-          const dirs = sessionOptions.addDirs.split(',').map(d => d.trim()).filter(Boolean);
+          const dirs = String(sessionOptions.addDirs).split(',').map(d => d.trim()).filter(Boolean);
           for (const dir of dirs) {
-            claudeCmd += ` --add-dir "${dir}"`;
+            claudeArgs.push('--add-dir', dir);
           }
         }
       }
 
       if (sessionOptions?.appendSystemPrompt) {
-        // Write to a temp file and use shell substitution to avoid quoting issues
-        const tmpPrompt = path.join(os.tmpdir(), `switchboard-prompt-${sessionId}.md`);
-        fs.writeFileSync(tmpPrompt, sessionOptions.appendSystemPrompt);
-        claudeCmd += ` --append-system-prompt "$(cat '${tmpPrompt}')"`;
+        claudeArgs.push('--append-system-prompt', String(sessionOptions.appendSystemPrompt));
       }
 
+      let claudeCmd = 'claude ' + quoteArgvForShell(shell, claudeArgs);
+
+      // preLaunchCmd is raw shell by design (e.g. "aws-vault exec profile --") — block newlines only
       if (sessionOptions?.preLaunchCmd) {
-        claudeCmd = sessionOptions.preLaunchCmd + ' ' + claudeCmd;
+        const pre = String(sessionOptions.preLaunchCmd);
+        if (/[\r\n]/.test(pre)) {
+          return { ok: false, error: 'preLaunchCmd must not contain newlines' };
+        }
+        claudeCmd = pre + ' ' + claudeCmd;
       }
 
       // Start MCP server for this session so Claude CLI sends diffs/file opens to Switchboard
@@ -1455,13 +1459,14 @@ if (!gotSingleInstanceLock) {
     startProjectsWatcher();
     scheduleIpc.ensureScheduleCreatorCommand();
 
-    // Shared runCommand for both cron scheduler and manual "run now"
+    // Shared runCommand for cron scheduler and "run now" — takes argv, not a shell string.
     const { spawn: cpSpawn } = require('child_process');
-    function runScheduleCommand(cmd, cwd, name, onDone) {
+    function runScheduleCommand(claudeArgv, cwd, name, onDone) {
       const globalSettings = getSetting('global') || {};
       const profileId = globalSettings.shellProfile || SETTING_DEFAULTS.shellProfile;
       const profile = resolveShell(profileId);
       const shell = profile.path;
+      const cmd = 'claude ' + quoteArgvForShell(shell, claudeArgv);
       const args = shellArgs(shell, cmd, profile.args || []);
 
       log.info(`[schedule] Running: ${shell} ${args.join(' ')}`);
