@@ -17,7 +17,7 @@ jobs:
         include:
           - os: macos-14
             platform: mac
-          - os: windows-latest
+          - os: windows-2022
             platform: win
           # Linux is split per-arch to avoid electron-builder bundling native
           # modules from the wrong architecture. When multiple targets (AppImage
