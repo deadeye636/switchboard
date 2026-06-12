@@ -7,7 +7,7 @@
 // Depends on: cleanDisplayName, formatDate, escapeHtml (utils.js), ICONS (icons.js),
 // showSession (terminal-manager.js), confirmAndStopSession, pollActiveSessions,
 // showNewSessionPopover, openSettingsViewer, showResumeSessionDialog,
-// showJsonlViewer, forkSession, openSession, loadProjects (app.js/dialogs.js)
+// showJsonlViewer, showTimelineViewer, forkSession, openSession, loadProjects (app.js/dialogs.js)
 
 function slugId(slug) {
   return 'slug-' + slug.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -551,10 +551,26 @@ function rebindSidebarEvents(projects) {
         const newPath = await window.api.browseFolder();
         if (!newPath) return;
         const shortName = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
-        if (!confirm(`Remap ${shortName} to:\n${newPath}?`)) return;
+        const confirmed = await showControlDialog({
+          title: 'Change Project Path',
+          message: 'Switchboard will associate this project group with the selected folder.',
+          confirmLabel: 'Change Path',
+          tone: 'warning',
+          details: {
+            Project: shortName,
+            From: project.projectPath,
+            To: newPath,
+          },
+        });
+        if (!confirmed) return;
         const result = await window.api.remapProject(project.projectPath, newPath);
         if (result.error) {
-          alert('Failed to remap: ' + result.error);
+          await showControlMessage({
+            title: 'Remap Failed',
+            message: result.error,
+            confirmLabel: 'OK',
+            tone: 'danger',
+          });
         } else {
           loadProjects();
         }
@@ -567,7 +583,19 @@ function rebindSidebarEvents(projects) {
         const sessions = project.sessions.filter(s => !s.archived);
         if (sessions.length === 0) return;
         const shortName = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
-        if (!confirm(`Archive all ${sessions.length} session${sessions.length > 1 ? 's' : ''} in ${shortName}?`)) return;
+        const confirmed = await showControlDialog({
+          title: 'Archive Project Sessions',
+          message: 'Archived sessions are hidden from the default sidebar view. Running sessions will be stopped first.',
+          confirmLabel: `Archive ${sessions.length} Session${sessions.length === 1 ? '' : 's'}`,
+          tone: 'warning',
+          details: {
+            Project: shortName,
+            Sessions: sessions.length,
+            Running: sessions.filter(s => activePtyIds.has(s.sessionId)).length,
+          },
+        });
+        if (!confirmed) return;
+        const archivedIds = sessions.map(s => s.sessionId);
         for (const s of sessions) {
           if (activePtyIds.has(s.sessionId)) {
             await window.api.stopSession(s.sessionId);
@@ -577,6 +605,18 @@ function rebindSidebarEvents(projects) {
         }
         pollActiveSessions();
         loadProjects();
+        showControlToast({
+          message: `Archived ${archivedIds.length} session${archivedIds.length === 1 ? '' : 's'} from ${shortName}.`,
+          actionLabel: 'Undo',
+          onAction: async () => {
+            for (const id of archivedIds) {
+              await window.api.archiveSession(id, 0);
+              const session = sessionMap.get(id);
+              if (session) session.archived = 0;
+            }
+            loadProjects();
+          },
+        });
       };
     }
     const toggleProject = (e) => {
@@ -602,7 +642,17 @@ function rebindSidebarEvents(projects) {
       wtHideBtn.onclick = async (e) => {
         e.stopPropagation();
         const name = wtProject.projectPath.split('/').pop();
-        if (!confirm(`Hide worktree "${name}"?\n\nSession files are not deleted.`)) return;
+        const confirmed = await showControlDialog({
+          title: 'Hide Worktree',
+          message: 'This removes the worktree from Switchboard. Session files are not deleted.',
+          confirmLabel: 'Hide Worktree',
+          tone: 'warning',
+          details: {
+            Worktree: name,
+            Path: wtProject.projectPath,
+          },
+        });
+        if (!confirmed) return;
         await window.api.removeProject(wtProject.projectPath);
         loadProjects();
       };
@@ -622,16 +672,48 @@ function rebindSidebarEvents(projects) {
         e.stopPropagation();
         const group = header.parentElement;
         const sessionItems = group.querySelectorAll('.session-item');
+        const archiveTargets = [];
         for (const item of sessionItems) {
           const sid = item.dataset.sessionId;
           const session = sessionMap.get(sid);
           if (!session || session.archived) continue;
+          archiveTargets.push(session);
+        }
+        if (archiveTargets.length === 0) return;
+        const name = header.querySelector('.slug-group-name')?.textContent || 'session group';
+        const confirmed = await showControlDialog({
+          title: 'Archive Session Group',
+          message: 'Archived sessions are hidden from the default sidebar view. Running sessions will be stopped first.',
+          confirmLabel: `Archive ${archiveTargets.length} Session${archiveTargets.length === 1 ? '' : 's'}`,
+          tone: 'warning',
+          details: {
+            Group: name,
+            Sessions: archiveTargets.length,
+            Running: archiveTargets.filter(s => activePtyIds.has(s.sessionId)).length,
+          },
+        });
+        if (!confirmed) return;
+        const archivedIds = archiveTargets.map(s => s.sessionId);
+        for (const session of archiveTargets) {
+          const sid = session.sessionId;
           if (activePtyIds.has(sid)) await window.api.stopSession(sid);
           await window.api.archiveSession(sid, 1);
           session.archived = 1;
         }
         pollActiveSessions();
         loadProjects();
+        showControlToast({
+          message: `Archived ${archivedIds.length} session${archivedIds.length === 1 ? '' : 's'} from ${name}.`,
+          actionLabel: 'Undo',
+          onAction: async () => {
+            for (const id of archivedIds) {
+              await window.api.archiveSession(id, 0);
+              const session = sessionMap.get(id);
+              if (session) session.archived = 0;
+            }
+            loadProjects();
+          },
+        });
       };
     }
     const toggleSlugGroup = (e) => {
@@ -745,18 +827,48 @@ function rebindSidebarEvents(projects) {
       };
     }
 
+    const timelineBtn = item.querySelector('.session-timeline-btn');
+    if (timelineBtn) {
+      timelineBtn.onclick = (e) => {
+        e.stopPropagation();
+        showTimelineViewer(session);
+      };
+    }
+
     const archiveBtn = item.querySelector('.session-archive-btn');
     if (archiveBtn) {
       archiveBtn.onclick = async (e) => {
         e.stopPropagation();
         const newVal = session.archived ? 0 : 1;
         if (newVal && activePtyIds.has(session.sessionId)) {
+          const confirmed = await showControlDialog({
+            title: 'Archive Running Session',
+            message: 'Archiving this running session will stop its process first.',
+            confirmLabel: 'Stop And Archive',
+            tone: 'danger',
+            details: {
+              Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
+              Project: session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '',
+            },
+          });
+          if (!confirmed) return;
           await window.api.stopSession(session.sessionId);
           pollActiveSessions();
         }
         await window.api.archiveSession(session.sessionId, newVal);
         session.archived = newVal;
         loadProjects();
+        if (newVal) {
+          showControlToast({
+            message: 'Session archived.',
+            actionLabel: 'Undo',
+            onAction: async () => {
+              await window.api.archiveSession(session.sessionId, 0);
+              session.archived = 0;
+              loadProjects();
+            },
+          });
+        }
       };
     }
   });
@@ -864,6 +976,11 @@ function buildSessionItem(session) {
   jsonlBtn.title = 'View messages';
   jsonlBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>';
 
+  const timelineBtn = document.createElement('button');
+  timelineBtn.className = 'session-timeline-btn';
+  timelineBtn.title = 'View timeline';
+  timelineBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="9"/></svg>';
+
   const launchConfigBtn = document.createElement('button');
   launchConfigBtn.className = 'session-launch-config-btn';
   launchConfigBtn.title = 'Resume with config';
@@ -872,6 +989,7 @@ function buildSessionItem(session) {
   actions.appendChild(stopBtn);
   if (session.type !== 'terminal') {
     actions.appendChild(forkBtn);
+    actions.appendChild(timelineBtn);
     actions.appendChild(jsonlBtn);
     actions.appendChild(archiveBtn);
     actions.appendChild(launchConfigBtn);

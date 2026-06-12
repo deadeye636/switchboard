@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const os = require('os');
+const { runWithBusyRetry } = require('./sqlite-busy-retry');
 
 const DATA_DIR = path.join(os.homedir(), '.switchboard');
 const fs = require('fs');
@@ -218,17 +219,17 @@ function getAllMeta() {
 }
 
 function setName(sessionId, name) {
-  stmts.upsertName.run(sessionId, name);
+  runWithBusyRetry(() => stmts.upsertName.run(sessionId, name));
 }
 
 function toggleStar(sessionId) {
-  stmts.upsertStar.run(sessionId);
+  runWithBusyRetry(() => stmts.upsertStar.run(sessionId));
   const row = stmts.get.get(sessionId);
   return row.starred;
 }
 
 function setArchived(sessionId, archived) {
-  stmts.upsertArchived.run(sessionId, archived ? 1 : 0);
+  runWithBusyRetry(() => stmts.upsertArchived.run(sessionId, archived ? 1 : 0));
 }
 
 // --- Session cache functions ---
@@ -252,7 +253,7 @@ const upsertCachedSessionsBatch = db.transaction((sessions) => {
 });
 
 function upsertCachedSessions(sessions) {
-  upsertCachedSessionsBatch(sessions);
+  runWithBusyRetry(() => upsertCachedSessionsBatch(sessions));
 }
 
 function getCachedByFolder(folder) {
@@ -269,12 +270,14 @@ function getCachedSession(sessionId) {
 }
 
 function deleteCachedSession(sessionId) {
-  stmts.cacheDeleteSession.run(sessionId);
+  runWithBusyRetry(() => stmts.cacheDeleteSession.run(sessionId));
 }
 
 function deleteCachedFolder(folder) {
-  stmts.cacheDeleteFolder.run(folder);
-  stmts.metaDelete.run(folder);
+  runWithBusyRetry(() => {
+    stmts.cacheDeleteFolder.run(folder);
+    stmts.metaDelete.run(folder);
+  });
 }
 
 function getFolderMeta(folder) {
@@ -289,7 +292,7 @@ function getAllFolderMeta() {
 }
 
 function setFolderMeta(folder, projectPath, indexMtimeMs) {
-  stmts.metaUpsert.run(folder, projectPath, indexMtimeMs);
+  runWithBusyRetry(() => stmts.metaUpsert.run(folder, projectPath, indexMtimeMs));
 }
 
 // --- FTS search functions ---
@@ -312,27 +315,33 @@ const upsertSearchEntriesBatch = db.transaction((entries) => {
 });
 
 function deleteSearchSession(sessionId) {
-  stmts.searchDeleteBySession.run(sessionId);
-  stmts.searchMapDeleteBySession.run(sessionId);
+  runWithBusyRetry(() => {
+    stmts.searchDeleteBySession.run(sessionId);
+    stmts.searchMapDeleteBySession.run(sessionId);
+  });
 }
 
 function deleteSearchFolder(folder) {
-  stmts.searchDeleteByFolder.run(folder);
-  stmts.searchMapDeleteByFolder.run(folder);
+  runWithBusyRetry(() => {
+    stmts.searchDeleteByFolder.run(folder);
+    stmts.searchMapDeleteByFolder.run(folder);
+  });
 }
 
 function deleteSearchType(type) {
-  stmts.searchDeleteByType.run(type);
-  stmts.searchMapDeleteByType.run(type);
+  runWithBusyRetry(() => {
+    stmts.searchDeleteByType.run(type);
+    stmts.searchMapDeleteByType.run(type);
+  });
 }
 
 function upsertSearchEntries(entries) {
-  upsertSearchEntriesBatch(entries);
+  runWithBusyRetry(() => upsertSearchEntriesBatch(entries));
 }
 
 function updateSearchTitle(id, type, title) {
   try {
-    stmts.searchUpdateTitle.run(title, id, type);
+    runWithBusyRetry(() => stmts.searchUpdateTitle.run(title, id, type));
   } catch {}
 }
 
@@ -363,11 +372,11 @@ function getSetting(key) {
 }
 
 function setSetting(key, value) {
-  stmts.settingsUpsert.run(key, JSON.stringify(value));
+  runWithBusyRetry(() => stmts.settingsUpsert.run(key, JSON.stringify(value)));
 }
 
 function deleteSetting(key) {
-  stmts.settingsDelete.run(key);
+  runWithBusyRetry(() => stmts.settingsDelete.run(key));
 }
 
 function closeDb() {

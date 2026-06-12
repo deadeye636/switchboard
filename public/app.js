@@ -45,6 +45,12 @@ const jsonlViewer = document.getElementById('jsonl-viewer');
 const jsonlViewerTitle = document.getElementById('jsonl-viewer-title');
 const jsonlViewerSessionId = document.getElementById('jsonl-viewer-session-id');
 const jsonlViewerBody = document.getElementById('jsonl-viewer-body');
+const timelineViewer = document.getElementById('timeline-viewer');
+const timelineViewerTitle = document.getElementById('timeline-viewer-title');
+const timelineViewerSessionId = document.getElementById('timeline-viewer-session-id');
+const timelineViewerBody = document.getElementById('timeline-viewer-body');
+const timelineSearchInput = document.getElementById('timeline-search-input');
+const timelineKindFilter = document.getElementById('timeline-kind-filter');
 const gridViewer = document.getElementById('grid-viewer');
 const gridViewerCount = document.getElementById('grid-viewer-count');
 const appLiveRegion = document.getElementById('app-live-region');
@@ -113,6 +119,7 @@ const attentionSessions = new Set(); // sessions needing user action (OSC 9)
 const responseReadySessions = new Set(); // Claude finished, user hasn't looked (terminal state)
 const sessionBusyState = new Map(); // sessionId → boolean (currently active)
 const lastActivityTime = new Map(); // sessionId → Date of last terminal output
+const sessionTimelineStore = createTimelineStore();
 
 // Noise patterns — these don't count as activity
 const activityNoiseRe = /file-history-snapshot|^\s*$/;
@@ -154,6 +161,13 @@ function refreshSessionStatusViews() {
   announceAttentionSummary();
 }
 
+function recordTimelineEvent(sessionId, kind, label, detail) {
+  addTimelineEvent(sessionTimelineStore, sessionId, kind, label, { detail });
+  if (timelineViewer.style.display !== 'none' && timelineViewer.dataset.sessionId === sessionId) {
+    renderTimelineViewer(sessionId);
+  }
+}
+
 // Central activity dispatcher
 function setActivity(sessionId, active) {
   if (responseReadySessions.has(sessionId)) {
@@ -167,6 +181,7 @@ function setActivity(sessionId, active) {
     // Activity ended → response-ready if user isn't looking at this session
     if (sessionId !== activeSessionId) {
       responseReadySessions.add(sessionId);
+      recordTimelineEvent(sessionId, 'response-ready', 'Ready for review', 'Agent stopped producing output while this session was not focused.');
       const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
       if (item) {
         item.classList.remove('cli-busy');
@@ -180,6 +195,9 @@ function setActivity(sessionId, active) {
   if (!responseReadySessions.has(sessionId)) {
     const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
     if (item) item.classList.toggle('cli-busy', active);
+  }
+  if (wasActive !== active) {
+    recordTimelineEvent(sessionId, active ? 'busy' : 'idle', active ? 'Agent working' : 'Agent idle', active ? 'Claude activity started.' : 'Claude activity stopped.');
   }
   if (wasActive !== active) refreshSessionStatusViews();
 }
@@ -255,6 +273,12 @@ window.api.onSessionDetected((tempId, realId) => {
   // Re-key in openSessions
   openSessions.delete(tempId);
   openSessions.set(realId, entry);
+  const previousEvents = sessionTimelineStore.eventsBySession.get(tempId);
+  if (previousEvents) {
+    sessionTimelineStore.eventsBySession.delete(tempId);
+    sessionTimelineStore.eventsBySession.set(realId, previousEvents.map(event => ({ ...event, sessionId: realId })));
+  }
+  recordTimelineEvent(realId, 'started', 'Session detected', 'Claude wrote its real session id.');
 
   terminalHeaderId.textContent = realId;
   terminalHeaderName.textContent = 'New session';
@@ -279,6 +303,12 @@ window.api.onSessionForked((oldId, newId) => {
 
   openSessions.delete(oldId);
   openSessions.set(newId, entry);
+  const previousEvents = sessionTimelineStore.eventsBySession.get(oldId);
+  if (previousEvents) {
+    sessionTimelineStore.eventsBySession.delete(oldId);
+    sessionTimelineStore.eventsBySession.set(newId, previousEvents.map(event => ({ ...event, sessionId: newId })));
+  }
+  recordTimelineEvent(newId, 'forked', 'Session forked', `Forked from ${oldId}.`);
 
   // Re-key file panel state for the new session ID
   if (typeof rekeyFilePanelState === 'function') rekeyFilePanelState(oldId, newId);
@@ -312,6 +342,7 @@ window.api.onProcessExited((sessionId, exitCode) => {
   const session = sessionMap.get(sessionId);
   if (entry) {
     entry.closed = true;
+    recordTimelineEvent(sessionId, 'exited', 'Process exited', `Exit code ${exitCode}.`);
     // Write a visible exit banner so the user can see when the process ended
     // and read any error output it printed (claude / devbox / shell stderr).
     // Without this, a fast-failing pre-launch command would tear down the
@@ -374,6 +405,7 @@ window.api.onTerminalNotification((sessionId, message) => {
   if (/attention|approval|permission|needs your|wants to enter/i.test(message) && sessionId !== activeSessionId) {
     const wasAttention = attentionSessions.has(sessionId);
     attentionSessions.add(sessionId);
+    recordTimelineEvent(sessionId, 'needs-attention', 'Needs human attention', message);
     const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
     if (item) item.classList.add('needs-attention');
     if (!wasAttention) refreshSessionStatusViews();
@@ -566,8 +598,21 @@ searchInput.addEventListener('input', () => {
 
 // --- Stop session helper ---
 async function confirmAndStopSession(sessionId) {
-  if (!confirm('Stop this session?')) return;
+  const session = sessionMap.get(sessionId);
+  const label = cleanDisplayName(session?.name || session?.aiTitle || session?.summary) || sessionId;
+  const confirmed = await showControlDialog({
+    title: 'Stop Session',
+    message: 'This will terminate the running process. The session history stays available in the sidebar.',
+    confirmLabel: 'Stop Session',
+    tone: 'danger',
+    details: {
+      Session: label,
+      Project: session?.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '',
+    },
+  });
+  if (!confirmed) return;
   await window.api.stopSession(sessionId);
+  recordTimelineEvent(sessionId, 'stopped', 'Session stopped', 'Stopped by the user.');
   activePtyIds.delete(sessionId);
   if (!gridViewActive && activeSessionId === sessionId) {
     setActiveSession(null);
@@ -800,6 +845,7 @@ async function launchNewSession(project, sessionOptions) {
 
   // Inject into cached project data so it appears in sidebar immediately
   sessionMap.set(sessionId, session);
+  recordTimelineEvent(sessionId, 'started', sessionOptions?.forkFrom ? 'Fork requested' : 'Session started', sessionOptions?.forkFrom ? `Forking from ${sessionOptions.forkFrom}.` : 'Created from Switchboard.');
   for (const projList of [cachedProjects, cachedAllProjects]) {
     let proj = projList.find(p => p.projectPath === projectPath);
     if (!proj) {
@@ -853,6 +899,102 @@ async function showTerminalHeader(session) {
   } catch {
     terminalHeaderShell.style.display = 'none';
   }
+}
+
+function renderTimelineViewer(sessionId) {
+  const session = sessionMap.get(sessionId);
+  const events = getTimelineEvents(sessionTimelineStore, sessionId);
+  const filteredEvents = filterTimelineEvents(events, {
+    query: timelineSearchInput?.value || '',
+    kind: timelineKindFilter?.value || 'all',
+  });
+  const displayName = cleanDisplayName(session?.name || session?.aiTitle || session?.summary) || sessionId;
+
+  timelineViewer.dataset.sessionId = sessionId;
+  timelineViewerTitle.textContent = displayName;
+  timelineViewerSessionId.textContent = sessionId;
+  timelineViewerBody.innerHTML = '';
+  renderTimelineFilters(events);
+
+  if (events.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'timeline-empty';
+    empty.textContent = 'No timeline events yet. Switchboard will record session starts, attention requests, ready states, exits, stops, and forks from this point forward.';
+    timelineViewerBody.appendChild(empty);
+    return;
+  }
+
+  if (filteredEvents.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'timeline-empty';
+    empty.textContent = 'No timeline events match the current filter.';
+    timelineViewerBody.appendChild(empty);
+    return;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'timeline-list';
+  for (const event of filteredEvents) {
+    const formatted = formatTimelineEvent(event);
+    const row = document.createElement('div');
+    row.className = `timeline-event timeline-event-kind-${formatted.kind}`;
+    row.innerHTML = `
+      <div class="timeline-event-header">
+        <span class="timeline-event-time">${escapeHtml(formatted.time)}</span>
+        <span class="timeline-event-label">${escapeHtml(formatted.label)}</span>
+      </div>
+      ${formatted.detail ? `<div class="timeline-event-detail">${escapeHtml(formatted.detail)}</div>` : ''}
+    `;
+    list.appendChild(row);
+  }
+  timelineViewerBody.appendChild(list);
+}
+
+function renderTimelineFilters(events) {
+  if (!timelineKindFilter) return;
+  const current = timelineKindFilter.value || 'all';
+  const labels = {
+    started: 'Started',
+    busy: 'Working',
+    idle: 'Idle',
+    'needs-attention': 'Needs attention',
+    'response-ready': 'Ready',
+    exited: 'Exited',
+    stopped: 'Stopped',
+    forked: 'Forked',
+  };
+  timelineKindFilter.innerHTML = '<option value="all">All events</option>';
+  for (const kind of getTimelineKinds(events)) {
+    const option = document.createElement('option');
+    option.value = kind;
+    option.textContent = labels[kind] || kind;
+    timelineKindFilter.appendChild(option);
+  }
+  timelineKindFilter.value = [...timelineKindFilter.options].some(option => option.value === current) ? current : 'all';
+}
+
+function showTimelineViewer(session) {
+  hidePlanViewer();
+  placeholder.style.display = 'none';
+  terminalArea.style.display = 'none';
+  timelineViewer.style.display = 'flex';
+  if (timelineSearchInput) timelineSearchInput.value = '';
+  if (timelineKindFilter) timelineKindFilter.value = 'all';
+  renderTimelineViewer(session.sessionId);
+}
+
+if (timelineSearchInput) {
+  timelineSearchInput.addEventListener('input', () => {
+    const sessionId = timelineViewer.dataset.sessionId;
+    if (sessionId) renderTimelineViewer(sessionId);
+  });
+}
+
+if (timelineKindFilter) {
+  timelineKindFilter.addEventListener('change', () => {
+    const sessionId = timelineViewer.dataset.sessionId;
+    if (sessionId) renderTimelineViewer(sessionId);
+  });
 }
 
 // Terminal lifecycle (createTerminalEntry, destroySession, showSession, setupDragAndDrop) → terminal-manager.js
@@ -972,6 +1114,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       planViewer.style.display = 'none';
       memoryViewer.style.display = 'none';
       settingsViewer.style.display = 'none';
+      timelineViewer.style.display = 'none';
       statsViewer.style.display = 'flex';
       loadStats();
     } else if (tabName === 'memory') {

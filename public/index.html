@@ -68,6 +68,19 @@
       </div>
       <div id="jsonl-viewer-body"></div>
     </div>
+    <div id="timeline-viewer" style="display:none;">
+      <div id="timeline-viewer-header">
+        <span id="timeline-viewer-title">Agent Timeline</span>
+        <span id="timeline-viewer-session-id"></span>
+        <div id="timeline-viewer-filters">
+          <input id="timeline-search-input" type="text" placeholder="Filter events…" autocomplete="off" spellcheck="false">
+          <select id="timeline-kind-filter" aria-label="Timeline event type">
+            <option value="all">All events</option>
+          </select>
+        </div>
+      </div>
+      <div id="timeline-viewer-body"></div>
+    </div>
     <div id="terminal-area">
       <div id="terminal-header" style="display:none;">
         <div id="terminal-header-info">
@@ -116,6 +129,8 @@
   <script src="utils.js"></script>
   <script src="a11y-utils.js"></script>
   <script src="session-status.js"></script>
+  <script src="control-dialogs.js"></script>
+  <script src="session-timeline.js"></script>
   <script src="terminal-themes.js"></script>
   <script src="terminal-manager.js"></script>
   <script src="grid-view.js"></script>

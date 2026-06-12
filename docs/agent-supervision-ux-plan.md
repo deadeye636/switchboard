@@ -36,15 +36,15 @@
 
 ## Phase 5: Safer Human Control Flows
 
-- [ ] Replace native `confirm`/`alert` flows with app-styled dialogs for archive, hide worktree, remap, and stop actions.
-- [ ] Include counts, affected project/session names, and an explicit destructive-action label.
-- [ ] Add an undo path where the underlying operation supports it.
+- [x] Replace native `confirm`/`alert` flows with app-styled dialogs for archive, hide worktree, remap, and stop actions.
+- [x] Include counts, affected project/session names, and an explicit destructive-action label.
+- [x] Add an undo path where the underlying operation supports it.
 
 ## Phase 6: Agent Timeline
 
-- [ ] Add a per-session timeline panel for important events: started, busy, needs attention, response ready, exited, stopped, forked.
-- [ ] Keep raw terminal scrollback as the source of detail, but surface the supervision summary separately.
-- [ ] Add search/filter within timeline if event volume warrants it.
+- [x] Add a per-session timeline panel for important events: started, busy, needs attention, response ready, exited, stopped, forked.
+- [x] Keep raw terminal scrollback as the source of detail, but surface the supervision summary separately.
+- [x] Add search/filter within timeline if event volume warrants it.
 
 ## Notes From Audit
 
