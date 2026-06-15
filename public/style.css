@@ -225,6 +225,12 @@ input:focus-visible {
   border-color: rgba(128,136,255,0.4) !important;
 }
 
+.control-dialog-secondary {
+  color: #ffd6a0 !important;
+  background: rgba(240,160,80,0.12) !important;
+  border-color: rgba(240,160,80,0.3) !important;
+}
+
 .control-dialog-danger .control-dialog-confirm {
   background: rgba(224,80,112,0.22) !important;
   border-color: rgba(224,80,112,0.45) !important;
@@ -284,6 +290,54 @@ input:focus-visible {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+#status-bar-usage {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  color: #9a9ab0;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+
+.status-bar-usage-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-bar-usage-track {
+  width: 86px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.status-bar-usage-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(128,136,255,0.65);
+  transition: width 0.25s ease;
+}
+
+#status-bar-usage.usage-status-high {
+  color: #ffd6a0;
+}
+
+#status-bar-usage.usage-status-high .status-bar-usage-fill {
+  background: rgba(240,160,80,0.8);
+}
+
+#status-bar-usage.usage-status-warning {
+  color: #f0a050;
+}
+
+#status-bar-usage.usage-status-warning .status-bar-usage-fill {
+  background: rgba(224,80,112,0.75);
 }
 
 #status-bar-activity {
@@ -558,6 +612,30 @@ input:focus-visible {
   text-transform: uppercase;
   color: #f0b060;
   border-bottom: 1px solid rgba(240,160,80,0.14);
+}
+
+.attention-inbox-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.attention-inbox-next-btn {
+  border: 1px solid rgba(240,160,80,0.24);
+  background: rgba(240,160,80,0.08);
+  color: #ffd6a0;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.attention-inbox-next-btn:hover,
+.attention-inbox-next-btn:focus-visible {
+  background: rgba(240,160,80,0.16);
+  outline: none;
 }
 
 .attention-inbox-list {
@@ -1023,8 +1101,8 @@ input:focus-visible {
 .session-item .session-row {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  padding: 8px 8px;
+  gap: 4px;
+  padding: 4px 4px;
   border-radius: 8px;
   transition: background 0.12s;
   position: relative;
@@ -1038,9 +1116,18 @@ input:focus-visible {
   background: rgba(120,130,255,0.14);
 }
 
-/* ---- Pin ---- */
-.session-pin {
+/* ---- Pin/status indicator stack ---- */
+.session-indicators {
   flex-shrink: 0;
+  width: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding-top: 3px;
+}
+
+.session-pin {
   cursor: pointer;
   font-size: 13px;
   line-height: 1.5;
@@ -1049,7 +1136,6 @@ input:focus-visible {
   user-select: none;
   display: flex;
   align-items: center;
-  margin-top: 4px;
 }
 
 .session-pin:hover {
@@ -1066,8 +1152,6 @@ input:focus-visible {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  flex-shrink: 0;
-  margin-top: 6px;
   background: rgba(255,255,255,0.18);
 }
 
@@ -1129,6 +1213,43 @@ input:focus-visible {
   color: #d0d0e8;
 }
 
+.session-card-details {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 3px;
+}
+
+.session-quiet-details {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #74748a;
+  font-size: 9.5px;
+  line-height: 1.35;
+}
+
+.session-detail-pill {
+  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+  padding: 1px 6px;
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 999px;
+  color: #9a9ab0;
+  background: rgba(255,255,255,0.035);
+  font-size: 9.5px;
+  line-height: 1.45;
+  font-weight: 650;
+}
+
 .session-rename-input {
   font-size: 13px;
   color: #d0d0e8;
@@ -1153,19 +1274,6 @@ input:focus-visible {
   text-overflow: ellipsis;
 }
 
-.session-meta {
-  font-size: 10px;
-  color: #707088;
-  margin-top: 3px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .session-status-chip {
   flex-shrink: 0;
   padding: 1px 6px;
@@ -1173,6 +1281,45 @@ input:focus-visible {
   font-size: 9px;
   line-height: 1.5;
   font-weight: 700;
+}
+
+.session-health-chip,
+.grid-card-health-chip {
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 1px 6px;
+  font: inherit;
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.session-health-chip.health-growing,
+.grid-card-health-chip.health-growing {
+  color: #b8aae8;
+  background: rgba(160,130,255,0.08);
+  border-color: rgba(160,130,255,0.16);
+}
+
+.session-health-chip.health-marathon-risk,
+.grid-card-health-chip.health-marathon-risk {
+  color: #d8b073;
+  background: rgba(240,160,80,0.09);
+  border-color: rgba(240,160,80,0.2);
+}
+
+.session-health-chip.health-handoff-recommended,
+.grid-card-health-chip.health-handoff-recommended {
+  color: #d890a0;
+  background: rgba(224,80,112,0.09);
+  border-color: rgba(224,80,112,0.2);
+}
+
+.session-health-chip:hover,
+.grid-card-health-chip:hover {
+  filter: brightness(1.15);
 }
 
 .status-needs-attention .session-status-chip,
@@ -1233,7 +1380,9 @@ input:focus-visible {
 .session-launch-config-btn,
 .session-fork-btn,
 .session-jsonl-btn,
+.session-copy-id-btn,
 .session-timeline-btn,
+.session-handoff-btn,
 .session-archive-btn {
   cursor: pointer;
   background: none;
@@ -1245,6 +1394,58 @@ input:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+}
+
+.session-actions button[data-tooltip]::after,
+.grid-card button[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  right: 0;
+  top: calc(100% + 7px);
+  z-index: 1000;
+  min-width: max-content;
+  max-width: 180px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 7px;
+  background: #242432;
+  color: #f0f0ff;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.12s, transform 0.12s;
+}
+
+.session-actions button[data-tooltip]::before,
+.grid-card button[data-tooltip]::before {
+  content: '';
+  position: absolute;
+  right: 8px;
+  top: calc(100% + 2px);
+  z-index: 1001;
+  border: 5px solid transparent;
+  border-bottom-color: #242432;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.session-actions button[data-tooltip]:hover::after,
+.session-actions button[data-tooltip]:hover::before,
+.session-actions button[data-tooltip]:focus-visible::after,
+.session-actions button[data-tooltip]:focus-visible::before,
+.grid-card button[data-tooltip]:hover::after,
+.grid-card button[data-tooltip]:hover::before,
+.grid-card button[data-tooltip]:focus-visible::after,
+.grid-card button[data-tooltip]:focus-visible::before {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .session-stop-btn {
@@ -1262,6 +1463,14 @@ input:focus-visible {
 
 .session-timeline-btn {
   color: #8a6ab0;
+}
+
+.session-copy-id-btn {
+  color: #6a8aa8;
+}
+
+.session-handoff-btn {
+  color: #b88650;
 }
 
 .session-archive-btn {
@@ -1286,6 +1495,16 @@ input:focus-visible {
 .session-timeline-btn:hover {
   color: #b08cff;
   background: rgba(176,140,255,0.1);
+}
+
+.session-copy-id-btn:hover {
+  color: #8bc8ff;
+  background: rgba(139,200,255,0.1);
+}
+
+.session-handoff-btn:hover {
+  color: #f0a050;
+  background: rgba(240,160,80,0.1);
 }
 
 .session-archive-btn:hover {
@@ -1570,6 +1789,7 @@ input:focus-visible {
 
 #terminals {
   flex: 1;
+  min-height: 0;
   position: relative;
   margin-right: -20px;
 }
@@ -1862,8 +2082,21 @@ input:focus-visible {
   /* grid-template-columns set dynamically by ResizeObserver in app.js */
   gap: 10px;
   padding: 10px 16px 10px 10px;
-  overflow-y: scroll;
+  margin-right: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   align-content: start;
+  grid-auto-rows: minmax(340px, min(42vh, 420px));
+}
+
+#terminals.grid-layout.grid-few-cards {
+  grid-auto-rows: minmax(520px, calc(100vh - 112px));
+}
+
+#terminals.grid-layout.grid-single-card {
+  grid-template-columns: 1fr !important;
 }
 
 #terminals.grid-layout::-webkit-scrollbar { width: 8px; }
@@ -1892,7 +2125,8 @@ input:focus-visible {
 .grid-card {
   display: flex;
   flex-direction: column;
-  height: 420px;
+  min-height: 0;
+  height: 100%;
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 8px;
   overflow: hidden;
@@ -1928,6 +2162,14 @@ input:focus-visible {
   border-color: rgba(79,195,247,0.38);
 }
 
+.grid-card.health-marathon-risk {
+  box-shadow: inset 0 0 0 1px rgba(240,160,80,0.16);
+}
+
+.grid-card.health-handoff-recommended {
+  box-shadow: inset 0 0 0 1px rgba(224,80,112,0.2);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1943,8 +2185,10 @@ input:focus-visible {
 .terminal-container.grid-mode {
   display: block !important;
   position: relative !important;
+  inset: auto !important;
   flex: 1;
   min-height: 0;
+  padding: 6px 0 6px 6px;
 }
 
 .grid-card-footer {

@@ -14,8 +14,18 @@ test('normalizeControlDialogOptions applies safe defaults', () => {
   assert.equal(options.message, '');
   assert.equal(options.confirmLabel, 'Confirm');
   assert.equal(options.cancelLabel, 'Cancel');
+  assert.equal(options.secondaryLabel, '');
   assert.equal(options.tone, 'default');
   assert.deepEqual(options.details, []);
+});
+
+test('normalizeControlDialogOptions accepts an optional secondary action label', () => {
+  const options = normalizeControlDialogOptions({
+    title: 'Create handoff',
+    secondaryLabel: 'Ask Session',
+  });
+
+  assert.equal(options.secondaryLabel, 'Ask Session');
 });
 
 test('controlDialogToneClass only allows known tones', () => {

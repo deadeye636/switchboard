@@ -49,6 +49,15 @@ db.exec(`
     created TEXT,
     modified TEXT,
     messageCount INTEGER DEFAULT 0,
+    userMessageCount INTEGER DEFAULT 0,
+    inputTokens INTEGER DEFAULT 0,
+    outputTokens INTEGER DEFAULT 0,
+    cacheCreationTokens INTEGER DEFAULT 0,
+    cacheReadTokens INTEGER DEFAULT 0,
+    largestUserPromptWords INTEGER DEFAULT 0,
+    startedAt TEXT,
+    lastEntryAt TEXT,
+    activeMinutes INTEGER DEFAULT 0,
     slug TEXT,
     aiTitle TEXT
   )
@@ -99,6 +108,27 @@ const migrations = [
     try { db.exec('ALTER TABLE session_cache ADD COLUMN aiTitle TEXT'); } catch {}
     try { db.exec('DELETE FROM session_cache'); } catch {}
     try { db.exec('DELETE FROM cache_meta'); } catch {}
+  },
+  // v4: Add session health metrics derived from JSONL usage/timestamp data.
+  (db) => {
+    const columns = [
+      'ALTER TABLE session_cache ADD COLUMN userMessageCount INTEGER DEFAULT 0',
+      'ALTER TABLE session_cache ADD COLUMN inputTokens INTEGER DEFAULT 0',
+      'ALTER TABLE session_cache ADD COLUMN outputTokens INTEGER DEFAULT 0',
+      'ALTER TABLE session_cache ADD COLUMN cacheCreationTokens INTEGER DEFAULT 0',
+      'ALTER TABLE session_cache ADD COLUMN cacheReadTokens INTEGER DEFAULT 0',
+      'ALTER TABLE session_cache ADD COLUMN largestUserPromptWords INTEGER DEFAULT 0',
+      'ALTER TABLE session_cache ADD COLUMN startedAt TEXT',
+      'ALTER TABLE session_cache ADD COLUMN lastEntryAt TEXT',
+      'ALTER TABLE session_cache ADD COLUMN activeMinutes INTEGER DEFAULT 0',
+    ];
+    for (const sql of columns) {
+      try { db.exec(sql); } catch {}
+    }
+    try { db.exec('DELETE FROM session_cache'); } catch {}
+    try { db.exec('DELETE FROM cache_meta'); } catch {}
+    try { db.exec('DELETE FROM search_map'); } catch {}
+    try { db.exec('DELETE FROM search_fts'); } catch {}
   },
 ];
 
@@ -153,13 +183,28 @@ const stmts = {
   cacheCount: db.prepare('SELECT COUNT(*) as cnt FROM session_cache'),
   cacheGetAll: db.prepare('SELECT * FROM session_cache'),
   cacheUpsert: db.prepare(`
-    INSERT INTO session_cache (sessionId, folder, projectPath, summary, firstPrompt, created, modified, messageCount, slug, aiTitle)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO session_cache (
+      sessionId, folder, projectPath, summary, firstPrompt, created, modified,
+      messageCount, userMessageCount, inputTokens, outputTokens, cacheCreationTokens,
+      cacheReadTokens, largestUserPromptWords, startedAt, lastEntryAt, activeMinutes,
+      slug, aiTitle
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET
       folder = excluded.folder, projectPath = excluded.projectPath,
       summary = excluded.summary, firstPrompt = excluded.firstPrompt,
       created = excluded.created, modified = excluded.modified,
-      messageCount = excluded.messageCount, slug = excluded.slug,
+      messageCount = excluded.messageCount,
+      userMessageCount = excluded.userMessageCount,
+      inputTokens = excluded.inputTokens,
+      outputTokens = excluded.outputTokens,
+      cacheCreationTokens = excluded.cacheCreationTokens,
+      cacheReadTokens = excluded.cacheReadTokens,
+      largestUserPromptWords = excluded.largestUserPromptWords,
+      startedAt = excluded.startedAt,
+      lastEntryAt = excluded.lastEntryAt,
+      activeMinutes = excluded.activeMinutes,
+      slug = excluded.slug,
       aiTitle = excluded.aiTitle
   `),
   cacheGetByFolder: db.prepare('SELECT sessionId, modified FROM session_cache WHERE folder = ?'),
@@ -247,6 +292,10 @@ const upsertCachedSessionsBatch = db.transaction((sessions) => {
     stmts.cacheUpsert.run(
       s.sessionId, s.folder, s.projectPath, s.summary,
       s.firstPrompt, s.created, s.modified, s.messageCount || 0,
+      s.userMessageCount || 0, s.inputTokens || 0, s.outputTokens || 0,
+      s.cacheCreationTokens || 0, s.cacheReadTokens || 0,
+      s.largestUserPromptWords || 0, s.startedAt || null, s.lastEntryAt || null,
+      s.activeMinutes || 0,
       s.slug || null, s.aiTitle || null
     );
   }

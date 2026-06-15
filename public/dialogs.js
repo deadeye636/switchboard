@@ -29,6 +29,39 @@ async function forkSession(session, project) {
   launchNewSession(project, options);
 }
 
+async function showHandoffPrompt(session) {
+  const health = getSessionHealth(session);
+  const canAskRunningSession = activePtyIds.has(session.sessionId) && session.type !== 'terminal';
+  const evidence = health.reasons.length
+    ? health.reasons.map(reason => reason.label).join(', ')
+    : 'This session is still within healthy bounds.';
+  const action = await showControlDialog({
+    title: 'Create Handoff',
+    message: canAskRunningSession
+      ? `This session is becoming expensive: ${evidence}. Ask the running session to create a context-aware handoff, or copy a local starter packet.`
+      : `This session is becoming expensive: ${evidence}. Copy a short handoff packet and start fresh when you reach a natural breakpoint.`,
+    confirmLabel: 'Copy Handoff',
+    secondaryLabel: canAskRunningSession ? 'Ask Session' : '',
+    cancelLabel: 'Close',
+    tone: health.tier === 'strong' || health.tier === 'warning' ? 'warning' : 'default',
+    details: {
+      Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
+      Project: session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '',
+      Recommendation: health.label,
+      Running: canAskRunningSession ? 'Yes' : '',
+    },
+  });
+  if (!action) return;
+  if (action === 'secondary') {
+    const prompt = buildHandoffRequestPrompt(session);
+    window.api.sendInput(session.sessionId, `\x1b[200~${prompt}\x1b[201~\r`);
+    showControlToast({ message: 'Handoff request sent to the running session.' });
+    return;
+  }
+  await window.api.writeClipboard(buildHandoffTemplate(session));
+  showControlToast({ message: 'Handoff copied to clipboard.' });
+}
+
 async function launchScheduleCreator(project) {
   const options = await resolveDefaultSessionOptions(project);
   // Pre-create a JSONL session with the schedule creation prompt, then resume into it

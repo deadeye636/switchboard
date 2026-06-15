@@ -5,6 +5,7 @@ const {
   isKeyboardActivation,
   handleKeyboardActivation,
   makeButtonLike,
+  syncTitleToTooltip,
   syncTitleToAriaLabel,
 } = require('../public/a11y-utils');
 
@@ -69,4 +70,22 @@ test('syncTitleToAriaLabel names title-only icon buttons', () => {
 
   syncTitleToAriaLabel(root);
   assert.deepEqual(named, [['aria-label', 'Stop session']]);
+});
+
+test('syncTitleToTooltip mirrors title text into visible tooltip attributes', () => {
+  const updates = [];
+  const root = {
+    querySelectorAll(selector) {
+      assert.equal(selector, 'button[title]:not([data-tooltip])');
+      return [
+        {
+          title: 'Fork session',
+          setAttribute(name, value) { updates.push([name, value]); },
+        },
+      ];
+    },
+  };
+
+  syncTitleToTooltip(root);
+  assert.deepEqual(updates, [['data-tooltip', 'Fork session']]);
 });

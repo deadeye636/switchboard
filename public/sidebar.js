@@ -53,7 +53,13 @@ function buildAttentionInbox(projects) {
 
   const header = document.createElement('div');
   header.className = 'attention-inbox-header';
-  header.innerHTML = `<span>Attention</span><span>${items.length}</span>`;
+  header.innerHTML = `
+    <span>Attention</span>
+    <div class="attention-inbox-header-actions">
+      <span>${items.length}</span>
+      <button type="button" class="attention-inbox-next-btn" title="Focus next session needing attention">Focus next</button>
+    </div>
+  `;
   section.appendChild(header);
 
   const list = document.createElement('div');
@@ -521,6 +527,15 @@ function renderProjects(projects, resort) {
 }
 
 function rebindSidebarEvents(projects) {
+  const nextAttentionBtn = sidebarContent.querySelector('.attention-inbox-next-btn');
+  if (nextAttentionBtn) {
+    nextAttentionBtn.onclick = (e) => {
+      e.stopPropagation();
+      const next = getNextAttentionInboxItem(getAllRenderableSessions(projects), getSessionRuntimeState(), activeSessionId);
+      if (next) openSession(next.session);
+    };
+  }
+
   sidebarContent.querySelectorAll('.attention-inbox-item').forEach(item => {
     const sessionId = item.dataset.sessionId;
     const session = sessionMap.get(sessionId);
@@ -766,7 +781,7 @@ function rebindSidebarEvents(projects) {
     }
 
     const openSessionFromRow = (e) => {
-      if (e?.target?.closest?.('.session-actions, .session-pin')) return;
+      if (e?.target?.closest?.('.session-actions, .session-pin, .session-health-chip')) return;
       openSession(session);
     };
     item.onclick = openSessionFromRow;
@@ -805,6 +820,13 @@ function rebindSidebarEvents(projects) {
       };
     }
 
+    item.querySelectorAll('.session-handoff-btn, .session-health-chip').forEach(handoffBtn => {
+      handoffBtn.onclick = (e) => {
+        e.stopPropagation();
+        showHandoffPrompt(session);
+      };
+    });
+
     const forkBtn = item.querySelector('.session-fork-btn');
     if (forkBtn) {
       forkBtn.onclick = async (e) => {
@@ -824,6 +846,15 @@ function rebindSidebarEvents(projects) {
       jsonlBtn.onclick = (e) => {
         e.stopPropagation();
         showJsonlViewer(session);
+      };
+    }
+
+    const copyIdBtn = item.querySelector('.session-copy-id-btn');
+    if (copyIdBtn) {
+      copyIdBtn.onclick = async (e) => {
+        e.stopPropagation();
+        await window.api.writeClipboard(session.sessionId);
+        showControlToast({ message: 'Session ID copied.' });
       };
     }
 
@@ -873,6 +904,7 @@ function rebindSidebarEvents(projects) {
     }
   });
   syncTitleToAriaLabel(sidebarContent);
+  syncTitleToTooltip(sidebarContent);
 
   // Auto-expand slug group if it contains the active session
   if (activeSessionId) {
@@ -901,7 +933,9 @@ function buildSessionItem(session) {
   const timeStr = formatDate(modified);
   const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary);
   const status = getSessionStatus(session, getSessionRuntimeState());
+  const health = getSessionHealth(session);
   item.classList.add(status.className);
+  item.classList.add(health.className);
 
   const row = document.createElement('div');
   row.className = 'session-row';
@@ -919,6 +953,11 @@ function buildSessionItem(session) {
   const dot = document.createElement('span');
   dot.className = 'session-status-dot' + (activePtyIds.has(session.sessionId) ? ' running' : '');
 
+  const indicators = document.createElement('div');
+  indicators.className = 'session-indicators';
+  indicators.appendChild(pin);
+  indicators.appendChild(dot);
+
   // Info block
   const info = document.createElement('div');
   info.className = 'session-info';
@@ -927,20 +966,42 @@ function buildSessionItem(session) {
   summaryEl.className = 'session-summary';
   summaryEl.textContent = displayName;
 
-  const idEl = document.createElement('div');
-  idEl.className = 'session-id';
-  idEl.textContent = session.sessionId;
+  const detailEl = document.createElement('div');
+  detailEl.className = 'session-card-details';
 
-  const metaEl = document.createElement('div');
-  metaEl.className = 'session-meta';
   const statusChip = document.createElement('span');
-  statusChip.className = `session-status-chip ${status.className}`;
+  statusChip.className = `session-detail-pill session-status-chip ${status.className}`;
   statusChip.textContent = status.label;
-  const metaText = document.createElement('span');
-  metaText.className = 'session-meta-text';
-  metaText.textContent = timeStr + (session.messageCount ? ' \u00b7 ' + session.messageCount + ' msgs' : '');
-  metaEl.appendChild(statusChip);
-  metaEl.appendChild(metaText);
+  detailEl.appendChild(statusChip);
+  if (health.state !== 'healthy') {
+    const healthChip = document.createElement('button');
+    healthChip.type = 'button';
+    healthChip.className = `session-detail-pill session-health-chip ${health.className}`;
+    healthChip.textContent = health.label;
+    healthChip.title = 'Create handoff';
+    healthChip.setAttribute('aria-label', `Create handoff for ${displayName}`);
+    detailEl.appendChild(healthChip);
+  }
+
+  const quietParts = getQuietDetailParts({
+    timeLabel: timeStr,
+    session,
+    includeMetrics: health.state !== 'healthy',
+  });
+  const worktreeLabel = getWorktreeLabel(session);
+  if (worktreeLabel) quietParts.push(worktreeLabel);
+  if (typeof getSessionFilePanelSummary === 'function') {
+    const fileSummary = getSessionFilePanelSummary(session.sessionId);
+    if (fileSummary?.label) {
+      quietParts.push(`${fileSummary.type === 'diff' ? 'Diff' : 'File'} ${fileSummary.label}`);
+    }
+  }
+  if (quietParts.length > 0) {
+    const quietLine = document.createElement('div');
+    quietLine.className = 'session-quiet-details';
+    quietLine.textContent = quietParts.join(' · ');
+    detailEl.appendChild(quietLine);
+  }
 
   if (session.type === 'terminal') {
     const badge = document.createElement('span');
@@ -949,8 +1010,7 @@ function buildSessionItem(session) {
     summaryEl.prepend(badge);
   }
   info.appendChild(summaryEl);
-  info.appendChild(idEl);
-  info.appendChild(metaEl);
+  if (detailEl.children.length > 0) info.appendChild(detailEl);
 
   // Action buttons container
   const actions = document.createElement('div');
@@ -976,6 +1036,11 @@ function buildSessionItem(session) {
   jsonlBtn.title = 'View messages';
   jsonlBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>';
 
+  const copyIdBtn = document.createElement('button');
+  copyIdBtn.className = 'session-copy-id-btn';
+  copyIdBtn.title = 'Copy session ID';
+  copyIdBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+
   const timelineBtn = document.createElement('button');
   timelineBtn.className = 'session-timeline-btn';
   timelineBtn.title = 'View timeline';
@@ -986,8 +1051,15 @@ function buildSessionItem(session) {
   launchConfigBtn.title = 'Resume with config';
   launchConfigBtn.innerHTML = ICONS.launchConfig(14);
 
+  const handoffBtn = document.createElement('button');
+  handoffBtn.className = 'session-handoff-btn';
+  handoffBtn.title = 'Create handoff';
+  handoffBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7h8"/><path d="M8 11h8"/><path d="M8 15h5"/><path d="M5 3h14a2 2 0 0 1 2 2v14l-4-3H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg>';
+
   actions.appendChild(stopBtn);
+  actions.appendChild(copyIdBtn);
   if (session.type !== 'terminal') {
+    if (health.state !== 'healthy') actions.appendChild(handoffBtn);
     actions.appendChild(forkBtn);
     actions.appendChild(timelineBtn);
     actions.appendChild(jsonlBtn);
@@ -995,8 +1067,7 @@ function buildSessionItem(session) {
     actions.appendChild(launchConfigBtn);
   }
 
-  row.appendChild(pin);
-  row.appendChild(dot);
+  row.appendChild(indicators);
   row.appendChild(info);
   row.appendChild(actions);
   item.appendChild(row);

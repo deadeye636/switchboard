@@ -76,10 +76,11 @@ function wrapInGridCard(sessionId) {
   const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary) || sessionId;
   const shortProject = session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '';
   const status = getSessionStatus(session, getGridRuntimeState());
+  const health = getSessionHealth(session);
 
   // Create card wrapper
   const card = document.createElement('div');
-  card.className = `grid-card ${status.className}`;
+  card.className = `grid-card ${status.className} ${health.className}`;
   card.dataset.sessionId = sessionId;
 
   // Header
@@ -96,6 +97,18 @@ function wrapInGridCard(sessionId) {
   statusChip.className = `grid-card-status-chip ${status.className}`;
   statusChip.textContent = status.label;
   header.appendChild(statusChip);
+  if (health.state !== 'healthy') {
+    const healthChip = document.createElement('button');
+    healthChip.type = 'button';
+    healthChip.className = `grid-card-health-chip ${health.className}`;
+    healthChip.textContent = health.label;
+    healthChip.title = 'Create handoff';
+    healthChip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showHandoffPrompt(session);
+    });
+    header.appendChild(healthChip);
+  }
   const project = document.createElement('span');
   project.className = 'grid-card-project';
   project.textContent = shortProject;
@@ -195,6 +208,7 @@ function wrapInGridCard(sessionId) {
 
   gridCards.set(sessionId, card);
   syncTitleToAriaLabel(card);
+  syncTitleToTooltip(card);
   // Set initial status from the single source of truth
   updateRunningIndicators();
 }
@@ -340,12 +354,14 @@ function showGridView() {
 function updateGridColumns() {
   if (!gridViewActive) return;
   const width = terminalsEl.clientWidth;
-  const minCardWidth = 560;
-  const gap = 14;
+  const minCardWidth = 460;
+  const gap = 10;
   const fitCols = Math.max(1, Math.floor((width + gap) / (minCardWidth + gap)));
   const cardCount = terminalsEl.querySelectorAll('.grid-card').length;
   const cols = Math.max(1, Math.min(fitCols, cardCount || 1));
   terminalsEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  terminalsEl.classList.toggle('grid-few-cards', cardCount > 0 && cardCount <= 2);
+  terminalsEl.classList.toggle('grid-single-card', cardCount === 1);
 }
 
 // initGridObservers is called from app.js after DOM refs are ready
@@ -359,6 +375,7 @@ function hideGridView() {
   localStorage.setItem('gridViewActive', '0');
   unwrapGridCards();
   terminalsEl.classList.remove('grid-layout');
+  terminalsEl.classList.remove('grid-few-cards', 'grid-single-card');
   terminalsEl.style.gridTemplateColumns = '';
   gridViewer.style.display = 'none';
   const btn = document.getElementById('grid-toggle-btn');

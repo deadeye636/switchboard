@@ -96,6 +96,17 @@ function mapBucket(apiUsage, apiKey, usageKey, usage) {
   }
 }
 
+function mapExtraUsage(apiUsage, usage) {
+  const extra = apiUsage.extra_usage;
+  if (!extra || typeof extra !== 'object') return;
+  if (extra.is_enabled !== undefined) usage.extraUsageEnabled = !!extra.is_enabled;
+  if (extra.monthly_limit !== undefined && extra.monthly_limit !== null) usage.extraUsageLimit = Number(extra.monthly_limit);
+  if (extra.used_credits !== undefined && extra.used_credits !== null) usage.extraUsageUsed = Number(extra.used_credits);
+  if (extra.utilization !== undefined && extra.utilization !== null) usage.extraUsage = Math.floor(Number(extra.utilization));
+  if (extra.currency) usage.extraUsageCurrency = String(extra.currency);
+  if (extra.disabled_reason) usage.extraUsageDisabledReason = String(extra.disabled_reason);
+}
+
 function transformUsageResponse(apiUsage) {
   if (!apiUsage) return {};
   const usage = {};
@@ -103,6 +114,7 @@ function transformUsageResponse(apiUsage) {
   mapBucket(apiUsage, 'seven_day', 'weekAll', usage);
   mapBucket(apiUsage, 'seven_day_sonnet', 'weekSonnet', usage);
   mapBucket(apiUsage, 'seven_day_opus', 'weekOpus', usage);
+  mapExtraUsage(apiUsage, usage);
   return usage;
 }
 
@@ -147,4 +159,4 @@ async function fetchAndTransformUsage() {
   }
 }
 
-module.exports = { getOAuthToken, fetchUsage, fetchAndTransformUsage, getConfigDir };
+module.exports = { getOAuthToken, fetchUsage, fetchAndTransformUsage, transformUsageResponse, getConfigDir };

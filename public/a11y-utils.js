@@ -44,10 +44,18 @@
     });
   }
 
+  function syncTitleToTooltip(root) {
+    if (!root || typeof root.querySelectorAll !== 'function') return;
+    root.querySelectorAll('button[title]:not([data-tooltip])').forEach(button => {
+      if (button.title) button.setAttribute('data-tooltip', button.title);
+    });
+  }
+
   return {
     isKeyboardActivation,
     handleKeyboardActivation,
     makeButtonLike,
+    syncTitleToTooltip,
     syncTitleToAriaLabel,
   };
 });

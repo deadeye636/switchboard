@@ -240,6 +240,15 @@ function setSessionMcpActive(sessionId, active) {
   if (currentPanelSessionId === sessionId) updateMcpIndicator();
 }
 
+function getSessionFilePanelSummary(sessionId) {
+  const tab = filePanelState.get(sessionId)?.currentTab;
+  if (!tab) return null;
+  return {
+    type: tab.type,
+    label: tab.label || basename(tab.filePath || ''),
+  };
+}
+
 function rekeyFilePanelState(oldId, newId) {
   const state = filePanelState.get(oldId);
   if (state) {

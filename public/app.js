@@ -1,4 +1,5 @@
 const statusBarInfo = document.getElementById('status-bar-info');
+const statusBarUsage = document.getElementById('status-bar-usage');
 const statusBarActivity = document.getElementById('status-bar-activity');
 const terminalsEl = document.getElementById('terminals');
 const sidebarContent = document.getElementById('sidebar-content');
@@ -685,15 +686,22 @@ function updateRunningIndicators() {
     const session = sessionMap.get(sid);
     if (!session) continue;
     const status = getSessionStatus(session, getGridRuntimeState());
+    const health = getSessionHealth(session);
     const running = status.key === 'running' || status.key === 'busy' || status.key === 'needs-attention' || status.key === 'response-ready';
     const dot = card.querySelector('.grid-card-dot');
     if (dot) dot.className = 'grid-card-dot ' + (status.key === 'busy' ? 'busy' : (running ? 'running' : 'stopped'));
-    card.classList.remove('status-needs-attention', 'status-response-ready', 'status-busy', 'status-running', 'status-exited', 'status-idle');
-    card.classList.add(status.className);
+    card.classList.remove('status-needs-attention', 'status-response-ready', 'status-busy', 'status-running', 'status-exited', 'status-idle', 'health-healthy', 'health-growing', 'health-marathon-risk', 'health-handoff-recommended');
+    card.classList.add(status.className, health.className);
     const chip = card.querySelector('.grid-card-status-chip');
     if (chip) {
       chip.className = `grid-card-status-chip ${status.className}`;
       chip.textContent = status.label;
+    }
+    const healthChip = card.querySelector('.grid-card-health-chip');
+    if (healthChip) {
+      healthChip.className = `grid-card-health-chip ${health.className}`;
+      healthChip.textContent = health.label;
+      healthChip.style.display = health.state === 'healthy' ? 'none' : '';
     }
     const footer = card.querySelector('.grid-card-footer');
     if (footer) footer.children[0].textContent = status.label;
@@ -1291,6 +1299,9 @@ window.api.onProjectsChanged(() => {
 
 // Status bar
 let activityTimer = null;
+let usageStatusTimer = null;
+const USAGE_RETRY_AT_KEY = 'usageStatusRetryAt';
+const USAGE_CACHE_KEY = 'usageStatusLastValue';
 
 function renderDefaultStatus() {
   const totalSessions = cachedAllProjects.reduce((n, p) => n + p.sessions.length, 0);
@@ -1301,6 +1312,74 @@ function renderDefaultStatus() {
   parts.push(`${totalSessions} sessions`);
   parts.push(`${totalProjects} projects`);
   statusBarInfo.textContent = parts.join(' \u00b7 ');
+}
+
+function renderUsageStatus(usage) {
+  if (!statusBarUsage || typeof formatUsageStatus !== 'function') return;
+  const status = formatUsageStatus(usage);
+  statusBarUsage.title = status.title;
+  statusBarUsage.className = status.level && status.level !== 'empty' ? `usage-status-${status.level}` : '';
+  statusBarUsage.innerHTML = '';
+  if (!status.text) return;
+
+  const label = document.createElement('span');
+  label.className = 'status-bar-usage-label';
+  label.textContent = status.text;
+  statusBarUsage.appendChild(label);
+
+  if (Number.isFinite(status.percent)) {
+    const track = document.createElement('span');
+    track.className = 'status-bar-usage-track';
+    const fill = document.createElement('span');
+    fill.className = 'status-bar-usage-fill';
+    fill.style.width = `${Math.max(1, Math.min(100, status.percent))}%`;
+    track.appendChild(fill);
+    statusBarUsage.appendChild(track);
+  }
+}
+
+async function refreshStatusBarUsage() {
+  if (!statusBarUsage) return;
+  const retryAt = Number(localStorage.getItem(USAGE_RETRY_AT_KEY) || 0);
+  if (retryAt && Date.now() < retryAt) {
+    if (!statusBarUsage.textContent) {
+      renderUsageStatus({
+        _rateLimited: true,
+        retryAfterSeconds: Math.ceil((retryAt - Date.now()) / 1000),
+      });
+    }
+    usageStatusTimer = setTimeout(refreshStatusBarUsage, Math.max(1000, retryAt - Date.now()));
+    return;
+  }
+
+  let usage = null;
+  try {
+    usage = await window.api.getUsage();
+    renderUsageStatus(usage || {});
+  } catch (err) {
+    usage = { _error: true, message: err?.message || 'Could not fetch Claude usage data.' };
+    renderUsageStatus(usage);
+  }
+
+  if (usage?._rateLimited && usage.retryAfterSeconds) {
+    localStorage.setItem(USAGE_RETRY_AT_KEY, String(Date.now() + getUsageRefreshDelayMs(usage)));
+  } else if (!usage?._rateLimited) {
+    localStorage.removeItem(USAGE_RETRY_AT_KEY);
+    if (usage && Object.keys(usage).length) {
+      try { localStorage.setItem(USAGE_CACHE_KEY, JSON.stringify(usage)); } catch {}
+    }
+  }
+
+  if (usageStatusTimer) clearTimeout(usageStatusTimer);
+  usageStatusTimer = setTimeout(refreshStatusBarUsage, getUsageRefreshDelayMs(usage || {}));
+}
+
+function scheduleUsageStatusRefresh() {
+  try {
+    const cachedUsage = JSON.parse(localStorage.getItem(USAGE_CACHE_KEY) || 'null');
+    if (cachedUsage) renderUsageStatus(cachedUsage);
+  } catch {}
+  refreshStatusBarUsage();
 }
 
 window.api.onStatusUpdate((text, type) => {
@@ -1314,6 +1393,8 @@ window.api.onStatusUpdate((text, type) => {
     }, type === 'done' ? 3000 : 0);
   }
 });
+
+scheduleUsageStatusRefresh();
 
 // --- Auto-update status + toast ---
 const statusBarUpdater = document.getElementById('status-bar-updater');
