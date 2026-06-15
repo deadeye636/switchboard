@@ -1342,12 +1342,10 @@ async function refreshStatusBarUsage() {
   if (!statusBarUsage) return;
   const retryAt = Number(localStorage.getItem(USAGE_RETRY_AT_KEY) || 0);
   if (retryAt && Date.now() < retryAt) {
-    if (!statusBarUsage.textContent) {
-      renderUsageStatus({
-        _rateLimited: true,
-        retryAfterSeconds: Math.ceil((retryAt - Date.now()) / 1000),
-      });
-    }
+    renderUsageStatus({
+      _rateLimited: true,
+      retryAfterSeconds: Math.ceil((retryAt - Date.now()) / 1000),
+    });
     usageStatusTimer = setTimeout(refreshStatusBarUsage, Math.max(1000, retryAt - Date.now()));
     return;
   }
