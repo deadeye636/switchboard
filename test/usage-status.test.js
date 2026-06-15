@@ -76,6 +76,17 @@ test('withCachedUsageFallback preserves last successful usage on unavailable res
   assert.equal(result._staleMessage, 'No token');
 });
 
+test('withCachedUsageFallback preserves last successful usage on rate limit response', () => {
+  const cached = { session: 20, extraUsage: 40 };
+  const result = withCachedUsageFallback({ _rateLimited: true, retryAfterSeconds: 120 }, cached);
+
+  assert.equal(result.session, 20);
+  assert.equal(result.extraUsage, 40);
+  assert.equal(result._stale, true);
+  assert.equal(result._staleMessage, 'Usage API rate limited');
+  assert.equal(result._retryAfterSeconds, 125);
+});
+
 test('formatUsageStatus returns useful rate-limit and error states', () => {
   assert.deepEqual(formatUsageStatus({ _rateLimited: true, retryAfterSeconds: 120 }), {
     text: 'Usage rate limited',

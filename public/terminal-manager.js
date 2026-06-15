@@ -225,15 +225,17 @@ function createTerminalEntry(session) {
   terminal.open(container);
   container.style.backgroundColor = TERMINAL_THEME.background;
 
-  // GPU-accelerated rendering via WebGL — drops renderer+compositor CPU ~50-70%.
-  // Must be loaded after terminal.open() (needs attached DOM). Fails silently on
-  // machines without WebGL support; xterm falls back to the default DOM renderer.
-  try {
-    const webglAddon = new WebglAddon.WebglAddon();
-    webglAddon.onContextLoss(() => webglAddon.dispose());
-    terminal.loadAddon(webglAddon);
-  } catch (e) {
-    console.warn('[terminal] WebGL addon failed, falling back to DOM renderer', e);
+  // GPU-accelerated rendering via WebGL drops renderer/compositor CPU in
+  // packaged builds. In dev, hot reload tears down renderer state frequently
+  // and Chromium can leave stale WebGL mailboxes behind, causing flicker.
+  if (window.api.isPackaged) {
+    try {
+      const webglAddon = new WebglAddon.WebglAddon();
+      webglAddon.onContextLoss(() => webglAddon.dispose());
+      terminal.loadAddon(webglAddon);
+    } catch (e) {
+      console.warn('[terminal] WebGL addon failed, falling back to DOM renderer', e);
+    }
   }
 
   // --- Terminal search bar (Cmd/Ctrl+F) ---

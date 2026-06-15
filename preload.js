@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Platform
   platform: process.platform,
+  isPackaged: !process.defaultApp,
 
   // App version
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),

@@ -356,6 +356,290 @@ input:focus-visible {
   font-style: italic;
 }
 
+/* ========== SPRING CLEANING MODAL ========== */
+.spring-cleaning-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.52);
+}
+
+.spring-cleaning-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 14px;
+  background: #18181f;
+  box-shadow: 0 18px 48px rgba(0,0,0,0.48);
+}
+
+.spring-cleaning-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.spring-cleaning-kicker {
+  margin-bottom: 4px;
+  color: #8088ff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.spring-cleaning-header h3 {
+  margin: 0 0 6px;
+  color: #f0f0ff;
+  font-size: 18px;
+}
+
+.spring-cleaning-header p {
+  max-width: 560px;
+  margin: 0;
+  color: #9a9ab0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.spring-cleaning-close-btn {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255,255,255,0.04);
+  color: #a0a0b8;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.spring-cleaning-close-btn:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+}
+
+.spring-cleaning-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: #aaaac0;
+  font-size: 12px;
+}
+
+.spring-cleaning-age-options {
+  display: flex;
+  gap: 6px;
+}
+
+.spring-cleaning-age-btn {
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: rgba(255,255,255,0.03);
+  color: #9a9ab0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.spring-cleaning-age-btn.active {
+  color: #ffffff;
+  background: rgba(128,136,255,0.18);
+  border-color: rgba(128,136,255,0.4);
+}
+
+.spring-cleaning-summary {
+  margin-bottom: 10px;
+  color: #c8c8dc;
+  font-size: 12px;
+}
+
+.spring-cleaning-list {
+  flex: 1;
+  min-height: 180px;
+  overflow-y: auto;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  background: rgba(0,0,0,0.12);
+}
+
+.spring-cleaning-empty {
+  padding: 48px 20px;
+  color: #7a7a90;
+  text-align: center;
+  font-size: 13px;
+}
+
+.spring-cleaning-group {
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.spring-cleaning-group:last-child {
+  border-bottom: 0;
+}
+
+.spring-cleaning-group-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 12px;
+  background: #1d1d27;
+  color: #8f92c8;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.spring-cleaning-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 9px 12px;
+  border-top: 1px solid rgba(255,255,255,0.035);
+  cursor: pointer;
+}
+
+.spring-cleaning-row:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.spring-cleaning-row input {
+  margin-top: 3px;
+  accent-color: #8088ff;
+}
+
+.spring-cleaning-row-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.spring-cleaning-row-title {
+  color: #d8d8ea;
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spring-cleaning-row-meta {
+  color: #777790;
+  font-size: 11px;
+}
+
+.spring-cleaning-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.spring-cleaning-actions button {
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.spring-cleaning-cancel-btn {
+  background: rgba(255,255,255,0.04);
+  color: #c8c8dc;
+}
+
+.spring-cleaning-archive-btn {
+  color: #fff;
+  background: rgba(128,136,255,0.22);
+  border-color: rgba(128,136,255,0.42) !important;
+}
+
+.spring-cleaning-archive-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.spring-cleaning-particles {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout style paint;
+}
+
+.spring-cleaning-particle {
+  position: absolute;
+  display: block;
+  will-change: transform, opacity;
+  animation-delay: var(--particle-delay, 0ms);
+  animation-duration: var(--particle-duration, 1800ms);
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.spring-cleaning-leaf {
+  font-size: 17px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.28));
+  animation-name: spring-cleaning-leaf-drift;
+}
+
+.spring-cleaning-confetti-piece {
+  width: 7px;
+  height: 12px;
+  border-radius: 2px;
+  background: hsl(var(--particle-hue, 220) 85% 66%);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset;
+  animation-name: spring-cleaning-confetti-burst;
+}
+
+@keyframes spring-cleaning-leaf-drift {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -18px, 0) rotate(0deg) scale(0.8);
+  }
+  12% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--particle-x, 20vw), var(--particle-y, 75vh), 0) rotate(var(--particle-rotate, 220deg)) scale(1.1);
+  }
+}
+
+@keyframes spring-cleaning-confetti-burst {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(0.8);
+  }
+  8% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--particle-x, 20vw), var(--particle-y, 70vh), 0) rotate(var(--particle-rotate, 360deg)) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spring-cleaning-particles {
+    display: none;
+  }
+}
+
 /* ========== SIDEBAR ========== */
 #sidebar {
   width: 340px;
@@ -454,7 +738,11 @@ input:focus-visible {
   animation: loading-pulse 1.2s ease-in-out infinite;
 }
 
-#star-toggle, #archive-toggle, #running-toggle, #today-toggle {
+#star-toggle,
+#archive-toggle,
+#running-toggle,
+#today-toggle,
+#spring-cleaning-btn {
   background: transparent;
   border: 1px solid rgba(255,255,255,0.08);
   color: #7a7a90;
@@ -473,7 +761,11 @@ input:focus-visible {
   justify-content: center;
 }
 
-#star-toggle:hover, #archive-toggle:hover, #running-toggle:hover, #today-toggle:hover {
+#star-toggle:hover,
+#archive-toggle:hover,
+#running-toggle:hover,
+#today-toggle:hover,
+#spring-cleaning-btn:hover {
   background: rgba(255,255,255,0.04);
   border-color: rgba(255,255,255,0.12);
   color: #888;

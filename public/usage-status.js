@@ -118,11 +118,14 @@
   }
 
   function withCachedUsageFallback(usage = {}, cachedUsage = null) {
-    if (!usage?._error || !cachedUsage || cachedUsage._error || cachedUsage._rateLimited) return usage;
+    if ((!usage?._error && !usage?._rateLimited) || !cachedUsage || cachedUsage._error || cachedUsage._rateLimited) return usage;
+    const fallbackMessage = usage._rateLimited
+      ? 'Usage API rate limited'
+      : (usage.message || 'Could not fetch Claude usage data.');
     return {
       ...cachedUsage,
       _stale: true,
-      _staleMessage: usage.message || 'Could not fetch Claude usage data.',
+      _staleMessage: fallbackMessage,
       _retryAfterSeconds: Math.ceil(getUsageRefreshDelayMs(usage) / 1000),
     };
   }

@@ -43,6 +43,193 @@ function getAllRenderableSessions(projects) {
   return [...sessionsById.values()];
 }
 
+function shortSessionLabel(session) {
+  return cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId;
+}
+
+function showSpringCleaningDialog() {
+  const overlay = document.createElement('div');
+  overlay.className = 'spring-cleaning-overlay';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'spring-cleaning-dialog';
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-labelledby', 'spring-cleaning-title');
+
+  let ageDays = DEFAULT_CLEANUP_AGE_DAYS;
+  let candidates = [];
+  let selectedIds = new Set();
+
+  dialog.innerHTML = `
+    <div class="spring-cleaning-header">
+      <div>
+        <div class="spring-cleaning-kicker">Spring Cleaning</div>
+        <h3 id="spring-cleaning-title">Hide Old Sessions</h3>
+        <p>Archive old stopped sessions from the sidebar. Session files are not deleted, and you can undo immediately after cleanup.</p>
+      </div>
+      <button type="button" class="spring-cleaning-close-btn" aria-label="Close spring cleaning">&times;</button>
+    </div>
+    <div class="spring-cleaning-controls">
+      <span>Older than</span>
+      <div class="spring-cleaning-age-options" role="group" aria-label="Session age threshold"></div>
+    </div>
+    <div class="spring-cleaning-summary"></div>
+    <div class="spring-cleaning-list"></div>
+    <div class="spring-cleaning-actions">
+      <button type="button" class="spring-cleaning-cancel-btn">Cancel</button>
+      <button type="button" class="spring-cleaning-archive-btn">Archive Selected</button>
+    </div>
+  `;
+
+  const ageOptionsEl = dialog.querySelector('.spring-cleaning-age-options');
+  const summaryEl = dialog.querySelector('.spring-cleaning-summary');
+  const listEl = dialog.querySelector('.spring-cleaning-list');
+  const archiveBtn = dialog.querySelector('.spring-cleaning-archive-btn');
+
+  function close() {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+
+  function refreshCandidates() {
+    candidates = getSpringCleaningCandidates(cachedAllProjects, {
+      ageDays,
+      activePtyIds,
+      lastActivityTime,
+    });
+    selectedIds = new Set(candidates.map(item => item.session.sessionId));
+    renderBody();
+  }
+
+  function renderAgeOptions() {
+    ageOptionsEl.innerHTML = '';
+    for (const days of CLEANUP_AGE_PRESETS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'spring-cleaning-age-btn' + (days === ageDays ? ' active' : '');
+      button.textContent = `${days} days`;
+      button.addEventListener('click', () => {
+        ageDays = days;
+        renderAgeOptions();
+        refreshCandidates();
+      });
+      ageOptionsEl.appendChild(button);
+    }
+  }
+
+  function renderBody() {
+    const summary = summarizeSpringCleaningSelection(candidates, selectedIds);
+    summaryEl.textContent = candidates.length
+      ? `${summary.selectedCount} of ${candidates.length} sessions selected across ${summary.projectCount} project${summary.projectCount === 1 ? '' : 's'}.`
+      : `No stopped, unpinned sessions older than ${ageDays} days.`;
+    archiveBtn.disabled = summary.selectedCount === 0;
+    archiveBtn.textContent = summary.selectedCount === 0
+      ? 'Archive Selected'
+      : `Archive ${summary.selectedCount} Selected`;
+
+    listEl.innerHTML = '';
+    if (candidates.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'spring-cleaning-empty';
+      empty.textContent = 'Nothing to clean up for this age threshold.';
+      listEl.appendChild(empty);
+      return;
+    }
+
+    const byProject = new Map();
+    for (const item of candidates) {
+      const key = item.projectPath || 'Other';
+      if (!byProject.has(key)) byProject.set(key, []);
+      byProject.get(key).push(item);
+    }
+
+    for (const [, items] of byProject) {
+      const group = document.createElement('section');
+      group.className = 'spring-cleaning-group';
+
+      const header = document.createElement('div');
+      header.className = 'spring-cleaning-group-title';
+      header.textContent = `${items[0].projectLabel} · ${items.length}`;
+      group.appendChild(header);
+
+      for (const item of items) {
+        const session = item.session;
+        const row = document.createElement('label');
+        row.className = 'spring-cleaning-row';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = selectedIds.has(session.sessionId);
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) selectedIds.add(session.sessionId);
+          else selectedIds.delete(session.sessionId);
+          renderBody();
+        });
+        row.appendChild(checkbox);
+
+        const info = document.createElement('span');
+        info.className = 'spring-cleaning-row-info';
+        const title = document.createElement('span');
+        title.className = 'spring-cleaning-row-title';
+        title.textContent = shortSessionLabel(session);
+        const meta = document.createElement('span');
+        meta.className = 'spring-cleaning-row-meta';
+        meta.textContent = `${item.ageDays} days old · ${session.messageCount || 0} msgs`;
+        info.appendChild(title);
+        info.appendChild(meta);
+        row.appendChild(info);
+
+        group.appendChild(row);
+      }
+
+      listEl.appendChild(group);
+    }
+  }
+
+  archiveBtn.addEventListener('click', async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    for (const id of ids) {
+      await window.api.archiveSession(id, 1);
+      const session = sessionMap.get(id);
+      if (session) session.archived = 1;
+    }
+    close();
+    loadProjects();
+    if (typeof playSpringCleaningParticles === 'function') {
+      playSpringCleaningParticles('confetti', document.body);
+    }
+    showControlToast({
+      message: `Archived ${ids.length} old session${ids.length === 1 ? '' : 's'}.`,
+      actionLabel: 'Undo',
+      onAction: async () => {
+        for (const id of ids) {
+          await window.api.archiveSession(id, 0);
+          const session = sessionMap.get(id);
+          if (session) session.archived = 0;
+        }
+        loadProjects();
+      },
+    });
+  });
+
+  dialog.querySelector('.spring-cleaning-close-btn').addEventListener('click', close);
+  dialog.querySelector('.spring-cleaning-cancel-btn').addEventListener('click', close);
+  overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+  function onKey(event) { if (event.key === 'Escape') close(); }
+  document.addEventListener('keydown', onKey);
+
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+  if (typeof playSpringCleaningParticles === 'function') {
+    playSpringCleaningParticles('leaves', overlay);
+  }
+  renderAgeOptions();
+  refreshCandidates();
+  dialog.querySelector('.spring-cleaning-close-btn').focus();
+}
+
 function buildAttentionInbox(projects) {
   const items = getAttentionInboxItems(getAllRenderableSessions(projects), getSessionRuntimeState());
   if (items.length === 0) return null;

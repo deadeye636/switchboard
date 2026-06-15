@@ -16,6 +16,7 @@ const terminalHeaderShell = document.getElementById('terminal-header-shell');
 const terminalStopBtn = document.getElementById('terminal-stop-btn');
 const runningToggle = document.getElementById('running-toggle');
 const todayToggle = document.getElementById('today-toggle');
+const springCleaningBtn = document.getElementById('spring-cleaning-btn');
 const planViewer = document.getElementById('plan-viewer');
 const planPanel = new ViewerPanel(planViewer, {
   copyPath: true, copyContent: true,
@@ -56,6 +57,8 @@ const gridViewer = document.getElementById('grid-viewer');
 const gridViewerCount = document.getElementById('grid-viewer-count');
 const appLiveRegion = document.getElementById('app-live-region');
 let gridViewActive = localStorage.getItem('gridViewActive') === '1';
+const navigationEntry = performance.getEntriesByType?.('navigation')?.[0];
+const isRendererReload = navigationEntry?.type === 'reload';
 
 // Map<sessionId, { terminal, element, fitAddon, session, closed }>
 const openSessions = new Map();
@@ -459,6 +462,11 @@ archiveToggle.addEventListener('click', () => {
   archiveToggle.classList.toggle('active', showArchived);
   refreshSidebar({ resort: true });
 });
+
+if (springCleaningBtn) {
+  springCleaningBtn.innerHTML = ICONS.cleanup(16);
+  springCleaningBtn.addEventListener('click', () => showSpringCleaningDialog());
+}
 
 // --- Star filter toggle ---
 starToggle.addEventListener('click', () => {
@@ -1276,6 +1284,7 @@ loadProjects().then(async () => {
   }
   const restoredAfterUpdate = await restoreUpdateRestartState();
   if (restoredAfterUpdate) return;
+  if (isRendererReload) return;
   // Restore active session after reload
   if (activeSessionId && !openSessions.has(activeSessionId)) {
     const session = sessionMap.get(activeSessionId);
@@ -1345,10 +1354,14 @@ async function refreshStatusBarUsage() {
   if (!statusBarUsage) return;
   const retryAt = Number(localStorage.getItem(USAGE_RETRY_AT_KEY) || 0);
   if (retryAt && Date.now() < retryAt) {
-    renderUsageStatus({
+    const rateLimitedUsage = {
       _rateLimited: true,
       retryAfterSeconds: Math.ceil((retryAt - Date.now()) / 1000),
-    });
+    };
+    const displayUsage = typeof withCachedUsageFallback === 'function'
+      ? withCachedUsageFallback(rateLimitedUsage, cachedStatusBarUsage)
+      : rateLimitedUsage;
+    renderUsageStatus(displayUsage);
     usageStatusTimer = setTimeout(refreshStatusBarUsage, Math.max(1000, retryAt - Date.now()));
     return;
   }
