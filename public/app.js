@@ -1269,11 +1269,13 @@ setTimeout(() => {
   }
 })();
 
-loadProjects().then(() => {
+loadProjects().then(async () => {
   // Restore grid view preference before opening sessions so they enter grid mode
   if (localStorage.getItem('gridViewActive') === '1') {
     showGridView();
   }
+  const restoredAfterUpdate = await restoreUpdateRestartState();
+  if (restoredAfterUpdate) return;
   // Restore active session after reload
   if (activeSessionId && !openSessions.has(activeSessionId)) {
     const session = sessionMap.get(activeSessionId);
@@ -1302,6 +1304,7 @@ let activityTimer = null;
 let usageStatusTimer = null;
 const USAGE_RETRY_AT_KEY = 'usageStatusRetryAt';
 const USAGE_CACHE_KEY = 'usageStatusLastValue';
+let cachedStatusBarUsage = null;
 
 function renderDefaultStatus() {
   const totalSessions = cachedAllProjects.reduce((n, p) => n + p.sessions.length, 0);
@@ -1353,17 +1356,21 @@ async function refreshStatusBarUsage() {
   let usage = null;
   try {
     usage = await window.api.getUsage();
-    renderUsageStatus(usage || {});
   } catch (err) {
     usage = { _error: true, message: err?.message || 'Could not fetch Claude usage data.' };
-    renderUsageStatus(usage);
   }
+
+  const displayUsage = typeof withCachedUsageFallback === 'function'
+    ? withCachedUsageFallback(usage || {}, cachedStatusBarUsage)
+    : usage;
+  renderUsageStatus(displayUsage || {});
 
   if (usage?._rateLimited && usage.retryAfterSeconds) {
     localStorage.setItem(USAGE_RETRY_AT_KEY, String(Date.now() + getUsageRefreshDelayMs(usage)));
   } else if (!usage?._rateLimited) {
     localStorage.removeItem(USAGE_RETRY_AT_KEY);
-    if (usage && Object.keys(usage).length) {
+    if (usage && !usage._error && Object.keys(usage).length) {
+      cachedStatusBarUsage = usage;
       try { localStorage.setItem(USAGE_CACHE_KEY, JSON.stringify(usage)); } catch {}
     }
   }
@@ -1375,9 +1382,62 @@ async function refreshStatusBarUsage() {
 function scheduleUsageStatusRefresh() {
   try {
     const cachedUsage = JSON.parse(localStorage.getItem(USAGE_CACHE_KEY) || 'null');
-    if (cachedUsage) renderUsageStatus(cachedUsage);
+    if (cachedUsage && !cachedUsage._error && !cachedUsage._rateLimited) {
+      cachedStatusBarUsage = cachedUsage;
+      renderUsageStatus(cachedUsage);
+    }
   } catch {}
   refreshStatusBarUsage();
+}
+
+function saveUpdateRestartState() {
+  if (typeof collectUpdateRestartState !== 'function') return null;
+  const state = collectUpdateRestartState(openSessions, { activeSessionId, gridViewActive });
+  if (typeof hasRestorableUpdateSessions === 'function' && hasRestorableUpdateSessions(state)) {
+    localStorage.setItem(UPDATE_RESTART_STATE_KEY, JSON.stringify(state));
+  } else {
+    localStorage.removeItem(UPDATE_RESTART_STATE_KEY);
+  }
+  return state;
+}
+
+async function restoreUpdateRestartState() {
+  if (typeof hasRestorableUpdateSessions !== 'function') return false;
+  let state = null;
+  try {
+    state = JSON.parse(localStorage.getItem(UPDATE_RESTART_STATE_KEY) || 'null');
+  } catch {}
+  localStorage.removeItem(UPDATE_RESTART_STATE_KEY);
+  if (!hasRestorableUpdateSessions(state)) return false;
+
+  if (state.gridViewActive) {
+    localStorage.setItem('gridViewActive', '1');
+    if (!gridViewActive) showGridView();
+  }
+
+  const uniqueSessions = [];
+  const seen = new Set();
+  for (const item of state.sessions) {
+    if (!item?.sessionId || seen.has(item.sessionId)) continue;
+    const session = sessionMap.get(item.sessionId);
+    if (session) {
+      uniqueSessions.push(session);
+      seen.add(item.sessionId);
+    }
+  }
+
+  for (const session of uniqueSessions) {
+    await openSession(session);
+  }
+
+  if (state.activeSessionId && openSessions.has(state.activeSessionId)) {
+    showSession(state.activeSessionId);
+  }
+  showControlToast({
+    message: `Restored ${uniqueSessions.length} session${uniqueSessions.length === 1 ? '' : 's'} after update.`,
+    timeoutMs: 6000,
+  });
+  return uniqueSessions.length > 0;
 }
 
 window.api.onStatusUpdate((text, type) => {
@@ -1427,7 +1487,13 @@ const updaterHandler = (type, data) => {
       const notice = (data.releaseName && data.releaseName !== `v${data.version}` && data.releaseName !== data.version) ? `<span class="update-summary">${escapeHtml(data.releaseName)}</span>` : '';
       msg.innerHTML = `New Version Ready<br><span class="update-version">v${data.version}</span> (<a href="https://github.com/doctly/switchboard/releases" target="_blank" class="update-notes-link">release notes</a>)${notice}`;
       toast.classList.remove('hidden');
-      document.getElementById('update-restart-btn').onclick = () => window.api.updaterInstall();
+      document.getElementById('update-restart-btn').onclick = async () => {
+        saveUpdateRestartState();
+        const result = await window.api.updaterInstall();
+        if (result?.ok === false) {
+          showControlToast({ message: 'Update restart is only available in packaged builds.' });
+        }
+      };
       document.getElementById('update-dismiss-btn').onclick = () => {
         toast.classList.add('hidden');
         localStorage.setItem('update-dismissed', data.version);

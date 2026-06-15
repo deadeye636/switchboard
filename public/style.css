@@ -2088,11 +2088,11 @@ input:focus-visible {
   overflow-x: hidden;
   overscroll-behavior: contain;
   align-content: start;
-  grid-auto-rows: minmax(340px, min(42vh, 420px));
+  grid-auto-rows: minmax(460px, min(58vh, 620px));
 }
 
 #terminals.grid-layout.grid-few-cards {
-  grid-auto-rows: minmax(520px, calc(100vh - 112px));
+  grid-auto-rows: minmax(620px, calc(100vh - 112px));
 }
 
 #terminals.grid-layout.grid-single-card {
@@ -2103,23 +2103,6 @@ input:focus-visible {
 #terminals.grid-layout::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
 #terminals.grid-layout::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
 #terminals.grid-layout::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
-
-/* Grid project group heading */
-.grid-project-heading {
-  grid-column: 1 / -1;
-  font-size: 14px;
-  font-weight: 600;
-  color: #c0c1d8;
-  padding: 6px 8px;
-  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
-  letter-spacing: 0.3px;
-  background: rgba(255,255,255,0.06);
-  border-radius: 6px;
-  margin-top: 14px;
-}
-.grid-project-heading:first-child {
-  margin-top: 0;
-}
 
 /* Grid card wrapper */
 .grid-card {

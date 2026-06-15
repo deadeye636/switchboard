@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   formatUsageStatus,
   getUsageRefreshDelayMs,
+  withCachedUsageFallback,
 } = require('../public/usage-status');
 
 test('formatUsageStatus summarizes current usage buckets compactly', () => {
@@ -45,6 +46,34 @@ test('formatUsageStatus shows extra usage quota when rate-limit buckets are unav
     level: 'high',
     percent: 88,
   });
+});
+
+test('formatUsageStatus marks cached usage after an unavailable response', () => {
+  const result = formatUsageStatus({
+    extraUsage: 88,
+    extraUsageUsed: 176958,
+    extraUsageLimit: 200000,
+    extraUsageCurrency: 'USD',
+    _stale: true,
+    _staleMessage: 'Could not fetch usage',
+    _retryAfterSeconds: 300,
+  });
+
+  assert.equal(result.text, 'Quota: $1,769.58 / $2,000.00 (88%)');
+  assert.equal(result.level, 'high');
+  assert.match(result.title, /Using cached usage/);
+  assert.match(result.title, /Retrying in ~5 mins/);
+  assert.match(result.title, /Could not fetch usage/);
+});
+
+test('withCachedUsageFallback preserves last successful usage on unavailable response', () => {
+  const cached = { session: 20, extraUsage: 40 };
+  const result = withCachedUsageFallback({ _error: true, message: 'No token' }, cached);
+
+  assert.equal(result.session, 20);
+  assert.equal(result.extraUsage, 40);
+  assert.equal(result._stale, true);
+  assert.equal(result._staleMessage, 'No token');
 });
 
 test('formatUsageStatus returns useful rate-limit and error states', () => {

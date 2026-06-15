@@ -1476,8 +1476,9 @@ ipcMain.handle('updater-download', () => {
   return autoUpdater.downloadUpdate();
 });
 ipcMain.handle('updater-install', () => {
-  if (!autoUpdater) return;
-  autoUpdater.quitAndInstall();
+  if (!autoUpdater) return { ok: false, dev: true };
+  setImmediate(() => autoUpdater.quitAndInstall(false, true));
+  return { ok: true };
 });
 
 // --- App lifecycle ---

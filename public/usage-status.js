@@ -18,6 +18,13 @@
     return `Usage API rate limited. Try again in ~${mins} min${mins === 1 ? '' : 's'}.`;
   }
 
+  function retryTitle(seconds) {
+    const value = Number(seconds || 0);
+    if (!Number.isFinite(value) || value <= 0) return 'Retrying soon.';
+    const mins = Math.ceil(value / 60);
+    return `Retrying in ~${mins} min${mins === 1 ? '' : 's'}.`;
+  }
+
   function formatMoney(value, currency = 'USD') {
     const amount = Number(value || 0) / 100;
     try {
@@ -78,13 +85,17 @@
     }).filter(Boolean);
 
     if (items.length === 0) {
-      return quota || { text: '', title: '', level: 'empty', percent: null };
+      const status = quota || { text: '', title: '', level: 'empty', percent: null };
+      if (usage._stale && status.title) {
+        status.title = `${status.title} · Using cached usage. ${retryTitle(usage._retryAfterSeconds)}${usage._staleMessage ? ` Last error: ${usage._staleMessage}` : ''}`;
+      }
+      return status;
     }
 
     const sessionItem = items.find(item => item.key === 'session');
     const reset = sessionItem && usage.sessionReset ? ` · resets ${usage.sessionReset}` : '';
     const highest = Math.max(...items.map(item => item.value), quota?.percent || 0);
-    return {
+    const status = {
       text: `Usage: ${items.map(item => `${item.label} ${item.value}%`).join(' · ')}${quota ? ` · Quota ${quota.percent}%` : ''}`,
       title: sessionItem
         ? `Current 5-hour usage: ${sessionItem.value}%${reset}`
@@ -92,6 +103,10 @@
       level: highest >= 80 ? 'high' : 'normal',
       percent: highest,
     };
+    if (usage._stale) {
+      status.title = `${status.title} · Using cached usage. ${retryTitle(usage._retryAfterSeconds)}${usage._staleMessage ? ` Last error: ${usage._staleMessage}` : ''}`;
+    }
+    return status;
   }
 
   function getUsageRefreshDelayMs(usage = {}) {
@@ -102,5 +117,15 @@
     return 5 * 60 * 1000;
   }
 
-  return { formatUsageStatus, getUsageRefreshDelayMs };
+  function withCachedUsageFallback(usage = {}, cachedUsage = null) {
+    if (!usage?._error || !cachedUsage || cachedUsage._error || cachedUsage._rateLimited) return usage;
+    return {
+      ...cachedUsage,
+      _stale: true,
+      _staleMessage: usage.message || 'Could not fetch Claude usage data.',
+      _retryAfterSeconds: Math.ceil(getUsageRefreshDelayMs(usage) / 1000),
+    };
+  }
+
+  return { formatUsageStatus, getUsageRefreshDelayMs, withCachedUsageFallback };
 });
