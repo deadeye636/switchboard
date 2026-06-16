@@ -716,7 +716,11 @@ ipcMain.handle('get-usage', async () => {
     const usage = await fetchAndTransformUsage() || {};
     const result = withMainProcessUsageCache(usage, cachedUsage);
     if (result.cacheValue) {
-      setSetting('usage:lastSuccessful', result.cacheValue);
+      try {
+        setSetting('usage:lastSuccessful', result.cacheValue);
+      } catch (err) {
+        log.warn('[usage] failed to persist usage cache', err?.message || String(err));
+      }
       log.info('[usage] fetched fresh usage', { keys: Object.keys(usage).filter(key => !key.startsWith('_')) });
     } else if (result.fromCache) {
       log.warn('[usage] serving cached usage', {
