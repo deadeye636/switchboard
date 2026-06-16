@@ -72,6 +72,7 @@
     const visCountValue = fieldValue('visibleSessionCount', 10);
     const maxAgeValue = fieldValue('sessionMaxAgeDays', 3);
     const themeValue = fieldValue('terminalTheme', 'switchboard');
+    const rightClickValue = fieldValue('terminalRightClick', 'menu');
     const mcpEmulationValue = fieldValue('mcpEmulation', true);
     const restoreSessionsValue = fieldValue('restoreSessionsOnLaunch', true);
     const attentionHooksValue = fieldValue('attentionHooks', false);
@@ -208,6 +209,16 @@
                 `<option value="${key}" ${themeValue === key ? 'selected' : ''}>${escapeHtml(t.label)}</option>`
               ).join('')}
             </select>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Terminal Right-Click Menu</span>
+            <div class="settings-description">When on, right-click in the terminal shows a context menu with file-link actions (open in panel / system editor, copy path), copy and paste. When off, the native xterm behavior is used. Takes effect on the next right-click.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-right-click" ${rightClickValue !== 'default' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
           </div>
         </div>
 
@@ -389,6 +400,7 @@
         settings.visibleSessionCount = parseInt(settingsViewerBody.querySelector('#sv-visible-count').value) || 10;
         settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
+        settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').checked ? 'menu' : 'default';
         settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
         settings.restoreSessionsOnLaunch = settingsViewerBody.querySelector('#sv-restore-sessions').checked;
         settings.attentionHooks = settingsViewerBody.querySelector('#sv-attention-hooks').checked;
@@ -425,6 +437,9 @@
         }
         if (typeof window._applyNotificationSettings === 'function') {
           window._applyNotificationSettings(settings);
+        }
+        if (settings.terminalRightClick && typeof window._applyTerminalRightClick === 'function') {
+          window._applyTerminalRightClick(settings.terminalRightClick);
         }
         if (typeof refreshSidebar === 'function') refreshSidebar();
       }

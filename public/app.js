@@ -254,6 +254,10 @@ window._applyNotificationSettings = (settings) => {
 function getNextAttentionBinding() {
   return nextAttentionBinding;
 }
+
+// Live-apply the terminal right-click behavior (terminalRightClickMode lives in
+// terminal-context-menu.js); takes effect on the next right-click, no relaunch.
+window._applyTerminalRightClick = (mode) => { terminalRightClickMode = mode || 'menu'; };
 let searchMatchIds = null; // null = no search active; Set<string> = matched session IDs
 let searchMatchProjectPaths = null; // Set<string> of project paths matched by name
 
@@ -1931,6 +1935,7 @@ setTimeout(() => {
     if (global.notifications) {
       window._setNotificationSettings(global.notifications);
     }
+    if (global.terminalRightClick) terminalRightClickMode = global.terminalRightClick;
   }
 
   // Restore user-defined session groups (spec 07).
