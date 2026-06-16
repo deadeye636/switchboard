@@ -8,6 +8,7 @@ const log = require('electron-log');
 // getFolderIndexMtimeMs moved to session-cache.js
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rekeyMcpServer, cleanStaleLockFiles } = require('./mcp-bridge');
 const { fetchAndTransformUsage } = require('./claude-auth');
+const { withMainProcessUsageCache } = require('./usage-cache');
 log.transports.file.level = app.isPackaged ? 'info' : 'debug';
 log.transports.console.level = app.isPackaged ? 'info' : 'debug';
 
@@ -710,11 +711,26 @@ ipcMain.handle('refresh-stats', async () => {
 
 // --- IPC: get-usage (lightweight, API-only, no PTY) ---
 ipcMain.handle('get-usage', async () => {
+  const cachedUsage = getSetting('usage:lastSuccessful');
   try {
-    return await fetchAndTransformUsage() || {};
+    const usage = await fetchAndTransformUsage() || {};
+    const result = withMainProcessUsageCache(usage, cachedUsage);
+    if (result.cacheValue) {
+      setSetting('usage:lastSuccessful', result.cacheValue);
+      log.info('[usage] fetched fresh usage', { keys: Object.keys(usage).filter(key => !key.startsWith('_')) });
+    } else if (result.fromCache) {
+      log.warn('[usage] serving cached usage', {
+        reason: result.response._staleMessage,
+        cachedAt: result.response._cachedAt,
+      });
+    } else if (usage._error || usage._rateLimited) {
+      log.warn('[usage] usage unavailable', usage);
+    }
+    return result.response;
   } catch (err) {
     log.error('Error fetching usage:', err);
-    return {};
+    const result = withMainProcessUsageCache({ _error: true, message: err.message }, cachedUsage);
+    return result.response;
   }
 });
 
