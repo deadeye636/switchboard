@@ -11,6 +11,7 @@
 let gridCards = new Map(); // sessionId → card wrapper element
 let gridFocusedSessionId = null;
 let gridStatusFilter = localStorage.getItem('gridStatusFilter') || 'all';
+let gridGroupFilter = localStorage.getItem('gridGroupFilter') || 'all'; // 'all' | 'ungrouped' | groupId
 
 function getGridRuntimeState() {
   return {
@@ -34,8 +35,20 @@ function getGridOpenSessions() {
   return sessions;
 }
 
+function getGridGroupForSession(sessionId) {
+  if (typeof getGroupForSession !== 'function' || typeof groupsState === 'undefined') return null;
+  return getGroupForSession(groupsState, sessionId);
+}
+
 function getGridAllowedSessionIds() {
-  const filtered = getFilteredSessionsByStatus(getGridOpenSessions(), getGridRuntimeState(), gridStatusFilter);
+  let filtered = getFilteredSessionsByStatus(getGridOpenSessions(), getGridRuntimeState(), gridStatusFilter);
+  if (gridGroupFilter && gridGroupFilter !== 'all') {
+    filtered = filtered.filter(session => {
+      const group = getGridGroupForSession(session.sessionId);
+      if (gridGroupFilter === 'ungrouped') return !group;
+      return group && group.id === gridGroupFilter;
+    });
+  }
   return new Set(filtered.map(session => session.sessionId));
 }
 
@@ -66,12 +79,117 @@ function renderGridStatusFilters() {
     });
     container.appendChild(btn);
   }
+
+  renderGridGroupFilters(container);
 }
 
-function wrapInGridCard(sessionId) {
+// Group filter segment (spec 07): a divider plus an "All groups" / per-group /
+// "Ungrouped" control rendered alongside the status filters.
+function renderGridGroupFilters(container) {
+  if (typeof groupsState === 'undefined' || !groupsState.groups || groupsState.groups.length === 0) {
+    return;
+  }
+
+  const openSessionList = getGridOpenSessions();
+  const groupCounts = new Map();
+  let ungroupedCount = 0;
+  for (const session of openSessionList) {
+    const group = getGridGroupForSession(session.sessionId);
+    if (group) groupCounts.set(group.id, (groupCounts.get(group.id) || 0) + 1);
+    else ungroupedCount++;
+  }
+
+  const divider = document.createElement('span');
+  divider.className = 'grid-filter-divider';
+  divider.setAttribute('aria-hidden', 'true');
+  container.appendChild(divider);
+
+  const options = [['all', 'All groups', openSessionList.length]];
+  for (const group of [...groupsState.groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
+    options.push([group.id, group.name, groupCounts.get(group.id) || 0, group.color]);
+  }
+  if (ungroupedCount > 0) options.push(['ungrouped', 'Ungrouped', ungroupedCount]);
+
+  for (const [key, label, count, color] of options) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'grid-group-filter' + (gridGroupFilter === key ? ' active' : '');
+    btn.dataset.group = key;
+    if (color) {
+      const dot = document.createElement('span');
+      dot.className = 'grid-group-filter-dot';
+      dot.style.background = color;
+      btn.appendChild(dot);
+    }
+    const text = document.createElement('span');
+    text.textContent = `${label} ${count}`;
+    btn.appendChild(text);
+    btn.disabled = key !== 'all' && count === 0;
+    btn.addEventListener('click', () => {
+      gridGroupFilter = key;
+      localStorage.setItem('gridGroupFilter', gridGroupFilter);
+      showGridView();
+    });
+    container.appendChild(btn);
+  }
+}
+
+// Build a labeled grid region for a group (or the ungrouped pool). Appends the
+// region to #terminals and returns its inner cards container.
+function buildGridRegion(group, sessions) {
+  const counts = getStatusCounts(sessions, getGridRuntimeState());
+
+  const region = document.createElement('div');
+  region.className = 'grid-region' + (group ? '' : ' ungrouped');
+  region.dataset.groupId = group ? group.id : '';
+  if (group) region.style.setProperty('--user-group-color', group.color);
+
+  const header = document.createElement('div');
+  header.className = 'grid-region-header';
+
+  const dot = document.createElement('span');
+  dot.className = 'grid-region-dot';
+  header.appendChild(dot);
+
+  const name = document.createElement('span');
+  name.className = 'grid-region-name';
+  name.textContent = group ? group.name : 'Ungrouped';
+  header.appendChild(name);
+
+  const count = document.createElement('span');
+  count.className = 'grid-region-count';
+  count.textContent = `${sessions.length} session${sessions.length === 1 ? '' : 's'}`;
+  header.appendChild(count);
+
+  if (counts.attention > 0) {
+    const chip = document.createElement('span');
+    chip.className = 'grid-region-chip status-needs-attention';
+    chip.textContent = String(counts.attention);
+    chip.title = `${counts.attention} need${counts.attention === 1 ? 's' : ''} attention`;
+    header.appendChild(chip);
+  }
+  if (counts.ready > 0) {
+    const chip = document.createElement('span');
+    chip.className = 'grid-region-chip status-response-ready';
+    chip.textContent = String(counts.ready);
+    chip.title = `${counts.ready} ready`;
+    header.appendChild(chip);
+  }
+
+  const cardsEl = document.createElement('div');
+  cardsEl.className = 'grid-region-cards';
+
+  region.appendChild(header);
+  region.appendChild(cardsEl);
+  terminalsEl.appendChild(region);
+  return cardsEl;
+}
+
+function wrapInGridCard(sessionId, parent) {
   const entry = openSessions.get(sessionId);
   const session = sessionMap.get(sessionId) || (entry && entry.session);
   if (!session || !entry) return;
+  const target = parent || terminalsEl;
 
   const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary) || sessionId;
   const shortProject = session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '';
@@ -140,12 +258,7 @@ function wrapInGridCard(sessionId) {
   card.appendChild(entry.element);
   card.appendChild(footer);
 
-  if (gridViewActive) {
-    terminalsEl.appendChild(card);
-  } else {
-    // Not in grid view — just place where the terminal container was
-    terminalsEl.appendChild(card);
-  }
+  target.appendChild(card);
 
   // Click header or footer to focus
   const focusFromCardChrome = (e) => {
@@ -183,12 +296,15 @@ function unwrapGridCards() {
     const entry = openSessions.get(sid);
     if (entry) {
       entry.element.classList.remove('grid-mode', 'visible');
-      // Move terminal container back out of the card, before the card
-      card.parentNode.insertBefore(entry.element, card);
+      // Move terminal container back to #terminals (out of card/region)
+      terminalsEl.appendChild(entry.element);
     }
     card.remove();
   }
   gridCards.clear();
+  // Remove any group region containers and reset grouped layout
+  terminalsEl.querySelectorAll('.grid-region').forEach(el => el.remove());
+  terminalsEl.classList.remove('grid-grouped');
 }
 
 function focusGridCard(sessionId) {
@@ -234,22 +350,71 @@ function showGridView() {
   for (const [sid, entry] of openSessions) {
     if (!entry.closed) openSet.add(sid);
   }
-  const allowedSet = getGridAllowedSessionIds();
+  let allowedSet = getGridAllowedSessionIds();
   if (gridStatusFilter !== 'all' && allowedSet.size === 0) {
     gridStatusFilter = 'all';
     localStorage.setItem('gridStatusFilter', gridStatusFilter);
+    allowedSet = getGridAllowedSessionIds();
+    renderGridStatusFilters();
+  }
+  if (gridGroupFilter !== 'all' && allowedSet.size === 0) {
+    gridGroupFilter = 'all';
+    localStorage.setItem('gridGroupFilter', gridGroupFilter);
+    allowedSet = getGridAllowedSessionIds();
     renderGridStatusFilters();
   }
 
-  // Hide all terminals first, then wrap cards in sidebar display order.
+  // Hide all terminals first, then collect allowed session ids in sidebar order.
   document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('visible'));
-  const sessionIds = [];
+  const orderedSids = [];
   const sidebarItems = sidebarContent.querySelectorAll('.session-item[data-session-id]');
   for (const item of sidebarItems) {
     const sid = item.dataset.sessionId;
     if (!openSet.has(sid) || !allowedSet.has(sid)) continue;
-    wrapInGridCard(sid);
-    sessionIds.push(sid);
+    orderedSids.push(sid);
+  }
+
+  // Partition into user-group buckets (preserving sidebar order). When any
+  // open session belongs to a group, render bounded labeled regions; otherwise
+  // fall back to the flat grid to preserve the original layout.
+  const sessionFor = (sid) => sessionMap.get(sid) || openSessions.get(sid)?.session;
+  const groupBuckets = new Map();
+  const ungroupedSids = [];
+  for (const sid of orderedSids) {
+    const group = getGridGroupForSession(sid);
+    if (group) {
+      if (!groupBuckets.has(group.id)) groupBuckets.set(group.id, []);
+      groupBuckets.get(group.id).push(sid);
+    } else {
+      ungroupedSids.push(sid);
+    }
+  }
+
+  const sessionIds = [];
+  if (groupBuckets.size > 0) {
+    terminalsEl.classList.add('grid-grouped');
+    const orderedGroups = [...groupsState.groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    for (const group of orderedGroups) {
+      const bucket = groupBuckets.get(group.id);
+      if (!bucket || bucket.length === 0) continue;
+      const cardsEl = buildGridRegion(group, bucket.map(sessionFor).filter(Boolean));
+      for (const sid of bucket) {
+        wrapInGridCard(sid, cardsEl);
+        sessionIds.push(sid);
+      }
+    }
+    if (ungroupedSids.length > 0) {
+      const cardsEl = buildGridRegion(null, ungroupedSids.map(sessionFor).filter(Boolean));
+      for (const sid of ungroupedSids) {
+        wrapInGridCard(sid, cardsEl);
+        sessionIds.push(sid);
+      }
+    }
+  } else {
+    for (const sid of orderedSids) {
+      wrapInGridCard(sid);
+      sessionIds.push(sid);
+    }
   }
 
   // Show grid header bar with session count
@@ -258,6 +423,8 @@ function showGridView() {
 
   const btn = document.getElementById('grid-toggle-btn');
   if (btn) btn.classList.add('active');
+
+  updateGridColumns();
 
   // Fit all terminals after layout resolves
   for (const sid of sessionIds) {
@@ -274,6 +441,20 @@ function showGridView() {
 function updateGridColumns() {
   if (!gridViewActive) return;
   const width = terminalsEl.clientWidth;
+
+  // Grouped layout: each region container holds its own card grid.
+  if (terminalsEl.classList.contains('grid-grouped')) {
+    terminalsEl.style.gridTemplateColumns = '';
+    terminalsEl.classList.remove('grid-few-cards', 'grid-single-card');
+    for (const cardsEl of terminalsEl.querySelectorAll('.grid-region-cards')) {
+      const cardCount = cardsEl.querySelectorAll('.grid-card').length;
+      const cols = calculateGridColumnCount({ width, cardCount });
+      cardsEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      cardsEl.classList.toggle('grid-single-card', cardCount === 1);
+    }
+    return;
+  }
+
   const cardCount = terminalsEl.querySelectorAll('.grid-card').length;
   const cols = calculateGridColumnCount({ width, cardCount });
   terminalsEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
