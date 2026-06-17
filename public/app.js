@@ -105,6 +105,24 @@ window._applyTerminalTheme = (themeName) => {
     entry.element.style.backgroundColor = TERMINAL_THEME.background;
   }
 };
+
+// Cached copy of the global settings blob, kept in sync with the settings panel.
+// Used for the attention alert sound and the next-attention hotkey binding.
+let appGlobalSettings = {};
+let nextAttentionBinding =
+  typeof DEFAULT_NEXT_ATTENTION_BINDING !== 'undefined'
+    ? DEFAULT_NEXT_ATTENTION_BINDING
+    : { key: 'a', mod: true, shift: true, alt: false };
+
+window._applyNotificationSettings = (settings) => {
+  appGlobalSettings = settings || {};
+  const override = appGlobalSettings.shortcuts && appGlobalSettings.shortcuts.nextAttention;
+  if (override) nextAttentionBinding = override;
+};
+
+function getNextAttentionBinding() {
+  return nextAttentionBinding;
+}
 let searchMatchIds = null; // null = no search active; Set<string> = matched session IDs
 let searchMatchProjectPaths = null; // Set<string> of project paths matched by name
 
@@ -167,6 +185,69 @@ function refreshSessionStatusViews() {
   syncNativeNotifications();
 }
 
+// --- Next-attention focus (shared by the inbox button and the hotkey) ---
+function statusRuntime() {
+  return {
+    activePtyIds,
+    attentionSessions,
+    responseReadySessions,
+    sessionBusyState,
+    openSessions,
+    lastActivityTime,
+    activeSessionId,
+  };
+}
+
+// Open/focus a single attention inbox item. Shared so the sidebar "Focus next"
+// button and the keyboard shortcut stay in sync.
+function focusAttentionItem(item) {
+  if (item && item.session) openSession(item.session);
+}
+
+// Focus the next session needing attention (wrap-around handled by the helper).
+function focusNextAttention() {
+  if (typeof getNextAttentionInboxItem !== 'function') return;
+  const next = getNextAttentionInboxItem(getAllKnownSessionsForStatus(), statusRuntime(), activeSessionId);
+  focusAttentionItem(next);
+}
+
+// --- Attention alert sound (synthesized, no bundled binary) ---
+let _attentionAudioCtx = null;
+function playAttentionSound() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    _attentionAudioCtx = _attentionAudioCtx || new Ctx();
+    if (_attentionAudioCtx.state === 'suspended') _attentionAudioCtx.resume();
+    const ctx = _attentionAudioCtx;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    // Two-tone rising chime.
+    osc.frequency.setValueAtTime(880, now);
+    osc.frequency.setValueAtTime(1175, now + 0.12);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.15, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.34);
+  } catch {
+    // Audio is best-effort; never let it break status handling.
+  }
+}
+
+function maybePlayAttentionSound(prevAttention, nextAttention) {
+  if (typeof shouldPlayAttentionSound !== 'function') return;
+  const settings = {
+    sound: !!(appGlobalSettings.notifications && appGlobalSettings.notifications.sound),
+  };
+  if (shouldPlayAttentionSound({ prev: prevAttention, next: nextAttention, settings })) {
+    playAttentionSound();
+  }
+}
+
 function recordTimelineEvent(sessionId, kind, label, detail) {
   addTimelineEvent(sessionTimelineStore, sessionId, kind, label, { detail });
   if (timelineViewer.style.display !== 'none' && timelineViewer.dataset.sessionId === sessionId) {
@@ -220,11 +301,15 @@ function applyAttention(sessionId, signal) {
     const winner = reduceAttention(attentionReason.get(sessionId) || null, { reason, source });
     attentionReason.set(sessionId, winner);
     const wasAttention = attentionSessions.has(sessionId);
+    const prevAttention = new Set(attentionSessions);
     attentionSessions.add(sessionId);
     recordTimelineEvent(sessionId, 'needs-attention', 'Needs human attention', winner.reason);
     const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
     if (item) item.classList.add('needs-attention');
-    if (!wasAttention) refreshSessionStatusViews();
+    if (!wasAttention) {
+      refreshSessionStatusViews();
+      maybePlayAttentionSound(prevAttention, attentionSessions);
+    }
   } else if (kind === 'ready' || kind === 'idle') {
     // Agent finished / went idle → response-ready when unfocused (handled by setActivity).
     setActivity(sessionId, false);
@@ -1346,9 +1431,21 @@ initGridObservers();
       toggleGridView();
       return;
     }
+    // Cmd/Ctrl+Shift+A (data-driven) → focus next session needing attention
+    if (typeof isNextAttentionKey === 'function' && isNextAttentionKey(e, nextAttentionBinding)) {
+      e.preventDefault();
+      focusNextAttention();
+      return;
+    }
     // Session navigation: Cmd+Shift+[/], Cmd+Arrow
     handleSessionNavKey(e);
   });
+
+  // Tray "Focus next attention" menu item (spec 01); guarded so it's a no-op
+  // until that IPC bridge exists.
+  if (window.api && typeof window.api.onFocusNextAttention === 'function') {
+    window.api.onFocusNextAttention(() => focusNextAttention());
+  }
 }
 
 // Warm up xterm.js renderer so first terminal open is fast
@@ -1372,6 +1469,7 @@ setTimeout(() => {
 (async () => {
   const global = await window.api.getSetting('global');
   if (global) {
+    window._applyNotificationSettings(global);
     if (global.sidebarWidth) {
       document.getElementById('sidebar').style.width = global.sidebarWidth + 'px';
     }

@@ -727,7 +727,7 @@ function rebindSidebarEvents(projects) {
     nextAttentionBtn.onclick = (e) => {
       e.stopPropagation();
       const next = getNextAttentionInboxItem(getAllRenderableSessions(projects), getSessionRuntimeState(), activeSessionId);
-      if (next) openSession(next.session);
+      focusAttentionItem(next);
     };
   }
 
