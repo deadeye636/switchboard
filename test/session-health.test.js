@@ -91,6 +91,26 @@ test('getSessionHealth recommends handoff when multiple risk thresholds are cros
   ]);
 });
 
+test('getSessionHealth does not recommend handoff for a single user prompt', () => {
+  const result = getSessionHealth({
+    sessionId: 'single-prompt-long-run',
+    userMessageCount: 1,
+    messageCount: 360,
+    activeMinutes: 300,
+    cacheReadTokens: 25_000_000,
+    largestUserPromptWords: 2500,
+  });
+
+  assert.equal(result.state, 'marathon-risk');
+  assert.equal(result.shouldWarn, true);
+  assert.deepEqual(result.reasons.map(reason => reason.key), [
+    'entries',
+    'active-time',
+    'cache-read',
+    'big-paste',
+  ]);
+});
+
 test('buildHandoffTemplate produces a copyable markdown packet from local facts', () => {
   const text = buildHandoffTemplate({
     sessionId: 's1',
