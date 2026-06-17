@@ -7,6 +7,7 @@ const {
   getNextAttentionInboxItem,
   getStatusCounts,
   getFilteredSessionsByStatus,
+  getGridAutoOpenSessionIds,
 } = require('../public/session-status');
 
 function state(overrides = {}) {
@@ -150,4 +151,35 @@ test('status filters return sessions matching the requested grid mode', () => {
   assert.deepEqual(getFilteredSessionsByStatus(sessions, runtime, 'attention').map(s => s.sessionId), ['attention']);
   assert.deepEqual(getFilteredSessionsByStatus(sessions, runtime, 'ready').map(s => s.sessionId), ['ready']);
   assert.deepEqual(getFilteredSessionsByStatus(sessions, runtime, 'active').map(s => s.sessionId), ['busy', 'running']);
+});
+
+test('grid auto-open targets every live PTY that is not already open', () => {
+  const runtime = state({
+    activePtyIds: new Set(['a', 'b', 'c']),
+    openSessions: new Map([
+      ['a', { closed: false }],   // already open → skip
+      ['c', { closed: true }],    // closed entry → re-open
+    ]),
+  });
+
+  assert.deepEqual(getGridAutoOpenSessionIds(runtime), ['b', 'c']);
+});
+
+test('grid auto-open never surfaces idle/stopped sessions (no live PTY = nothing to open)', () => {
+  const runtime = state({
+    activePtyIds: new Set(),
+    openSessions: new Map([['idle', { closed: false }]]),
+  });
+
+  assert.deepEqual(getGridAutoOpenSessionIds(runtime), []);
+});
+
+test('grid auto-open opens all running sessions when none are mounted yet', () => {
+  const runtime = state({ activePtyIds: new Set(['x', 'y']) });
+  assert.deepEqual(getGridAutoOpenSessionIds(runtime), ['x', 'y']);
+});
+
+test('grid auto-open tolerates a missing runtime', () => {
+  assert.deepEqual(getGridAutoOpenSessionIds(), []);
+  assert.deepEqual(getGridAutoOpenSessionIds({}), []);
 });

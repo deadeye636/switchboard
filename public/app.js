@@ -1081,6 +1081,11 @@ async function pollActiveSessions() {
     activePtyIds = new Set(ids);
     updateRunningIndicators();
     updateTerminalHeader();
+    // While the grid is open, keep it filled with every running session — newly
+    // active sessions surface automatically (reattach only, never a new spawn).
+    if (gridViewActive && typeof ensureGridActiveSessionsMounted === 'function') {
+      ensureGridActiveSessionsMounted();
+    }
   } catch {}
   scheduleActiveSessionsPoll();
 }
@@ -1496,6 +1501,37 @@ async function openSession(session, customOptions) {
   pollActiveSessions();
 }
 
+// Mount (attach) an already-running session's terminal WITHOUT switching the
+// single-terminal view — used by the grid auto-open path so every active
+// session surfaces as a card without the user clicking it first. The session is
+// guaranteed live (it comes from activePtyIds), so the main-process
+// open-terminal handler takes its reattach branch: we attach to the existing
+// PTY and never spawn a new `claude` process. Returns true once a usable
+// terminal entry exists. Callers batch these and trigger a single grid rebuild.
+async function attachRunningSession(session) {
+  const { sessionId, projectPath } = session;
+  const existing = openSessions.get(sessionId);
+  if (existing) {
+    if (!existing.closed) return true; // already mounted — nothing to do
+    destroySession(sessionId);
+  }
+
+  const entry = createTerminalEntry(session);
+  // Resume options mirror openSession() (worktree stripped) so that, in the rare
+  // race where the PTY exited between the last poll and now, the fallback spawn
+  // still resumes the existing session rather than starting a fresh one.
+  const resumeOptions = await resolveDefaultSessionOptions({ projectPath });
+  if (resumeOptions) { delete resumeOptions.worktree; delete resumeOptions.worktreeName; }
+  const result = await window.api.openTerminal(sessionId, projectPath, false, resumeOptions);
+  if (!result || !result.ok) {
+    if (result && result.error) entry.terminal.write(`\r\nError: ${result.error}\r\n`);
+    entry.closed = true;
+    return false;
+  }
+  if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
+  return true;
+}
+
 // Handle window resize
 window.addEventListener('resize', () => {
   if (gridViewActive) {
@@ -1745,6 +1781,10 @@ loadProjects().then(async () => {
   // Restore grid view preference before opening sessions so they enter grid mode
   if (localStorage.getItem('gridViewActive') === '1') {
     showGridView();
+    // Auto-fill the grid with already-running sessions on launch. A fresh poll
+    // refreshes activePtyIds (the idle cadence may not have run yet); its
+    // handler then mounts them via ensureGridActiveSessionsMounted().
+    pollActiveSessions();
   }
   // An in-progress auto-update restart wins: it has its own one-shot blob and
   // shows the "Restored after update" toast. Don't also run the normal restore.

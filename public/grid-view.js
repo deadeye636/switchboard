@@ -1274,6 +1274,46 @@ function updateGridRegionCounts() {
   }
 }
 
+// Auto-open active sessions in the grid: every session with a live PTY should
+// surface as a card without the user clicking it in the sidebar first. We only
+// ATTACH to already-running PTYs (attachRunningSession reattaches; the main
+// process never spawns a new `claude` for an active session), so idle/stopped
+// sessions are never force-started. Mounts are batched and followed by a single
+// showGridView() rebuild + fit pass. Safe to call repeatedly: it no-ops when
+// there's nothing new to mount, when the grid is closed, or mid-gesture.
+let gridAutoMounting = false;
+async function ensureGridActiveSessionsMounted() {
+  if (!gridViewActive || gridAutoMounting || gridInteracting) return false;
+  if (typeof getGridAutoOpenSessionIds !== 'function' || typeof attachRunningSession !== 'function') {
+    return false;
+  }
+  // Only sessions we have metadata for can become cards; the rest are picked up
+  // on a later poll once loadProjects() populates sessionMap.
+  const toMount = getGridAutoOpenSessionIds(getGridRuntimeState())
+    .map(sid => sessionMap.get(sid))
+    .filter(Boolean);
+  if (toMount.length === 0) return false;
+
+  gridAutoMounting = true;
+  let mounted = 0;
+  try {
+    for (const session of toMount) {
+      // A concurrent path (manual click, restore) may have opened it while we
+      // awaited a previous attach — re-check before mounting again.
+      const entry = openSessions.get(session.sessionId);
+      if (entry && !entry.closed) continue;
+      if (await attachRunningSession(session)) mounted++;
+    }
+  } finally {
+    gridAutoMounting = false;
+  }
+
+  // One batched rebuild after all attaches land (skip if the view closed or a
+  // drag/resize started while we were awaiting).
+  if (mounted > 0 && gridViewActive && !gridInteracting) showGridView();
+  return mounted > 0;
+}
+
 function showGridView() {
   gridViewActive = true;
   localStorage.setItem('gridViewActive', '1');
@@ -1452,6 +1492,11 @@ function toggleGridView() {
   } else {
     terminalHeader.style.display = 'none';
     showGridView();
+    // Surface every currently-running session as a card. Kick a fresh poll so
+    // activePtyIds is current (it can be stale on the 30s idle cadence); the
+    // poll handler then auto-mounts via ensureGridActiveSessionsMounted().
+    if (typeof pollActiveSessions === 'function') pollActiveSessions();
+    else ensureGridActiveSessionsMounted();
   }
 }
 

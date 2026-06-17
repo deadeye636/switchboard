@@ -123,11 +123,30 @@
     });
   }
 
+  // Which sessions should the grid auto-open? Every session with a live PTY
+  // (activePtyIds) that isn't already mounted as an open terminal. These are
+  // genuinely-running sessions, so surfacing them only reattaches to an existing
+  // process — it never spawns a new `claude`. Sessions that are merely on disk
+  // but not running are deliberately excluded (auto-starting them would be
+  // costly and surprising). Already-open sessions (and closed entries pending
+  // cleanup) are skipped so we never double-open.
+  function getGridAutoOpenSessionIds(runtime = {}) {
+    const active = runtime.activePtyIds;
+    if (!active || typeof active[Symbol.iterator] !== 'function') return [];
+    const ids = [];
+    for (const sessionId of active) {
+      const entry = getMapValue(runtime.openSessions, sessionId);
+      if (!entry || entry.closed) ids.push(sessionId);
+    }
+    return ids;
+  }
+
   return {
     getSessionStatus,
     getAttentionInboxItems,
     getNextAttentionInboxItem,
     getStatusCounts,
     getFilteredSessionsByStatus,
+    getGridAutoOpenSessionIds,
   };
 });
