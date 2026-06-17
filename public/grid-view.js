@@ -68,6 +68,114 @@ function renderGridStatusFilters() {
   }
 }
 
+// --- Bulk actions (Spec 06) ---
+// Keep this block self-contained so it integrates cleanly alongside Spec 07's
+// header (group filter) edits.
+
+function gridSessionLabel(sessionId) {
+  const entry = openSessions.get(sessionId);
+  const session = sessionMap.get(sessionId) || (entry && entry.session);
+  return cleanDisplayName(session && (session.name || session.aiTitle || session.summary)) || sessionId;
+}
+
+function gridSessionProject(sessionId) {
+  const entry = openSessions.get(sessionId);
+  const session = sessionMap.get(sessionId) || (entry && entry.session);
+  if (!session || !session.projectPath) return '';
+  return session.projectPath.split('/').filter(Boolean).slice(-2).join('/');
+}
+
+function renderGridBulkActions() {
+  const container = document.getElementById('grid-bulk-actions');
+  if (!container) return;
+
+  const targets = bulkTargets(getGridOpenSessions(), getGridRuntimeState(), gridStatusFilter);
+  container.innerHTML = '';
+
+  const stepBtn = document.createElement('button');
+  stepBtn.type = 'button';
+  stepBtn.className = 'grid-bulk-btn';
+  stepBtn.innerHTML = '<span class="grid-bulk-icon" aria-hidden="true">▶</span> Step';
+  stepBtn.title = 'Focus the next session needing attention';
+  stepBtn.disabled = targets.queue.length === 0;
+  stepBtn.addEventListener('click', () => stepThroughQueue(targets.queue));
+  container.appendChild(stepBtn);
+
+  const seenBtn = document.createElement('button');
+  seenBtn.type = 'button';
+  seenBtn.className = 'grid-bulk-btn';
+  seenBtn.textContent = `Mark ${targets.readyToClear.length} ready seen`;
+  seenBtn.title = 'Clear the unread "ready" flag for every ready session in view';
+  seenBtn.disabled = targets.readyToClear.length === 0;
+  seenBtn.addEventListener('click', () => markAllReadySeen(targets.readyToClear));
+  container.appendChild(seenBtn);
+
+  const stopBtn = document.createElement('button');
+  stopBtn.type = 'button';
+  stopBtn.className = 'grid-bulk-btn grid-bulk-btn-danger';
+  stopBtn.textContent = `Stop ${targets.runningToStop.length} running`;
+  stopBtn.title = 'Stop every running session in view (asks for confirmation)';
+  stopBtn.disabled = targets.runningToStop.length === 0;
+  stopBtn.addEventListener('click', () => stopAllRunning(targets.runningToStop));
+  container.appendChild(stopBtn);
+}
+
+// Step ▶ — focus the next attention/ready session relative to the focused card,
+// wrapping around. Pure traversal, no confirmation.
+function stepThroughQueue(queue) {
+  if (!queue || queue.length === 0) return;
+  const currentIdx = queue.indexOf(gridFocusedSessionId);
+  const next = queue[(currentIdx + 1) % queue.length];
+  if (next) focusGridCard(next);
+}
+
+// Mark N ready seen — clear the unread flag for each ready session, with an
+// Undo toast that re-adds them to responseReadySessions.
+function markAllReadySeen(readyToClear) {
+  if (!readyToClear || readyToClear.length === 0) return;
+  const cleared = readyToClear.slice();
+  for (const sid of cleared) clearUnread(sid);
+  if (gridViewActive) showGridView();
+
+  const count = cleared.length;
+  showControlToast({
+    message: `Marked ${count} ready session${count !== 1 ? 's' : ''} as seen`,
+    actionLabel: 'Undo',
+    onAction: () => {
+      for (const sid of cleared) {
+        if (activePtyIds.has(sid)) responseReadySessions.add(sid);
+      }
+      refreshSessionStatusViews();
+    },
+  });
+}
+
+// Stop N running — destructive. Always confirm with counts + names before
+// terminating anything; cancel does nothing.
+async function stopAllRunning(runningToStop) {
+  if (!runningToStop || runningToStop.length === 0) return;
+  const ids = runningToStop.slice();
+  const count = ids.length;
+  const details = ids.map(sid => ({ label: gridSessionLabel(sid), value: gridSessionProject(sid) || '—' }));
+
+  const confirmed = await showControlDialog({
+    title: `Stop ${count} running session${count !== 1 ? 's' : ''}?`,
+    message: 'This terminates the running process for each session below. Their history stays available in the sidebar.',
+    confirmLabel: `Stop ${count} session${count !== 1 ? 's' : ''}`,
+    tone: 'danger',
+    details,
+  });
+  if (!confirmed) return;
+
+  for (const sid of ids) {
+    await window.api.stopSession(sid);
+    recordTimelineEvent(sid, 'stopped', 'Session stopped', 'Stopped via grid bulk action.');
+    activePtyIds.delete(sid);
+  }
+  refreshSidebar();
+  if (gridViewActive) showGridView();
+}
+
 function wrapInGridCard(sessionId) {
   const entry = openSessions.get(sessionId);
   const session = sessionMap.get(sessionId) || (entry && entry.session);
@@ -214,6 +322,7 @@ function showGridView() {
   gridViewActive = true;
   localStorage.setItem('gridViewActive', '1');
   renderGridStatusFilters();
+  renderGridBulkActions();
   unwrapGridCards();
   placeholder.style.display = 'none';
   terminalHeader.style.display = 'none';
@@ -239,6 +348,7 @@ function showGridView() {
     gridStatusFilter = 'all';
     localStorage.setItem('gridStatusFilter', gridStatusFilter);
     renderGridStatusFilters();
+    renderGridBulkActions();
   }
 
   // Hide all terminals first, then wrap cards in sidebar display order.
