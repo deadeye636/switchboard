@@ -5487,3 +5487,86 @@ body.grid-dragging .grid-card-header {
   outline-offset: 2px;
   border-radius: 8px;
 }
+
+/* ===== Snap layouts (Windows 11-style preset sizes, spec 08) ===== */
+.grid-card-snap-btn {
+  background: transparent;
+  border: none;
+  color: #808098;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.grid-card:hover .grid-card-snap-btn,
+.grid-card.focused .grid-card-snap-btn {
+  opacity: 0.7;
+}
+.grid-card-snap-btn:hover,
+.grid-card-snap-btn:focus-visible {
+  opacity: 1;
+  color: #8088ff;
+  background: rgba(128, 136, 255, 0.12);
+  outline: none;
+}
+
+.snap-layout-popover {
+  position: fixed;
+  z-index: 2000;
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  background: #1c1c26;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.snap-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 56px;
+  padding: 8px 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.12s;
+}
+.snap-tile:hover {
+  background: rgba(128, 136, 255, 0.14);
+  border-color: rgba(128, 136, 255, 0.5);
+}
+.snap-tile.active {
+  border-color: rgba(128, 136, 255, 0.8);
+  background: rgba(128, 136, 255, 0.1);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .snap-tile:hover { transform: translateY(-1px); }
+}
+
+.snap-tile-mini {
+  display: grid;
+  width: 34px;
+  height: 26px;
+  gap: 2px;
+}
+.snap-tile-cell {
+  background: #8088ff;
+  border-radius: 2px;
+  opacity: 0.85;
+}
+.snap-tile-label {
+  font-size: 10px;
+  color: #b0b0c4;
+  white-space: nowrap;
+}

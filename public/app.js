@@ -232,7 +232,7 @@ function announceAttentionSummary() {
 
 function refreshSessionStatusViews() {
   if (activeTab === 'sessions') refreshSidebar();
-  if (gridViewActive) showGridView();
+  if (gridViewActive) refreshGridView();
   announceAttentionSummary();
   syncNativeNotifications();
 }
@@ -1111,33 +1111,8 @@ function updateRunningIndicators() {
     const dot = group.querySelector('.slug-group-dot');
     if (dot) dot.classList.toggle('running', hasRunning);
   });
-  // Update grid card dots and status text
-  for (const [sid, card] of gridCards) {
-    const session = sessionMap.get(sid);
-    if (!session) continue;
-    const status = getSessionStatus(session, getGridRuntimeState());
-    const health = getSessionHealth(session);
-    const running = status.key === 'running' || status.key === 'busy' || status.key === 'needs-attention' || status.key === 'response-ready';
-    const dot = card.querySelector('.grid-card-dot');
-    if (dot) dot.className = 'grid-card-dot ' + (status.key === 'busy' ? 'busy' : (running ? 'running' : 'stopped'));
-    card.classList.remove('status-needs-attention', 'status-response-ready', 'status-busy', 'status-running', 'status-exited', 'status-idle', 'health-healthy', 'health-growing', 'health-marathon-risk', 'health-handoff-recommended');
-    card.classList.add(status.className, health.className);
-    const chip = card.querySelector('.grid-card-status-chip');
-    if (chip) {
-      chip.className = `grid-card-status-chip ${status.className}`;
-      chip.textContent = status.label;
-    }
-    const healthChip = card.querySelector('.grid-card-health-chip');
-    if (healthChip) {
-      healthChip.className = `grid-card-health-chip ${health.className}`;
-      healthChip.textContent = health.label;
-      healthChip.style.display = health.state === 'healthy' ? 'none' : '';
-    }
-    const footer = card.querySelector('.grid-card-footer');
-    if (footer) footer.children[0].textContent = status.label;
-    const stopBtn = card.querySelector('.grid-card-stop-btn');
-    if (stopBtn) stopBtn.style.display = running ? '' : 'none';
-  }
+  // Update grid card dots and status text in place (shared with refreshGridView).
+  if (typeof updateGridCardStatuses === 'function') updateGridCardStatuses();
   if (statusChanged) refreshSessionStatusViews();
 }
 

@@ -12,6 +12,10 @@ let gridCards = new Map(); // sessionId → card wrapper element
 let gridFocusedSessionId = null;
 let gridStatusFilter = localStorage.getItem('gridStatusFilter') || 'all';
 let gridGroupFilter = localStorage.getItem('gridGroupFilter') || 'all'; // 'all' | 'ungrouped' | groupId
+// True while a drag-reorder or resize gesture is in progress. Status ticks must
+// not tear down and rebuild the grid mid-gesture (it would detach the card the
+// user is holding), so refreshGridView() bails out while this is set.
+let gridInteracting = false;
 
 // Flexible grid layout (spec 08): per-session { order, colSpan, rowSpan } map,
 // persisted in localStorage like gridViewActive/gridStatusFilter.
@@ -385,6 +389,19 @@ function wrapInGridCard(sessionId, parent, layout) {
   project.textContent = shortProject;
   header.appendChild(project);
 
+  // Snap-layout button (spec 08) — Windows 11-style preset sizes.
+  const snapBtn = document.createElement('button');
+  snapBtn.className = 'grid-card-snap-btn';
+  snapBtn.type = 'button';
+  snapBtn.title = 'Snap layout';
+  snapBtn.setAttribute('aria-label', `Snap layout for ${displayName}`);
+  snapBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="13" height="13" rx="2"/><line x1="8" y1="1.5" x2="8" y2="14.5"/><line x1="1.5" y1="8" x2="14.5" y2="8"/></svg>';
+  snapBtn.onclick = (e) => {
+    e.stopPropagation();
+    toggleSnapLayoutPopover(sessionId, card, snapBtn);
+  };
+  header.appendChild(snapBtn);
+
   const stopBtn = document.createElement('button');
   stopBtn.className = 'grid-card-stop-btn';
   stopBtn.title = 'Stop session';
@@ -535,6 +552,7 @@ function startCardDrag(sessionId, card, e) {
     if (!dragging) {
       if (Math.hypot(dx, dy) < 6) return;
       dragging = true;
+      gridInteracting = true;
       card.classList.add('dragging');
       document.body.classList.add('grid-dragging');
       card.style.pointerEvents = 'none';
@@ -555,6 +573,7 @@ function startCardDrag(sessionId, card, e) {
       card.style.transform = '';
       card.style.zIndex = '';
       clearGridDropTargets();
+      gridInteracting = false;
     }
   };
 
@@ -613,6 +632,7 @@ function startCardResize(sessionId, card, e) {
   const maxCols = getContainerColumnCount(container);
   card.classList.add('resizing');
   document.body.classList.add('grid-dragging');
+  gridInteracting = true;
 
   const onMove = (ev) => {
     const dx = ev.clientX - e.clientX;
@@ -621,16 +641,7 @@ function startCardResize(sessionId, card, e) {
     const rawRows = Math.round((startRect.height + dy + GRID_GAP) / rowUnit);
     const span = normalizeSpan({ cols: rawCols, rows: rawRows }, maxCols);
     if (Number(card.dataset.colSpan) === span.cols && Number(card.dataset.rowSpan) === span.rows) return;
-    card.dataset.colSpan = span.cols;
-    card.dataset.rowSpan = span.rows;
-    card.style.gridColumn = `span ${span.cols}`;
-    card.style.gridRow = `span ${span.rows}`;
-    const prev = gridLayout[sessionId] || {};
-    gridLayout[sessionId] = {
-      order: Number.isFinite(prev.order) ? prev.order : 0,
-      colSpan: span.cols,
-      rowSpan: span.rows,
-    };
+    writeCardSpan(sessionId, card, span);
     debouncedFit(sessionId);
   };
 
@@ -639,6 +650,7 @@ function startCardResize(sessionId, card, e) {
     document.removeEventListener('pointerup', onUp);
     card.classList.remove('resizing');
     document.body.classList.remove('grid-dragging');
+    gridInteracting = false;
     persistGridOrder();
     updateGridColumns();
     const entry = openSessions.get(sessionId);
@@ -649,9 +661,130 @@ function startCardResize(sessionId, card, e) {
   document.addEventListener('pointerup', onUp);
 }
 
+// Write a span onto a card + the persisted layout map (no fit/persist-order;
+// callers decide when to reflow). Shared by drag-resize and snap presets.
+function writeCardSpan(sessionId, card, span) {
+  card.dataset.colSpan = span.cols;
+  card.dataset.rowSpan = span.rows;
+  card.style.gridColumn = `span ${span.cols}`;
+  card.style.gridRow = `span ${span.rows}`;
+  const prev = gridLayout[sessionId] || {};
+  gridLayout[sessionId] = {
+    order: Number.isFinite(prev.order) ? prev.order : 0,
+    colSpan: span.cols,
+    rowSpan: span.rows,
+  };
+}
+
+// Apply a discrete preset size to a card (Windows 11-style snap), clamped to the
+// columns currently available in its container, then persist + reflow.
+function applyCardSnap(sessionId, cols, rows) {
+  const card = gridCards.get(sessionId);
+  if (!card) return;
+  const maxCols = getContainerColumnCount(card.parentElement);
+  const span = normalizeSpan({ cols, rows }, maxCols);
+  writeCardSpan(sessionId, card, span);
+  saveGridLayout();
+  updateGridColumns();
+  const entry = openSessions.get(sessionId);
+  if (entry) fitAndScroll(entry);
+}
+
+let snapPopoverEl = null;
+function closeSnapLayoutPopover() {
+  if (snapPopoverEl) {
+    snapPopoverEl.remove();
+    snapPopoverEl = null;
+    document.removeEventListener('pointerdown', onSnapPopoverOutside, true);
+    document.removeEventListener('keydown', onSnapPopoverKey, true);
+  }
+}
+function onSnapPopoverOutside(e) {
+  if (snapPopoverEl && !snapPopoverEl.contains(e.target) && !e.target.closest('.grid-card-snap-btn')) {
+    closeSnapLayoutPopover();
+  }
+}
+function onSnapPopoverKey(e) {
+  if (e.key === 'Escape') closeSnapLayoutPopover();
+}
+
+// Windows 11-style snap layouts: a popover of preset size tiles. Each tile is a
+// miniature of the resulting span; clicking snaps the card to that size.
+function toggleSnapLayoutPopover(sessionId, card, anchor) {
+  if (snapPopoverEl && snapPopoverEl.dataset.sessionId === sessionId) {
+    closeSnapLayoutPopover();
+    return;
+  }
+  closeSnapLayoutPopover();
+
+  const maxCols = Math.max(1, getContainerColumnCount(card.parentElement));
+  // Presets clamped to what currently fits: single, wide, tall, large, full-width.
+  const presets = [
+    { cols: 1, rows: 1, label: 'Single' },
+    { cols: 2, rows: 1, label: 'Wide' },
+    { cols: 1, rows: 2, label: 'Tall' },
+    { cols: 2, rows: 2, label: 'Large' },
+    { cols: maxCols, rows: 1, label: 'Full width' },
+  ];
+  const seen = new Set();
+  const usable = presets
+    .map(p => ({ ...p, cols: Math.min(p.cols, maxCols) }))
+    .filter(p => {
+      const key = `${p.cols}x${p.rows}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+  const pop = document.createElement('div');
+  pop.className = 'snap-layout-popover';
+  pop.dataset.sessionId = sessionId;
+  const curCols = Number(card.dataset.colSpan) || 1;
+  const curRows = Number(card.dataset.rowSpan) || 1;
+
+  for (const preset of usable) {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'snap-tile';
+    if (preset.cols === curCols && preset.rows === curRows) tile.classList.add('active');
+    tile.title = `${preset.label} (${preset.cols}×${preset.rows})`;
+    const mini = document.createElement('span');
+    mini.className = 'snap-tile-mini';
+    mini.style.gridTemplateColumns = `repeat(${Math.min(preset.cols, 3)}, 1fr)`;
+    mini.style.gridTemplateRows = `repeat(${preset.rows}, 1fr)`;
+    const cell = document.createElement('span');
+    cell.className = 'snap-tile-cell';
+    cell.style.gridColumn = `span ${Math.min(preset.cols, 3)}`;
+    cell.style.gridRow = `span ${preset.rows}`;
+    mini.appendChild(cell);
+    tile.appendChild(mini);
+    const label = document.createElement('span');
+    label.className = 'snap-tile-label';
+    label.textContent = preset.label;
+    tile.appendChild(label);
+    tile.addEventListener('click', (e) => {
+      e.stopPropagation();
+      applyCardSnap(sessionId, preset.cols, preset.rows);
+      closeSnapLayoutPopover();
+    });
+    pop.appendChild(tile);
+  }
+
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.top = `${Math.round(r.bottom + 6)}px`;
+  // Keep within the viewport's right edge.
+  const left = Math.min(r.left, window.innerWidth - pop.offsetWidth - 8);
+  pop.style.left = `${Math.round(Math.max(8, left))}px`;
+  snapPopoverEl = pop;
+  document.addEventListener('pointerdown', onSnapPopoverOutside, true);
+  document.addEventListener('keydown', onSnapPopoverKey, true);
+}
+
 function resetGridLayout() {
   gridLayout = {};
   saveGridLayout();
+  closeSnapLayoutPopover();
   if (gridViewActive) showGridView();
 }
 
@@ -688,6 +821,117 @@ function focusGridCard(sessionId) {
   }
   const entry = openSessions.get(sessionId);
   if (entry) entry.terminal.focus();
+}
+
+// The set of session ids the grid should currently render, in sidebar order.
+// Mirrors the selection showGridView() performs.
+function gridDesiredSids() {
+  const openSet = new Set();
+  for (const [sid, entry] of openSessions) {
+    if (!entry.closed) openSet.add(sid);
+  }
+  const allowedSet = getGridAllowedSessionIds();
+  const ids = [];
+  for (const item of sidebarContent.querySelectorAll('.session-item[data-session-id]')) {
+    const sid = item.dataset.sessionId;
+    if (!openSet.has(sid) || !allowedSet.has(sid)) continue;
+    ids.push(sid);
+  }
+  return ids;
+}
+
+// Decide whether the grid must be fully rebuilt (membership or group placement
+// changed) versus just updated in place. Card ORDER and spans are intentionally
+// not treated as rebuild triggers — they're owned by the user's drag/resize and
+// must survive status ticks.
+function gridNeedsRebuild() {
+  const desired = gridDesiredSids();
+  if (desired.length !== gridCards.size) return true;
+  for (const sid of desired) {
+    const card = gridCards.get(sid);
+    if (!card) return true;
+    const group = getGridGroupForSession(sid);
+    const region = card.closest('.grid-region');
+    const renderedGroupId = region ? (region.dataset.groupId || '') : '';
+    if ((group ? group.id : '') !== renderedGroupId) return true;
+  }
+  return false;
+}
+
+// Refresh the grid in response to a status tick. Never rebuilds mid-gesture;
+// otherwise updates card status/dots/chips in place and only does a full
+// rebuild when the rendered session set or grouping actually changed.
+function refreshGridView() {
+  if (!gridViewActive) return;
+  if (gridInteracting) return;
+  if (gridCards.size === 0 || gridNeedsRebuild()) {
+    showGridView();
+    return;
+  }
+  updateGridCardStatuses();
+  renderGridStatusFilters();
+  renderGridBulkActions();
+  updateGridRegionCounts();
+}
+
+// Update each rendered grid card's status/health visuals in place — no teardown,
+// so layout (order + spans) and any in-progress gesture are preserved. Shared by
+// refreshGridView() and updateRunningIndicators().
+function updateGridCardStatuses() {
+  for (const [sid, card] of gridCards) {
+    const session = sessionMap.get(sid) || openSessions.get(sid)?.session;
+    if (!session) continue;
+    const status = getSessionStatus(session, getGridRuntimeState());
+    const health = getSessionHealth(session);
+    const running = status.key === 'running' || status.key === 'busy'
+      || status.key === 'needs-attention' || status.key === 'response-ready';
+    const dot = card.querySelector('.grid-card-dot');
+    if (dot) dot.className = 'grid-card-dot ' + (status.key === 'busy' ? 'busy' : (running ? 'running' : 'stopped'));
+    card.classList.remove('status-needs-attention', 'status-response-ready', 'status-busy', 'status-running', 'status-exited', 'status-idle', 'health-healthy', 'health-growing', 'health-marathon-risk', 'health-handoff-recommended');
+    card.classList.add(status.className, health.className);
+    const chip = card.querySelector('.grid-card-status-chip');
+    if (chip) {
+      chip.className = `grid-card-status-chip ${status.className}`;
+      chip.textContent = status.label;
+    }
+    const healthChip = card.querySelector('.grid-card-health-chip');
+    if (healthChip) {
+      healthChip.className = `grid-card-health-chip ${health.className}`;
+      healthChip.textContent = health.label;
+      healthChip.style.display = health.state === 'healthy' ? 'none' : '';
+    }
+    const footer = card.querySelector('.grid-card-footer');
+    if (footer && footer.children[0]) footer.children[0].textContent = status.label;
+    const stopBtn = card.querySelector('.grid-card-stop-btn');
+    if (stopBtn) stopBtn.style.display = running ? '' : 'none';
+  }
+}
+
+// Recompute the rolled-up attention/ready chips on each group region header
+// without rebuilding the regions.
+function updateGridRegionCounts() {
+  for (const region of terminalsEl.querySelectorAll('.grid-region')) {
+    const sids = [...region.querySelectorAll('.grid-card')].map(c => c.dataset.sessionId);
+    const sessions = sids.map(sid => sessionMap.get(sid) || openSessions.get(sid)?.session).filter(Boolean);
+    const counts = getStatusCounts(sessions, getGridRuntimeState());
+    const setChip = (cls, value, label) => {
+      let chip = region.querySelector(`.grid-region-chip.${cls}`);
+      if (value > 0) {
+        if (!chip) {
+          chip = document.createElement('span');
+          chip.className = `grid-region-chip ${cls}`;
+          const countEl = region.querySelector('.grid-region-count');
+          if (countEl) countEl.after(chip); else region.querySelector('.grid-region-header')?.appendChild(chip);
+        }
+        chip.textContent = String(value);
+        chip.title = label(value);
+      } else if (chip) {
+        chip.remove();
+      }
+    };
+    setChip('status-needs-attention', counts.attention, (n) => `${n} need${n === 1 ? 's' : ''} attention`);
+    setChip('status-response-ready', counts.ready, (n) => `${n} ready`);
+  }
 }
 
 function showGridView() {
@@ -840,6 +1084,7 @@ function initGridObservers() {
 function hideGridView() {
   gridViewActive = false;
   localStorage.setItem('gridViewActive', '0');
+  closeSnapLayoutPopover();
   unwrapGridCards();
   terminalsEl.classList.remove('grid-layout');
   terminalsEl.classList.remove('grid-few-cards', 'grid-single-card');
