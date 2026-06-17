@@ -119,7 +119,8 @@ let searchMatchProjectPaths = null; // Set<string> of project paths matched by n
 //   active=false → response-ready if not focused (terminal state until user clicks)
 // OSC 0 idle signal is the authoritative source for marking sessions as idle.
 //
-const attentionSessions = new Set(); // sessions needing user action (OSC 9)
+const attentionSessions = new Set(); // sessions needing user action (OSC 9 or hook)
+const attentionReason = new Map(); // sessionId → { reason, source } — for hook>osc9 precedence
 const responseReadySessions = new Set(); // Claude finished, user hasn't looked (terminal state)
 const sessionBusyState = new Map(); // sessionId → boolean (currently active)
 const lastActivityTime = new Map(); // sessionId → Date of last terminal output
@@ -206,6 +207,31 @@ function setActivity(sessionId, active) {
   if (wasActive !== active) refreshSessionStatusViews();
 }
 
+// Single funnel for both attention sources (OSC-9 heuristic + Claude Code hooks).
+// `signal` is the normalized output of classifyAttentionSignal: { kind, reason, source }.
+function applyAttention(sessionId, signal) {
+  if (!signal) return;
+  const { kind, reason, source } = signal;
+
+  if (kind === 'needs-attention') {
+    // Focused session needs no inbox flag — the user is already looking at it.
+    if (sessionId === activeSessionId) return;
+    const winner = reduceAttention(attentionReason.get(sessionId) || null, { reason, source });
+    attentionReason.set(sessionId, winner);
+    const wasAttention = attentionSessions.has(sessionId);
+    attentionSessions.add(sessionId);
+    recordTimelineEvent(sessionId, 'needs-attention', 'Needs human attention', winner.reason);
+    const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+    if (item) item.classList.add('needs-attention');
+    if (!wasAttention) refreshSessionStatusViews();
+  } else if (kind === 'ready' || kind === 'idle') {
+    // Agent finished / went idle → response-ready when unfocused (handled by setActivity).
+    setActivity(sessionId, false);
+  } else if (kind === 'busy') {
+    setActivity(sessionId, true);
+  }
+}
+
 // Terminal output activity — updates lastActivityTime only, busy state driven by backend
 function trackActivity(sessionId, data) {
   if (activityNoiseRe.test(data)) return;
@@ -224,6 +250,7 @@ function clearUnread(sessionId) {
 function clearNotifications(sessionId) {
   clearUnread(sessionId);
   const changed = attentionSessions.delete(sessionId);
+  attentionReason.delete(sessionId);
   const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
   if (item) item.classList.remove('needs-attention');
   if (changed) refreshSessionStatusViews();
@@ -399,30 +426,28 @@ window.api.onProcessExited((sessionId, exitCode) => {
 });
 
 // --- Terminal notifications (iTerm2 OSC 9 — "needs attention") ---
+// The OSC-9 regex now lives in public/attention-source.js (one source of truth,
+// shared with the hook path). classifyAttentionSignal returns needs-attention for
+// the four CLI notification types and ready for "waiting for your input".
 window.api.onTerminalNotification((sessionId, message) => {
-  // Only mark as needing attention for "attention" messages, not "waiting for input"
-  // Matches all four CLI notification types:
-  // 1. "Claude Code needs your attention"         → attention
-  // 2. "Claude Code needs your approval for the plan" → approval, needs your
-  // 3. "Claude needs your permission to use {tool}"   → permission, needs your
-  // 4. "Claude Code wants to enter plan mode"         → wants to enter
-  if (/attention|approval|permission|needs your|wants to enter/i.test(message) && sessionId !== activeSessionId) {
-    const wasAttention = attentionSessions.has(sessionId);
-    attentionSessions.add(sessionId);
-    recordTimelineEvent(sessionId, 'needs-attention', 'Needs human attention', message);
-    const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-    if (item) item.classList.add('needs-attention');
-    if (!wasAttention) refreshSessionStatusViews();
-  } else if (/waiting for your input/i.test(message)) {
-    // "Claude is waiting for your input" — delayed idle notification, mark response-ready
-    setActivity(sessionId, false);
-  }
+  applyAttention(sessionId, classifyAttentionSignal({ source: 'osc9', payload: message }));
 
   // Show in header if active
   if (sessionId === activeSessionId && terminalHeaderPtyTitle) {
     terminalHeaderPtyTitle.textContent = message;
     terminalHeaderPtyTitle.style.display = '';
   }
+});
+
+// --- Structured attention signals from Claude Code hooks (spec 05) ---
+// main.js already normalized the raw hook JSON via attention-source.js; trust it.
+window.api.onAttentionSignal((signal) => {
+  if (!signal || !signal.sessionId) return;
+  applyAttention(signal.sessionId, {
+    kind: signal.kind,
+    reason: signal.reason,
+    source: signal.source || 'hook',
+  });
 });
 
 // --- CLI busy state (OSC 0 title spinner detection) ---
@@ -677,6 +702,7 @@ function updateRunningIndicators() {
       }
       item.classList.remove('needs-attention', 'response-ready', 'cli-busy');
       attentionSessions.delete(id);
+      attentionReason.delete(id);
       responseReadySessions.delete(id);
       sessionBusyState.delete(id);
     }
