@@ -130,6 +130,61 @@ function removeUserGroup(groupId) {
   refreshSidebar();
   if (gridViewActive) showGridView();
 }
+
+// All session ids currently assigned to a group (independent of sidebar filters,
+// open state, or whether their metadata is loaded). Returned in assignment order.
+function getGroupMemberSessionIds(groupId) {
+  if (!groupId || typeof groupsState === 'undefined' || !groupsState.assignments) return [];
+  return Object.keys(groupsState.assignments).filter(sid => groupsState.assignments[sid] === groupId);
+}
+
+// One-click "Launch all" for a user group. Explicit user intent, so — unlike the
+// grid auto-open which only re-attaches already-running PTYs — this opens EVERY
+// member that isn't already mounted: running members re-attach, stopped members
+// resume/start. attachRunningSession() handles both transparently (its
+// openTerminal call re-attaches when the PTY is live, otherwise resumes), so we
+// reuse it for all members and batch the mounts into a single view refresh + fit
+// pass instead of N re-renders. Already-open members are skipped (no double-open).
+async function launchAllInGroup(groupId) {
+  const memberIds = getGroupMemberSessionIds(groupId);
+  const toLaunch = (typeof getSessionsToLaunch === 'function'
+    ? getSessionsToLaunch(memberIds, { openSessions })
+    : memberIds.filter(sid => { const e = openSessions.get(sid); return !e || e.closed; }))
+    .map(sid => sessionMap.get(sid))
+    .filter(Boolean);
+
+  if (toLaunch.length === 0) {
+    if (typeof showControlToast === 'function') {
+      showControlToast({ message: 'All sessions in this group are already open.', timeoutMs: 3000 });
+    }
+    return 0;
+  }
+
+  // Batch the mounts (no per-session view switch), then refresh views once.
+  let launched = 0;
+  for (const session of toLaunch) {
+    if (await attachRunningSession(session)) launched++;
+  }
+  // Some members may have been freshly spawned — refresh active PTY tracking.
+  pollActiveSessions();
+
+  const openedIds = toLaunch
+    .map(s => s.sessionId)
+    .filter(sid => { const e = openSessions.get(sid); return e && !e.closed; });
+
+  // Multiple sessions → show them all at once in the grid. A single launch just
+  // opens in the current view so we don't yank the user into the grid needlessly.
+  if (openedIds.length >= 2) {
+    showGridView(); // sets/keeps grid active and rebuilds once with the new cards
+    const focusId = openedIds[0];
+    requestAnimationFrame(() => { if (typeof focusGridCard === 'function') focusGridCard(focusId); });
+  } else if (openedIds.length === 1) {
+    if (gridViewActive) showGridView();
+    else showSession(openedIds[0]);
+  }
+  refreshSidebar();
+  return launched;
+}
 let showArchived = false;
 let showStarredOnly = false;
 let showRunningOnly = false;

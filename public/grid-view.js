@@ -375,6 +375,27 @@ function buildGridRegion(group, sessions) {
     header.appendChild(chip);
   }
 
+  // "Launch all" for real user groups (not the ungrouped pool). Opens every
+  // group member — including ones not yet surfaced in the grid — via the shared
+  // launchAllInGroup() path. stopPropagation so it doesn't toggle the region.
+  if (group && typeof launchAllInGroup === 'function') {
+    const launchBtn = document.createElement('button');
+    launchBtn.type = 'button';
+    launchBtn.className = 'grid-region-launch-btn';
+    const memberCount = (typeof getGroupMemberSessionIds === 'function')
+      ? getGroupMemberSessionIds(group.id).length
+      : sessions.length;
+    const launchLabel = `Launch all ${memberCount} session${memberCount === 1 ? '' : 's'} in ${group.name}`;
+    launchBtn.title = launchLabel;
+    launchBtn.setAttribute('aria-label', launchLabel);
+    launchBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+    launchBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      launchAllInGroup(group.id);
+    });
+    header.appendChild(launchBtn);
+  }
+
   const cardsEl = document.createElement('div');
   cardsEl.className = 'grid-region-cards';
 

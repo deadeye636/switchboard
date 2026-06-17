@@ -343,6 +343,15 @@ function buildUserGroup(group, sessions) {
     chips.appendChild(chip);
   }
 
+  // One-click launcher for every session in the group (attach running ones,
+  // resume the rest). Hidden until header hover, mirroring the menu button.
+  const launchLabel = `Launch all ${sessions.length} session${sessions.length === 1 ? '' : 's'} in ${group.name}`;
+  const launchBtn = document.createElement('button');
+  launchBtn.className = 'user-group-launch-btn';
+  launchBtn.title = launchLabel;
+  launchBtn.setAttribute('aria-label', launchLabel);
+  launchBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+
   const menuBtn = document.createElement('button');
   menuBtn.className = 'user-group-menu-btn';
   menuBtn.title = 'Group options';
@@ -358,6 +367,7 @@ function buildUserGroup(group, sessions) {
   // group still signals supervision needs; only mount them when non-empty so an
   // empty span doesn't introduce a stray flex gap.
   if (chips.childElementCount > 0) row.appendChild(chips);
+  row.appendChild(launchBtn);
   row.appendChild(menuBtn);
   header.appendChild(row);
 
@@ -1057,8 +1067,15 @@ function rebindSidebarEvents(projects) {
         showGroupMenu(groupId, menuBtn);
       };
     }
+    const launchBtn = header.querySelector('.user-group-launch-btn');
+    if (launchBtn && groupId) {
+      launchBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (typeof launchAllInGroup === 'function') launchAllInGroup(groupId);
+      };
+    }
     const toggleUserGroup = (e) => {
-      if (e.target.closest('.user-group-menu-btn')) return;
+      if (e.target.closest('.user-group-menu-btn, .user-group-launch-btn')) return;
       container.classList.toggle('collapsed');
       saveCollapsedGroups();
     };

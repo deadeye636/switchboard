@@ -141,6 +141,25 @@
     return ids;
   }
 
+  // Of the given member session ids, which still need launching? A session needs
+  // launching when it has no live terminal entry (or its entry is closed/exited).
+  // Used by the group "Launch all" action to skip already-open sessions and never
+  // double-open. Pure — order-preserving and de-duped. Unlike grid auto-open this
+  // does NOT inspect activePtyIds: the caller launches running and stopped members
+  // alike (attach vs resume), so the only thing to skip is what's already mounted.
+  function getSessionsToLaunch(sessionIds, runtime = {}) {
+    if (!sessionIds || typeof sessionIds[Symbol.iterator] !== 'function') return [];
+    const seen = new Set();
+    const result = [];
+    for (const sessionId of sessionIds) {
+      if (!sessionId || seen.has(sessionId)) continue;
+      seen.add(sessionId);
+      const entry = getMapValue(runtime.openSessions, sessionId);
+      if (!entry || entry.closed) result.push(sessionId);
+    }
+    return result;
+  }
+
   return {
     getSessionStatus,
     getAttentionInboxItems,
@@ -148,5 +167,6 @@
     getStatusCounts,
     getFilteredSessionsByStatus,
     getGridAutoOpenSessionIds,
+    getSessionsToLaunch,
   };
 });
