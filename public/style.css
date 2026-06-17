@@ -5158,3 +5158,87 @@ input:focus-visible {
 .grid-region-cards.grid-single-card {
   grid-template-columns: 1fr !important;
 }
+
+/* ===== Flexible grid layout: resize / drag / reset (spec 08) ===== */
+
+#grid-reset-layout-btn {
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.03);
+  color: #9a9ab0;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+#grid-reset-layout-btn:hover,
+#grid-reset-layout-btn:focus-visible {
+  color: #e0e0f0;
+  border-color: rgba(128,136,255,0.4);
+  background: rgba(128,136,255,0.12);
+  outline: none;
+}
+
+/* Cards anchor the corner resize handle and host drag/drop affordances. */
+.grid-card {
+  position: relative;
+}
+
+.grid-card-resize-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  color: #8088ff;
+  cursor: nwse-resize;
+  opacity: 0;
+  z-index: 6;
+  touch-action: none;
+}
+.grid-card:hover .grid-card-resize-handle,
+.grid-card.focused .grid-card-resize-handle,
+.grid-card.resizing .grid-card-resize-handle {
+  opacity: 0.65;
+}
+.grid-card-resize-handle:hover {
+  opacity: 1;
+}
+
+.grid-card-header {
+  touch-action: none;
+}
+
+/* Drag affordances */
+body.grid-dragging,
+body.grid-dragging .grid-card-header {
+  cursor: grabbing;
+}
+.grid-card.dragging {
+  opacity: 0.55;
+}
+.grid-card.resizing {
+  outline: 1px solid rgba(128,136,255,0.5);
+  outline-offset: -1px;
+}
+
+/* Reorder insertion indicators */
+.grid-card.drop-before {
+  box-shadow: inset 3px 0 0 #8088ff;
+}
+.grid-card.drop-after {
+  box-shadow: inset -3px 0 0 #8088ff;
+}
+
+/* Group region highlighted as a drop target for reassignment */
+.grid-region.drop-region {
+  outline: 2px dashed color-mix(in srgb, var(--user-group-color, #8088ff) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}

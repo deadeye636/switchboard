@@ -13,6 +13,43 @@ let gridFocusedSessionId = null;
 let gridStatusFilter = localStorage.getItem('gridStatusFilter') || 'all';
 let gridGroupFilter = localStorage.getItem('gridGroupFilter') || 'all'; // 'all' | 'ungrouped' | groupId
 
+// Flexible grid layout (spec 08): per-session { order, colSpan, rowSpan } map,
+// persisted in localStorage like gridViewActive/gridStatusFilter.
+let gridLayout = loadGridLayout();
+const gridFitTimers = new Map(); // sessionId → debounce timer for fitAndScroll
+
+function loadGridLayout() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('gridLayout') || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveGridLayout() {
+  try {
+    localStorage.setItem('gridLayout', JSON.stringify(gridLayout));
+  } catch {
+    /* storage full / unavailable — layout simply won't persist */
+  }
+}
+
+function gridReducedMotion() {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+// Debounce xterm reflow so a card only re-fits once a resize drag settles.
+function debouncedFit(sessionId) {
+  const existing = gridFitTimers.get(sessionId);
+  if (existing) clearTimeout(existing);
+  gridFitTimers.set(sessionId, setTimeout(() => {
+    gridFitTimers.delete(sessionId);
+    const entry = openSessions.get(sessionId);
+    if (entry) fitAndScroll(entry);
+  }, 90));
+}
+
 function getGridRuntimeState() {
   return {
     activePtyIds,
@@ -185,7 +222,7 @@ function buildGridRegion(group, sessions) {
   return cardsEl;
 }
 
-function wrapInGridCard(sessionId, parent) {
+function wrapInGridCard(sessionId, parent, layout) {
   const entry = openSessions.get(sessionId);
   const session = sessionMap.get(sessionId) || (entry && entry.session);
   if (!session || !entry) return;
@@ -200,6 +237,14 @@ function wrapInGridCard(sessionId, parent) {
   const card = document.createElement('div');
   card.className = `grid-card ${status.className} ${health.className}`;
   card.dataset.sessionId = sessionId;
+
+  // Apply persisted span (spec 08). Defaults to 1x1.
+  const colSpan = Math.max(1, Number(layout && layout.colSpan) || 1);
+  const rowSpan = Math.max(1, Number(layout && layout.rowSpan) || 1);
+  card.dataset.colSpan = colSpan;
+  card.dataset.rowSpan = rowSpan;
+  card.style.gridColumn = `span ${colSpan}`;
+  card.style.gridRow = `span ${rowSpan}`;
 
   // Header
   const header = document.createElement('div');
@@ -252,11 +297,19 @@ function wrapInGridCard(sessionId, parent) {
   footer.appendChild(statusSpan);
   footer.appendChild(timeSpan);
 
+  // Corner resize handle (spec 08) — drag to snap col/row spans.
+  const resizeHandle = document.createElement('div');
+  resizeHandle.className = 'grid-card-resize-handle';
+  resizeHandle.title = 'Resize card';
+  resizeHandle.setAttribute('aria-hidden', 'true');
+  resizeHandle.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M11 11H8l3-3zM11 6.5H5.5L11 1zM6 11H3l3-3z" opacity="0.9"/></svg>';
+
   // Build the card DOM
   card.appendChild(header);
   entry.element.classList.add('visible', 'grid-mode');
   card.appendChild(entry.element);
   card.appendChild(footer);
+  card.appendChild(resizeHandle);
 
   target.appendChild(card);
 
@@ -268,6 +321,11 @@ function wrapInGridCard(sessionId, parent) {
   };
   header.addEventListener('mousedown', focusFromCardChrome);
   makeButtonLike(header, focusFromCardChrome, `Focus ${displayName}`);
+
+  // Drag-to-reorder / drag-into-group via the header (single shared drag system).
+  header.addEventListener('pointerdown', (e) => startCardDrag(sessionId, card, e));
+  // Resize via the corner handle.
+  resizeHandle.addEventListener('pointerdown', (e) => startCardResize(sessionId, card, e));
   // Double-click header to switch to full terminal view
   header.addEventListener('dblclick', (e) => {
     e.stopPropagation();
@@ -289,6 +347,204 @@ function wrapInGridCard(sessionId, parent) {
   syncTitleToTooltip(card);
   // Set initial status from the single source of truth
   updateRunningIndicators();
+}
+
+// ===== Flexible layout: resize, drag-reorder, group drop (spec 08) =====
+
+function getContainerColumnCount(container) {
+  if (!container) return 1;
+  const tracks = getComputedStyle(container).gridTemplateColumns;
+  if (!tracks || tracks === 'none') return 1;
+  return tracks.split(' ').filter(Boolean).length;
+}
+
+// Persist the current visual order (DOM order across all regions) plus each
+// card's span into the gridLayout map.
+function persistGridOrder() {
+  let order = 0;
+  for (const card of terminalsEl.querySelectorAll('.grid-card')) {
+    const sid = card.dataset.sessionId;
+    const prev = gridLayout[sid] || {};
+    gridLayout[sid] = {
+      order,
+      colSpan: Number(prev.colSpan) || Number(card.dataset.colSpan) || 1,
+      rowSpan: Number(prev.rowSpan) || Number(card.dataset.rowSpan) || 1,
+    };
+    order++;
+  }
+  saveGridLayout();
+}
+
+function clearGridDropTargets() {
+  terminalsEl.querySelectorAll('.grid-card.drop-before, .grid-card.drop-after')
+    .forEach(c => c.classList.remove('drop-before', 'drop-after'));
+  terminalsEl.querySelectorAll('.grid-region.drop-region')
+    .forEach(r => r.classList.remove('drop-region'));
+}
+
+function getGridDropInfo(card, x, y) {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  const targetCard = el.closest('.grid-card');
+  return {
+    targetCard: targetCard && targetCard !== card ? targetCard : null,
+    region: el.closest('.grid-region'),
+  };
+}
+
+function updateGridDropTarget(card, x, y) {
+  clearGridDropTargets();
+  const info = getGridDropInfo(card, x, y);
+  if (!info) return;
+  // Hovering a different group region → highlight it as a reassignment target.
+  if (info.region && terminalsEl.classList.contains('grid-grouped')) {
+    const sourceRegion = card.closest('.grid-region');
+    if (info.region !== sourceRegion) {
+      info.region.classList.add('drop-region');
+      return;
+    }
+  }
+  if (info.targetCard) {
+    const r = info.targetCard.getBoundingClientRect();
+    const after = (x - r.left) > r.width / 2;
+    info.targetCard.classList.add(after ? 'drop-after' : 'drop-before');
+  }
+}
+
+// Single shared drag system: dragging a card's header reorders it, or — when
+// 07's group regions are present — drops it into a different group (assignSession).
+function startCardDrag(sessionId, card, e) {
+  if (e.button !== 0) return;
+  if (e.target.closest('button, .grid-card-resize-handle')) return;
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const reduced = gridReducedMotion();
+  let dragging = false;
+
+  const onMove = (ev) => {
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+    if (!dragging) {
+      if (Math.hypot(dx, dy) < 6) return;
+      dragging = true;
+      card.classList.add('dragging');
+      document.body.classList.add('grid-dragging');
+      card.style.pointerEvents = 'none';
+      if (!reduced) card.style.zIndex = '1000';
+    }
+    if (!reduced) card.style.transform = `translate(${dx}px, ${dy}px)`;
+    updateGridDropTarget(card, ev.clientX, ev.clientY);
+  };
+
+  const onUp = (ev) => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    if (dragging) {
+      finishCardDrag(sessionId, card, ev.clientX, ev.clientY);
+      card.classList.remove('dragging');
+      document.body.classList.remove('grid-dragging');
+      card.style.pointerEvents = '';
+      card.style.transform = '';
+      card.style.zIndex = '';
+      clearGridDropTargets();
+    }
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
+
+function finishCardDrag(sessionId, card, x, y) {
+  const info = getGridDropInfo(card, x, y);
+  if (!info) return;
+
+  // Drop into a different group region → reassign via 07's groups-model.
+  if (info.region && terminalsEl.classList.contains('grid-grouped')) {
+    const sourceRegion = card.closest('.grid-region');
+    if (info.region !== sourceRegion) {
+      const targetGroupId = info.region.dataset.groupId || null;
+      if (typeof assignSessionToGroup === 'function') {
+        assignSessionToGroup(sessionId, targetGroupId); // persists + re-renders grid
+      }
+      return;
+    }
+  }
+
+  // Otherwise reorder within the current container, before/after the target.
+  if (info.targetCard && info.targetCard.parentElement === card.parentElement) {
+    const container = card.parentElement;
+    const r = info.targetCard.getBoundingClientRect();
+    const after = (x - r.left) > r.width / 2;
+    const ids = [...container.querySelectorAll('.grid-card')].map(c => c.dataset.sessionId);
+    const targetId = info.targetCard.dataset.sessionId;
+    let newIds = reorder(ids, sessionId, targetId);
+    if (after) {
+      newIds = ids.filter(id => id !== sessionId);
+      newIds.splice(newIds.indexOf(targetId) + 1, 0, sessionId);
+    }
+    for (const id of newIds) {
+      const c = gridCards.get(id);
+      if (c) container.appendChild(c);
+    }
+    persistGridOrder();
+    debouncedFit(sessionId);
+  }
+}
+
+// Corner-handle resize: snap to whole column/row spans, debounce the terminal fit.
+function startCardResize(sessionId, card, e) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const container = card.parentElement;
+  const startRect = card.getBoundingClientRect();
+  const startColSpan = Math.max(1, Number(card.dataset.colSpan) || 1);
+  const startRowSpan = Math.max(1, Number(card.dataset.rowSpan) || 1);
+  const colUnit = (startRect.width + GRID_GAP) / startColSpan;
+  const rowUnit = (startRect.height + GRID_GAP) / startRowSpan;
+  const maxCols = getContainerColumnCount(container);
+  card.classList.add('resizing');
+  document.body.classList.add('grid-dragging');
+
+  const onMove = (ev) => {
+    const dx = ev.clientX - e.clientX;
+    const dy = ev.clientY - e.clientY;
+    const rawCols = Math.round((startRect.width + dx + GRID_GAP) / colUnit);
+    const rawRows = Math.round((startRect.height + dy + GRID_GAP) / rowUnit);
+    const span = normalizeSpan({ cols: rawCols, rows: rawRows }, maxCols);
+    if (Number(card.dataset.colSpan) === span.cols && Number(card.dataset.rowSpan) === span.rows) return;
+    card.dataset.colSpan = span.cols;
+    card.dataset.rowSpan = span.rows;
+    card.style.gridColumn = `span ${span.cols}`;
+    card.style.gridRow = `span ${span.rows}`;
+    const prev = gridLayout[sessionId] || {};
+    gridLayout[sessionId] = {
+      order: Number.isFinite(prev.order) ? prev.order : 0,
+      colSpan: span.cols,
+      rowSpan: span.rows,
+    };
+    debouncedFit(sessionId);
+  };
+
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    card.classList.remove('resizing');
+    document.body.classList.remove('grid-dragging');
+    persistGridOrder();
+    updateGridColumns();
+    const entry = openSessions.get(sessionId);
+    if (entry) fitAndScroll(entry);
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
+
+function resetGridLayout() {
+  gridLayout = {};
+  saveGridLayout();
+  if (gridViewActive) showGridView();
 }
 
 function unwrapGridCards() {
@@ -390,7 +646,17 @@ function showGridView() {
     }
   }
 
+  // Apply persisted order + spans (spec 08) within each container.
+  const gridWidth = terminalsEl.clientWidth;
   const sessionIds = [];
+  const renderBucket = (sids, cardsEl) => {
+    const cols = calculateGridColumnCount({ width: gridWidth, cardCount: sids.length });
+    for (const item of applyLayout(sids, gridLayout, cols)) {
+      wrapInGridCard(item.sessionId, cardsEl, item);
+      sessionIds.push(item.sessionId);
+    }
+  };
+
   if (groupBuckets.size > 0) {
     terminalsEl.classList.add('grid-grouped');
     const orderedGroups = [...groupsState.groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
@@ -398,23 +664,14 @@ function showGridView() {
       const bucket = groupBuckets.get(group.id);
       if (!bucket || bucket.length === 0) continue;
       const cardsEl = buildGridRegion(group, bucket.map(sessionFor).filter(Boolean));
-      for (const sid of bucket) {
-        wrapInGridCard(sid, cardsEl);
-        sessionIds.push(sid);
-      }
+      renderBucket(bucket, cardsEl);
     }
     if (ungroupedSids.length > 0) {
       const cardsEl = buildGridRegion(null, ungroupedSids.map(sessionFor).filter(Boolean));
-      for (const sid of ungroupedSids) {
-        wrapInGridCard(sid, cardsEl);
-        sessionIds.push(sid);
-      }
+      renderBucket(ungroupedSids, cardsEl);
     }
   } else {
-    for (const sid of orderedSids) {
-      wrapInGridCard(sid);
-      sessionIds.push(sid);
-    }
+    renderBucket(orderedSids, terminalsEl);
   }
 
   // Show grid header bar with session count
@@ -466,6 +723,8 @@ function updateGridColumns() {
 function initGridObservers() {
   new ResizeObserver(updateGridColumns).observe(terminalsEl);
   new MutationObserver(updateGridColumns).observe(terminalsEl, { childList: true });
+  const resetBtn = document.getElementById('grid-reset-layout-btn');
+  if (resetBtn) resetBtn.addEventListener('click', resetGridLayout);
 }
 
 function hideGridView() {
