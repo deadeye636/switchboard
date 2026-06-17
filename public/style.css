@@ -1673,6 +1673,7 @@ input:focus-visible {
 .session-fork-btn,
 .session-jsonl-btn,
 .session-copy-id-btn,
+.session-group-btn,
 .session-timeline-btn,
 .session-handoff-btn,
 .session-archive-btn {
@@ -5059,4 +5060,430 @@ input:focus-visible {
 .away-summary-timeline-link:hover {
   color: #ffffff;
   text-decoration: underline;
+}
+
+/* ===== Session groups (spec 07) ===== */
+
+/* --- Per-session "Add to group" action --- */
+.session-group-btn {
+  color: #7a7a90;
+}
+.session-group-btn:hover {
+  color: #8088ff;
+  background: rgba(120,130,255,0.1);
+}
+.session-group-btn.assigned {
+  color: var(--user-group-color, #8088ff);
+  opacity: 1;
+}
+
+/* --- Sidebar user-group section --- */
+.user-group {
+  --user-group-color: #8088ff;
+}
+.user-group-header {
+  padding: 0 9px;
+  cursor: pointer;
+  user-select: none;
+}
+.user-group-header .user-group-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px 8px;
+  border-radius: 8px;
+  transition: background 0.12s;
+}
+.user-group-header:hover .user-group-row {
+  background: rgba(255,255,255,0.06);
+}
+.user-group-expand {
+  flex-shrink: 0;
+  width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 5px;
+}
+.user-group-expand .arrow {
+  font-size: 8px;
+  color: var(--user-group-color, #8088ff);
+  transition: transform 0.2s;
+  display: inline-block;
+}
+.user-group:not(.collapsed) .user-group-expand .arrow { transform: rotate(90deg); }
+.user-group-color-dot {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  margin-top: 6px;
+  background: var(--user-group-color, #8088ff);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--user-group-color, #8088ff) 50%, transparent);
+}
+.user-group-info {
+  flex: 1;
+  min-width: 0;
+}
+.user-group-name {
+  font-size: 13px;
+  color: #c4c4d8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.45;
+  font-weight: 550;
+}
+.user-group-meta {
+  font-size: 11px;
+  color: #606078;
+  margin-top: 3px;
+  font-weight: 450;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.user-group-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: none;
+}
+.user-group-status-dot.running {
+  display: inline-block;
+  background: #3ecf5a;
+  box-shadow: 0 0 6px rgba(62,207,90,0.5);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+.user-group-count {
+  font-size: 10px;
+  background: color-mix(in srgb, var(--user-group-color, #8088ff) 18%, transparent);
+  color: var(--user-group-color, #8088ff);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.user-group-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.user-group-chip {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.user-group-chip.status-needs-attention {
+  color: #ffd6a0;
+  background: rgba(240,160,80,0.2);
+}
+.user-group-chip.status-response-ready {
+  color: #9ee4ff;
+  background: rgba(79,195,247,0.2);
+}
+.user-group-menu-btn {
+  background: transparent;
+  border: 1px solid #555570;
+  color: #808098;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  opacity: 0;
+  margin-top: 3px;
+}
+.user-group-header:hover .user-group-menu-btn {
+  opacity: 1;
+}
+.user-group-menu-btn:hover {
+  background: rgba(120,130,255,0.1);
+  color: #8088ff;
+}
+.user-group.collapsed .user-group-sessions { display: none; }
+.user-group-sessions {
+  border-left: 2px solid color-mix(in srgb, var(--user-group-color, #8088ff) 45%, transparent);
+  margin-left: 18px;
+  padding-left: 0;
+}
+.user-group-header:focus-visible {
+  outline: 2px solid rgba(128,136,255,0.85);
+  outline-offset: -2px;
+}
+
+/* --- Group editor dialog --- */
+.group-editor-dialog .group-editor-name {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 12px;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  color: #e0e0f0;
+  font-size: 13px;
+  font-family: inherit;
+}
+.group-editor-dialog .group-editor-name:focus {
+  outline: none;
+  border-color: rgba(128,136,255,0.6);
+}
+.group-editor-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.group-editor-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.12s, border-color 0.12s;
+}
+.group-editor-swatch:hover { transform: scale(1.1); }
+.group-editor-swatch.selected {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.4);
+}
+
+/* --- Group assignment / menu popover --- */
+.group-assign-popover .popover-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.group-assign-popover .popover-option.active {
+  background: rgba(120,130,255,0.12);
+}
+.group-assign-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.group-assign-dot-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(120,130,255,0.18);
+  color: #8088ff;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1;
+}
+.group-assign-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.group-assign-check {
+  color: #8088ff;
+  font-weight: 700;
+}
+.group-assign-remove .group-assign-name {
+  color: #e08098;
+}
+
+/* --- Grid group filter --- */
+.grid-filter-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255,255,255,0.12);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.grid-group-filter {
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  color: #8a8aa0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.grid-group-filter:hover:not(:disabled),
+.grid-group-filter:focus-visible {
+  color: #d0d0e8;
+  border-color: rgba(128,136,255,0.35);
+  outline: none;
+}
+.grid-group-filter.active {
+  color: #ffffff;
+  background: rgba(128,136,255,0.18);
+  border-color: rgba(128,136,255,0.4);
+}
+.grid-group-filter:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.grid-group-filter-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* --- Grid group regions --- */
+#terminals.grid-layout.grid-grouped {
+  display: block;
+  grid-template-columns: none !important;
+  grid-auto-rows: auto;
+}
+.grid-region {
+  --user-group-color: #6a6a80;
+  margin-bottom: 18px;
+}
+.grid-region-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 8px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #111118;
+}
+.grid-region-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--user-group-color, #6a6a80);
+  flex-shrink: 0;
+}
+.grid-region.ungrouped .grid-region-dot {
+  background: transparent;
+  border: 1px dashed #6a6a80;
+}
+.grid-region-name {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: #c4c4d8;
+}
+.grid-region-count {
+  font-size: 10.5px;
+  color: #707088;
+  font-weight: 500;
+}
+.grid-region-chip {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.grid-region-chip.status-needs-attention {
+  color: #ffd6a0;
+  background: rgba(240,160,80,0.2);
+}
+.grid-region-chip.status-response-ready {
+  color: #9ee4ff;
+  background: rgba(79,195,247,0.2);
+}
+.grid-region-cards {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  grid-auto-rows: minmax(460px, min(58vh, 620px));
+}
+.grid-region-cards.grid-single-card {
+  grid-template-columns: 1fr !important;
+}
+
+/* ===== Flexible grid layout: resize / drag / reset (spec 08) ===== */
+
+#grid-reset-layout-btn {
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.03);
+  color: #9a9ab0;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+#grid-reset-layout-btn:hover,
+#grid-reset-layout-btn:focus-visible {
+  color: #e0e0f0;
+  border-color: rgba(128,136,255,0.4);
+  background: rgba(128,136,255,0.12);
+  outline: none;
+}
+
+/* Cards anchor the corner resize handle and host drag/drop affordances. */
+.grid-card {
+  position: relative;
+}
+
+.grid-card-resize-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  color: #8088ff;
+  cursor: nwse-resize;
+  opacity: 0;
+  z-index: 6;
+  touch-action: none;
+}
+.grid-card:hover .grid-card-resize-handle,
+.grid-card.focused .grid-card-resize-handle,
+.grid-card.resizing .grid-card-resize-handle {
+  opacity: 0.65;
+}
+.grid-card-resize-handle:hover {
+  opacity: 1;
+}
+
+.grid-card-header {
+  touch-action: none;
+}
+
+/* Drag affordances */
+body.grid-dragging,
+body.grid-dragging .grid-card-header {
+  cursor: grabbing;
+}
+.grid-card.dragging {
+  opacity: 0.55;
+}
+.grid-card.resizing {
+  outline: 1px solid rgba(128,136,255,0.5);
+  outline-offset: -1px;
+}
+
+/* Reorder insertion indicators */
+.grid-card.drop-before {
+  box-shadow: inset 3px 0 0 #8088ff;
+}
+.grid-card.drop-after {
+  box-shadow: inset -3px 0 0 #8088ff;
+}
+
+/* Group region highlighted as a drop target for reassignment */
+.grid-region.drop-region {
+  outline: 2px dashed color-mix(in srgb, var(--user-group-color, #8088ff) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 8px;
 }

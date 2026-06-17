@@ -80,6 +80,56 @@ function saveExpandedSlugs() {
   document.querySelectorAll('.slug-group:not(.collapsed)').forEach(g => { if (g.id) expanded.push(g.id); });
   sessionStorage.setItem('expandedSlugs', JSON.stringify(expanded));
 }
+// User-defined session groups (spec 07). State is restored from the `groups`
+// settings blob on startup and persisted on every mutation.
+let groupsState = createGroupsState();
+// Collapse state for user groups persists across restarts via localStorage
+// (keyed by the stable group DOM id), tracking which groups are collapsed.
+function getCollapsedGroups() {
+  try { return new Set(JSON.parse(localStorage.getItem('collapsedGroups') || '[]')); } catch { return new Set(); }
+}
+function saveCollapsedGroups() {
+  const collapsed = [];
+  document.querySelectorAll('.user-group.collapsed').forEach(g => { if (g.id) collapsed.push(g.id); });
+  localStorage.setItem('collapsedGroups', JSON.stringify(collapsed));
+}
+function persistGroupsState() {
+  return window.api.setSetting('groups', serialize(groupsState));
+}
+// Mutation helpers used by sidebar/grid assignment UI. Each persists and
+// refreshes the affected views.
+function assignSessionToGroup(sessionId, groupId) {
+  assignSession(groupsState, sessionId, groupId);
+  persistGroupsState();
+  refreshSidebar();
+  if (gridViewActive) showGridView();
+}
+function createGroupForSession(sessionId, { name, color } = {}) {
+  const { group } = addGroup(groupsState, { name, color });
+  if (sessionId) assignSession(groupsState, sessionId, group.id);
+  persistGroupsState();
+  refreshSidebar();
+  if (gridViewActive) showGridView();
+  return group;
+}
+function renameUserGroup(groupId, name) {
+  renameGroup(groupsState, groupId, name);
+  persistGroupsState();
+  refreshSidebar();
+  if (gridViewActive) showGridView();
+}
+function recolorUserGroup(groupId, color) {
+  recolorGroup(groupsState, groupId, color);
+  persistGroupsState();
+  refreshSidebar();
+  if (gridViewActive) showGridView();
+}
+function removeUserGroup(groupId) {
+  removeGroup(groupsState, groupId);
+  persistGroupsState();
+  refreshSidebar();
+  if (gridViewActive) showGridView();
+}
 let showArchived = false;
 let showStarredOnly = false;
 let showRunningOnly = false;
@@ -1706,6 +1756,14 @@ setTimeout(() => {
       window._setNotificationSettings(global.notifications);
     }
   }
+
+  // Restore user-defined session groups (spec 07).
+  try {
+    groupsState = deserialize(await window.api.getSetting('groups'));
+  } catch {
+    groupsState = createGroupsState();
+  }
+  refreshSidebar();
 })();
 
 loadProjects().then(async () => {

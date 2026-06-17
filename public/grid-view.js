@@ -11,6 +11,44 @@
 let gridCards = new Map(); // sessionId → card wrapper element
 let gridFocusedSessionId = null;
 let gridStatusFilter = localStorage.getItem('gridStatusFilter') || 'all';
+let gridGroupFilter = localStorage.getItem('gridGroupFilter') || 'all'; // 'all' | 'ungrouped' | groupId
+
+// Flexible grid layout (spec 08): per-session { order, colSpan, rowSpan } map,
+// persisted in localStorage like gridViewActive/gridStatusFilter.
+let gridLayout = loadGridLayout();
+const gridFitTimers = new Map(); // sessionId → debounce timer for fitAndScroll
+
+function loadGridLayout() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('gridLayout') || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveGridLayout() {
+  try {
+    localStorage.setItem('gridLayout', JSON.stringify(gridLayout));
+  } catch {
+    /* storage full / unavailable — layout simply won't persist */
+  }
+}
+
+function gridReducedMotion() {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+// Debounce xterm reflow so a card only re-fits once a resize drag settles.
+function debouncedFit(sessionId) {
+  const existing = gridFitTimers.get(sessionId);
+  if (existing) clearTimeout(existing);
+  gridFitTimers.set(sessionId, setTimeout(() => {
+    gridFitTimers.delete(sessionId);
+    const entry = openSessions.get(sessionId);
+    if (entry) fitAndScroll(entry);
+  }, 90));
+}
 
 function getGridRuntimeState() {
   return {
@@ -34,8 +72,20 @@ function getGridOpenSessions() {
   return sessions;
 }
 
+function getGridGroupForSession(sessionId) {
+  if (typeof getGroupForSession !== 'function' || typeof groupsState === 'undefined') return null;
+  return getGroupForSession(groupsState, sessionId);
+}
+
 function getGridAllowedSessionIds() {
-  const filtered = getFilteredSessionsByStatus(getGridOpenSessions(), getGridRuntimeState(), gridStatusFilter);
+  let filtered = getFilteredSessionsByStatus(getGridOpenSessions(), getGridRuntimeState(), gridStatusFilter);
+  if (gridGroupFilter && gridGroupFilter !== 'all') {
+    filtered = filtered.filter(session => {
+      const group = getGridGroupForSession(session.sessionId);
+      if (gridGroupFilter === 'ungrouped') return !group;
+      return group && group.id === gridGroupFilter;
+    });
+  }
   return new Set(filtered.map(session => session.sessionId));
 }
 
@@ -66,6 +116,8 @@ function renderGridStatusFilters() {
     });
     container.appendChild(btn);
   }
+
+  renderGridGroupFilters(container);
 }
 
 // --- Bulk actions (Spec 06) ---
@@ -176,10 +228,113 @@ async function stopAllRunning(runningToStop) {
   if (gridViewActive) showGridView();
 }
 
-function wrapInGridCard(sessionId) {
+// Group filter segment (spec 07): a divider plus an "All groups" / per-group /
+// "Ungrouped" control rendered alongside the status filters.
+function renderGridGroupFilters(container) {
+  if (typeof groupsState === 'undefined' || !groupsState.groups || groupsState.groups.length === 0) {
+    return;
+  }
+
+  const openSessionList = getGridOpenSessions();
+  const groupCounts = new Map();
+  let ungroupedCount = 0;
+  for (const session of openSessionList) {
+    const group = getGridGroupForSession(session.sessionId);
+    if (group) groupCounts.set(group.id, (groupCounts.get(group.id) || 0) + 1);
+    else ungroupedCount++;
+  }
+
+  const divider = document.createElement('span');
+  divider.className = 'grid-filter-divider';
+  divider.setAttribute('aria-hidden', 'true');
+  container.appendChild(divider);
+
+  const options = [['all', 'All groups', openSessionList.length]];
+  for (const group of [...groupsState.groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
+    options.push([group.id, group.name, groupCounts.get(group.id) || 0, group.color]);
+  }
+  if (ungroupedCount > 0) options.push(['ungrouped', 'Ungrouped', ungroupedCount]);
+
+  for (const [key, label, count, color] of options) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'grid-group-filter' + (gridGroupFilter === key ? ' active' : '');
+    btn.dataset.group = key;
+    if (color) {
+      const dot = document.createElement('span');
+      dot.className = 'grid-group-filter-dot';
+      dot.style.background = color;
+      btn.appendChild(dot);
+    }
+    const text = document.createElement('span');
+    text.textContent = `${label} ${count}`;
+    btn.appendChild(text);
+    btn.disabled = key !== 'all' && count === 0;
+    btn.addEventListener('click', () => {
+      gridGroupFilter = key;
+      localStorage.setItem('gridGroupFilter', gridGroupFilter);
+      showGridView();
+    });
+    container.appendChild(btn);
+  }
+}
+
+// Build a labeled grid region for a group (or the ungrouped pool). Appends the
+// region to #terminals and returns its inner cards container.
+function buildGridRegion(group, sessions) {
+  const counts = getStatusCounts(sessions, getGridRuntimeState());
+
+  const region = document.createElement('div');
+  region.className = 'grid-region' + (group ? '' : ' ungrouped');
+  region.dataset.groupId = group ? group.id : '';
+  if (group) region.style.setProperty('--user-group-color', group.color);
+
+  const header = document.createElement('div');
+  header.className = 'grid-region-header';
+
+  const dot = document.createElement('span');
+  dot.className = 'grid-region-dot';
+  header.appendChild(dot);
+
+  const name = document.createElement('span');
+  name.className = 'grid-region-name';
+  name.textContent = group ? group.name : 'Ungrouped';
+  header.appendChild(name);
+
+  const count = document.createElement('span');
+  count.className = 'grid-region-count';
+  count.textContent = `${sessions.length} session${sessions.length === 1 ? '' : 's'}`;
+  header.appendChild(count);
+
+  if (counts.attention > 0) {
+    const chip = document.createElement('span');
+    chip.className = 'grid-region-chip status-needs-attention';
+    chip.textContent = String(counts.attention);
+    chip.title = `${counts.attention} need${counts.attention === 1 ? 's' : ''} attention`;
+    header.appendChild(chip);
+  }
+  if (counts.ready > 0) {
+    const chip = document.createElement('span');
+    chip.className = 'grid-region-chip status-response-ready';
+    chip.textContent = String(counts.ready);
+    chip.title = `${counts.ready} ready`;
+    header.appendChild(chip);
+  }
+
+  const cardsEl = document.createElement('div');
+  cardsEl.className = 'grid-region-cards';
+
+  region.appendChild(header);
+  region.appendChild(cardsEl);
+  terminalsEl.appendChild(region);
+  return cardsEl;
+}
+
+function wrapInGridCard(sessionId, parent, layout) {
   const entry = openSessions.get(sessionId);
   const session = sessionMap.get(sessionId) || (entry && entry.session);
   if (!session || !entry) return;
+  const target = parent || terminalsEl;
 
   const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary) || sessionId;
   const shortProject = session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '';
@@ -190,6 +345,14 @@ function wrapInGridCard(sessionId) {
   const card = document.createElement('div');
   card.className = `grid-card ${status.className} ${health.className}`;
   card.dataset.sessionId = sessionId;
+
+  // Apply persisted span (spec 08). Defaults to 1x1.
+  const colSpan = Math.max(1, Number(layout && layout.colSpan) || 1);
+  const rowSpan = Math.max(1, Number(layout && layout.rowSpan) || 1);
+  card.dataset.colSpan = colSpan;
+  card.dataset.rowSpan = rowSpan;
+  card.style.gridColumn = `span ${colSpan}`;
+  card.style.gridRow = `span ${rowSpan}`;
 
   // Header
   const header = document.createElement('div');
@@ -242,18 +405,21 @@ function wrapInGridCard(sessionId) {
   footer.appendChild(statusSpan);
   footer.appendChild(timeSpan);
 
+  // Corner resize handle (spec 08) — drag to snap col/row spans.
+  const resizeHandle = document.createElement('div');
+  resizeHandle.className = 'grid-card-resize-handle';
+  resizeHandle.title = 'Resize card';
+  resizeHandle.setAttribute('aria-hidden', 'true');
+  resizeHandle.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M11 11H8l3-3zM11 6.5H5.5L11 1zM6 11H3l3-3z" opacity="0.9"/></svg>';
+
   // Build the card DOM
   card.appendChild(header);
   entry.element.classList.add('visible', 'grid-mode');
   card.appendChild(entry.element);
   card.appendChild(footer);
+  card.appendChild(resizeHandle);
 
-  if (gridViewActive) {
-    terminalsEl.appendChild(card);
-  } else {
-    // Not in grid view — just place where the terminal container was
-    terminalsEl.appendChild(card);
-  }
+  target.appendChild(card);
 
   // Click header or footer to focus
   const focusFromCardChrome = (e) => {
@@ -263,6 +429,11 @@ function wrapInGridCard(sessionId) {
   };
   header.addEventListener('mousedown', focusFromCardChrome);
   makeButtonLike(header, focusFromCardChrome, `Focus ${displayName}`);
+
+  // Drag-to-reorder / drag-into-group via the header (single shared drag system).
+  header.addEventListener('pointerdown', (e) => startCardDrag(sessionId, card, e));
+  // Resize via the corner handle.
+  resizeHandle.addEventListener('pointerdown', (e) => startCardResize(sessionId, card, e));
   // Double-click header to switch to full terminal view
   header.addEventListener('dblclick', (e) => {
     e.stopPropagation();
@@ -286,17 +457,218 @@ function wrapInGridCard(sessionId) {
   updateRunningIndicators();
 }
 
+// ===== Flexible layout: resize, drag-reorder, group drop (spec 08) =====
+
+function getContainerColumnCount(container) {
+  if (!container) return 1;
+  const tracks = getComputedStyle(container).gridTemplateColumns;
+  if (!tracks || tracks === 'none') return 1;
+  return tracks.split(' ').filter(Boolean).length;
+}
+
+// Persist the current visual order (DOM order across all regions) plus each
+// card's span into the gridLayout map.
+function persistGridOrder() {
+  let order = 0;
+  for (const card of terminalsEl.querySelectorAll('.grid-card')) {
+    const sid = card.dataset.sessionId;
+    const prev = gridLayout[sid] || {};
+    gridLayout[sid] = {
+      order,
+      colSpan: Number(prev.colSpan) || Number(card.dataset.colSpan) || 1,
+      rowSpan: Number(prev.rowSpan) || Number(card.dataset.rowSpan) || 1,
+    };
+    order++;
+  }
+  saveGridLayout();
+}
+
+function clearGridDropTargets() {
+  terminalsEl.querySelectorAll('.grid-card.drop-before, .grid-card.drop-after')
+    .forEach(c => c.classList.remove('drop-before', 'drop-after'));
+  terminalsEl.querySelectorAll('.grid-region.drop-region')
+    .forEach(r => r.classList.remove('drop-region'));
+}
+
+function getGridDropInfo(card, x, y) {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  const targetCard = el.closest('.grid-card');
+  return {
+    targetCard: targetCard && targetCard !== card ? targetCard : null,
+    region: el.closest('.grid-region'),
+  };
+}
+
+function updateGridDropTarget(card, x, y) {
+  clearGridDropTargets();
+  const info = getGridDropInfo(card, x, y);
+  if (!info) return;
+  // Hovering a different group region → highlight it as a reassignment target.
+  if (info.region && terminalsEl.classList.contains('grid-grouped')) {
+    const sourceRegion = card.closest('.grid-region');
+    if (info.region !== sourceRegion) {
+      info.region.classList.add('drop-region');
+      return;
+    }
+  }
+  if (info.targetCard) {
+    const r = info.targetCard.getBoundingClientRect();
+    const after = (x - r.left) > r.width / 2;
+    info.targetCard.classList.add(after ? 'drop-after' : 'drop-before');
+  }
+}
+
+// Single shared drag system: dragging a card's header reorders it, or — when
+// 07's group regions are present — drops it into a different group (assignSession).
+function startCardDrag(sessionId, card, e) {
+  if (e.button !== 0) return;
+  if (e.target.closest('button, .grid-card-resize-handle')) return;
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const reduced = gridReducedMotion();
+  let dragging = false;
+
+  const onMove = (ev) => {
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+    if (!dragging) {
+      if (Math.hypot(dx, dy) < 6) return;
+      dragging = true;
+      card.classList.add('dragging');
+      document.body.classList.add('grid-dragging');
+      card.style.pointerEvents = 'none';
+      if (!reduced) card.style.zIndex = '1000';
+    }
+    if (!reduced) card.style.transform = `translate(${dx}px, ${dy}px)`;
+    updateGridDropTarget(card, ev.clientX, ev.clientY);
+  };
+
+  const onUp = (ev) => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    if (dragging) {
+      finishCardDrag(sessionId, card, ev.clientX, ev.clientY);
+      card.classList.remove('dragging');
+      document.body.classList.remove('grid-dragging');
+      card.style.pointerEvents = '';
+      card.style.transform = '';
+      card.style.zIndex = '';
+      clearGridDropTargets();
+    }
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
+
+function finishCardDrag(sessionId, card, x, y) {
+  const info = getGridDropInfo(card, x, y);
+  if (!info) return;
+
+  // Drop into a different group region → reassign via 07's groups-model.
+  if (info.region && terminalsEl.classList.contains('grid-grouped')) {
+    const sourceRegion = card.closest('.grid-region');
+    if (info.region !== sourceRegion) {
+      const targetGroupId = info.region.dataset.groupId || null;
+      if (typeof assignSessionToGroup === 'function') {
+        assignSessionToGroup(sessionId, targetGroupId); // persists + re-renders grid
+      }
+      return;
+    }
+  }
+
+  // Otherwise reorder within the current container, before/after the target.
+  if (info.targetCard && info.targetCard.parentElement === card.parentElement) {
+    const container = card.parentElement;
+    const r = info.targetCard.getBoundingClientRect();
+    const after = (x - r.left) > r.width / 2;
+    const ids = [...container.querySelectorAll('.grid-card')].map(c => c.dataset.sessionId);
+    const targetId = info.targetCard.dataset.sessionId;
+    let newIds = reorder(ids, sessionId, targetId);
+    if (after) {
+      newIds = ids.filter(id => id !== sessionId);
+      newIds.splice(newIds.indexOf(targetId) + 1, 0, sessionId);
+    }
+    for (const id of newIds) {
+      const c = gridCards.get(id);
+      if (c) container.appendChild(c);
+    }
+    persistGridOrder();
+    debouncedFit(sessionId);
+  }
+}
+
+// Corner-handle resize: snap to whole column/row spans, debounce the terminal fit.
+function startCardResize(sessionId, card, e) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const container = card.parentElement;
+  const startRect = card.getBoundingClientRect();
+  const startColSpan = Math.max(1, Number(card.dataset.colSpan) || 1);
+  const startRowSpan = Math.max(1, Number(card.dataset.rowSpan) || 1);
+  const colUnit = (startRect.width + GRID_GAP) / startColSpan;
+  const rowUnit = (startRect.height + GRID_GAP) / startRowSpan;
+  const maxCols = getContainerColumnCount(container);
+  card.classList.add('resizing');
+  document.body.classList.add('grid-dragging');
+
+  const onMove = (ev) => {
+    const dx = ev.clientX - e.clientX;
+    const dy = ev.clientY - e.clientY;
+    const rawCols = Math.round((startRect.width + dx + GRID_GAP) / colUnit);
+    const rawRows = Math.round((startRect.height + dy + GRID_GAP) / rowUnit);
+    const span = normalizeSpan({ cols: rawCols, rows: rawRows }, maxCols);
+    if (Number(card.dataset.colSpan) === span.cols && Number(card.dataset.rowSpan) === span.rows) return;
+    card.dataset.colSpan = span.cols;
+    card.dataset.rowSpan = span.rows;
+    card.style.gridColumn = `span ${span.cols}`;
+    card.style.gridRow = `span ${span.rows}`;
+    const prev = gridLayout[sessionId] || {};
+    gridLayout[sessionId] = {
+      order: Number.isFinite(prev.order) ? prev.order : 0,
+      colSpan: span.cols,
+      rowSpan: span.rows,
+    };
+    debouncedFit(sessionId);
+  };
+
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    card.classList.remove('resizing');
+    document.body.classList.remove('grid-dragging');
+    persistGridOrder();
+    updateGridColumns();
+    const entry = openSessions.get(sessionId);
+    if (entry) fitAndScroll(entry);
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
+
+function resetGridLayout() {
+  gridLayout = {};
+  saveGridLayout();
+  if (gridViewActive) showGridView();
+}
+
 function unwrapGridCards() {
   for (const [sid, card] of gridCards) {
     const entry = openSessions.get(sid);
     if (entry) {
       entry.element.classList.remove('grid-mode', 'visible');
-      // Move terminal container back out of the card, before the card
-      card.parentNode.insertBefore(entry.element, card);
+      // Move terminal container back to #terminals (out of card/region)
+      terminalsEl.appendChild(entry.element);
     }
     card.remove();
   }
   gridCards.clear();
+  // Remove any group region containers and reset grouped layout
+  terminalsEl.querySelectorAll('.grid-region').forEach(el => el.remove());
+  terminalsEl.classList.remove('grid-grouped');
 }
 
 function focusGridCard(sessionId) {
@@ -343,23 +715,73 @@ function showGridView() {
   for (const [sid, entry] of openSessions) {
     if (!entry.closed) openSet.add(sid);
   }
-  const allowedSet = getGridAllowedSessionIds();
+  let allowedSet = getGridAllowedSessionIds();
   if (gridStatusFilter !== 'all' && allowedSet.size === 0) {
     gridStatusFilter = 'all';
     localStorage.setItem('gridStatusFilter', gridStatusFilter);
+    allowedSet = getGridAllowedSessionIds();
+    renderGridStatusFilters();
+  }
+  if (gridGroupFilter !== 'all' && allowedSet.size === 0) {
+    gridGroupFilter = 'all';
+    localStorage.setItem('gridGroupFilter', gridGroupFilter);
+    allowedSet = getGridAllowedSessionIds();
     renderGridStatusFilters();
     renderGridBulkActions();
   }
 
-  // Hide all terminals first, then wrap cards in sidebar display order.
+  // Hide all terminals first, then collect allowed session ids in sidebar order.
   document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('visible'));
-  const sessionIds = [];
+  const orderedSids = [];
   const sidebarItems = sidebarContent.querySelectorAll('.session-item[data-session-id]');
   for (const item of sidebarItems) {
     const sid = item.dataset.sessionId;
     if (!openSet.has(sid) || !allowedSet.has(sid)) continue;
-    wrapInGridCard(sid);
-    sessionIds.push(sid);
+    orderedSids.push(sid);
+  }
+
+  // Partition into user-group buckets (preserving sidebar order). When any
+  // open session belongs to a group, render bounded labeled regions; otherwise
+  // fall back to the flat grid to preserve the original layout.
+  const sessionFor = (sid) => sessionMap.get(sid) || openSessions.get(sid)?.session;
+  const groupBuckets = new Map();
+  const ungroupedSids = [];
+  for (const sid of orderedSids) {
+    const group = getGridGroupForSession(sid);
+    if (group) {
+      if (!groupBuckets.has(group.id)) groupBuckets.set(group.id, []);
+      groupBuckets.get(group.id).push(sid);
+    } else {
+      ungroupedSids.push(sid);
+    }
+  }
+
+  // Apply persisted order + spans (spec 08) within each container.
+  const gridWidth = terminalsEl.clientWidth;
+  const sessionIds = [];
+  const renderBucket = (sids, cardsEl) => {
+    const cols = calculateGridColumnCount({ width: gridWidth, cardCount: sids.length });
+    for (const item of applyLayout(sids, gridLayout, cols)) {
+      wrapInGridCard(item.sessionId, cardsEl, item);
+      sessionIds.push(item.sessionId);
+    }
+  };
+
+  if (groupBuckets.size > 0) {
+    terminalsEl.classList.add('grid-grouped');
+    const orderedGroups = [...groupsState.groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    for (const group of orderedGroups) {
+      const bucket = groupBuckets.get(group.id);
+      if (!bucket || bucket.length === 0) continue;
+      const cardsEl = buildGridRegion(group, bucket.map(sessionFor).filter(Boolean));
+      renderBucket(bucket, cardsEl);
+    }
+    if (ungroupedSids.length > 0) {
+      const cardsEl = buildGridRegion(null, ungroupedSids.map(sessionFor).filter(Boolean));
+      renderBucket(ungroupedSids, cardsEl);
+    }
+  } else {
+    renderBucket(orderedSids, terminalsEl);
   }
 
   // Show grid header bar with session count
@@ -368,6 +790,8 @@ function showGridView() {
 
   const btn = document.getElementById('grid-toggle-btn');
   if (btn) btn.classList.add('active');
+
+  updateGridColumns();
 
   // Fit all terminals after layout resolves
   for (const sid of sessionIds) {
@@ -384,6 +808,20 @@ function showGridView() {
 function updateGridColumns() {
   if (!gridViewActive) return;
   const width = terminalsEl.clientWidth;
+
+  // Grouped layout: each region container holds its own card grid.
+  if (terminalsEl.classList.contains('grid-grouped')) {
+    terminalsEl.style.gridTemplateColumns = '';
+    terminalsEl.classList.remove('grid-few-cards', 'grid-single-card');
+    for (const cardsEl of terminalsEl.querySelectorAll('.grid-region-cards')) {
+      const cardCount = cardsEl.querySelectorAll('.grid-card').length;
+      const cols = calculateGridColumnCount({ width, cardCount });
+      cardsEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      cardsEl.classList.toggle('grid-single-card', cardCount === 1);
+    }
+    return;
+  }
+
   const cardCount = terminalsEl.querySelectorAll('.grid-card').length;
   const cols = calculateGridColumnCount({ width, cardCount });
   terminalsEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
@@ -395,6 +833,8 @@ function updateGridColumns() {
 function initGridObservers() {
   new ResizeObserver(updateGridColumns).observe(terminalsEl);
   new MutationObserver(updateGridColumns).observe(terminalsEl, { childList: true });
+  const resetBtn = document.getElementById('grid-reset-layout-btn');
+  if (resetBtn) resetBtn.addEventListener('click', resetGridLayout);
 }
 
 function hideGridView() {

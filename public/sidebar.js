@@ -13,6 +13,10 @@ function slugId(slug) {
   return 'slug-' + slug.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+function groupDomId(groupId) {
+  return 'group-' + String(groupId).replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 function folderId(projectPath) {
   return 'project-' + projectPath.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
@@ -280,6 +284,88 @@ function buildAttentionInbox(projects) {
   return section;
 }
 
+// User-defined group section (spec 07). Mirrors buildSlugGroup but is keyed by
+// a stable, persisted group id, carries the group's color, and rolls up status
+// counts so a collapsed group still signals attention.
+function buildUserGroup(group, sessions) {
+  const container = document.createElement('div');
+  const id = groupDomId(group.id);
+  const collapsed = getCollapsedGroups().has(id);
+  container.className = collapsed ? 'user-group collapsed' : 'user-group';
+  container.id = id;
+  container.dataset.groupId = group.id;
+  container.style.setProperty('--user-group-color', group.color);
+
+  const counts = getStatusCounts(sessions, getSessionRuntimeState());
+  const hasRunning = sessions.some(s => activePtyIds.has(s.sessionId));
+
+  const header = document.createElement('div');
+  header.className = 'user-group-header';
+
+  const row = document.createElement('div');
+  row.className = 'user-group-row';
+
+  const expand = document.createElement('span');
+  expand.className = 'user-group-expand';
+  expand.innerHTML = '<span class="arrow">&#9654;</span>';
+
+  const dot = document.createElement('span');
+  dot.className = 'user-group-color-dot';
+
+  const info = document.createElement('div');
+  info.className = 'user-group-info';
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'user-group-name';
+  nameEl.textContent = group.name;
+
+  const meta = document.createElement('div');
+  meta.className = 'user-group-meta';
+  meta.innerHTML = `<span class="user-group-status-dot${hasRunning ? ' running' : ''}"></span><span class="user-group-count">${sessions.length} session${sessions.length === 1 ? '' : 's'}</span>`;
+
+  const chips = document.createElement('span');
+  chips.className = 'user-group-chips';
+  if (counts.attention > 0) {
+    const chip = document.createElement('span');
+    chip.className = 'user-group-chip status-needs-attention';
+    chip.textContent = String(counts.attention);
+    chip.title = `${counts.attention} need${counts.attention === 1 ? 's' : ''} attention`;
+    chips.appendChild(chip);
+  }
+  if (counts.ready > 0) {
+    const chip = document.createElement('span');
+    chip.className = 'user-group-chip status-response-ready';
+    chip.textContent = String(counts.ready);
+    chip.title = `${counts.ready} ready`;
+    chips.appendChild(chip);
+  }
+  meta.appendChild(chips);
+
+  const menuBtn = document.createElement('button');
+  menuBtn.className = 'user-group-menu-btn';
+  menuBtn.title = 'Group options';
+  menuBtn.setAttribute('aria-label', `Options for ${group.name}`);
+  menuBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+
+  info.appendChild(nameEl);
+  info.appendChild(meta);
+  row.appendChild(expand);
+  row.appendChild(dot);
+  row.appendChild(info);
+  row.appendChild(menuBtn);
+  header.appendChild(row);
+
+  const sessionsContainer = document.createElement('div');
+  sessionsContainer.className = 'user-group-sessions';
+  for (const session of sessions) {
+    sessionsContainer.appendChild(buildSessionItem(session));
+  }
+
+  container.appendChild(header);
+  container.appendChild(sessionsContainer);
+  return container;
+}
+
 function buildSlugGroup(slug, sessions) {
   const group = document.createElement('div');
   const id = slugId(slug);
@@ -439,10 +525,19 @@ function renderProjects(projects, resort) {
       return new Date(b.modified) - new Date(a.modified);
     });
 
-    // Slug grouping
+    // User-defined groups (spec 07): pull assigned sessions into collapsible
+    // group sections first; the remainder fall through to slug grouping. Groups
+    // that span projects render in each project section filtered to that
+    // project's members (cards stay under the project header for context).
+    const { grouped: userGroups, ungrouped: groupUngrouped } =
+      (typeof groupSessions === 'function' && typeof groupsState !== 'undefined')
+        ? groupSessions(groupsState, filtered)
+        : { grouped: [], ungrouped: filtered };
+
+    // Slug grouping (over sessions not claimed by a user group)
     const slugMap = new Map();
     const ungrouped = [];
-    for (const session of filtered) {
+    for (const session of groupUngrouped) {
       if (session.slug) {
         if (!slugMap.has(session.slug)) slugMap.set(session.slug, []);
         slugMap.get(session.slug).push(session);
@@ -461,6 +556,12 @@ function renderProjects(projects, resort) {
       const hasPinned = sessions.some(s => s.starred);
       const element = sessions.length === 1 ? buildSessionItem(sessions[0]) : buildSlugGroup(slug, sessions);
       allItems.push({ sortTime: mostRecentTime, pinned: hasPinned, running: hasRunning, element });
+    }
+    for (const { group, sessions } of userGroups) {
+      const mostRecentTime = Math.max(...sessions.map(s => new Date(s.modified).getTime()));
+      const hasRunning = sessions.some(s => activePtyIds.has(s.sessionId) || pendingSessions.has(s.sessionId));
+      const hasPinned = sessions.some(s => s.starred);
+      allItems.push({ sortTime: mostRecentTime, pinned: hasPinned, running: hasRunning, element: buildUserGroup(group, sessions) });
     }
 
     // Sort render items
@@ -680,7 +781,7 @@ function renderProjects(projects, resort) {
           toEl.classList.remove('collapsed');
         }
       }
-      if (fromEl.classList.contains('slug-group') || fromEl.classList.contains('worktree-header')) {
+      if (fromEl.classList.contains('slug-group') || fromEl.classList.contains('worktree-header') || fromEl.classList.contains('user-group')) {
         if (fromEl.classList.contains('collapsed')) {
           toEl.classList.add('collapsed');
         } else {
@@ -936,6 +1037,26 @@ function rebindSidebarEvents(projects) {
     makeButtonLike(header, toggleSlugGroup, `Toggle ${name}`);
   });
 
+  sidebarContent.querySelectorAll('.user-group-header').forEach(header => {
+    const container = header.parentElement;
+    const groupId = container?.dataset.groupId;
+    const menuBtn = header.querySelector('.user-group-menu-btn');
+    if (menuBtn && groupId) {
+      menuBtn.onclick = (e) => {
+        e.stopPropagation();
+        showGroupMenu(groupId, menuBtn);
+      };
+    }
+    const toggleUserGroup = (e) => {
+      if (e.target.closest('.user-group-menu-btn')) return;
+      container.classList.toggle('collapsed');
+      saveCollapsedGroups();
+    };
+    header.onclick = toggleUserGroup;
+    const name = header.querySelector('.user-group-name')?.textContent || 'group';
+    makeButtonLike(header, toggleUserGroup, `Toggle ${name}`);
+  });
+
   sidebarContent.querySelectorAll('.slug-group-more').forEach(moreBtn => {
     const expandSlugGroup = () => {
       const group = moreBtn.closest('.slug-group');
@@ -1053,6 +1174,14 @@ function rebindSidebarEvents(projects) {
       };
     }
 
+    const groupBtn = item.querySelector('.session-group-btn');
+    if (groupBtn) {
+      groupBtn.onclick = (e) => {
+        e.stopPropagation();
+        showGroupAssignPopover(session, groupBtn);
+      };
+    }
+
     const timelineBtn = item.querySelector('.session-timeline-btn');
     if (timelineBtn) {
       timelineBtn.onclick = (e) => {
@@ -1108,6 +1237,11 @@ function rebindSidebarEvents(projects) {
     if (collapsedGroup) {
       collapsedGroup.classList.remove('collapsed');
       saveExpandedSlugs();
+    }
+    const collapsedUserGroup = activeItem?.closest('.user-group.collapsed');
+    if (collapsedUserGroup) {
+      collapsedUserGroup.classList.remove('collapsed');
+      saveCollapsedGroups();
     }
   }
 }
@@ -1236,6 +1370,15 @@ function buildSessionItem(session) {
   copyIdBtn.title = 'Copy session ID';
   copyIdBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
 
+  const assignedGroup = (typeof getGroupForSession === 'function' && typeof groupsState !== 'undefined')
+    ? getGroupForSession(groupsState, session.sessionId)
+    : null;
+  const groupBtn = document.createElement('button');
+  groupBtn.className = 'session-group-btn' + (assignedGroup ? ' assigned' : '');
+  groupBtn.title = assignedGroup ? `Group: ${assignedGroup.name}` : 'Add to group';
+  if (assignedGroup) groupBtn.style.setProperty('--user-group-color', assignedGroup.color);
+  groupBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+
   const timelineBtn = document.createElement('button');
   timelineBtn.className = 'session-timeline-btn';
   timelineBtn.title = 'View timeline';
@@ -1253,6 +1396,7 @@ function buildSessionItem(session) {
 
   actions.appendChild(stopBtn);
   actions.appendChild(copyIdBtn);
+  actions.appendChild(groupBtn);
   if (session.type !== 'terminal') {
     if (health.state !== 'healthy') actions.appendChild(handoffBtn);
     actions.appendChild(forkBtn);
@@ -1268,6 +1412,195 @@ function buildSessionItem(session) {
   item.appendChild(row);
 
   return item;
+}
+
+// Small dialog for creating/editing a group (name + color). Resolves to
+// { name, color } or null if cancelled.
+function showGroupEditorDialog({ title = 'New Group', name = '', color = '' } = {}) {
+  const palette = (typeof GROUP_COLORS !== 'undefined' && GROUP_COLORS) || ['#8088ff'];
+  return new Promise(resolve => {
+    let selectedColor = color || palette[0];
+    let settled = false;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'control-dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'control-dialog group-editor-dialog';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', 'group-editor-title');
+
+    dialog.innerHTML = `
+      <div class="control-dialog-kicker">Session Group</div>
+      <h3 id="group-editor-title">${escapeHtml(title)}</h3>
+      <input type="text" class="group-editor-name" placeholder="Group name" maxlength="40" />
+      <div class="group-editor-swatches" role="group" aria-label="Group color"></div>
+      <div class="control-dialog-actions">
+        <button type="button" class="control-dialog-cancel">Cancel</button>
+        <button type="button" class="control-dialog-confirm">Save</button>
+      </div>
+    `;
+
+    const input = dialog.querySelector('.group-editor-name');
+    input.value = name;
+    const swatchesEl = dialog.querySelector('.group-editor-swatches');
+
+    function renderSwatches() {
+      swatchesEl.innerHTML = '';
+      for (const swatchColor of palette) {
+        const swatch = document.createElement('button');
+        swatch.type = 'button';
+        swatch.className = 'group-editor-swatch' + (swatchColor === selectedColor ? ' selected' : '');
+        swatch.style.background = swatchColor;
+        swatch.title = swatchColor;
+        swatch.setAttribute('aria-label', `Color ${swatchColor}`);
+        swatch.addEventListener('click', () => {
+          selectedColor = swatchColor;
+          renderSwatches();
+        });
+        swatchesEl.appendChild(swatch);
+      }
+    }
+    renderSwatches();
+
+    function finish(result) {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+      resolve(result);
+    }
+
+    function confirm() {
+      const value = input.value.trim();
+      if (!value) {
+        input.focus();
+        return;
+      }
+      finish({ name: value, color: selectedColor });
+    }
+
+    function onKey(event) {
+      if (event.key === 'Escape') finish(null);
+      if (event.key === 'Enter' && document.activeElement === input) confirm();
+    }
+
+    dialog.querySelector('.control-dialog-cancel').addEventListener('click', () => finish(null));
+    dialog.querySelector('.control-dialog-confirm').addEventListener('click', confirm);
+    overlay.addEventListener('click', event => { if (event.target === overlay) finish(null); });
+    document.addEventListener('keydown', onKey);
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    input.focus();
+    input.select();
+  });
+}
+
+// Per-session popover: assign to an existing group, create a new one, or remove.
+function showGroupAssignPopover(session, anchorEl) {
+  document.querySelectorAll('.group-assign-popover').forEach(el => el.remove());
+
+  const popover = document.createElement('div');
+  popover.className = 'new-session-popover group-assign-popover';
+
+  const current = getGroupForSession(groupsState, session.sessionId);
+
+  for (const group of [...groupsState.groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
+    const btn = document.createElement('button');
+    btn.className = 'popover-option' + (current && current.id === group.id ? ' active' : '');
+    const dot = `<span class="group-assign-dot" style="background:${escapeHtml(group.color)}"></span>`;
+    btn.innerHTML = `${dot}<span class="group-assign-name">${escapeHtml(group.name)}</span>${current && current.id === group.id ? '<span class="group-assign-check">&#10003;</span>' : ''}`;
+    btn.onclick = () => {
+      popover.remove();
+      assignSessionToGroup(session.sessionId, group.id);
+    };
+    popover.appendChild(btn);
+  }
+
+  const newBtn = document.createElement('button');
+  newBtn.className = 'popover-option group-assign-new';
+  newBtn.innerHTML = '<span class="group-assign-dot group-assign-dot-new">+</span><span class="group-assign-name">New group…</span>';
+  newBtn.onclick = async () => {
+    popover.remove();
+    const result = await showGroupEditorDialog({ title: 'New Group' });
+    if (result) createGroupForSession(session.sessionId, result);
+  };
+  popover.appendChild(newBtn);
+
+  if (current) {
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'popover-option group-assign-remove';
+    removeBtn.innerHTML = '<span class="group-assign-name">Remove from group</span>';
+    removeBtn.onclick = () => {
+      popover.remove();
+      assignSessionToGroup(session.sessionId, null);
+    };
+    popover.appendChild(removeBtn);
+  }
+
+  positionPopover(popover, anchorEl);
+}
+
+// Group header menu: rename, recolor, delete.
+function showGroupMenu(groupId, anchorEl) {
+  document.querySelectorAll('.group-assign-popover').forEach(el => el.remove());
+  const group = groupsState.groups.find(g => g.id === groupId);
+  if (!group) return;
+
+  const popover = document.createElement('div');
+  popover.className = 'new-session-popover group-assign-popover';
+
+  const editBtn = document.createElement('button');
+  editBtn.className = 'popover-option';
+  editBtn.innerHTML = '<span class="group-assign-name">Rename / recolor…</span>';
+  editBtn.onclick = async () => {
+    popover.remove();
+    const result = await showGroupEditorDialog({ title: 'Edit Group', name: group.name, color: group.color });
+    if (!result) return;
+    if (result.name !== group.name) renameUserGroup(groupId, result.name);
+    if (result.color !== group.color) recolorUserGroup(groupId, result.color);
+  };
+  popover.appendChild(editBtn);
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'popover-option group-assign-remove';
+  deleteBtn.innerHTML = '<span class="group-assign-name">Delete group</span>';
+  deleteBtn.onclick = async () => {
+    popover.remove();
+    const confirmed = await showControlDialog({
+      title: 'Delete Group',
+      message: 'Sessions in this group return to their project. Session files are not affected.',
+      confirmLabel: 'Delete Group',
+      tone: 'warning',
+      details: { Group: group.name },
+    });
+    if (confirmed) removeUserGroup(groupId);
+  };
+  popover.appendChild(deleteBtn);
+
+  positionPopover(popover, anchorEl);
+}
+
+function positionPopover(popover, anchorEl) {
+  document.body.appendChild(popover);
+  const rect = anchorEl.getBoundingClientRect();
+  const popoverHeight = popover.offsetHeight;
+  if (rect.bottom + 4 + popoverHeight > window.innerHeight) {
+    popover.style.top = (rect.top - popoverHeight - 4) + 'px';
+  } else {
+    popover.style.top = (rect.bottom + 4) + 'px';
+  }
+  popover.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - popover.offsetWidth - 8)) + 'px';
+
+  function onClickOutside(e) {
+    if (!popover.contains(e.target) && e.target !== anchorEl) {
+      popover.remove();
+      document.removeEventListener('mousedown', onClickOutside);
+    }
+  }
+  setTimeout(() => document.addEventListener('mousedown', onClickOutside), 0);
 }
 
 function startRename(summaryEl, session) {
