@@ -72,3 +72,27 @@ Move the inline regex from `app.js:409` into this helper (keeps one source of tr
 ## Risks / notes
 - **Spike-gated:** if the current hooks contract can't deliver session-correlated events cleanly, descope to "improve the OSC-9 regex + move it into the tested `attention-source.js` helper" — still a net win (one tested source of truth) and unblocks the others.
 - Correlating hook events to Switchboard sessions is the main complexity; lean on existing `cwd`→session mapping.
+
+## Spike notes (Step 0 — findings)
+
+**Date:** 2026-06-17 · **Conclusion: FULL build is feasible — implemented.**
+
+### Hooks contract (verified against `code.claude.com/docs/en/hooks.md`)
+- Hooks are configured in `~/.claude/settings.json` (user scope) under a top-level `hooks` key. Project (`.claude/settings.json`) and local (`.claude/settings.local.json`) scopes also exist; we use **user scope** so it applies to every Switchboard-launched session.
+- Each hook event maps to an array of *matcher groups*; each group has `{ matcher, hooks: [handler, ...] }`.
+- Handlers can be `type: "command"` (event JSON on **stdin**) **or `type: "http"` (event JSON as the POST request body)**. HTTP handlers take `{ type: "http", url, timeout? }` and are **deduplicated by URL**. This is the cleanest fit — no `curl`/`jq`/shell dependency, no temp scripts.
+- Relevant events:
+  - `Notification` — fires when Claude needs the user (matcher = notification type: `permission_prompt`, `idle_prompt`, `elicitation_dialog`, …). This is the signal the OSC-9 regex misses for some tool/MCP permission prompts.
+  - `Stop` — fires when Claude finishes responding (→ "ready"). No matcher support (matcher silently ignored).
+  - (`PermissionRequest` also exists and maps to needs-attention; covered by `Notification`'s `permission_prompt`, so we register the smaller set.)
+
+### Session correlation — direct, no cwd mapping needed
+Every hook payload includes `session_id`, and `transcript_path` points at `~/.claude/projects/<folder>/<session_id>.jsonl`. **`session_id` is the Claude session UUID, which is exactly Switchboard's `realSessionId`** (the JSONL filename the app already keys `openSessions`/`activeSessions` on after `session-transitions.js` rekeys temp→real). So a hook event maps to a Switchboard session with **zero** extra correlation logic. (Edge case: a brand-new session still on its temp id won't match until the real id is detected — the OSC-9 fallback covers that early window.)
+
+### Chosen design
+- **Ingest = local HTTP server** in `main.js`, bound to `127.0.0.1` on an OS-assigned port (consistent with the existing per-session WS MCP servers in `mcp-bridge.js`). It parses the hook JSON, normalizes via the shared `public/attention-source.js` helper, and pushes a new `attention-signal` IPC event. It replies `200 {}` (empty decision = no-op, never blocks Claude).
+- **`~/.claude/settings.json` is touched only when the setting is ON, and reversibly:** our handlers are tagged by a sentinel URL path (`/switchboard-attention-hook`). Enable strips any stale Switchboard handlers then writes fresh `Notification` + `Stop` HTTP hooks for the live port; disable strips them and leaves all other user hooks untouched. The port is re-stamped on each app start while enabled (URLs dedup, stale ones are pruned first).
+- **Default OFF (opt-in)** — touching the user's real `~/.claude/settings.json` should be a deliberate choice; the OSC-9 heuristic remains the default and the fallback.
+
+### Validation caveat
+A *live* end-to-end hook round-trip can't be exercised from the automated smoke run (it needs a real Claude Code process firing a permission prompt). The classification/precedence logic is fully unit-tested in `test/attention-source.test.js`; the smoke run verifies the app boots, the HTTP ingest server binds, and the IPC wiring loads without runtime errors.

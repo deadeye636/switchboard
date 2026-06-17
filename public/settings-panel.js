@@ -73,6 +73,7 @@
     const maxAgeValue = fieldValue('sessionMaxAgeDays', 3);
     const themeValue = fieldValue('terminalTheme', 'switchboard');
     const mcpEmulationValue = fieldValue('mcpEmulation', true);
+    const attentionHooksValue = fieldValue('attentionHooks', false);
     const shellProfileValue = fieldValue('shellProfile', 'auto');
 
     // Notifications live in the global blob under `notifications`.
@@ -239,6 +240,16 @@
             <label class="settings-toggle"><input type="checkbox" id="sv-mcp-emulation" ${mcpEmulationValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
           </div>
         </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Claude Code hooks for attention</span>
+            <div class="settings-description">More reliable attention detection via Claude Code hooks (catches permission/tool prompts the terminal heuristic can miss). Adds a reversible HTTP hook to <code>~/.claude/settings.json</code>; turning this off removes it. OSC-9 detection still works either way.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-attention-hooks" ${attentionHooksValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
       </div>` : ''}
 
       ${!isProject ? `<div class="settings-section">
@@ -334,6 +345,7 @@
         settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
         settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
+        settings.attentionHooks = settingsViewerBody.querySelector('#sv-attention-hooks').checked;
         settings.shellProfile = settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto';
         settings.notifications = {
           enabled: settingsViewerBody.querySelector('#sv-notify-enabled').checked,
@@ -364,6 +376,11 @@
           window._setNotificationSettings(settings.notifications);
         }
         if (typeof refreshSidebar === 'function') refreshSidebar();
+      }
+
+      // Write/remove the reversible ~/.claude hook when the toggle changes
+      if (!isProject && settings.attentionHooks !== attentionHooksValue) {
+        try { await window.api.configureAttentionHook(settings.attentionHooks); } catch {}
       }
 
       // Notify if IDE Emulation changed

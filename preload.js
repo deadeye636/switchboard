@@ -67,6 +67,10 @@ contextBridge.exposeInMainWorld('api', {
   onCliBusyState: (callback) => {
     ipcRenderer.on('cli-busy-state', (_event, sessionId, busy) => callback(sessionId, busy));
   },
+  onAttentionSignal: (callback) => {
+    ipcRenderer.on('attention-signal', (_event, signal) => callback(signal));
+  },
+  configureAttentionHook: (enabled) => ipcRenderer.invoke('configure-attention-hook', enabled),
   onSessionForked: (callback) => {
     ipcRenderer.on('session-forked', (_event, oldId, newId) => callback(oldId, newId));
   },

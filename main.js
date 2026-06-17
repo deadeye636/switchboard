@@ -3,8 +3,10 @@ const { Worker } = require('worker_threads');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const http = require('http');
 const pty = require('node-pty');
 const log = require('electron-log');
+const attentionSource = require('./public/attention-source');
 // getFolderIndexMtimeMs moved to session-cache.js
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rekeyMcpServer, cleanStaleLockFiles } = require('./mcp-bridge');
 const { fetchAndTransformUsage } = require('./claude-auth');
@@ -1018,6 +1020,147 @@ ipcMain.handle('delete-setting', (_event, key) => {
   return { ok: true };
 });
 
+// --- Claude Code hook → attention ingest (spec 05) -----------------------------
+// A tiny loopback HTTP server receives structured hook events from Claude Code
+// (registered as `type: "http"` hooks in ~/.claude/settings.json) and forwards a
+// normalized `attention-signal` to the renderer. The hook payload's `session_id`
+// is the Claude session UUID — exactly Switchboard's realSessionId — so no extra
+// correlation is needed. OSC-9 remains the default heuristic + fallback.
+const CLAUDE_SETTINGS_JSON = path.join(os.homedir(), '.claude', 'settings.json');
+// Sentinel in the hook URL path so we can find & remove only our own handlers.
+const ATTENTION_HOOK_MARK = '/switchboard-attention-hook';
+
+let attentionHookServer = null;
+let attentionHookPort = null;
+
+function attentionHooksEnabled() {
+  const global = getSetting('global') || {};
+  return global.attentionHooks === true;
+}
+
+function startAttentionHookServer() {
+  if (attentionHookServer) return;
+  const server = http.createServer((req, res) => {
+    if (req.method !== 'POST') {
+      res.writeHead(405);
+      res.end();
+      return;
+    }
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 1_000_000) req.destroy(); // guard against runaway payloads
+    });
+    req.on('end', () => {
+      try {
+        const hook = JSON.parse(body || '{}');
+        const sessionId = hook.session_id || hook.sessionId;
+        const signal = attentionSource.classifyAttentionSignal({ source: 'hook', payload: hook });
+        if (sessionId && signal && mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('attention-signal', {
+            sessionId,
+            kind: signal.kind,
+            reason: signal.reason,
+            source: 'hook',
+          });
+          log.info(`[attention-hook] session=${sessionId} kind=${signal.kind} reason="${signal.reason}"`);
+        }
+      } catch (err) {
+        log.warn(`[attention-hook] bad payload: ${err.message}`);
+      }
+      // Empty decision object = no-op; never block or alter Claude's behavior.
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{}');
+    });
+  });
+  server.on('error', (err) => log.error(`[attention-hook] server error: ${err.message}`));
+  server.listen(0, '127.0.0.1', () => {
+    attentionHookPort = server.address().port;
+    attentionHookServer = server;
+    log.info(`[attention-hook] listening on 127.0.0.1:${attentionHookPort}`);
+    // Re-stamp the live port into settings.json if the feature is already on.
+    try {
+      if (attentionHooksEnabled()) writeClaudeAttentionHook(attentionHookPort);
+    } catch (err) {
+      log.error(`[attention-hook] failed to refresh hook on startup: ${err.message}`);
+    }
+  });
+}
+
+function readClaudeSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(CLAUDE_SETTINGS_JSON, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+// Remove only Switchboard-owned HTTP handlers (identified by the sentinel URL),
+// pruning now-empty matcher groups and hook events. Leaves all other user hooks
+// untouched — this is what makes the change reversible.
+function stripSwitchboardHooks(settings) {
+  if (!settings || !settings.hooks || typeof settings.hooks !== 'object') return settings;
+  for (const event of Object.keys(settings.hooks)) {
+    const groups = settings.hooks[event];
+    if (!Array.isArray(groups)) continue;
+    const keptGroups = [];
+    for (const group of groups) {
+      if (group && Array.isArray(group.hooks)) {
+        group.hooks = group.hooks.filter(
+          (h) => !(h && typeof h.url === 'string' && h.url.includes(ATTENTION_HOOK_MARK)),
+        );
+        if (group.hooks.length > 0) keptGroups.push(group);
+      } else {
+        keptGroups.push(group);
+      }
+    }
+    if (keptGroups.length > 0) settings.hooks[event] = keptGroups;
+    else delete settings.hooks[event];
+  }
+  if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
+  return settings;
+}
+
+function writeClaudeAttentionHook(port) {
+  if (!port) return;
+  const url = `http://127.0.0.1:${port}${ATTENTION_HOOK_MARK}`;
+  const settings = stripSwitchboardHooks(readClaudeSettings());
+  if (!settings.hooks) settings.hooks = {};
+  const addHook = (event, matcher) => {
+    if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = [];
+    settings.hooks[event].push({ matcher: matcher || '', hooks: [{ type: 'http', url, timeout: 5 }] });
+  };
+  addHook('Notification', ''); // permission_prompt / idle_prompt / elicitation / …
+  addHook('Stop', ''); // agent finished responding (matcher ignored for Stop)
+  fs.mkdirSync(path.dirname(CLAUDE_SETTINGS_JSON), { recursive: true });
+  fs.writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(settings, null, 2) + '\n');
+  log.info(`[attention-hook] wrote hooks to ${CLAUDE_SETTINGS_JSON} (${url})`);
+}
+
+function removeClaudeAttentionHook() {
+  if (!fs.existsSync(CLAUDE_SETTINGS_JSON)) return;
+  const settings = stripSwitchboardHooks(readClaudeSettings());
+  fs.writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(settings, null, 2) + '\n');
+  log.info(`[attention-hook] removed Switchboard hooks from ${CLAUDE_SETTINGS_JSON}`);
+}
+
+// Renderer toggles the setting then calls this to write/remove the ~/.claude hook.
+ipcMain.handle('configure-attention-hook', (_event, enabled) => {
+  try {
+    if (enabled) {
+      if (!attentionHookServer) startAttentionHookServer();
+      // If the server is still binding, the listen callback will stamp the port.
+      if (attentionHookPort) writeClaudeAttentionHook(attentionHookPort);
+    } else {
+      removeClaudeAttentionHook();
+    }
+    return { ok: true };
+  } catch (err) {
+    log.error(`[attention-hook] configure failed: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+});
+
 // --- Scheduled tasks ---
 const scheduleIpc = require('./schedule-ipc');
 
@@ -1634,6 +1777,7 @@ if (!gotSingleInstanceLock) {
     createWindow();
     createTray();
     startProjectsWatcher();
+    startAttentionHookServer();
     scheduleIpc.ensureScheduleCreatorCommand();
 
     // Shared runCommand for cron scheduler and "run now" — takes argv, not a shell string.
