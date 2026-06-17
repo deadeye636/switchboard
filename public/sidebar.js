@@ -63,6 +63,7 @@ function showSpringCleaningDialog() {
 
   let ageDays = DEFAULT_CLEANUP_AGE_DAYS;
   let candidates = [];
+  let abandonedCandidates = [];
   let selectedIds = new Set();
 
   dialog.innerHTML = `
@@ -70,7 +71,7 @@ function showSpringCleaningDialog() {
       <div>
         <div class="spring-cleaning-kicker">Spring Cleaning</div>
         <h3 id="spring-cleaning-title">Hide Old Sessions</h3>
-        <p>Archive old stopped sessions from the sidebar. Session files are not deleted, and you can undo immediately after cleanup.</p>
+        <p>Archive clutter from the sidebar: old stopped sessions, plus barely-used sessions that were abandoned early. Session files are not deleted, and you can undo immediately after cleanup.</p>
       </div>
       <button type="button" class="spring-cleaning-close-btn" aria-label="Close spring cleaning">&times;</button>
     </div>
@@ -102,7 +103,18 @@ function showSpringCleaningDialog() {
       activePtyIds,
       lastActivityTime,
     });
-    selectedIds = new Set(candidates.map(item => item.session.sessionId));
+    const ageIds = new Set(candidates.map(item => item.session.sessionId));
+    // Abandoned-short sessions are surfaced independently of the age slider, so
+    // dedupe any that already appear in the age-based list to avoid two rows
+    // (and two checkboxes) for the same session.
+    abandonedCandidates = getAbandonedShortSessions(getAllRenderableSessions(cachedAllProjects), {
+      activePtyIds,
+      lastActivityTime,
+    }).filter(item => !ageIds.has(item.session.sessionId));
+    selectedIds = new Set([
+      ...candidates.map(item => item.session.sessionId),
+      ...abandonedCandidates.map(item => item.session.sessionId),
+    ]);
     renderBody();
   }
 
@@ -122,34 +134,63 @@ function showSpringCleaningDialog() {
     }
   }
 
-  function renderBody() {
-    const summary = summarizeSpringCleaningSelection(candidates, selectedIds);
-    summaryEl.textContent = candidates.length
-      ? `${summary.selectedCount} of ${candidates.length} sessions selected across ${summary.projectCount} project${summary.projectCount === 1 ? '' : 's'}.`
-      : `No stopped, unpinned sessions older than ${ageDays} days.`;
-    archiveBtn.disabled = summary.selectedCount === 0;
-    archiveBtn.textContent = summary.selectedCount === 0
-      ? 'Archive Selected'
-      : `Archive ${summary.selectedCount} Selected`;
+  function renderCategoryRow(item, metaText) {
+    const session = item.session;
+    const row = document.createElement('label');
+    row.className = 'spring-cleaning-row';
 
-    listEl.innerHTML = '';
-    if (candidates.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'spring-cleaning-empty';
-      empty.textContent = 'Nothing to clean up for this age threshold.';
-      listEl.appendChild(empty);
-      return;
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = selectedIds.has(session.sessionId);
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) selectedIds.add(session.sessionId);
+      else selectedIds.delete(session.sessionId);
+      renderBody();
+    });
+    row.appendChild(checkbox);
+
+    const info = document.createElement('span');
+    info.className = 'spring-cleaning-row-info';
+    const title = document.createElement('span');
+    title.className = 'spring-cleaning-row-title';
+    title.textContent = shortSessionLabel(session);
+    const meta = document.createElement('span');
+    meta.className = 'spring-cleaning-row-meta';
+    meta.textContent = metaText(item);
+    info.appendChild(title);
+    info.appendChild(meta);
+    row.appendChild(info);
+
+    return row;
+  }
+
+  function renderCategory(category) {
+    if (category.items.length === 0) return;
+
+    const section = document.createElement('section');
+    section.className = 'spring-cleaning-category';
+
+    const heading = document.createElement('div');
+    heading.className = 'spring-cleaning-category-title';
+    heading.innerHTML = `<span>${escapeHtml(category.label)} · ${category.items.length}</span>`;
+    if (category.description) {
+      heading.title = category.description;
+      const desc = document.createElement('span');
+      desc.className = 'spring-cleaning-category-desc';
+      desc.textContent = category.description;
+      heading.appendChild(desc);
     }
+    section.appendChild(heading);
 
     const byProject = new Map();
-    for (const item of candidates) {
+    for (const item of category.items) {
       const key = item.projectPath || 'Other';
       if (!byProject.has(key)) byProject.set(key, []);
       byProject.get(key).push(item);
     }
 
     for (const [, items] of byProject) {
-      const group = document.createElement('section');
+      const group = document.createElement('div');
       group.className = 'spring-cleaning-group';
 
       const header = document.createElement('div');
@@ -158,37 +199,47 @@ function showSpringCleaningDialog() {
       group.appendChild(header);
 
       for (const item of items) {
-        const session = item.session;
-        const row = document.createElement('label');
-        row.className = 'spring-cleaning-row';
-
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.checked = selectedIds.has(session.sessionId);
-        checkbox.addEventListener('change', () => {
-          if (checkbox.checked) selectedIds.add(session.sessionId);
-          else selectedIds.delete(session.sessionId);
-          renderBody();
-        });
-        row.appendChild(checkbox);
-
-        const info = document.createElement('span');
-        info.className = 'spring-cleaning-row-info';
-        const title = document.createElement('span');
-        title.className = 'spring-cleaning-row-title';
-        title.textContent = shortSessionLabel(session);
-        const meta = document.createElement('span');
-        meta.className = 'spring-cleaning-row-meta';
-        meta.textContent = `${item.ageDays} days old · ${session.messageCount || 0} msgs`;
-        info.appendChild(title);
-        info.appendChild(meta);
-        row.appendChild(info);
-
-        group.appendChild(row);
+        group.appendChild(renderCategoryRow(item, category.metaText));
       }
 
-      listEl.appendChild(group);
+      section.appendChild(group);
     }
+
+    listEl.appendChild(section);
+  }
+
+  function renderBody() {
+    const allCandidates = [...candidates, ...abandonedCandidates];
+    const summary = summarizeSpringCleaningSelection(allCandidates, selectedIds);
+    summaryEl.textContent = allCandidates.length
+      ? `${summary.selectedCount} of ${allCandidates.length} sessions selected across ${summary.projectCount} project${summary.projectCount === 1 ? '' : 's'}.`
+      : `No stopped, unpinned sessions older than ${ageDays} days, and nothing abandoned early.`;
+    archiveBtn.disabled = summary.selectedCount === 0;
+    archiveBtn.textContent = summary.selectedCount === 0
+      ? 'Archive Selected'
+      : `Archive ${summary.selectedCount} Selected`;
+
+    listEl.innerHTML = '';
+    if (allCandidates.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'spring-cleaning-empty';
+      empty.textContent = 'Nothing to clean up right now.';
+      listEl.appendChild(empty);
+      return;
+    }
+
+    renderCategory({
+      label: `Older than ${ageDays} days`,
+      items: candidates,
+      metaText: item => `${item.ageDays} days old · ${item.session.messageCount || 0} msgs`,
+    });
+
+    renderCategory({
+      label: 'Abandoned short sessions',
+      description: 'Barely-used sessions: few messages, few turns, and inactive for over a week.',
+      items: abandonedCandidates,
+      metaText: item => `${item.ageDays} days old · ${item.session.messageCount || 0} msgs · ${item.session.userMessageCount || 0} turns`,
+    });
   }
 
   archiveBtn.addEventListener('click', async () => {

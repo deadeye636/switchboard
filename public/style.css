@@ -480,6 +480,38 @@ input:focus-visible {
   font-size: 13px;
 }
 
+.spring-cleaning-category {
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.spring-cleaning-category:last-child {
+  border-bottom: 0;
+}
+
+.spring-cleaning-category-title {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px;
+  background: #23232f;
+  color: #aab0ff;
+  font-size: 11.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.spring-cleaning-category-desc {
+  color: #8a8aa2;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .spring-cleaning-group {
   border-bottom: 1px solid rgba(255,255,255,0.05);
 }

@@ -4,7 +4,9 @@ const assert = require('node:assert/strict');
 const {
   CLEANUP_AGE_PRESETS,
   DEFAULT_CLEANUP_AGE_DAYS,
+  ABANDONED_SHORT_DEFAULTS,
   getSpringCleaningCandidates,
+  getAbandonedShortSessions,
   summarizeSpringCleaningSelection,
 } = require('../public/session-cleanup');
 
@@ -53,6 +55,89 @@ test('spring cleaning candidate age threshold is configurable', () => {
     getSpringCleaningCandidates(input, { now: NOW, ageDays: 30 }).map(item => item.session.sessionId),
     ['forty-days'],
   );
+});
+
+function abandonedSession(overrides = {}) {
+  return {
+    sessionId: 'abandoned',
+    modified: '2026-06-01T12:00:00.000Z', // 14 days old
+    summary: 'abandoned',
+    messageCount: 6,
+    userMessageCount: 1,
+    cacheReadTokens: 1200,
+    ...overrides,
+  };
+}
+
+test('abandoned-short defaults are conservative named constants', () => {
+  assert.deepEqual(ABANDONED_SHORT_DEFAULTS, {
+    maxMessageCount: 15,
+    maxUserMessageCount: 3,
+    maxCacheReadTokens: 50_000,
+    minInactiveDays: 7,
+  });
+});
+
+test('abandoned-short flags a trivial, inactive session', () => {
+  const result = getAbandonedShortSessions([abandonedSession()], { now: NOW });
+  assert.deepEqual(result.map(item => item.session.sessionId), ['abandoned']);
+  assert.equal(result[0].ageDays, 14);
+});
+
+test('abandoned-short excludes sessions over each usage threshold', () => {
+  const sessions = [
+    abandonedSession({ sessionId: 'too-many-messages', messageCount: 15 }),
+    abandonedSession({ sessionId: 'too-many-turns', userMessageCount: 3 }),
+    abandonedSession({ sessionId: 'too-much-cache', cacheReadTokens: 50_000 }),
+  ];
+  const result = getAbandonedShortSessions(sessions, { now: NOW });
+  assert.deepEqual(result.map(item => item.session.sessionId), []);
+});
+
+test('abandoned-short keeps sessions just under each usage threshold', () => {
+  const sessions = [
+    abandonedSession({ sessionId: 'edge-messages', messageCount: 14 }),
+    abandonedSession({ sessionId: 'edge-turns', userMessageCount: 2 }),
+    abandonedSession({ sessionId: 'edge-cache', cacheReadTokens: 49_999 }),
+  ];
+  const result = getAbandonedShortSessions(sessions, { now: NOW });
+  assert.deepEqual(
+    result.map(item => item.session.sessionId).sort(),
+    ['edge-cache', 'edge-messages', 'edge-turns'],
+  );
+});
+
+test('abandoned-short excludes recently active sessions', () => {
+  const sessions = [
+    abandonedSession({ sessionId: 'recent', modified: '2026-06-12T12:00:00.000Z' }),
+    abandonedSession({ sessionId: 'just-inside', modified: '2026-06-08T11:00:00.000Z' }),
+  ];
+  const result = getAbandonedShortSessions(sessions, { now: NOW });
+  assert.deepEqual(result.map(item => item.session.sessionId), ['just-inside']);
+});
+
+test('abandoned-short excludes starred, archived, terminal and running sessions', () => {
+  const sessions = [
+    abandonedSession({ sessionId: 'starred', starred: 1 }),
+    abandonedSession({ sessionId: 'archived', archived: 1 }),
+    abandonedSession({ sessionId: 'terminal', type: 'terminal' }),
+    abandonedSession({ sessionId: 'running' }),
+    abandonedSession({ sessionId: 'safe' }),
+  ];
+  const result = getAbandonedShortSessions(sessions, {
+    now: NOW,
+    activePtyIds: new Set(['running']),
+  });
+  assert.deepEqual(result.map(item => item.session.sessionId), ['safe']);
+});
+
+test('abandoned-short respects custom thresholds', () => {
+  const sessions = [abandonedSession({ sessionId: 'busy', messageCount: 40, userMessageCount: 8, cacheReadTokens: 500_000 })];
+  const result = getAbandonedShortSessions(sessions, {
+    now: NOW,
+    thresholds: { maxMessageCount: 100, maxUserMessageCount: 20, maxCacheReadTokens: 1_000_000, minInactiveDays: 3 },
+  });
+  assert.deepEqual(result.map(item => item.session.sessionId), ['busy']);
 });
 
 test('spring cleaning summary groups selected sessions by project', () => {
