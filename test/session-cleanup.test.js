@@ -73,7 +73,7 @@ test('abandoned-short defaults are conservative named constants', () => {
   assert.deepEqual(ABANDONED_SHORT_DEFAULTS, {
     maxMessageCount: 15,
     maxUserMessageCount: 3,
-    maxCacheReadTokens: 50_000,
+    maxCacheReadTokens: 2_000_000,
     minInactiveDays: 2,
   });
 });
@@ -88,7 +88,7 @@ test('abandoned-short excludes sessions over each usage threshold', () => {
   const sessions = [
     abandonedSession({ sessionId: 'too-many-messages', messageCount: 15 }),
     abandonedSession({ sessionId: 'too-many-turns', userMessageCount: 3 }),
-    abandonedSession({ sessionId: 'too-much-cache', cacheReadTokens: 50_000 }),
+    abandonedSession({ sessionId: 'too-much-cache', cacheReadTokens: 2_000_000 }),
   ];
   const result = getAbandonedShortSessions(sessions, { now: NOW });
   assert.deepEqual(result.map(item => item.session.sessionId), []);
@@ -98,7 +98,7 @@ test('abandoned-short keeps sessions just under each usage threshold', () => {
   const sessions = [
     abandonedSession({ sessionId: 'edge-messages', messageCount: 14 }),
     abandonedSession({ sessionId: 'edge-turns', userMessageCount: 2 }),
-    abandonedSession({ sessionId: 'edge-cache', cacheReadTokens: 49_999 }),
+    abandonedSession({ sessionId: 'edge-cache', cacheReadTokens: 1_999_999 }),
   ];
   const result = getAbandonedShortSessions(sessions, { now: NOW });
   assert.deepEqual(
@@ -172,6 +172,47 @@ test('abandoned-short detects sessions shaped like buildProjectsFromCache output
 
   const result = getAbandonedShortSessions([realisticSession], { now: NOW });
   assert.deepEqual(result.map(item => item.session.sessionId), ['cache-shaped']);
+});
+
+test('abandoned-short flags a realistic tiny session with real cache-read volume', () => {
+  // Real sampled session from the SQLite cache: a 5-message, 1-turn session that
+  // sat untouched for days. Claude Code still read ~349k cache tokens for it, which
+  // the original 50k bound wrongly excluded. With a realistic bound it qualifies.
+  const realTiny = {
+    sessionId: '95a4c33f',
+    summary: 'quick check',
+    projectPath: '/repo/app',
+    created: '2026-06-10T08:00:00.000Z',
+    modified: '2026-06-10T08:12:00.000Z', // ~5 days before NOW
+    messageCount: 5,
+    userMessageCount: 1,
+    inputTokens: 4200,
+    outputTokens: 1800,
+    cacheCreationTokens: 12000,
+    cacheReadTokens: 348868,
+    largestUserPromptWords: 40,
+    activeMinutes: 6,
+    starred: 0,
+    archived: 0,
+  };
+  const result = getAbandonedShortSessions([realTiny], { now: NOW });
+  assert.deepEqual(result.map(item => item.session.sessionId), ['95a4c33f']);
+});
+
+test('abandoned-short excludes a heavy-cache session even with few messages', () => {
+  const sessions = [abandonedSession({ sessionId: 'heavy', messageCount: 8, userMessageCount: 2, cacheReadTokens: 3_000_000 })];
+  const result = getAbandonedShortSessions(sessions, { now: NOW });
+  assert.deepEqual(result.map(item => item.session.sessionId), []);
+});
+
+test('abandoned-short does not flag sessions with unknown metrics', () => {
+  const sessions = [
+    // Old enough, but metric fields are absent — must NOT be treated as 0/abandoned.
+    { sessionId: 'no-metrics', modified: '2026-06-01T12:00:00.000Z', summary: 'mystery' },
+    { sessionId: 'null-metrics', modified: '2026-06-01T12:00:00.000Z', messageCount: null, userMessageCount: null, cacheReadTokens: null },
+  ];
+  const result = getAbandonedShortSessions(sessions, { now: NOW });
+  assert.deepEqual(result.map(item => item.session.sessionId), []);
 });
 
 test('abandoned-short respects custom thresholds', () => {

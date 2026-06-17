@@ -18,8 +18,12 @@
     maxMessageCount: 15,
     // Fewer than this many user turns (real back-and-forth).
     maxUserMessageCount: 3,
-    // Below this many cache-read tokens (almost no real work happened).
-    maxCacheReadTokens: 50_000,
+    // Below this many cache-read tokens. Claude Code re-reads the cached context
+    // on every turn, so even a 5-message session realistically reads a few hundred
+    // thousand tokens; this bound is set well above that (but far below the
+    // multi-million "heavy session" health thresholds) so it only excludes
+    // sessions that did genuinely heavy work in few turns.
+    maxCacheReadTokens: 2_000_000,
     // No activity for at least this many days.
     minInactiveDays: 2,
   };
@@ -27,6 +31,16 @@
   function numberValue(value, fallback = 0) {
     const number = Number(value);
     return Number.isFinite(number) ? number : fallback;
+  }
+
+  // Returns a finite number for a known metric, or null when the metric is
+  // absent/non-numeric. Used by the abandoned-short selector so a session with
+  // unknown metrics is treated as "unknown" (not flagged) rather than silently
+  // coerced to 0 (which would falsely flag it as abandoned).
+  function knownMetric(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
   }
 
   function sessionActivityTime(session, runtime = {}) {
@@ -98,10 +112,16 @@
       const activityMs = sessionActivityTime(session, runtime);
       if (!activityMs || activityMs > cutoffMs) continue;
 
-      // Must be trivially small across every usage signal.
-      if (numberValue(session.messageCount) >= thresholds.maxMessageCount) continue;
-      if (numberValue(session.userMessageCount) >= thresholds.maxUserMessageCount) continue;
-      if (numberValue(session.cacheReadTokens) >= thresholds.maxCacheReadTokens) continue;
+      // Must be trivially small across every usage signal. If any metric is
+      // unknown (missing/non-numeric) we do not flag the session, to avoid false
+      // positives from incomplete data being coerced to 0.
+      const messageCount = knownMetric(session.messageCount);
+      const userMessageCount = knownMetric(session.userMessageCount);
+      const cacheReadTokens = knownMetric(session.cacheReadTokens);
+      if (messageCount === null || userMessageCount === null || cacheReadTokens === null) continue;
+      if (messageCount >= thresholds.maxMessageCount) continue;
+      if (userMessageCount >= thresholds.maxUserMessageCount) continue;
+      if (cacheReadTokens >= thresholds.maxCacheReadTokens) continue;
 
       results.push({
         projectPath: session.projectPath,
