@@ -111,6 +111,24 @@ test('getSessionHealth does not recommend handoff for a single user prompt', () 
   ]);
 });
 
+test('getSessionHealth still recommends handoff for multi-turn risky sessions below the user-turn threshold', () => {
+  const result = getSessionHealth({
+    sessionId: 'multi-turn-risky-run',
+    userMessageCount: 3,
+    messageCount: 360,
+    activeMinutes: 300,
+    cacheReadTokens: 25_000_000,
+  });
+
+  assert.equal(result.state, 'handoff-recommended');
+  assert.equal(result.shouldWarn, true);
+  assert.deepEqual(result.reasons.map(reason => reason.key), [
+    'entries',
+    'active-time',
+    'cache-read',
+  ]);
+});
+
 test('buildHandoffTemplate produces a copyable markdown packet from local facts', () => {
   const text = buildHandoffTemplate({
     sessionId: 's1',

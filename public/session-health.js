@@ -106,8 +106,8 @@
     }
 
     const reasons = healthReasons(session);
-    const hasUserTurnRisk = reasons.some(reason => reason.key === 'user-turns');
-    if (hasUserTurnRisk && reasons.length >= 2) return { ...HEALTH_STATES.handoffRecommended, reasons };
+    const hasEnoughUserTurnsForHandoff = numberValue(session.userMessageCount) >= 3;
+    if (hasEnoughUserTurnsForHandoff && reasons.length >= 2) return { ...HEALTH_STATES.handoffRecommended, reasons };
     if (reasons.length >= 1) return { ...HEALTH_STATES.marathonRisk, reasons };
 
     const growing = (
