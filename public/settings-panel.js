@@ -75,6 +75,11 @@
     const mcpEmulationValue = fieldValue('mcpEmulation', true);
     const shellProfileValue = fieldValue('shellProfile', 'auto');
 
+    // Notifications live in the global blob under `notifications`.
+    const notificationsValue = (!isProject && current.notifications) || {};
+    const notifyEnabledValue = notificationsValue.enabled !== false; // default on
+    const notifyOnReadyValue = !!notificationsValue.notifyOnReady; // default off
+
     // Discover available shell profiles
     let shellProfiles = [];
     try { shellProfiles = await window.api.getShellProfiles(); } catch {};
@@ -237,6 +242,30 @@
       </div>` : ''}
 
       ${!isProject ? `<div class="settings-section">
+        <div class="settings-section-title">Notifications</div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Enable notifications</span>
+            <div class="settings-description">Show a native OS notification and dock/taskbar badge when a session needs you while Switchboard is unfocused</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-notify-enabled" ${notifyEnabledValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Notify when a session is ready</span>
+            <div class="settings-description">Also notify when an agent finishes and is ready for review, not just when it needs action</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-notify-ready" ${notifyOnReadyValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+      </div>` : ''}
+
+      ${!isProject ? `<div class="settings-section">
         <div class="settings-section-title">Updates</div>
         <div class="settings-field">
           <div class="settings-field-info">
@@ -306,6 +335,10 @@
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
         settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
         settings.shellProfile = settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto';
+        settings.notifications = {
+          enabled: settingsViewerBody.querySelector('#sv-notify-enabled').checked,
+          notifyOnReady: settingsViewerBody.querySelector('#sv-notify-ready').checked,
+        };
       }
 
       // Merge form values into existing settings to preserve keys not managed by the form
@@ -326,6 +359,9 @@
         }
         if (settings.terminalTheme && typeof window._applyTerminalTheme === 'function') {
           window._applyTerminalTheme(settings.terminalTheme);
+        }
+        if (settings.notifications && typeof window._setNotificationSettings === 'function') {
+          window._setNotificationSettings(settings.notifications);
         }
         if (typeof refreshSidebar === 'function') refreshSidebar();
       }

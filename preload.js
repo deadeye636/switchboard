@@ -44,6 +44,13 @@ contextBridge.exposeInMainWorld('api', {
   resizeTerminal: (id, cols, rows) => ipcRenderer.send('terminal-resize', id, cols, rows),
   closeTerminal: (id) => ipcRenderer.send('close-terminal', id),
 
+  // Native notifications, dock/taskbar badge, tray (Spec 01)
+  notify: (payload) => ipcRenderer.send('notify', payload),
+  setBadge: (count) => ipcRenderer.send('set-badge', count),
+  setTraySummary: (text) => ipcRenderer.send('set-tray-summary', text),
+  onFocusSession: (cb) => ipcRenderer.on('focus-session', (_e, id) => cb(id)),
+  onFocusNextAttention: (cb) => ipcRenderer.on('focus-next-attention', () => cb()),
+
   // Listeners (main → renderer)
   onTerminalData: (callback) => {
     ipcRenderer.on('terminal-data', (_event, sessionId, data) => callback(sessionId, data));
