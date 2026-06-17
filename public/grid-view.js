@@ -604,8 +604,42 @@ function updateGridDropTarget(card, x, y) {
   }
 }
 
-// Single shared drag system: dragging a card's header reorders it, or — when
-// 07's group regions are present — drops it into a different group (assignSession).
+// FLIP-animate a container's sibling cards as the drop placeholder is moved into
+// `refNode`'s slot: record positions, move, then invert + transition to identity
+// so the surrounding tiles visibly slide to preview the new arrangement. Reads
+// are batched before writes to avoid layout thrash. `exclude` is the lifted card.
+function flipMovePlaceholder(container, placeholder, refNode, exclude) {
+  const sibs = [...container.children].filter(
+    n => n.classList && n.classList.contains('grid-card') && n !== exclude
+  );
+  // FIRST: current visual rects (may include an in-flight FLIP transform).
+  const first = sibs.map(c => [c, c.getBoundingClientRect()]);
+  container.insertBefore(placeholder, refNode);
+  // Clear any prior inline transform so LAST reads the true settled layout.
+  for (const [c] of first) { c.style.transition = 'none'; c.style.transform = ''; }
+  const moved = [];
+  for (const [c, f] of first) {
+    const last = c.getBoundingClientRect();
+    const dx = f.left - last.left;
+    const dy = f.top - last.top;
+    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+      c.style.transform = `translate(${dx}px, ${dy}px)`;
+      moved.push(c);
+    }
+  }
+  // PLAY: next frame, restore the CSS transition and animate to identity.
+  requestAnimationFrame(() => {
+    for (const [c] of first) {
+      c.style.transition = '';
+      if (moved.includes(c)) c.style.transform = '';
+    }
+  });
+}
+
+// Single shared drag system: dragging a card's header reorders it (with a live
+// FLIP preview of the surrounding tiles), or — when 07's group regions are
+// present — drops it into a different group (assignSession). Honors
+// prefers-reduced-motion by falling back to the static drop indicators.
 function startCardDrag(sessionId, card, e) {
   if (e.button !== 0) return;
   if (e.target.closest('button, .grid-card-resize-handle')) return;
@@ -613,34 +647,118 @@ function startCardDrag(sessionId, card, e) {
   const startY = e.clientY;
   const reduced = gridReducedMotion();
   let dragging = false;
+  let placeholder = null;
+  let rafId = 0;
+  let lastX = startX;
+  let lastY = startY;
+  let lastSlotKey = null;
+
+  const beginDrag = () => {
+    dragging = true;
+    gridInteracting = true;
+    card.classList.add('dragging');
+    document.body.classList.add('grid-dragging');
+    card.style.pointerEvents = 'none';
+    if (reduced) return; // static-indicator path only
+    card.style.zIndex = '1000';
+    const startRect = card.getBoundingClientRect();
+    // Placeholder holds the dragged card's slot (same span) so siblings reflow
+    // around it; the real card is lifted out of grid flow to follow the cursor.
+    placeholder = document.createElement('div');
+    placeholder.className = 'grid-card-placeholder';
+    placeholder.style.gridColumn = card.style.gridColumn || `span ${card.dataset.colSpan || 1}`;
+    placeholder.style.gridRow = card.style.gridRow || `span ${card.dataset.rowSpan || 1}`;
+    card.parentElement.insertBefore(placeholder, card);
+    card.style.position = 'fixed';
+    card.style.margin = '0';
+    card.style.width = `${startRect.width}px`;
+    card.style.height = `${startRect.height}px`;
+    card.style.left = `${startRect.left}px`;
+    card.style.top = `${startRect.top}px`;
+  };
+
+  // Recompute the projected insertion slot and reflect it live (throttled to one
+  // pass per animation frame). Batches reads then writes.
+  const updatePreview = () => {
+    rafId = 0;
+    if (!dragging || !placeholder) return;
+    clearGridDropTargets();
+    const el = document.elementFromPoint(lastX, lastY);
+    if (!el) return;
+    const region = el.closest('.grid-region');
+    const sourceRegion = card.closest('.grid-region');
+    // Hovering a different group region previews reassignment (no reorder).
+    if (region && terminalsEl.classList.contains('grid-grouped') && region !== sourceRegion) {
+      region.classList.add('drop-region');
+      return;
+    }
+    if (el.closest('.grid-card-placeholder')) return; // over the gap — keep slot
+    const targetEl = el.closest('.grid-card');
+    const targetCard = targetEl && targetEl !== card ? targetEl : null;
+    const container = placeholder.parentElement;
+    if (!targetCard || targetCard.parentElement !== container) return;
+
+    const sibs = [...container.children].filter(
+      n => n.classList && n.classList.contains('grid-card') && n !== card
+    );
+    const ti = sibs.indexOf(targetCard);
+    if (ti === -1) return;
+    const r = targetCard.getBoundingClientRect();
+    const after = (lastX - r.left) > r.width / 2;
+    const insertIndex = after ? ti + 1 : ti;
+    const refNode = sibs[insertIndex] || null;
+    const slotKey = refNode ? (refNode.dataset.sessionId || '') : '__end__';
+    if (slotKey === lastSlotKey) return; // slot unchanged — skip the FLIP
+    lastSlotKey = slotKey;
+    flipMovePlaceholder(container, placeholder, refNode, card);
+  };
 
   const onMove = (ev) => {
     const dx = ev.clientX - startX;
     const dy = ev.clientY - startY;
     if (!dragging) {
       if (Math.hypot(dx, dy) < 6) return;
-      dragging = true;
-      gridInteracting = true;
-      card.classList.add('dragging');
-      document.body.classList.add('grid-dragging');
-      card.style.pointerEvents = 'none';
-      if (!reduced) card.style.zIndex = '1000';
+      beginDrag();
     }
-    if (!reduced) card.style.transform = `translate(${dx}px, ${dy}px)`;
-    updateGridDropTarget(card, ev.clientX, ev.clientY);
+    lastX = ev.clientX;
+    lastY = ev.clientY;
+    if (reduced) {
+      updateGridDropTarget(card, ev.clientX, ev.clientY);
+      return;
+    }
+    card.style.transform = `translate(${dx}px, ${dy}px)`;
+    if (!rafId) rafId = requestAnimationFrame(updatePreview);
+  };
+
+  const endDrag = () => {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    card.classList.remove('dragging');
+    document.body.classList.remove('grid-dragging');
+    card.style.pointerEvents = '';
+    card.style.transform = '';
+    card.style.zIndex = '';
+    card.style.position = '';
+    card.style.left = '';
+    card.style.top = '';
+    card.style.width = '';
+    card.style.height = '';
+    card.style.margin = '';
+    if (placeholder && placeholder.parentElement) placeholder.remove();
+    placeholder = null;
+    clearGridDropTargets();
+    // Drop any lingering FLIP transforms so nothing is left mid-animation.
+    for (const c of terminalsEl.querySelectorAll('.grid-card')) {
+      c.style.transition = '';
+      c.style.transform = '';
+    }
   };
 
   const onUp = (ev) => {
     document.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerup', onUp);
     if (dragging) {
-      finishCardDrag(sessionId, card, ev.clientX, ev.clientY);
-      card.classList.remove('dragging');
-      document.body.classList.remove('grid-dragging');
-      card.style.pointerEvents = '';
-      card.style.transform = '';
-      card.style.zIndex = '';
-      clearGridDropTargets();
+      commitCardDrag(sessionId, card, placeholder, reduced, ev.clientX, ev.clientY);
+      endDrag();
       gridInteracting = false;
     }
   };
@@ -649,12 +767,14 @@ function startCardDrag(sessionId, card, e) {
   document.addEventListener('pointerup', onUp);
 }
 
-function finishCardDrag(sessionId, card, x, y) {
+// Commit a finished drag: reassign across group regions, or land the card in the
+// previewed slot (the placeholder position). Falls back to the original
+// before/after reorder when reduced-motion left no placeholder.
+function commitCardDrag(sessionId, card, placeholder, reduced, x, y) {
   const info = getGridDropInfo(card, x, y);
-  if (!info) return;
 
   // Drop into a different group region → reassign via 07's groups-model.
-  if (info.region && terminalsEl.classList.contains('grid-grouped')) {
+  if (info && info.region && terminalsEl.classList.contains('grid-grouped')) {
     const sourceRegion = card.closest('.grid-region');
     if (info.region !== sourceRegion) {
       const targetGroupId = info.region.dataset.groupId || null;
@@ -665,8 +785,16 @@ function finishCardDrag(sessionId, card, x, y) {
     }
   }
 
-  // Otherwise reorder within the current container, before/after the target.
-  if (info.targetCard && info.targetCard.parentElement === card.parentElement) {
+  // Live-preview path: land the card exactly where the placeholder previewed.
+  if (!reduced && placeholder && placeholder.parentElement) {
+    placeholder.parentElement.insertBefore(card, placeholder);
+    persistGridOrder();
+    debouncedFit(sessionId);
+    return;
+  }
+
+  // Reduced-motion fallback: original before/after reorder within the container.
+  if (info && info.targetCard && info.targetCard.parentElement === card.parentElement) {
     const container = card.parentElement;
     const r = info.targetCard.getBoundingClientRect();
     const after = (x - r.left) > r.width / 2;

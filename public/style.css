@@ -2458,7 +2458,9 @@ input:focus-visible {
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 8px;
   overflow: hidden;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  /* transform transition powers the live FLIP displacement of sibling tiles
+     during a drag-reorder; the dragged card itself disables it (see .dragging). */
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.18s ease;
 }
 
 .grid-card:hover {
@@ -5513,6 +5515,20 @@ body.grid-dragging .grid-card-header {
 }
 .grid-card.dragging {
   opacity: 0.55;
+  /* The lifted card is cursor-tracking via transform every frame — a transition
+     would make it lag behind the pointer. */
+  transition: none;
+}
+
+/* Empty slot the dragged card leaves behind; siblings FLIP-reflow around it to
+   preview the drop arrangement. */
+.grid-card-placeholder {
+  border: 2px dashed rgba(128,136,255,0.45);
+  border-radius: 8px;
+  background: rgba(128,136,255,0.07);
+  min-height: 0;
+  height: 100%;
+  pointer-events: none;
 }
 .grid-card.resizing {
   outline: 1px solid rgba(128,136,255,0.5);
