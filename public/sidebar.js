@@ -309,8 +309,11 @@ function buildUserGroup(group, sessions) {
   expand.className = 'user-group-expand';
   expand.innerHTML = '<span class="arrow">&#9654;</span>';
 
-  const dot = document.createElement('span');
-  dot.className = 'user-group-color-dot';
+  // Folder glyph carries the group's accent colour and doubles as the
+  // collapsed/expanded affordance (closed vs open folder is swapped in CSS).
+  const folder = document.createElement('span');
+  folder.className = 'user-group-folder';
+  folder.innerHTML = `<span class="folder-closed">${ICONS.folder(15)}</span><span class="folder-open">${ICONS.folderOpen(15)}</span>`;
 
   const info = document.createElement('div');
   info.className = 'user-group-info';
@@ -339,7 +342,6 @@ function buildUserGroup(group, sessions) {
     chip.title = `${counts.ready} ready`;
     chips.appendChild(chip);
   }
-  meta.appendChild(chips);
 
   const menuBtn = document.createElement('button');
   menuBtn.className = 'user-group-menu-btn';
@@ -350,8 +352,12 @@ function buildUserGroup(group, sessions) {
   info.appendChild(nameEl);
   info.appendChild(meta);
   row.appendChild(expand);
-  row.appendChild(dot);
+  row.appendChild(folder);
   row.appendChild(info);
+  // Roll-up attention/ready chips sit on the right of the header so a collapsed
+  // group still signals supervision needs; only mount them when non-empty so an
+  // empty span doesn't introduce a stray flex gap.
+  if (chips.childElementCount > 0) row.appendChild(chips);
   row.appendChild(menuBtn);
   header.appendChild(row);
 

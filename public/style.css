@@ -5091,55 +5091,66 @@ input:focus-visible {
 .user-group-header .user-group-row {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  padding: 8px 8px;
+  gap: 6px;
+  padding: 6px 8px;
   border-radius: 8px;
   transition: background 0.12s;
 }
 .user-group-header:hover .user-group-row {
   background: rgba(255,255,255,0.06);
 }
+
+/* Caret is a quiet, neutral toggle — the folder icon carries the colour. */
 .user-group-expand {
   flex-shrink: 0;
-  width: 16px;
+  width: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 5px;
+  margin-top: 7px;
 }
 .user-group-expand .arrow {
   font-size: 8px;
-  color: var(--user-group-color, #8088ff);
-  transition: transform 0.2s;
+  color: #6a6a82;
+  transition: transform 0.18s, color 0.12s;
   display: inline-block;
 }
 .user-group:not(.collapsed) .user-group-expand .arrow { transform: rotate(90deg); }
-.user-group-color-dot {
+.user-group-header:hover .user-group-expand .arrow { color: #9a9ab0; }
+
+/* Folder glyph: the group's accent colour, tastefully tinted, with a faint
+   glow. Closed vs open variant is swapped purely via the collapsed class. */
+.user-group-folder {
   flex-shrink: 0;
-  width: 9px;
-  height: 9px;
-  border-radius: 3px;
-  margin-top: 6px;
-  background: var(--user-group-color, #8088ff);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--user-group-color, #8088ff) 50%, transparent);
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+  color: var(--user-group-color, #8088ff);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--user-group-color, #8088ff) 30%, transparent));
 }
+.user-group-folder .folder-closed,
+.user-group-folder .folder-open { display: none; align-items: center; }
+.user-group.collapsed .user-group-folder .folder-closed { display: inline-flex; }
+.user-group:not(.collapsed) .user-group-folder .folder-open { display: inline-flex; }
+
 .user-group-info {
   flex: 1;
   min-width: 0;
 }
 .user-group-name {
   font-size: 13px;
-  color: #c4c4d8;
+  color: #cdcde0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.45;
-  font-weight: 550;
+  line-height: 1.4;
+  font-weight: 600;
 }
+/* Session count de-emphasised: plain muted text, no saturated pill. */
 .user-group-meta {
   font-size: 11px;
-  color: #606078;
-  margin-top: 3px;
+  color: #6a6a80;
+  margin-top: 2px;
   font-weight: 450;
   display: flex;
   align-items: center;
@@ -5158,31 +5169,37 @@ input:focus-visible {
   animation: pulse-dot 2s ease-in-out infinite;
 }
 .user-group-count {
-  font-size: 10px;
-  background: color-mix(in srgb, var(--user-group-color, #8088ff) 18%, transparent);
-  color: var(--user-group-color, #8088ff);
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-weight: 600;
+  font-size: 11px;
+  color: #6a6a80;
+  font-weight: 450;
 }
+/* Roll-up status chips: compact, readable, right-aligned in the header. */
 .user-group-chips {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
+  margin-top: 4px;
 }
 .user-group-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 16px;
+  padding: 0 5px;
   font-size: 10px;
   font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 999px;
+  line-height: 1;
+  border-radius: 8px;
 }
 .user-group-chip.status-needs-attention {
   color: #ffd6a0;
-  background: rgba(240,160,80,0.2);
+  background: rgba(240,160,80,0.18);
 }
 .user-group-chip.status-response-ready {
   color: #9ee4ff;
-  background: rgba(79,195,247,0.2);
+  background: rgba(79,195,247,0.18);
 }
 .user-group-menu-btn {
   background: transparent;
@@ -5199,7 +5216,7 @@ input:focus-visible {
   flex-shrink: 0;
   transition: all 0.15s;
   opacity: 0;
-  margin-top: 3px;
+  margin-top: 2px;
 }
 .user-group-header:hover .user-group-menu-btn {
   opacity: 1;
@@ -5209,10 +5226,35 @@ input:focus-visible {
   color: #8088ff;
 }
 .user-group.collapsed .user-group-sessions { display: none; }
+/* Nested sessions hang off a slim accent connector that fades downward,
+   aligned under the folder glyph so the hierarchy reads at a glance. */
 .user-group-sessions {
-  border-left: 2px solid color-mix(in srgb, var(--user-group-color, #8088ff) 45%, transparent);
-  margin-left: 18px;
-  padding-left: 0;
+  position: relative;
+  margin-left: 20px;
+  padding-left: 8px;
+  border-left: none;
+}
+.user-group-sessions::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 1px;
+  bottom: 6px;
+  width: 1.5px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--user-group-color, #8088ff) 34%, transparent),
+    color-mix(in srgb, var(--user-group-color, #8088ff) 12%, transparent)
+  );
+  transition: background 0.15s;
+}
+.user-group:hover > .user-group-sessions::before {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--user-group-color, #8088ff) 48%, transparent),
+    color-mix(in srgb, var(--user-group-color, #8088ff) 18%, transparent)
+  );
 }
 .user-group-header:focus-visible {
   outline: 2px solid rgba(128,136,255,0.85);
