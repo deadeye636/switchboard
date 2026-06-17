@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, session, shell } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, session, shell, Tray } = require('electron');
 const { Worker } = require('worker_threads');
 const path = require('path');
 const fs = require('fs');
@@ -290,6 +290,97 @@ function buildMenu() {
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// --- Native notifications, dock/taskbar badge, and tray (Spec 01) ---
+// All emission is driven by the renderer, which funnels attention/ready
+// transitions through the pure notification-policy.js decision module.
+let tray = null;
+let traySummary = 'Switchboard';
+
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function updateTrayTooltip() {
+  if (tray && !tray.isDestroyed()) tray.setToolTip(traySummary);
+}
+
+ipcMain.on('notify', (_event, payload) => {
+  if (!Notification.isSupported()) return;
+  const { title, body, sessionId } = payload || {};
+  try {
+    const notification = new Notification({ title: title || 'Switchboard', body: body || '' });
+    notification.on('click', () => {
+      focusMainWindow();
+      if (sessionId && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('focus-session', sessionId);
+      }
+    });
+    notification.show();
+  } catch (err) {
+    log.error('[notify] failed to show notification:', err?.message || String(err));
+  }
+});
+
+ipcMain.on('set-badge', (_event, count) => {
+  const n = Number(count) || 0;
+  try {
+    if (process.platform === 'darwin') {
+      // macOS dock badge is the primary target.
+      if (app.dock) app.dock.setBadge(n ? String(n) : '');
+    } else if (typeof app.setBadgeCount === 'function') {
+      // Linux (Unity launchers) honour this; it is a no-op on platforms that
+      // don't support a numeric badge (e.g. Windows).
+      app.setBadgeCount(n);
+    }
+  } catch (err) {
+    log.error('[set-badge] failed:', err?.message || String(err));
+  }
+});
+
+ipcMain.on('set-tray-summary', (_event, text) => {
+  traySummary = typeof text === 'string' && text ? text : 'Switchboard';
+  updateTrayTooltip();
+});
+
+function createTray() {
+  if (tray) return;
+  let trayImage;
+  try {
+    trayImage = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png'));
+    if (!trayImage.isEmpty()) trayImage = trayImage.resize({ width: 18, height: 18 });
+  } catch {
+    trayImage = nativeImage.createEmpty();
+  }
+  try {
+    tray = new Tray(trayImage);
+  } catch (err) {
+    log.error('[tray] failed to create tray:', err?.message || String(err));
+    return;
+  }
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Open Switchboard', click: () => focusMainWindow() },
+    {
+      // Spec 02 owns the real "next attention" handler; until then this just
+      // brings the window forward.
+      label: 'Focus next attention',
+      click: () => {
+        focusMainWindow();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('focus-next-attention');
+        }
+      },
+    },
+    { type: 'separator' },
+    { label: 'Quit', click: () => app.quit() },
+  ]);
+  tray.setToolTip(traySummary);
+  tray.setContextMenu(contextMenu);
+  tray.on('click', () => focusMainWindow());
 }
 
 // --- Session cache helpers ---
@@ -1541,6 +1632,7 @@ if (!gotSingleInstanceLock) {
 
     buildMenu();
     createWindow();
+    createTray();
     startProjectsWatcher();
     scheduleIpc.ensureScheduleCreatorCommand();
 
@@ -1602,6 +1694,12 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   // Shut down all MCP servers
   shutdownAllMcp();
+
+  // Remove the tray icon
+  if (tray && !tray.isDestroyed()) {
+    tray.destroy();
+    tray = null;
+  }
 
   // Close filesystem watcher
   if (projectsWatcher) {
