@@ -123,6 +123,8 @@ const attentionSessions = new Set(); // sessions needing user action (OSC 9)
 const responseReadySessions = new Set(); // Claude finished, user hasn't looked (terminal state)
 const sessionBusyState = new Map(); // sessionId → boolean (currently active)
 const lastActivityTime = new Map(); // sessionId → Date of last terminal output
+const lastViewedTime = new Map(); // sessionId → Date the session last became focused
+const filesTouchedSinceViewed = new Map(); // sessionId → Map<path, { at, kind }>
 const sessionTimelineStore = createTimelineStore();
 
 // Noise patterns — these don't count as activity
@@ -222,11 +224,169 @@ function clearUnread(sessionId) {
 }
 
 function clearNotifications(sessionId) {
+  // Focus choke point: every focus path (showSession, focusGridCard) flows through
+  // here. Compute the "while you were away" recap before unread/attention state is
+  // cleared, then stamp the session as viewed.
+  handleSessionViewed(sessionId);
   clearUnread(sessionId);
   const changed = attentionSessions.delete(sessionId);
   const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
   if (item) item.classList.remove('needs-attention');
   if (changed) refreshSessionStatusViews();
+}
+
+// --- "While you were away" summary ---------------------------------------
+//
+// Tracks files an agent touched (via the MCP open-diff/open-file bridge) and,
+// when you refocus a session that changed while you were elsewhere, surfaces a
+// compact, dismissible recap above the live terminal. The terminal is never
+// hidden or unmounted.
+
+let awaySummaryEl = null;
+let awaySummarySessionId = null;
+let awaySummaryInputDisposable = null;
+
+function recordFileTouched(sessionId, path, kind) {
+  if (!sessionId || !path) return;
+  let map = filesTouchedSinceViewed.get(sessionId);
+  if (!map) {
+    map = new Map();
+    filesTouchedSinceViewed.set(sessionId, map);
+  }
+  map.set(path, { at: new Date().toISOString(), kind });
+}
+
+function awaySummaryFilesFor(sessionId) {
+  const map = filesTouchedSinceViewed.get(sessionId);
+  if (!map) return [];
+  return [...map.entries()].map(([path, meta]) => ({ path, at: meta.at, kind: meta.kind }));
+}
+
+// Called at the focus choke point. Renders the recap for sessions that changed
+// while unfocused, then records the new "last viewed" timestamp.
+function handleSessionViewed(sessionId) {
+  if (!sessionId) return;
+  const previous = lastViewedTime.get(sessionId);
+  let summary = null;
+  if (previous && !gridViewActive && typeof buildAwaySummary === 'function') {
+    summary = buildAwaySummary({
+      events: getTimelineEvents(sessionTimelineStore, sessionId),
+      filesTouched: awaySummaryFilesFor(sessionId),
+      lastViewedAt: previous,
+      now: new Date(),
+    });
+  }
+  lastViewedTime.set(sessionId, new Date());
+
+  if (summary && summary.hasChanges) {
+    renderAwaySummary(sessionId, summary);
+    // Recap is now showing the snapshot — reset the per-session file tally.
+    filesTouchedSinceViewed.delete(sessionId);
+  } else if (awaySummarySessionId) {
+    // Focused something with nothing new — clear any stale banner.
+    hideAwaySummary();
+  }
+}
+
+function ensureAwaySummaryEl() {
+  if (awaySummaryEl) return awaySummaryEl;
+  awaySummaryEl = document.createElement('div');
+  awaySummaryEl.id = 'away-summary';
+  awaySummaryEl.hidden = true;
+  const anchor = document.getElementById('grid-viewer') || document.getElementById('terminals');
+  if (anchor && anchor.parentNode === terminalArea) {
+    terminalArea.insertBefore(awaySummaryEl, anchor);
+  } else {
+    terminalArea.appendChild(awaySummaryEl);
+  }
+  return awaySummaryEl;
+}
+
+function hideAwaySummary() {
+  if (awaySummaryInputDisposable) {
+    try { awaySummaryInputDisposable.dispose(); } catch { /* noop */ }
+    awaySummaryInputDisposable = null;
+  }
+  if (awaySummaryEl) {
+    awaySummaryEl.hidden = true;
+    awaySummaryEl.innerHTML = '';
+    delete awaySummaryEl.dataset.sessionId;
+  }
+  awaySummarySessionId = null;
+}
+
+function dismissAwaySummary(sessionId) {
+  if (sessionId) filesTouchedSinceViewed.delete(sessionId);
+  hideAwaySummary();
+}
+
+function awaySummaryBasename(path) {
+  if (!path) return '';
+  const parts = String(path).split(/[\\/]/);
+  return parts[parts.length - 1] || String(path);
+}
+
+function renderAwaySummary(sessionId, summary) {
+  const el = ensureAwaySummaryEl();
+  el.dataset.sessionId = sessionId;
+  const reduceMotion = window.matchMedia
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  el.classList.toggle('no-motion', !!reduceMotion);
+
+  const eventsHtml = summary.events.map(event => `
+    <li class="away-summary-event away-kind-${escapeHtml(event.kind)}">
+      <span class="away-summary-event-time">${escapeHtml(event.time)}</span>
+      <span class="away-summary-event-label">${escapeHtml(event.label)}</span>
+      ${event.detail ? `<span class="away-summary-event-detail">${escapeHtml(event.detail)}</span>` : ''}
+    </li>`).join('');
+
+  const moreHtml = summary.extraEventCount
+    ? `<li class="away-summary-more">+${summary.extraEventCount} earlier event${summary.extraEventCount === 1 ? '' : 's'}</li>`
+    : '';
+
+  const filesHtml = summary.files.length
+    ? `<div class="away-summary-files">
+        <span class="away-summary-files-label">Files touched</span>
+        ${summary.files.map(file => `<span class="away-summary-file" data-kind="${escapeHtml(file.kind)}" title="${escapeHtml(file.path)}">${escapeHtml(awaySummaryBasename(file.path))}</span>`).join('')}
+      </div>`
+    : '';
+
+  el.innerHTML = `
+    <div class="away-summary-head">
+      <span class="away-summary-title">While you were away</span>
+      ${summary.sinceText ? `<span class="away-summary-since">${escapeHtml(summary.sinceText)}</span>` : ''}
+      ${summary.waitingOnYou ? '<span class="away-summary-waiting">Waiting on you</span>' : ''}
+      <button class="away-summary-close" type="button" aria-label="Dismiss summary" title="Dismiss">&times;</button>
+    </div>
+    ${eventsHtml || moreHtml ? `<ul class="away-summary-events">${eventsHtml}${moreHtml}</ul>` : ''}
+    ${filesHtml}
+    <div class="away-summary-actions">
+      <button class="away-summary-timeline-link" type="button">View full timeline</button>
+    </div>
+  `;
+  el.hidden = false;
+
+  const closeBtn = el.querySelector('.away-summary-close');
+  if (closeBtn) closeBtn.addEventListener('click', () => dismissAwaySummary(sessionId));
+  const timelineLink = el.querySelector('.away-summary-timeline-link');
+  if (timelineLink) {
+    timelineLink.addEventListener('click', () => {
+      const session = sessionMap.get(sessionId)
+        || (openSessions.get(sessionId) && openSessions.get(sessionId).session);
+      if (session && typeof showTimelineViewer === 'function') {
+        showTimelineViewer(session);
+      } else if (typeof renderTimelineViewer === 'function') {
+        renderTimelineViewer(sessionId);
+      }
+    });
+  }
+
+  // Auto-dismiss as soon as the user types into this terminal.
+  const entry = openSessions.get(sessionId);
+  if (entry && entry.terminal && typeof entry.terminal.onData === 'function') {
+    awaySummaryInputDisposable = entry.terminal.onData(() => dismissAwaySummary(sessionId));
+  }
+  awaySummarySessionId = sessionId;
 }
 // Terminal themes, utils (cleanDisplayName, formatDate, escapeHtml, shellEscape)
 // are defined in terminal-themes.js and utils.js (loaded before app.js).
@@ -265,6 +425,22 @@ window.api.onTerminalData((sessionId, data) => {
   }
   // Update last activity time (noise-filtered)
   trackActivity(sessionId, data);
+});
+
+// Track files the agent touches so the "while you were away" recap can list
+// them. These are additive listeners alongside file-panel.js's own handlers.
+window.api.onMcpOpenDiff((sessionId, _diffId, data) => {
+  recordFileTouched(sessionId, data && data.oldFilePath, 'diff');
+});
+window.api.onMcpOpenFile((sessionId, data) => {
+  recordFileTouched(sessionId, data && data.filePath, 'open');
+});
+
+// Re-show the recap when the OS window regains focus for the active session.
+window.addEventListener('focus', () => {
+  if (!gridViewActive && activeSessionId && openSessions.has(activeSessionId)) {
+    handleSessionViewed(activeSessionId);
+  }
 });
 
 window.api.onSessionDetected((tempId, realId) => {

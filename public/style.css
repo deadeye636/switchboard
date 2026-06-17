@@ -4815,3 +4815,196 @@ input:focus-visible {
   margin-right: 5px;
   vertical-align: middle;
 }
+
+/* ========== "WHILE YOU WERE AWAY" SUMMARY ========== */
+#away-summary {
+  flex: 0 0 auto;
+  margin: 8px 24px 0 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(128,136,255,0.28);
+  border-radius: 9px;
+  background: #1a1a24;
+  color: #c8c8dc;
+  font-size: 12px;
+  max-height: 38vh;
+  overflow-y: auto;
+  animation: away-summary-in 160ms ease-out;
+}
+
+#away-summary[hidden] {
+  display: none;
+}
+
+#away-summary.no-motion {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #away-summary {
+    animation: none;
+  }
+}
+
+@keyframes away-summary-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.away-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.away-summary-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #d8d8e8;
+}
+
+.away-summary-since {
+  color: #7a7a90;
+  font-size: 11px;
+}
+
+.away-summary-waiting {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(240,160,80,0.18);
+  border: 1px solid rgba(240,160,80,0.42);
+  color: #f0a050;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.away-summary-close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: #9ca2ff;
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.away-summary-close:hover {
+  color: #ffffff;
+}
+
+.away-summary-events {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.away-summary-event {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px 4px 16px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.03);
+}
+
+.away-summary-event::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 9px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8088ff;
+}
+
+.away-summary-event.away-kind-needs-attention::before { background: #f0a050; }
+.away-summary-event.away-kind-response-ready::before { background: #4fc3f7; }
+.away-summary-event.away-kind-exited::before { background: #c0a0ff; }
+.away-summary-event.away-kind-stopped::before { background: #e05070; }
+
+.away-summary-event-time {
+  color: #7a7a90;
+  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.away-summary-event-label {
+  color: #d8d8e8;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.away-summary-event-detail {
+  color: #9a9aac;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.away-summary-more {
+  color: #7a7a90;
+  font-size: 11px;
+  font-style: italic;
+  padding: 2px 8px;
+}
+
+.away-summary-files {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.away-summary-files-label {
+  color: #7a7a90;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.away-summary-file {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(128,136,255,0.12);
+  border: 1px solid rgba(128,136,255,0.24);
+  color: #c8c8dc;
+  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+  font-size: 10px;
+}
+
+.away-summary-file[data-kind="diff"] {
+  background: rgba(79,195,247,0.12);
+  border-color: rgba(79,195,247,0.28);
+}
+
+.away-summary-actions {
+  display: flex;
+}
+
+.away-summary-timeline-link {
+  border: none;
+  background: none;
+  color: #9ca2ff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.away-summary-timeline-link:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
