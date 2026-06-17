@@ -500,7 +500,15 @@ function renderProjects(projects, resort) {
           older.push(item);
         }
       }
-      if (visible.length === 0 && older.length > 0) { visible = older; older = []; }
+    }
+
+    if (typeof shouldRenderProjectGroup === 'function' && !shouldRenderProjectGroup({
+      filteredCount: filtered.length,
+      visibleCount: visible.length,
+      olderCount: older.length,
+      projectMatchedOnly: !!project._projectMatchedOnly,
+    })) {
+      return null;
     }
 
     return {

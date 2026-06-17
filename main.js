@@ -9,6 +9,7 @@ const log = require('electron-log');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rekeyMcpServer, cleanStaleLockFiles } = require('./mcp-bridge');
 const { fetchAndTransformUsage } = require('./claude-auth');
 const { withMainProcessUsageCache } = require('./usage-cache');
+const { shouldUseSingleInstanceLock } = require('./main-lifecycle');
 log.transports.file.level = app.isPackaged ? 'info' : 'debug';
 log.transports.console.level = app.isPackaged ? 'info' : 'debug';
 
@@ -1506,19 +1507,26 @@ ipcMain.handle('updater-install', () => {
 // This happens when the user replaces the AppImage while Switchboard is running:
 // the OS spawns the new binary, which would otherwise initialise a second process
 // and leave the first one's node-pty sessions orphaned or killed.
-// requestSingleInstanceLock ensures only one instance runs at a time. The second
-// launch quits immediately; the first brings its window to the front.
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
+// requestSingleInstanceLock ensures only one packaged instance runs at a time.
+// Development builds intentionally skip it so `npm start` can run beside the
+// installed app while validating local changes.
+const useSingleInstanceLock = shouldUseSingleInstanceLock({
+  isPackaged: app.isPackaged,
+  env: process.env,
+});
+const gotSingleInstanceLock = !useSingleInstanceLock || app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   // Focus the existing window when a second launch is attempted.
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
-  });
+  if (useSingleInstanceLock) {
+    app.on('second-instance', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+    });
+  }
 
   app.whenReady().then(() => {
     // Set Content Security Policy

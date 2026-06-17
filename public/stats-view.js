@@ -122,47 +122,47 @@ function buildUsageSection(usage) {
   const grid = document.createElement('div');
   grid.className = 'usage-grid';
 
-  const items = [
-    { key: 'session', label: 'Current session', resetKey: 'sessionReset' },
-    { key: 'weekAll', label: 'Week (all models)', resetKey: 'weekAllReset' },
-    { key: 'weekSonnet', label: 'Week (Sonnet)', resetKey: 'weekSonnetReset' },
-    { key: 'weekOpus', label: 'Week (Opus)', resetKey: 'weekOpusReset' },
-  ];
+  const cards = typeof getUsageLimitCards === 'function' ? getUsageLimitCards(usage) : [];
 
-  for (const item of items) {
-    if (usage[item.key] === undefined) continue;
-    const pct = usage[item.key];
-    const card = document.createElement('div');
-    card.className = 'usage-card';
+  for (const card of cards) {
+    const usageCard = document.createElement('div');
+    usageCard.className = 'usage-card';
 
     const header = document.createElement('div');
     header.className = 'usage-card-header';
     const label = document.createElement('span');
     label.className = 'usage-card-label';
-    label.textContent = item.label;
+    label.textContent = card.label;
     header.appendChild(label);
     const pctEl = document.createElement('span');
     pctEl.className = 'usage-card-pct';
-    pctEl.textContent = pct + '%';
+    pctEl.textContent = card.percent + '%';
     header.appendChild(pctEl);
-    card.appendChild(header);
+    usageCard.appendChild(header);
 
     const track = document.createElement('div');
     track.className = 'usage-track';
     const fill = document.createElement('div');
-    fill.className = 'usage-fill' + (pct >= 80 ? ' usage-fill-high' : '');
-    fill.style.width = Math.max(pct, 1) + '%';
+    fill.className = 'usage-fill' + (card.level === 'high' ? ' usage-fill-high' : '');
+    fill.style.width = Math.max(card.percent, 1) + '%';
     track.appendChild(fill);
-    card.appendChild(track);
+    usageCard.appendChild(track);
 
-    if (usage[item.resetKey]) {
-      const reset = document.createElement('div');
-      reset.className = 'usage-card-reset';
-      reset.textContent = 'Resets ' + usage[item.resetKey];
-      card.appendChild(reset);
+    if (card.detail) {
+      const detail = document.createElement('div');
+      detail.className = 'usage-card-reset';
+      detail.textContent = card.detail;
+      usageCard.appendChild(detail);
     }
 
-    grid.appendChild(card);
+    if (card.reset) {
+      const reset = document.createElement('div');
+      reset.className = 'usage-card-reset';
+      reset.textContent = 'Resets ' + card.reset;
+      usageCard.appendChild(reset);
+    }
+
+    grid.appendChild(usageCard);
   }
 
   container.appendChild(grid);

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   formatUsageStatus,
+  getUsageLimitCards,
   getUsageRefreshDelayMs,
   withCachedUsageFallback,
 } = require('../public/usage-status');
@@ -46,6 +47,24 @@ test('formatUsageStatus shows extra usage quota when rate-limit buckets are unav
     level: 'high',
     percent: 88,
   });
+});
+
+test('getUsageLimitCards includes quota-only usage as a progress card', () => {
+  const result = getUsageLimitCards({
+    extraUsage: 91,
+    extraUsageUsed: 183546,
+    extraUsageLimit: 200000,
+    extraUsageCurrency: 'USD',
+  });
+
+  assert.deepEqual(result, [{
+    key: 'extraUsage',
+    label: 'Extra usage quota',
+    percent: 91,
+    detail: '$1,835.46 / $2,000.00',
+    level: 'high',
+    reset: null,
+  }]);
 });
 
 test('formatUsageStatus marks cached usage after an unavailable response', () => {

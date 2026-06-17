@@ -54,6 +54,40 @@
     };
   }
 
+  function getUsageLimitCards(usage = {}) {
+    const cards = [
+      { key: 'session', label: 'Current session', resetKey: 'sessionReset' },
+      { key: 'weekAll', label: 'Week (all models)', resetKey: 'weekAllReset' },
+      { key: 'weekSonnet', label: 'Week (Sonnet)', resetKey: 'weekSonnetReset' },
+      { key: 'weekOpus', label: 'Week (Opus)', resetKey: 'weekOpusReset' },
+    ].map(item => {
+      const value = pct(usage[item.key]);
+      if (value === null) return null;
+      return {
+        key: item.key,
+        label: item.label,
+        percent: value,
+        detail: null,
+        level: value >= 80 ? 'high' : 'normal',
+        reset: usage[item.resetKey] || null,
+      };
+    }).filter(Boolean);
+
+    const quota = quotaStatus(usage);
+    if (quota) {
+      cards.push({
+        key: 'extraUsage',
+        label: 'Extra usage quota',
+        percent: quota.percent,
+        detail: quota.text.replace(/^Quota: /, '').replace(/ \(\d+%\)$/, ''),
+        level: quota.level,
+        reset: null,
+      });
+    }
+
+    return cards;
+  }
+
   function formatUsageStatus(usage = {}) {
     if (usage._rateLimited) {
       return {
@@ -130,5 +164,5 @@
     };
   }
 
-  return { formatUsageStatus, getUsageRefreshDelayMs, withCachedUsageFallback };
+  return { formatUsageStatus, getUsageLimitCards, getUsageRefreshDelayMs, withCachedUsageFallback };
 });
