@@ -450,6 +450,10 @@ function wrapInGridCard(sessionId, parent, layout) {
     e.stopPropagation();
     toggleSnapLayoutPopover(sessionId, card, snapBtn);
   };
+  // Hover-open with an intent delay (gated to fine/hover pointers inside the
+  // scheduler); moving onto the popover keeps it open.
+  snapBtn.addEventListener('mouseenter', () => scheduleSnapHoverOpen(sessionId, card, snapBtn));
+  snapBtn.addEventListener('mouseleave', () => scheduleSnapHoverClose());
   header.appendChild(snapBtn);
 
   const stopBtn = document.createElement('button');
@@ -765,7 +769,30 @@ function applyCardSnap(sessionId, cols, rows) {
 }
 
 let snapPopoverEl = null;
+// True when the open popover was opened by hover (auto-closes on pointer-out);
+// click-opened popovers keep their click-away / Esc semantics instead.
+let snapPopoverHoverOpened = false;
+let snapHoverOpenTimer = null;
+let snapHoverCloseTimer = null;
+// Intent delay before a hover opens the popover; small grace before it closes so
+// the pointer can travel from the button into the popover without it vanishing.
+const SNAP_HOVER_OPEN_DELAY = 300;
+const SNAP_HOVER_CLOSE_DELAY = 180;
+
+// Hover-open only makes sense for fine/hover-capable pointers — never on touch.
+function snapHoverEnabled() {
+  return typeof window.matchMedia === 'function' &&
+    (window.matchMedia('(hover: hover)').matches || window.matchMedia('(pointer: fine)').matches);
+}
+
+function clearSnapHoverTimers() {
+  if (snapHoverOpenTimer) { clearTimeout(snapHoverOpenTimer); snapHoverOpenTimer = null; }
+  if (snapHoverCloseTimer) { clearTimeout(snapHoverCloseTimer); snapHoverCloseTimer = null; }
+}
+
 function closeSnapLayoutPopover() {
+  clearSnapHoverTimers();
+  snapPopoverHoverOpened = false;
   if (snapPopoverEl) {
     snapPopoverEl.remove();
     snapPopoverEl = null;
@@ -782,13 +809,49 @@ function onSnapPopoverKey(e) {
   if (e.key === 'Escape') closeSnapLayoutPopover();
 }
 
-// Windows 11-style snap layouts: a popover of preset size tiles. Each tile is a
-// miniature of the resulting span; clicking snaps the card to that size.
+// Schedule a hover-open after the intent delay. Cancels any pending close (the
+// pointer re-entered the hover region) and no-ops if this card's popover already
+// shows. Opening replaces any other card's popover.
+function scheduleSnapHoverOpen(sessionId, card, anchor) {
+  if (!snapHoverEnabled()) return;
+  if (snapHoverCloseTimer) { clearTimeout(snapHoverCloseTimer); snapHoverCloseTimer = null; }
+  if (snapPopoverEl && snapPopoverEl.dataset.sessionId === sessionId) return;
+  if (snapHoverOpenTimer) clearTimeout(snapHoverOpenTimer);
+  snapHoverOpenTimer = setTimeout(() => {
+    snapHoverOpenTimer = null;
+    openSnapLayoutPopover(sessionId, card, anchor, { hover: true });
+  }, SNAP_HOVER_OPEN_DELAY);
+}
+
+// Schedule a hover-close after the grace delay. Cancels a pending open, and only
+// closes popovers that were opened by hover (click-opened ones persist).
+function scheduleSnapHoverClose() {
+  if (snapHoverOpenTimer) { clearTimeout(snapHoverOpenTimer); snapHoverOpenTimer = null; }
+  if (!snapPopoverHoverOpened) return;
+  if (snapHoverCloseTimer) clearTimeout(snapHoverCloseTimer);
+  snapHoverCloseTimer = setTimeout(() => {
+    snapHoverCloseTimer = null;
+    closeSnapLayoutPopover();
+  }, SNAP_HOVER_CLOSE_DELAY);
+}
+
+// Click-toggle entry point: close if this card's popover is already open,
+// otherwise open it (click-opened popovers persist until click-away / Esc /
+// selecting a preset).
 function toggleSnapLayoutPopover(sessionId, card, anchor) {
+  clearSnapHoverTimers();
   if (snapPopoverEl && snapPopoverEl.dataset.sessionId === sessionId) {
     closeSnapLayoutPopover();
     return;
   }
+  openSnapLayoutPopover(sessionId, card, anchor, { hover: false });
+}
+
+// Windows 11-style snap layouts: a popover of preset size tiles. Each tile is a
+// miniature of the resulting span; clicking snaps the card to that size. Opening
+// always replaces any other open popover. When `hover` is true the popover
+// auto-closes shortly after the pointer leaves the button+popover hover region.
+function openSnapLayoutPopover(sessionId, card, anchor, { hover = false } = {}) {
   closeSnapLayoutPopover();
 
   const maxCols = Math.max(1, getContainerColumnCount(card.parentElement));
@@ -844,6 +907,13 @@ function toggleSnapLayoutPopover(sessionId, card, anchor) {
     pop.appendChild(tile);
   }
 
+  // Treat the popover as part of the hover region: entering cancels a pending
+  // close, leaving schedules one (only effective for hover-opened popovers).
+  pop.addEventListener('mouseenter', () => {
+    if (snapHoverCloseTimer) { clearTimeout(snapHoverCloseTimer); snapHoverCloseTimer = null; }
+  });
+  pop.addEventListener('mouseleave', () => scheduleSnapHoverClose());
+
   document.body.appendChild(pop);
   const r = anchor.getBoundingClientRect();
   pop.style.top = `${Math.round(r.bottom + 6)}px`;
@@ -851,6 +921,7 @@ function toggleSnapLayoutPopover(sessionId, card, anchor) {
   const left = Math.min(r.left, window.innerWidth - pop.offsetWidth - 8);
   pop.style.left = `${Math.round(Math.max(8, left))}px`;
   snapPopoverEl = pop;
+  snapPopoverHoverOpened = hover;
   document.addEventListener('pointerdown', onSnapPopoverOutside, true);
   document.addEventListener('keydown', onSnapPopoverKey, true);
 }
