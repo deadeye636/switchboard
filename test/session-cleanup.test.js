@@ -74,7 +74,7 @@ test('abandoned-short defaults are conservative named constants', () => {
     maxMessageCount: 15,
     maxUserMessageCount: 3,
     maxCacheReadTokens: 50_000,
-    minInactiveDays: 7,
+    minInactiveDays: 2,
   });
 });
 
@@ -107,13 +107,25 @@ test('abandoned-short keeps sessions just under each usage threshold', () => {
   );
 });
 
-test('abandoned-short excludes recently active sessions', () => {
+test('abandoned-short excludes sessions active within the 2-day window', () => {
   const sessions = [
-    abandonedSession({ sessionId: 'recent', modified: '2026-06-12T12:00:00.000Z' }),
-    abandonedSession({ sessionId: 'just-inside', modified: '2026-06-08T11:00:00.000Z' }),
+    abandonedSession({ sessionId: 'too-recent', modified: '2026-06-14T12:00:00.000Z' }), // 1 day old
+    abandonedSession({ sessionId: 'just-inside', modified: '2026-06-13T11:00:00.000Z' }), // just over 2 days
   ];
   const result = getAbandonedShortSessions(sessions, { now: NOW });
   assert.deepEqual(result.map(item => item.session.sessionId), ['just-inside']);
+});
+
+test('abandoned-short surfaces a 3-6 day old tiny session (below the 7-day age list)', () => {
+  const sessions = [
+    abandonedSession({ sessionId: 'three-days', modified: '2026-06-12T12:00:00.000Z' }),
+    abandonedSession({ sessionId: 'six-days', modified: '2026-06-09T12:00:00.000Z' }),
+  ];
+  const result = getAbandonedShortSessions(sessions, { now: NOW });
+  assert.deepEqual(
+    result.map(item => item.session.sessionId).sort(),
+    ['six-days', 'three-days'],
+  );
 });
 
 test('abandoned-short excludes starred, archived, terminal and running sessions', () => {

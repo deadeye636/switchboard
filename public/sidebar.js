@@ -238,7 +238,7 @@ function showSpringCleaningDialog() {
 
     renderCategory({
       label: 'Abandoned short sessions',
-      description: 'Barely-used sessions: few messages, few turns, and inactive for over a week.',
+      description: 'Barely-used sessions: few messages, few turns, and inactive for a couple of days.',
       items: abandonedCandidates,
       metaText: item => `${item.ageDays} days old · ${item.session.messageCount || 0} msgs · ${item.session.userMessageCount || 0} turns`,
     });

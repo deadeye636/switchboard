@@ -21,7 +21,7 @@
     // Below this many cache-read tokens (almost no real work happened).
     maxCacheReadTokens: 50_000,
     // No activity for at least this many days.
-    minInactiveDays: 7,
+    minInactiveDays: 2,
   };
 
   function numberValue(value, fallback = 0) {
