@@ -1746,10 +1746,15 @@ loadProjects().then(async () => {
   if (localStorage.getItem('gridViewActive') === '1') {
     showGridView();
   }
+  // An in-progress auto-update restart wins: it has its own one-shot blob and
+  // shows the "Restored after update" toast. Don't also run the normal restore.
   const restoredAfterUpdate = await restoreUpdateRestartState();
   if (restoredAfterUpdate) return;
   if (isRendererReload) return;
-  // Restore active session after reload
+  // Reopen the set of sessions that were open at the last ordinary quit.
+  const restoredOpenSessions = await restoreOpenSessionsOnLaunch();
+  if (restoredOpenSessions) return;
+  // Fallback: restore the single active session (e.g. after a reload).
   if (activeSessionId && !openSessions.has(activeSessionId)) {
     const session = sessionMap.get(activeSessionId);
     if (session) openSession(session);
@@ -1892,16 +1897,9 @@ async function restoreUpdateRestartState() {
     if (!gridViewActive) showGridView();
   }
 
-  const uniqueSessions = [];
-  const seen = new Set();
-  for (const item of state.sessions) {
-    if (!item?.sessionId || seen.has(item.sessionId)) continue;
-    const session = sessionMap.get(item.sessionId);
-    if (session) {
-      uniqueSessions.push(session);
-      seen.add(item.sessionId);
-    }
-  }
+  const uniqueSessions = selectRestorableSessions(state, {
+    lookup: (id) => sessionMap.get(id),
+  });
 
   for (const session of uniqueSessions) {
     await openSession(session);
@@ -1916,6 +1914,74 @@ async function restoreUpdateRestartState() {
   });
   return uniqueSessions.length > 0;
 }
+
+// --- Persist & restore open sessions across an ordinary quit → relaunch ---
+// Mirrors the auto-update restart flow but uses a durable localStorage key that
+// we refresh on every normal quit (not a one-shot). PTYs die when the app quits,
+// so "persist" means re-open/resume the same sessions on next launch — exactly
+// what the update path does.
+function restoreOpenSessionsEnabled() {
+  // Default ON: only an explicit `false` disables it.
+  return !(appGlobalSettings && appGlobalSettings.restoreSessionsOnLaunch === false);
+}
+
+// Synchronous (runs from beforeunload/pagehide) — must not await anything.
+function saveOpenSessionsState() {
+  if (typeof collectUpdateRestartState !== 'function') return;
+  if (!restoreOpenSessionsEnabled()) {
+    try { localStorage.removeItem(OPEN_SESSIONS_STATE_KEY); } catch {}
+    return;
+  }
+  const state = collectUpdateRestartState(openSessions, { activeSessionId, gridViewActive });
+  try {
+    if (typeof hasRestorableUpdateSessions === 'function' && hasRestorableUpdateSessions(state)) {
+      localStorage.setItem(OPEN_SESSIONS_STATE_KEY, JSON.stringify(state));
+    } else {
+      localStorage.removeItem(OPEN_SESSIONS_STATE_KEY);
+    }
+  } catch {}
+}
+
+async function restoreOpenSessionsOnLaunch() {
+  if (typeof hasRestorableUpdateSessions !== 'function') return false;
+  // Read the live setting (the cached copy may not be populated yet at boot).
+  try {
+    const global = await window.api.getSetting('global');
+    if (global && global.restoreSessionsOnLaunch === false) return false;
+  } catch {}
+
+  let state = null;
+  try {
+    state = JSON.parse(localStorage.getItem(OPEN_SESSIONS_STATE_KEY) || 'null');
+  } catch {}
+  // Durable key — left in place so a crash/forced-kill still restores next time;
+  // it is refreshed on the next normal quit.
+  if (!hasRestorableUpdateSessions(state)) return false;
+
+  if (state.gridViewActive) {
+    localStorage.setItem('gridViewActive', '1');
+    if (!gridViewActive) showGridView();
+  }
+
+  const uniqueSessions = selectRestorableSessions(state, {
+    lookup: (id) => sessionMap.get(id),
+    isOpen: (id) => openSessions.has(id),
+  });
+
+  for (const session of uniqueSessions) {
+    await openSession(session);
+  }
+
+  if (state.activeSessionId && openSessions.has(state.activeSessionId)) {
+    showSession(state.activeSessionId);
+  }
+  return uniqueSessions.length > 0;
+}
+
+// Persist on the renderer unload that accompanies an ordinary quit. localStorage
+// writes are synchronous and durable, so the blob survives to the next launch.
+window.addEventListener('beforeunload', saveOpenSessionsState);
+window.addEventListener('pagehide', saveOpenSessionsState);
 
 window.api.onStatusUpdate((text, type) => {
   if (activityTimer) clearTimeout(activityTimer);
