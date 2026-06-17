@@ -604,32 +604,83 @@ function updateGridDropTarget(card, x, y) {
   }
 }
 
+// True layout box of a grid card with any in-flight FLIP transform removed, so
+// insertion math stays stable while siblings are mid-animation. Hit-testing and
+// getBoundingClientRect both include transforms; subtracting the live translate
+// recovers the settled position and prevents the "cards jump around" feedback
+// loop (where reading transformed positions kept re-moving the placeholder).
+function gridCardLayoutRect(el) {
+  const r = el.getBoundingClientRect();
+  const t = getComputedStyle(el).transform;
+  if (t && t !== 'none') {
+    try {
+      const m = new DOMMatrixReadOnly(t);
+      return { left: r.left - m.m41, top: r.top - m.m42, width: r.width, height: r.height };
+    } catch { /* fall through to raw rect */ }
+  }
+  return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
+
+// Reading-order insertion index for the cursor among sibling layout rects: the
+// count of siblings that sort before the cursor (row-major). Result is in
+// [0, rects.length] and can address every slot — including the dragged card's
+// origin — so the user can always return to the start position.
+function cursorInsertionIndex(rects, x, y) {
+  let idx = 0;
+  for (const r of rects) {
+    const cx = r.left + r.width / 2;
+    let before;
+    if (y > r.top + r.height) before = true;       // cursor in a lower row
+    else if (y < r.top) before = false;            // cursor in an upper row
+    else before = x > cx;                           // same row → compare to center
+    if (before) idx++;
+  }
+  return idx;
+}
+
+// Index of the placeholder among the container's real sibling cards (excluding
+// the lifted dragged card) — used to seed/dedup the live insertion index.
+function placeholderSlotIndex(container, placeholder, exclude) {
+  let idx = 0;
+  for (const n of container.children) {
+    if (n === placeholder) break;
+    if (n.classList && n.classList.contains('grid-card') && n !== exclude) idx++;
+  }
+  return idx;
+}
+
 // FLIP-animate a container's sibling cards as the drop placeholder is moved into
-// `refNode`'s slot: record positions, move, then invert + transition to identity
-// so the surrounding tiles visibly slide to preview the new arrangement. Reads
-// are batched before writes to avoid layout thrash. `exclude` is the lifted card.
+// `refNode`'s slot: record visual positions, move, then invert + transition to
+// identity so the surrounding tiles visibly slide to preview the new
+// arrangement. Reads are batched before writes; LAST is read transform-free so
+// overlapping animations continue smoothly. `exclude` is the lifted card.
 function flipMovePlaceholder(container, placeholder, refNode, exclude) {
   const sibs = [...container.children].filter(
     n => n.classList && n.classList.contains('grid-card') && n !== exclude
   );
-  // FIRST: current visual rects (may include an in-flight FLIP transform).
-  const first = sibs.map(c => [c, c.getBoundingClientRect()]);
+  // READ (batched): current visual rects (include any in-flight transform).
+  const first = sibs.map(c => c.getBoundingClientRect());
+  // WRITE: move the placeholder slot.
   container.insertBefore(placeholder, refNode);
-  // Clear any prior inline transform so LAST reads the true settled layout.
-  for (const [c] of first) { c.style.transition = 'none'; c.style.transform = ''; }
+  // READ (batched): settled post-move layout rects (transform-free).
+  const last = sibs.map(c => gridCardLayoutRect(c));
+  // WRITE: invert each card to its old visual spot (or settle if at rest).
   const moved = [];
-  for (const [c, f] of first) {
-    const last = c.getBoundingClientRect();
-    const dx = f.left - last.left;
-    const dy = f.top - last.top;
+  for (let i = 0; i < sibs.length; i++) {
+    const c = sibs[i];
+    const dx = first[i].left - last[i].left;
+    const dy = first[i].top - last[i].top;
+    c.style.transition = 'none';
     if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
       c.style.transform = `translate(${dx}px, ${dy}px)`;
       moved.push(c);
+    } else {
+      c.style.transform = '';
     }
   }
   // PLAY: next frame, restore the CSS transition and animate to identity.
   requestAnimationFrame(() => {
-    for (const [c] of first) {
+    for (const c of sibs) {
       c.style.transition = '';
       if (moved.includes(c)) c.style.transform = '';
     }
@@ -651,7 +702,9 @@ function startCardDrag(sessionId, card, e) {
   let rafId = 0;
   let lastX = startX;
   let lastY = startY;
-  let lastSlotKey = null;
+  // The placeholder's current insertion index among the container's real
+  // siblings; used to dedup FLIPs (only animate when the index actually changes).
+  let currentIdx = 0;
 
   const beginDrag = () => {
     dragging = true;
@@ -664,8 +717,11 @@ function startCardDrag(sessionId, card, e) {
     const startRect = card.getBoundingClientRect();
     // Placeholder holds the dragged card's slot (same span) so siblings reflow
     // around it; the real card is lifted out of grid flow to follow the cursor.
+    // Both the placeholder and the lifted card are pointer-events:none so neither
+    // is ever returned by hit-testing.
     placeholder = document.createElement('div');
     placeholder.className = 'grid-card-placeholder';
+    placeholder.style.pointerEvents = 'none';
     placeholder.style.gridColumn = card.style.gridColumn || `span ${card.dataset.colSpan || 1}`;
     placeholder.style.gridRow = card.style.gridRow || `span ${card.dataset.rowSpan || 1}`;
     card.parentElement.insertBefore(placeholder, card);
@@ -675,42 +731,46 @@ function startCardDrag(sessionId, card, e) {
     card.style.height = `${startRect.height}px`;
     card.style.left = `${startRect.left}px`;
     card.style.top = `${startRect.top}px`;
+    // Seed the dedup index from the placeholder's origin slot so the first
+    // recompute doesn't spuriously re-flip the origin.
+    currentIdx = placeholderSlotIndex(card.parentElement, placeholder, card);
   };
 
   // Recompute the projected insertion slot and reflect it live (throttled to one
-  // pass per animation frame). Batches reads then writes.
+  // pass per animation frame). Insertion is computed from transform-free
+  // geometry (not elementFromPoint on animating cards) so it never oscillates,
+  // and only an actual integer index change triggers a FLIP.
   const updatePreview = () => {
     rafId = 0;
     if (!dragging || !placeholder) return;
     clearGridDropTargets();
-    const el = document.elementFromPoint(lastX, lastY);
-    if (!el) return;
-    const region = el.closest('.grid-region');
-    const sourceRegion = card.closest('.grid-region');
-    // Hovering a different group region previews reassignment (no reorder).
-    if (region && terminalsEl.classList.contains('grid-grouped') && region !== sourceRegion) {
-      region.classList.add('drop-region');
-      return;
-    }
-    if (el.closest('.grid-card-placeholder')) return; // over the gap — keep slot
-    const targetEl = el.closest('.grid-card');
-    const targetCard = targetEl && targetEl !== card ? targetEl : null;
     const container = placeholder.parentElement;
-    if (!targetCard || targetCard.parentElement !== container) return;
+    if (!container) return;
+    const grouped = terminalsEl.classList.contains('grid-grouped');
+    const sourceRegion = card.closest('.grid-region');
+
+    // Hovering a different group region previews reassignment (no reorder).
+    if (grouped) {
+      const el = document.elementFromPoint(lastX, lastY);
+      const region = el && el.closest ? el.closest('.grid-region') : null;
+      if (region && region !== sourceRegion) {
+        region.classList.add('drop-region');
+        return;
+      }
+    }
+
+    // Only reorder while the cursor is within the active container's box.
+    const cRect = container.getBoundingClientRect();
+    if (lastX < cRect.left || lastX > cRect.right || lastY < cRect.top || lastY > cRect.bottom) return;
 
     const sibs = [...container.children].filter(
-      n => n.classList && n.classList.contains('grid-card') && n !== card
+      n => n.classList && n.classList.contains('grid-card') && n !== card && n !== placeholder
     );
-    const ti = sibs.indexOf(targetCard);
-    if (ti === -1) return;
-    const r = targetCard.getBoundingClientRect();
-    const after = (lastX - r.left) > r.width / 2;
-    const insertIndex = after ? ti + 1 : ti;
-    const refNode = sibs[insertIndex] || null;
-    const slotKey = refNode ? (refNode.dataset.sessionId || '') : '__end__';
-    if (slotKey === lastSlotKey) return; // slot unchanged — skip the FLIP
-    lastSlotKey = slotKey;
-    flipMovePlaceholder(container, placeholder, refNode, card);
+    const rects = sibs.map(gridCardLayoutRect);
+    const idx = Math.max(0, Math.min(cursorInsertionIndex(rects, lastX, lastY), sibs.length));
+    if (idx === currentIdx) return; // slot unchanged — skip the FLIP (no flip-flop)
+    currentIdx = idx;
+    flipMovePlaceholder(container, placeholder, sibs[idx] || null, card);
   };
 
   const onMove = (ev) => {
