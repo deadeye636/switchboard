@@ -114,7 +114,7 @@ test('getSessionHealth does not recommend handoff for a single user prompt', () 
 test('getSessionHealth still recommends handoff for multi-turn risky sessions below the user-turn threshold', () => {
   const result = getSessionHealth({
     sessionId: 'multi-turn-risky-run',
-    userMessageCount: 3,
+    userMessageCount: 2,
     messageCount: 360,
     activeMinutes: 300,
     cacheReadTokens: 25_000_000,

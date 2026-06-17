@@ -106,7 +106,7 @@
     }
 
     const reasons = healthReasons(session);
-    const hasEnoughUserTurnsForHandoff = numberValue(session.userMessageCount) >= 3;
+    const hasEnoughUserTurnsForHandoff = numberValue(session.userMessageCount) > 1;
     if (hasEnoughUserTurnsForHandoff && reasons.length >= 2) return { ...HEALTH_STATES.handoffRecommended, reasons };
     if (reasons.length >= 1) return { ...HEALTH_STATES.marathonRisk, reasons };
 
