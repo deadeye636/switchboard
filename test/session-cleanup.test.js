@@ -131,6 +131,37 @@ test('abandoned-short excludes starred, archived, terminal and running sessions'
   assert.deepEqual(result.map(item => item.session.sessionId), ['safe']);
 });
 
+test('abandoned-short detects sessions shaped like buildProjectsFromCache output', () => {
+  // Mirrors the real session shape produced by session-cache.js buildProjectsFromCache,
+  // so a field-name drift in the selector vs. the data source can't silently regress.
+  const realisticSession = {
+    sessionId: 'cache-shaped',
+    summary: 'quick question',
+    firstPrompt: 'hello',
+    created: '2026-05-30T09:00:00.000Z',
+    modified: '2026-05-30T09:05:00.000Z',
+    messageCount: 4,
+    userMessageCount: 1,
+    inputTokens: 320,
+    outputTokens: 210,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    largestUserPromptWords: 12,
+    startedAt: '2026-05-30T09:00:00.000Z',
+    lastEntryAt: '2026-05-30T09:05:00.000Z',
+    activeMinutes: 2,
+    projectPath: '/repo/app',
+    slug: null,
+    aiTitle: null,
+    name: null,
+    starred: 0,
+    archived: 0,
+  };
+
+  const result = getAbandonedShortSessions([realisticSession], { now: NOW });
+  assert.deepEqual(result.map(item => item.session.sessionId), ['cache-shaped']);
+});
+
 test('abandoned-short respects custom thresholds', () => {
   const sessions = [abandonedSession({ sessionId: 'busy', messageCount: 40, userMessageCount: 8, cacheReadTokens: 500_000 })];
   const result = getAbandonedShortSessions(sessions, {

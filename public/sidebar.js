@@ -98,19 +98,21 @@ function showSpringCleaningDialog() {
   }
 
   function refreshCandidates() {
+    // Abandoned-short is the more specific classification, so compute it first and
+    // give it priority. A trivially-small stale session would otherwise also match
+    // the generic age filter (its inactivity window overlaps), so we pull those out
+    // of the age-based list rather than the other way around — otherwise the
+    // abandoned category would be deduped to empty at the default age threshold.
+    abandonedCandidates = getAbandonedShortSessions(getAllRenderableSessions(cachedAllProjects), {
+      activePtyIds,
+      lastActivityTime,
+    });
+    const abandonedIds = new Set(abandonedCandidates.map(item => item.session.sessionId));
     candidates = getSpringCleaningCandidates(cachedAllProjects, {
       ageDays,
       activePtyIds,
       lastActivityTime,
-    });
-    const ageIds = new Set(candidates.map(item => item.session.sessionId));
-    // Abandoned-short sessions are surfaced independently of the age slider, so
-    // dedupe any that already appear in the age-based list to avoid two rows
-    // (and two checkboxes) for the same session.
-    abandonedCandidates = getAbandonedShortSessions(getAllRenderableSessions(cachedAllProjects), {
-      activePtyIds,
-      lastActivityTime,
-    }).filter(item => !ageIds.has(item.session.sessionId));
+    }).filter(item => !abandonedIds.has(item.session.sessionId));
     selectedIds = new Set([
       ...candidates.map(item => item.session.sessionId),
       ...abandonedCandidates.map(item => item.session.sessionId),
