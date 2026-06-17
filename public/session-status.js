@@ -88,6 +88,15 @@
       });
   }
 
+  function getNextAttentionInboxItem(sessions, runtime = {}, currentSessionId = null) {
+    const items = getAttentionInboxItems(sessions, runtime);
+    if (items.length === 0) return null;
+    if (!currentSessionId) return items[0];
+    const currentIndex = items.findIndex(item => item.session.sessionId === currentSessionId);
+    if (currentIndex === -1 || currentIndex === items.length - 1) return items[0];
+    return items[currentIndex + 1];
+  }
+
   function isActiveStatus(status) {
     return status.key === 'busy' || status.key === 'running';
   }
@@ -117,6 +126,7 @@
   return {
     getSessionStatus,
     getAttentionInboxItems,
+    getNextAttentionInboxItem,
     getStatusCounts,
     getFilteredSessionsByStatus,
   };

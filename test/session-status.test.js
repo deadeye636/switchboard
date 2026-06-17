@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   getSessionStatus,
   getAttentionInboxItems,
+  getNextAttentionInboxItem,
   getStatusCounts,
   getFilteredSessionsByStatus,
 } = require('../public/session-status');
@@ -80,6 +81,31 @@ test('attention inbox orders human-critical sessions first then recent activity'
   }));
 
   assert.deepEqual(result.map(item => item.session.sessionId), ['attention', 'ready', 'running-old']);
+});
+
+test('next attention inbox item cycles after the current session', () => {
+  const sessions = [
+    { sessionId: 'running-old', modified: '2026-06-12T09:00:00.000Z', summary: 'old run' },
+    { sessionId: 'ready', modified: '2026-06-12T10:00:00.000Z', summary: 'ready' },
+    { sessionId: 'attention', modified: '2026-06-12T08:00:00.000Z', summary: 'blocked' },
+  ];
+  const runtime = state({
+    activePtyIds: new Set(['running-old']),
+    responseReadySessions: new Set(['ready']),
+    attentionSessions: new Set(['attention']),
+  });
+
+  assert.equal(getNextAttentionInboxItem(sessions, runtime, null).session.sessionId, 'attention');
+  assert.equal(getNextAttentionInboxItem(sessions, runtime, 'attention').session.sessionId, 'ready');
+  assert.equal(getNextAttentionInboxItem(sessions, runtime, 'running-old').session.sessionId, 'attention');
+});
+
+test('next attention inbox item returns null when inbox is empty', () => {
+  const sessions = [
+    { sessionId: 'idle', modified: '2026-06-12T09:00:00.000Z', summary: 'idle' },
+  ];
+
+  assert.equal(getNextAttentionInboxItem(sessions, state(), 'idle'), null);
 });
 
 test('status counts group busy and running sessions under active', () => {

@@ -405,12 +405,27 @@ function isSessionNavKey(e) {
   if (!mod || e.altKey) return false;
   if (e.shiftKey && (e.code === 'BracketLeft' || e.code === 'BracketRight')) return true;
   if (!e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return true;
+  // Cmd/Ctrl+Shift+A — focus next attention (let it through while a terminal is focused)
+  if (typeof isNextAttentionKey === 'function' && isNextAttentionKey(e, nextAttentionBindingForNav())) return true;
   return false;
+}
+
+// Resolve the active next-attention binding (override-aware) without coupling
+// grid-view to app.js init order.
+function nextAttentionBindingForNav() {
+  return typeof getNextAttentionBinding === 'function' ? getNextAttentionBinding() : undefined;
 }
 
 function handleSessionNavKey(e) {
   const mod = isMac ? e.metaKey : e.ctrlKey;
   if (!mod || e.altKey) return false;
+
+  // Cmd/Ctrl+Shift+A — focus next session needing attention
+  if (typeof isNextAttentionKey === 'function' && isNextAttentionKey(e, nextAttentionBindingForNav())) {
+    e.preventDefault();
+    if (e.type === 'keydown' && typeof focusNextAttention === 'function') focusNextAttention();
+    return true;
+  }
 
   // Cmd+Shift+[ or Cmd+Shift+] — prev/next session
   // On macOS, Shift changes e.key to { / }, so check code for reliable matching

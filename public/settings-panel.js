@@ -74,6 +74,10 @@
     const themeValue = fieldValue('terminalTheme', 'switchboard');
     const mcpEmulationValue = fieldValue('mcpEmulation', true);
     const shellProfileValue = fieldValue('shellProfile', 'auto');
+    // Notifications (global only) — alert sound on attention + read-only hotkey hint.
+    const attentionSoundValue = !!((current.notifications || {}).sound);
+    const isMacPlatform = !!(window.api && window.api.platform === 'darwin');
+    const nextAttentionShortcutLabel = isMacPlatform ? '\u2318\u21e7A' : 'Ctrl+Shift+A';
 
     // Discover available shell profiles
     let shellProfiles = [];
@@ -237,6 +241,19 @@
       </div>` : ''}
 
       ${!isProject ? `<div class="settings-section">
+        <div class="settings-section-title">Notifications</div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Alert sound on attention</span>
+            <div class="settings-description">Play a short chime when a session needs your attention. Press <code>${escapeHtml(nextAttentionShortcutLabel)}</code> to jump to the next session needing you.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-attention-sound" ${attentionSoundValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+      </div>` : ''}
+
+      ${!isProject ? `<div class="settings-section">
         <div class="settings-section-title">Updates</div>
         <div class="settings-field">
           <div class="settings-field-info">
@@ -306,6 +323,10 @@
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
         settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
         settings.shellProfile = settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto';
+        settings.notifications = {
+          ...(current.notifications || {}),
+          sound: settingsViewerBody.querySelector('#sv-attention-sound').checked,
+        };
       }
 
       // Merge form values into existing settings to preserve keys not managed by the form
@@ -326,6 +347,9 @@
         }
         if (settings.terminalTheme && typeof window._applyTerminalTheme === 'function') {
           window._applyTerminalTheme(settings.terminalTheme);
+        }
+        if (typeof window._applyNotificationSettings === 'function') {
+          window._applyNotificationSettings(settings);
         }
         if (typeof refreshSidebar === 'function') refreshSidebar();
       }
