@@ -71,8 +71,8 @@ function abandonedSession(overrides = {}) {
 
 test('abandoned-short defaults are conservative named constants', () => {
   assert.deepEqual(ABANDONED_SHORT_DEFAULTS, {
-    maxMessageCount: 15,
-    maxUserMessageCount: 3,
+    maxMessageCount: 50,
+    maxUserMessageCount: 5,
     maxCacheReadTokens: 2_000_000,
     minInactiveDays: 2,
   });
@@ -86,8 +86,8 @@ test('abandoned-short flags a trivial, inactive session', () => {
 
 test('abandoned-short excludes sessions over each usage threshold', () => {
   const sessions = [
-    abandonedSession({ sessionId: 'too-many-messages', messageCount: 15 }),
-    abandonedSession({ sessionId: 'too-many-turns', userMessageCount: 3 }),
+    abandonedSession({ sessionId: 'too-many-messages', messageCount: 50 }),
+    abandonedSession({ sessionId: 'too-many-turns', userMessageCount: 5 }),
     abandonedSession({ sessionId: 'too-much-cache', cacheReadTokens: 2_000_000 }),
   ];
   const result = getAbandonedShortSessions(sessions, { now: NOW });
@@ -96,8 +96,8 @@ test('abandoned-short excludes sessions over each usage threshold', () => {
 
 test('abandoned-short keeps sessions just under each usage threshold', () => {
   const sessions = [
-    abandonedSession({ sessionId: 'edge-messages', messageCount: 14 }),
-    abandonedSession({ sessionId: 'edge-turns', userMessageCount: 2 }),
+    abandonedSession({ sessionId: 'edge-messages', messageCount: 49 }),
+    abandonedSession({ sessionId: 'edge-turns', userMessageCount: 4 }),
     abandonedSession({ sessionId: 'edge-cache', cacheReadTokens: 1_999_999 }),
   ];
   const result = getAbandonedShortSessions(sessions, { now: NOW });

@@ -15,9 +15,9 @@
   // stale sessions. Values are deliberately conservative.
   const ABANDONED_SHORT_DEFAULTS = {
     // Fewer than this many total transcript entries.
-    maxMessageCount: 15,
+    maxMessageCount: 50,
     // Fewer than this many user turns (real back-and-forth).
-    maxUserMessageCount: 3,
+    maxUserMessageCount: 5,
     // Below this many cache-read tokens. Claude Code re-reads the cached context
     // on every turn, so even a 5-message session realistically reads a few hundred
     // thousand tokens; this bound is set well above that (but far below the
