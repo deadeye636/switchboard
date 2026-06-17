@@ -29,37 +29,170 @@ async function forkSession(session, project) {
   launchNewSession(project, options);
 }
 
+function findProjectForSession(session) {
+  const project = [...cachedAllProjects, ...cachedProjects].find(p =>
+    p.sessions && p.sessions.some(s => s.sessionId === session.sessionId)
+  );
+  return project || (session.projectPath ? { projectPath: session.projectPath } : null);
+}
+
 async function showHandoffPrompt(session) {
   const health = getSessionHealth(session);
   const canAskRunningSession = activePtyIds.has(session.sessionId) && session.type !== 'terminal';
+  const project = findProjectForSession(session);
   const evidence = health.reasons.length
     ? health.reasons.map(reason => reason.label).join(', ')
     : 'This session is still within healthy bounds.';
-  const action = await showControlDialog({
-    title: 'Create Handoff',
-    message: canAskRunningSession
-      ? `This session is becoming expensive: ${evidence}. Ask the running session to create a context-aware handoff, or copy a local starter packet.`
-      : `This session is becoming expensive: ${evidence}. Copy a short handoff packet and start fresh when you reach a natural breakpoint.`,
-    confirmLabel: 'Copy Handoff',
-    secondaryLabel: canAskRunningSession ? 'Ask Session' : '',
-    cancelLabel: 'Close',
-    tone: health.tier === 'strong' || health.tier === 'warning' ? 'warning' : 'default',
-    details: {
-      Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
-      Project: session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '',
-      Recommendation: health.label,
-      Running: canAskRunningSession ? 'Yes' : '',
-    },
-  });
-  if (!action) return;
-  if (action === 'secondary') {
-    const prompt = buildHandoffRequestPrompt(session);
-    window.api.sendInput(session.sessionId, `\x1b[200~${prompt}\x1b[201~\r`);
-    showControlToast({ message: 'Handoff request sent to the running session.' });
+  const tone = health.tier === 'strong' || health.tier === 'warning' ? 'warning' : 'default';
+  const details = {
+    Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
+    Project: session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '',
+    Recommendation: health.label,
+    Running: canAskRunningSession ? 'Yes' : '',
+  };
+
+  // The guided handoff needs a live agent to summarize and a project to launch
+  // into. When the session isn't running, fall back to the copy-only packet.
+  if (canAskRunningSession && project) {
+    const action = await showControlDialog({
+      title: 'Hand Off Session',
+      message: `This session is becoming expensive: ${evidence}. The guided handoff asks the running agent for a summary (spends tokens), then starts a fresh, lean session in the same project seeded with it. You'll review the packet before anything new is started. Or copy a local starter packet instead.`,
+      confirmLabel: 'Hand off (guided)',
+      secondaryLabel: 'Copy Packet',
+      cancelLabel: 'Close',
+      tone,
+      details,
+    });
+    if (action === true) {
+      await runHandoff(session, project);
+    } else if (action === 'secondary') {
+      await window.api.writeClipboard(buildHandoffTemplate(session));
+      showControlToast({ message: 'Handoff copied to clipboard.' });
+    }
     return;
   }
+
+  const action = await showControlDialog({
+    title: 'Create Handoff',
+    message: `This session is becoming expensive: ${evidence}. Copy a short handoff packet and start fresh when you reach a natural breakpoint.`,
+    confirmLabel: 'Copy Handoff',
+    cancelLabel: 'Close',
+    tone,
+    details,
+  });
+  if (!action) return;
   await window.api.writeClipboard(buildHandoffTemplate(session));
   showControlToast({ message: 'Handoff copied to clipboard.' });
+}
+
+async function readLatestHandoffPacket(session) {
+  try {
+    const result = await window.api.readSessionJsonl(session.sessionId);
+    if (result && Array.isArray(result.entries)) {
+      const text = extractLatestAssistantText(result.entries);
+      if (text) return text;
+    }
+  } catch {}
+  return '';
+}
+
+// Follow-up dialog that lets the human review/edit the captured handoff packet
+// before a fresh session is started. Resolves with the edited text, or null on
+// cancel. Prefilled by reading the latest assistant turn from the session JSONL
+// (no brittle terminal scraping); falls back to the local starter template.
+async function showHandoffReviewDialog(session) {
+  const overlay = document.createElement('div');
+  overlay.className = 'new-session-overlay';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'new-session-dialog';
+  dialog.innerHTML = `
+    <h3>Review Handoff Packet</h3>
+    <div class="add-project-hint">This text seeds a brand-new, lean session in the same project. Review and edit it, then start the fresh session. Starting the session spends tokens; the old session is left untouched. If the agent is still writing, use “Refresh from session”.</div>
+    <textarea id="handoff-packet-text" class="settings-input" spellcheck="false" style="width:100%;min-height:260px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;"></textarea>
+    <div class="new-session-actions">
+      <button type="button" class="new-session-cancel-btn">Cancel</button>
+      <button type="button" class="handoff-refresh-btn">Refresh from session</button>
+      <button type="button" class="new-session-start-btn">Start fresh session</button>
+    </div>
+  `;
+
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  const textarea = dialog.querySelector('#handoff-packet-text');
+  const captured = await readLatestHandoffPacket(session);
+  textarea.value = captured || buildHandoffTemplate(session);
+  textarea.focus();
+
+  return new Promise(resolve => {
+    function close(result) {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    }
+
+    dialog.querySelector('.new-session-cancel-btn').onclick = () => close(null);
+    dialog.querySelector('.handoff-refresh-btn').onclick = async () => {
+      const latest = await readLatestHandoffPacket(session);
+      if (latest) textarea.value = latest;
+    };
+    dialog.querySelector('.new-session-start-btn').onclick = () => {
+      const value = textarea.value.trim();
+      if (value) close(value);
+    };
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+
+    function onKey(e) {
+      if (e.key === 'Escape') close(null);
+    }
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+// Guided one-click handoff: request packet → review → fresh lean session seeded
+// with it → switch. Driven by the pure state machine in handoff-flow.js. Every
+// token-spending step is gated behind an explicit user confirmation; cancelling
+// at any point leaves both the old and (not-yet-created) new session untouched.
+async function runHandoff(session, project) {
+  let state = createHandoffState();
+  let packet = '';
+
+  while (!isHandoffTerminal(state)) {
+    const { action } = nextHandoffStep(state);
+
+    if (action === 'request-packet') {
+      // Token step #1 — authorized by the "Hand off (guided)" button. The prompt
+      // instructs the agent to return only a markdown handoff and not continue.
+      const requestPrompt = buildHandoffRequestPrompt(session);
+      window.api.sendInput(session.sessionId, `\x1b[200~${requestPrompt}\x1b[201~\r`);
+      showControlToast({ message: 'Asked the agent for a handoff packet — review it once it finishes.' });
+      state = advanceHandoff(state);
+    } else if (action === 'capture-packet') {
+      const reviewed = await showHandoffReviewDialog(session);
+      if (reviewed === null) { state = cancelHandoff(state); break; }
+      packet = reviewed;
+      state = advanceHandoff(state);
+    } else if (action === 'launch-session') {
+      // No tokens yet; the launch + seed happens together in the next step.
+      state = advanceHandoff(state);
+    } else if (action === 'seed-session') {
+      // Token step #2 — authorized by the "Start fresh session" button. Start a
+      // FRESH session (not a fork): forking via --resume --fork-session inherits
+      // the bloated context we are trying to escape. resolveDefaultSessionOptions
+      // never sets forkFrom, so this is a clean --session-id session.
+      const options = await resolveDefaultSessionOptions(project);
+      const newId = await launchNewSession(project, options, packet);
+      if (!newId) { state = cancelHandoff(state); break; }
+      state = advanceHandoff(state);
+    } else if (action === 'finish') {
+      // launchNewSession already focused the new session via showSession().
+      showControlToast({ message: 'Handed off → fresh lean session seeded with the packet.' });
+      state = advanceHandoff(state);
+    } else {
+      break;
+    }
+  }
 }
 
 async function launchScheduleCreator(project) {

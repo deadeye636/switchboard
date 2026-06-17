@@ -1211,7 +1211,7 @@ async function loadProjects({ resort = false } = {}) {
 // rebindSidebarEvents, buildSessionItem, startRename) → sidebar.js
 
 
-async function launchNewSession(project, sessionOptions) {
+async function launchNewSession(project, sessionOptions, seedText) {
   const sessionId = crypto.randomUUID();
   const projectPath = project.projectPath;
   const session = {
@@ -1252,12 +1252,55 @@ async function launchNewSession(project, sessionOptions) {
     entry.terminal.write(`\r\nError: ${result.error}\r\n`);
     entry.closed = true;
     showSession(sessionId);
-    return;
+    return null;
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
   showSession(sessionId);
   pollActiveSessions();
+
+  // For the guided handoff flow: seed the fresh session with the handoff packet
+  // as its first message once the CLI has booted. Because we pass --session-id
+  // (isNew), the session id stays this temp id, so we can seed it directly.
+  if (seedText && String(seedText).trim()) {
+    seedSessionWhenReady(sessionId, String(seedText));
+  }
+
+  return sessionId;
+}
+
+// Seed a freshly-launched session with its first message once the Claude CLI has
+// booted and gone quiet. Rather than guessing a fixed delay, we watch
+// lastActivityTime (populated by trackActivity for every session's output) for
+// the boot UI to render and then settle. Best-effort: seeds anyway at timeout.
+function seedSessionWhenReady(sessionId, seedText) {
+  const SETTLE_MS = 700;
+  const POLL_MS = 250;
+  const MAX_WAIT_MS = 12000;
+  const startedAt = Date.now();
+  let seeded = false;
+
+  function attempt() {
+    if (seeded) return;
+    const entry = openSessions.get(sessionId);
+    if (!entry || entry.closed) return; // session closed before it was ready
+
+    const last = lastActivityTime.get(sessionId);
+    const quietFor = last ? Date.now() - last.getTime() : Infinity;
+    const settled = last && quietFor >= SETTLE_MS;
+    const timedOut = Date.now() - startedAt >= MAX_WAIT_MS;
+
+    if (settled || timedOut) {
+      seeded = true;
+      // Bracketed paste keeps the multi-line markdown packet intact, then submit.
+      window.api.sendInput(sessionId, `\x1b[200~${seedText}\x1b[201~\r`);
+      recordTimelineEvent(sessionId, 'started', 'Handoff seeded', 'Seeded fresh session with the handoff packet.');
+      return;
+    }
+    setTimeout(attempt, POLL_MS);
+  }
+
+  setTimeout(attempt, POLL_MS);
 }
 
 // Legacy alias
