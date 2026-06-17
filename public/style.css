@@ -5344,6 +5344,10 @@ input:focus-visible {
   display: block;
   grid-template-columns: none !important;
   grid-auto-rows: auto;
+  /* Sticky region headers provide their own top spacing; a top padding here
+     would leave a transparent strip above the first sticky header that content
+     bleeds through while scrolling. */
+  padding-top: 0;
 }
 .grid-region {
   --user-group-color: #6a6a80;
@@ -5353,10 +5357,14 @@ input:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 2px 8px;
+  /* Full-bleed sticky bar: negative margins span #terminals' horizontal padding
+     (10px left / 16px right) so the solid background covers the entire strip and
+     nothing behind shows through above or beside the header while scrolling. */
+  margin: 0 -16px 8px -10px;
+  padding: 12px 18px 8px 12px;
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 5;
   background: #111118;
 }
 .grid-region-dot {
@@ -5402,6 +5410,44 @@ input:focus-visible {
 }
 .grid-region-cards.grid-single-card {
   grid-template-columns: 1fr !important;
+}
+
+/* Collapsible grid group regions (mirror the sidebar user-group caret) */
+.grid-region-header {
+  cursor: pointer;
+  user-select: none;
+}
+.grid-region-expand {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--user-group-color, #6a6a80);
+}
+.grid-region-expand .arrow {
+  font-size: 8px;
+  display: inline-block;
+  transition: transform 0.2s;
+}
+.grid-region:not(.collapsed) .grid-region-expand .arrow {
+  transform: rotate(90deg);
+}
+.grid-region-expand:focus-visible {
+  outline: 2px solid rgba(128,136,255,0.85);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.grid-region.collapsed .grid-region-cards {
+  display: none;
+}
+.grid-region.collapsed {
+  margin-bottom: 10px;
 }
 
 /* ===== Flexible grid layout: resize / drag / reset (spec 08) ===== */

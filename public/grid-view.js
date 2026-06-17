@@ -283,6 +283,39 @@ function renderGridGroupFilters(container) {
   }
 }
 
+// Collapse state for grid group regions persists across renders/restart via
+// localStorage, keyed by group id ('ungrouped' for the ungrouped pool) — mirrors
+// the sidebar user-group collapse (collapsedGroups) and gridGroupFilter.
+function getCollapsedGridGroups() {
+  try { return new Set(JSON.parse(localStorage.getItem('collapsedGridGroups') || '[]')); } catch { return new Set(); }
+}
+function saveCollapsedGridGroups(set) {
+  try { localStorage.setItem('collapsedGridGroups', JSON.stringify([...set])); } catch { /* storage unavailable */ }
+}
+function gridRegionCollapseKey(group) {
+  return group ? group.id : 'ungrouped';
+}
+
+// Toggle a grid region's collapsed state, persist it, keep aria-expanded in sync,
+// and re-fit the revealed terminals on expand (hidden terminals can't be sized).
+function toggleGridRegionCollapse(region) {
+  if (!region) return;
+  const key = region.dataset.collapseKey;
+  const willCollapse = !region.classList.contains('collapsed');
+  region.classList.toggle('collapsed', willCollapse);
+  const btn = region.querySelector('.grid-region-expand');
+  if (btn) btn.setAttribute('aria-expanded', String(!willCollapse));
+  const set = getCollapsedGridGroups();
+  if (willCollapse) set.add(key); else set.delete(key);
+  saveCollapsedGridGroups(set);
+  if (!willCollapse) {
+    for (const cardEl of region.querySelectorAll('.grid-card')) {
+      const entry = openSessions.get(cardEl.dataset.sessionId);
+      if (entry) fitAndScroll(entry);
+    }
+  }
+}
+
 // Build a labeled grid region for a group (or the ungrouped pool). Appends the
 // region to #terminals and returns its inner cards container.
 function buildGridRegion(group, sessions) {
@@ -291,10 +324,27 @@ function buildGridRegion(group, sessions) {
   const region = document.createElement('div');
   region.className = 'grid-region' + (group ? '' : ' ungrouped');
   region.dataset.groupId = group ? group.id : '';
+  const collapseKey = gridRegionCollapseKey(group);
+  region.dataset.collapseKey = collapseKey;
+  const collapsed = getCollapsedGridGroups().has(collapseKey);
+  if (collapsed) region.classList.add('collapsed');
   if (group) region.style.setProperty('--user-group-color', group.color);
 
   const header = document.createElement('div');
   header.className = 'grid-region-header';
+
+  const regionLabel = group ? group.name : 'Ungrouped';
+  const expand = document.createElement('button');
+  expand.type = 'button';
+  expand.className = 'grid-region-expand';
+  expand.setAttribute('aria-expanded', String(!collapsed));
+  expand.setAttribute('aria-label', `Toggle ${regionLabel} region`);
+  expand.innerHTML = '<span class="arrow" aria-hidden="true">&#9654;</span>';
+  header.appendChild(expand);
+
+  // Click anywhere on the header (or keyboard-activate the caret button) to
+  // collapse/expand the region.
+  header.addEventListener('click', () => toggleGridRegionCollapse(region));
 
   const dot = document.createElement('span');
   dot.className = 'grid-region-dot';
@@ -478,9 +528,23 @@ function wrapInGridCard(sessionId, parent, layout) {
 
 function getContainerColumnCount(container) {
   if (!container) return 1;
+  // Primary: count the resolved track list from computed style (works for the
+  // flat #terminals grid). For grouped regions (.grid-region-cards) this can
+  // resolve to a single track / 'none' before updateGridColumns() has applied a
+  // template, which would clamp every resize to 1 column. Fall back to the same
+  // width-based calc updateGridColumns() uses so resize/snap clamp to the real
+  // number of columns the container actually offers.
   const tracks = getComputedStyle(container).gridTemplateColumns;
-  if (!tracks || tracks === 'none') return 1;
-  return tracks.split(' ').filter(Boolean).length;
+  if (tracks && tracks !== 'none') {
+    const count = tracks.split(' ').filter(Boolean).length;
+    if (count > 0) return count;
+  }
+  if (typeof calculateGridColumnCount === 'function') {
+    const cardCount = container.querySelectorAll('.grid-card').length;
+    const width = container.clientWidth || terminalsEl.clientWidth;
+    return calculateGridColumnCount({ width, cardCount });
+  }
+  return 1;
 }
 
 // Persist the current visual order (DOM order across all regions) plus each
@@ -623,6 +687,13 @@ function startCardResize(sessionId, card, e) {
   if (e.button !== 0) return;
   e.preventDefault();
   e.stopPropagation();
+  // Capture the pointer on the handle so drag events keep flowing even when the
+  // cursor passes over the card's xterm canvas (which would otherwise swallow
+  // them), making the corner resize reliable.
+  const handle = e.currentTarget;
+  if (handle && typeof handle.setPointerCapture === 'function') {
+    try { handle.setPointerCapture(e.pointerId); } catch { /* capture best-effort */ }
+  }
   const container = card.parentElement;
   const startRect = card.getBoundingClientRect();
   const startColSpan = Math.max(1, Number(card.dataset.colSpan) || 1);
@@ -645,9 +716,12 @@ function startCardResize(sessionId, card, e) {
     debouncedFit(sessionId);
   };
 
-  const onUp = () => {
+  const onUp = (ev) => {
     document.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerup', onUp);
+    if (handle && typeof handle.releasePointerCapture === 'function') {
+      try { handle.releasePointerCapture(ev.pointerId); } catch { /* best-effort */ }
+    }
     card.classList.remove('resizing');
     document.body.classList.remove('grid-dragging');
     gridInteracting = false;
@@ -804,7 +878,7 @@ function unwrapGridCards() {
   terminalsEl.classList.remove('grid-grouped');
 }
 
-function focusGridCard(sessionId) {
+function focusGridCard(sessionId, { reveal = true } = {}) {
   gridFocusedSessionId = sessionId;
   setActiveSession(sessionId);
   clearNotifications(sessionId);
@@ -816,6 +890,13 @@ function focusGridCard(sessionId) {
   document.querySelectorAll('.grid-card').forEach(c => c.classList.remove('focused'));
   const card = gridCards.get(sessionId);
   if (card) {
+    // An explicit focus (click/keyboard nav/step/inbox) should reveal the card
+    // if its group region is collapsed. The passive end-of-render focus passes
+    // reveal:false so it doesn't fight the user's persisted collapse state.
+    if (reveal) {
+      const region = card.closest('.grid-region.collapsed');
+      if (region) toggleGridRegionCollapse(region);
+    }
     card.classList.add('focused');
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
@@ -1037,15 +1118,20 @@ function showGridView() {
 
   updateGridColumns();
 
-  // Fit all terminals after layout resolves
+  // Fit all terminals after layout resolves (skip cards hidden in a collapsed
+  // region — a display:none terminal can't be measured/fit).
   for (const sid of sessionIds) {
     const entry = openSessions.get(sid);
-    if (entry) fitAndScroll(entry);
+    if (!entry) continue;
+    const card = gridCards.get(sid);
+    if (card && card.closest('.grid-region.collapsed')) continue;
+    fitAndScroll(entry);
   }
-  // Focus active or first (deferred so fitAndScroll's rAF runs first)
+  // Focus active or first (deferred so fitAndScroll's rAF runs first). This
+  // passive focus must not auto-expand a collapsed region the user persisted.
   requestAnimationFrame(() => {
     const toFocus = activeSessionId && sessionIds.includes(activeSessionId) ? activeSessionId : sessionIds[0];
-    if (toFocus) focusGridCard(toFocus);
+    if (toFocus) focusGridCard(toFocus, { reveal: false });
   });
 }
 
@@ -1146,7 +1232,9 @@ function navigateSession(direction) {
 // Project headings break the simple index math, so we use actual screen positions.
 function navigateGrid(direction) {
   if (!gridViewActive) return;
-  const cards = [...terminalsEl.querySelectorAll('.grid-card')];
+  // Exclude cards hidden inside a collapsed region — they have no usable
+  // geometry and shouldn't be reachable by 2D navigation.
+  const cards = [...terminalsEl.querySelectorAll('.grid-card')].filter(c => c.offsetParent !== null);
   if (cards.length === 0) return;
   const currentCard = gridCards.get(gridFocusedSessionId || activeSessionId);
   if (!currentCard || !cards.includes(currentCard)) {

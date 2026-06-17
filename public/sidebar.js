@@ -558,6 +558,10 @@ function renderProjects(projects, resort) {
       allItems.push({ sortTime: mostRecentTime, pinned: hasPinned, running: hasRunning, element });
     }
     for (const { group, sessions } of userGroups) {
+      // Don't render a group section with no sessions in the current filtered
+      // view — an empty section would otherwise linger after its members are
+      // filtered out or unassigned.
+      if (!sessions || sessions.length === 0) continue;
       const mostRecentTime = Math.max(...sessions.map(s => new Date(s.modified).getTime()));
       const hasRunning = sessions.some(s => activePtyIds.has(s.sessionId) || pendingSessions.has(s.sessionId));
       const hasPinned = sessions.some(s => s.starred);
