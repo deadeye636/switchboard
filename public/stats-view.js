@@ -143,7 +143,7 @@ function buildUsageSection(usage) {
     const track = document.createElement('div');
     track.className = 'usage-track';
     const fill = document.createElement('div');
-    fill.className = 'usage-fill' + (card.level === 'high' ? ' usage-fill-high' : '');
+    fill.className = 'usage-fill' + (card.level && card.level !== 'normal' ? ` usage-fill-${card.level}` : '');
     fill.style.width = Math.max(card.percent, 1) + '%';
     track.appendChild(fill);
     usageCard.appendChild(track);

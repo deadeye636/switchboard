@@ -324,12 +324,36 @@ input:focus-visible {
   transition: width 0.25s ease;
 }
 
+#status-bar-usage.usage-status-normal {
+  color: #7ed99b;
+}
+
+#status-bar-usage.usage-status-normal .status-bar-usage-fill {
+  background: rgba(110,205,140,0.7);
+}
+
+#status-bar-usage.usage-status-moderate {
+  color: #f0d770;
+}
+
+#status-bar-usage.usage-status-moderate .status-bar-usage-fill {
+  background: rgba(224,200,90,0.78);
+}
+
 #status-bar-usage.usage-status-high {
-  color: #ffd6a0;
+  color: #ffb070;
 }
 
 #status-bar-usage.usage-status-high .status-bar-usage-fill {
-  background: rgba(240,160,80,0.8);
+  background: rgba(240,150,70,0.82);
+}
+
+#status-bar-usage.usage-status-critical {
+  color: #ff8a8a;
+}
+
+#status-bar-usage.usage-status-critical .status-bar-usage-fill {
+  background: rgba(232,80,90,0.85);
 }
 
 #status-bar-usage.usage-status-warning {
@@ -3047,12 +3071,18 @@ input:focus-visible {
 }
 .usage-fill {
   height: 100%;
-  background: rgba(128,136,255,0.55);
+  background: rgba(110,205,140,0.6);
   border-radius: 3px;
   transition: width 0.3s ease;
 }
+.usage-fill-moderate {
+  background: rgba(224,200,90,0.65);
+}
 .usage-fill-high {
-  background: rgba(255,100,100,0.55);
+  background: rgba(240,150,70,0.7);
+}
+.usage-fill-critical {
+  background: rgba(232,80,90,0.7);
 }
 .usage-card-reset {
   font-size: 10px;

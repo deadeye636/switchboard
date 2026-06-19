@@ -551,6 +551,14 @@ function buildSlugGroup(slug, sessions) {
 // Shared by both the directory-first and folder-first render paths.
 function filterSidebarSessions(sessions) {
   let filtered = sessions;
+  // Hide archived sessions unless the archive toggle is on (search deliberately
+  // ignores the archive filter). The backend already drops archived sessions from
+  // the default project list, but open/pending sessions can be re-injected into the
+  // cache client-side (e.g. a just-created "New session" that was then archived),
+  // which would otherwise leave them lingering greyed-out in the sidebar/folders.
+  if (!showArchived && (typeof searchMatchIds === 'undefined' || searchMatchIds === null)) {
+    filtered = filtered.filter(s => !s.archived);
+  }
   if (showStarredOnly) filtered = filtered.filter(s => s.starred);
   if (showRunningOnly) filtered = filtered.filter(s => activePtyIds.has(s.sessionId));
   if (showTodayOnly) {
@@ -1002,7 +1010,7 @@ function renderProjectsFolderFirst(projects, resort) {
     const body = document.createElement('div');
     for (const [projectPath, sessions] of projEntries) {
       allSessions.push(...sessions);
-      body.appendChild(buildFolderProjectSubsection('ff-' + group.id, projectPath, sessions, projectMissing.get(projectPath)));
+      body.appendChild(buildFolderProjectSubsection('ff-' + group.id, projectPath, sessions, projectMissing.get(projectPath), group.id));
     }
     newSidebar.appendChild(buildUserGroup(group, allSessions, body));
     renderedFolderCount++;
@@ -1037,7 +1045,7 @@ function renderProjectsFolderFirst(projects, resort) {
 // One project sub-section inside a folder: a collapsible header (scoped id so the
 // same project can appear in multiple folders without DOM-id collisions) over a
 // flat list of session rows.
-function buildFolderProjectSubsection(scopePrefix, projectPath, sessions, missing) {
+function buildFolderProjectSubsection(scopePrefix, projectPath, sessions, missing, groupId) {
   const sub = document.createElement('div');
   sub.className = 'ff-project' + (missing ? ' missing' : '');
   const sid = scopePrefix + '-' + projectPath.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -1053,6 +1061,7 @@ function buildFolderProjectSubsection(scopePrefix, projectPath, sessions, missin
   newBtn.className = 'project-new-btn ff-project-new-btn';
   newBtn.title = 'New session';
   newBtn.dataset.projectPath = projectPath;
+  if (groupId) newBtn.dataset.groupId = groupId;
   newBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="10"/><line x1="2" y1="6" x2="10" y2="6"/></svg>';
   header.appendChild(newBtn);
 
@@ -1535,7 +1544,11 @@ function rebindFolderFirstEvents(projects) {
         const path = newBtn.dataset.projectPath;
         const project = [...cachedProjects, ...cachedAllProjects].find(p => p.projectPath === path)
           || { folder: encodeProjectPath(path), projectPath: path, sessions: [] };
-        showNewSessionPopover(project, newBtn);
+        // Inside a folder, this button is scoped to a specific project dir AND its
+        // parent group, so the new session both lands in the right directory and is
+        // assigned to the folder (matching the folder's own "+" button behaviour).
+        const groupId = newBtn.dataset.groupId || null;
+        showNewSessionPopover(project, newBtn, { groupId });
       };
     }
     const toggle = (e) => {

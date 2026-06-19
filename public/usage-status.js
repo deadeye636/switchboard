@@ -11,6 +11,18 @@
     return Math.max(0, Math.min(100, Math.round(number)));
   }
 
+  // Four-tier usage scale: green (normal) → yellow (moderate) → orange (high) →
+  // red (critical). Shared by the status-bar summary and the per-bucket cards so
+  // colours stay consistent everywhere.
+  function usageLevel(value) {
+    const v = Number(value);
+    if (!Number.isFinite(v)) return 'normal';
+    if (v >= 95) return 'critical';
+    if (v >= 80) return 'high';
+    if (v >= 50) return 'moderate';
+    return 'normal';
+  }
+
   function rateLimitTitle(seconds) {
     const value = Number(seconds || 0);
     if (!Number.isFinite(value) || value <= 0) return 'Usage API rate limited. Try again later.';
@@ -49,7 +61,7 @@
     return {
       text: hasAmounts ? `Quota: ${used} / ${limit} (${value}%)` : `Quota: ${value}%`,
       title: hasAmounts ? `Monthly extra usage quota: ${used} used of ${limit}` : 'Monthly extra usage quota',
-      level: value >= 80 ? 'high' : 'normal',
+      level: usageLevel(value),
       percent: value,
     };
   }
@@ -68,7 +80,7 @@
         label: item.label,
         percent: value,
         detail: null,
-        level: value >= 80 ? 'high' : 'normal',
+        level: usageLevel(value),
         reset: usage[item.resetKey] || null,
       };
     }).filter(Boolean);
@@ -134,7 +146,7 @@
       title: sessionItem
         ? `Current 5-hour usage: ${sessionItem.value}%${reset}`
         : 'Claude usage',
-      level: highest >= 80 ? 'high' : 'normal',
+      level: usageLevel(highest),
       percent: highest,
     };
     if (usage._stale) {
@@ -146,9 +158,15 @@
   function getUsageRefreshDelayMs(usage = {}) {
     if (usage._rateLimited) {
       const seconds = Number(usage.retryAfterSeconds || 0);
-      if (Number.isFinite(seconds) && seconds > 0) return (seconds * 1000) + 5000;
+      // Honour the server's retry-after, but cap it so a large value (the usage
+      // API occasionally returns very long windows) can't leave the quota frozen
+      // for the better part of an hour. We re-check at most every 5 minutes; if
+      // still limited we just back off again — a single lightweight GET is cheap.
+      if (Number.isFinite(seconds) && seconds > 0) {
+        return Math.min((seconds * 1000) + 5000, 5 * 60 * 1000);
+      }
     }
-    return 5 * 60 * 1000;
+    return 60 * 1000;
   }
 
   function withCachedUsageFallback(usage = {}, cachedUsage = null) {

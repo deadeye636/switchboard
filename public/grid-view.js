@@ -1304,6 +1304,14 @@ function updateGridCardStatuses() {
     const health = getSessionHealth(session);
     const running = status.key === 'running' || status.key === 'busy'
       || status.key === 'needs-attention' || status.key === 'response-ready';
+    // Keep the card title in sync with the live session metadata (user renames,
+    // AI titles, /title). Title updates arrive via loadProjects() without a full
+    // grid rebuild, so refresh the name in place here rather than leaving it stale.
+    const name = card.querySelector('.grid-card-name');
+    if (name) {
+      const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary) || sid;
+      if (name.textContent !== displayName) name.textContent = displayName;
+    }
     const dot = card.querySelector('.grid-card-dot');
     if (dot) dot.className = 'grid-card-dot ' + (status.key === 'busy' ? 'busy' : (running ? 'running' : 'stopped'));
     card.classList.remove('status-needs-attention', 'status-response-ready', 'status-busy', 'status-running', 'status-exited', 'status-idle', 'health-healthy', 'health-growing', 'health-marathon-risk', 'health-handoff-recommended');

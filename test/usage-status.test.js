@@ -33,6 +33,23 @@ test('formatUsageStatus marks high usage when any bucket is near the limit', () 
   assert.equal(result.percent, 85);
 });
 
+test('formatUsageStatus uses the green→yellow→orange→red four-tier scale', () => {
+  // green (normal) below 50%
+  assert.equal(formatUsageStatus({ session: 30 }).level, 'normal');
+  // yellow (moderate) at 50–79%
+  assert.equal(formatUsageStatus({ session: 50 }).level, 'moderate');
+  assert.equal(formatUsageStatus({ session: 72 }).level, 'moderate');
+  // orange (high) at 80–94%
+  assert.equal(formatUsageStatus({ session: 80 }).level, 'high');
+  // red (critical) at 95%+
+  assert.equal(formatUsageStatus({ session: 96 }).level, 'critical');
+});
+
+test('getUsageLimitCards level reflects the four-tier scale per bucket', () => {
+  const cards = getUsageLimitCards({ session: 30, weekAll: 60, weekSonnet: 88, weekOpus: 99 });
+  assert.deepEqual(cards.map(c => c.level), ['normal', 'moderate', 'high', 'critical']);
+});
+
 test('formatUsageStatus shows extra usage quota when rate-limit buckets are unavailable', () => {
   const result = formatUsageStatus({
     extraUsage: 88,
@@ -124,6 +141,8 @@ test('formatUsageStatus returns useful rate-limit and error states', () => {
 
 test('getUsageRefreshDelayMs respects usage API retry-after windows', () => {
   assert.equal(getUsageRefreshDelayMs({ _rateLimited: true, retryAfterSeconds: 120 }), 125000);
-  assert.equal(getUsageRefreshDelayMs({ session: 12 }), 300000);
-  assert.equal(getUsageRefreshDelayMs({ _error: true }), 300000);
+  // Large retry-after windows are capped at 5 minutes so usage never freezes for an hour.
+  assert.equal(getUsageRefreshDelayMs({ _rateLimited: true, retryAfterSeconds: 3600 }), 300000);
+  assert.equal(getUsageRefreshDelayMs({ session: 12 }), 60000);
+  assert.equal(getUsageRefreshDelayMs({ _error: true }), 60000);
 });

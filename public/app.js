@@ -1387,6 +1387,10 @@ async function loadProjects({ resort = false } = {}) {
 
   await pollActiveSessions();
   refreshSidebar({ resort });
+  // Reloaded project data can carry new titles (user renames, AI titles, /title)
+  // and membership changes; keep the grid view in sync too — otherwise grid cards
+  // stay stale until the layout is reset or the grid is toggled off and on.
+  if (gridViewActive) refreshGridView();
   renderDefaultStatus();
 }
 
