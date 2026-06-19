@@ -2430,6 +2430,22 @@ input:focus-visible {
   border-bottom: 1px solid rgba(255,255,255,0.04);
   cursor: default;
   flex-shrink: 0;
+  /* Pin the header to the top of the grid scroll viewport while the card body
+     scrolls past (mirrors the sticky group/region headers). Sits under the
+     region header (z-index 5) when grouped — see the .grid-region offset below.
+     Negative top pulls it up into the grid container's 10px top padding so it
+     pins a touch higher instead of leaving a gap (still fully visible — the
+     scroll clip is at the padding-box edge). */
+  position: sticky;
+  top: -14px;
+  z-index: 4;
+  border-radius: 8px 8px 0 0;
+}
+
+/* Inside a group region the region header is itself sticky at top:0, so tuck the
+   card header just beneath it rather than letting them overlap. */
+.grid-region .grid-card-header {
+  top: 30px;
 }
 
 .grid-card-dot {
@@ -2576,10 +2592,19 @@ input:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* min-width:0 is required now that the card is overflow:visible — otherwise a
+     grid item's automatic minimum size is its content's min-content width (the
+     terminal), so the card refuses to shrink into its track and overflows
+     horizontally. overflow:hidden used to force this minimum to 0 for us. */
+  min-width: 0;
   height: 100%;
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 8px;
-  overflow: hidden;
+  /* overflow:visible (not hidden) so the sticky header can pin against the grid
+     scroll container rather than being trapped inside the card. The header and
+     footer carry the rounded corners instead (the terminal fills the straight
+     middle), so the card still reads as a rounded tile. */
+  overflow: visible;
   /* transform transition powers the live FLIP displacement of sibling tiles
      during a drag-reorder; the dragged card itself disables it (see .dragging). */
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.18s ease;
@@ -2640,6 +2665,11 @@ input:focus-visible {
   inset: auto !important;
   flex: 1;
   min-height: 0;
+  /* min-width:0 + overflow:hidden keep the terminal clipped to the card now that
+     the card itself is overflow:visible (for the sticky header). The header is a
+     sibling, so clipping here doesn't affect its stickiness. */
+  min-width: 0;
+  overflow: hidden;
   padding: 6px 0 6px 6px;
 }
 
@@ -2653,6 +2683,8 @@ input:focus-visible {
   background: #18181f;
   border-top: 1px solid rgba(255,255,255,0.04);
   flex-shrink: 0;
+  /* Carries the card's bottom rounding now that the card itself is overflow:visible. */
+  border-radius: 0 0 8px 8px;
 }
 
 
