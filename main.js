@@ -38,11 +38,18 @@ const { encodeProjectPath } = require('./encode-project-path');
 
 // --- Auto-updater (only in packaged builds) ---
 let autoUpdater = null;
+// Path to the downloaded update archive, captured from the `update-downloaded`
+// event. On macOS we install it manually (see installUpdateMac) because the
+// fork ships unsigned builds and Squirrel.Mac refuses to apply unsigned updates.
+let pendingUpdateFilePath = null;
 if (app.isPackaged || process.env.FORCE_UPDATER) {
   autoUpdater = require('electron-updater').autoUpdater;
   autoUpdater.logger = log;
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // On macOS, never let electron-updater hand the download off to Squirrel.Mac:
+  // it requires a Developer ID signature we don't have, which makes the install
+  // fail. We do a manual bundle swap instead (see the updater-install handler).
+  autoUpdater.autoInstallOnAppQuit = process.platform !== 'darwin';
   if (!app.isPackaged) autoUpdater.forceDevUpdateConfig = true;
 
   function sendUpdaterEvent(type, data) {
@@ -55,7 +62,10 @@ if (app.isPackaged || process.env.FORCE_UPDATER) {
   autoUpdater.on('update-available', (info) => sendUpdaterEvent('update-available', info));
   autoUpdater.on('update-not-available', (info) => sendUpdaterEvent('update-not-available', info));
   autoUpdater.on('download-progress', (progress) => sendUpdaterEvent('download-progress', progress));
-  autoUpdater.on('update-downloaded', (info) => sendUpdaterEvent('update-downloaded', info));
+  autoUpdater.on('update-downloaded', (info) => {
+    pendingUpdateFilePath = info?.downloadedFile || null;
+    sendUpdaterEvent('update-downloaded', info);
+  });
   autoUpdater.on('error', (err) => {
     log.error('[updater] Error:', err?.message || String(err));
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1730,8 +1740,63 @@ ipcMain.handle('updater-download', () => {
   if (!autoUpdater) return;
   return autoUpdater.downloadUpdate();
 });
+// Manual install for unsigned macOS builds: Squirrel.Mac won't apply an update
+// without a Developer ID signature, so we swap the .app bundle ourselves. A
+// detached script waits for this process to exit, replaces the bundle from the
+// already-downloaded zip, clears quarantine, ad-hoc re-signs, and relaunches.
+function installUpdateMac() {
+  if (!pendingUpdateFilePath || !fs.existsSync(pendingUpdateFilePath)) {
+    return { ok: false, error: 'No downloaded update is available yet.' };
+  }
+  // process.execPath: /Applications/Switchboard.app/Contents/MacOS/Switchboard
+  const appBundle = path.resolve(process.execPath, '..', '..', '..');
+  if (!appBundle.endsWith('.app')) {
+    return { ok: false, error: 'Could not locate the application bundle to update.' };
+  }
+
+  const script = `#!/bin/bash
+set -e
+APP_PID="$1"
+ZIP="$2"
+APP_PATH="$3"
+# Wait (up to ~30s) for Switchboard to fully exit before swapping the bundle.
+for _ in $(seq 1 150); do
+  kill -0 "$APP_PID" 2>/dev/null || break
+  sleep 0.2
+done
+TMP="$(mktemp -d)"
+/usr/bin/ditto -x -k "$ZIP" "$TMP"
+NEW_APP="$(/usr/bin/find "$TMP" -maxdepth 1 -name '*.app' -print -quit)"
+if [ -z "$NEW_APP" ]; then exit 1; fi
+/bin/rm -rf "$APP_PATH"
+/usr/bin/ditto "$NEW_APP" "$APP_PATH"
+/usr/bin/xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
+/usr/bin/codesign --force --deep --sign - "$APP_PATH" 2>/dev/null || true
+/bin/rm -rf "$TMP"
+/usr/bin/open "$APP_PATH"
+`;
+
+  try {
+    const scriptPath = path.join(os.tmpdir(), `switchboard-update-${Date.now()}.sh`);
+    fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+    const { spawn } = require('child_process');
+    const child = spawn('/bin/bash', [scriptPath, String(process.pid), pendingUpdateFilePath, appBundle], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    log.info(`[updater] manual macOS install scheduled for ${appBundle}`);
+    setImmediate(() => app.quit());
+    return { ok: true };
+  } catch (e) {
+    log.error('[updater] manual install failed:', e?.message || String(e));
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
 ipcMain.handle('updater-install', () => {
   if (!autoUpdater) return { ok: false, dev: true };
+  if (process.platform === 'darwin') return installUpdateMac();
   setImmediate(() => autoUpdater.quitAndInstall(false, true));
   return { ok: true };
 });

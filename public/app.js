@@ -2235,7 +2235,10 @@ const updaterHandler = (type, data) => {
         saveUpdateRestartState();
         const result = await window.api.updaterInstall();
         if (result?.ok === false) {
-          showControlToast({ message: 'Update restart is only available in packaged builds.' });
+          const message = result.dev
+            ? 'Update restart is only available in packaged builds.'
+            : (result.error || 'Update restart failed. Please reinstall from the releases page.');
+          showControlToast({ message });
         }
       };
       document.getElementById('update-dismiss-btn').onclick = () => {

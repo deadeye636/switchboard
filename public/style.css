@@ -5850,6 +5850,12 @@ body.sidebar-session-dragging * {
   outline: none;
 }
 
+/* Pushed to the right end of the bulk-actions bar, away from the session
+   bulk buttons. */
+#grid-bulk-actions #grid-collapse-all-btn {
+  margin-left: auto;
+}
+
 #grid-collapse-all-btn {
   border: 1px solid rgba(255,255,255,0.1);
   background: rgba(255,255,255,0.03);

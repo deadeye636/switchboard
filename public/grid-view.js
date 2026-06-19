@@ -174,6 +174,17 @@ function renderGridBulkActions() {
   stopBtn.disabled = targets.runningToStop.length === 0;
   stopBtn.addEventListener('click', () => stopAllRunning(targets.runningToStop));
   container.appendChild(stopBtn);
+
+  // Collapse/expand-all-groups toggle lives at the right end of the bulk bar.
+  // It's region-scoped, so updateGridCollapseAllBtn() hides it when the grid
+  // isn't grouped and flips its icon/label based on collapse state.
+  const collapseAllBtn = document.createElement('button');
+  collapseAllBtn.type = 'button';
+  collapseAllBtn.id = 'grid-collapse-all-btn';
+  collapseAllBtn.title = 'Collapse all groups';
+  collapseAllBtn.addEventListener('click', toggleGridCollapseAll);
+  container.appendChild(collapseAllBtn);
+  updateGridCollapseAllBtn();
 }
 
 // Step ▶ — focus the next attention/ready session relative to the focused card,
@@ -1538,8 +1549,8 @@ function initGridObservers() {
   new MutationObserver(updateGridColumns).observe(terminalsEl, { childList: true });
   const resetBtn = document.getElementById('grid-reset-layout-btn');
   if (resetBtn) resetBtn.addEventListener('click', resetGridLayout);
-  const collapseAllBtn = document.getElementById('grid-collapse-all-btn');
-  if (collapseAllBtn) collapseAllBtn.addEventListener('click', toggleGridCollapseAll);
+  // The collapse-all-groups toggle now lives in the bulk-actions bar and is
+  // (re)created + bound by renderGridBulkActions on each render.
 }
 
 function hideGridView() {
