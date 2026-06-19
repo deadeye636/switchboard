@@ -314,6 +314,53 @@ function toggleGridRegionCollapse(region) {
       if (entry) fitAndScroll(entry);
     }
   }
+  updateGridCollapseAllBtn();
+}
+
+// Reflect the current grid-region collapse state on the header's collapse-all
+// button: hidden when there are no regions (flat grid), and its icon/label flip
+// to "Expand all" once every region is collapsed.
+function updateGridCollapseAllBtn() {
+  const btn = document.getElementById('grid-collapse-all-btn');
+  if (!btn) return;
+  const regions = terminalsEl.querySelectorAll('.grid-region');
+  if (regions.length === 0) {
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = '';
+  const allCollapsed = [...regions].every(r => r.classList.contains('collapsed'));
+  btn.classList.toggle('all-collapsed', allCollapsed);
+  btn.title = allCollapsed ? 'Expand all groups' : 'Collapse all groups';
+  btn.setAttribute('aria-label', btn.title);
+  btn.innerHTML = allCollapsed
+    ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 5 12 11 18 5"/><polyline points="6 13 12 19 18 13"/></svg>'
+    : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 11 12 5 18 11"/><polyline points="6 19 12 13 18 19"/></svg>';
+}
+
+// Collapse every grid region at once, or expand them all when already fully
+// collapsed. Persists via the shared collapsedGridGroups set and re-fits any
+// terminals revealed by expanding (hidden terminals can't be measured).
+function toggleGridCollapseAll() {
+  const regions = [...terminalsEl.querySelectorAll('.grid-region')];
+  if (regions.length === 0) return;
+  const collapse = regions.some(r => !r.classList.contains('collapsed'));
+  const set = getCollapsedGridGroups();
+  for (const region of regions) {
+    region.classList.toggle('collapsed', collapse);
+    const expandBtn = region.querySelector('.grid-region-expand');
+    if (expandBtn) expandBtn.setAttribute('aria-expanded', String(!collapse));
+    const key = region.dataset.collapseKey;
+    if (key) { if (collapse) set.add(key); else set.delete(key); }
+  }
+  saveCollapsedGridGroups(set);
+  if (!collapse) {
+    for (const cardEl of terminalsEl.querySelectorAll('.grid-region .grid-card')) {
+      const entry = openSessions.get(cardEl.dataset.sessionId);
+      if (entry) fitAndScroll(entry);
+    }
+  }
+  updateGridCollapseAllBtn();
 }
 
 // Build a labeled grid region for a group (or the ungrouped pool). Appends the
@@ -1432,9 +1479,15 @@ function showGridView() {
   // Show grid header bar with session count
   gridViewer.style.display = 'block';
   gridViewerCount.textContent = sessionIds.length + ' session' + (sessionIds.length !== 1 ? 's' : '');
+  updateGridCollapseAllBtn();
 
   const btn = document.getElementById('grid-toggle-btn');
-  if (btn) btn.classList.add('active');
+  if (btn) {
+    btn.classList.add('active');
+    btn.title = 'Exit session overview';
+    btn.setAttribute('aria-label', btn.title);
+    btn.setAttribute('data-tooltip', btn.title);
+  }
 
   updateGridColumns();
 
@@ -1485,6 +1538,8 @@ function initGridObservers() {
   new MutationObserver(updateGridColumns).observe(terminalsEl, { childList: true });
   const resetBtn = document.getElementById('grid-reset-layout-btn');
   if (resetBtn) resetBtn.addEventListener('click', resetGridLayout);
+  const collapseAllBtn = document.getElementById('grid-collapse-all-btn');
+  if (collapseAllBtn) collapseAllBtn.addEventListener('click', toggleGridCollapseAll);
 }
 
 function hideGridView() {
@@ -1497,7 +1552,12 @@ function hideGridView() {
   terminalsEl.style.gridTemplateColumns = '';
   gridViewer.style.display = 'none';
   const btn = document.getElementById('grid-toggle-btn');
-  if (btn) btn.classList.remove('active');
+  if (btn) {
+    btn.classList.remove('active');
+    btn.title = 'Session overview';
+    btn.setAttribute('aria-label', btn.title);
+    btn.setAttribute('data-tooltip', btn.title);
+  }
 }
 
 function toggleGridView() {

@@ -43,6 +43,7 @@ const settingsViewer = document.getElementById('settings-viewer');
 const globalSettingsBtn = document.getElementById('global-settings-btn');
 const addProjectBtn = document.getElementById('add-project-btn');
 const resortBtn = document.getElementById('resort-btn');
+const collapseAllToggle = document.getElementById('collapse-all-toggle');
 const jsonlViewer = document.getElementById('jsonl-viewer');
 const jsonlViewerTitle = document.getElementById('jsonl-viewer-title');
 const jsonlViewerSessionId = document.getElementById('jsonl-viewer-session-id');
@@ -57,6 +58,10 @@ const gridViewer = document.getElementById('grid-viewer');
 const gridViewerCount = document.getElementById('grid-viewer-count');
 const appLiveRegion = document.getElementById('app-live-region');
 let gridViewActive = localStorage.getItem('gridViewActive') === '1';
+const viewModeToggle = document.getElementById('view-mode-toggle');
+// Sidebar layout: 'directory' (project dir first) or 'folder' (user groups first,
+// split by project dir within, ungrouped below). Persisted across restarts.
+let sidebarViewMode = localStorage.getItem('sidebarViewMode') === 'folder' ? 'folder' : 'directory';
 const navigationEntry = performance.getEntriesByType?.('navigation')?.[0];
 const isRendererReload = navigationEntry?.type === 'reload';
 
@@ -136,6 +141,27 @@ function removeUserGroup(groupId) {
 function getGroupMemberSessionIds(groupId) {
   if (!groupId || typeof groupsState === 'undefined' || !groupsState.assignments) return [];
   return Object.keys(groupsState.assignments).filter(sid => groupsState.assignments[sid] === groupId);
+}
+
+// Best-guess project for a (cross-project) group: the project that the most
+// members belong to. Used when launching a new session from a group folder so
+// the session lands in a sensible working directory before being assigned.
+// Returns a project object ({ folder, projectPath, sessions }) or null.
+function getProjectForGroup(groupId) {
+  const memberIds = getGroupMemberSessionIds(groupId);
+  const counts = new Map();
+  for (const sid of memberIds) {
+    const s = sessionMap.get(sid);
+    if (s && s.projectPath) counts.set(s.projectPath, (counts.get(s.projectPath) || 0) + 1);
+  }
+  let bestPath = null;
+  let bestCount = -1;
+  for (const [path, count] of counts) {
+    if (count > bestCount) { bestCount = count; bestPath = path; }
+  }
+  if (!bestPath) return null;
+  const proj = [...cachedProjects, ...cachedAllProjects].find(p => p.projectPath === bestPath);
+  return proj || { folder: encodeProjectPath(bestPath), projectPath: bestPath, sessions: [] };
 }
 
 // One-click "Launch all" for a user group. Explicit user intent, so — unlike the
@@ -929,6 +955,7 @@ function refreshSidebar({ resort = false } = {}) {
   }
 
   renderProjects(projects, resort);
+  if (typeof updateCollapseAllToggle === 'function') updateCollapseAllToggle();
 }
 
 // --- Archive toggle ---
@@ -967,10 +994,81 @@ todayToggle.addEventListener('click', () => {
   refreshSidebar({ resort: true });
 });
 
+// --- Sidebar view mode toggle (directory-first <-> folder-first) ---
+const VIEW_MODE_ICONS = {
+  // Stacked folders: signals "folder-first" is active.
+  folder: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.6a1 1 0 0 1 .8.4l1.2 1.6H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  // Directory tree: signals "directory-first" is active.
+  directory: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><line x1="4" y1="6" x2="4.01" y2="6"/><line x1="4" y1="12" x2="4.01" y2="12"/><line x1="4" y1="18" x2="4.01" y2="18"/></svg>',
+};
+function updateViewModeToggle() {
+  if (!viewModeToggle) return;
+  const folderFirst = sidebarViewMode === 'folder';
+  viewModeToggle.classList.toggle('active', folderFirst);
+  viewModeToggle.title = folderFirst
+    ? 'Folder-first layout (click for directory-first)'
+    : 'Directory-first layout (click for folder-first)';
+  viewModeToggle.setAttribute('aria-label', viewModeToggle.title);
+  viewModeToggle.setAttribute('data-tooltip', viewModeToggle.title);
+  viewModeToggle.innerHTML = folderFirst ? VIEW_MODE_ICONS.folder : VIEW_MODE_ICONS.directory;
+}
+if (viewModeToggle) {
+  updateViewModeToggle();
+  viewModeToggle.addEventListener('click', () => {
+    sidebarViewMode = sidebarViewMode === 'folder' ? 'directory' : 'folder';
+    localStorage.setItem('sidebarViewMode', sidebarViewMode);
+    updateViewModeToggle();
+    refreshSidebar({ resort: true });
+  });
+}
+
 // --- Re-sort button ---
 resortBtn.addEventListener('click', () => {
   loadProjects({ resort: true });
 });
+
+// --- Collapse / expand all ---
+// Operates on every collapsible section in the session overview: project and
+// worktree headers, auto slug groups, and user groups. They all share the
+// `.collapsed` class, so "collapse all" adds it everywhere and "expand all"
+// removes it. Slug/user-group collapse state is persisted via their existing
+// helpers; project/worktree headers persist across re-renders via morphdom.
+const COLLAPSIBLE_SECTION_SELECTOR = '.project-header, .worktree-header, .slug-group, .user-group, .ff-project-header';
+
+function getCollapsibleSections() {
+  return Array.from(sidebarContent.querySelectorAll(COLLAPSIBLE_SECTION_SELECTOR));
+}
+
+function updateCollapseAllToggle() {
+  if (!collapseAllToggle) return;
+  const sections = getCollapsibleSections();
+  // "All collapsed" only when there is something to collapse and nothing is open.
+  const allCollapsed = sections.length > 0 && sections.every(s => s.classList.contains('collapsed'));
+  collapseAllToggle.classList.toggle('all-collapsed', allCollapsed);
+  collapseAllToggle.disabled = sections.length === 0;
+  collapseAllToggle.title = allCollapsed ? 'Expand all' : 'Collapse all';
+  collapseAllToggle.setAttribute('aria-label', collapseAllToggle.title);
+  collapseAllToggle.setAttribute('data-tooltip', collapseAllToggle.title);
+  collapseAllToggle.innerHTML = allCollapsed
+    ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 5 12 11 18 5"/><polyline points="6 13 12 19 18 13"/></svg>'
+    : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 11 12 5 18 11"/><polyline points="6 19 12 13 18 19"/></svg>';
+}
+
+function toggleCollapseAllSections() {
+  const sections = getCollapsibleSections();
+  if (sections.length === 0) return;
+  // Collapse everything unless it's already all collapsed (then expand).
+  const collapse = sections.some(s => !s.classList.contains('collapsed'));
+  for (const section of sections) section.classList.toggle('collapsed', collapse);
+  saveExpandedSlugs();
+  saveCollapsedGroups();
+  updateCollapseAllToggle();
+}
+
+if (collapseAllToggle) {
+  collapseAllToggle.addEventListener('click', toggleCollapseAllSections);
+  updateCollapseAllToggle();
+}
 
 // --- Global settings gear button ---
 globalSettingsBtn.innerHTML = ICONS.gear(18);
@@ -1296,7 +1394,7 @@ async function loadProjects({ resort = false } = {}) {
 // rebindSidebarEvents, buildSessionItem, startRename) → sidebar.js
 
 
-async function launchNewSession(project, sessionOptions, seedText) {
+async function launchNewSession(project, sessionOptions, seedText, groupId) {
   const sessionId = crypto.randomUUID();
   const projectPath = project.projectPath;
   const session = {
@@ -1327,7 +1425,13 @@ async function launchNewSession(project, sessionOptions, seedText) {
     }
     proj.sessions.unshift(session);
   }
-  refreshSidebar();
+  // Launched from a group folder → assign before first paint so it appears in
+  // the right group immediately (assignSessionToGroup persists + re-renders).
+  if (groupId && typeof assignSessionToGroup === 'function') {
+    assignSessionToGroup(sessionId, groupId);
+  } else {
+    refreshSidebar();
+  }
 
   const entry = createTerminalEntry(session);
 
@@ -1748,7 +1852,9 @@ initGridObservers();
 {
   const gridToggleBtn = document.createElement('button');
   gridToggleBtn.id = 'grid-toggle-btn';
-  gridToggleBtn.title = 'Session overview';
+  gridToggleBtn.title = gridViewActive ? 'Exit session overview' : 'Session overview';
+  gridToggleBtn.setAttribute('aria-label', gridToggleBtn.title);
+  gridToggleBtn.setAttribute('data-tooltip', gridToggleBtn.title);
   gridToggleBtn.innerHTML = '<svg width="14" height="14" stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>';
   gridToggleBtn.addEventListener('click', toggleGridView);
   // Insert next to the resort button

@@ -1773,6 +1773,72 @@ input:focus-visible {
   transform: translateY(0);
 }
 
+/* Tooltips for the sidebar action/filter row buttons. Anchored below each
+   button; left-aligned by default, but the right-edge cluster (re-sort,
+   collapse-all, add project) anchors right so it doesn't spill into the
+   main pane. */
+#session-filters button[data-tooltip] {
+  position: relative;
+}
+#session-filters button[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 0;
+  right: auto;
+  top: calc(100% + 7px);
+  z-index: 1000;
+  min-width: max-content;
+  max-width: 200px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 7px;
+  background: #242432;
+  color: #f0f0ff;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.12s, transform 0.12s;
+}
+#session-filters button[data-tooltip]::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: auto;
+  top: calc(100% + 2px);
+  z-index: 1001;
+  border: 5px solid transparent;
+  border-bottom-color: #242432;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+#session-filters #grid-toggle-btn[data-tooltip]::after,
+#session-filters #resort-btn[data-tooltip]::after,
+#session-filters #collapse-all-toggle[data-tooltip]::after,
+#session-filters #add-project-btn[data-tooltip]::after {
+  left: auto;
+  right: 0;
+}
+#session-filters #grid-toggle-btn[data-tooltip]::before,
+#session-filters #resort-btn[data-tooltip]::before,
+#session-filters #collapse-all-toggle[data-tooltip]::before,
+#session-filters #add-project-btn[data-tooltip]::before {
+  left: auto;
+  right: 8px;
+}
+#session-filters button[data-tooltip]:hover::after,
+#session-filters button[data-tooltip]:hover::before,
+#session-filters button[data-tooltip]:focus-visible::after,
+#session-filters button[data-tooltip]:focus-visible::before {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .session-stop-btn {
   color: #9b4058;
 }
@@ -3831,6 +3897,7 @@ input:focus-visible {
 /* ========== ADD PROJECT BUTTON ========== */
 #grid-toggle-btn,
 #resort-btn,
+#collapse-all-toggle,
 #add-project-btn {
   background: transparent;
   border: 1px solid rgba(255,255,255,0.08);
@@ -3852,14 +3919,26 @@ input:focus-visible {
 
 #grid-toggle-btn { margin-left: auto; }
 #resort-btn { margin-left: 2px; }
+#collapse-all-toggle { margin-left: 2px; }
 #add-project-btn { margin-left: 2px; }
 
 #grid-toggle-btn:hover,
 #resort-btn:hover,
+#collapse-all-toggle:hover,
 #add-project-btn:hover {
   background: rgba(255,255,255,0.04);
   border-color: rgba(255,255,255,0.12);
   color: #888;
+}
+
+#collapse-all-toggle.all-collapsed {
+  background: rgba(128,136,255,0.1);
+  border-color: rgba(128,136,255,0.3);
+  color: #8088ff;
+}
+#collapse-all-toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 #grid-toggle-btn.active {
@@ -5287,6 +5366,86 @@ input:focus-visible {
   outline: 2px solid rgba(62,207,90,0.7);
   outline-offset: 1px;
 }
+.user-group-new-btn {
+  background: transparent;
+  border: 1px solid #555570;
+  color: #808098;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  opacity: 0;
+  margin-top: 2px;
+}
+.user-group-header:hover .user-group-new-btn {
+  opacity: 1;
+}
+.user-group-new-btn:hover {
+  background: rgba(120,130,255,0.1);
+  color: #8088ff;
+  border-color: rgba(120,130,255,0.5);
+}
+.user-group-new-btn:focus-visible {
+  opacity: 1;
+  outline: 2px solid rgba(120,130,255,0.7);
+  outline-offset: 1px;
+}
+
+/* Inline group-name rename, mirroring the session rename input. */
+.group-rename-input {
+  font-size: 13px;
+  font-weight: 600;
+  color: #d0d0e8;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(120,130,255,0.4);
+  border-radius: 5px;
+  padding: 1px 6px;
+  width: 100%;
+  outline: none;
+  font-family: inherit;
+  line-height: 1.4;
+  box-shadow: 0 0 0 3px rgba(120,130,255,0.08);
+}
+
+/* Drag-to-assign: highlight the group folder the dragged session would drop into. */
+.user-group.drop-target > .user-group-header .user-group-row {
+  background: color-mix(in srgb, var(--user-group-color, #8088ff) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--user-group-color, #8088ff) 55%, transparent);
+}
+.session-item.dragging {
+  opacity: 0.45;
+}
+body.sidebar-session-dragging,
+body.sidebar-session-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* Floating label that follows the cursor while dragging a session row. */
+.sidebar-drag-ghost {
+  position: fixed;
+  z-index: 4000;
+  pointer-events: none;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e6e6f4;
+  background: rgba(38,38,52,0.96);
+  border: 1px solid rgba(120,130,255,0.5);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+}
+
 .user-group.collapsed .user-group-sessions { display: none; }
 /* Nested sessions hang off a slim accent connector that fades downward,
    aligned under the folder glyph so the hierarchy reads at a glance. */
@@ -5321,6 +5480,93 @@ input:focus-visible {
 .user-group-header:focus-visible {
   outline: 2px solid rgba(128,136,255,0.85);
   outline-offset: -2px;
+}
+
+/* --- Sidebar view-mode toggle (directory-first <-> folder-first) --- */
+#view-mode-toggle {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.08);
+  color: #7a7a90;
+  font-size: 11px;
+  padding: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  font-weight: 500;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+#view-mode-toggle:hover {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.12);
+  color: #888;
+}
+#view-mode-toggle.active {
+  background: rgba(128,136,255,0.12);
+  border-color: rgba(128,136,255,0.3);
+  color: #8088ff;
+}
+
+/* --- Folder-first: project sub-sections inside a folder --- */
+.ff-project { margin: 0; }
+.ff-project-header {
+  padding: 5px 8px 5px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #9a9ab2;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  transition: color 0.15s, background 0.15s;
+  border-radius: 5px;
+}
+.ff-project-header:hover {
+  color: #c8c8e0;
+  background: rgba(255,255,255,0.03);
+}
+.ff-project-header .arrow {
+  font-size: 8px;
+  transition: transform 0.2s;
+  display: inline-block;
+  color: var(--user-group-color, #8088ff);
+}
+.ff-project-header.collapsed .arrow {
+  transform: rotate(-90deg);
+}
+.ff-project-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ff-project-count {
+  font-size: 10px;
+  color: #6a6a82;
+  font-weight: 500;
+}
+.ff-project-new-btn { opacity: 0; }
+.ff-project-header:hover .ff-project-new-btn { opacity: 1; }
+.ff-project-header.collapsed + .ff-project-sessions { display: none; }
+.ff-project.missing { opacity: 0.55; }
+.ff-project.missing:hover { opacity: 0.8; }
+
+/* --- Folder-first: "Ungrouped" divider above the loose project list --- */
+.ff-ungrouped-heading {
+  padding: 12px 10px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6a6a82;
 }
 
 /* --- Group editor dialog --- */
@@ -5602,6 +5848,34 @@ input:focus-visible {
   border-color: rgba(128,136,255,0.4);
   background: rgba(128,136,255,0.12);
   outline: none;
+}
+
+#grid-collapse-all-btn {
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.03);
+  color: #9a9ab0;
+  border-radius: 6px;
+  padding: 0;
+  width: 26px;
+  height: 24px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+#grid-collapse-all-btn:hover,
+#grid-collapse-all-btn:focus-visible {
+  color: #e0e0f0;
+  border-color: rgba(128,136,255,0.4);
+  background: rgba(128,136,255,0.12);
+  outline: none;
+}
+#grid-collapse-all-btn.all-collapsed {
+  color: #8088ff;
+  border-color: rgba(128,136,255,0.3);
+  background: rgba(128,136,255,0.1);
 }
 
 /* Cards anchor the corner resize handle and host drag/drop affordances. */

@@ -97,19 +97,29 @@
 
         <div class="settings-field">
           <div class="settings-field-info">
+            <span class="settings-label">Auto mode</span>
+            <div class="settings-description">Auto-accept Claude's file edits without prompting (Claude's Shift+Tab "auto-accept edits"). Claude still asks before running risky commands. Shortcut for Permission Mode &rarr; Accept Edits.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-auto-mode" ${permModeValue === 'acceptEdits' ? 'checked' : ''} ${fieldDisabled('permissionMode')}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
             <div class="settings-field-header">
               <span class="settings-label">Permission Mode</span>
               ${useGlobalCheckbox('permissionMode')}
             </div>
-            <div class="settings-description">Permission mode passed to the <code>claude</code> command</div>
+            <div class="settings-description">Permission mode passed to the <code>claude</code> command. "Accept Edits" is the same as Auto mode above.</div>
           </div>
           <div class="settings-field-control">
             <select class="settings-select" id="sv-perm-mode" ${fieldDisabled('permissionMode')}>
-              <option value="">Default (none)</option>
-              <option value="acceptEdits" ${permModeValue === 'acceptEdits' ? 'selected' : ''}>Accept Edits</option>
-              <option value="plan" ${permModeValue === 'plan' ? 'selected' : ''}>Plan Mode</option>
-              <option value="dontAsk" ${permModeValue === 'dontAsk' ? 'selected' : ''}>Don't Ask</option>
-              <option value="bypassPermissions" ${permModeValue === 'bypassPermissions' ? 'selected' : ''}>Bypass</option>
+              <option value="">Default — ask before each action</option>
+              <option value="acceptEdits" ${permModeValue === 'acceptEdits' ? 'selected' : ''}>Accept Edits — auto mode (auto-accept file edits)</option>
+              <option value="plan" ${permModeValue === 'plan' ? 'selected' : ''}>Plan — read-only, propose a plan first</option>
+              <option value="dontAsk" ${permModeValue === 'dontAsk' ? 'selected' : ''}>Don't Ask — skip routine confirmations</option>
+              <option value="bypassPermissions" ${permModeValue === 'bypassPermissions' ? 'selected' : ''}>Bypass — skip all permission checks</option>
             </select>
           </div>
         </div>
@@ -322,6 +332,24 @@
     </div>
   `;
 
+    // Auto mode is a friendly shortcut for Permission Mode = Accept Edits.
+    // Keep the toggle and the dropdown in sync so there's a single underlying
+    // `permissionMode` value (the dropdown is what the save logic reads).
+    const autoModeToggle = settingsViewerBody.querySelector('#sv-auto-mode');
+    const permModeSelect = settingsViewerBody.querySelector('#sv-perm-mode');
+    if (autoModeToggle && permModeSelect) {
+      autoModeToggle.addEventListener('change', () => {
+        if (autoModeToggle.checked) {
+          permModeSelect.value = 'acceptEdits';
+        } else if (permModeSelect.value === 'acceptEdits') {
+          permModeSelect.value = '';
+        }
+      });
+      permModeSelect.addEventListener('change', () => {
+        autoModeToggle.checked = permModeSelect.value === 'acceptEdits';
+      });
+    }
+
     // Use-global checkboxes toggle field disabled state
     settingsViewerBody.querySelectorAll('.use-global-cb').forEach(cb => {
       cb.addEventListener('change', () => {
@@ -336,6 +364,11 @@
         };
         const input = settingsViewerBody.querySelector('#' + fieldMap[field]);
         if (input) input.disabled = cb.checked;
+        // Auto mode mirrors the permission-mode dropdown, so it follows the
+        // same "use global default" enabled/disabled state.
+        if (field === 'permissionMode' && autoModeToggle) {
+          autoModeToggle.disabled = cb.checked;
+        }
       });
     });
 

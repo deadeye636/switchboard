@@ -340,7 +340,7 @@ function buildAttentionInbox(projects) {
 // User-defined group section (spec 07). Mirrors buildSlugGroup but is keyed by
 // a stable, persisted group id, carries the group's color, and rolls up status
 // counts so a collapsed group still signals attention.
-function buildUserGroup(group, sessions) {
+function buildUserGroup(group, sessions, bodyNode) {
   const container = document.createElement('div');
   const id = groupDomId(group.id);
   const collapsed = getCollapsedGroups().has(id);
@@ -405,6 +405,12 @@ function buildUserGroup(group, sessions) {
   launchBtn.setAttribute('aria-label', launchLabel);
   launchBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 
+  const newBtn = document.createElement('button');
+  newBtn.className = 'user-group-new-btn';
+  newBtn.title = 'New session in group';
+  newBtn.setAttribute('aria-label', `New session in ${group.name}`);
+  newBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="10"/><line x1="2" y1="6" x2="10" y2="6"/></svg>';
+
   const menuBtn = document.createElement('button');
   menuBtn.className = 'user-group-menu-btn';
   menuBtn.title = 'Group options';
@@ -421,13 +427,23 @@ function buildUserGroup(group, sessions) {
   // empty span doesn't introduce a stray flex gap.
   if (chips.childElementCount > 0) row.appendChild(chips);
   row.appendChild(launchBtn);
+  row.appendChild(newBtn);
   row.appendChild(menuBtn);
   header.appendChild(row);
 
-  const sessionsContainer = document.createElement('div');
-  sessionsContainer.className = 'user-group-sessions';
-  for (const session of sessions) {
-    sessionsContainer.appendChild(buildSessionItem(session));
+  // Folder-first view supplies a pre-built body (project sub-sections); the
+  // default directory-first body is a flat list of session rows. Either way the
+  // header counts/chips above use the full `sessions` member list.
+  let sessionsContainer;
+  if (bodyNode) {
+    sessionsContainer = bodyNode;
+    sessionsContainer.classList.add('user-group-sessions');
+  } else {
+    sessionsContainer = document.createElement('div');
+    sessionsContainer.className = 'user-group-sessions';
+    for (const session of sessions) {
+      sessionsContainer.appendChild(buildSessionItem(session));
+    }
   }
 
   container.appendChild(header);
@@ -531,68 +547,44 @@ function buildSlugGroup(slug, sessions) {
   return group;
 }
 
-function renderProjects(projects, resort) {
-  const newSidebar = document.createElement('div');
-  const attentionInbox = buildAttentionInbox(projects);
-  if (attentionInbox) newSidebar.appendChild(attentionInbox);
-
-  // Sort project groups using sortedOrder as source of truth
-  if (!resort && sortedOrder.length > 0) {
-    const orderIndex = new Map(sortedOrder.map((e, i) => [e.projectPath, i]));
-    projects = [...projects].sort((a, b) => {
-      const aPos = orderIndex.get(a.projectPath);
-      const bPos = orderIndex.get(b.projectPath);
-      if (aPos !== undefined && bPos !== undefined) return aPos - bPos;
-      if (aPos === undefined && bPos !== undefined) return -1;
-      if (aPos !== undefined && bPos === undefined) return 1;
-      return 0;
+// Apply the active sidebar filters (pinned / running / today) to a session list.
+// Shared by both the directory-first and folder-first render paths.
+function filterSidebarSessions(sessions) {
+  let filtered = sessions;
+  if (showStarredOnly) filtered = filtered.filter(s => s.starred);
+  if (showRunningOnly) filtered = filtered.filter(s => activePtyIds.has(s.sessionId));
+  if (showTodayOnly) {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    filtered = filtered.filter(s => {
+      if (!s.modified) return false;
+      const d = new Date(s.modified);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === todayStr;
     });
   }
-  // projects are now in the correct order (data order for resort, preserved order otherwise)
+  return filtered;
+}
 
-  // Detect worktree projects and group them under their parent
-  const worktreePattern = /^(.+?)\/\.claude\/worktrees\/([^/]+)\/?$/;
-  const worktreeMap = new Map(); // parentPath → [worktreeProject, ...]
-  const worktreeSet = new Set();
-  for (const project of projects) {
-    const match = project.projectPath.match(worktreePattern);
-    if (match) {
-      const parentPath = match[1];
-      if (!worktreeMap.has(parentPath)) worktreeMap.set(parentPath, []);
-      worktreeMap.get(parentPath).push(project);
-      worktreeSet.add(project.projectPath);
-    }
-  }
+// Running/pinned priority then recency — the canonical sidebar session order.
+function sortSidebarSessions(sessions) {
+  return [...sessions].sort((a, b) => {
+    const aRunning = activePtyIds.has(a.sessionId) || pendingSessions.has(a.sessionId);
+    const bRunning = activePtyIds.has(b.sessionId) || pendingSessions.has(b.sessionId);
+    const aPri = (a.starred && aRunning ? 3 : aRunning ? 2 : a.starred ? 1 : 0);
+    const bPri = (b.starred && bRunning ? 3 : bRunning ? 2 : b.starred ? 1 : 0);
+    if (aPri !== bPri) return bPri - aPri;
+    return new Date(b.modified) - new Date(a.modified);
+  });
+}
 
-  const newSortedOrder = [];
-
-  // Process a project's sessions: filter, sort, slug-group, order, and truncate.
-  // Returns { filtered, visible, older, sortOrderEntry } or null if project should be skipped.
-  function processProjectSessions(project, resort) {
-    let filtered = project.sessions;
-    if (showStarredOnly) filtered = filtered.filter(s => s.starred);
-    if (showRunningOnly) filtered = filtered.filter(s => activePtyIds.has(s.sessionId));
-    if (showTodayOnly) {
-      const now = new Date();
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      filtered = filtered.filter(s => {
-        if (!s.modified) return false;
-        const d = new Date(s.modified);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === todayStr;
-      });
-    }
+// Process a project's sessions: filter, sort, slug-group, order, and truncate.
+// Returns { filtered, visible, older, sortOrderEntry } or null if project should be skipped.
+function processProjectSessions(project, resort) {
+    let filtered = filterSidebarSessions(project.sessions);
     const anyFilterActive = showStarredOnly || showRunningOnly || showTodayOnly || searchMatchIds !== null;
     if (filtered.length === 0 && !project._projectMatchedOnly && (project.sessions.length > 0 || anyFilterActive)) return null;
 
-    // Sort
-    filtered = [...filtered].sort((a, b) => {
-      const aRunning = activePtyIds.has(a.sessionId) || pendingSessions.has(a.sessionId);
-      const bRunning = activePtyIds.has(b.sessionId) || pendingSessions.has(b.sessionId);
-      const aPri = (a.starred && aRunning ? 3 : aRunning ? 2 : a.starred ? 1 : 0);
-      const bPri = (b.starred && bRunning ? 3 : bRunning ? 2 : b.starred ? 1 : 0);
-      if (aPri !== bPri) return bPri - aPri;
-      return new Date(b.modified) - new Date(a.modified);
-    });
+    filtered = sortSidebarSessions(filtered);
 
     // User-defined groups (spec 07): pull assigned sessions into collapsible
     // group sections first; the remainder fall through to slug grouping. Groups
@@ -689,28 +681,49 @@ function renderProjects(projects, resort) {
       filtered, visible, older,
       sortOrderEntry: { projectPath: project.projectPath, itemIds: allItems.map(item => item.element.id) },
     };
-  }
+}
 
-  // Build the sessions list DOM (shared between projects and worktrees)
-  function buildSessionsList(fId, visible, older) {
-    const sessionsList = document.createElement('div');
-    sessionsList.className = 'project-sessions';
-    sessionsList.id = 'sessions-' + fId;
-    for (const item of visible) sessionsList.appendChild(item.element);
-    if (older.length > 0) {
-      const moreBtn = document.createElement('div');
-      moreBtn.className = 'sessions-more-toggle';
-      moreBtn.id = 'older-' + fId;
-      moreBtn.textContent = `+ ${older.length} older`;
-      const olderList = document.createElement('div');
-      olderList.className = 'sessions-older';
-      olderList.id = 'older-list-' + fId;
-      olderList.style.display = 'none';
-      for (const item of older) olderList.appendChild(item.element);
-      sessionsList.appendChild(moreBtn);
-      sessionsList.appendChild(olderList);
+// Build the sessions list DOM (shared between projects and worktrees)
+function buildSessionsList(fId, visible, older) {
+  const sessionsList = document.createElement('div');
+  sessionsList.className = 'project-sessions';
+  sessionsList.id = 'sessions-' + fId;
+  for (const item of visible) sessionsList.appendChild(item.element);
+  if (older.length > 0) {
+    const moreBtn = document.createElement('div');
+    moreBtn.className = 'sessions-more-toggle';
+    moreBtn.id = 'older-' + fId;
+    moreBtn.textContent = `+ ${older.length} older`;
+    const olderList = document.createElement('div');
+    olderList.className = 'sessions-older';
+    olderList.id = 'older-list-' + fId;
+    olderList.style.display = 'none';
+    for (const item of older) olderList.appendChild(item.element);
+    sessionsList.appendChild(moreBtn);
+    sessionsList.appendChild(olderList);
+  }
+  return sessionsList;
+}
+
+// Build the directory-first project groups (with optional nested worktrees) into
+// `container`, recording each project's item order into `newSortedOrder`. Shared
+// by the directory-first view and the folder-first "Ungrouped" area (the latter
+// passes nestWorktrees:false so every project — worktrees included — renders flat
+// and no worktree is orphaned when its parent has no ungrouped sessions).
+function appendProjectGroups(container, projects, resort, newSortedOrder, { nestWorktrees = true } = {}) {
+  const worktreePattern = /^(.+?)\/\.claude\/worktrees\/([^/]+)\/?$/;
+  const worktreeMap = new Map(); // parentPath → [worktreeProject, ...]
+  const worktreeSet = new Set();
+  if (nestWorktrees) {
+    for (const project of projects) {
+      const match = project.projectPath.match(worktreePattern);
+      if (match) {
+        const parentPath = match[1];
+        if (!worktreeMap.has(parentPath)) worktreeMap.set(parentPath, []);
+        worktreeMap.get(parentPath).push(project);
+        worktreeSet.add(project.projectPath);
+      }
     }
-    return sessionsList;
   }
 
   for (const project of projects) {
@@ -831,9 +844,13 @@ function renderProjects(projects, resort) {
       sessionsList.appendChild(wtGroup);
     }
 
-    newSidebar.appendChild(group);
+    container.appendChild(group);
   }
+}
 
+// Shared morphdom commit: re-apply active state, diff into the live sidebar
+// (preserving collapse/expand state), persist sort order, rebind, restore focus.
+function finalizeSidebar(newSidebar, projects, newSortedOrder, folderMode) {
   // Re-apply active state
   if (activeSessionId) {
     const activeItem = newSidebar.querySelector(`[data-session-id="${activeSessionId}"]`);
@@ -847,7 +864,11 @@ function renderProjects(projects, resort) {
       if (fromEl.classList.contains('session-item') && fromEl.querySelector('.session-rename-input')) {
         return false;
       }
-      if (fromEl.classList.contains('project-header')) {
+      // Likewise, don't clobber a group whose name is being renamed inline
+      if (fromEl.classList.contains('user-group') && fromEl.querySelector('.group-rename-input')) {
+        return false;
+      }
+      if (fromEl.classList.contains('project-header') || fromEl.classList.contains('ff-project-header')) {
         if (fromEl.classList.contains('collapsed')) {
           toEl.classList.add('collapsed');
         } else {
@@ -884,7 +905,8 @@ function renderProjects(projects, resort) {
   // Save the full sorted order (project order + item order) as source of truth
   sortedOrder = newSortedOrder;
 
-  rebindSidebarEvents(projects);
+  if (folderMode) rebindFolderFirstEvents(projects);
+  else rebindSidebarEvents(projects);
 
   // Restore terminal focus after morphdom DOM updates, but not if the user is
   // interacting with an input/textarea (search box, rename input, dialogs, etc.)
@@ -893,6 +915,155 @@ function renderProjects(projects, resort) {
   if (activeSessionId && openSessions.has(activeSessionId) && !isUserTyping) {
     openSessions.get(activeSessionId).terminal.focus();
   }
+}
+
+function renderProjects(projects, resort) {
+  // Folder-first is an alternate top-level layout; the directory-first path below
+  // is the default.
+  if (typeof sidebarViewMode !== 'undefined' && sidebarViewMode === 'folder') {
+    renderProjectsFolderFirst(projects, resort);
+    return;
+  }
+
+  const newSidebar = document.createElement('div');
+  const attentionInbox = buildAttentionInbox(projects);
+  if (attentionInbox) newSidebar.appendChild(attentionInbox);
+
+  // Sort project groups using sortedOrder as source of truth
+  if (!resort && sortedOrder.length > 0) {
+    const orderIndex = new Map(sortedOrder.map((e, i) => [e.projectPath, i]));
+    projects = [...projects].sort((a, b) => {
+      const aPos = orderIndex.get(a.projectPath);
+      const bPos = orderIndex.get(b.projectPath);
+      if (aPos !== undefined && bPos !== undefined) return aPos - bPos;
+      if (aPos === undefined && bPos !== undefined) return -1;
+      if (aPos !== undefined && bPos === undefined) return 1;
+      return 0;
+    });
+  }
+  // projects are now in the correct order (data order for resort, preserved order otherwise)
+
+  const newSortedOrder = [];
+  appendProjectGroups(newSidebar, projects, resort, newSortedOrder);
+  finalizeSidebar(newSidebar, projects, newSortedOrder, false);
+}
+
+// Folder-first layout: user-defined groups ("folders") are top-level, each split
+// into project-dir sub-sections; everything not assigned to a folder is listed
+// below under an "Ungrouped" heading, reusing the directory-first project groups.
+function renderProjectsFolderFirst(projects, resort) {
+  const newSidebar = document.createElement('div');
+  const attentionInbox = buildAttentionInbox(projects);
+  if (attentionInbox) newSidebar.appendChild(attentionInbox);
+
+  const haveGroups = (typeof groupsState !== 'undefined') && Array.isArray(groupsState.groups);
+  const orderedGroups = haveGroups ? [...groupsState.groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)) : [];
+  const groupIds = new Set(orderedGroups.map(g => g.id));
+  const assignments = (haveGroups && groupsState.assignments) ? groupsState.assignments : {};
+
+  // groupId → Map(projectPath → sessions[]); ungrouped sessions bucketed by project.
+  const folderBuckets = new Map(orderedGroups.map(g => [g.id, new Map()]));
+  const ungroupedByProject = new Map();
+  const projectMissing = new Map();
+  const projectRecency = new Map();
+
+  for (const project of projects) {
+    projectMissing.set(project.projectPath, !!project.missing);
+    let filtered = filterSidebarSessions(project.sessions);
+    if (filtered.length === 0) continue;
+    filtered = sortSidebarSessions(filtered);
+    for (const session of filtered) {
+      const t = new Date(session.modified).getTime();
+      if (t > (projectRecency.get(project.projectPath) || 0)) projectRecency.set(project.projectPath, t);
+      const gid = assignments[session.sessionId];
+      if (gid && groupIds.has(gid)) {
+        const bucket = folderBuckets.get(gid);
+        if (!bucket.has(project.projectPath)) bucket.set(project.projectPath, []);
+        bucket.get(project.projectPath).push(session);
+      } else {
+        if (!ungroupedByProject.has(project.projectPath)) ungroupedByProject.set(project.projectPath, []);
+        ungroupedByProject.get(project.projectPath).push(session);
+      }
+    }
+  }
+
+  // Folders (ordered by the user's group order). Each folder's body is a set of
+  // project sub-sections ordered by recency; the header counts use all members.
+  let renderedFolderCount = 0;
+  for (const group of orderedGroups) {
+    const bucket = folderBuckets.get(group.id);
+    if (!bucket || bucket.size === 0) continue;
+    const projEntries = [...bucket.entries()].sort((a, b) => {
+      const ar = Math.max(...a[1].map(s => new Date(s.modified).getTime()));
+      const br = Math.max(...b[1].map(s => new Date(s.modified).getTime()));
+      return br - ar;
+    });
+    const allSessions = [];
+    const body = document.createElement('div');
+    for (const [projectPath, sessions] of projEntries) {
+      allSessions.push(...sessions);
+      body.appendChild(buildFolderProjectSubsection('ff-' + group.id, projectPath, sessions, projectMissing.get(projectPath)));
+    }
+    newSidebar.appendChild(buildUserGroup(group, allSessions, body));
+    renderedFolderCount++;
+  }
+
+  // Ungrouped: rebuild project objects limited to their ungrouped sessions and
+  // render them with the shared project-group machinery (slug grouping +
+  // truncation), flat (no worktree nesting in this view).
+  const ungroupedProjects = [];
+  for (const project of projects) {
+    const sessions = ungroupedByProject.get(project.projectPath);
+    if (!sessions || sessions.length === 0) continue;
+    ungroupedProjects.push({ ...project, sessions });
+  }
+  ungroupedProjects.sort((a, b) => (projectRecency.get(b.projectPath) || 0) - (projectRecency.get(a.projectPath) || 0));
+
+  const newSortedOrder = [];
+  if (ungroupedProjects.length > 0) {
+    if (renderedFolderCount > 0) {
+      const heading = document.createElement('div');
+      heading.className = 'ff-ungrouped-heading';
+      heading.id = 'ff-ungrouped-heading';
+      heading.textContent = 'Ungrouped';
+      newSidebar.appendChild(heading);
+    }
+    appendProjectGroups(newSidebar, ungroupedProjects, resort, newSortedOrder, { nestWorktrees: false });
+  }
+
+  finalizeSidebar(newSidebar, projects, newSortedOrder, true);
+}
+
+// One project sub-section inside a folder: a collapsible header (scoped id so the
+// same project can appear in multiple folders without DOM-id collisions) over a
+// flat list of session rows.
+function buildFolderProjectSubsection(scopePrefix, projectPath, sessions, missing) {
+  const sub = document.createElement('div');
+  sub.className = 'ff-project' + (missing ? ' missing' : '');
+  const sid = scopePrefix + '-' + projectPath.replace(/[^a-zA-Z0-9_-]/g, '_');
+  sub.id = sid;
+
+  const header = document.createElement('div');
+  header.className = 'ff-project-header';
+  header.id = 'ph-' + sid;
+  const shortName = projectPath.split('/').filter(Boolean).slice(-2).join('/');
+  header.innerHTML = `<span class="arrow">&#9660;</span><span class="ff-project-name">${escapeHtml(shortName)}</span><span class="ff-project-count">${sessions.length}</span>`;
+
+  const newBtn = document.createElement('button');
+  newBtn.className = 'project-new-btn ff-project-new-btn';
+  newBtn.title = 'New session';
+  newBtn.dataset.projectPath = projectPath;
+  newBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="10"/><line x1="2" y1="6" x2="10" y2="6"/></svg>';
+  header.appendChild(newBtn);
+
+  const list = document.createElement('div');
+  list.className = 'project-sessions ff-project-sessions';
+  list.id = 'sessions-' + sid;
+  for (const session of sessions) list.appendChild(buildSessionItem(session));
+
+  sub.appendChild(header);
+  sub.appendChild(list);
+  return sub;
 }
 
 function rebindSidebarEvents(projects) {
@@ -1127,8 +1298,27 @@ function rebindSidebarEvents(projects) {
         if (typeof launchAllInGroup === 'function') launchAllInGroup(groupId);
       };
     }
+    const newBtn = header.querySelector('.user-group-new-btn');
+    if (newBtn && groupId) {
+      newBtn.onclick = (e) => {
+        e.stopPropagation();
+        const project = (typeof getProjectForGroup === 'function') ? getProjectForGroup(groupId) : null;
+        if (!project) {
+          if (typeof showControlToast === 'function') {
+            showControlToast({ message: 'Could not determine a project for this group.', timeoutMs: 3000 });
+          }
+          return;
+        }
+        showNewSessionPopover(project, newBtn, { groupId });
+      };
+    }
+    const group = (typeof groupsState !== 'undefined') ? groupsState.groups.find(g => g.id === groupId) : null;
+    const nameEl = header.querySelector('.user-group-name');
+    if (nameEl && group) {
+      nameEl.ondblclick = (e) => { e.stopPropagation(); startGroupRename(nameEl, group); };
+    }
     const toggleUserGroup = (e) => {
-      if (e.target.closest('.user-group-menu-btn, .user-group-launch-btn')) return;
+      if (e.target.closest('.user-group-menu-btn, .user-group-launch-btn, .user-group-new-btn, .group-rename-input')) return;
       container.classList.toggle('collapsed');
       saveCollapsedGroups();
     };
@@ -1182,6 +1372,10 @@ function rebindSidebarEvents(projects) {
     };
     item.onclick = openSessionFromRow;
     makeButtonLike(item, openSessionFromRow, `Open ${cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId}`);
+
+    // Drag a session row onto a group folder to assign it (property assignment
+    // rather than addEventListener so morphdom-reused rows don't stack handlers).
+    item.onpointerdown = (e) => startSidebarSessionDrag(session, item, e);
 
     const pin = item.querySelector('.session-pin');
     if (pin) {
@@ -1324,6 +1518,34 @@ function rebindSidebarEvents(projects) {
       saveCollapsedGroups();
     }
   }
+}
+
+// Folder-first rebind: reuse all the directory-first bindings (the global
+// selectors cover folders, slug groups, more-toggles and session rows; the
+// per-project loop tolerates absent headers), then wire up the folder-first
+// project sub-section headers (collapse toggle + per-project new session).
+function rebindFolderFirstEvents(projects) {
+  rebindSidebarEvents(projects);
+
+  sidebarContent.querySelectorAll('.ff-project-header').forEach(header => {
+    const newBtn = header.querySelector('.ff-project-new-btn');
+    if (newBtn) {
+      newBtn.onclick = (e) => {
+        e.stopPropagation();
+        const path = newBtn.dataset.projectPath;
+        const project = [...cachedProjects, ...cachedAllProjects].find(p => p.projectPath === path)
+          || { folder: encodeProjectPath(path), projectPath: path, sessions: [] };
+        showNewSessionPopover(project, newBtn);
+      };
+    }
+    const toggle = (e) => {
+      if (e.target.closest('.ff-project-new-btn')) return;
+      header.classList.toggle('collapsed');
+    };
+    header.onclick = toggle;
+    const name = header.querySelector('.ff-project-name')?.textContent || 'project';
+    makeButtonLike(header, toggle, `Toggle ${name} sessions`);
+  });
 }
 
 function buildSessionItem(session) {
@@ -1725,4 +1947,153 @@ function startRename(summaryEl, session) {
       input.replaceWith(restored);
     }
   });
+}
+
+// Inline rename for a user group, mirroring session startRename: swap the name
+// label for an input, persist via renameUserGroup on blur/Enter, restore on
+// Escape. Clicks inside the input stop propagation so the group header's
+// collapse toggle doesn't fire while editing.
+function startGroupRename(nameEl, group) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'group-rename-input';
+  input.value = group.name || '';
+  input.maxLength = 40;
+  input.addEventListener('mousedown', (e) => e.stopPropagation());
+  input.addEventListener('click', (e) => e.stopPropagation());
+
+  nameEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const rebuildName = (text) => {
+    const newName = document.createElement('div');
+    newName.className = 'user-group-name';
+    newName.textContent = text;
+    newName.addEventListener('dblclick', (ev) => {
+      ev.stopPropagation();
+      startGroupRename(newName, group);
+    });
+    input.replaceWith(newName);
+  };
+
+  const save = () => {
+    const value = input.value.trim();
+    if (value && value !== group.name && typeof renameUserGroup === 'function') {
+      group.name = value;
+      renameUserGroup(group.id, value); // persists + re-renders sidebar
+      return; // re-render rebuilds the header from scratch
+    }
+    rebuildName(group.name);
+  };
+
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') input.blur();
+    if (e.key === 'Escape') {
+      input.removeEventListener('blur', save);
+      rebuildName(group.name);
+    }
+  });
+}
+
+// Drag a sidebar session row onto a user group to assign it. A lightweight ghost
+// follows the cursor and the `.user-group` under the pointer is highlighted;
+// dropping on it calls assignSessionToGroup. Drag only begins after a small move
+// threshold so ordinary clicks still open the session, and the trailing click is
+// suppressed when a drag actually happened.
+function startSidebarSessionDrag(session, item, e) {
+  if (e.button !== 0) return;
+  // Don't hijack interactions with the row's controls, pin, chips, or inputs.
+  if (e.target.closest('button, input, .session-actions, .session-pin, .session-health-chip')) return;
+  if (item.classList.contains('disabled')) return;
+
+  const startX = e.clientX;
+  const startY = e.clientY;
+  let dragging = false;
+  let ghost = null;
+  let dropTarget = null;
+
+  const clearDropTarget = () => {
+    if (dropTarget) {
+      dropTarget.classList.remove('drop-target');
+      dropTarget = null;
+    }
+  };
+
+  const beginDrag = () => {
+    dragging = true;
+    document.body.classList.add('sidebar-session-dragging');
+    item.classList.add('dragging');
+    const label = cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId;
+    ghost = document.createElement('div');
+    ghost.className = 'sidebar-drag-ghost';
+    ghost.textContent = label;
+    document.body.appendChild(ghost);
+  };
+
+  const moveGhost = (x, y) => {
+    if (ghost) {
+      ghost.style.left = (x + 12) + 'px';
+      ghost.style.top = (y + 12) + 'px';
+    }
+  };
+
+  const updateDropTarget = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const group = el && el.closest ? el.closest('.user-group') : null;
+    if (group === dropTarget) return;
+    clearDropTarget();
+    if (group) {
+      dropTarget = group;
+      dropTarget.classList.add('drop-target');
+    }
+  };
+
+  const onMove = (ev) => {
+    if (!dragging) {
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+      beginDrag();
+    }
+    moveGhost(ev.clientX, ev.clientY);
+    updateDropTarget(ev.clientX, ev.clientY);
+  };
+
+  const cleanup = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.body.classList.remove('sidebar-session-dragging');
+    item.classList.remove('dragging');
+    if (ghost) { ghost.remove(); ghost = null; }
+    clearDropTarget();
+  };
+
+  const onUp = (ev) => {
+    if (dragging) {
+      const target = dropTarget;
+      const groupId = target ? target.dataset.groupId : null;
+      cleanup();
+      if (groupId && typeof assignSessionToGroup === 'function') {
+        const current = (typeof getGroupForSession === 'function' && typeof groupsState !== 'undefined')
+          ? getGroupForSession(groupsState, session.sessionId)
+          : null;
+        if (!current || current.id !== groupId) {
+          assignSessionToGroup(session.sessionId, groupId);
+        }
+      }
+      // Swallow the click that fires after pointerup so the row doesn't open.
+      const swallow = (clickEv) => {
+        clickEv.stopPropagation();
+        clickEv.preventDefault();
+      };
+      document.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 0);
+    } else {
+      cleanup();
+    }
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
 }
