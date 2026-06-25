@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JBR → Switchboard: Übernahme-Katalog</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --bd:#2a2f3a;
+    --tx:#e6e8ec; --mut:#9aa3b2; --acc:#d97757;
+    --hi:#3fb950; --mid:#d29922; --lo:#8b949e; --skip:#6e7681; --sec:#f85149;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:24px 28px;border-bottom:1px solid var(--bd);background:linear-gradient(180deg,#1a1d24,#0f1115)}
+  h1{margin:0 0 6px;font-size:22px}
+  .sub{color:var(--mut);font-size:13px}
+  main{padding:20px 28px;max-width:1400px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0 22px;font-size:12px;color:var(--mut)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  h2{margin:30px 0 10px;font-size:17px;border-left:3px solid var(--acc);padding-left:10px}
+  h2 .cnt{color:var(--mut);font-size:12px;font-weight:400}
+  .note{background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;margin:10px 0 18px;color:var(--mut);font-size:13px}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:8px}
+  th{text-align:left;padding:9px 11px;background:var(--panel2);font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--bd)}
+  td{padding:10px 11px;border-bottom:1px solid var(--bd);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#1b1f28}
+  .feat{font-weight:600}
+  .desc{color:var(--mut);font-size:12.5px;margin-top:3px}
+  .refs{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;white-space:nowrap}
+  .refs a{color:var(--acc);text-decoration:none;margin-right:2px}
+  .refs a:hover{text-decoration:underline}
+  .pr{color:#58a6ff}
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}
+  .b-hi{background:rgba(63,185,80,.15);color:var(--hi)}
+  .b-mid{background:rgba(210,153,34,.15);color:var(--mid)}
+  .b-lo{background:rgba(139,148,158,.15);color:var(--lo)}
+  .b-sec{background:rgba(248,81,73,.15);color:var(--sec)}
+  .b-done{background:rgba(63,185,80,.25);color:#56d364}
+  .b-skip{background:rgba(110,118,129,.15);color:var(--skip)}
+  .rec{font-size:12.5px}
+  .hint{color:var(--mut);font-size:12px}
+  footer{padding:20px 28px;color:var(--skip);font-size:12px;border-top:1px solid var(--bd);margin-top:30px}
+  code{background:#0c0e12;padding:1px 5px;border-radius:4px;font-size:12px;color:#d2a8ff}
+</style>
+</head>
+<body>
+<header>
+  <h1>JBR → eigene Switchboard-Version · Übernahme-Katalog</h1>
+  <div class="sub">Kandidaten aus <code>JeanBaptisteRenard/switchboard</code> zur Übernahme in unsere Version (Base: <code>HaydnG/switchboard</code>, Branch <code><old-codename></code>). 102 JBR-eigene Commits ab Merge-Base <code>b98c2f8</code>. Refs verlinken auf JBR-GitHub. Stand: 2026-06-24.</div>
+</header>
+<main>
+
+<div class="legend">
+  <strong>Wert/Empfehlung:</strong>
+  <span><i class="dot" style="background:var(--hi)"></i> Hoch / übernehmen</span>
+  <span><i class="dot" style="background:var(--mid)"></i> Mittel / abwägen</span>
+  <span><i class="dot" style="background:var(--lo)"></i> Niedrig / optional</span>
+  <span><i class="dot" style="background:var(--sec)"></i> Security</span>
+  <span><i class="dot" style="background:#56d364"></i> Schon erledigt</span>
+  <span><i class="dot" style="background:var(--skip)"></i> Skip (HaydnG hat's / fork-spezifisch)</span>
+</div>
+
+<div class="note">
+<strong>So lesen:</strong> Spalte <em>HaydnG-Status</em> sagt, ob unsere Base das schon hat (Dup-Gefahr). <em>Aufwand/Konflikt</em> = grobe Portier-Kosten gegen <code><old-codename></code> (geteilte Hot-Paths = mehr Konflikt). „Refs" = JBR-Commit (kurz-hash) + PR-Nummer.
+</div>
+
+<!-- ===================== FEATURES ===================== -->
+<h2>1 · Features <span class="cnt">— user-facing, separierbar</span></h2>
+<table>
+<tr><th style="width:22%">Feature</th><th style="width:16%">Refs</th><th>Wert</th><th>Aufwand / Konflikt</th><th>HaydnG-Status</th><th style="width:20%">Empfehlung</th></tr>
+
+<tr>
+  <td><span class="feat">Worktree-Cleanup</span><div class="desc">„Delete worktree"-Button + Dirty-File-Bestätigungsdialog; IPC <code>delete-worktree</code>/<code>worktree-status</code>; Worktree-cwd unter Parent-Projekt gruppieren.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/1c235d1">1c235d1</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/6d74fd1">6d74fd1</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/46d596c">46d596c</a><br><a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/3">#3</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/11">#11</a></td>
+  <td><span class="badge b-mid">Mittel</span></td>
+  <td>Niedrig (additiv)</td>
+  <td>fehlt</td>
+  <td class="rec"><span class="badge b-done">✓ gemerged</span><div class="hint">in <code><old-codename></code></div></td>
+</tr>
+
+<tr>
+  <td><span class="feat">Subagent-Suite</span><div class="desc">Subagent-Transcripts indizieren, inline im Viewer aufklappen, Spawn/Completion-Erkennung + Live-Tail, „Orphan subagents"-Sektion, Klick öffnet read-only Transcript statt Re-Spawn. DB-Migration für Subagent-Spalten.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/1b46d02">1b46d02</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/271381e">271381e</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/9e36ba2">9e36ba2</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/2fee16f">2fee16f</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/3d821b0">3d821b0</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/5f5e17b">5f5e17b</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/50f8743">50f8743</a><br><a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/1">#1</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/2">#2</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/9">#9</a></td>
+  <td><span class="badge b-hi">Hoch</span></td>
+  <td>Hoch (8 Core-Dateien, DB-Migration)</td>
+  <td>fehlt (nur beiläufiges Parsen)</td>
+  <td class="rec"><span class="badge b-hi">Übernehmen</span><div class="hint">größter Port; Migration als neuen Array-Eintrag anhängen</div></td>
+</tr>
+
+<tr>
+  <td><span class="feat">Trigger-Watcher (Input-Injection)</span><div class="desc">Datei-basierte Input-Injection für Harness-Skripte: Trigger-Ketten, discrete-Enter-Submit, per-Trigger Timeout, Liveness-Check vor Write, Submit-Verify + Retry. Automatisierungs-Feature.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/6196423">6196423</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/2b62009">2b62009</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/9dd4a66">9dd4a66</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/ffbeb44">ffbeb44</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/3324960">3324960</a><br><a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/24">#24</a></td>
+  <td><span class="badge b-mid">Mittel</span></td>
+  <td>Mittel (neues Subsystem + main.js)</td>
+  <td>fehlt</td>
+  <td class="rec"><span class="badge b-mid">Abwägen</span><div class="hint">stark wenn Skript-Automatisierung gewünscht</div></td>
+</tr>
+
+<tr>
+  <td><span class="feat">Konfigurierbare Shortcuts</span><div class="desc">Session-Nav-Keybindings frei belegbar via neuer <code>shortcuts.js</code> + Settings-UI; Ctrl+Arrow freigeben.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/9caf97d">9caf97d</a><br><a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/47">#47</a></td>
+  <td><span class="badge b-mid">Mittel</span></td>
+  <td>Hoch (grid-view semantischer Merge — next-attention retten)</td>
+  <td>hardcoded Nav vorhanden</td>
+  <td class="rec"><span class="badge b-mid">Zurückgestellt</span><div class="hint">teuerster Konflikt; später</div></td>
+</tr>
+
+<tr>
+  <td><span class="feat">Per-Projekt <code>.work-files/</code>-Tab</span><div class="desc">Navigierbarer Tab für Projekt-Arbeitsdateien, Delete + JSON/JSONL-Format-Buttons, chirurgisches Entfernen statt Full-Rescan.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/04fe34a">04fe34a</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/d20a426">d20a426</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/1cc2510">1cc2510</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/e1a99fc">e1a99fc</a><br><a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/15">#15</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/16">#16</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/17">#17</a></td>
+  <td><span class="badge b-mid">Mittel</span></td>
+  <td>Mittel (neuer Tab, IPC)</td>
+  <td>fehlt</td>
+  <td class="rec"><span class="badge b-mid">Abwägen</span></td>
+</tr>
+
+<tr>
+  <td><span class="feat">Token/Tool/Message-Metriken</span><div class="desc">Per-(Session,Datum,Modell) Token-, Tool- und Message-Metriken sammeln; in sessionCache verdrahtet.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/6a7e717">6a7e717</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/13219eb">13219eb</a></td>
+  <td><span class="badge b-mid">Mittel</span></td>
+  <td>Mittel (DB + stats)</td>
+  <td>HaydnG hat eigene Stats/Heatmap</td>
+  <td class="rec"><span class="badge b-mid">Abwägen</span><div class="hint">Überschneidung mit HaydnG-Stats prüfen</div></td>
+</tr>
+
+<tr>
+  <td><span class="feat">Konfig. Terminal-Rechtsklick</span><div class="desc">Eigenes Kontextmenü statt stray-paste; konfigurierbar.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/6786b68">6786b68</a><br><a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/78">#78</a></td>
+  <td><span class="badge b-lo">Niedrig</span></td>
+  <td>Niedrig</td>
+  <td>fehlt</td>
+  <td class="rec"><span class="badge b-lo">Optional</span></td>
+</tr>
+
+<tr>
+  <td><span class="feat"><code>SWITCHBOARD_DATA_DIR</code> Env</span><div class="desc">Dev-DB von Prod/AppImage isolieren via Env-Var.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/bf18dc1">bf18dc1</a></td>
+  <td><span class="badge b-lo">Niedrig</span></td>
+  <td>Niedrig (additiv)</td>
+  <td>fehlt</td>
+  <td class="rec"><span class="badge b-lo">Optional (DX)</span></td>
+</tr>
+
+<tr>
+  <td><span class="feat">Single-Instance-Lock</span><div class="desc"><code>requestSingleInstanceLock</code> verhindert PTY-Verlust bei AppImage-Replace.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/f843086">f843086</a></td>
+  <td><span class="badge b-mid">Mittel</span></td>
+  <td>Niedrig</td>
+  <td>fehlt (prüfen)</td>
+  <td class="rec"><span class="badge b-mid">Abwägen</span><div class="hint">v.a. Linux/AppImage relevant</div></td>
+</tr>
+
+<tr>
+  <td><span class="feat">Explizites Such-Reindex</span><div class="desc">Reindex via Enter oder Refresh-Button; 3-Zeichen-Minimum.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/65c30da">65c30da</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/0666c5b">0666c5b</a><br><a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/71">#71</a></td>
+  <td><span class="badge b-lo">Niedrig</span></td>
+  <td>Mittel (Such-Hotpath, HaydnG umgebaut)</td>
+  <td>HaydnG hat eigene Suche</td>
+  <td class="rec"><span class="badge b-lo">Optional</span></td>
+</tr>
+</table>
+
+<!-- ===================== SECURITY ===================== -->
+<h2>2 · Security-Hardening <span class="cnt">— hoher Wert, teils in HaydnG fehlend</span></h2>
+<div class="note">Dup-Check ergab: HaydnG hat <strong>kein</strong> <code>execFile</code>-Shell-Injection-Hardening in main.js, <strong>kein</strong> DOMPurify/Sanitize im jsonl-viewer, nur <strong>partielle</strong> CSP. JBRs Security-Commits sind daher größtenteils echter Zugewinn.</div>
+<table>
+<tr><th style="width:22%">Maßnahme</th><th style="width:16%">Refs</th><th>Wert</th><th>Aufwand / Konflikt</th><th>HaydnG-Status</th><th style="width:20%">Empfehlung</th></tr>
+
+<tr>
+  <td><span class="feat">IPC-Pfad-Validierung + Viewer-Sanitize + CSP</span><div class="desc">IPC-Dateipfade validieren, Viewer-HTML sanitisieren (XSS), Content-Security-Policy hinzufügen.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/364689e">364689e</a></td>
+  <td><span class="badge b-sec">Security</span></td>
+  <td>Mittel (main.js, viewer)</td>
+  <td>CSP partiell; kein Viewer-Sanitize</td>
+  <td class="rec"><span class="badge b-hi">Übernehmen</span><div class="hint">XSS-Schutz im JSONL-Viewer fehlt uns</div></td>
+</tr>
+
+<tr>
+  <td><span class="feat">Shell-Injection-Hardening</span><div class="desc">Scheduler/Auth/MCP gegen Shell-Injection härten (<code>execFile</code> statt Shell-Interpolation).</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/1ffb8e0">1ffb8e0</a></td>
+  <td><span class="badge b-sec">Security</span></td>
+  <td>Mittel</td>
+  <td>fehlt (kein execFile in main.js)</td>
+  <td class="rec"><span class="badge b-hi">Übernehmen</span></td>
+</tr>
+
+<tr>
+  <td><span class="feat">Subagent-IPC-Hardening</span><div class="desc">Subagent-IPCs härten, Worktree-Regex verschärfen, Viewer-Watches drainen; Doppelpunkte in subagentSessionId ablehnen.</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/0a24dce">0a24dce</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/310a714">310a714</a></td>
+  <td><span class="badge b-sec">Security</span></td>
+  <td>—</td>
+  <td>Teil der Subagent-Suite</td>
+  <td class="rec"><span class="badge b-hi">mit Subagent</span></td>
+</tr>
+
+<tr>
+  <td><span class="feat">Memory-Read-Scope-Fix</span><div class="desc">Memory-Reads für alle indizierten Projekte erlauben, nicht nur aktive Sessions (Korrektheit + Zugriff).</div></td>
+  <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/dee1175">dee1175</a></td>
+  <td><span class="badge b-mid">Mittel</span></td>
+  <td>Niedrig</td>
+  <td>prüfen</td>
+  <td class="rec"><span class="badge b-mid">Abwägen</span></td>
+</tr>
+</table>
+
+<!-- ===================== BUGFIXES ===================== -->
+<h2>3 · Bugfixes <span class="cnt">— niedriges Risiko, additiv</span></h2>
+<div class="note">Das vom User gewählte „Bugfixes-Paket". Konflikt-Risiko variiert je nachdem, ob HaydnG denselben Hot-Path umgebaut hat (Cache/Refresh/Terminal). Pro Fix einzeln cherry-picken.</div>
+<table>
+<tr><th style="width:30%">Fix</th><th style="width:14%">Refs</th><th>Wert</th><th>Konflikt</th><th style="width:20%">Empfehlung</th></tr>
+
+<tr><td><span class="feat">Reconcile Cache ↔ FS bei get-projects</span><div class="desc">Sessions verschwinden nicht mehr — Cache mit Dateisystem abgleichen.</div></td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/51924a2">51924a2</a></td><td><span class="badge b-hi">Hoch</span></td><td>Mittel (Cache-Hotpath)</td><td><span class="badge b-hi">Übernehmen</span></td></tr>
+
+<tr><td><span class="feat">Stale Cache-Rows beim Start prunen</span><div class="desc">Veraltete Cache-Zeilen bei jedem Start entfernen.</div></td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/528513e">528513e</a></td><td><span class="badge b-mid">Mittel</span></td><td>Mittel</td><td><span class="badge b-mid">Abwägen</span></td></tr>
+
+<tr><td><span class="feat">Concurrent JSONL-Writes tolerieren</span><div class="desc"><code>read-session-file</code> übersteht parallele Schreibzugriffe.</div></td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/2fd730f">2fd730f</a></td><td><span class="badge b-hi">Hoch</span></td><td>Niedrig</td><td><span class="badge b-hi">Übernehmen</span></td></tr>
+
+<tr><td><span class="feat">Child-Liveness-Check vor Write</span><div class="desc">Trigger-Watcher prüft Prozess-Leben vor Schreibzugriff.</div></td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/8746466">8746466</a></td><td><span class="badge b-mid">Mittel</span></td><td>—(Teil Trigger-Watcher)</td><td><span class="badge b-lo">mit Trigger-Watcher</span></td></tr>
+
+<tr><td><span class="feat">await scan bei leerem Cache post-Migration</span><div class="desc">get-projects wartet auf Scan wenn Cache nach Migration leer.</div></td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/078e8cf">078e8cf</a></td><td><span class="badge b-mid">Mittel</span></td><td>Niedrig</td><td><span class="badge b-mid">Abwägen</span></td></tr>
+
+<tr><td><span class="feat">showSession() im openTerminal-Fehlerpfad</span><div class="desc">UI-Fix bei Terminal-Öffnen-Fehler.</div></td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/dbbc8fa">dbbc8fa</a></td><td><span class="badge b-lo">Niedrig</span></td><td>Niedrig</td><td><span class="badge b-lo">Optional</span></td></tr>
+
+<tr><td><span class="feat">Terminal-Copy über Main (Wayland)</span><div class="desc">Clipboard-Copy über Main-Prozess für Wayland/Linux.</div></td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/280b4e0">280b4e0</a><br><a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/18">#18</a></td><td><span class="badge b-mid">Mittel</span></td><td>Niedrig</td><td><span class="badge b-mid">wenn Linux</span></td></tr>
+
+<tr><td><span class="feat">Heatmap aus session_cache</span><div class="desc">Heatmap-Quelle session_cache statt stats-cache.json.</div></td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/76aaaf3">76aaaf3</a><br><a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/7">#7</a></td><td><span class="badge b-lo">Niedrig</span></td><td>Mittel (HaydnG-Stats)</td><td><span class="badge b-lo">Optional</span></td></tr>
+
+<tr><td><span class="feat">Terminal-Bottom-Row-Truncation</span><div class="desc">Fit auf Content-Box klemmen — unterste Zeile nicht abgeschnitten.</div></td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/69f1550">69f1550</a><br><a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/76">#76</a></td><td><span class="badge b-mid">Mittel</span></td><td>Mittel (terminal-manager)</td><td><span class="badge b-mid">Abwägen</span></td></tr>
+</table>
+
+<!-- ===================== PERF ===================== -->
+<h2>4 · Performance <span class="cnt">— ausgeschlossen (Entscheidung), als Referenz</span></h2>
+<div class="note">Per Entscheidung <strong>nicht</strong> gemergt (tief verdrahtet, kollidiert mit HaydnG-Eigen-Refactors derselben Hot-Paths). Bei Bedarf einzeln manuell nachziehen. Liste zur Orientierung.</div>
+<table>
+<tr><th style="width:34%">Optimierung</th><th style="width:16%">Refs</th><th>Effekt</th><th>Empfehlung</th></tr>
+<tr><td>Contentless FTS5 + Body-Truncation</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/d09863e">d09863e</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/69">#69</a></td><td>DB ~5× kleiner</td><td><span class="badge b-mid">stärkster Perf-Win</span></td></tr>
+<tr><td>Lazy-Load CodeMirror-Bundle</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/2139c50">2139c50</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/68">#68</a></td><td>schnellerer Cold-Start</td><td><span class="badge b-lo">Referenz</span></td></tr>
+<tr><td>30fps Write-Flush-Cap</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/87fa51a">87fa51a</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/64">#64</a></td><td>halbe Streaming-Paint-Kosten</td><td><span class="badge b-lo">Referenz</span></td></tr>
+<tr><td>LRU-Cap auf live xterm-Instanzen</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/c94a7dd">c94a7dd</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/57">#57</a></td><td>weniger RAM/GPU</td><td><span class="badge b-lo">Referenz</span></td></tr>
+<tr><td>WebGL-Virtualization off-screen Grid-Cards</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/844c0e7">844c0e7</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/58">#58</a></td><td>GPU-Kontexte sparen</td><td><span class="badge b-lo">Referenz</span></td></tr>
+<tr><td>Idle-CPU: geleakte Watcher + Polling</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/7c00cb6">7c00cb6</a></td><td>weniger Idle-CPU</td><td><span class="badge b-mid">prüfen</span></td></tr>
+<tr><td>Refresh-Perf-Serie (O(1)-Lookup, header-only, targeted)</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/d58be56">d58be56</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/ba1d55a">ba1d55a</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/d1f901c">d1f901c</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/d32dcae">d32dcae</a></td><td>schnellerer Folder-Refresh</td><td><span class="badge b-lo">Referenz</span></td></tr>
+<tr><td>Weitere: PTY-Buffer-Coalesce, FTS-Dirty-Flag, WAL-Checkpoint, idle-DOM-Skip, bounded cwd-scan</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/cb96eb1">cb96eb1</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/843de89">843de89</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/fbaf013">fbaf013</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/e3c56c4">e3c56c4</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/aa5ddf8">aa5ddf8</a></td><td>diverse</td><td><span class="badge b-lo">Referenz</span></td></tr>
+</table>
+
+<!-- ===================== TESTS/CI ===================== -->
+<h2>5 · Tests / CI / Tooling <span class="cnt">— Infrastruktur, optional</span></h2>
+<table>
+<tr><th style="width:34%">Item</th><th style="width:16%">Refs</th><th>Wert</th><th>Empfehlung</th></tr>
+<tr><td>c8-Coverage + Patch-Coverage-Gate (80%)</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/59712a6">59712a6</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/51">#51</a></td><td><span class="badge b-mid">Mittel</span></td><td><span class="badge b-mid">wenn CI gewünscht</span></td></tr>
+<tr><td>GitHub-Actions npm test</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/249749e">249749e</a></td><td><span class="badge b-lo">Niedrig</span></td><td><span class="badge b-lo">Optional</span></td></tr>
+<tr><td>ESLint flat config + jsdom Renderer-Tests</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/8314f69">8314f69</a></td><td><span class="badge b-mid">Mittel</span></td><td><span class="badge b-mid">Abwägen</span></td></tr>
+<tr><td>Pre-Commit-Hook (lint + tests) / Taskfile.yaml</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/3a4cd04">3a4cd04</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/1a6256f">1a6256f</a></td><td><span class="badge b-lo">Niedrig</span></td><td><span class="badge b-lo">Optional</span></td></tr>
+</table>
+
+<!-- ===================== SKIP ===================== -->
+<h2>6 · Skip <span class="cnt">— HaydnG hat's schon / fork-spezifisch / Dup</span></h2>
+<table>
+<tr><th style="width:30%">Item</th><th style="width:16%">Refs</th><th>Grund</th></tr>
+<tr><td>Session-Restore (open sessions across restart)</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/65bd884">65bd884</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/80">#80</a></td><td><span class="badge b-skip">Dup</span> HaydnG hat eigene (e4be23e)</td></tr>
+<tr><td>Terminal mounted + Exit-Banner bei Session-Tod</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/88de4df">88de4df</a></td><td><span class="badge b-skip">Dup</span> HaydnG hat show-exit-banner</td></tr>
+<tr><td>Missing Project Paths erkennen + remap</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/effeaeb">effeaeb</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/20">#20</a></td><td><span class="badge b-skip">Dup</span> HaydnG hat remap-project</td></tr>
+<tr><td>Hierarchischer Sidebar, Grid-Badges, Live-Indicator</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/1fea1aa">1fea1aa</a></td><td><span class="badge b-skip">Konflikt</span> HaydnG-Sidebar stark umgebaut</td></tr>
+<tr><td>Release/Publish/Mac-Signing/AppImage-Docs</td><td class="refs">635d935 · 048769e · e900ee7 · 25f1154 · a9d6e75</td><td><span class="badge b-skip">fork-spezifisch</span></td></tr>
+</table>
+
+<footer>
+Generiert für Diskussion · Quelle: <code>git log haydng/main..jbr/main</code> (102 Nicht-Merge/Nicht-Release-Commits) · Konflikt-/Dup-Bewertung aus Datei-Overlap-Analyse gegen <code><old-codename></code>. Bewertungen sind Heuristik — vor Port jeweils echten Diff prüfen.
+</footer>
+</main>
+</body>
+</html>
