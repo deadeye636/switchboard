@@ -132,6 +132,13 @@ const ESC_SYNC_END = '\x1b[?2026l';
 const SYNC_BUFFER_TIMEOUT = 500; // max ms to hold data waiting for sync end
 const terminalWriteBuffers = new Map(); // sessionId → { chunks, syncDepth, rafId, timerId }
 
+// ~30 fps flush cap — halves paint/compositor work vs. 60 fps during streaming.
+// Measured (JBR #64): compositor burns 40-60% of a core at 60 fps; a 33 ms
+// minimum interval doubles parse-batch size and is imperceptible for streaming
+// text (worst-case added latency: one frame ~33 ms).
+const MIN_FLUSH_INTERVAL_MS = 33; // ~30 fps
+const lastFlushAt = new Map(); // sessionId → performance.now() of last flush
+
 function flushTerminalBuffer(sessionId) {
   const buf = terminalWriteBuffers.get(sessionId);
   if (!buf) return;
@@ -143,6 +150,7 @@ function flushTerminalBuffer(sessionId) {
   if (!entry) return;
 
   const data = buf.chunks.join('');
+  lastFlushAt.set(sessionId, performance.now());
   const wasAtBottom = isAtBottom(entry.terminal);
   const savedViewportY = entry.terminal.buffer.active.viewportY;
   entry.terminal.write(data, () => {
@@ -157,8 +165,23 @@ function flushTerminalBuffer(sessionId) {
 }
 
 function scheduleFlush(sessionId, buf) {
-  cancelAnimationFrame(buf.rafId);
-  buf.rafId = requestAnimationFrame(() => flushTerminalBuffer(sessionId));
+  // If a timer or rAF is already pending, don't stack another.
+  if (buf.timerId || buf.rafId) return;
+
+  const last = lastFlushAt.get(sessionId);
+  const elapsed = last === undefined ? Infinity : performance.now() - last;
+  if (elapsed >= MIN_FLUSH_INTERVAL_MS) {
+    // Enough time has passed — flush on the next animation frame.
+    buf.rafId = requestAnimationFrame(() => flushTerminalBuffer(sessionId));
+  } else {
+    // Too soon — wait out the remaining interval, then rAF from there. Reuses
+    // buf.timerId so flushTerminalBuffer/destroySession teardown works unchanged.
+    const remaining = MIN_FLUSH_INTERVAL_MS - elapsed;
+    buf.timerId = setTimeout(() => {
+      buf.timerId = 0;
+      buf.rafId = requestAnimationFrame(() => flushTerminalBuffer(sessionId));
+    }, remaining);
+  }
 }
 
 // --- Terminal lifecycle helpers ---
@@ -310,6 +333,16 @@ function destroySession(sessionId) {
   const entry = openSessions.get(sessionId);
   if (!entry) return;
   window.api.closeTerminal(sessionId);
+  // Drop any pending write buffer before disposing — a scheduled rAF/timeout
+  // flush would otherwise call terminal.write() on a disposed instance if
+  // terminal-data IPC raced with the teardown.
+  const buf = terminalWriteBuffers.get(sessionId);
+  if (buf) {
+    cancelAnimationFrame(buf.rafId);
+    clearTimeout(buf.timerId);
+    terminalWriteBuffers.delete(sessionId);
+  }
+  lastFlushAt.delete(sessionId);
   entry.terminal.dispose();
   entry.element.remove();
   openSessions.delete(sessionId);
