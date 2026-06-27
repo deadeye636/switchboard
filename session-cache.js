@@ -172,8 +172,19 @@ function refreshFolder(folder) {
  * the app was closed, or that predates the build which first indexed it, is
  * otherwise never picked up, because the cold-start full scan
  * (populateCacheViaWorker) only runs when the cache is completely empty.
+ *
+ * Rate-limited: the live watcher (startProjectsWatcher) catches real-time
+ * changes, so this safety-net sweep only needs to run occasionally. The
+ * throttle skips the redundant double-call per sidebar paint (each
+ * get-projects triggers loadProjects twice).
  */
+const RECONCILE_THROTTLE_MS = 5000;
+let lastReconcileAt = 0;
+
 function reconcileCacheFromFilesystem() {
+  const now = Date.now();
+  if (now - lastReconcileAt < RECONCILE_THROTTLE_MS) return;
+  lastReconcileAt = now;
   try {
     const metaMap = getAllFolderMeta();
     const folders = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })

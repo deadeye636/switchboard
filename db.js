@@ -29,6 +29,9 @@ const db = new Database(DB_PATH);
 
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
+// NORMAL fsyncs only at checkpoints, not every commit — the standard WAL
+// pairing; FULL adds no extra integrity in WAL mode but fsyncs every write.
+db.pragma('synchronous = NORMAL');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS session_meta (
@@ -539,6 +542,11 @@ function deleteSetting(key) {
 }
 
 function closeDb() {
+  // Truncate the WAL back into the main file on clean shutdown. Long-lived
+  // reader connections (the scan worker) can starve SQLite's automatic
+  // checkpoints, letting the -wal file grow to tens of MB and adding read
+  // amplification on the next run.
+  try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch {}
   try { db.close(); } catch {}
 }
 
