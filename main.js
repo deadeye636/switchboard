@@ -114,13 +114,45 @@ function isSensitivePath(filePath) {
   return SENSITIVE_PATH_PATTERNS.some(pattern => pattern.test(resolved));
 }
 
-// Stricter allowlist for memory/plan files that should only be under ~/.claude/
-// or active project directories.
+// All indexed project roots (same enumeration as the get-memories handler).
+// Cached: enumerating PROJECTS_DIR + deriveProjectPath on every read-call is
+// wasteful; refreshed lazily every PROJECT_ROOTS_TTL_MS.
+const PROJECT_ROOTS_TTL_MS = 5000;
+let _projectRootsCache = null;
+let _projectRootsCachedAt = 0;
+function getIndexedProjectRoots() {
+  const now = Date.now();
+  if (_projectRootsCache && now - _projectRootsCachedAt < PROJECT_ROOTS_TTL_MS) {
+    return _projectRootsCache;
+  }
+  const roots = new Set();
+  try {
+    if (fs.existsSync(PROJECTS_DIR)) {
+      for (const d of fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })) {
+        if (!d.isDirectory() || d.name === '.git') continue;
+        const p = deriveProjectPath(path.join(PROJECTS_DIR, d.name));
+        if (p) roots.add(p);
+      }
+    }
+  } catch {}
+  _projectRootsCache = roots;
+  _projectRootsCachedAt = now;
+  return roots;
+}
+
+// Allowlist for memory/plan files: ~/.claude, active-session project dirs, or
+// any indexed project root. The Plans/Memory panel (get-memories) surfaces
+// memory files from EVERY indexed project — not just ones with a live session —
+// so the allowlist must cover every known project root, else reading a memory
+// file for a project without an open session would be rejected.
 function isAllowedMemoryPath(filePath) {
   const resolved = path.resolve(filePath);
   if (resolved.startsWith(CLAUDE_DIR + path.sep) || resolved === CLAUDE_DIR) return true;
   for (const [, session] of activeSessions) {
     if (session.projectPath && resolved.startsWith(session.projectPath + path.sep)) return true;
+  }
+  for (const root of getIndexedProjectRoots()) {
+    if (resolved === root || resolved.startsWith(root + path.sep)) return true;
   }
   return false;
 }
