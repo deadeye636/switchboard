@@ -64,6 +64,10 @@ function setupViewerPanelDom() {
     setItem: () => {},
   };
 
+  // Stub a11y helper — <old-codename>'s viewer-toolbar.js calls the global
+  // syncTitleToAriaLabel (defined in a11y-utils.js, not loaded in this harness).
+  window.syncTitleToAriaLabel = () => {};
+
   // Intercept document.createElement so <script> elements resolve instantly.
   // We wrap the real createElement and fire onload synchronously after the
   // element is appended to any parent (via a MutationObserver substitute —
@@ -207,6 +211,10 @@ function setupViewerPanelDomHeld() {
     getItem: () => null,
     setItem: () => {},
   };
+
+  // Stub a11y helper — <old-codename>'s viewer-toolbar.js calls the global
+  // syncTitleToAriaLabel (defined in a11y-utils.js, not loaded in this harness).
+  window.syncTitleToAriaLabel = () => {};
 
   let capturedScript = null;
 
