@@ -1951,10 +1951,6 @@ loadProjects().then(async () => {
     // handler then mounts them via ensureGridActiveSessionsMounted().
     pollActiveSessions();
   }
-  // An in-progress auto-update restart wins: it has its own one-shot blob and
-  // shows the "Restored after update" toast. Don't also run the normal restore.
-  const restoredAfterUpdate = await restoreUpdateRestartState();
-  if (restoredAfterUpdate) return;
   if (isRendererReload) return;
   // Reopen the set of sessions that were open at the last ordinary quit.
   const restoredOpenSessions = await restoreOpenSessionsOnLaunch();
@@ -2077,49 +2073,6 @@ function scheduleUsageStatusRefresh() {
   refreshStatusBarUsage();
 }
 
-function saveUpdateRestartState() {
-  if (typeof collectUpdateRestartState !== 'function') return null;
-  const state = collectUpdateRestartState(openSessions, { activeSessionId, gridViewActive });
-  if (typeof hasRestorableUpdateSessions === 'function' && hasRestorableUpdateSessions(state)) {
-    localStorage.setItem(UPDATE_RESTART_STATE_KEY, JSON.stringify(state));
-  } else {
-    localStorage.removeItem(UPDATE_RESTART_STATE_KEY);
-  }
-  return state;
-}
-
-async function restoreUpdateRestartState() {
-  if (typeof hasRestorableUpdateSessions !== 'function') return false;
-  let state = null;
-  try {
-    state = JSON.parse(localStorage.getItem(UPDATE_RESTART_STATE_KEY) || 'null');
-  } catch {}
-  localStorage.removeItem(UPDATE_RESTART_STATE_KEY);
-  if (!hasRestorableUpdateSessions(state)) return false;
-
-  if (state.gridViewActive) {
-    localStorage.setItem('gridViewActive', '1');
-    if (!gridViewActive) showGridView();
-  }
-
-  const uniqueSessions = selectRestorableSessions(state, {
-    lookup: (id) => sessionMap.get(id),
-  });
-
-  for (const session of uniqueSessions) {
-    await openSession(session);
-  }
-
-  if (state.activeSessionId && openSessions.has(state.activeSessionId)) {
-    showSession(state.activeSessionId);
-  }
-  showControlToast({
-    message: `Restored ${uniqueSessions.length} session${uniqueSessions.length === 1 ? '' : 's'} after update.`,
-    timeoutMs: 6000,
-  });
-  return uniqueSessions.length > 0;
-}
-
 // --- Persist & restore open sessions across an ordinary quit → relaunch ---
 // Mirrors the auto-update restart flow but uses a durable localStorage key that
 // we refresh on every normal quit (not a one-shot). PTYs die when the app quits,
@@ -2202,61 +2155,6 @@ window.api.onStatusUpdate((text, type) => {
 
 scheduleUsageStatusRefresh();
 
-// --- Auto-update status + toast ---
-const statusBarUpdater = document.getElementById('status-bar-updater');
-let updaterStatusTimer = null;
-function setUpdaterStatus(text, duration) {
-  if (updaterStatusTimer) clearTimeout(updaterStatusTimer);
-  statusBarUpdater.textContent = text;
-  if (duration) {
-    updaterStatusTimer = setTimeout(() => { statusBarUpdater.textContent = ''; }, duration);
-  }
-}
-const updaterHandler = (type, data) => {
-  switch (type) {
-    case 'checking':
-      setUpdaterStatus('Checking for updates…');
-      break;
-    case 'update-available':
-      setUpdaterStatus(`Downloading v${data.version}…`);
-      break;
-    case 'update-not-available':
-      setUpdaterStatus('Up to date', 3000);
-      break;
-    case 'download-progress':
-      setUpdaterStatus(`Updating… ${Math.round(data.percent)}%`);
-      break;
-    case 'update-downloaded': {
-      setUpdaterStatus(`v${data.version} ready — restart to update`);
-      const dismissed = localStorage.getItem('update-dismissed');
-      if (dismissed === data.version) return;
-      const toast = document.getElementById('update-toast');
-      const msg = document.getElementById('update-toast-msg');
-      const notice = (data.releaseName && data.releaseName !== `v${data.version}` && data.releaseName !== data.version) ? `<span class="update-summary">${escapeHtml(data.releaseName)}</span>` : '';
-      msg.innerHTML = `New Version Ready<br><span class="update-version">v${data.version}</span> (<a href="https://github.com/doctly/switchboard/releases" target="_blank" class="update-notes-link">release notes</a>)${notice}`;
-      toast.classList.remove('hidden');
-      document.getElementById('update-restart-btn').onclick = async () => {
-        saveUpdateRestartState();
-        const result = await window.api.updaterInstall();
-        if (result?.ok === false) {
-          const message = result.dev
-            ? 'Update restart is only available in packaged builds.'
-            : (result.error || 'Update restart failed. Please reinstall from the releases page.');
-          showControlToast({ message });
-        }
-      };
-      document.getElementById('update-dismiss-btn').onclick = () => {
-        toast.classList.add('hidden');
-        localStorage.setItem('update-dismissed', data.version);
-      };
-      break;
-    }
-    case 'error':
-      setUpdaterStatus('Update check failed', 5000);
-      break;
-  }
-};
-window.api.onUpdaterEvent(updaterHandler);
 
 // --- Initialize file panel (MCP bridge UI) ---
 if (typeof initFilePanel === 'function') initFilePanel();

@@ -311,19 +311,6 @@
         </div>
       </div>` : ''}
 
-      ${!isProject ? `<div class="settings-section">
-        <div class="settings-section-title">Updates</div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Version</span>
-            <div class="settings-description"><span id="sv-current-version"></span> <span id="sv-update-status"></span></div>
-          </div>
-          <div class="settings-field-control">
-            <button class="settings-check-updates-btn" id="sv-check-updates-btn">Check for Updates</button>
-          </div>
-        </div>
-      </div>` : ''}
-
       <div class="settings-btn-row">
         <button class="settings-cancel-btn" id="sv-cancel-btn">Cancel</button>
         <button class="settings-save-btn" id="sv-save-btn">Save Settings</button>
@@ -468,31 +455,6 @@
     settingsViewerBody.querySelector('#sv-cancel-btn').addEventListener('click', () => {
       closeSettingsViewer();
     });
-
-    // Check for updates button + current version + inline status
-    const checkUpdatesBtn = settingsViewerBody.querySelector('#sv-check-updates-btn');
-    if (checkUpdatesBtn) {
-      const updateStatusEl = settingsViewerBody.querySelector('#sv-update-status');
-      window.api.getAppVersion().then(v => {
-        const el = settingsViewerBody.querySelector('#sv-current-version');
-        if (el) el.textContent = `v${v}`;
-      });
-      const settingsUpdaterHandler = (type, data) => {
-        if (!updateStatusEl) return;
-        switch (type) {
-          case 'checking': updateStatusEl.textContent = '\u2014 checking\u2026'; break;
-          case 'update-available': updateStatusEl.textContent = `\u2014 v${data.version} available`; break;
-          case 'update-not-available': updateStatusEl.textContent = '\u2014 up to date'; break;
-          case 'download-progress': updateStatusEl.textContent = `\u2014 downloading ${Math.round(data.percent)}%`; break;
-          case 'update-downloaded': updateStatusEl.textContent = `\u2014 v${data.version} ready, restart to update`; break;
-          case 'error': updateStatusEl.textContent = '\u2014 check failed'; break;
-        }
-      };
-      window.api.onUpdaterEvent(settingsUpdaterHandler);
-      checkUpdatesBtn.addEventListener('click', () => {
-        window.api.updaterCheck();
-      });
-    }
 
     // Remove project button
     const removeBtn = settingsViewerBody.querySelector('#sv-remove-btn');
