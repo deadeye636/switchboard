@@ -163,19 +163,19 @@
 <tr><th style="width:5%">Aufg.</th><th style="width:20%">Maßnahme</th><th style="width:15%">Refs</th><th>Wert</th><th>Aufwand / Konflikt</th><th>HaydnG-Status</th><th style="width:18%">Empfehlung</th></tr>
 
 <tr>
-  <td><span class="tasknr">2.1</span></td>
-  <td><span class="feat">IPC-Pfad-Validierung + Viewer-Sanitize + CSP</span><div class="desc">IPC-Dateipfade validieren, Viewer-HTML sanitisieren (XSS), CSP hinzufügen.</div></td>
+  <td><span class="tasknr done">2.1</span></td>
+  <td><span class="feat">IPC-Pfad-Validierung + Viewer-Sanitize + CSP</span><div class="desc">IPC-Pfade validieren, Viewer-HTML sanitisieren, CSP. <strong>Voll in <old-codename></strong> — isSensitivePath/isAllowedMemoryPath inline, DOMPurify.sanitize im Viewer, CSP via onHeadersReceived. (Frühere Dup-Annahme „kein Sanitize" war falsch.)</div></td>
   <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/364689e">364689e</a></td>
-  <td><span class="badge b-sec">Security</span></td><td>Mittel (main.js, viewer)</td><td>CSP partiell; kein Sanitize</td>
-  <td class="rec"><span class="badge b-hi">Übernehmen</span><div class="hint">XSS-Schutz im Viewer fehlt uns</div></td>
+  <td><span class="badge b-sec">Security</span></td><td>—</td><td>vorhanden</td>
+  <td class="rec"><span class="badge b-done">✓ vorhanden</span></td>
 </tr>
 
 <tr>
-  <td><span class="tasknr">2.2</span></td>
-  <td><span class="feat">Shell-Injection-Hardening</span><div class="desc">Scheduler/Auth/MCP gegen Shell-Injection (<code>execFile</code> statt Interpolation).</div></td>
+  <td><span class="tasknr done">2.2</span></td>
+  <td><span class="feat">Shell-Injection-Hardening</span><div class="desc">Scheduler/Auth/MCP gegen Shell-Injection. <strong>Größtenteils in <old-codename></strong> — HaydnG hat argv-Contract/execFileSync/quoteArgvForShell schon. Nur mcp-bridge chmod-existing übernommen.</div></td>
   <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/1ffb8e0">1ffb8e0</a></td>
-  <td><span class="badge b-sec">Security</span></td><td>Mittel</td><td>fehlt (kein execFile)</td>
-  <td class="rec"><span class="badge b-hi">Übernehmen</span></td>
+  <td><span class="badge b-sec">Security</span></td><td>—</td><td>vorhanden (+chmod-Delta)</td>
+  <td class="rec"><span class="badge b-done">✓ erledigt</span></td>
 </tr>
 
 <tr>
@@ -188,10 +188,10 @@
 
 <tr>
   <td><span class="tasknr">2.4</span></td>
-  <td><span class="feat">Memory-Read-Scope-Fix</span><div class="desc">Memory-Reads für alle indizierten Projekte, nicht nur aktive Sessions.</div></td>
+  <td><span class="feat">Memory-Read-Scope-Fix</span><div class="desc">Memory-Reads für alle indizierten Projekte, nicht nur aktive Sessions. <strong>Echter Fix</strong> — <old-codename>s <code>isAllowedMemoryPath</code> prüft nur <code>activeSessions</code> → Read für Projekt ohne aktive Session schlägt fehl.</div></td>
   <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/dee1175">dee1175</a></td>
-  <td><span class="badge b-mid">Mittel</span></td><td>Niedrig</td><td>prüfen</td>
-  <td class="rec"><span class="badge b-mid">Abwägen</span></td>
+  <td><span class="badge b-mid">Mittel</span></td><td>Niedrig (main.js:118)</td><td>nur active-scope</td>
+  <td class="rec"><span class="badge b-mid">Übernehmen</span><div class="hint">echter Bug in <old-codename></div></td>
 </tr>
 </table>
 
