@@ -68,7 +68,9 @@ The win target is **x64-only** (arm64 toolchain not available here).
 
 ## Conventions
 
-- Commits: Conventional Commits, **German** messages (project preference). One logical change per commit.
+- **Git commits: always via the `git-commit` skill**, not raw `git commit`. The skill
+  builds a Conventional-Commits message in **German**. Only fall back to raw `git commit`
+  if the skill is unavailable. One logical change per commit.
 - Don't add a framework, build step, or bundler to the renderer beyond the existing esbuild CodeMirror bundle.
 - When touching `db.js` schema: append a migration, never edit an existing one.
 - When adding IPC: handler in `main.js` + binding in `preload.js` + (if it returns to UI) a renderer caller.
