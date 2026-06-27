@@ -333,7 +333,12 @@ async function startMcpServer(sessionId, workspaceFolders, mainWindow, log) {
     runningInWindows: false,
     authToken,
   });
-  // Create lockfile only readable by user (it contains the MCP auth token)
+  // Create lockfile only readable by user (it contains the MCP auth token).
+  // If the file already exists with wider permissions (from an older build
+  // before this hardening), chmodSync tightens it before the new content is written.
+  if (fs.existsSync(lockFilePath)) {
+    try { fs.chmodSync(lockFilePath, 0o600); } catch {}
+  }
   fs.writeFileSync(lockFilePath, lockData, { encoding: 'utf8', mode: 0o600 });
 
   const entry = {
