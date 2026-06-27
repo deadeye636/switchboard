@@ -1071,9 +1071,16 @@ ipcMain.on('mcp-diff-response', (_event, sessionId, diffId, action, editedConten
   resolvePendingDiff(sessionId, diffId, action, editedContent);
 });
 
+function resolvePanelFilePath(filePath) {
+  if (typeof filePath === 'string' && filePath.startsWith('~/')) {
+    return path.join(os.homedir(), filePath.slice(2));
+  }
+  return path.resolve(filePath);
+}
+
 ipcMain.handle('read-file-for-panel', async (_event, filePath) => {
   try {
-    const resolved = path.resolve(filePath);
+    const resolved = resolvePanelFilePath(filePath);
     if (isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
     const content = fs.readFileSync(resolved, 'utf8');
     return { ok: true, content };
@@ -1084,7 +1091,7 @@ ipcMain.handle('read-file-for-panel', async (_event, filePath) => {
 
 ipcMain.handle('save-file-for-panel', async (_event, filePath, content) => {
   try {
-    const resolved = path.resolve(filePath);
+    const resolved = resolvePanelFilePath(filePath);
     if (isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
     if (!fs.existsSync(resolved)) return { ok: false, error: 'File does not exist' };
     fs.writeFileSync(resolved, content, 'utf8');
@@ -1104,7 +1111,7 @@ ipcMain.handle('save-file-for-panel', async (_event, filePath, content) => {
 const fileWatchers = new Map(); // filePath → FSWatcher
 
 ipcMain.handle('watch-file', (_event, filePath) => {
-  const resolved = path.resolve(filePath);
+  const resolved = resolvePanelFilePath(filePath);
   if (isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
   if (fileWatchers.has(resolved)) return { ok: true };
   try {
@@ -1114,7 +1121,7 @@ ipcMain.handle('watch-file', (_event, filePath) => {
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => {
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('file-changed', resolved);
+          mainWindow.webContents.send('file-changed', filePath);
         }
       }, 300);
     });
@@ -1126,7 +1133,7 @@ ipcMain.handle('watch-file', (_event, filePath) => {
 });
 
 ipcMain.handle('unwatch-file', (_event, filePath) => {
-  const resolved = path.resolve(filePath);
+  const resolved = resolvePanelFilePath(filePath);
   const watcher = fileWatchers.get(resolved);
   if (watcher) {
     watcher.close();

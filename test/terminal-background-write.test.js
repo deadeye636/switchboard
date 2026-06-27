@@ -27,6 +27,7 @@ function makeTerminalStub(spies) {
       this.unicode = { activeVersion: '' };
     }
     loadAddon() {}
+    registerLinkProvider() {}
     open() {}
     dispose() { spies.dispose++; }
     write(_d, cb) { spies.write++; spies.lastWriteData = _d; if (cb) cb(); }
