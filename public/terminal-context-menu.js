@@ -102,6 +102,11 @@ async function runTerminalMenuAction(id, ctx) {
       terminal.selectAll();
       break;
   }
+  // Restore focus to the terminal for in-terminal actions — the menu button
+  // took focus and the right-click never focused the terminal itself.
+  if (id === 'paste' || id === 'copy' || id === 'select-all') {
+    try { terminal.focus(); } catch {}
+  }
 }
 
 // --- Menu DOM (single instance at a time) ---
@@ -219,10 +224,12 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
       } else if (terminalRightClickMode === 'copy-paste') {
         window.api.readClipboard().then((t) => { if (t) terminal.paste(t); }).catch(() => {});
       }
+      terminal.focus(); // the swallowed right-button never focused the terminal
       return;
     }
     if (terminalRightClickMode === 'paste') {
       window.api.readClipboard().then((t) => { if (t) terminal.paste(t); }).catch(() => {});
+      terminal.focus();
       return;
     }
     // 'menu' (default)
