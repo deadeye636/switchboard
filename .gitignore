@@ -9,3 +9,7 @@ public/codemirror-bundle.js
 .env
 .cache/
 dev-app-update.yml
+
+# Transient: handoff bridges + local screenshots/scratch
+prompts/
+temp/
