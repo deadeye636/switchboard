@@ -2204,6 +2204,26 @@ if (!gotSingleInstanceLock) {
     // Promise so the FTS-recreated path below (if also triggered) is free.
     populateCacheViaWorker();
 
+    // File-trigger watcher — allows harness scripts to inject input into open
+    // PTY sessions by dropping a JSON file in ~/.switchboard/triggers/.
+    // Wrapped in try/catch so a boot failure here doesn't abort app.whenReady.
+    try {
+      require('./trigger-watcher').start({
+        log,
+        getPtyForSession(sessionId) {
+          const session = activeSessions.get(sessionId);
+          if (!session || session.exited) return null;
+          return { ptyProcess: session.pty };
+        },
+        isSessionBusy(sessionId) {
+          const session = activeSessions.get(sessionId);
+          return session ? !!session._cliBusy : false;
+        },
+      });
+    } catch (err) {
+      log.error('[trigger-watcher] Failed to start trigger watcher:', err.message);
+    }
+
     // Re-index search if FTS table was recreated (e.g. tokenizer config change).
     // populateCacheViaWorker is already running above; the guard inside it
     // (populatePromise !== null) means this is a no-op on the same tick and
