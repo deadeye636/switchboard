@@ -1346,33 +1346,50 @@ async function pollActiveSessions() {
   scheduleActiveSessionsPoll();
 }
 
+// Signature of the pty-id set from the last updateRunningIndicators() call.
+// The two full sidebar querySelectorAll scans below only matter when a session
+// started/stopped (the set changed); a sorted join is a cheap O(n log n)
+// signature for the small counts expected (<20 active sessions). Grid card
+// statuses run every call because sessionBusyState (CLI-busy) can change
+// without the pty-set changing. Attention/ready/busy transitions reach
+// refreshSessionStatusViews() on their own paths, so gating the sidebar scans
+// here cannot drop a status update.
+let _lastPtySignature = '';
+
 function updateRunningIndicators() {
+  const sig = Array.from(activePtyIds).sort().join(',');
+  const ptySetChanged = sig !== _lastPtySignature;
+  _lastPtySignature = sig;
+
   let statusChanged = false;
-  document.querySelectorAll('.session-item').forEach(item => {
-    const id = item.dataset.sessionId;
-    const running = activePtyIds.has(id);
-    if (item.classList.contains('has-running-pty') !== running) statusChanged = true;
-    item.classList.toggle('has-running-pty', running);
-    if (!running) {
-      if (attentionSessions.has(id) || responseReadySessions.has(id) || sessionBusyState.has(id)) {
-        statusChanged = true;
+  if (ptySetChanged) {
+    document.querySelectorAll('.session-item').forEach(item => {
+      const id = item.dataset.sessionId;
+      const running = activePtyIds.has(id);
+      if (item.classList.contains('has-running-pty') !== running) statusChanged = true;
+      item.classList.toggle('has-running-pty', running);
+      if (!running) {
+        if (attentionSessions.has(id) || responseReadySessions.has(id) || sessionBusyState.has(id)) {
+          statusChanged = true;
+        }
+        item.classList.remove('needs-attention', 'response-ready', 'cli-busy');
+        attentionSessions.delete(id);
+        attentionReason.delete(id);
+        responseReadySessions.delete(id);
+        sessionBusyState.delete(id);
       }
-      item.classList.remove('needs-attention', 'response-ready', 'cli-busy');
-      attentionSessions.delete(id);
-      attentionReason.delete(id);
-      responseReadySessions.delete(id);
-      sessionBusyState.delete(id);
-    }
-    const dot = item.querySelector('.session-status-dot');
-    if (dot) dot.classList.toggle('running', running);
-  });
-  // Update slug group running dots
-  document.querySelectorAll('.slug-group').forEach(group => {
-    const hasRunning = group.querySelector('.session-item.has-running-pty') !== null;
-    const dot = group.querySelector('.slug-group-dot');
-    if (dot) dot.classList.toggle('running', hasRunning);
-  });
+      const dot = item.querySelector('.session-status-dot');
+      if (dot) dot.classList.toggle('running', running);
+    });
+    // Update slug group running dots
+    document.querySelectorAll('.slug-group').forEach(group => {
+      const hasRunning = group.querySelector('.session-item.has-running-pty') !== null;
+      const dot = group.querySelector('.slug-group-dot');
+      if (dot) dot.classList.toggle('running', hasRunning);
+    });
+  }
   // Update grid card dots and status text in place (shared with refreshGridView).
+  // Always run — sessionBusyState can change without the pty-set changing.
   if (typeof updateGridCardStatuses === 'function') updateGridCardStatuses();
   if (statusChanged) refreshSessionStatusViews();
 }
