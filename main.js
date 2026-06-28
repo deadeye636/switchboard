@@ -2156,6 +2156,9 @@ if (!gotSingleInstanceLock) {
     createTray();
     startProjectsWatcher();
     startAttentionHookServer();
+    // Remove IDE lock files left behind by a crashed instance whose PID was
+    // reused (the function only unlinks locks matching our own pid).
+    cleanStaleLockFiles(log);
     scheduleIpc.ensureScheduleCreatorCommand();
 
     // Shared runCommand for cron scheduler and "run now" — takes argv, not a shell string.

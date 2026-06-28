@@ -662,8 +662,11 @@ function getDailyActivity() {
 // messageCount/toolCallCount/tokens come from session_metrics (bucketed by the
 // per-message timestamp, not the session mtime); sessionCount counts distinct
 // sessions active that day.
+// Stats statements are memoized on first use (the stats screen may never be
+// opened) instead of being re-parsed on every call.
+let dailyMetricsStmt;
 function getDailyMetrics() {
-  return db.prepare(`
+  dailyMetricsStmt ??= db.prepare(`
     SELECT date,
            SUM(messageCount)            AS messageCount,
            SUM(toolCallCount)           AS toolCallCount,
@@ -672,18 +675,21 @@ function getDailyMetrics() {
     FROM session_metrics
     GROUP BY date
     ORDER BY date ASC
-  `).all();
+  `);
+  return dailyMetricsStmt.all();
 }
 
 // [{date, tokensByModel: {model: tokens}}] sorted by date. Excludes the '' model
 // bucket (synthetic / model-less assistant turns carry no tokens anyway).
+let dailyModelTokensStmt;
 function getDailyModelTokens() {
-  const rows = db.prepare(`
+  dailyModelTokensStmt ??= db.prepare(`
     SELECT date, model, SUM(inputTokens + outputTokens) AS tokens
     FROM session_metrics
     WHERE model != ''
     GROUP BY date, model
-  `).all();
+  `);
+  const rows = dailyModelTokensStmt.all();
   const byDate = new Map();
   for (const r of rows) {
     let entry = byDate.get(r.date);
@@ -697,15 +703,17 @@ function getDailyModelTokens() {
 }
 
 // {model: {inputTokens, outputTokens}} across all time. Excludes '' model.
+let modelUsageStmt;
 function getModelUsage() {
-  const rows = db.prepare(`
+  modelUsageStmt ??= db.prepare(`
     SELECT model,
            SUM(inputTokens)  AS inputTokens,
            SUM(outputTokens) AS outputTokens
     FROM session_metrics
     WHERE model != ''
     GROUP BY model
-  `).all();
+  `);
+  const rows = modelUsageStmt.all();
   const out = {};
   for (const r of rows) {
     out[r.model] = { inputTokens: r.inputTokens, outputTokens: r.outputTokens };
@@ -715,17 +723,20 @@ function getModelUsage() {
 
 // {totalSessions, totalMessages, totalToolCalls, totalTokens}. totalSessions
 // counts ONLY parent (human) sessions — subagents would otherwise inflate it.
+let totalSessionsStmt, totalMetricsStmt;
 function getTotalCounts() {
-  const sessions = db.prepare(
+  totalSessionsStmt ??= db.prepare(
     'SELECT COUNT(*) AS cnt FROM session_cache WHERE parentSessionId IS NULL'
-  ).get();
-  const metrics = db.prepare(`
+  );
+  totalMetricsStmt ??= db.prepare(`
     SELECT
       SUM(messageCount)            AS totalMessages,
       SUM(toolCallCount)           AS totalToolCalls,
       SUM(inputTokens + outputTokens) AS totalTokens
     FROM session_metrics
-  `).get();
+  `);
+  const sessions = totalSessionsStmt.get();
+  const metrics = totalMetricsStmt.get();
   return {
     totalSessions: sessions.cnt || 0,
     totalMessages: metrics.totalMessages || 0,
