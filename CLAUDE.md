@@ -48,21 +48,24 @@ Adopt JBR features one at a time, never bulk-merge:
 
 ## Commands
 
-- `npm test` — runs `node --test` over `test/*.test.js` (27 files). No Electron needed. Keep it green.
+- `npm test` — runs `node --test` over `test/*.test.js` (44 files, 368 tests). No Electron needed. Keep it green.
+  (Note: `trigger-watcher.test.js` uses real `fs.watch`/timers and takes ~5 min — run the suite in the background.)
 - `npm start` — bundles CodeMirror, then launches Electron.
 - `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe`.
 
 ### Windows build gotchas (this machine, VS 2026)
 
-A clean `build:win` needs three workarounds (see memory `switchboard-win-build-vs2026` for detail):
+Full procedure + background: `docs/build-windows.md` (and memory `switchboard-win-build-vs2026`).
+Two of the three historical workarounds are now durable in-repo; only one is per-shell:
 
-1. **node-gyp must be ≥13** for VS 2026 (major 18). Enforced via `"overrides": { "node-gyp": "13.0.0" }`
+1. **node-gyp ≥13** for VS 2026 (major 18) — durable via `"overrides": { "node-gyp": "13.0.0" }`
    in `package.json`. Don't remove.
-2. **Unset `NoDefaultCurrentDirectoryInExePath`** before building, or winpty's gyp `.bat` step fails:
-   `unset NoDefaultCurrentDirectoryInExePath && npm run build:win`.
-3. **node-pty Spectre libs** aren't installed → MSB8040. Workaround sets `SpectreMitigation: 'false'`
-   in `node_modules/node-pty/binding.gyp` + `deps/winpty/src/winpty.gyp`. This is a node_modules patch
-   that is **lost on `npm install`** — see open task to make it durable with patch-package.
+2. **node-pty Spectre mitigation off** (else MSB8040: Spectre libs not installed) — durable via
+   `patches/node-pty+1.1.0.patch` (`SpectreMitigation: 'false'` in node-pty's `binding.gyp` +
+   `deps/winpty/src/winpty.gyp`). Re-applied automatically by the `postinstall` script
+   (`patch-package`), so it survives `npm install`. Don't remove the patch or the postinstall hook.
+3. **Unset `NoDefaultCurrentDirectoryInExePath`** before building (per-shell, not patchable) — winpty's
+   gyp `.bat` step fails otherwise: `unset NoDefaultCurrentDirectoryInExePath && npm run build:win`.
 
 The win target is **x64-only** (arm64 toolchain not available here).
 
