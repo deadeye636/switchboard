@@ -16,6 +16,7 @@ const terminalHeaderShell = document.getElementById('terminal-header-shell');
 const terminalStopBtn = document.getElementById('terminal-stop-btn');
 const runningToggle = document.getElementById('running-toggle');
 const todayToggle = document.getElementById('today-toggle');
+const favoriteToggle = document.getElementById('favorite-toggle');
 const springCleaningBtn = document.getElementById('spring-cleaning-btn');
 const planViewer = document.getElementById('plan-viewer');
 const planPanel = new ViewerPanel(planViewer, {
@@ -236,6 +237,7 @@ let showArchived = false;
 let showStarredOnly = false;
 let showRunningOnly = false;
 let showTodayOnly = false;
+let showFavoritedProjectsOnly = false;
 let cachedProjects = [];
 let cachedAllProjects = [];
 let activePtyIds = new Set();
@@ -1018,6 +1020,15 @@ todayToggle.addEventListener('click', () => {
   todayToggle.classList.toggle('active', showTodayOnly);
   refreshSidebar({ resort: true });
 });
+
+// --- Favorite-projects filter toggle (project-level, not session-level) ---
+if (favoriteToggle) {
+  favoriteToggle.addEventListener('click', () => {
+    showFavoritedProjectsOnly = !showFavoritedProjectsOnly;
+    favoriteToggle.classList.toggle('active', showFavoritedProjectsOnly);
+    refreshSidebar({ resort: true });
+  });
+}
 
 // --- Sidebar view mode toggle (directory-first <-> folder-first) ---
 const VIEW_MODE_ICONS = {

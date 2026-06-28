@@ -798,6 +798,7 @@ input:focus-visible {
 #archive-toggle,
 #running-toggle,
 #today-toggle,
+#favorite-toggle,
 #spring-cleaning-btn {
   background: transparent;
   border: 1px solid rgba(255,255,255,0.08);
@@ -821,6 +822,7 @@ input:focus-visible {
 #archive-toggle:hover,
 #running-toggle:hover,
 #today-toggle:hover,
+#favorite-toggle:hover,
 #spring-cleaning-btn:hover {
   background: rgba(255,255,255,0.04);
   border-color: rgba(255,255,255,0.12);
@@ -849,6 +851,12 @@ input:focus-visible {
   background: rgba(80,180,255,0.1);
   border-color: rgba(80,180,255,0.25);
   color: #50b4ff;
+}
+
+#favorite-toggle.active {
+  background: rgba(245,200,90,0.1);
+  border-color: rgba(245,200,90,0.25);
+  color: #f5c85a;
 }
 
 /* ---- Search ---- */
@@ -4298,6 +4306,29 @@ input:focus-visible {
   border-color: rgba(255,255,255,0.12);
   color: #888;
 }
+
+/* Project favorite (star) button — mirrors the settings button base style. */
+.project-favorite-btn {
+  background: transparent;
+  border: none;
+  color: #7a7a90;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 0;
+  transition: all 0.15s;
+  opacity: 0.7;
+}
+.project-favorite-btn svg { display: block; }
+.project-header:hover .project-favorite-btn { opacity: 1; }
+.project-favorite-btn:hover { background: rgba(245,200,90,0.12); color: #f5c85a; }
+/* Favorited: always visible + gold star. */
+.project-favorite-btn.favorited { opacity: 1; color: #f5c85a; }
 
 /* ========== SETTINGS VIEWER ========== */
 #settings-viewer {

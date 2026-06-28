@@ -924,6 +924,9 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
     // Skip worktree projects — they'll be rendered nested under their parent
     if (worktreeSet.has(project.projectPath)) continue;
 
+    // Project-favorites filter: when active, only render favorited projects.
+    if (typeof showFavoritedProjectsOnly !== 'undefined' && showFavoritedProjectsOnly && !project.favorited) continue;
+
     const result = processProjectSessions(project, resort);
     if (!result) continue;
     const { filtered, visible, older, subagentIndex, sortOrderEntry } = result;
@@ -953,6 +956,14 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
     settingsBtn.title = 'Project settings';
     settingsBtn.innerHTML = ICONS.gear(16);
     header.appendChild(settingsBtn);
+
+    const favoriteBtn = document.createElement('button');
+    favoriteBtn.className = 'project-favorite-btn' + (project.favorited ? ' favorited' : '');
+    favoriteBtn.title = project.favorited ? 'Remove project from favorites' : 'Mark project as favorite';
+    favoriteBtn.innerHTML = project.favorited
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+    header.appendChild(favoriteBtn);
 
     const archiveGroupBtn = document.createElement('button');
     archiveGroupBtn.className = 'project-archive-btn';
@@ -1300,6 +1311,15 @@ function rebindSidebarEvents(projects) {
     if (settingsBtn) {
       settingsBtn.onclick = (e) => { e.stopPropagation(); openSettingsViewer('project', project.projectPath); };
     }
+    const favoriteBtn = header.querySelector('.project-favorite-btn');
+    if (favoriteBtn) {
+      favoriteBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const { favorited } = await window.api.toggleProjectFavorite(project.projectPath);
+        project.favorited = !!favorited;
+        loadProjects();
+      };
+    }
     const remapBtn = header.querySelector('.project-remap-btn');
     if (remapBtn) {
       remapBtn.onclick = async (e) => {
@@ -1376,7 +1396,7 @@ function rebindSidebarEvents(projects) {
       };
     }
     const toggleProject = (e) => {
-      if (e.target.closest('.project-new-btn') || e.target.closest('.project-archive-btn') || e.target.closest('.project-settings-btn') || e.target.closest('.project-schedule-btn') || e.target.closest('.project-remap-btn')) return;
+      if (e.target.closest('.project-new-btn') || e.target.closest('.project-archive-btn') || e.target.closest('.project-settings-btn') || e.target.closest('.project-schedule-btn') || e.target.closest('.project-remap-btn') || e.target.closest('.project-favorite-btn')) return;
       header.classList.toggle('collapsed');
     };
     header.onclick = toggleProject;

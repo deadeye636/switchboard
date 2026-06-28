@@ -95,6 +95,16 @@ db.exec(`
   )
 `);
 
+// Per-project metadata, keyed by the real projectPath (NOT the encoded folder).
+// Kept in its own table — cache_meta is wiped on cache-clearing migrations, but
+// favorites must survive. projectPath is stable across folder re-encoding.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS project_meta (
+    projectPath TEXT PRIMARY KEY,
+    favorited INTEGER DEFAULT 0
+  )
+`);
+
 // Index for fast folder lookups
 db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_folder ON session_cache(folder)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_slug ON session_cache(slug)');
@@ -284,6 +294,13 @@ const stmts = {
     INSERT INTO session_meta (sessionId, archived) VALUES (?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET archived = excluded.archived
   `),
+  // Project favorites (toggle on the real projectPath, analog to upsertStar)
+  projectFavoriteToggle: db.prepare(`
+    INSERT INTO project_meta (projectPath, favorited) VALUES (?, 1)
+    ON CONFLICT(projectPath) DO UPDATE SET favorited = CASE WHEN favorited = 1 THEN 0 ELSE 1 END
+  `),
+  projectMetaGet: db.prepare('SELECT * FROM project_meta WHERE projectPath = ?'),
+  projectMetaGetAll: db.prepare('SELECT projectPath FROM project_meta WHERE favorited = 1'),
   // Session cache statements
   cacheCount: db.prepare('SELECT COUNT(*) as cnt FROM session_cache'),
   cacheGetAll: db.prepare('SELECT * FROM session_cache'),
@@ -413,6 +430,19 @@ function toggleStar(sessionId) {
 
 function setArchived(sessionId, archived) {
   runWithBusyRetry(() => stmts.upsertArchived.run(sessionId, archived ? 1 : 0));
+}
+
+function toggleProjectFavorite(projectPath) {
+  runWithBusyRetry(() => stmts.projectFavoriteToggle.run(projectPath));
+  const row = stmts.projectMetaGet.get(projectPath);
+  return row ? row.favorited : 0;
+}
+
+// Set of projectPaths currently favorited — consumed by buildProjectsFromCache.
+function getFavoritedProjects() {
+  const set = new Set();
+  for (const row of stmts.projectMetaGetAll.all()) set.add(row.projectPath);
+  return set;
 }
 
 // --- Session cache functions ---
@@ -756,6 +786,7 @@ function closeDb() {
 
 module.exports = {
   getMeta, getAllMeta, setName, toggleStar, setArchived,
+  toggleProjectFavorite, getFavoritedProjects,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder,
   replaceSessionMetrics,

@@ -48,6 +48,7 @@ const { encodeProjectPath } = require('./encode-project-path');
 
 const {
   getMeta, getAllMeta, toggleStar, setName, setArchived,
+  toggleProjectFavorite, getFavoritedProjects,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
@@ -425,6 +426,7 @@ sessionCache.init({
     deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics,
     deleteSearchFolder, deleteSearchSession, upsertSearchEntries,
     setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
+    getFavoritedProjects,
   },
 });
 const { readSessionFile, readFolderFromFilesystem, refreshFolder, reconcileCacheFromFilesystem,
@@ -1555,6 +1557,12 @@ ipcMain.handle('stop-session', (_event, sessionId) => {
 ipcMain.handle('toggle-star', (_event, sessionId) => {
   const starred = toggleStar(sessionId);
   return { starred };
+});
+
+// --- IPC: toggle-project-favorite ---
+ipcMain.handle('toggle-project-favorite', (_event, projectPath) => {
+  const favorited = toggleProjectFavorite(projectPath);
+  return { favorited };
 });
 
 // --- IPC: rename-session ---

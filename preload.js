@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('api', {
   getActiveTerminals: () => ipcRenderer.invoke('get-active-terminals'),
   stopSession: (id) => ipcRenderer.invoke('stop-session', id),
   toggleStar: (id) => ipcRenderer.invoke('toggle-star', id),
+  toggleProjectFavorite: (projectPath) => ipcRenderer.invoke('toggle-project-favorite', projectPath),
   renameSession: (id, name) => ipcRenderer.invoke('rename-session', id, name),
   archiveSession: (id, archived) => ipcRenderer.invoke('archive-session', id, archived),
   openTerminal: (id, projectPath, isNew, sessionOptions) => ipcRenderer.invoke('open-terminal', id, projectPath, isNew, sessionOptions),

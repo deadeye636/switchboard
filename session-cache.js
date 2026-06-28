@@ -14,6 +14,7 @@ let PROJECTS_DIR, activeSessions, getMainWindow, log;
 let deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics;
 let deleteSearchFolder, deleteSearchSession, upsertSearchEntries;
 let setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName;
+let getFavoritedProjects;
 
 function init(ctx) {
   PROJECTS_DIR = ctx.PROJECTS_DIR;
@@ -37,6 +38,7 @@ function init(ctx) {
   getSetting = ctx.db.getSetting;
   getMeta = ctx.db.getMeta;
   setName = ctx.db.setName;
+  getFavoritedProjects = ctx.db.getFavoritedProjects;
 }
 
 // readSessionFile is imported from read-session-file.js (shared with worker)
@@ -328,13 +330,19 @@ function buildProjectsFromCache(showArchived) {
     }
   }
 
+  const favorited = typeof getFavoritedProjects === 'function' ? getFavoritedProjects() : new Set();
+
   const projects = [];
   for (const proj of projectMap.values()) {
     proj.sessions.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+    proj.favorited = favorited.has(proj.projectPath);
     projects.push(proj);
   }
 
   projects.sort((a, b) => {
+    // Favorited projects go to the top (before any other ordering).
+    if (a.favorited && !b.favorited) return -1;
+    if (!a.favorited && b.favorited) return 1;
     // Missing projects go to the bottom
     if (a.missing && !b.missing) return 1;
     if (!a.missing && b.missing) return -1;
