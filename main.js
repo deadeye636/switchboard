@@ -1789,7 +1789,16 @@ ipcMain.on('terminal-resize', (_event, sessionId, cols, rows) => {
     // accumulating prompt redraws that pollute reattach replay
     if (session.isPlainTerminal) session._suppressBuffer = true;
 
-    session.pty.resize(cols, rows);
+    // The PTY can exit between the !session.exited check above and this call
+    // (the exit event hasn't been processed yet). node-pty then throws
+    // "Cannot resize a pty that has already exited" — synchronously, which would
+    // crash the main process. Swallow it: a dead PTY can't be resized anyway.
+    try {
+      session.pty.resize(cols, rows);
+    } catch (e) {
+      log.warn('[terminal-resize] resize on exited pty ignored:', e?.message || String(e));
+      return;
+    }
 
     if (session.isPlainTerminal) {
       setTimeout(() => { session._suppressBuffer = false; }, 200);
