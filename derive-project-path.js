@@ -35,7 +35,8 @@ function extractCwdFromJsonl(filePath) {
 function resolveWorktreePath(cwd) {
   if (!cwd) return cwd;
   // Detect worktree paths: <project>/.claude-worktrees/<name>, <project>/.worktrees/<name>, or <project>/.claude/worktrees/<name>
-  const worktreeMatch = cwd.match(/^(.+?)\/\.(?:claude\/worktrees|claude-worktrees|worktrees)\/[^/]+\/?$/);
+  // Accept both separators so Windows backslash paths collapse too.
+  const worktreeMatch = cwd.match(/^(.+?)[\\/]\.(?:claude[\\/]worktrees|claude-worktrees|worktrees)[\\/][^\\/]+[\\/]?$/);
   if (worktreeMatch) {
     const parent = worktreeMatch[1];
     if (fs.existsSync(parent)) return parent;
