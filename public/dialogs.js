@@ -616,6 +616,10 @@ function showAddProjectDialog() {
       <button class="add-project-cancel-btn">Cancel</button>
       <button class="add-project-add-btn">Add</button>
     </div>
+    <div class="hidden-projects-section" id="hidden-projects-section" style="display:none;">
+      <div class="hidden-projects-title">Hidden Projects</div>
+      <div class="hidden-projects-list" id="hidden-projects-list"></div>
+    </div>
   `;
 
   overlay.appendChild(dialog);
@@ -624,6 +628,37 @@ function showAddProjectDialog() {
   const pathInput = dialog.querySelector('#add-project-path');
   const errorEl = dialog.querySelector('#add-project-error');
   pathInput.focus();
+
+  // Restore UI: list hidden projects with unhide buttons.
+  async function renderHiddenProjects() {
+    const section = dialog.querySelector('#hidden-projects-section');
+    const listEl = dialog.querySelector('#hidden-projects-list');
+    let hidden = [];
+    try { hidden = await window.api.getHiddenProjects(); } catch {}
+    if (!hidden || hidden.length === 0) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    listEl.innerHTML = '';
+    for (const projectPath of hidden) {
+      const row = document.createElement('div');
+      row.className = 'hidden-project-row';
+      const name = document.createElement('span');
+      name.className = 'hidden-project-path';
+      name.textContent = projectPath;
+      name.title = projectPath;
+      const unhide = document.createElement('button');
+      unhide.className = 'hidden-project-unhide-btn';
+      unhide.textContent = 'Restore';
+      unhide.onclick = async () => {
+        await window.api.unhideProject(projectPath);
+        await loadProjects();
+        renderHiddenProjects();
+      };
+      row.appendChild(name);
+      row.appendChild(unhide);
+      listEl.appendChild(row);
+    }
+  }
+  renderHiddenProjects();
 
   function close() {
     overlay.remove();

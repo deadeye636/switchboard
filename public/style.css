@@ -1175,6 +1175,65 @@ input:focus-visible {
   color: #8088ff;
 }
 
+/* Hide-project (eye-off) button — same base style as the archive button. */
+.project-hide-btn {
+  background: transparent;
+  border: none;
+  color: #808098;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 0;
+  transition: all 0.15s;
+  opacity: 0.7;
+}
+.project-hide-btn svg { display: block; }
+.project-header:hover .project-hide-btn { opacity: 1; }
+.project-hide-btn:hover { background: rgba(255,255,255,0.06); color: #c0c0d0; }
+
+/* Restore UI — hidden-projects list in the Add-Project dialog. */
+.hidden-projects-section {
+  margin-top: 16px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 12px;
+}
+.hidden-projects-title {
+  font-size: 12px;
+  color: #9aa3b2;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.hidden-projects-list { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; }
+.hidden-project-row { display: flex; align-items: center; gap: 8px; }
+.hidden-project-path {
+  flex: 1;
+  font-size: 12px;
+  color: #c0c0d0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.hidden-project-unhide-btn {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #9aa3b2;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.hidden-project-unhide-btn:hover { background: rgba(255,255,255,0.06); color: #e6e8ec; border-color: rgba(255,255,255,0.2); }
+
 .project-header .arrow {
   font-size: 9px;
   transition: transform 0.2s;

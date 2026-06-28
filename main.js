@@ -507,6 +507,32 @@ ipcMain.handle('remove-project', (_event, projectPath) => {
   }
 });
 
+// --- IPC: get-hidden-projects ---
+// List of projectPaths the user has hidden (for the restore UI).
+ipcMain.handle('get-hidden-projects', () => {
+  const global = getSetting('global') || {};
+  return global.hiddenProjects || [];
+});
+
+// --- IPC: unhide-project ---
+// Remove a project from the hidden list and re-index its folder so it
+// reappears in the sidebar. The on-disk ~/.claude/projects folder still exists
+// (remove-project only cleared the DB cache), so a refresh repopulates it.
+ipcMain.handle('unhide-project', (_event, projectPath) => {
+  try {
+    const global = getSetting('global') || {};
+    global.hiddenProjects = (global.hiddenProjects || []).filter(p => p !== projectPath);
+    setSetting('global', global);
+
+    const folder = encodeProjectPath(projectPath);
+    try { refreshFolder(folder); } catch {}
+    notifyRendererProjectsChanged();
+    return { ok: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 // --- IPC: remap-project ---
 ipcMain.handle('remap-project', (_event, oldPath, newPath) => {
   try {
