@@ -173,6 +173,38 @@ const terminalWriteBuffers = new Map(); // sessionId → { chunks, syncDepth, ra
 const MIN_FLUSH_INTERVAL_MS = 33; // ~30 fps
 const lastFlushAt = new Map(); // sessionId → performance.now() of last flush
 
+// --- Terminal mouse-reporting toggle ---
+// When false, strip the program's DEC private mouse-tracking mode set/reset
+// sequences from the output stream so it never enables mouse reporting. Then a
+// plain left-click+drag does local text selection again (the program loses mouse
+// events — scroll/click in a TUI like Claude Code stop working). Default true
+// (native behavior; select with Shift+drag while a program captures the mouse).
+let terminalMouseReportingEnabled = true;
+// Mouse-tracking private modes only. Deliberately NOT 1004 (focus), 1049 (alt
+// screen), 2004 (bracketed paste) or 25 (cursor) — those must pass through.
+const MOUSE_TRACKING_MODES = new Set([1000, 1001, 1002, 1003, 1005, 1006, 1015, 1016]);
+function stripMouseReporting(data) {
+  if (data.indexOf('\x1b[?') === -1) return data;
+  // Drop a private-mode set/reset only when ALL its params are mouse modes, so
+  // combined sequences that also toggle a non-mouse mode are left intact.
+  return data.replace(/\x1b\[\?([\d;]+)([hl])/g, (m, params) => {
+    const nums = params.split(';').filter(Boolean).map(Number);
+    return nums.length && nums.every(n => MOUSE_TRACKING_MODES.has(n)) ? '' : m;
+  });
+}
+// Apply the toggle. When disabling, immediately reset mouse modes on every open
+// terminal so a program that already enabled tracking stops capturing the mouse
+// without waiting for it to re-emit or restart.
+function setTerminalMouseReporting(enabled) {
+  terminalMouseReportingEnabled = !!enabled;
+  if (!terminalMouseReportingEnabled) {
+    const reset = '\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l';
+    for (const [, entry] of openSessions) {
+      try { entry.terminal.write(reset); } catch {}
+    }
+  }
+}
+
 function flushTerminalBuffer(sessionId) {
   const buf = terminalWriteBuffers.get(sessionId);
   if (!buf) return;
@@ -183,7 +215,8 @@ function flushTerminalBuffer(sessionId) {
   const entry = openSessions.get(sessionId);
   if (!entry) return;
 
-  const data = buf.chunks.join('');
+  let data = buf.chunks.join('');
+  if (!terminalMouseReportingEnabled) data = stripMouseReporting(data);
   lastFlushAt.set(sessionId, performance.now());
   const wasAtBottom = isAtBottom(entry.terminal);
   const savedViewportY = entry.terminal.buffer.active.viewportY;

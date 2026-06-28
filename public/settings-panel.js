@@ -73,6 +73,7 @@
     const maxAgeValue = fieldValue('sessionMaxAgeDays', 3);
     const themeValue = fieldValue('terminalTheme', 'switchboard');
     const rightClickValue = fieldValue('terminalRightClick', 'menu');
+    const mouseReportingValue = fieldValue('terminalMouseReporting', 'on');
     const mcpEmulationValue = fieldValue('mcpEmulation', true);
     const restoreSessionsValue = fieldValue('restoreSessionsOnLaunch', true);
     const attentionHooksValue = fieldValue('attentionHooks', false);
@@ -223,6 +224,16 @@
           </div>
           <div class="settings-field-control">
             <label class="settings-toggle"><input type="checkbox" id="sv-right-click" ${rightClickValue !== 'default' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Terminal Mouse Reporting</span>
+            <div class="settings-description">When on, terminal apps (e.g. Claude Code's TUI) can use the mouse for scrolling/clicking; select text with Shift+drag. When off, Switchboard strips the mouse-tracking escape sequences so plain left-click+drag always selects text — but the TUI no longer receives mouse events. Takes full effect on the next session output (open terminals are reset immediately).</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-mouse-reporting" ${mouseReportingValue !== 'off' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
           </div>
         </div>
 
@@ -468,6 +479,7 @@
         settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
         settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').checked ? 'menu' : 'default';
+        settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').checked ? 'on' : 'off';
         settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
         settings.restoreSessionsOnLaunch = settingsViewerBody.querySelector('#sv-restore-sessions').checked;
         settings.attentionHooks = settingsViewerBody.querySelector('#sv-attention-hooks').checked;
@@ -511,6 +523,9 @@
         }
         if (settings.terminalRightClick && typeof window._applyTerminalRightClick === 'function') {
           window._applyTerminalRightClick(settings.terminalRightClick);
+        }
+        if (settings.terminalMouseReporting && typeof window._applyTerminalMouseReporting === 'function') {
+          window._applyTerminalMouseReporting(settings.terminalMouseReporting);
         }
         if (settings.shortcuts && typeof window._applyShortcuts === 'function') {
           window._applyShortcuts(settings.shortcuts);

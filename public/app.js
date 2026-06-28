@@ -281,6 +281,10 @@ function getNextAttentionBinding() {
 // Live-apply the terminal right-click behavior (terminalRightClickMode lives in
 // terminal-context-menu.js); takes effect on the next right-click, no relaunch.
 window._applyTerminalRightClick = (mode) => { terminalRightClickMode = mode || 'menu'; };
+// Live-apply terminal mouse reporting (setTerminalMouseReporting lives in
+// terminal-manager.js). 'off' strips mouse-tracking sequences so left-drag
+// selects; resets open terminals immediately.
+window._applyTerminalMouseReporting = (mode) => { if (typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(mode !== 'off'); };
 let searchMatchIds = null; // null = no search active; Set<string> = matched session IDs
 let searchMatchProjectPaths = null; // Set<string> of project paths matched by name
 
@@ -2068,6 +2072,9 @@ setTimeout(() => {
       window._setNotificationSettings(global.notifications);
     }
     if (global.terminalRightClick) terminalRightClickMode = global.terminalRightClick;
+    if (global.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') {
+      setTerminalMouseReporting(global.terminalMouseReporting !== 'off');
+    }
     if (global.shortcuts) setAppShortcuts(global.shortcuts);
   }
 
