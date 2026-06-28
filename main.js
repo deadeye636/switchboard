@@ -17,6 +17,14 @@ const { shouldUseSingleInstanceLock } = require('./main-lifecycle');
 log.transports.file.level = app.isPackaged ? 'info' : 'debug';
 log.transports.console.level = app.isPackaged ? 'info' : 'debug';
 
+// Dev builds default to a separate SQLite DB so they don't race on
+// session_cache with a running installed app. Honors an explicit
+// SWITCHBOARD_DATA_DIR env var if set (test sandboxes, agent runs). This MUST
+// happen before db.js is required — db.js resolves DATA_DIR at module load.
+if (!app.isPackaged && !process.env.SWITCHBOARD_DATA_DIR) {
+  process.env.SWITCHBOARD_DATA_DIR = path.join(os.homedir(), '.switchboard-dev');
+}
+
 try { require('electron-reloader')(module, { watchRenderer: true }); } catch {};
 
 // Clean env for child processes — strip Electron internals that cause nested

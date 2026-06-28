@@ -3,7 +3,13 @@ const path = require('path');
 const os = require('os');
 const { runWithBusyRetry } = require('./sqlite-busy-retry');
 
-const DATA_DIR = path.join(os.homedir(), '.switchboard');
+// SWITCHBOARD_DATA_DIR lets dev/agent runs use a separate DB from the
+// installed app so they don't race on session_cache. Default stays
+// ~/.switchboard so existing installs keep working. Resolve env var at
+// require-time (any later mutation would be ignored).
+const DATA_DIR = process.env.SWITCHBOARD_DATA_DIR
+  ? path.resolve(process.env.SWITCHBOARD_DATA_DIR.replace(/^~(?=$|\/)/, os.homedir()))
+  : path.join(os.homedir(), '.switchboard');
 const fs = require('fs');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -15,7 +21,11 @@ const OLD_LOCATIONS = [
   path.join(os.homedir(), '.claude', 'browser', 'session-browser.db'),
   path.join(os.homedir(), '.claude', 'session-browser.db'),
 ];
-if (!fs.existsSync(DB_PATH)) {
+// Skip the legacy ~/.claude/browser/ migration when running with a custom
+// DATA_DIR (typical dev/agent setup) — otherwise a fresh dev DB would steal
+// the installed app's old data on first launch.
+const IS_DEFAULT_DATA_DIR = !process.env.SWITCHBOARD_DATA_DIR;
+if (IS_DEFAULT_DATA_DIR && !fs.existsSync(DB_PATH)) {
   for (const oldPath of OLD_LOCATIONS) {
     if (fs.existsSync(oldPath)) {
       fs.renameSync(oldPath, DB_PATH);
