@@ -181,6 +181,25 @@ function showTerminalContextMenu(event, ctx) {
 // cursor is currently over (tracked via the link hover/leave callbacks), or
 // null.
 function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredLinkUri) {
+  // Swallow the right mouse BUTTON itself (mousedown/mouseup/auxclick) in the
+  // capture phase so xterm never processes it. Two bugs otherwise:
+  //   1. xterm clears the active selection on the right-button mousedown, so the
+  //      context menu sees hasSelection()===false and omits "Copy".
+  //   2. with application mouse-reporting on (Claude's TUI), xterm forwards the
+  //      right button to the program, which surfaces as a stray paste — the
+  //      native behavior runs even though our menu is shown.
+  // stopPropagation (no preventDefault) keeps xterm's descendant handlers from
+  // firing while still letting the OS emit the `contextmenu` event we handle
+  // below. 'default' mode leaves xterm's native handling untouched.
+  const swallowRightButton = (e) => {
+    if (e.button !== 2) return;
+    if (terminalRightClickMode === 'default') return;
+    e.stopPropagation();
+  };
+  container.addEventListener('mousedown', swallowRightButton, { capture: true });
+  container.addEventListener('mouseup', swallowRightButton, { capture: true });
+  container.addEventListener('auxclick', swallowRightButton, { capture: true });
+
   container.addEventListener('contextmenu', (e) => {
     if (terminalRightClickMode === 'default') return; // let xterm handle it natively
     // Capture-phase preventDefault + stopPropagation: xterm's contextmenu
