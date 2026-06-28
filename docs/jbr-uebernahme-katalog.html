@@ -108,19 +108,19 @@
 </tr>
 
 <tr>
-  <td><span class="tasknr">1.5</span></td>
+  <td><span class="tasknr done">1.5</span></td>
   <td><span class="feat">Per-Projekt <code>.work-files/</code>-Tab</span><div class="desc">Navigierbarer Tab, Delete + JSON/JSONL-Format-Buttons, chirurgisches Entfernen.</div></td>
   <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/04fe34a">04fe34a</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/d20a426">d20a426</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/1cc2510">1cc2510</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/16">#16</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/17">#17</a></td>
-  <td><span class="badge b-mid">Mittel</span></td><td>Mittel (neuer Tab, IPC)</td><td>fehlt</td>
-  <td class="rec"><span class="badge b-mid">Abwägen</span></td>
+  <td><span class="badge b-mid">Mittel</span></td><td>Mittel (neuer Tab, IPC)</td><td>fehlte</td>
+  <td class="rec"><span class="badge b-done">✓ gemerged</span><div class="hint">eslint-Hunks gedroppt (kein eslint); schaltet 4.9b frei</div></td>
 </tr>
 
 <tr>
-  <td><span class="tasknr">1.6</span></td>
+  <td><span class="tasknr done">1.6</span></td>
   <td><span class="feat">Token/Tool/Message-Metriken</span><div class="desc">Per-(Session,Datum,Modell) Metriken sammeln; in sessionCache verdrahtet.</div></td>
   <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/6a7e717">6a7e717</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/13219eb">13219eb</a></td>
-  <td><span class="badge b-mid">Mittel</span></td><td>Mittel (DB + stats)</td><td>HaydnG hat eigene Stats</td>
-  <td class="rec"><span class="badge b-mid">Abwägen</span><div class="hint">Überschneidung prüfen</div></td>
+  <td><span class="badge b-mid">Mittel</span></td><td>Mittel (DB + stats)</td><td>fehlte (UI war vorbereitet)</td>
+  <td class="rec"><span class="badge b-done">✓ gemerged</span><div class="hint">füllt HaydnGs leeres modelUsage/dailyModelTokens; session_metrics Migration ans Ende; touchCachedModified gedroppt; schaltet 4.9c-stats frei</div></td>
 </tr>
 
 <tr>
@@ -233,8 +233,8 @@
 <tr><td><span class="tasknr done">4.8</span></td><td>Refresh-Serie: O(1)-Lookup, header-only, targeted, bump-only</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/d58be56">d58be56</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/ba1d55a">ba1d55a</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/d1f901c">d1f901c</a> <a href="https://github.com/JeanBaptisteRenard/switchboard/commit/d32dcae">d32dcae</a></td><td>schnellerer Refresh</td><td><span class="badge b-done">✓ Dup (cachedMap in <old-codename>)</span></td></tr>
 <tr><td><span class="tasknr done">4.9a</span></td><td>PTY-outputBuffer-coalesce (neue output-buffer.js)</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/cb96eb1">cb96eb1</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/75">#75</a></td><td>weniger RAM/Session</td><td><span class="badge b-done">✓ gemerged</span></td></tr>
 <tr><td><span class="tasknr done">4.9e</span></td><td>Bounded cwd-scan + cached projectPath</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/aa5ddf8">aa5ddf8</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/62">#62</a></td><td>kein Re-Read großer JSONLs</td><td><span class="badge b-done">✓ gemerged</span></td></tr>
-<tr><td><span class="tasknr">4.9b</span></td><td>FTS-Dirty-Flag (skip reindex on tab switch)</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/843de89">843de89</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/74">#74</a></td><td>weniger Reindex</td><td><span class="badge b-mid">vertagt (verflochten mit 1.5 work-files)</span></td></tr>
-<tr><td><span class="tasknr done">4.9c</span></td><td>WAL-Checkpoint on close + synchronous=NORMAL</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/fbaf013">fbaf013</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/59">#59</a></td><td>kleinere -wal-Datei</td><td><span class="badge b-done">✓ manuell (WAL+sync; stats-Memo=metrics weggelassen)</span></td></tr>
+<tr><td><span class="tasknr done">4.9b</span></td><td>FTS-Dirty-Flag (skip reindex on tab switch)</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/843de89">843de89</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/74">#74</a></td><td>weniger Reindex</td><td><span class="badge b-done">✓ gemerged (nach 1.5, sauber cherry-picked)</span></td></tr>
+<tr><td><span class="tasknr done">4.9c</span></td><td>WAL-Checkpoint on close + synchronous=NORMAL</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/fbaf013">fbaf013</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/59">#59</a></td><td>kleinere -wal-Datei</td><td><span class="badge b-done">✓ komplett (WAL+sync; stats-Memo nach 1.6 nachgezogen, icon.png raus, cleanStaleLockFiles-Call)</span></td></tr>
 <tr><td><span class="tasknr done">4.9d</span></td><td>reconcile-Throttle 5s (idle-DOM-Skip offen)</td><td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/commit/e3c56c4">e3c56c4</a> <a class="pr" href="https://github.com/JeanBaptisteRenard/switchboard/pull/70">#70</a></td><td>weniger readdir-Sweeps</td><td><span class="badge b-done">✓ Throttle manuell</span> · <span class="badge b-mid">DOM-Skip vertagt (UI-Merge)</span></td></tr>
 </table>
 
