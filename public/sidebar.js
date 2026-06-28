@@ -1585,9 +1585,10 @@ function rebindSidebarEvents(projects) {
 
     const openSessionFromRow = (e) => {
       if (e?.target?.closest?.('.session-actions, .session-pin, .session-health-chip')) return;
-      // Subagents are ephemeral child runs — open a read-only transcript instead
-      // of resuming a PTY (the parent context is gone, a synthetic id can't resume).
-      if (session.parentSessionId) { if (typeof showJsonlViewer === 'function') showJsonlViewer(session); return; }
+      // Subagents are ephemeral child runs — open the dedicated read-only
+      // subagent transcript (reads via readSubagentJsonl(parent, agentId), the
+      // correct on-disk path) instead of resuming a PTY or reading a synthetic id.
+      if (session.parentSessionId) { if (typeof showSubagentTranscript === 'function') showSubagentTranscript(session); return; }
       openSession(session);
     };
     item.onclick = openSessionFromRow;
