@@ -12,10 +12,12 @@
 // Behavior is gated by the global `terminalRightClickMode`, persisted as the
 // `terminalRightClick` global setting and pushed live via
 // window._applyTerminalRightClick:
-//   'menu'    → show this context menu (default)
-//   'paste'   → right-click pastes the clipboard (PuTTY-style), no menu
-//   'default' → leave xterm's native right-click behavior untouched
-//   'none'    → right-click does nothing
+//   'menu'       → show this context menu (default)
+//   'copy-paste' → copy the selection, or paste when nothing is selected
+//   'copy'       → copy the selection (no paste)
+//   'paste'      → right-click pastes the clipboard (PuTTY-style), no menu
+//   'default'    → leave xterm's native right-click behavior untouched
+//   'none'       → right-click does nothing
 //
 // Depends on globals: openFileInPanel (file-panel.js), window.api.
 // Pure helpers (fileUriToPath / classifyLinkUri / buildTerminalMenuItems) are
@@ -208,6 +210,17 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
     e.preventDefault();
     e.stopPropagation();
     if (terminalRightClickMode === 'none') return;
+    // Copy-on-right-click modes (Windows/PuTTY convention). The right-button
+    // mousedown was swallowed above, so the selection is still intact here.
+    if (terminalRightClickMode === 'copy' || terminalRightClickMode === 'copy-paste') {
+      if (terminal.hasSelection && terminal.hasSelection()) {
+        window.api.writeClipboard(terminal.getSelection());
+        if (terminal.clearSelection) terminal.clearSelection();
+      } else if (terminalRightClickMode === 'copy-paste') {
+        window.api.readClipboard().then((t) => { if (t) terminal.paste(t); }).catch(() => {});
+      }
+      return;
+    }
     if (terminalRightClickMode === 'paste') {
       window.api.readClipboard().then((t) => { if (t) terminal.paste(t); }).catch(() => {});
       return;

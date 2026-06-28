@@ -219,11 +219,16 @@
 
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">Terminal Right-Click Menu</span>
-            <div class="settings-description">When on, right-click in the terminal shows a context menu with file-link actions (open in panel / system editor, copy path), copy and paste. When off, the native xterm behavior is used. Takes effect on the next right-click.</div>
+            <span class="settings-label">Terminal Right-Click</span>
+            <div class="settings-description">What a right-click in the terminal does. Menu = context menu with file-link actions, copy &amp; paste. Copy or paste = copy the selection, or paste when nothing is selected (Windows/PuTTY style). Copy only = copy the selection. Native = xterm default. Takes effect on the next right-click.</div>
           </div>
           <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-right-click" ${rightClickValue !== 'default' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+            <select class="settings-select" id="sv-right-click">
+              <option value="menu" ${rightClickValue === 'menu' ? 'selected' : ''}>Menu</option>
+              <option value="copy-paste" ${rightClickValue === 'copy-paste' ? 'selected' : ''}>Copy or paste</option>
+              <option value="copy" ${rightClickValue === 'copy' ? 'selected' : ''}>Copy only</option>
+              <option value="default" ${rightClickValue === 'default' ? 'selected' : ''}>Native</option>
+            </select>
           </div>
         </div>
 
@@ -478,7 +483,7 @@
         settings.visibleSessionCount = parseInt(settingsViewerBody.querySelector('#sv-visible-count').value) || 10;
         settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
-        settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').checked ? 'menu' : 'default';
+        settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').value || 'menu';
         settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').checked ? 'on' : 'off';
         settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
         settings.restoreSessionsOnLaunch = settingsViewerBody.querySelector('#sv-restore-sessions').checked;
