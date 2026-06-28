@@ -5038,6 +5038,21 @@ input:focus-visible {
   background: rgba(62,207,90,0.08);
 }
 
+/* The terminal right-click menu uses the bare `popover` class as its container,
+   which (unlike .new-session-popover / .group-assign-popover) had no panel
+   styling of its own — the menu rendered with a transparent background. Give it
+   the standard popover surface. */
+.terminal-context-menu {
+  position: fixed;
+  z-index: 1001;
+  background: #1e1e2a;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  min-width: 150px;
+}
+
 /* ========== TERMINAL BADGE ========== */
 .terminal-badge {
   display: inline-flex;
