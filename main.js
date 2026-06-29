@@ -1581,6 +1581,18 @@ ipcMain.handle('toggle-project-favorite', (_event, projectPath) => {
   return { favorited };
 });
 
+// --- IPC: Windows build number (synchronous) ---
+// xterm's windowsPty option needs the real OS build to track ConPTY wrapping.
+// The sandboxed preload can't read it (its os.release() is a polyfill), so it
+// asks here. sendSync keeps the value available before the first terminal opens.
+ipcMain.on('get-windows-build', (event) => {
+  let build = 0;
+  if (process.platform === 'win32') {
+    try { build = parseInt(os.release().split('.')[2], 10) || 0; } catch { build = 0; }
+  }
+  event.returnValue = build;
+});
+
 // --- IPC: bookmarks ---
 ipcMain.handle('bookmark-toggle', (_event, payload) => {
   const { sessionId, entryIndex, timestamp, label } = payload || {};

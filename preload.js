@@ -113,6 +113,14 @@ contextBridge.exposeInMainWorld('api', {
   // Platform
   platform: process.platform,
   isPackaged: !process.defaultApp,
+  // Windows OS build number — fed to xterm's windowsPty option so it tracks
+  // ConPTY's reflow/wrapping correctly (fixes cursor jumps + stale cell fragments
+  // in multi-line TUI redraws). 0 on non-Windows. Fetched synchronously from the
+  // main process: the sandboxed preload's require('os') is a polyfill whose
+  // os.release() doesn't carry the real build, so it must come from main.
+  windowsBuildNumber: (() => {
+    try { return ipcRenderer.sendSync('get-windows-build') || 0; } catch { return 0; }
+  })(),
 
   // App version
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),

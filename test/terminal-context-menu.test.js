@@ -70,6 +70,38 @@ test('Copy only appears when there is a selection', () => {
   assert.ok(!noSel.includes('copy'));
 });
 
+// ── pasteIntoTerminal ────────────────────────────────────────────────
+
+test('pasteIntoTerminal: multiline + bracketed mode → bracketed sequence, \\n preserved', () => {
+  const sent = [];
+  const savedWindow = global.window;
+  global.window = { api: { sendInput: (id, d) => sent.push([id, d]) } };
+  try {
+    const term = { modes: { bracketedPasteMode: true }, paste(t) { this.pasted = t; } };
+    menu.pasteIntoTerminal(term, 's1', 'line1\r\nline2\nline3');
+    assert.strictEqual(term.pasted, undefined, 'terminal.paste not used for bracketed multiline');
+    assert.deepStrictEqual(sent, [['s1', '\x1b[200~line1\nline2\nline3\x1b[201~']]);
+  } finally { global.window = savedWindow; }
+});
+
+test('pasteIntoTerminal: single-line falls back to terminal.paste (no sendInput)', () => {
+  const sent = [];
+  const savedWindow = global.window;
+  global.window = { api: { sendInput: (id, d) => sent.push([id, d]) } };
+  try {
+    const term = { modes: { bracketedPasteMode: true }, paste(t) { this.pasted = t; } };
+    menu.pasteIntoTerminal(term, 's1', 'just one line');
+    assert.strictEqual(term.pasted, 'just one line');
+    assert.strictEqual(sent.length, 0);
+  } finally { global.window = savedWindow; }
+});
+
+test('pasteIntoTerminal: multiline without bracketed mode → terminal.paste', () => {
+  const term = { modes: { bracketedPasteMode: false }, paste(t) { this.pasted = t; } };
+  menu.pasteIntoTerminal(term, 's1', 'a\nb');
+  assert.strictEqual(term.pasted, 'a\nb');
+});
+
 // ── DOM / action functions (jsdom + vm) ──────────────────────────────
 
 function setupMenuDom() {

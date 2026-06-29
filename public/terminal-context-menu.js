@@ -69,6 +69,23 @@ function buildTerminalMenuItems({ linkUri, hasSelection }) {
   return items;
 }
 
+// Paste `text` into the terminal. For a MULTILINE paste while the program has
+// bracketed-paste mode on (e.g. Claude Code), send the bracketed sequence
+// ourselves with \n preserved. xterm's terminal.paste() normalizes every newline
+// to \r, which makes a pasted multiline block render as one wrapping unit that
+// merges lines on resize (a real terminal keeps \n). Single-line pastes and
+// non-bracketed programs fall back to terminal.paste() unchanged.
+function pasteIntoTerminal(terminal, sessionId, text) {
+  if (typeof text !== 'string' || !text) return;
+  const bracketed = !!(terminal && terminal.modes && terminal.modes.bracketedPasteMode);
+  if (bracketed && sessionId && /[\r\n]/.test(text)) {
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    window.api.sendInput(sessionId, '\x1b[200~' + normalized + '\x1b[201~');
+    return;
+  }
+  if (terminal && typeof terminal.paste === 'function') terminal.paste(text);
+}
+
 // Execute the effect for a chosen menu item.
 async function runTerminalMenuAction(id, ctx) {
   const { terminal, sessionId, linkUri } = ctx;
@@ -97,7 +114,7 @@ async function runTerminalMenuAction(id, ctx) {
     case 'paste':
       try {
         const text = await window.api.readClipboard();
-        if (text) terminal.paste(text);
+        if (text) pasteIntoTerminal(terminal, sessionId, text);
       } catch { /* clipboard unavailable — no-op */ }
       break;
     case 'select-all':
@@ -227,13 +244,13 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
         window.api.writeClipboard(terminal.getSelection());
         if (terminal.clearSelection) terminal.clearSelection();
       } else if (terminalRightClickMode === 'copy-paste') {
-        window.api.readClipboard().then((t) => { if (t) terminal.paste(t); }).catch(() => {});
+        window.api.readClipboard().then((t) => { if (t) pasteIntoTerminal(terminal, getSessionId(), t); }).catch(() => {});
       }
       terminal.focus(); // the swallowed right-button never focused the terminal
       return;
     }
     if (terminalRightClickMode === 'paste') {
-      window.api.readClipboard().then((t) => { if (t) terminal.paste(t); }).catch(() => {});
+      window.api.readClipboard().then((t) => { if (t) pasteIntoTerminal(terminal, getSessionId(), t); }).catch(() => {});
       terminal.focus();
       return;
     }
@@ -251,6 +268,7 @@ if (typeof module !== 'undefined' && module.exports) {
     fileUriToPath,
     classifyLinkUri,
     buildTerminalMenuItems,
+    pasteIntoTerminal,
     runTerminalMenuAction,
     showTerminalContextMenu,
     closeTerminalContextMenu,

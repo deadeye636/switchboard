@@ -64,7 +64,7 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
     // this was removed with the application menu.
     if (!isMac && e.key === 'v' && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
       if (e.type === 'keydown') {
-        window.api.readClipboard().then((t) => { if (t) terminal.paste(t); }).catch(() => {});
+        window.api.readClipboard().then((t) => { if (t) pasteIntoTerminal(terminal, getSessionId(), t); }).catch(() => {});
       }
       return false;
     }
@@ -419,6 +419,14 @@ function createTerminalEntry(session, opts = {}) {
     scrollback: opts.scrollback ?? (gridViewActive ? SCROLLBACK_GRID : SCROLLBACK_SINGLE),
     convertEol: true,
     allowProposedApi: true,
+    // On Windows, tell xterm the PTY backend (node-pty defaults to ConPTY on
+    // Win10 1809+) and the OS build so it tracks ConPTY's reflow/wrapping
+    // correctly. Without this, multi-line TUI redraws desync — the cursor jumps
+    // a line up (esp. after a shorter wrapped line) and stale cell fragments
+    // linger at line starts.
+    ...(window.api.platform === 'win32'
+      ? { windowsPty: { backend: 'conpty', buildNumber: window.api.windowsBuildNumber || undefined } }
+      : {}),
     linkHandler: {
       activate: (event, uri) => {
         // xterm fires link activate on any mouseup button (no guard); only act
