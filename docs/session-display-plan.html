@@ -41,7 +41,7 @@
 
 <h1>Plan — Session-Display-Modi: Tabs &amp; abkoppelbare Fenster</h1>
 <p class="sub"><strong>Status:</strong> Geplant (2026-06-29) · Eigen-Anforderung · <old-codename> <code>050c669</code>, 427 Tests grün ·
-Phase 1 <span class="badge b-mid">build now</span> · Phase 2 <span class="badge b-lo">design — später</span></p>
+Phase 1 Tabs <span class="badge b-mid">build now</span> · Phase 2 Settings-Fenster <span class="badge b-mid">Multi-Window-POC</span> · Phase 3 Detach <span class="badge b-lo">später</span></p>
 
 <div class="note">
 <strong>Ziel:</strong> Session-Darstellung <strong>wählbar</strong> machen — <code>Legacy</code> (heute) / <code>Tabs</code> (jetzt) /
@@ -84,12 +84,16 @@ Detach hingegen ist ein Architektur-Eingriff (Multi-Window-Routing).</div>
 <h2>Phase 1 — Tabs <span class="badge b-mid">JETZT bauen</span></h2>
 <p class="small">Muster für Setting + Live-Apply: bestehende <code>terminalRightClick</code>/<code>terminalMouseReporting</code>-Plumbing (Commit <code>3e6bca7</code>).</p>
 
-<h3>1.1 Setting + Plumbing</h3>
-<ul>
-<li><strong>settings-panel.js</strong>: Dropdown „Session-Darstellung" (Legacy / Tabs).</li>
-<li>Persistenz: <code>global.sessionDisplayMode</code> über bestehendes <code>set-setting</code> — <strong>kein neuer IPC</strong>.</li>
-<li><strong>app.js</strong>: Setter <code>applySessionDisplayMode(mode)</code> + Startup-Load (im <code>global</code>-Block ~<code>app.js:2074</code>). Toggelt Container-Klasse <code>display-mode-tabs</code>. Live bei Save.</li>
-</ul>
+<h3>1.1 Settings + Plumbing</h3>
+<p class="small">Alle in <code>global</code> persistiert (bestehendes <code>set-setting</code>, <strong>kein neuer IPC</strong>), live appliziert via Setter + Startup-Load (im <code>global</code>-Block ~<code>app.js:2074</code>), Muster wie <code>terminalRightClick</code> (<code>3e6bca7</code>). Settings-Panel-Controls in <code>settings-panel.js</code>.</p>
+<table>
+<tr><th style="width:26%">Setting</th><th>Werte / Default</th><th>Wirkung</th></tr>
+<tr><td><code>sessionDisplayMode</code></td><td>legacy / tabs · <strong>legacy</strong></td><td>Tab-Leiste an/aus (Container-Klasse <code>display-mode-tabs</code>). Legacy = heutiges Verhalten.</td></tr>
+<tr><td><code>tabPosition</code></td><td>top / bottom · <strong>top</strong></td><td>Tab-Leiste über oder unter <code>#terminals</code> (CSS-Klasse <code>tabs-bottom</code>).</td></tr>
+<tr><td><code>tabCloseBehavior</code></td><td>closeView / stopSession · <strong>closeView</strong></td><td>× = Ansicht zu, Session läuft weiter (Default) <em>oder</em> PTY stoppen.</td></tr>
+<tr><td><code>tabMiddleClickCloses</code></td><td>bool · <strong>true</strong></td><td>Mittelklick auf Tab schließt ihn (folgt <code>tabCloseBehavior</code>).</td></tr>
+<tr><td><code>tabDragReorder</code></td><td>bool · <strong>true</strong></td><td>Tabs per Drag umsortieren (siehe 1.3a). Reihenfolge in <code>global.tabOrder</code> (sessionId-Array) persistiert.</td></tr>
+</table>
 
 <h3>1.2 Tab-Leiste — neue Datei <code>public/session-tabs.js</code> + CSS</h3>
 <ul>
@@ -124,6 +128,12 @@ Active-Wechsel → showSession() → refreshSessionTabs()  (Highlight)</div>
 <div class="note"><strong>VERIFY bei Umsetzung:</strong> <code>destroySession</code> (<code>terminal-manager.js:595</code>) ruft <strong>nicht</strong>
 <code>stopSession</code> — sonst Close-Pfad anpassen (nur xterm dispose + <code>openSessions</code>-delete, PTY in <code>activeSessions</code> unangetastet).</div>
 
+<h3>1.3a Drag-Reorder &amp; Mittelklick</h3>
+<ul>
+<li><strong>Drag-Reorder</strong> (<code>tabDragReorder</code>): Tabs per Maus umsortieren. Reihenfolge → <code>global.tabOrder</code> (sessionId-Array), <code>buildTabModel</code> sortiert danach. Animations-Ansatz von der Grid-FLIP-Logik (<code>grid-view.js</code> FLIP-Reflow) übernehmbar, oder schlichter HTML5-Drag. Neue Tabs ans Ende, geschlossene aus <code>tabOrder</code> entfernen.</li>
+<li><strong>Mittelklick</strong> (<code>tabMiddleClickCloses</code>): <code>auxclick</code>/Button 1 auf einem Tab → schließt ihn (führt dieselbe Aktion aus wie ×, folgt <code>tabCloseBehavior</code>).</li>
+</ul>
+
 <h3>1.4 Modus-Interaktion</h3>
 <table>
 <tr><th>Modus</th><th>Verhalten</th></tr>
@@ -146,17 +156,48 @@ Active-Wechsel → showSession() → refreshSessionTabs()  (Highlight)</div>
 </ul>
 <p class="small"><strong>Kein neuer IPC.</strong> Aufwand: mittel. Risiko: niedrig. Branch <code>feat/session-tabs</code> → npm test grün (Baseline 427) → ff-merge.</p>
 
-<!-- ===================== PHASE 2 ===================== -->
-<h2>Phase 2 — Detach / abkoppelbare Fenster <span class="badge b-lo">großer Umbau</span></h2>
-<p>Eine Session in ein <strong>eigenes OS-Fenster</strong> auslagern (wie VS Code „Move into New Window") — auf einen
-zweiten Monitor ziehbar, Session läuft weiter. Eigener Branch, erst nach Phase 1.</p>
+<!-- ===================== PHASE 2 — SETTINGS-FENSTER ===================== -->
+<h2>Phase 2 — Settings-Fenster Pop-out <span class="badge b-mid">Multi-Window-Vorläufer</span></h2>
+<p>Das Einstellungsfenster als <strong>eigenständiges OS-Fenster</strong> abkoppelbar machen. <strong>Bewusst vor Detach</strong>:
+dasselbe Mehrfenster-Muster, aber <strong>ohne</strong> den heiklen <code>terminal-data</code>-Byte-Stream → validiert die
+Mechanik (2. BrowserWindow, IPC, Live-Apply-Broadcast) als risikoarmer Proof-of-Concept.</p>
 
-<h3>2.1 Grundprinzip</h3>
+<h3>2.1 IST &amp; Prinzip</h3>
+<ul>
+<li>Heute: Settings = DOM-Overlay im Main-Renderer (<code>settings-panel.js</code>, <code>#settings-viewer</code>) — <strong>kein</strong> eigenes Fenster.</li>
+<li>Apply-Setter existieren bereits (<code>window._applyNotificationSettings</code>, <code>setTerminalMouseReporting</code>, <code>applySessionDisplayMode</code>, …) → ein „settings-changed"-Broadcast triggert sie.</li>
+<li><strong>Overlay bleibt Default</strong> + „Pop-out"-Button öffnet das Fenster (Overlay schließt dann).</li>
+</ul>
+
+<h3>2.2 Bausteine</h3>
+<table>
+<tr><th>Teil</th><th>Umsetzung</th></tr>
+<tr><td>Fenster</td><td><code>settingsWindow</code> Singleton im Main; IPC <code>open-settings-window</code>/<code>close-settings-window</code>. Lädt <code>index.html?settings=1</code> (Renderer erkennt Flag → nur Settings-Panel, keine Sidebar/Terminals) <em>oder</em> minimaler <code>settings.html</code>.</td></tr>
+<tr><td>Lesen/Schreiben</td><td>Vorhandenes <code>get-setting</code>/<code>set-setting</code> (sessionId-frei) — funktioniert aus jedem Fenster.</td></tr>
+<tr><td>Live-Apply</td><td>Beim Speichern: Main broadcastet <code>settings-changed</code> an <strong>alle</strong> Fenster (inkl. Main) → jedes ruft seine Apply-Setter. Ersetzt das heutige direkte In-Renderer-Apply.</td></tr>
+<tr><td>Lifecycle</td><td>Settings-Fenster an Main koppeln (Quit/Main-Close schließt es mit). Single-Instance: fokussieren statt zweites öffnen.</td></tr>
+</table>
+
+<h3>2.3 Dateien (Phase 2)</h3>
+<ul class="files">
+<li><code>main.js</code> — <code>settingsWindow</code> + IPC öffnen/schließen + <code>settings-changed</code>-Broadcast.</li>
+<li><code>preload.js</code> — <code>openSettingsWindow</code> + <code>onSettingsChanged</code>-Listener.</li>
+<li><code>public/index.html</code>/<code>app.js</code> — <code>?settings</code>-Modus (Chrome ausblenden, nur Panel); Pop-out-Button im Settings-Overlay; <code>onSettingsChanged</code> → Apply-Setter.</li>
+<li><code>test/settings-broadcast.test.js</code> — Broadcast-/Apply-Routing als pure Logik.</li>
+</ul>
+<p class="small"><strong>Aufwand:</strong> mittel, <strong>deutlich unter Detach</strong> (kein PTY/Stream). <strong>Wert:</strong> echter Nutzen (Settings auf 2. Monitor) <em>und</em> Multi-Window-Fundament für Phase 3.</p>
+
+<!-- ===================== PHASE 3 — DETACH ===================== -->
+<h2>Phase 3 — Detach / abkoppelbare Session-Fenster <span class="badge b-lo">großer Umbau</span></h2>
+<p>Eine Session in ein <strong>eigenes OS-Fenster</strong> auslagern (wie VS Code „Move into New Window") — auf einen
+zweiten Monitor ziehbar, Session läuft weiter. Eigener Branch, <strong>erst nach Phase 1 + 2</strong> (nutzt das in Phase 2 erprobte Mehrfenster-Muster).</p>
+
+<h3>3.1 Grundprinzip</h3>
 <div class="note">Eine Session wird <strong>entweder</strong> im Main-Fenster <strong>oder</strong> in genau einem Detach-Fenster gerendert —
 <strong>nie beides</strong> (sonst doppeltes Rendern + doppelter Input-Echo). Der PTY bleibt unverändert im Main-Prozess
 (<code>activeSessions</code>); nur <em>welches Fenster</em> den Byte-Stream bekommt, ändert sich.</div>
 
-<h3>2.2 Fenster-Registry im Main</h3>
+<h3>3.2 Fenster-Registry im Main</h3>
 <pre><code>// main.js
 const detachedWindows = new Map(); // sessionId → BrowserWindow
 
@@ -165,7 +206,7 @@ function windowForSession(sessionId){
   return (w &amp;&amp; !w.isDestroyed()) ? w : mainWindow;
 }</code></pre>
 
-<h3>2.3 terminal-data routen <span class="small">(der zentrale Eingriff)</span></h3>
+<h3>3.3 terminal-data routen <span class="small">(der zentrale Eingriff)</span></h3>
 <p>Den hardcoded Send (<code>main.js:2074</code>) ersetzen:</p>
 <div class="grid2">
 <div class="panel"><h4>Vorher</h4><pre><code>mainWindow.webContents.send(
@@ -180,7 +221,7 @@ OSC-Badges) müssen <strong>weiterhin den Main</strong> erreichen (die Sidebar l
 Fenster; Lifecycle/Attention → Main (ggf. zusätzlich ans Detach-Fenster). Diese Trennung sauber durchziehen, sonst
 verschwinden im Detach-Fall Attention-Badges aus der Sidebar.</div>
 
-<h3>2.4 IPC: detach / reattach</h3>
+<h3>3.4 IPC: detach / reattach</h3>
 <table>
 <tr><th>Handler</th><th>Ablauf</th></tr>
 <tr><td><code>detach-session</code></td><td>
@@ -198,7 +239,7 @@ verschwinden im Detach-Fall Attention-Badges aus der Sidebar.</div>
 </ol></td></tr>
 </table>
 
-<h3>2.5 Detach-Renderer <span class="small">— index.html wiederverwenden (empfohlen)</span></h3>
+<h3>3.5 Detach-Renderer <span class="small">— index.html wiederverwenden (empfohlen)</span></h3>
 <div class="grid2">
 <div class="panel"><h4><span class="badge b-hi">Empfohlen</span> index.html im Detach-Modus</h4>
 <p class="small">Fenster lädt <code>index.html?detached=&lt;sessionId&gt;</code>. Renderer erkennt den Flag → blendet
@@ -212,13 +253,13 @@ Sidebar/Tabs/Grid/Header aus, rendert <strong>nur die eine</strong> Session voll
 <li><strong>−</strong> dupliziert Wiring; läuft Gefahr, Globals/Fixes zu verpassen → Drift.</li></ul></div>
 </div>
 
-<h3>2.6 Input / Fokus / Clipboard</h3>
+<h3>3.6 Input / Fokus / Clipboard</h3>
 <ul>
 <li><code>terminal-input</code> ist sessionId-gekeyed → aus dem Detach-Fenster routet es schon korrekt an den PTY. <strong>Funktioniert ohne Änderung.</strong></li>
 <li>Clipboard (OSC-52), Rechtsklick-Menü, Selektion etc. laufen über dieselbe <code>terminal-manager</code>-Logik → erben.</li>
 </ul>
 
-<h3>2.7 Lifecycle &amp; Edge-Cases</h3>
+<h3>3.7 Lifecycle &amp; Edge-Cases</h3>
 <table>
 <tr><th>Fall</th><th>Verhalten</th></tr>
 <tr><td>Detach-Fenster vom User geschlossen</td><td>→ <code>reattach-session</code>: Session kehrt zum Main zurück (nicht verloren). PTY lief durchgehend.</td></tr>
@@ -229,14 +270,14 @@ Sidebar/Tabs/Grid/Header aus, rendert <strong>nur die eine</strong> Session voll
 <tr><td>Bounds</td><td>Optional: Position/Größe je Detach-Fenster persistieren.</td></tr>
 </table>
 
-<h3>2.8 Zusammenspiel mit Tabs (Phase 1)</h3>
+<h3>3.8 Zusammenspiel mit Tabs (Phase 1)</h3>
 <p>Detachte Session bekommt im Main-Fenster einen <strong>„Ghost"-Tab</strong> (ausgegraut + Icon „⤢"): Klick <strong>fokussiert
 das Detach-Fenster</strong> (statt <code>showSession</code>); Close/Reattach am Tab verfügbar. So bleibt die Session in der Main-UI auffindbar.</p>
 
-<h3>2.9 Detach-Trigger UI</h3>
+<h3>3.9 Detach-Trigger UI</h3>
 <ul><li>Tab-Kontextmenü „In neues Fenster" (+ optional Button am Tab).</li><li>Optional aus Sidebar-Kontext.</li></ul>
 
-<h3>2.10 Dateien (Phase 2)</h3>
+<h3>3.10 Dateien (Phase 3)</h3>
 <ul class="files">
 <li><code>main.js</code> — <code>detachedWindows</code> Map, <code>windowForSession()</code> + Routing (ersetzt <code>:2074</code>), IPC <code>detach-session</code>/<code>reattach-session</code>, Fenster-Erzeugung (createWindow um <code>detached</code>-Flag/URL erweitern), Quit/Close-Handling für Detach-Fenster.</li>
 <li><code>main-lifecycle.js</code> — Window-Lifecycle für Detach.</li>
@@ -245,7 +286,7 @@ das Detach-Fenster</strong> (statt <code>showSession</code>); Close/Reattach am 
 <li><code>test/detach-routing.test.js</code> — <code>windowForSession</code> (pure) + Detach/Reattach-State-Machine (reiner Reducer über <code>detachedWindows</code>) ohne Electron.</li>
 </ul>
 
-<h3>2.11 Risiken (Phase 2)</h3>
+<h3>3.11 Risiken (Phase 3)</h3>
 <table>
 <tr><th>Risiko</th><th>Gegenmaßnahme</th></tr>
 <tr><td class="b-lo" style="background:rgba(248,81,73,.06)">Doppel-Send (Main + Detach)</td><td>Genau ein Besitzer pro Session via <code>detachedWindows</code>; Main gibt xterm beim Detach frei.</td></tr>
@@ -265,8 +306,9 @@ das Detach-Fenster</strong> (statt <code>showSession</code>); Close/Reattach am 
 <h2>5 · Reihenfolge / Aufwand</h2>
 <table>
 <tr><th>Phase</th><th>Inhalt</th><th>Aufwand</th><th>Risiko</th></tr>
-<tr><td>1</td><td>Tabs + Setting (Legacy/Tabs), Tab-Leiste, ×-läuft-weiter, Grid koexistiert</td><td><span class="badge b-mid">mittel</span></td><td><span class="badge b-hi">niedrig</span></td></tr>
-<tr><td>2</td><td>Detach: Multi-Window, terminal-data-Routing, detach/reattach, Ghost-Tab</td><td><span class="badge b-lo">hoch</span></td><td><span class="badge b-lo">hoch</span></td></tr>
+<tr><td>1</td><td>Tabs + Setting (Legacy/Tabs), Tab-Leiste, Overflow (Scroll+▾-Menü), ×-läuft-weiter, Grid koexistiert. <strong>Customize:</strong> Position oben/unten, ×-Verhalten-Toggle, Mittelklick-schließt, Drag-Reorder</td><td><span class="badge b-mid">mittel</span></td><td><span class="badge b-hi">niedrig</span></td></tr>
+<tr><td>2</td><td>Settings-Fenster Pop-out (Multi-Window-Vorläufer: 2. Window + settings-changed-Broadcast, kein Stream)</td><td><span class="badge b-mid">mittel</span></td><td><span class="badge b-mid">mittel</span></td></tr>
+<tr><td>3</td><td>Detach: Session-Multi-Window, terminal-data-Routing, detach/reattach, Ghost-Tab</td><td><span class="badge b-lo">hoch</span></td><td><span class="badge b-lo">hoch</span></td></tr>
 </table>
 
 <p class="small" style="margin-top:24px;border-top:1px solid var(--line);padding-top:12px">
