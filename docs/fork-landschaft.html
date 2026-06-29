@@ -64,7 +64,7 @@ Unsere Version <code><old-codename></code> (via HaydnG) und alle hier gelisteten
          HaydnG    JBR    kreaddis  aaaron  ivandobsky   … (~45 weitere, 0 ahead)
             |       |  \         \
         <old-codename>   jbr/main  feat-Branches
-       (UNSERE)            (terminal-bg-write, search-freeze-async — Backlog)
+       (UNSERE)            (terminal-bg-write, search-freeze-async — beide portiert 2026-06-29)
 </pre>
 
 <h2>Aktiv genutzte Forks</h2>
@@ -99,9 +99,9 @@ Von ~50 doctly-Forks sind nur diese 3 ernsthaft divergiert (Größenordnung Hayd
 <tr><td colspan="6" class="hint">~45 übrige Forks: 0 ahead (Drive-by) oder nur hinter doctly → irrelevant.</td></tr>
 </table>
 
-<h2>Backlog — offene Übernahme-Kandidaten (jbr-Branches) <span class="cnt">— geplant, noch kein Port</span></h2>
+<h2>Backlog — jbr-Branches <span class="cnt">— B1 + B2 portiert (2026-06-29)</span></h2>
 <div class="note">
-Zwei aktuelle (2026-06-22), review-finalisierte, <strong>unmerged</strong> jbr-Fix-Branches. Features fehlen in <old-codename>, vom Katalog nicht erfasst (nicht in <code>jbr/main</code>). Detaillierter Port-Plan: <code>~/.claude/plans/streamed-booping-shore.md</code>. Entscheidung 2026-06-28: <strong>nur geplant, kein Port jetzt.</strong>
+Zwei aktuelle (2026-06-22), review-finalisierte, <strong>unmerged</strong> jbr-Fix-Branches. Features fehlten in <old-codename>, vom Katalog nicht erfasst (nicht in <code>jbr/main</code>). Detaillierter Port-Plan: <code>~/.claude/plans/streamed-booping-shore.md</code>. <strong>Beide am 2026-06-29 portiert + in <old-codename> gemerged</strong> (B1 <code>0095b89</code>, B2 <code>df0ff7b</code>).
 </div>
 <table>
 <tr><th style="width:24%">Branch</th><th>Was</th><th class="num">Größe</th><th>Bewertung</th></tr>
@@ -109,13 +109,13 @@ Zwei aktuelle (2026-06-22), review-finalisierte, <strong>unmerged</strong> jbr-F
   <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/tree/fix/terminal-background-write">jbr/fix/terminal-background-write</a></td>
   <td><span class="feat">Hintergrund-Writes skippen + Replay</span><div class="desc">Nicht-sichtbare Terminals überspringen <code>xterm.write()</code>, Roh-PTY in <code>rawReplayBuffers</code> (Cap 2 MB), Drain bei Sichtbarkeit. Spart VT-Parse-CPU bei vielen Streaming-Sessions.</div></td>
   <td class="num">+535</td>
-  <td><span class="badge b-mid">Backlog · Feature A</span><div class="hint">contained (terminal-manager + grid-view), mittleres Risiko, zuerst</div></td>
+  <td><span class="badge b-hi">✅ Portiert · B1</span><div class="hint">Commit <code>0095b89</code> · Konflikt terminal-manager.js gelöst (Maus- + BG-Block beide behalten), eslint gedroppt</div></td>
 </tr>
 <tr>
   <td class="refs"><a href="https://github.com/JeanBaptisteRenard/switchboard/tree/fix/search-freeze-async">jbr/fix/search-freeze-async</a></td>
   <td><span class="feat">FTS-Suche in Worker-Thread</span><div class="desc">Dedizierter read-only Worker für FTS5-Queries (kein UI-Freeze bei langer Trigram-Phrase-Query) + Query-Länge bounden (48) + Sync-Fallback/circuit-breaker.</div></td>
   <td class="num">+757</td>
-  <td><span class="badge b-mid">Backlog · Feature B</span><div class="hint">Hot-Path-Umbau (main.js/db.js + neues Worker-Subsystem), höheres Risiko, danach</div></td>
+  <td><span class="badge b-hi">✅ Portiert · B2</span><div class="hint">Commit <code>df0ff7b</code> · db.js/main.js sauber auto-gemerged, Worker bekommt DB_PATH via workerData (SWITCHBOARD_DATA_DIR), husky gedroppt, 15 Tests</div></td>
 </tr>
 </table>
 
