@@ -317,36 +317,36 @@
       </div>` : ''}
 
       ${!isProject ? `<div class="settings-section">
-        <div class="settings-section-title">Session-Darstellung</div>
+        <div class="settings-section-title">Session Display</div>
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">Sidebar beim Start</span>
-            <div class="settings-description">Klappzustand der Projekt-/Gruppen-Sektionen beim Programmstart: alles aufgeklappt, alles zugeklappt, oder den letzten Stand merken.</div>
+            <span class="settings-label">Sidebar on startup</span>
+            <div class="settings-description">Collapse state of project/group sections when the app starts: all expanded, all collapsed, or remember the last state.</div>
           </div>
           <div class="settings-field-control">
             <select class="settings-select" id="sv-collapse-default">
-              <option value="expanded" ${collapseDefaultValue === 'expanded' ? 'selected' : ''}>Alle aufgeklappt</option>
-              <option value="collapsed" ${collapseDefaultValue === 'collapsed' ? 'selected' : ''}>Alle zugeklappt</option>
-              <option value="remember" ${collapseDefaultValue === 'remember' ? 'selected' : ''}>Letzter Stand</option>
+              <option value="expanded" ${collapseDefaultValue === 'expanded' ? 'selected' : ''}>All expanded</option>
+              <option value="collapsed" ${collapseDefaultValue === 'collapsed' ? 'selected' : ''}>All collapsed</option>
+              <option value="remember" ${collapseDefaultValue === 'remember' ? 'selected' : ''}>Last state</option>
             </select>
           </div>
         </div>
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">Einstellungen öffnen als</span>
-            <div class="settings-description">Zahnrad-Klick öffnet die Einstellungen als Overlay im Hauptfenster oder als eigenständiges Fenster.</div>
+            <span class="settings-label">Open settings as</span>
+            <div class="settings-description">Clicking the gear opens settings as an overlay in the main window or as a separate window.</div>
           </div>
           <div class="settings-field-control">
             <select class="settings-select" id="sv-settings-open-mode">
               <option value="overlay" ${settingsOpenModeValue === 'overlay' ? 'selected' : ''}>Overlay</option>
-              <option value="window" ${settingsOpenModeValue === 'window' ? 'selected' : ''}>Eigenes Fenster</option>
+              <option value="window" ${settingsOpenModeValue === 'window' ? 'selected' : ''}>Separate window</option>
             </select>
           </div>
         </div>
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">Darstellungs-Modus</span>
-            <div class="settings-description">Legacy = heutiges Verhalten (Sidebar + Grid-Übersicht). Tabs = Tab-Leiste über dem Terminal zum Wechseln zwischen offenen Sessions; das Mosaik bleibt über den Übersicht-Button (oder Shortcut) erreichbar.</div>
+            <span class="settings-label">Display mode</span>
+            <div class="settings-description">Legacy = current behavior (sidebar + grid overview). Tabs = a tab bar above the terminal to switch between open sessions; the grid mosaic stays reachable via the overview button.</div>
           </div>
           <div class="settings-field-control">
             <select class="settings-select" id="sv-display-mode">
@@ -357,32 +357,32 @@
         </div>
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">Tab-Position</span>
-            <div class="settings-description">Tab-Leiste über oder unter dem Terminal (nur im Tabs-Modus).</div>
+            <span class="settings-label">Tab position</span>
+            <div class="settings-description">Tab bar above or below the terminal (tabs mode only).</div>
           </div>
           <div class="settings-field-control">
             <select class="settings-select" id="sv-tab-position">
-              <option value="top" ${tabPositionValue === 'top' ? 'selected' : ''}>Oben</option>
-              <option value="bottom" ${tabPositionValue === 'bottom' ? 'selected' : ''}>Unten</option>
+              <option value="top" ${tabPositionValue === 'top' ? 'selected' : ''}>Top</option>
+              <option value="bottom" ${tabPositionValue === 'bottom' ? 'selected' : ''}>Bottom</option>
             </select>
           </div>
         </div>
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">Tab schließen (×)</span>
-            <div class="settings-description">Ansicht schließen = Session läuft im Hintergrund weiter, jederzeit wieder öffenbar. Session stoppen = beendet den Prozess.</div>
+            <span class="settings-label">Close tab (×)</span>
+            <div class="settings-description">Close view = the session keeps running in the background, reopenable any time. Stop session = ends the process.</div>
           </div>
           <div class="settings-field-control">
             <select class="settings-select" id="sv-tab-close">
-              <option value="closeView" ${tabCloseValue === 'closeView' ? 'selected' : ''}>Ansicht schließen</option>
-              <option value="stopSession" ${tabCloseValue === 'stopSession' ? 'selected' : ''}>Session stoppen</option>
+              <option value="closeView" ${tabCloseValue === 'closeView' ? 'selected' : ''}>Close view</option>
+              <option value="stopSession" ${tabCloseValue === 'stopSession' ? 'selected' : ''}>Stop session</option>
             </select>
           </div>
         </div>
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">Mittelklick schließt Tab</span>
-            <div class="settings-description">Mittlere Maustaste auf einem Tab schließt ihn (folgt der ×-Aktion oben).</div>
+            <span class="settings-label">Middle-click closes tab</span>
+            <div class="settings-description">Middle mouse button on a tab closes it (follows the × action above).</div>
           </div>
           <div class="settings-field-control">
             <label class="settings-toggle"><input type="checkbox" id="sv-tab-middle-click" ${tabMiddleClickValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
@@ -390,8 +390,8 @@
         </div>
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">Tabs per Drag umsortieren</span>
-            <div class="settings-description">Tabs mit der Maus in eine andere Reihenfolge ziehen. Reihenfolge wird gemerkt.</div>
+            <span class="settings-label">Reorder tabs by drag</span>
+            <div class="settings-description">Drag tabs into a different order with the mouse. The order is remembered.</div>
           </div>
           <div class="settings-field-control">
             <label class="settings-toggle"><input type="checkbox" id="sv-tab-drag" ${tabDragValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>

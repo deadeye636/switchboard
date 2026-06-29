@@ -108,6 +108,18 @@ function saveExpandedSlugs() {
   document.querySelectorAll('.slug-group:not(.collapsed)').forEach(g => { if (g.id) expanded.push(g.id); });
   localStorage.setItem('expandedSlugs', JSON.stringify(expanded));
 }
+// Explicit per-project collapse state (keyed by projectPath) so the "last state"
+// startup default also remembers top-level project headers — which otherwise only
+// follow a render-time age heuristic and aren't persisted. { path: true|false }.
+function getProjectCollapseState() {
+  try { return JSON.parse(localStorage.getItem('projectCollapseState') || '{}'); } catch { return {}; }
+}
+function setProjectCollapsed(projectPath, collapsed) {
+  if (!projectPath) return;
+  const s = getProjectCollapseState();
+  s[projectPath] = !!collapsed;
+  try { localStorage.setItem('projectCollapseState', JSON.stringify(s)); } catch { /* ignore */ }
+}
 // User-defined session groups (spec 07). State is restored from the `groups`
 // settings blob on startup and persisted on every mutation.
 let groupsState = createGroupsState();

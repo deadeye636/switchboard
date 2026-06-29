@@ -993,8 +993,15 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
 
     const sessionsList = buildSessionsList(fId, visible, older, buildSubagentIndex(project.sessions), project.projectPath);
 
-    // Auto-collapse if project path is missing, most recent session is older than threshold, or project matched with no sessions
-    if (project.missing) {
+    // Explicit user collapse/expand (persisted) overrides the age heuristic, so the
+    // "last state" startup default remembers project headers. Falls back to the
+    // heuristic only when the user never toggled this project.
+    const explicitCollapsed = getProjectCollapseState()[project.projectPath];
+    if (explicitCollapsed === true) {
+      header.classList.add('collapsed');
+    } else if (explicitCollapsed === false) {
+      // user explicitly expanded → leave open, skip heuristic
+    } else if (project.missing) {
       header.classList.add('collapsed');
     } else if (project._projectMatchedOnly) {
       header.classList.add('collapsed');
@@ -1426,6 +1433,7 @@ function rebindSidebarEvents(projects) {
     const toggleProject = (e) => {
       if (e.target.closest('.project-new-btn') || e.target.closest('.project-archive-btn') || e.target.closest('.project-settings-btn') || e.target.closest('.project-schedule-btn') || e.target.closest('.project-remap-btn') || e.target.closest('.project-favorite-btn') || e.target.closest('.project-hide-btn')) return;
       header.classList.toggle('collapsed');
+      setProjectCollapsed(project.projectPath, header.classList.contains('collapsed'));
     };
     header.onclick = toggleProject;
     makeButtonLike(header, toggleProject, `Toggle ${project.projectPath.split('/').filter(Boolean).slice(-2).join('/')} sessions`);
