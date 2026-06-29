@@ -77,6 +77,7 @@
     const rightClickValue = fieldValue('terminalRightClick', 'menu');
     const mouseReportingValue = fieldValue('terminalMouseReporting', 'on');
     const displayModeValue = fieldValue('sessionDisplayMode', 'legacy');
+    const settingsOpenModeValue = fieldValue('settingsOpenMode', 'overlay');
     const tabPositionValue = fieldValue('tabPosition', 'top');
     const tabCloseValue = fieldValue('tabCloseBehavior', 'closeView');
     const tabMiddleClickValue = fieldValue('tabMiddleClickCloses', true);
@@ -319,6 +320,18 @@
         <div class="settings-section-title">Session-Darstellung</div>
         <div class="settings-field">
           <div class="settings-field-info">
+            <span class="settings-label">Einstellungen öffnen als</span>
+            <div class="settings-description">Zahnrad-Klick öffnet die Einstellungen als Overlay im Hauptfenster oder als eigenständiges Fenster.</div>
+          </div>
+          <div class="settings-field-control">
+            <select class="settings-select" id="sv-settings-open-mode">
+              <option value="overlay" ${settingsOpenModeValue === 'overlay' ? 'selected' : ''}>Overlay</option>
+              <option value="window" ${settingsOpenModeValue === 'window' ? 'selected' : ''}>Eigenes Fenster</option>
+            </select>
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
             <span class="settings-label">Darstellungs-Modus</span>
             <div class="settings-description">Legacy = heutiges Verhalten (Sidebar + Grid-Übersicht). Tabs = Tab-Leiste über dem Terminal zum Wechseln zwischen offenen Sessions; das Mosaik bleibt über den Übersicht-Button (oder Shortcut) erreichbar.</div>
           </div>
@@ -550,6 +563,7 @@
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
         settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').value || 'menu';
         settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').checked ? 'on' : 'off';
+        settings.settingsOpenMode = settingsViewerBody.querySelector('#sv-settings-open-mode').value || 'overlay';
         settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'legacy';
         settings.tabPosition = settingsViewerBody.querySelector('#sv-tab-position').value || 'top';
         settings.tabCloseBehavior = settingsViewerBody.querySelector('#sv-tab-close').value || 'closeView';

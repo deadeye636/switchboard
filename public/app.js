@@ -1113,8 +1113,13 @@ if (collapseAllToggle) {
 
 // --- Global settings gear button ---
 globalSettingsBtn.innerHTML = ICONS.gear(18);
-globalSettingsBtn.addEventListener('click', () => {
-  openSettingsViewer('global');
+globalSettingsBtn.addEventListener('click', async () => {
+  // Default action respects the settingsOpenMode preference: in-app overlay or
+  // a standalone window.
+  let mode = 'overlay';
+  try { mode = (await window.api.getSetting('global'))?.settingsOpenMode || 'overlay'; } catch {}
+  if (mode === 'window') window.api.openSettingsWindow();
+  else openSettingsViewer('global');
 });
 
 // --- Add project button ---

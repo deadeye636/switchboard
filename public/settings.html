@@ -20,17 +20,13 @@
     <div id="settings-viewer-body"></div>
   </div>
 
-  <!-- Mark this as the standalone settings window BEFORE settings-panel.js runs,
-       so close/save behave window-aware (close the window, broadcast changes). -->
-  <script>window.__SETTINGS_WINDOW__ = true;</script>
+  <!-- All scripts external: the app CSP (script-src 'self') blocks inline scripts.
+       settings-window.js sets the standalone-window marker and opens the panel;
+       it must load AFTER settings-panel.js. -->
   <script src="utils.js"></script>
   <script src="shortcuts.js"></script>
   <script src="terminal-themes.js"></script>
   <script src="settings-panel.js"></script>
-  <script>
-    window.addEventListener('DOMContentLoaded', () => {
-      if (typeof window.openSettingsViewer === 'function') window.openSettingsViewer('global');
-    });
-  </script>
+  <script src="settings-window.js"></script>
 </body>
 </html>
