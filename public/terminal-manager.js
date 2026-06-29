@@ -59,9 +59,13 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
     }
 
     // On Windows/Linux, Ctrl+V is captured by xterm as a control character (0x16)
-    // instead of triggering a paste. Return false to block xterm's key pipeline and
-    // let Electron's Edit menu { role: 'paste' } handle the actual clipboard paste.
+    // instead of triggering a paste. Block xterm's key pipeline and paste the
+    // clipboard ourselves — the Edit menu { role: 'paste' } that used to handle
+    // this was removed with the application menu.
     if (!isMac && e.key === 'v' && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+      if (e.type === 'keydown') {
+        window.api.readClipboard().then((t) => { if (t) terminal.paste(t); }).catch(() => {});
+      }
       return false;
     }
 

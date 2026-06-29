@@ -233,6 +233,27 @@ function createWindow() {
     const key = input.key.toLowerCase();
     if (key === 'r' && input.meta) event.preventDefault();
     if (key === 'r' && input.control && input.shift) event.preventDefault();
+
+    // The application menu (and its View-role accelerators) was removed, so wire
+    // the useful ones here. primary = Cmd on macOS, Ctrl elsewhere.
+    const primary = process.platform === 'darwin' ? input.meta : input.control;
+    const wc = mainWindow.webContents;
+    if (key === 'f12' || (primary && input.shift && key === 'i')) {
+      wc.toggleDevTools();
+      event.preventDefault();
+    } else if (key === 'f11') {
+      mainWindow.setFullScreen(!mainWindow.isFullScreen());
+      event.preventDefault();
+    } else if (primary && (key === '+' || key === '=')) {
+      wc.setZoomLevel(wc.getZoomLevel() + 0.5);
+      event.preventDefault();
+    } else if (primary && key === '-') {
+      wc.setZoomLevel(wc.getZoomLevel() - 0.5);
+      event.preventDefault();
+    } else if (primary && key === '0') {
+      wc.setZoomLevel(0);
+      event.preventDefault();
+    }
   });
 
   // Save window bounds on move/resize (debounced)
@@ -281,45 +302,12 @@ function createWindow() {
 }
 
 function buildMenu() {
-  const template = [
-    {
-      label: app.name,
-      submenu: [
-        { role: 'about' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-      ],
-    },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  // No application menu — the top menu bar (Switchboard/Edit/View) is removed.
+  // The Edit roles' clipboard accelerators are preserved by Chromium for native
+  // editable fields; the terminal's Ctrl+V pastes itself (terminal-manager.js).
+  // DevTools/zoom/fullscreen accelerators are wired in the before-input-event
+  // handler in createWindow().
+  Menu.setApplicationMenu(null);
 }
 
 // --- Native notifications, dock/taskbar badge, and tray (Spec 01) ---
