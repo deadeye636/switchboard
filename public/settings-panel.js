@@ -38,13 +38,12 @@
 
     settingsViewerTitle.textContent = (isProject ? 'Project Settings — ' : 'Global Settings — ') + shortName;
 
-    // Show settings viewer, hide others
-    document.getElementById('placeholder').style.display = 'none';
-    document.getElementById('terminal-area').style.display = 'none';
-    document.getElementById('plan-viewer').style.display = 'none';
-    document.getElementById('stats-viewer').style.display = 'none';
-    document.getElementById('memory-viewer').style.display = 'none';
-    document.getElementById('jsonl-viewer').style.display = 'none';
+    // Show settings viewer, hide others. Null-safe: the standalone settings
+    // window (settings.html) has none of these main-app elements.
+    ['placeholder', 'terminal-area', 'plan-viewer', 'stats-viewer', 'memory-viewer', 'jsonl-viewer'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
     settingsViewer.style.display = 'flex';
 
     function useGlobalCheckbox(fieldName) {
