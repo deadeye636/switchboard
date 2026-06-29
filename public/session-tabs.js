@@ -84,12 +84,6 @@ if (typeof module !== 'undefined' && module.exports) {
   }
 
   function activateTab(sessionId) {
-    // Clicking a tab focuses one session → leave the grid mosaic if it's open
-    // (also stops the grid auto-open from re-attaching every running PTY, which
-    // would make closed tabs reappear).
-    if (typeof gridViewActive !== 'undefined' && gridViewActive && typeof toggleGridView === 'function') {
-      toggleGridView();
-    }
     if (typeof showSession === 'function') showSession(sessionId);
     refreshSessionTabs();
   }
@@ -251,27 +245,21 @@ if (typeof module !== 'undefined' && module.exports) {
 
   // --- Settings apply ---
 
-  function applyMode(enteringTabs) {
+  function applyMode() {
     document.body.classList.toggle('display-mode-tabs', displayMode === 'tabs');
     document.body.classList.toggle('tabs-bottom', tabPosition === 'bottom');
-    // Tabs default to a single focused session; the grid mosaic is opt-in via the
-    // overview button. So when switching INTO tabs mode, leave any active grid.
-    if (enteringTabs && typeof gridViewActive !== 'undefined' && gridViewActive && typeof toggleGridView === 'function') {
-      toggleGridView();
-    }
     refreshSessionTabs();
   }
 
   function applySessionDisplaySettings(g) {
     g = g || {};
-    const wasMode = displayMode;
     displayMode = g.sessionDisplayMode === 'tabs' ? 'tabs' : 'legacy';
     tabPosition = g.tabPosition === 'bottom' ? 'bottom' : 'top';
     closeBehavior = g.tabCloseBehavior === 'stopSession' ? 'stopSession' : 'closeView';
     middleClickCloses = g.tabMiddleClickCloses !== false;
     dragReorder = g.tabDragReorder !== false;
     tabOrder = Array.isArray(g.tabOrder) ? g.tabOrder.slice() : [];
-    applyMode(wasMode !== 'tabs' && displayMode === 'tabs');
+    applyMode();
   }
 
   window.refreshSessionTabs = refreshSessionTabs;
