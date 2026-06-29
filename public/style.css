@@ -4417,7 +4417,7 @@ input:focus-visible {
 #settings-viewer-body {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 40px;
+  padding: 32px 40px 0;
   display: flex;
   justify-content: center;
 }
@@ -4690,10 +4690,16 @@ input:focus-visible {
 
 /* --- Buttons --- */
 .settings-btn-row {
+  position: sticky;
+  bottom: 0;
   display: flex;
   gap: 10px;
   align-items: center;
-  margin-top: 8px;
+  margin-top: 24px;
+  padding: 14px 0;
+  background: #111118;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: 2;
 }
 
 .settings-cancel-btn {
