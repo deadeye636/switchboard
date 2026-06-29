@@ -627,6 +627,7 @@ function destroySession(sessionId) {
     // showGridView/showSession flows (e.g. LRU eviction of a closed session).
     gridViewerCount.textContent = gridCards.size + ' session' + (gridCards.size !== 1 ? 's' : '');
   }
+  if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
 }
 
 // Make a session visible in the current view mode (grid or single).
@@ -686,6 +687,7 @@ function showSession(sessionId) {
       fitAndScroll(entry);
     }
   }
+  if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
 }
 
 function setupDragAndDrop(container, getSessionId) {

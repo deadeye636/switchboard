@@ -1873,20 +1873,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       searchInput.placeholder = 'Search sessions...';
       sidebarContent.style.display = '';
       // Restore terminal area
-      hideAllViewers();
-      if (gridViewActive) {
-        // Grid is still set up — just re-show it and refit
-        placeholder.style.display = 'none';
-        terminalHeader.style.display = 'none';
-        gridViewer.style.display = 'block';
-        for (const entry of openSessions.values()) {
-          if (!entry.closed) fitAndScroll(entry);
-        }
-      } else if (activeSessionId && openSessions.has(activeSessionId)) {
-        showSession(activeSessionId);
-      } else {
-        placeholder.style.display = '';
-      }
+      returnToTerminal();
       // Catch up on changes that happened while on another tab
       if (projectsChangedWhileAway) {
         projectsChangedWhileAway = false;
@@ -1993,8 +1980,31 @@ initGridObservers();
   });
 }
 
+// Close any open viewer overlay (Message History / Timeline / etc.) and restore
+// the terminal area — grid, the active single session, or the placeholder.
+function returnToTerminal() {
+  hideAllViewers();
+  if (gridViewActive) {
+    placeholder.style.display = 'none';
+    terminalHeader.style.display = 'none';
+    gridViewer.style.display = 'block';
+    for (const entry of openSessions.values()) {
+      if (!entry.closed) fitAndScroll(entry);
+    }
+  } else if (activeSessionId && openSessions.has(activeSessionId)) {
+    showSession(activeSessionId);
+  } else {
+    placeholder.style.display = '';
+  }
+}
+
 // --- Grid view toggle button (next to resort button in sidebar filters) ---
 {
+  // Viewer-overlay close buttons (Message History / Timeline headers) → back to terminal.
+  document.querySelectorAll('[data-close-viewer]').forEach(btn => {
+    btn.addEventListener('click', returnToTerminal);
+  });
+
   const gridToggleBtn = document.createElement('button');
   gridToggleBtn.id = 'grid-toggle-btn';
   gridToggleBtn.title = gridViewActive ? 'Exit session overview' : 'Session overview';
@@ -2010,6 +2020,12 @@ initGridObservers();
   // e._handled to prevent the document listener from double-firing the same action.
   document.addEventListener('keydown', (e) => {
     if (e._handled) return;
+    // Esc closes an open Message History / Timeline viewer → back to terminal.
+    if (e.key === 'Escape' && (jsonlViewer.style.display !== 'none' || timelineViewer.style.display !== 'none')) {
+      e.preventDefault();
+      returnToTerminal();
+      return;
+    }
     // Toggle grid view (default Cmd/Ctrl+Shift+G)
     if (matchShortcut('gridToggle', e, isMac, appShortcuts)) {
       e.preventDefault();
@@ -2082,6 +2098,7 @@ setTimeout(() => {
       setTerminalMouseReporting(global.terminalMouseReporting !== 'off');
     }
     if (global.shortcuts) setAppShortcuts(global.shortcuts);
+    if (typeof window._applySessionDisplaySettings === 'function') window._applySessionDisplaySettings(global);
   }
 
   // Restore user-defined session groups (spec 07).

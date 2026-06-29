@@ -6684,3 +6684,98 @@ body.grid-dragging .grid-card-header {
 }
 .bm-overlay-del:hover { color: #e06c75; background: rgba(224, 108, 117, 0.12); }
 
+/* Viewer-header close button (Message History / Timeline) */
+.viewer-header-close {
+  background: none;
+  border: none;
+  color: #9a9ab0;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 8px;
+  border-radius: 4px;
+}
+.viewer-header-close:hover { color: #e06c75; background: rgba(224, 108, 117, 0.12); }
+/* jsonl header: #jsonl-bookmarks-btn already pushes right via margin-left:auto */
+#jsonl-viewer-header .viewer-header-close { margin-left: 2px; }
+/* timeline header: no auto-margin element, so push the close button right */
+#timeline-viewer-header .viewer-header-close { margin-left: auto; }
+
+/* --- Session tabs (Phase 1) --- */
+#session-tabs { display: none; }
+body.display-mode-tabs #session-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: #14141b;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  min-height: 34px;
+}
+body.display-mode-tabs.tabs-bottom #session-tabs {
+  order: 2;
+  border-bottom: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.session-tabs-list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  flex: 1;
+  scrollbar-width: none;
+}
+.session-tabs-list::-webkit-scrollbar { display: none; }
+.session-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 60px;
+  max-width: 200px;
+  flex-shrink: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #1c1c24;
+  border: 1px solid transparent;
+  color: #b0b0c0;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.session-tab:hover { background: #23232d; }
+.session-tab.active { background: #2a2a36; color: #fff; border-color: #3a3a4a; }
+.session-tab.dragging { opacity: 0.5; }
+.session-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #4a4a5a; flex-shrink: 0; }
+.session-tab.running .session-tab-dot { background: #3fb950; }
+.session-tab.needs-attention .session-tab-dot { background: #e5c07b; }
+.session-tab-label { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+.session-tab-close {
+  background: none; border: none; color: #7a7a90; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 2px; border-radius: 3px; flex-shrink: 0;
+}
+.session-tab-close:hover { color: #e06c75; background: rgba(224, 108, 117, 0.15); }
+.session-tabs-controls { display: none; align-items: center; gap: 2px; flex-shrink: 0; }
+.session-tabs-controls.visible { display: flex; }
+.session-tabs-ctrl {
+  background: none; border: none; color: #9a9ab0; cursor: pointer;
+  font-size: 12px; padding: 2px 6px; border-radius: 4px;
+}
+.session-tabs-ctrl:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
+.session-tabs-overflow {
+  min-width: 240px; max-height: 60vh; overflow: auto; padding: 8px;
+  display: flex; flex-direction: column; gap: 4px; z-index: 1000;
+}
+.session-tabs-overflow-filter {
+  background: #1c1c24; border: 1px solid #4a4a5a; border-radius: 4px;
+  color: #e0e0e8; padding: 5px 8px; font-size: 12px;
+}
+.session-tabs-overflow-list { display: flex; flex-direction: column; gap: 2px; }
+.session-tabs-overflow-item {
+  text-align: left; background: none; border: none; color: #d0d0d8;
+  cursor: pointer; padding: 5px 8px; border-radius: 4px; font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.session-tabs-overflow-item:hover { background: rgba(255, 255, 255, 0.06); }
+.session-tabs-overflow-item.active { color: #fff; background: rgba(255, 255, 255, 0.08); }
+

@@ -74,6 +74,11 @@
     const themeValue = fieldValue('terminalTheme', 'switchboard');
     const rightClickValue = fieldValue('terminalRightClick', 'menu');
     const mouseReportingValue = fieldValue('terminalMouseReporting', 'on');
+    const displayModeValue = fieldValue('sessionDisplayMode', 'legacy');
+    const tabPositionValue = fieldValue('tabPosition', 'top');
+    const tabCloseValue = fieldValue('tabCloseBehavior', 'closeView');
+    const tabMiddleClickValue = fieldValue('tabMiddleClickCloses', true);
+    const tabDragValue = fieldValue('tabDragReorder', true);
     const mcpEmulationValue = fieldValue('mcpEmulation', true);
     const restoreSessionsValue = fieldValue('restoreSessionsOnLaunch', true);
     const attentionHooksValue = fieldValue('attentionHooks', false);
@@ -241,6 +246,62 @@
             <label class="settings-toggle"><input type="checkbox" id="sv-mouse-reporting" ${mouseReportingValue !== 'off' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
           </div>
         </div>
+
+        ${!isProject ? `
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Session-Darstellung</span>
+            <div class="settings-description">Legacy = heutiges Verhalten (Sidebar + Grid-Übersicht). Tabs = Tab-Leiste über dem Terminal zum Wechseln zwischen offenen Sessions; das Mosaik bleibt per Grid-Button erreichbar.</div>
+          </div>
+          <div class="settings-field-control">
+            <select class="settings-select" id="sv-display-mode">
+              <option value="legacy" ${displayModeValue === 'legacy' ? 'selected' : ''}>Legacy</option>
+              <option value="tabs" ${displayModeValue === 'tabs' ? 'selected' : ''}>Tabs</option>
+            </select>
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Tab-Position</span>
+            <div class="settings-description">Tab-Leiste über oder unter dem Terminal (nur im Tabs-Modus).</div>
+          </div>
+          <div class="settings-field-control">
+            <select class="settings-select" id="sv-tab-position">
+              <option value="top" ${tabPositionValue === 'top' ? 'selected' : ''}>Oben</option>
+              <option value="bottom" ${tabPositionValue === 'bottom' ? 'selected' : ''}>Unten</option>
+            </select>
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Tab schließen (×)</span>
+            <div class="settings-description">Ansicht schließen = Session läuft im Hintergrund weiter, jederzeit wieder öffenbar. Session stoppen = beendet den Prozess.</div>
+          </div>
+          <div class="settings-field-control">
+            <select class="settings-select" id="sv-tab-close">
+              <option value="closeView" ${tabCloseValue === 'closeView' ? 'selected' : ''}>Ansicht schließen</option>
+              <option value="stopSession" ${tabCloseValue === 'stopSession' ? 'selected' : ''}>Session stoppen</option>
+            </select>
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Mittelklick schließt Tab</span>
+            <div class="settings-description">Mittlere Maustaste auf einem Tab schließt ihn (folgt der ×-Aktion oben).</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-tab-middle-click" ${tabMiddleClickValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Tabs per Drag umsortieren</span>
+            <div class="settings-description">Tabs mit der Maus in eine andere Reihenfolge ziehen. Reihenfolge wird gemerkt.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-tab-drag" ${tabDragValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>` : ''}
 
         <div class="settings-field">
           <div class="settings-field-info">
@@ -485,6 +546,11 @@
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
         settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').value || 'menu';
         settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').checked ? 'on' : 'off';
+        settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'legacy';
+        settings.tabPosition = settingsViewerBody.querySelector('#sv-tab-position').value || 'top';
+        settings.tabCloseBehavior = settingsViewerBody.querySelector('#sv-tab-close').value || 'closeView';
+        settings.tabMiddleClickCloses = settingsViewerBody.querySelector('#sv-tab-middle-click').checked;
+        settings.tabDragReorder = settingsViewerBody.querySelector('#sv-tab-drag').checked;
         settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
         settings.restoreSessionsOnLaunch = settingsViewerBody.querySelector('#sv-restore-sessions').checked;
         settings.attentionHooks = settingsViewerBody.querySelector('#sv-attention-hooks').checked;
@@ -525,6 +591,9 @@
         }
         if (typeof window._applyNotificationSettings === 'function') {
           window._applyNotificationSettings(settings);
+        }
+        if (typeof window._applySessionDisplaySettings === 'function') {
+          window._applySessionDisplaySettings(settings);
         }
         if (settings.terminalRightClick && typeof window._applyTerminalRightClick === 'function') {
           window._applyTerminalRightClick(settings.terminalRightClick);

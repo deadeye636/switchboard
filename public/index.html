@@ -76,6 +76,7 @@
         <button id="jsonl-bookmarks-btn" title="Bookmarks" aria-label="Bookmarks">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
+        <button class="viewer-header-close" data-close-viewer title="Close (Esc)" aria-label="Close">&times;</button>
       </div>
       <div id="jsonl-viewer-body"></div>
     </div>
@@ -89,10 +90,12 @@
             <option value="all">All events</option>
           </select>
         </div>
+        <button class="viewer-header-close" data-close-viewer title="Close (Esc)" aria-label="Close">&times;</button>
       </div>
       <div id="timeline-viewer-body"></div>
     </div>
     <div id="terminal-area">
+      <div id="session-tabs"></div>
       <div id="terminal-header" style="display:none;">
         <div id="terminal-header-info">
           <span id="terminal-header-name"></span>
@@ -165,6 +168,7 @@
   <script src="dialogs.js"></script>
   <script src="sidebar.js"></script>
   <script src="plans-memory-view.js"></script>
+  <script src="session-tabs.js"></script>
   <!-- bookmarks-tags.js wires window._decorateJsonlEntry / _decorateSessionItem /
        window.bookmarksTags — must load after sidebar.js + jsonl-viewer.js (whose
        render loops call the hooks) and before app.js (keydown dispatcher). -->
