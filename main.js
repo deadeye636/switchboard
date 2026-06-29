@@ -2108,6 +2108,20 @@ ipcMain.on('terminal-resize', (_event, sessionId, cols, rows) => {
           }, 50);
         } catch {}
       }, 50);
+    } else if (!session.isPlainTerminal) {
+      // Subsequent resizes: ConPTY repaints, but xterm's own buffer reflow of
+      // wrapped lines can leave the cursor on the wrong row (e.g. navigating a
+      // multi-line input after a resize). Once the resize settles, nudge the PTY
+      // (cols±1) so ConPTY emits a clean full frame that overwrites the
+      // mis-reflowed cells and repositions the cursor — mirroring how Windows
+      // Terminal relies on ConPTY's repaint instead of its own reflow.
+      clearTimeout(session._resizeSettleTimer);
+      session._resizeSettleTimer = setTimeout(() => {
+        try {
+          session.pty.resize(cols + 1, rows);
+          setTimeout(() => { try { session.pty.resize(cols, rows); } catch {} }, 50);
+        } catch {}
+      }, 150);
     }
   }
 });
