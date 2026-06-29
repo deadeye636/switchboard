@@ -417,7 +417,11 @@ function createTerminalEntry(session, opts = {}) {
     theme: TERMINAL_THEME,
     cursorBlink: false,
     scrollback: opts.scrollback ?? (gridViewActive ? SCROLLBACK_GRID : SCROLLBACK_SINGLE),
-    convertEol: true,
+    // Must stay false for a PTY-backed terminal: the PTY/ConPTY already emits
+    // \r\n. With convertEol=true xterm appends a CR to every bare \n, so a TUI
+    // that moves the cursor down with a lone \n (e.g. Claude onto an empty input
+    // line) also snaps to column 0. Real terminals don't (LNM reset by default).
+    convertEol: false,
     allowProposedApi: true,
     // On Windows, tell xterm the PTY backend (node-pty defaults to ConPTY on
     // Win10 1809+) and the OS build so it tracks ConPTY's reflow/wrapping
