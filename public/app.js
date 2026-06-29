@@ -1999,12 +1999,40 @@ function returnToTerminal() {
   }
 }
 
+// Re-apply global settings live — called when the pop-out settings window saves
+// (Phase 2). Mirrors the apply done by the in-app settings save.
+async function reapplyGlobalSettings() {
+  const g = await window.api.getSetting('global');
+  if (!g) return;
+  try { window._applyNotificationSettings?.(g); } catch {}
+  if (g.notifications) window._setNotificationSettings?.(g.notifications);
+  if (g.terminalTheme) window._applyTerminalTheme?.(g.terminalTheme);
+  if (g.terminalRightClick) window._applyTerminalRightClick?.(g.terminalRightClick);
+  if (g.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(g.terminalMouseReporting !== 'off');
+  if (g.visibleSessionCount) window._setVisibleSessionCount?.(g.visibleSessionCount);
+  if (g.sessionMaxAgeDays) window._setSessionMaxAge?.(g.sessionMaxAgeDays);
+  if (g.shortcuts && typeof setAppShortcuts === 'function') setAppShortcuts(g.shortcuts);
+  window._applySessionDisplaySettings?.(g);
+}
+
 // --- Grid view toggle button (next to resort button in sidebar filters) ---
 {
   // Viewer-overlay close buttons (Message History / Timeline headers) → back to terminal.
   document.querySelectorAll('[data-close-viewer]').forEach(btn => {
     btn.addEventListener('click', returnToTerminal);
   });
+
+  // Settings pop-out: open the standalone settings window, close the in-app overlay.
+  const popoutBtn = document.getElementById('settings-popout-btn');
+  if (popoutBtn) {
+    popoutBtn.addEventListener('click', () => {
+      window.api.openSettingsWindow();
+      if (typeof window.closeSettingsViewer === 'function') window.closeSettingsViewer();
+    });
+  }
+  if (window.api && typeof window.api.onSettingsChanged === 'function') {
+    window.api.onSettingsChanged(reapplyGlobalSettings);
+  }
 
   const gridToggleBtn = document.createElement('button');
   gridToggleBtn.id = 'grid-toggle-btn';

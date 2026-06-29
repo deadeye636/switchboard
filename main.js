@@ -179,6 +179,28 @@ function validateShellArg(value, fieldName) {
 // Active PTY sessions
 const activeSessions = new Map();
 let mainWindow = null;
+let settingsWindow = null;
+
+// Pop the settings panel out into its own window (Phase 2 — multi-window POC).
+// Loads a minimal settings.html that reuses settings-panel.js. Changes saved
+// there broadcast back to the main window via the 'settings-changed' IPC.
+function openSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) { settingsWindow.focus(); return; }
+  settingsWindow = new BrowserWindow({
+    width: 760, height: 820, minWidth: 520, minHeight: 480,
+    title: 'Switchboard — Settings',
+    parent: mainWindow || undefined,
+    icon: path.join(__dirname, 'build', 'icon.png'),
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), nodeIntegration: false, contextIsolation: true },
+  });
+  settingsWindow.setMenu(null);
+  settingsWindow.loadFile(path.join(__dirname, 'public', 'settings.html'));
+  settingsWindow.on('closed', () => { settingsWindow = null; });
+}
+ipcMain.on('open-settings-window', () => openSettingsWindow());
+ipcMain.on('settings-changed', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('settings-changed');
+});
 
 // Subagent live-tail watchers (watchId → { filePath, parentSessionId, agentId })
 const subagentWatchers = new Map();

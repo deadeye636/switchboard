@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Switchboard — Settings</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Standalone settings window: the viewer fills the whole window. */
+    body { margin: 0; background: #0d1117; }
+    #settings-viewer { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  </style>
+</head>
+<body>
+  <!-- Scaffold the settings-panel.js component renders into. -->
+  <div id="settings-viewer" style="display:none;">
+    <div id="settings-viewer-header">
+      <span id="settings-viewer-title">Settings</span>
+    </div>
+    <div id="settings-viewer-body"></div>
+  </div>
+
+  <!-- Mark this as the standalone settings window BEFORE settings-panel.js runs,
+       so close/save behave window-aware (close the window, broadcast changes). -->
+  <script>window.__SETTINGS_WINDOW__ = true;</script>
+  <script src="utils.js"></script>
+  <script src="shortcuts.js"></script>
+  <script src="terminal-themes.js"></script>
+  <script src="settings-panel.js"></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      if (typeof window.openSettingsViewer === 'function') window.openSettingsViewer('global');
+    });
+  </script>
+</body>
+</html>

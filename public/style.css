@@ -6702,6 +6702,15 @@ body.grid-dragging .grid-card-header {
 #timeline-viewer-header .viewer-header-close { margin-left: auto; }
 
 /* --- Session tabs (Phase 1) --- */
+/* Settings pop-out button in the in-app settings header */
+#settings-viewer-header { display: flex; align-items: center; gap: 10px; }
+#settings-popout-btn {
+  margin-left: auto;
+  background: none; border: none; color: #9a9ab0; cursor: pointer;
+  font-size: 16px; padding: 2px 8px; border-radius: 4px;
+}
+#settings-popout-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
+
 #session-tabs { display: none; }
 /* Tabs mode is single-view only → the grid toggle button has no place there. */
 body.display-mode-tabs #grid-toggle-btn { display: none; }

@@ -7,6 +7,8 @@
   const settingsViewerBody = document.getElementById('settings-viewer-body');
 
   function closeSettingsViewer() {
+    // Standalone settings window: there is no terminal area to restore — just close it.
+    if (window.__SETTINGS_WINDOW__) { try { window.close(); } catch {} return; }
     settingsViewer.style.display = 'none';
     const terminalArea = document.getElementById('terminal-area');
     const terminalHeader = document.getElementById('terminal-header');
@@ -576,6 +578,12 @@
       }
 
       await window.api.setSetting(settingsKey, settings);
+
+      // Standalone settings window: tell the main window to re-apply the changes
+      // (it owns the live UI). The in-app overlay applies directly below instead.
+      if (window.__SETTINGS_WINDOW__ && !isProject && typeof window.api.notifySettingsChanged === 'function') {
+        window.api.notifySettingsChanged();
+      }
 
       // Update visibleSessionCount, sessionMaxAgeDays, and theme
       if (!isProject) {
