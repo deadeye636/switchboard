@@ -28,6 +28,13 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
       return false;
     }
 
+    // Bookmark the active session (default Cmd/Ctrl+Shift+B) — session-level
+    // anchor, since the live terminal has no transcript message index.
+    if (matchShortcut('toggleBookmark', e, isMac, appShortcuts)) {
+      if (e.type === 'keydown') { e._handled = true; window.bookmarksTags?.bookmarkSession(getSessionId()); }
+      return false;
+    }
+
     // Session navigation: Cmd+Shift+[/], Cmd+Arrow
     if (isSessionNavKey(e)) {
       if (e.type === 'keydown') { e._handled = true; handleSessionNavKey(e); }

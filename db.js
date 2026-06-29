@@ -105,6 +105,32 @@ db.exec(`
   )
 `);
 
+// Bookmarks — flag individual transcript messages, anchored by {sessionId, entryIndex}.
+// <old-codename> JSONL has no per-message uuid, so the position index is the stable anchor;
+// timestamp/label are denormalized for display so the overlay needs no transcript re-read.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS bookmarks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sessionId TEXT NOT NULL,
+    entryIndex INTEGER NOT NULL,
+    timestamp TEXT,
+    label TEXT,
+    createdAt INTEGER NOT NULL,
+    UNIQUE(sessionId, entryIndex)
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_bookmarks_session ON bookmarks(sessionId)');
+
+// Session tags — colored labels, many per session, shown as sidebar chips.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS session_tags (
+    sessionId TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    color TEXT,
+    PRIMARY KEY (sessionId, tag)
+  )
+`);
+
 // Index for fast folder lookups
 db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_folder ON session_cache(folder)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_slug ON session_cache(slug)');
@@ -301,6 +327,19 @@ const stmts = {
   `),
   projectMetaGet: db.prepare('SELECT * FROM project_meta WHERE projectPath = ?'),
   projectMetaGetAll: db.prepare('SELECT projectPath FROM project_meta WHERE favorited = 1'),
+  // Bookmarks (toggle by {sessionId, entryIndex} anchor)
+  bookmarkGet: db.prepare('SELECT id FROM bookmarks WHERE sessionId = ? AND entryIndex = ?'),
+  bookmarkInsert: db.prepare('INSERT INTO bookmarks (sessionId, entryIndex, timestamp, label, createdAt) VALUES (?, ?, ?, ?, ?)'),
+  bookmarkDeleteByAnchor: db.prepare('DELETE FROM bookmarks WHERE sessionId = ? AND entryIndex = ?'),
+  bookmarkDeleteById: db.prepare('DELETE FROM bookmarks WHERE id = ?'),
+  bookmarkListAll: db.prepare('SELECT * FROM bookmarks ORDER BY createdAt DESC'),
+  bookmarkListBySession: db.prepare('SELECT * FROM bookmarks WHERE sessionId = ? ORDER BY entryIndex ASC'),
+  // Session tags
+  tagsGet: db.prepare('SELECT tag, color FROM session_tags WHERE sessionId = ? ORDER BY tag'),
+  tagInsert: db.prepare('INSERT OR REPLACE INTO session_tags (sessionId, tag, color) VALUES (?, ?, ?)'),
+  tagDeleteAll: db.prepare('DELETE FROM session_tags WHERE sessionId = ?'),
+  tagListAll: db.prepare('SELECT DISTINCT tag, color FROM session_tags ORDER BY tag'),
+  tagAllRows: db.prepare('SELECT sessionId, tag, color FROM session_tags ORDER BY tag'),
   // Session cache statements
   cacheCount: db.prepare('SELECT COUNT(*) as cnt FROM session_cache'),
   cacheGetAll: db.prepare('SELECT * FROM session_cache'),
@@ -443,6 +482,60 @@ function getFavoritedProjects() {
   const set = new Set();
   for (const row of stmts.projectMetaGetAll.all()) set.add(row.projectPath);
   return set;
+}
+
+// --- Bookmarks + session tags ---
+
+// Toggle a bookmark on a transcript message. Returns { bookmarked } reflecting
+// the new state. timestamp/label are stored for display in the bookmark overlay.
+function toggleBookmark(sessionId, entryIndex, timestamp, label) {
+  const idx = Number(entryIndex);
+  if (!sessionId || !Number.isFinite(idx)) return { bookmarked: false };
+  const existing = stmts.bookmarkGet.get(sessionId, idx);
+  if (existing) {
+    runWithBusyRetry(() => stmts.bookmarkDeleteByAnchor.run(sessionId, idx));
+    return { bookmarked: false };
+  }
+  runWithBusyRetry(() => stmts.bookmarkInsert.run(sessionId, idx, timestamp || null, label || null, Date.now()));
+  return { bookmarked: true };
+}
+
+function removeBookmark(id) {
+  runWithBusyRetry(() => stmts.bookmarkDeleteById.run(Number(id)));
+}
+
+// All bookmarks (newest first) or just one session's (in transcript order).
+function listBookmarks(sessionId) {
+  return sessionId ? stmts.bookmarkListBySession.all(sessionId) : stmts.bookmarkListAll.all();
+}
+
+function getSessionTags(sessionId) {
+  return sessionId ? stmts.tagsGet.all(sessionId) : [];
+}
+
+// Replace a session's full tag set in one transaction. tags: [{ tag, color }].
+const setSessionTagsTx = db.transaction((sessionId, tags) => {
+  stmts.tagDeleteAll.run(sessionId);
+  for (const t of tags) {
+    if (t && t.tag) stmts.tagInsert.run(sessionId, String(t.tag), t.color || null);
+  }
+});
+
+function setSessionTags(sessionId, tags) {
+  if (!sessionId) return [];
+  runWithBusyRetry(() => setSessionTagsTx(sessionId, Array.isArray(tags) ? tags : []));
+  return stmts.tagsGet.all(sessionId);
+}
+
+// Distinct tags across all sessions — for the sidebar tag filter.
+function listAllTags() {
+  return stmts.tagListAll.all();
+}
+
+// Every (sessionId, tag, color) row — the renderer builds a per-session map so
+// sidebar chips render synchronously during morphdom reconciliation.
+function getAllSessionTags() {
+  return stmts.tagAllRows.all();
 }
 
 // --- Session cache functions ---
@@ -787,6 +880,8 @@ function closeDb() {
 module.exports = {
   getMeta, getAllMeta, setName, toggleStar, setArchived,
   toggleProjectFavorite, getFavoritedProjects,
+  toggleBookmark, removeBookmark, listBookmarks,
+  getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder,
   replaceSessionMetrics,

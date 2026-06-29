@@ -2022,6 +2022,12 @@ initGridObservers();
       focusNextAttention();
       return;
     }
+    // Bookmark (default Cmd/Ctrl+Shift+B) — context-aware toggle.
+    if (matchShortcut('toggleBookmark', e, isMac, appShortcuts)) {
+      e.preventDefault();
+      window.bookmarksTags?.handleBookmarkShortcut();
+      return;
+    }
     // Session navigation: Cmd+Shift+[/], Cmd+Arrow
     handleSessionNavKey(e);
   });

@@ -6562,3 +6562,125 @@ body.grid-dragging .grid-card-header {
   margin-left: 2px;
 }
 
+/* --- Bookmarks + session tags (C1) --- */
+
+/* Header bookmark-overlay button in the transcript viewer */
+#jsonl-bookmarks-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #9a9ab0;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+}
+#jsonl-bookmarks-btn:hover { color: #e5c07b; background: rgba(255, 255, 255, 0.06); }
+
+/* Per-message bookmark toggle (gutter, shown on entry hover or when active) */
+.jsonl-entry-bookmarkable { position: relative; }
+.jsonl-bookmark-toggle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: none;
+  border: none;
+  color: #6a6a80;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.1s ease, color 0.1s ease;
+}
+.jsonl-entry-bookmarkable:hover .jsonl-bookmark-toggle { opacity: 1; }
+.jsonl-bookmark-toggle:hover { color: #e5c07b; }
+.jsonl-bookmark-toggle.active { opacity: 1; color: #e5c07b; }
+.jsonl-entry.bookmarked { box-shadow: inset 3px 0 0 #e5c07b; }
+.jsonl-entry.bm-flash { animation: bm-flash 1.2s ease; }
+@keyframes bm-flash {
+  0% { background: rgba(229, 192, 123, 0.25); }
+  100% { background: transparent; }
+}
+
+/* Sidebar tag chips */
+.session-tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.session-tag-chip {
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid #4a4a5a;
+  color: #b0b0c0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.session-tag-chip:hover { filter: brightness(1.2); }
+
+/* Bookmark overlay + tag dialog */
+.bm-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.bm-dialog, .bm-overlay {
+  min-width: 320px;
+  max-width: 520px;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.bm-dialog-title { font-weight: 600; font-size: 13px; }
+.bm-dialog-hint { font-size: 11px; color: #8a8a9a; }
+.bm-dialog-input {
+  background: #1c1c24;
+  border: 1px solid #4a4a5a;
+  border-radius: 4px;
+  color: #e0e0e8;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.bm-dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.bm-dialog-save { color: #98c379; }
+
+.bm-overlay-list { display: flex; flex-direction: column; gap: 4px; }
+.bm-overlay-item { display: flex; align-items: stretch; gap: 4px; }
+.bm-overlay-jump {
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: none;
+  color: #d0d0d8;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bm-overlay-jump:hover { background: rgba(255, 255, 255, 0.06); }
+.bm-overlay-label { font-size: 12px; }
+.bm-overlay-meta { font-size: 10px; color: #7a7a90; }
+.bm-overlay-del {
+  background: none;
+  border: none;
+  color: #7a7a90;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 8px;
+  border-radius: 4px;
+}
+.bm-overlay-del:hover { color: #e06c75; background: rgba(224, 108, 117, 0.12); }
+

@@ -49,6 +49,8 @@ const { encodeProjectPath } = require('./encode-project-path');
 const {
   getMeta, getAllMeta, toggleStar, setName, setArchived,
   toggleProjectFavorite, getFavoritedProjects,
+  toggleBookmark, removeBookmark, listBookmarks,
+  getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
@@ -1589,6 +1591,34 @@ ipcMain.handle('toggle-star', (_event, sessionId) => {
 ipcMain.handle('toggle-project-favorite', (_event, projectPath) => {
   const favorited = toggleProjectFavorite(projectPath);
   return { favorited };
+});
+
+// --- IPC: bookmarks ---
+ipcMain.handle('bookmark-toggle', (_event, payload) => {
+  const { sessionId, entryIndex, timestamp, label } = payload || {};
+  return toggleBookmark(sessionId, entryIndex, timestamp, label);
+});
+ipcMain.handle('bookmark-remove', (_event, id) => {
+  removeBookmark(id);
+  return { ok: true };
+});
+ipcMain.handle('bookmark-list', (_event, sessionId) => {
+  return listBookmarks(sessionId || null);
+});
+
+// --- IPC: session tags ---
+ipcMain.handle('session-tags-get', (_event, sessionId) => {
+  return getSessionTags(sessionId);
+});
+ipcMain.handle('session-tags-set', (_event, payload) => {
+  const { sessionId, tags } = payload || {};
+  return setSessionTags(sessionId, tags);
+});
+ipcMain.handle('tags-list-all', () => {
+  return listAllTags();
+});
+ipcMain.handle('session-tags-all', () => {
+  return getAllSessionTags();
 });
 
 // --- IPC: rename-session ---

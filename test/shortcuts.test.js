@@ -64,6 +64,16 @@ test('defaults: grid toggle is Ctrl+Shift+G (G case-insensitive)', () => {
   assert.equal(matchShortcut('gridToggle', ev('g', 'ctrl', 'KeyG'), false, D), false);
 });
 
+test('defaults: bookmark toggle is Ctrl+Shift+B (B case-insensitive, Shift required)', () => {
+  assert.equal(matchShortcut('toggleBookmark', ev('B', 'ctrl+shift', 'KeyB'), false, D), true);
+  assert.equal(matchShortcut('toggleBookmark', ev('b', 'ctrl+shift', 'KeyB'), false, D), true);
+  // Bare Ctrl+B stays free for the terminal (Shift is required).
+  assert.equal(matchShortcut('toggleBookmark', ev('b', 'ctrl', 'KeyB'), false, D), false);
+  // macOS uses Cmd as primary.
+  assert.equal(matchShortcut('toggleBookmark', ev('b', 'meta+shift', 'KeyB'), true, D), true);
+  assert.equal(formatBinding('toggleBookmark', false, D), 'Ctrl+Shift+B');
+});
+
 test('macOS: primary modifier is Cmd; holding Ctrl as well blocks the match', () => {
   // Cmd+Shift+Arrow on mac
   assert.equal(matchShortcut('sessionNavArrows', ev('ArrowLeft', 'meta+shift'), true, D), true);

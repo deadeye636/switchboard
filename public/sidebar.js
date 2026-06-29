@@ -1986,6 +1986,9 @@ function buildSessionItem(session) {
   row.appendChild(actions);
   item.appendChild(row);
 
+  // Tag chips (renders synchronously from the bookmarks-tags cache).
+  window._decorateSessionItem?.(item, session);
+
   return item;
 }
 

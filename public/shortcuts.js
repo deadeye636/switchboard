@@ -20,6 +20,9 @@ const DEFAULT_SHORTCUTS = {
   sessionNavBrackets: { primary: true, alt: false, shift: true },
   // Ctrl/Cmd+Shift+G — toggle the grid overview.
   gridToggle: { primary: true, alt: false, shift: true, key: 'g' },
+  // Ctrl/Cmd+Shift+B — bookmark the current message (transcript viewer) or the
+  // active session (terminal). Shift keeps the terminal's bare Ctrl+B free.
+  toggleBookmark: { primary: true, alt: false, shift: true, key: 'b' },
 };
 
 // Metadata for rendering the settings UI and resolving each action's key family.
@@ -40,6 +43,12 @@ const SHORTCUT_DEFS = [
     id: 'gridToggle',
     label: 'Toggle grid view',
     description: 'Show or hide the session grid overview',
+    family: 'key',
+  },
+  {
+    id: 'toggleBookmark',
+    label: 'Bookmark message',
+    description: 'Bookmark the focused transcript message, or the active session from the terminal',
     family: 'key',
   },
 ];

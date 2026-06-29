@@ -64,6 +64,8 @@ function buildTerminalMenuItems({ linkUri, hasSelection }) {
   if (hasSelection) items.push({ id: 'copy', label: 'Copy' });
   items.push({ id: 'paste', label: 'Paste' });
   items.push({ id: 'select-all', label: 'Select all' });
+  items.push(null);
+  items.push({ id: 'bookmark', label: 'Bookmark session' });
   return items;
 }
 
@@ -100,6 +102,9 @@ async function runTerminalMenuAction(id, ctx) {
       break;
     case 'select-all':
       terminal.selectAll();
+      break;
+    case 'bookmark':
+      window.bookmarksTags?.bookmarkSession(sessionId);
       break;
   }
   // Restore focus to the terminal for in-terminal actions — the menu button

@@ -729,16 +729,24 @@ async function showJsonlViewer(session) {
   }
 
   let rendered = 0;
+  let entryIndex = 0;
   for (const entry of entries) {
     const el = renderJsonlEntry(entry, toolResultMap);
     if (el) {
+      // entryIndex = position in the entries array (stable across re-renders) —
+      // the anchor bookmarks are keyed on, since <old-codename> JSONL has no per-message uuid.
+      el.dataset.entryIndex = entryIndex;
       jsonlViewerBody.appendChild(el);
+      window._decorateJsonlEntry?.(el, entry, session.sessionId, entryIndex);
       rendered++;
     }
+    entryIndex++;
   }
 
   if (rendered === 0) {
     jsonlViewerBody.innerHTML = '<div class="plans-empty">No messages found in this session.</div>';
+  } else {
+    window._jsonlAfterRender?.(session.sessionId);
   }
 
   // Click-to-fullscreen for inline images

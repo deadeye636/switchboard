@@ -73,6 +73,9 @@
       <div id="jsonl-viewer-header">
         <span id="jsonl-viewer-title">Message History</span>
         <span id="jsonl-viewer-session-id"></span>
+        <button id="jsonl-bookmarks-btn" title="Bookmarks" aria-label="Bookmarks">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        </button>
       </div>
       <div id="jsonl-viewer-body"></div>
     </div>
@@ -162,6 +165,10 @@
   <script src="dialogs.js"></script>
   <script src="sidebar.js"></script>
   <script src="plans-memory-view.js"></script>
+  <!-- bookmarks-tags.js wires window._decorateJsonlEntry / _decorateSessionItem /
+       window.bookmarksTags — must load after sidebar.js + jsonl-viewer.js (whose
+       render loops call the hooks) and before app.js (keydown dispatcher). -->
+  <script src="bookmarks-tags.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
