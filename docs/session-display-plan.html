@@ -40,8 +40,15 @@
 <body>
 
 <h1>Plan — Session-Display-Modi: Tabs &amp; abkoppelbare Fenster</h1>
-<p class="sub"><strong>Status:</strong> Geplant (2026-06-29) · Eigen-Anforderung · <old-codename> <code>050c669</code>, 427 Tests grün ·
-Phase 1 Tabs <span class="badge b-mid">build now</span> · Phase 2 Settings-Fenster <span class="badge b-mid">Multi-Window-POC</span> · Phase 3 Detach <span class="badge b-lo">später</span></p>
+<p class="sub"><strong>Status (Stand 2026-06-30):</strong> Eigen-Anforderung · <old-codename>, 433 Tests grün ·
+Phase 1 Tabs <span class="badge b-hi">✅ erledigt</span> · Phase 2 Settings-Fenster <span class="badge b-hi">✅ erledigt</span> · Phase 3 Detach <span class="badge b-lo">offen</span></p>
+<div class="note" style="border-left-color:var(--hi)">
+<strong>Umgesetzt + in <old-codename>:</strong> <strong>Phase 1 Tabs</strong> (Setting legacy/tabs, Tab-Leiste, Overflow Scroll+▾,
+×-Verhalten/Mittelklick/Drag, <strong>Tabs = reine Single-View</strong> via Grid-Scoping pro Modus) — Commits
+<code>abc441d</code>/<code>0adde86</code>/<code>9c9838e</code>/<code>c6aad02</code>. <strong>Phase 2 Settings-Fenster</strong> (eigenes
+Fenster, <code>settingsOpenMode</code> overlay/window, Live-Apply-Broadcast, sticky Cancel/Save-Bar) — Commits
+<code>d645bf3</code>…<code>939eba3</code>. Zusatz: Viewer-Close-Buttons (Message/Timeline). <strong>Offen: Phase 3 Detach.</strong>
+</div>
 
 <div class="note">
 <strong>Ziel:</strong> Session-Darstellung <strong>wählbar</strong> machen — <code>Legacy</code> (heute) / <code>Tabs</code> (jetzt) /
@@ -306,10 +313,11 @@ das Detach-Fenster</strong> (statt <code>showSession</code>); Close/Reattach am 
 <h2>5 · Reihenfolge / Aufwand</h2>
 <table>
 <tr><th>Phase</th><th>Inhalt</th><th>Aufwand</th><th>Risiko</th></tr>
-<tr><td>1</td><td>Tabs + Setting (Legacy/Tabs), Tab-Leiste, Overflow (Scroll+▾-Menü), ×-läuft-weiter, Grid koexistiert. <strong>Customize:</strong> Position oben/unten, ×-Verhalten-Toggle, Mittelklick-schließt, Drag-Reorder</td><td><span class="badge b-mid">mittel</span></td><td><span class="badge b-hi">niedrig</span></td></tr>
-<tr><td>2</td><td>Settings-Fenster Pop-out (Multi-Window-Vorläufer: 2. Window + settings-changed-Broadcast, kein Stream)</td><td><span class="badge b-mid">mittel</span></td><td><span class="badge b-mid">mittel</span></td></tr>
-<tr><td>3</td><td>Detach: Session-Multi-Window, terminal-data-Routing, detach/reattach, Ghost-Tab</td><td><span class="badge b-lo">hoch</span></td><td><span class="badge b-lo">hoch</span></td></tr>
+<tr><td>1 <span class="badge b-hi">✅</span></td><td>Tabs + Setting (Legacy/Tabs), Tab-Leiste, Overflow (Scroll+▾-Menü), ×-Verhalten, Position oben/unten, Mittelklick, Drag-Reorder. <strong>Tabs = reine Single-View</strong> (Grid nur Legacy, pro Modus gescopt)</td><td><span class="badge b-mid">mittel</span></td><td><span class="badge b-hi">erledigt</span></td></tr>
+<tr><td>2 <span class="badge b-hi">✅</span></td><td>Settings-Fenster Pop-out (2. Window + settings-changed-Broadcast, kein Stream; settingsOpenMode, sticky Bottom-Bar)</td><td><span class="badge b-mid">mittel</span></td><td><span class="badge b-hi">erledigt</span></td></tr>
+<tr><td>3 <span class="badge b-lo">offen</span></td><td>Detach: Session-Multi-Window, terminal-data-Routing, detach/reattach, Ghost-Tab</td><td><span class="badge b-lo">hoch</span></td><td><span class="badge b-lo">hoch</span></td></tr>
 </table>
+<p class="small">Nicht in Phase 1 umgesetzt (Backlog): <strong>Reappear im Grid</strong> bei „Ansicht schließen" + Grid-Auto-Open (Task #15) · Ctrl+Tab-Tab-Zyklus.</p>
 
 <p class="small" style="margin-top:24px;border-top:1px solid var(--line);padding-top:12px">
 Quelle Markdown-Plan: <code>~/.claude/plans/session-display-tabs.md</code> · erstellt 2026-06-29 · <old-codename> <code>050c669</code></p>
