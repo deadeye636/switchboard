@@ -83,12 +83,12 @@ Detach hingegen ist ein Architektur-Eingriff (Multi-Window-Routing).</div>
 <ul>
 <li><strong>Setting</strong> <code>global.sessionDisplayMode</code> ∈ <code>{legacy, tabs}</code> — <strong>Default <code>legacy</code></strong>. Detach = Aktion.</li>
 <li><strong>Tab-Close (×)</strong> = nur Ansicht schließen, <strong>Session läuft weiter</strong> (PTY bleibt, reopenbar). VS-Code-Stil.</li>
-<li><strong>Grid koexistiert</strong> im Tabs-Modus (Option A): Tabs primär, Ctrl+G-Mosaik jederzeit als „Alle-im-Blick"-Übersicht.</li>
-<li><strong>Detach</strong> = Ausbaustufe 2 — jetzt vollständig <em>designt</em>, gebaut wird Phase 1 zuerst.</li>
+<li><strong>Grid:</strong> ursprünglich „koexistiert" geplant, <strong>final geändert (2026-06-30): Tabs = reine Single-View, Grid ist Legacy-only.</strong> Grid-Aktivierung im Tabs-Modus geblockt; Legacy-Grid-Pref pro Modus gescopt (kein Toggle aus Tab-Code — bricht sonst Legacy).</li>
+<li><strong>Detach</strong> = Ausbaustufe 2 — vollständig designt (§3), Bau erst nach P1+P2 (beide erledigt).</li>
 </ul>
 
 <!-- ===================== PHASE 1 ===================== -->
-<h2>Phase 1 — Tabs <span class="badge b-mid">JETZT bauen</span></h2>
+<h2>Phase 1 — Tabs <span class="badge b-hi">✅ erledigt</span></h2>
 <p class="small">Muster für Setting + Live-Apply: bestehende <code>terminalRightClick</code>/<code>terminalMouseReporting</code>-Plumbing (Commit <code>3e6bca7</code>).</p>
 
 <h3>1.1 Settings + Plumbing</h3>
@@ -145,7 +145,7 @@ Active-Wechsel → showSession() → refreshSessionTabs()  (Highlight)</div>
 <table>
 <tr><th>Modus</th><th>Verhalten</th></tr>
 <tr><td><code>legacy</code></td><td>Tab-Leiste versteckt; heutiges Verhalten (Sidebar + Ctrl+G Grid) <strong>unverändert</strong>.</td></tr>
-<tr><td><code>tabs</code></td><td>Tab-Leiste sichtbar; Default Single-View; <strong>Ctrl+G kippt weiter ins Mosaik</strong> (koexistiert) und zurück; Sidebar bleibt Switcher. <code>activeSessionId</code> treibt Tab-Highlight + showSession.</td></tr>
+<tr><td><code>tabs</code></td><td><strong>Reine Single-View</strong> (final 2026-06-30): Tab-Leiste sichtbar, immer eine Session voll, <strong>kein Grid</strong> (Grid-Button ausgeblendet, Grid-Aktivierung geblockt). Sidebar bleibt Switcher. <code>activeSessionId</code> treibt Tab-Highlight + showSession.</td></tr>
 </table>
 
 <h3>1.5 Tastatur <span class="pill">optional</span></h3>
@@ -161,10 +161,10 @@ Active-Wechsel → showSession() → refreshSessionTabs()  (Highlight)</div>
 <li><code>public/settings-panel.js</code> — Dropdown.</li>
 <li><code>test/session-tabs.test.js</code> — <code>buildTabModel</code> (Reihenfolge, Active-Flag, Labels).</li>
 </ul>
-<p class="small"><strong>Kein neuer IPC.</strong> Aufwand: mittel. Risiko: niedrig. Branch <code>feat/session-tabs</code> → npm test grün (Baseline 427) → ff-merge.</p>
+<p class="small"><strong>Kein neuer IPC.</strong> Aufwand: mittel. Risiko: niedrig. Branch <code>feat/session-tabs</code> → npm test grün (Baseline 433) → ff-merge.</p>
 
 <!-- ===================== PHASE 2 — SETTINGS-FENSTER ===================== -->
-<h2>Phase 2 — Settings-Fenster Pop-out <span class="badge b-mid">Multi-Window-Vorläufer</span></h2>
+<h2>Phase 2 — Settings-Fenster Pop-out <span class="badge b-hi">✅ erledigt</span></h2>
 <p>Das Einstellungsfenster als <strong>eigenständiges OS-Fenster</strong> abkoppelbar machen. <strong>Bewusst vor Detach</strong>:
 dasselbe Mehrfenster-Muster, aber <strong>ohne</strong> den heiklen <code>terminal-data</code>-Byte-Stream → validiert die
 Mechanik (2. BrowserWindow, IPC, Live-Apply-Broadcast) als risikoarmer Proof-of-Concept.</p>
@@ -305,8 +305,8 @@ das Detach-Fenster</strong> (statt <code>showSession</code>); Close/Reattach am 
 
 <h2>4 · Verification <span class="small">(pro Phase)</span></h2>
 <ul>
-<li><code>npm test</code> grün (Baseline 427 + neue Tests, Hintergrund ~5 min wg. trigger-watcher).</li>
-<li>Manuell in <code>npm start</code>: <strong>Legacy unverändert</strong>; <strong>Tabs</strong> (öffnen/wechseln/×-läuft-weiter, Overflow, Ctrl+G-Mosaik koexistiert, Setting-Persistenz); <strong>Detach</strong> (auslagern/reattach/Close, Attention-Badge bleibt in Sidebar, Quit schließt alle, Input im Detach-Fenster).</li>
+<li><code>npm test</code> grün (Baseline 433 + neue Tests, Hintergrund ~5 min wg. trigger-watcher).</li>
+<li>Manuell in <code>npm start</code>: <strong>Legacy unverändert</strong>; <strong>Tabs</strong> (öffnen/wechseln/×-läuft-weiter, Overflow, reine Single-View/kein Grid, Setting-Persistenz); <strong>Detach</strong> (auslagern/reattach/Close, Attention-Badge bleibt in Sidebar, Quit schließt alle, Input im Detach-Fenster).</li>
 <li>Workflow je Phase: eigener <code>feat/*</code>-Branch → grün → <code>git-commit</code>-Skill (Deutsch) → ff-merge <old-codename>.</li>
 </ul>
 
