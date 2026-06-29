@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan — Session-Display-Modi (Tabs + Detach)</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --line:#30363d;
+    --txt:#c9d1d9; --mut:#8b949e; --hi:#3fb950; --mid:#d29922; --lo:#f85149;
+    --acc:#58a6ff; --code:#1f2630;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:32px;max-width:1100px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px;border-bottom:2px solid var(--line);padding-bottom:12px}
+  h2{font-size:20px;margin:34px 0 10px;color:#fff}
+  h3{font-size:16px;margin:22px 0 8px;color:var(--acc)}
+  h4{font-size:14px;margin:16px 0 6px;color:#fff}
+  .sub{color:var(--mut);margin:0 0 8px}
+  code{background:var(--code);padding:1px 6px;border-radius:4px;font:12.5px/1.4 'Cascadia Code',Consolas,monospace;color:#e6edf3}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto}
+  pre code{background:none;padding:0}
+  .note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:6px;padding:12px 14px;margin:12px 0}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 18px;margin:12px 0}
+  table{border-collapse:collapse;width:100%;margin:12px 0;background:var(--panel)}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#fff}
+  .badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px}
+  .b-hi{background:rgba(63,185,80,.16);color:var(--hi)} .b-mid{background:rgba(210,153,34,.16);color:var(--mid)} .b-lo{background:rgba(248,81,73,.16);color:var(--lo)}
+  ul{margin:6px 0 6px 0;padding-left:22px} li{margin:3px 0}
+  .files li{margin:5px 0}
+  .small{color:var(--mut);font-size:12.5px}
+  .step{counter-reset:none}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  .pill{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--mut)}
+  .flow{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;white-space:pre;overflow:auto;font:12.5px/1.5 'Cascadia Code',Consolas,monospace}
+</style>
+</head>
+<body>
+
+<h1>Plan — Session-Display-Modi: Tabs &amp; abkoppelbare Fenster</h1>
+<p class="sub"><strong>Status:</strong> Geplant (2026-06-29) · Eigen-Anforderung · <old-codename> <code>050c669</code>, 427 Tests grün ·
+Phase 1 <span class="badge b-mid">build now</span> · Phase 2 <span class="badge b-lo">design — später</span></p>
+
+<div class="note">
+<strong>Ziel:</strong> Session-Darstellung <strong>wählbar</strong> machen — <code>Legacy</code> (heute) / <code>Tabs</code> (jetzt) /
+<code>Detach</code> (Ausbaustufe 2). <strong>Legacy bleibt Default</strong> (non-breaking). Steuerung über ein Setting
+<code>global.sessionDisplayMode</code>; Detach ist eine <em>Aktion</em>, kein dritter exklusiver Modus.
+</div>
+
+<h2>1 · Problem / Motivation</h2>
+<p>Heute werden Sessions als <strong>Grid-Mosaik</strong> (CSS-<code>grid</code>, Spaltenzahl dynamisch nach Fensterbreite)
+oder im <strong>Single-View</strong> (eine voll) gezeigt. Bei kleiner Auflösung → 1 Spalte → <strong>lange vertikale Liste</strong>.
+Gewünscht: VS-Code-artige Alternativen — <strong>Tabs</strong> und (später) <strong>abkoppelbare Fenster</strong> —
+ohne das Legacy-Verhalten zu verlieren (per Setting wählbar).</p>
+
+<h2>2 · IST-Architektur <span class="small">(kartiert 2026-06-29)</span></h2>
+<table>
+<tr><th style="width:30%">Aspekt</th><th>Befund (file:line)</th></tr>
+<tr><td>Fenster</td><td><strong>1 BrowserWindow</strong> (<code>main.js:211</code> <code>mainWindow</code> Singleton), 1 Renderer.</td></tr>
+<tr><td>PTY-State</td><td><strong>N PTYs im Main</strong>, <code>activeSessions</code> Map (<code>main.js:180</code>), sessionId-gekeyed. IPC: <code>open-terminal</code>/<code>terminal-input</code>/<code>terminal-data</code>.</td></tr>
+<tr><td>Terminal-Lifecycle</td><td>Terminals bleiben <strong>am Leben</strong> in <code>openSessions</code> (<code>app.js:91</code>); DOM-Container fix in <code>#terminals</code> (<code>index.html:117</code>). <strong>Kein</strong> Reparenting/Neuerzeugen (<code>grid-view.js:2</code>).</td></tr>
+<tr><td>Single-View</td><td><code>.terminal-container{position:absolute;display:none}</code> → <code>.visible</code>=block (<code>style.css:2296-2307</code>). <code>showSession()</code> (<code>terminal-manager.js:634</code>) versteckt alle (<code>:670</code>), zeigt eine (<code>:679</code>).</td></tr>
+<tr><td>Grid-View</td><td><code>#terminals.grid-layout</code> CSS-grid (<code>style.css:2647</code>); Spalten <code>calculateGridColumnCount()</code> (<code>grid-layout.js:14</code>); <code>toggleGridView</code> (<code>grid-view.js:1637</code>); Flag <code>gridViewActive</code> (<code>app.js:82</code>); Shortcut Ctrl+G (<code>terminal-manager.js:27</code>).</td></tr>
+<tr><td>Sidebar-Switcher</td><td><code>buildSessionItem</code> (<code>sidebar.js:1824</code>) → <code>onclick</code>→<code>openSession()</code> (<code>app.js:1761</code>) → <code>createTerminalEntry</code>→<code>openTerminal</code> IPC→<code>showSession</code>.</td></tr>
+<tr><td>Aktive Session</td><td><code>activeSessionId</code> (<code>app.js:93</code>).</td></tr>
+<tr><td class="b-lo" style="background:rgba(248,81,73,.06)">Detach-Knackpunkt</td><td><code>terminal-data</code> wird <strong>hardcoded</strong> an <code>mainWindow.webContents</code> gesendet (<code>main.js:2074</code>) → muss für Detach pro Session geroutet werden.</td></tr>
+</table>
+
+<div class="note"><strong>Konsequenz:</strong> Tabs sind billig — Terminals leben eh weiter, <code>showSession</code> schaltet per CSS um.
+Eine Tab-Leiste ist „nur" ein zweiter Switcher über <code>#terminals</code> auf der vorhandenen Single-View-Maschinerie.
+Detach hingegen ist ein Architektur-Eingriff (Multi-Window-Routing).</div>
+
+<h2>3 · Entscheidungen <span class="small">(User, 2026-06-29)</span></h2>
+<ul>
+<li><strong>Setting</strong> <code>global.sessionDisplayMode</code> ∈ <code>{legacy, tabs}</code> — <strong>Default <code>legacy</code></strong>. Detach = Aktion.</li>
+<li><strong>Tab-Close (×)</strong> = nur Ansicht schließen, <strong>Session läuft weiter</strong> (PTY bleibt, reopenbar). VS-Code-Stil.</li>
+<li><strong>Grid koexistiert</strong> im Tabs-Modus (Option A): Tabs primär, Ctrl+G-Mosaik jederzeit als „Alle-im-Blick"-Übersicht.</li>
+<li><strong>Detach</strong> = Ausbaustufe 2 — jetzt vollständig <em>designt</em>, gebaut wird Phase 1 zuerst.</li>
+</ul>
+
+<!-- ===================== PHASE 1 ===================== -->
+<h2>Phase 1 — Tabs <span class="badge b-mid">JETZT bauen</span></h2>
+<p class="small">Muster für Setting + Live-Apply: bestehende <code>terminalRightClick</code>/<code>terminalMouseReporting</code>-Plumbing (Commit <code>3e6bca7</code>).</p>
+
+<h3>1.1 Setting + Plumbing</h3>
+<ul>
+<li><strong>settings-panel.js</strong>: Dropdown „Session-Darstellung" (Legacy / Tabs).</li>
+<li>Persistenz: <code>global.sessionDisplayMode</code> über bestehendes <code>set-setting</code> — <strong>kein neuer IPC</strong>.</li>
+<li><strong>app.js</strong>: Setter <code>applySessionDisplayMode(mode)</code> + Startup-Load (im <code>global</code>-Block ~<code>app.js:2074</code>). Toggelt Container-Klasse <code>display-mode-tabs</code>. Live bei Save.</li>
+</ul>
+
+<h3>1.2 Tab-Leiste — neue Datei <code>public/session-tabs.js</code> + CSS</h3>
+<ul>
+<li>Neuer Container in <strong>index.html</strong> über <code>#terminals</code>: <code>&lt;div id="session-tabs"&gt;</code> (CSS-gated, nur Tabs-Modus sichtbar).</li>
+<li>Ein Tab je <strong>offener</strong> Session (aus <code>openSessions</code>): Status-Dot + Name (<code>cleanDisplayName</code>) + Close-(×).</li>
+<li>Aktiver Tab hervorgehoben via <code>activeSessionId</code>.</li>
+<li><strong>Overflow</strong> bei vielen Sessions: horizontal scrollbar → löst die „lange Liste bei kleiner Auflösung".</li>
+<li><strong>Pure Helper</strong> (testbar): <code>buildTabModel(openSessions, activeSessionId)</code> → geordnete Liste {sessionId, label, status, active}.</li>
+</ul>
+
+<h3>1.3 Wiring <span class="small">(vorhandene Single-View-Maschinerie wiederverwenden)</span></h3>
+<div class="flow">Tab-Klick      → showSession(sessionId)                  [existiert]
+Tab-Close (×)  → destroySession(sessionId)  OHNE stopSession  → PTY läuft weiter, Session bleibt in Sidebar, reopenbar
+Neue Session   → openSession() ändert openSessions → refreshSessionTabs()
+Active-Wechsel → showSession() → refreshSessionTabs()  (Highlight)</div>
+<div class="note"><strong>VERIFY bei Umsetzung:</strong> <code>destroySession</code> (<code>terminal-manager.js:595</code>) ruft <strong>nicht</strong>
+<code>stopSession</code> — sonst Close-Pfad anpassen (nur xterm dispose + <code>openSessions</code>-delete, PTY in <code>activeSessions</code> unangetastet).</div>
+
+<h3>1.4 Modus-Interaktion</h3>
+<table>
+<tr><th>Modus</th><th>Verhalten</th></tr>
+<tr><td><code>legacy</code></td><td>Tab-Leiste versteckt; heutiges Verhalten (Sidebar + Ctrl+G Grid) <strong>unverändert</strong>.</td></tr>
+<tr><td><code>tabs</code></td><td>Tab-Leiste sichtbar; Default Single-View; <strong>Ctrl+G kippt weiter ins Mosaik</strong> (koexistiert) und zurück; Sidebar bleibt Switcher. <code>activeSessionId</code> treibt Tab-Highlight + showSession.</td></tr>
+</table>
+
+<h3>1.5 Tastatur <span class="pill">optional</span></h3>
+<p class="small">Ctrl+Tab / Ctrl+Shift+Tab → Tab zyklisch (evtl. via <code>shortcuts.js</code>). Kann später.</p>
+
+<h3>1.6 Dateien</h3>
+<ul class="files">
+<li><code>public/index.html</code> — <code>#session-tabs</code>-Container + <code>&lt;script src="session-tabs.js"&gt;</code> (nach sidebar.js, vor app.js).</li>
+<li><code>public/session-tabs.js</code> — <span class="badge b-hi">neu</span> Tab-Render + <code>buildTabModel</code> (pure) + <code>refreshSessionTabs</code>.</li>
+<li><code>public/style.css</code> — Tab-Styles + <code>.display-mode-tabs</code>-Gating.</li>
+<li><code>public/app.js</code> — Setting-Load/Apply + <code>refreshSessionTabs</code> in openSession.</li>
+<li><code>public/terminal-manager.js</code> — <code>refreshSessionTabs</code>-Hook in showSession/destroySession.</li>
+<li><code>public/settings-panel.js</code> — Dropdown.</li>
+<li><code>test/session-tabs.test.js</code> — <code>buildTabModel</code> (Reihenfolge, Active-Flag, Labels).</li>
+</ul>
+<p class="small"><strong>Kein neuer IPC.</strong> Aufwand: mittel. Risiko: niedrig. Branch <code>feat/session-tabs</code> → npm test grün (Baseline 427) → ff-merge.</p>
+
+<!-- ===================== PHASE 2 ===================== -->
+<h2>Phase 2 — Detach / abkoppelbare Fenster <span class="badge b-lo">großer Umbau</span></h2>
+<p>Eine Session in ein <strong>eigenes OS-Fenster</strong> auslagern (wie VS Code „Move into New Window") — auf einen
+zweiten Monitor ziehbar, Session läuft weiter. Eigener Branch, erst nach Phase 1.</p>
+
+<h3>2.1 Grundprinzip</h3>
+<div class="note">Eine Session wird <strong>entweder</strong> im Main-Fenster <strong>oder</strong> in genau einem Detach-Fenster gerendert —
+<strong>nie beides</strong> (sonst doppeltes Rendern + doppelter Input-Echo). Der PTY bleibt unverändert im Main-Prozess
+(<code>activeSessions</code>); nur <em>welches Fenster</em> den Byte-Stream bekommt, ändert sich.</div>
+
+<h3>2.2 Fenster-Registry im Main</h3>
+<pre><code>// main.js
+const detachedWindows = new Map(); // sessionId → BrowserWindow
+
+function windowForSession(sessionId){
+  const w = detachedWindows.get(sessionId);
+  return (w &amp;&amp; !w.isDestroyed()) ? w : mainWindow;
+}</code></pre>
+
+<h3>2.3 terminal-data routen <span class="small">(der zentrale Eingriff)</span></h3>
+<p>Den hardcoded Send (<code>main.js:2074</code>) ersetzen:</p>
+<div class="grid2">
+<div class="panel"><h4>Vorher</h4><pre><code>mainWindow.webContents.send(
+  'terminal-data', sessionId, chunk);</code></pre></div>
+<div class="panel"><h4>Nachher</h4><pre><code>const win = windowForSession(sessionId);
+if (win &amp;&amp; !win.isDestroyed())
+  win.webContents.send(
+    'terminal-data', sessionId, chunk);</code></pre></div>
+</div>
+<div class="note"><strong>Wichtig — nur den Byte-Stream routen.</strong> Sidebar-/Status-Events (Attention, busy-state, exit,
+OSC-Badges) müssen <strong>weiterhin den Main</strong> erreichen (die Sidebar lebt dort). Also: <code>terminal-data</code> → besitzendes
+Fenster; Lifecycle/Attention → Main (ggf. zusätzlich ans Detach-Fenster). Diese Trennung sauber durchziehen, sonst
+verschwinden im Detach-Fall Attention-Badges aus der Sidebar.</div>
+
+<h3>2.4 IPC: detach / reattach</h3>
+<table>
+<tr><th>Handler</th><th>Ablauf</th></tr>
+<tr><td><code>detach-session</code></td><td>
+<ol>
+<li>Neues <code>BrowserWindow</code> erzeugen (Detach-Renderer, siehe 2.5).</li>
+<li><code>detachedWindows.set(sessionId, win)</code>.</li>
+<li>Main-Renderer anweisen, sein xterm für die Session <strong>freizugeben</strong> (<code>destroySession</code>, PTY bleibt) → Main rendert sie nicht mehr.</li>
+<li>Detach-Fenster lädt Renderer → ruft <code>openTerminal(sessionId)</code> → Reattach → Buffer-Replay → rendert.</li>
+</ol></td></tr>
+<tr><td><code>reattach-session</code><br><span class="small">(auch bei Detach-Fenster-Close)</span></td><td>
+<ol>
+<li><code>detachedWindows.delete(sessionId)</code> → <code>terminal-data</code> fällt auf Main zurück.</li>
+<li>Detach-Fenster schließen.</li>
+<li>Main-Renderer benachrichtigen → Session wieder öffnen/zeigen (<code>openSession</code>/<code>showSession</code>, Reattach replayt Buffer).</li>
+</ol></td></tr>
+</table>
+
+<h3>2.5 Detach-Renderer <span class="small">— index.html wiederverwenden (empfohlen)</span></h3>
+<div class="grid2">
+<div class="panel"><h4><span class="badge b-hi">Empfohlen</span> index.html im Detach-Modus</h4>
+<p class="small">Fenster lädt <code>index.html?detached=&lt;sessionId&gt;</code>. Renderer erkennt den Flag → blendet
+Sidebar/Tabs/Grid/Header aus, rendert <strong>nur die eine</strong> Session voll.</p>
+<ul class="small"><li><strong>+</strong> erbt automatisch <em>alle</em> Terminal-Fixes (windowsPty, Paste, Scroll, Maus-Reporting, Rechtsklick).</li>
+<li><strong>+</strong> wenig neuer Code.</li>
+<li><strong>−</strong> lädt die ganze App pro Fenster (Speicher) — für ein Power-Feature ok.</li></ul></div>
+<div class="panel"><h4>Alternative: minimaler detached.html</h4>
+<p class="small">Eigene Seite, instanziiert <em>ein</em> xterm via <code>createTerminalEntry</code>.</p>
+<ul class="small"><li><strong>+</strong> leichter (Speicher).</li>
+<li><strong>−</strong> dupliziert Wiring; läuft Gefahr, Globals/Fixes zu verpassen → Drift.</li></ul></div>
+</div>
+
+<h3>2.6 Input / Fokus / Clipboard</h3>
+<ul>
+<li><code>terminal-input</code> ist sessionId-gekeyed → aus dem Detach-Fenster routet es schon korrekt an den PTY. <strong>Funktioniert ohne Änderung.</strong></li>
+<li>Clipboard (OSC-52), Rechtsklick-Menü, Selektion etc. laufen über dieselbe <code>terminal-manager</code>-Logik → erben.</li>
+</ul>
+
+<h3>2.7 Lifecycle &amp; Edge-Cases</h3>
+<table>
+<tr><th>Fall</th><th>Verhalten</th></tr>
+<tr><td>Detach-Fenster vom User geschlossen</td><td>→ <code>reattach-session</code>: Session kehrt zum Main zurück (nicht verloren). PTY lief durchgehend.</td></tr>
+<tr><td>PTY exit während detached</td><td>Exit-Event: Detach-Fenster zeigt Exit; <strong>Main-Sidebar-Status aktualisiert</strong> (Status-Events bleiben am Main).</td></tr>
+<tr><td>Main-Fenster geschlossen, Detach offen</td><td>Detach-Fenster mitschließen (abhängig vom Main). Sonst Orphan-Fenster. Auf Win/Linux: <code>app.quit()</code> bei window-all-closed (<code>main.js:2307</code>) — Detach-Fenster zählen mit.</td></tr>
+<tr><td>App-Quit</td><td>Alle Detach-Fenster schließen; PTYs killen wie heute (<code>mainWindow 'closed'</code>-Handler → <code>activeSessions</code> killen) — Logik muss Detach-Fenster einbeziehen.</td></tr>
+<tr><td>Doppel-Detach</td><td>Verhindern: Detach-Button deaktiviert/grau, wenn schon in <code>detachedWindows</code>.</td></tr>
+<tr><td>Bounds</td><td>Optional: Position/Größe je Detach-Fenster persistieren.</td></tr>
+</table>
+
+<h3>2.8 Zusammenspiel mit Tabs (Phase 1)</h3>
+<p>Detachte Session bekommt im Main-Fenster einen <strong>„Ghost"-Tab</strong> (ausgegraut + Icon „⤢"): Klick <strong>fokussiert
+das Detach-Fenster</strong> (statt <code>showSession</code>); Close/Reattach am Tab verfügbar. So bleibt die Session in der Main-UI auffindbar.</p>
+
+<h3>2.9 Detach-Trigger UI</h3>
+<ul><li>Tab-Kontextmenü „In neues Fenster" (+ optional Button am Tab).</li><li>Optional aus Sidebar-Kontext.</li></ul>
+
+<h3>2.10 Dateien (Phase 2)</h3>
+<ul class="files">
+<li><code>main.js</code> — <code>detachedWindows</code> Map, <code>windowForSession()</code> + Routing (ersetzt <code>:2074</code>), IPC <code>detach-session</code>/<code>reattach-session</code>, Fenster-Erzeugung (createWindow um <code>detached</code>-Flag/URL erweitern), Quit/Close-Handling für Detach-Fenster.</li>
+<li><code>main-lifecycle.js</code> — Window-Lifecycle für Detach.</li>
+<li><code>preload.js</code> — <code>detachSession</code>/<code>reattachSession</code> + <code>onReattach</code>-Listener.</li>
+<li><code>public/index.html</code> / <code>app.js</code> — <code>?detached</code>-Modus erkennen → Chrome ausblenden, eine Session rendern; Detach-Action; Ghost-Tab-Handling.</li>
+<li><code>test/detach-routing.test.js</code> — <code>windowForSession</code> (pure) + Detach/Reattach-State-Machine (reiner Reducer über <code>detachedWindows</code>) ohne Electron.</li>
+</ul>
+
+<h3>2.11 Risiken (Phase 2)</h3>
+<table>
+<tr><th>Risiko</th><th>Gegenmaßnahme</th></tr>
+<tr><td class="b-lo" style="background:rgba(248,81,73,.06)">Doppel-Send (Main + Detach)</td><td>Genau ein Besitzer pro Session via <code>detachedWindows</code>; Main gibt xterm beim Detach frei.</td></tr>
+<tr><td>Status/Attention verschwindet aus Sidebar</td><td>Nur <code>terminal-data</code> routen; Lifecycle/Attention bleiben am Main.</td></tr>
+<tr><td>Orphan-Fenster / Orphan-PTY</td><td>Detach-Fenster an Main-Lifecycle koppeln; Quit schließt alle.</td></tr>
+<tr><td>Reattach-Buffer-Replay</td><td>Vorhandenen Reattach-Pfad nutzen (replayt schon korrekt).</td></tr>
+<tr><td>Speicher (volle App je Fenster)</td><td>Akzeptiert (Power-Feature); ggf. später minimaler Renderer.</td></tr>
+</table>
+
+<h2>4 · Verification <span class="small">(pro Phase)</span></h2>
+<ul>
+<li><code>npm test</code> grün (Baseline 427 + neue Tests, Hintergrund ~5 min wg. trigger-watcher).</li>
+<li>Manuell in <code>npm start</code>: <strong>Legacy unverändert</strong>; <strong>Tabs</strong> (öffnen/wechseln/×-läuft-weiter, Overflow, Ctrl+G-Mosaik koexistiert, Setting-Persistenz); <strong>Detach</strong> (auslagern/reattach/Close, Attention-Badge bleibt in Sidebar, Quit schließt alle, Input im Detach-Fenster).</li>
+<li>Workflow je Phase: eigener <code>feat/*</code>-Branch → grün → <code>git-commit</code>-Skill (Deutsch) → ff-merge <old-codename>.</li>
+</ul>
+
+<h2>5 · Reihenfolge / Aufwand</h2>
+<table>
+<tr><th>Phase</th><th>Inhalt</th><th>Aufwand</th><th>Risiko</th></tr>
+<tr><td>1</td><td>Tabs + Setting (Legacy/Tabs), Tab-Leiste, ×-läuft-weiter, Grid koexistiert</td><td><span class="badge b-mid">mittel</span></td><td><span class="badge b-hi">niedrig</span></td></tr>
+<tr><td>2</td><td>Detach: Multi-Window, terminal-data-Routing, detach/reattach, Ghost-Tab</td><td><span class="badge b-lo">hoch</span></td><td><span class="badge b-lo">hoch</span></td></tr>
+</table>
+
+<p class="small" style="margin-top:24px;border-top:1px solid var(--line);padding-top:12px">
+Quelle Markdown-Plan: <code>~/.claude/plans/session-display-tabs.md</code> · erstellt 2026-06-29 · <old-codename> <code>050c669</code></p>
+
+</body>
+</html>
