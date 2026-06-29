@@ -96,9 +96,25 @@ Detach hingegen ist ein Architektur-Eingriff (Multi-Window-Routing).</div>
 <li>Neuer Container in <strong>index.html</strong> über <code>#terminals</code>: <code>&lt;div id="session-tabs"&gt;</code> (CSS-gated, nur Tabs-Modus sichtbar).</li>
 <li>Ein Tab je <strong>offener</strong> Session (aus <code>openSessions</code>): Status-Dot + Name (<code>cleanDisplayName</code>) + Close-(×).</li>
 <li>Aktiver Tab hervorgehoben via <code>activeSessionId</code>.</li>
-<li><strong>Overflow</strong> bei vielen Sessions: horizontal scrollbar → löst die „lange Liste bei kleiner Auflösung".</li>
+<li><strong>Overflow</strong> bei vielen Tabs: siehe 1.2a (Scroll + Overflow-Menü). <strong>Kein</strong> Zeilenumbruch — sonst käme die vertikale „lange Liste" zurück.</li>
 <li><strong>Pure Helper</strong> (testbar): <code>buildTabModel(openSessions, activeSessionId)</code> → geordnete Liste {sessionId, label, status, active}.</li>
 </ul>
+
+<h3>1.2a Overflow — viele Tabs <span class="small">(gewählt: Scroll + Overflow-Menü, VS-Code-Stil)</span></h3>
+<ul>
+<li><strong>Eine Reihe, kein Umbruch.</strong> Tabs zeigen nur <em>offene</em> Sessions (<code>openSessions</code>); die Gesamtliste bleibt die Sidebar.</li>
+<li><strong>Schrumpfen bis Mindestbreite:</strong> Tabs werden bei mehr Tabs schmaler, Label kürzt mit <code>…</code> (Ellipse); Status-Dot + ×-Button bleiben immer sichtbar; <strong>Tooltip = voller Name</strong>.</li>
+<li><strong>Dann horizontal scrollen:</strong> ab Mindestbreite scrollt die Reihe — per <strong>Wheel über der Leiste</strong> und <strong>◀▶-Pfeile</strong> (nur sichtbar, wenn Overflow).</li>
+<li><strong>▾ Overflow-Menü</strong> am rechten Ende: Dropdown listet <strong>alle offenen Tabs</strong> mit <strong>Filter-Feld</strong>; Klick → Session aktivieren (<code>showSession</code>) + Tab in Sicht scrollen.</li>
+<li><strong>Aktiver Tab scrollt automatisch in Sicht</strong> beim Wechsel.</li>
+</ul>
+<div class="flow">┌────────────────────────────────────────────────┐
+│ ●Auth  ●API  ●Web  ●DB  ●Spec  ●Fix… │ ◀ ▶ ▾ │   ← eine Reihe, scrollbar
+└────────────────────────────────────────────────┘
+  ▾ → Dropdown (alle offenen, mit 🔍 filter) → Klick aktiviert + scrollt in Sicht</div>
+<p class="small"><strong>Umsetzung:</strong> Leiste = Flex-Row, <code>overflow-x</code> + <code>flex-shrink</code> auf Tabs mit <code>min-width</code>;
+Pfeile/▾ als Sticky-Ende-Block; <code>scrollIntoView</code> für aktiven/angesprungenen Tab. Overflow-Dropdown = vorhandenes Popover-Muster
+(wie Rechtsklick-Menü / Bookmark-Overlay) + Filter-Input. <code>buildTabModel</code> liefert die Liste auch fürs Dropdown.</p>
 
 <h3>1.3 Wiring <span class="small">(vorhandene Single-View-Maschinerie wiederverwenden)</span></h3>
 <div class="flow">Tab-Klick      → showSession(sessionId)                  [existiert]
