@@ -98,14 +98,15 @@ function setActiveSession(id) {
   // Update file panel to show this session's open files/diffs
   if (typeof switchPanel === 'function') switchPanel(id);
 }
-// Persist slug group expand state across reloads
+// Persist slug group expand state across reloads AND restarts (localStorage, so
+// the "letzter Stand" collapse-default actually survives an app restart).
 function getExpandedSlugs() {
-  try { return new Set(JSON.parse(sessionStorage.getItem('expandedSlugs') || '[]')); } catch { return new Set(); }
+  try { return new Set(JSON.parse(localStorage.getItem('expandedSlugs') || '[]')); } catch { return new Set(); }
 }
 function saveExpandedSlugs() {
   const expanded = [];
   document.querySelectorAll('.slug-group:not(.collapsed)').forEach(g => { if (g.id) expanded.push(g.id); });
-  sessionStorage.setItem('expandedSlugs', JSON.stringify(expanded));
+  localStorage.setItem('expandedSlugs', JSON.stringify(expanded));
 }
 // User-defined session groups (spec 07). State is restored from the `groups`
 // settings blob on startup and persisted on every mutation.
@@ -1093,6 +1094,20 @@ function updateCollapseAllToggle() {
   collapseAllToggle.innerHTML = allCollapsed
     ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 5 12 11 18 5"/><polyline points="6 13 12 19 18 13"/></svg>'
     : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 11 12 5 18 11"/><polyline points="6 19 12 13 18 19"/></svg>';
+}
+
+// Apply the startup collapse default (sidebarCollapseDefault setting):
+// 'expanded' / 'collapsed' force all sections; 'remember' leaves the persisted
+// state alone. Called once after the initial sidebar render.
+function applyCollapseDefault(mode) {
+  if (mode !== 'expanded' && mode !== 'collapsed') return; // 'remember' = persisted state
+  const sections = getCollapsibleSections();
+  if (sections.length === 0) return;
+  const collapse = mode === 'collapsed';
+  for (const section of sections) section.classList.toggle('collapsed', collapse);
+  saveExpandedSlugs();
+  saveCollapsedGroups();
+  if (typeof updateCollapseAllToggle === 'function') updateCollapseAllToggle();
 }
 
 function toggleCollapseAllSections() {
@@ -2148,6 +2163,13 @@ setTimeout(() => {
 window._applyShortcuts = (stored) => setAppShortcuts(stored);
 
 loadProjects().then(async () => {
+  // Apply the configured startup collapse default once the sidebar (incl. project
+  // sections) is built. 'remember' is a no-op (persisted state already applied).
+  try {
+    const g = await window.api.getSetting('global');
+    applyCollapseDefault(g?.sidebarCollapseDefault || 'remember');
+  } catch { /* ignore */ }
+
   // Restore grid view preference before opening sessions so they enter grid mode
   if (localStorage.getItem('gridViewActive') === '1') {
     showGridView();
