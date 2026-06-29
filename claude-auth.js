@@ -68,11 +68,10 @@ function formatResetTime(value) {
   const now = new Date();
   const diffMs = resetDate - now;
 
+  // 24-hour clock in the system timezone (getHours/getMinutes are local time).
   const hours = resetDate.getHours();
   const minutes = resetDate.getMinutes();
-  const ampm = hours >= 12 ? 'pm' : 'am';
-  const h = hours % 12 || 12;
-  const timeStr = minutes === 0 ? `${h}${ampm}` : `${h}:${String(minutes).padStart(2, '0')}${ampm}`;
+  const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
   const tz = Intl.DateTimeFormat('en', { timeZoneName: 'short' }).formatToParts(resetDate)
     .find(p => p.type === 'timeZoneName')?.value || '';
