@@ -6703,6 +6703,8 @@ body.grid-dragging .grid-card-header {
 
 /* --- Session tabs (Phase 1) --- */
 #session-tabs { display: none; }
+/* Tabs mode is single-view only → the grid toggle button has no place there. */
+body.display-mode-tabs #grid-toggle-btn { display: none; }
 body.display-mode-tabs #session-tabs {
   display: flex;
   align-items: center;

@@ -41,6 +41,7 @@ if (typeof module !== 'undefined' && module.exports) {
   let dragReorder = true;
   let tabOrder = [];               // sessionId[] persisted order
   let dragId = null;
+  let initialized = false;         // first applySessionDisplaySettings = startup
 
   function stripEl() { return document.getElementById('session-tabs'); }
 
@@ -253,6 +254,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
   function applySessionDisplaySettings(g) {
     g = g || {};
+    const prevMode = displayMode;
     displayMode = g.sessionDisplayMode === 'tabs' ? 'tabs' : 'legacy';
     tabPosition = g.tabPosition === 'bottom' ? 'bottom' : 'top';
     closeBehavior = g.tabCloseBehavior === 'stopSession' ? 'stopSession' : 'closeView';
@@ -260,6 +262,26 @@ if (typeof module !== 'undefined' && module.exports) {
     dragReorder = g.tabDragReorder !== false;
     tabOrder = Array.isArray(g.tabOrder) ? g.tabOrder.slice() : [];
     applyMode();
+
+    // Tabs mode is single-view only; the grid mosaic is legacy-only. On a real
+    // user mode switch, scope the grid per mode WITHOUT losing the legacy grid
+    // preference (saved separately so legacy keeps its mosaic). Skip on the first
+    // apply (startup) — the persisted gridViewActive already matches the mode.
+    if (initialized && prevMode !== displayMode) {
+      if (displayMode === 'tabs') {
+        try { localStorage.setItem('legacyGridPref', localStorage.getItem('gridViewActive') || '0'); } catch { /* ignore */ }
+        if (typeof gridViewActive !== 'undefined' && gridViewActive && typeof toggleGridView === 'function') {
+          toggleGridView(); // hide grid → single (persists gridViewActive=0)
+        }
+      } else {
+        let pref = '0';
+        try { pref = localStorage.getItem('legacyGridPref') || '0'; } catch { /* ignore */ }
+        if (pref === '1' && typeof gridViewActive !== 'undefined' && !gridViewActive && typeof toggleGridView === 'function') {
+          toggleGridView(); // restore legacy's grid mosaic
+        }
+      }
+    }
+    initialized = true;
   }
 
   window.refreshSessionTabs = refreshSessionTabs;

@@ -222,11 +222,12 @@ async function launchAllInGroup(groupId) {
 
   // Multiple sessions → show them all at once in the grid. A single launch just
   // opens in the current view so we don't yank the user into the grid needlessly.
-  if (openedIds.length >= 2) {
+  // In tabs mode the view is single-only, so just focus the first one as a tab.
+  if (openedIds.length >= 2 && !document.body.classList.contains('display-mode-tabs')) {
     showGridView(); // sets/keeps grid active and rebuilds once with the new cards
     const focusId = openedIds[0];
     requestAnimationFrame(() => { if (typeof focusGridCard === 'function') focusGridCard(focusId); });
-  } else if (openedIds.length === 1) {
+  } else if (openedIds.length >= 1) {
     if (gridViewActive) showGridView();
     else showSession(openedIds[0]);
   }

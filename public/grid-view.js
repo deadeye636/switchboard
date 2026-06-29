@@ -1645,6 +1645,8 @@ function toggleGridView() {
       placeholder.style.display = '';
     }
   } else {
+    // Tabs mode is single-view only — never activate the grid mosaic there.
+    if (document.body.classList.contains('display-mode-tabs')) return;
     terminalHeader.style.display = 'none';
     showGridView();
     // Surface every currently-running session as a card. Kick a fresh poll so
