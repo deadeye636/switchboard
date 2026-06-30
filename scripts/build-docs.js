@@ -19,6 +19,7 @@ const DOCS = [
   ['project-sidebar-plan.md', 'project-sidebar-plan.html'],
   ['windows-tray-fix-plan.md', 'windows-tray-fix-plan.html'],
   ['ci-autobuild-plan.md', 'ci-autobuild-plan.html'],
+  ['handoff-store-plan.md', 'handoff-store-plan.html'],
 ];
 
 // Bespoke, von Hand gepflegte HTML-Pläne (keine MD-Quelle) — nur zur Doku, nicht generiert:

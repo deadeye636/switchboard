@@ -29,7 +29,7 @@ Dateien und werden hier nur verlinkt.
 | ID | Prio | Aufgabe | Detail |
 |----|------|---------|--------|
 | #02 | P1 | Session-Display **Phase 3 — Detach** (abkoppelbare Fenster) | [Plan](session-display-plan.html) |
-| #03 | P2 | **One-Click-Handoff** — „Handoff empfohlen" von Rat zu Aktion machen | [Roadmap §Phase 3](productivity-roadmap.md) |
+| #03 | P2 | **Handoff-Store + Resume** — Handoff projektbezogen speicherbar + „Claude Handoff resume" im Neu-Session-Menü, per Setting *(Basis-One-Click-Handoff existiert bereits)* | [Plan](handoff-store-plan.md) |
 | #04 | P2 | **Flexibles Grid-Layout** (Karten-Resize / Drag-Reorder, 5B) | [Roadmap §Phase 5B](productivity-roadmap.md) |
 | #19 | P2 | **CI / Autobuild** (GitHub Actions: Test-CI + Win/Mac/Linux-Build + Release) | [Plan](ci-autobuild-plan.md) |
 | #05 | P3 | **Attention-Erkennung härten** via Claude-Code-Hooks + Bulk-Aktionen | [Roadmap §Phase 4](productivity-roadmap.md) |

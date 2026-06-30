@@ -2,8 +2,8 @@
 # Generiert die HTML-Ansichten der Plaene neu, sobald eine ihrer Markdown-Quellen
 # Teil des Commits ist, und staged die Generate mit.
 # Aktiviert via core.hooksPath=.githooks (scripts/postinstall.js).
-if git diff --cached --name-only | grep -qE '^docs/(ROADMAP|productivity-roadmap|agent-supervision-ux-plan|sidebar-folder-first-view-plan|sidebar-group-interactions-plan|project-sidebar-plan|windows-tray-fix-plan|ci-autobuild-plan)\.md$'; then
+if git diff --cached --name-only | grep -qE '^docs/(ROADMAP|productivity-roadmap|agent-supervision-ux-plan|sidebar-folder-first-view-plan|sidebar-group-interactions-plan|project-sidebar-plan|windows-tray-fix-plan|ci-autobuild-plan|handoff-store-plan)\.md$'; then
   echo "[pre-commit] Plan-Markdown geaendert -> HTML neu generieren"
   node scripts/build-docs.js || { echo "[pre-commit] build-docs.js fehlgeschlagen"; exit 1; }
-  git add docs/roadmap.html docs/productivity-roadmap.html docs/agent-supervision-ux-plan.html docs/sidebar-folder-first-view-plan.html docs/sidebar-group-interactions-plan.html docs/project-sidebar-plan.html docs/windows-tray-fix-plan.html docs/ci-autobuild-plan.html
+  git add docs/roadmap.html docs/productivity-roadmap.html docs/agent-supervision-ux-plan.html docs/sidebar-folder-first-view-plan.html docs/sidebar-group-interactions-plan.html docs/project-sidebar-plan.html docs/windows-tray-fix-plan.html docs/ci-autobuild-plan.html docs/handoff-store-plan.html
 fi
