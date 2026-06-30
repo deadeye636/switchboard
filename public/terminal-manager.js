@@ -16,18 +16,9 @@
 const isMac = window.api.platform === 'darwin';
 function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } = {}) {
   terminal.attachCustomKeyEventHandler((e) => {
-    // Cmd/Ctrl +/-/0 → terminal-only font zoom. preventDefault stops Chromium's
-    // built-in page zoom (which would scale the whole UI, not just the terminal).
-    if ((isMac ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey) {
-      let delta = null;
-      if (e.key === '=' || e.key === '+') delta = 1;
-      else if (e.key === '-' || e.key === '_') delta = -1;
-      else if (e.key === '0') delta = 0;
-      if (delta !== null) {
-        if (e.type === 'keydown') { e.preventDefault(); window._nudgeTerminalFontSize?.(delta); }
-        return false;
-      }
-    }
+    // Note: Ctrl/Cmd +/-/0 are deliberately NOT handled here — they fall through
+    // to Electron's whole-UI zoom. Terminal-only font zoom is via Ctrl+wheel
+    // (below) and the Settings font-size field.
 
     // Cmd/Ctrl+F → open terminal search bar
     if (e.key === 'f' && (isMac ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey) {
@@ -119,6 +110,18 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
       }
     }, { capture: true });
   }
+
+  // Ctrl/Cmd + mouse wheel → terminal-only font zoom (VS Code / Windows Terminal
+  // convention). Capture phase + passive:false so we intercept before xterm's
+  // own viewport wheel handler (which would otherwise consume the event) and so
+  // preventDefault can suppress both Chromium's page zoom and xterm's scroll.
+  // Without the modifier we do nothing → the wheel scrolls as usual.
+  container.addEventListener('wheel', (e) => {
+    if (!(isMac ? e.metaKey : e.ctrlKey) || e.deltaY === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    window._nudgeTerminalFontSize?.(e.deltaY < 0 ? 1 : -1);
+  }, { capture: true, passive: false });
 }
 
 // Check whether a terminal is scrolled to the bottom using xterm's buffer API.
