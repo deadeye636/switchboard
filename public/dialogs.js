@@ -40,6 +40,7 @@ async function showHandoffPrompt(session) {
   const health = getSessionHealth(session);
   const canAskRunningSession = activePtyIds.has(session.sessionId) && session.type !== 'terminal';
   const project = findProjectForSession(session);
+  const handoffLibrary = !!((await window.api.getSetting('global'))?.handoffLibrary);
   const evidence = health.reasons.length
     ? health.reasons.map(reason => reason.label).join(', ')
     : 'This session is still within healthy bounds.';
@@ -59,6 +60,7 @@ async function showHandoffPrompt(session) {
       message: `This session is becoming expensive: ${evidence}. The guided handoff asks the running agent for a summary (spends tokens), then starts a fresh, lean session in the same project seeded with it. You'll review the packet before anything new is started. Or copy a local starter packet instead.`,
       confirmLabel: 'Hand off (guided)',
       secondaryLabel: 'Copy Packet',
+      tertiaryLabel: 'New session',
       cancelLabel: 'Close',
       tone,
       details,
@@ -68,21 +70,47 @@ async function showHandoffPrompt(session) {
     } else if (action === 'secondary') {
       await window.api.writeClipboard(buildHandoffTemplate(session));
       showControlToast({ message: 'Handoff copied to clipboard.' });
+    } else if (action === 'tertiary') {
+      await newSessionFromHandoff(project, session);
     }
     return;
   }
 
+  // Not running (no live agent). Offer the local starter packet — copy, and with the
+  // Integrated Handoff System on, also save it to the project library for later resume.
   const action = await showControlDialog({
     title: 'Create Handoff',
-    message: `This session is becoming expensive: ${evidence}. Copy a short handoff packet and start fresh when you reach a natural breakpoint.`,
+    message: `This session is becoming expensive: ${evidence}. Copy a short handoff packet and start fresh when you reach a natural breakpoint.${handoffLibrary && project ? ' Or save it to this project to resume later.' : ''}`,
     confirmLabel: 'Copy Handoff',
+    tertiaryLabel: project ? 'New session' : undefined,
+    secondaryLabel: handoffLibrary && project ? 'Save to library' : undefined,
     cancelLabel: 'Close',
     tone,
     details,
   });
+  if (action === 'tertiary') {
+    await newSessionFromHandoff(project, session);
+    return;
+  }
+  if (action === 'secondary') {
+    const label = await showHandoffSaveDialog(session);
+    if (label === null) return;
+    await window.api.saveHandoff({ projectPath: project.projectPath, label, content: buildHandoffTemplate(session) });
+    showControlToast({ message: 'Handoff saved to project.' });
+    return;
+  }
   if (!action) return;
   await window.api.writeClipboard(buildHandoffTemplate(session));
   showControlToast({ message: 'Handoff copied to clipboard.' });
+}
+
+// Start a fresh session in the project seeded directly with the local handoff
+// template (no agent round-trip). Used by the "New session" action in both dialogs.
+async function newSessionFromHandoff(project, session) {
+  if (!project) return;
+  const options = await resolveDefaultSessionOptions(project);
+  const newId = await launchNewSession(project, options, buildHandoffTemplate(session));
+  if (newId) showControlToast({ message: 'New session seeded with the handoff.' });
 }
 
 async function readLatestHandoffPacket(session) {

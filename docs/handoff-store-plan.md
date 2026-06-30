@@ -43,7 +43,7 @@ Eine **per Setting aktivierbare** Variante (Default aus):
 
 Globaler Settings-Blob. Eigene Settings-Gruppe **„Handoff"** mit:
 
-1. **`handoffLibrary`** (Toggle, **Default aus**, non-breaking) — Name bestätigt **„Handoff library"**.
+1. **`handoffLibrary`** (Toggle, **Default aus**, non-breaking) — UI-Label **„Integrated Handoff System"** (interner Key bleibt `handoffLibrary`).
    Bei **an**:
    - `runHandoff` bekommt nach dem Review die **Speichern-vs-neue-Session**-Abfrage.
    - Im `showNewSessionPopover` erscheint **„Claude Handoff resume"**.

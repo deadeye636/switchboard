@@ -455,8 +455,8 @@
         <div class="settings-section-title">Handoff</div>
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">Handoff library</span>
-            <div class="settings-description">When on, a handoff can be saved to the project (instead of starting a fresh session right away) and later resumed from the new-session menu ("Claude Handoff resume").</div>
+            <span class="settings-label">Integrated Handoff System</span>
+            <div class="settings-description">When on, a handoff can be saved to the project (instead of starting a fresh session right away) and later resumed from the new-session menu ("Claude Handoff resume"). The guided flow needs a running session.</div>
           </div>
           <div class="settings-field-control">
             <label class="settings-toggle"><input type="checkbox" id="sv-handoff-library" ${handoffLibraryValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>

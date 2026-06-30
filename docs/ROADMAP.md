@@ -40,7 +40,7 @@ Dateien und werden hier nur verlinkt.
 | ID | Aufgabe | Detail |
 |----|---------|--------|
 | #17 | **Projekte sortieren** — Sortierung Aktivität/Alpha/Manuell (Filterzeilen-Control) + Drag-Reorder; Setting „Eigene Favoritenliste" (Favoriten oben angeheftet + Trenner vs. eigene Liste) | [Plan](project-sidebar-plan.md#17-projekte-manuell-sortieren) |
-| #03 | **Handoff-Store + Resume** — Setting „Handoff library" + editierbarer Prompt (Skill-fähig, `/handoff`); Handoff speicherbar (DB `project_handoffs`) statt/neben neuer Session; „Claude Handoff resume" im Neu-Session-Menü mit Picker (Liste/Löschen). Basis-One-Click-Handoff war schon da | [Plan](handoff-store-plan.md) |
+| #03 | **Handoff-Store + Resume** — Setting **„Integrated Handoff System"** + editierbarer Prompt (Skill-fähig, `/handoff`); Handoff speicherbar (DB `project_handoffs`) statt/neben neuer Session, auch bei nicht-laufender Session („Save to library"); „Claude Handoff resume" im Neu-Session-Menü mit Picker (Liste/Löschen). Basis-One-Click-Handoff war schon da | [Plan](handoff-store-plan.md) |
 | #18 | **Bug-Fix:** Windows-TrayIcon leer — Icon ins Paket (`build.files`) + 16px + Logging statt stillem Fallback | [Plan](windows-tray-fix-plan.md) |
 | #16 | **Projektname umbenennen** (Reichweite A) — Display-Name im Projekt-Settings, leer = Verzeichnis; Sidebar (Directory + Folder-First), Settings-Titel, Plans/Memory | [Plan](project-sidebar-plan.md#16-projektname-umbenennen) |
 | #15 | **Favoriten-Icon vor Projektnamen** — vorhandenen Favorit-Button vor den Namen verschoben (Hover-Reveal, gold bei Favorit) | [Plan](project-sidebar-plan.md#15-favoriten-icon-vor-dem-projektnamen) |

@@ -231,6 +231,12 @@ input:focus-visible {
   border-color: rgba(240,160,80,0.3) !important;
 }
 
+.control-dialog-tertiary {
+  color: #9be8c0 !important;
+  background: rgba(63,185,80,0.12) !important;
+  border-color: rgba(63,185,80,0.3) !important;
+}
+
 .control-dialog-danger .control-dialog-confirm {
   background: rgba(224,80,112,0.22) !important;
   border-color: rgba(224,80,112,0.45) !important;

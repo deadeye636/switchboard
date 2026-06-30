@@ -26,6 +26,7 @@
       confirmLabel: String(options.confirmLabel || 'Confirm'),
       cancelLabel: String(options.cancelLabel || 'Cancel'),
       secondaryLabel: String(options.secondaryLabel || ''),
+      tertiaryLabel: String(options.tertiaryLabel || ''),
       tone: KNOWN_TONES.has(options.tone) ? options.tone : 'default',
       details: formatControlDialogDetails(options.details),
     };
@@ -69,6 +70,7 @@
         <div class="control-dialog-actions">
           ${normalized.cancelLabel ? `<button type="button" class="control-dialog-cancel">${escapeHtml(normalized.cancelLabel)}</button>` : ''}
           ${normalized.secondaryLabel ? `<button type="button" class="control-dialog-secondary">${escapeHtml(normalized.secondaryLabel)}</button>` : ''}
+          ${normalized.tertiaryLabel ? `<button type="button" class="control-dialog-tertiary">${escapeHtml(normalized.tertiaryLabel)}</button>` : ''}
           <button type="button" class="control-dialog-confirm">${escapeHtml(normalized.confirmLabel)}</button>
         </div>
       `;
@@ -78,6 +80,7 @@
 
       const cancelBtn = dialog.querySelector('.control-dialog-cancel');
       const secondaryBtn = dialog.querySelector('.control-dialog-secondary');
+      const tertiaryBtn = dialog.querySelector('.control-dialog-tertiary');
       const confirmBtn = dialog.querySelector('.control-dialog-confirm');
 
       function onKey(event) {
@@ -87,6 +90,7 @@
 
       if (cancelBtn) cancelBtn.addEventListener('click', () => closeControlDialog(overlay, onKey, false, resolve));
       if (secondaryBtn) secondaryBtn.addEventListener('click', () => closeControlDialog(overlay, onKey, 'secondary', resolve));
+      if (tertiaryBtn) tertiaryBtn.addEventListener('click', () => closeControlDialog(overlay, onKey, 'tertiary', resolve));
       confirmBtn.addEventListener('click', () => closeControlDialog(overlay, onKey, true, resolve));
       overlay.addEventListener('click', event => {
         if (event.target === overlay) closeControlDialog(overlay, onKey, false, resolve);
