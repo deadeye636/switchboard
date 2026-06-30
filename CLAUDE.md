@@ -92,3 +92,6 @@ The win target is **x64-only** (arm64 toolchain not available here).
 - When touching `db.js` schema: append a migration, never edit an existing one.
 - When adding IPC: handler in `main.js` + binding in `preload.js` + (if it returns to UI) a renderer caller.
 - Prefer `execFile` over shell string interpolation for any external process (security).
+- **User-facing UI text is English** (settings labels/descriptions, sidebar labels, dialogs,
+  tooltips) — match the existing strings. Commit messages stay German (see above); code
+  comments may be either, but anything shown in the app is English.

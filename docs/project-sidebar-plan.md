@@ -140,8 +140,10 @@ Worktree-Identifikation verwässern.
 > (`favoritesOwnList`, Default **aus**): aus = Favoriten **oben angeheftet** im Standard-View
 > (Block + Trenner), an = Favoriten nur als **eigene Liste** über den Stern-Toggle (nicht
 > angeheftet). Plus wählbare **Sortierung** `projectSortMode` (Aktivität/Alpha/Manuell).
-> State via `localStorage` (render-synchron, wie `sidebarViewMode`); Sortier-Control in der
-> Filterzeile, `favoritesOwnList` als Checkbox im Settings-Dialog. Scope v1: Directory-Sidebar.
+> Beide Optionen (Sortierung + „Favorites as separate list") liegen in den **globalen Settings
+> unter „Session Display"** (englische UI); persistiert im globalen Settings-Blob, render-seitig
+> in `projectSortMode`/`favoritesOwnList` gespiegelt (+ localStorage-Cache fürs erste Paint).
+> Manueller Order via Drag (`projectOrder`, localStorage). Scope v1: Directory-Sidebar.
 
 **Ist:** Eine **globale, hardcodierte** Sortierung (`session-cache.js:342–355`):
 1. favorisiert zuerst, 2. fehlende zuletzt, 3. leere zuletzt, 4. Recency. Der Stern-Toggle
@@ -190,8 +192,9 @@ von true→false kippt. In der **AN**-Ansicht (nur Favoriten) kein Trenner.
 
 ### Interaktion / UI
 
-- **Sortier-Wahl** als kleines Control in der Sidebar-Filterzeile (`#session-filters`, neben
-  Stern-Toggle + View-Mode-Toggle) — Cycle-Button oder Mini-Dropdown `activity/alpha/manual`.
+- **Sortier-Wahl + „Favorites as separate list"** als Felder in den globalen Settings unter
+  **„Session Display"** (`settings-panel.js`), Werte im globalen Blob; Apply via
+  `window._applyProjectSortSettings` (greift auch im Standalone-Settings-Fenster).
 - **Drag-Handle pro Header** `.project-drag-handle` (Zieh-Symbol ⠿), **nur sichtbar wenn
   `manual`** — via Sidebar-Klasse `sort-manual` (CSS schaltet ein/aus). Drag startet am Handle
   (Pointer-Drag wie `startSidebarSessionDrag`), Drop schreibt `projectOrder` + `loadProjects()`.

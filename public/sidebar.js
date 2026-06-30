@@ -959,7 +959,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
       dragHandle.className = 'project-drag-handle';
       dragHandle.textContent = '⡀'; // ⠀-style grip (⠿)
       dragHandle.innerHTML = '<svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor"><circle cx="3.5" cy="3" r="1.3"/><circle cx="8.5" cy="3" r="1.3"/><circle cx="3.5" cy="7" r="1.3"/><circle cx="8.5" cy="7" r="1.3"/><circle cx="3.5" cy="11" r="1.3"/><circle cx="8.5" cy="11" r="1.3"/></svg>';
-      dragHandle.title = 'Verschieben (Sortierung: Manuell)';
+      dragHandle.title = 'Reorder (manual sort)';
       header.insertBefore(dragHandle, header.firstChild);
     }
 
@@ -1093,7 +1093,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
       } else if (sawFavorite && !dividerDone) {
         const divider = document.createElement('div');
         divider.className = 'project-favorites-divider';
-        divider.textContent = 'Weitere Projekte';
+        divider.textContent = 'More projects';
         container.appendChild(divider);
         dividerDone = true;
       }
@@ -2453,7 +2453,7 @@ function startProjectDrag(project, header, e) {
     group.classList.add('dragging');
     ghost = document.createElement('div');
     ghost.className = 'sidebar-drag-ghost';
-    ghost.textContent = header.querySelector('.project-name')?.textContent || 'Projekt';
+    ghost.textContent = header.querySelector('.project-name')?.textContent || 'Project';
     document.body.appendChild(ghost);
   };
   const moveGhost = (x, y) => { if (ghost) { ghost.style.left = (x + 12) + 'px'; ghost.style.top = (y + 12) + 'px'; } };

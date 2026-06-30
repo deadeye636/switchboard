@@ -201,8 +201,10 @@ Worktree-Identifikation verwässern.</p>
 (<code>favoritesOwnList</code>, Default <strong>aus</strong>): aus = Favoriten <strong>oben angeheftet</strong> im Standard-View
 (Block + Trenner), an = Favoriten nur als <strong>eigene Liste</strong> über den Stern-Toggle (nicht
 angeheftet). Plus wählbare <strong>Sortierung</strong> <code>projectSortMode</code> (Aktivität/Alpha/Manuell).
-State via <code>localStorage</code> (render-synchron, wie <code>sidebarViewMode</code>); Sortier-Control in der
-Filterzeile, <code>favoritesOwnList</code> als Checkbox im Settings-Dialog. Scope v1: Directory-Sidebar.</p>
+Beide Optionen (Sortierung + „Favorites as separate list&quot;) liegen in den <strong>globalen Settings
+unter „Session Display&quot;</strong> (englische UI); persistiert im globalen Settings-Blob, render-seitig
+in <code>projectSortMode</code>/<code>favoritesOwnList</code> gespiegelt (+ localStorage-Cache fürs erste Paint).
+Manueller Order via Drag (<code>projectOrder</code>, localStorage). Scope v1: Directory-Sidebar.</p>
 </blockquote>
 <p><strong>Ist:</strong> Eine <strong>globale, hardcodierte</strong> Sortierung (<code>session-cache.js:342–355</code>):</p>
 <ol>
@@ -268,8 +270,9 @@ nicht leer sind. Render in <code>sidebar.js</code> (Directory-Render-Loop) an de
 von true→false kippt. In der <strong>AN</strong>-Ansicht (nur Favoriten) kein Trenner.</p>
 <h3 id="interaktion-ui">Interaktion / UI</h3>
 <ul>
-<li><strong>Sortier-Wahl</strong> als kleines Control in der Sidebar-Filterzeile (<code>#session-filters</code>, neben
-Stern-Toggle + View-Mode-Toggle) — Cycle-Button oder Mini-Dropdown <code>activity/alpha/manual</code>.</li>
+<li><strong>Sortier-Wahl + „Favorites as separate list&quot;</strong> als Felder in den globalen Settings unter
+<strong>„Session Display&quot;</strong> (<code>settings-panel.js</code>), Werte im globalen Blob; Apply via
+<code>window._applyProjectSortSettings</code> (greift auch im Standalone-Settings-Fenster).</li>
 <li><strong>Drag-Handle pro Header</strong> <code>.project-drag-handle</code> (Zieh-Symbol ⠿), <strong>nur sichtbar wenn
 <code>manual</code></strong> — via Sidebar-Klasse <code>sort-manual</code> (CSS schaltet ein/aus). Drag startet am Handle
 (Pointer-Drag wie <code>startSidebarSessionDrag</code>), Drop schreibt <code>projectOrder</code> + <code>loadProjects()</code>.

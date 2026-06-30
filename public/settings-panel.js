@@ -90,6 +90,9 @@
     const restoreSessionsValue = fieldValue('restoreSessionsOnLaunch', true);
     const attentionHooksValue = fieldValue('attentionHooks', false);
     const shellProfileValue = fieldValue('shellProfile', 'auto');
+    // #17 project list (global only): sort mode + favorites presentation.
+    const projectSortValue = !isProject ? (current.projectSortMode || 'activity') : 'activity';
+    const favoritesOwnListValue = !isProject ? !!current.favoritesOwnList : false;
     // Notifications (global only) — alert sound on attention + read-only hotkey hint.
     const attentionSoundValue = !!((current.notifications || {}).sound);
     const isMacPlatform = !!(window.api && window.api.platform === 'darwin');
@@ -120,19 +123,6 @@
           </div>
           <div class="settings-field-control">
             <input type="text" class="settings-input" id="sv-display-name" placeholder="${escapeHtml(shortName)}" value="${escapeHtml(displayNameValue)}">
-          </div>
-        </div>
-      </div>` : ''}
-      ${!isProject ? `
-      <div class="settings-section">
-        <div class="settings-section-title">Sidebar</div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Eigene Favoritenliste</span>
-            <div class="settings-description">An: Favoriten als eigene Liste über den Stern-Filter (nicht angeheftet). Aus: Favoriten oben angeheftet, mit Trenner zu den übrigen Projekten.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-favorites-own-list" ${localStorage.getItem('favoritesOwnList') === '1' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
           </div>
         </div>
       </div>` : ''}
@@ -348,6 +338,28 @@
 
       ${!isProject ? `<div class="settings-section">
         <div class="settings-section-title">Session Display</div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Project sorting</span>
+            <div class="settings-description">Order of projects in the sidebar. Manual lets you drag projects into place (a grip handle appears on each project header).</div>
+          </div>
+          <div class="settings-field-control">
+            <select class="settings-select" id="sv-project-sort">
+              <option value="activity" ${projectSortValue === 'activity' ? 'selected' : ''}>Activity (most recent first)</option>
+              <option value="alpha" ${projectSortValue === 'alpha' ? 'selected' : ''}>Alphabetical</option>
+              <option value="manual" ${projectSortValue === 'manual' ? 'selected' : ''}>Manual (drag to reorder)</option>
+            </select>
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Favorites as separate list</span>
+            <div class="settings-description">On: favorites are shown only via the star filter, not pinned. Off: favorites are pinned on top of the project list, with a divider above the rest.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-favorites-own-list" ${favoritesOwnListValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
         <div class="settings-field">
           <div class="settings-field-info">
             <span class="settings-label">Sidebar on startup</span>
@@ -612,6 +624,8 @@
         settings.settingsOpenMode = settingsViewerBody.querySelector('#sv-settings-open-mode').value || 'overlay';
         settings.sidebarCollapseDefault = settingsViewerBody.querySelector('#sv-collapse-default').value || 'remember';
         settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'legacy';
+        settings.projectSortMode = settingsViewerBody.querySelector('#sv-project-sort')?.value || 'activity';
+        settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
         settings.tabPosition = settingsViewerBody.querySelector('#sv-tab-position').value || 'top';
         settings.tabCloseBehavior = settingsViewerBody.querySelector('#sv-tab-close').value || 'closeView';
         settings.tabMiddleClickCloses = settingsViewerBody.querySelector('#sv-tab-middle-click').checked;
@@ -675,11 +689,9 @@
         if (settings.shortcuts && typeof window._applyShortcuts === 'function') {
           window._applyShortcuts(settings.shortcuts);
         }
-        // #17: "Eigene Favoritenliste" lives in localStorage (render-synchronous),
-        // not the settings blob. Apply via the app.js setter (updates var + refreshes).
-        const favOwnCb = settingsViewerBody.querySelector('#sv-favorites-own-list');
-        if (favOwnCb && typeof window._setFavoritesOwnList === 'function') {
-          window._setFavoritesOwnList(favOwnCb.checked);
+        // #17: apply project sort mode + favorites presentation from the saved blob.
+        if (typeof window._applyProjectSortSettings === 'function') {
+          window._applyProjectSortSettings(settings);
         }
         if (typeof refreshSidebar === 'function') refreshSidebar();
       }

@@ -81,7 +81,6 @@ const gridViewerCount = document.getElementById('grid-viewer-count');
 const appLiveRegion = document.getElementById('app-live-region');
 let gridViewActive = localStorage.getItem('gridViewActive') === '1';
 const viewModeToggle = document.getElementById('view-mode-toggle');
-const sortModeToggle = document.getElementById('sort-mode-toggle');
 // Sidebar layout: 'directory' (project dir first) or 'folder' (user groups first,
 // split by project dir within, ungrouped below). Persisted across restarts.
 let sidebarViewMode = localStorage.getItem('sidebarViewMode') === 'folder' ? 'folder' : 'directory';
@@ -1089,39 +1088,19 @@ if (viewModeToggle) {
   });
 }
 
-// --- Project sort mode toggle (#17): cycles activity → alpha → manual ---
-const SORT_MODE_ORDER = ['activity', 'alpha', 'manual'];
-const SORT_MODE_META = {
-  activity: { label: 'Activity', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 12 7 12 10 5 14 19 17 12 21 12"/></svg>' },
-  alpha: { label: 'A–Z', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7"/><path d="M3 12h5"/><path d="M3 17h3"/><path d="m15 6 3 12 3-12"/><path d="M16 14h4"/></svg>' },
-  manual: { label: 'Manual', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>' },
-};
-function updateSortModeToggle() {
-  if (!sortModeToggle) return;
-  const meta = SORT_MODE_META[projectSortMode] || SORT_MODE_META.activity;
-  sortModeToggle.classList.toggle('active', projectSortMode !== 'activity');
-  sortModeToggle.title = 'Sort projects: ' + meta.label + ' (click to change)';
-  sortModeToggle.setAttribute('aria-label', sortModeToggle.title);
-  sortModeToggle.setAttribute('data-tooltip', sortModeToggle.title);
-  sortModeToggle.innerHTML = meta.icon;
-}
-if (sortModeToggle) {
-  updateSortModeToggle();
-  sortModeToggle.addEventListener('click', () => {
-    const i = SORT_MODE_ORDER.indexOf(projectSortMode);
-    projectSortMode = SORT_MODE_ORDER[(i + 1) % SORT_MODE_ORDER.length];
-    localStorage.setItem('projectSortMode', projectSortMode);
-    updateSortModeToggle();
-    refreshSidebar({ resort: true });
-  });
-}
-
-// Setters used by the settings dialog / drag-reorder.
-window._setFavoritesOwnList = (v) => {
-  favoritesOwnList = !!v;
+// --- Project sort settings (#17) ---
+// projectSortMode + favoritesOwnList live in the global settings blob (chosen in
+// the Session Display settings). Mirror them into the render-time vars (+ a
+// localStorage cache for the first paint) and re-render when they change.
+window._applyProjectSortSettings = (g) => {
+  if (!g) return;
+  projectSortMode = (g.projectSortMode === 'alpha' || g.projectSortMode === 'manual') ? g.projectSortMode : 'activity';
+  favoritesOwnList = !!g.favoritesOwnList;
+  localStorage.setItem('projectSortMode', projectSortMode);
   localStorage.setItem('favoritesOwnList', favoritesOwnList ? '1' : '0');
-  refreshSidebar({ resort: true });
+  if (typeof refreshSidebar === 'function') refreshSidebar({ resort: true });
 };
+// Persist the manual project order (written by drag-reorder in the sidebar).
 window._persistProjectOrder = (arr) => {
   projectOrder = Array.isArray(arr) ? arr.slice() : [];
   localStorage.setItem('projectOrder', JSON.stringify(projectOrder));
@@ -2096,6 +2075,7 @@ async function reapplyGlobalSettings() {
   if (g.sessionMaxAgeDays) window._setSessionMaxAge?.(g.sessionMaxAgeDays);
   if (g.shortcuts && typeof setAppShortcuts === 'function') setAppShortcuts(g.shortcuts);
   window._applySessionDisplaySettings?.(g);
+  window._applyProjectSortSettings?.(g);
 }
 
 // --- Grid view toggle button (next to resort button in sidebar filters) ---
