@@ -588,11 +588,14 @@ function clearNotifications(sessionId) {
   const changed = attentionSessions.delete(sessionId);
   attentionReason.delete(sessionId);
   // Opening the session settles it — drop the finish stamp so it won't reappear
-  // in the running-inbox (until-read removal / after-finish "you looked").
-  finishedAt.delete(sessionId);
+  // in the running-inbox (until-read removal / after-finish "you looked"). A
+  // running session isn't in attentionSessions, so this stamp removal is the
+  // *only* state change for until-read — fold it into the re-render guard or the
+  // item lingers until some unrelated event repaints the sidebar.
+  const stampCleared = finishedAt.delete(sessionId);
   const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
   if (item) item.classList.remove('needs-attention');
-  if (changed) refreshSessionStatusViews();
+  if (changed || stampCleared) refreshSessionStatusViews();
 }
 
 // --- Native notification + dock badge + tray funnel (Spec 01) ---
