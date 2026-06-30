@@ -1,6 +1,6 @@
 # Projekt-Sidebar — Pläne
 
-> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: #15 ✅ · #16 ✅ (Reichweite A) · #17 🔵 Backlog
+> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: #15 ✅ · #16 ✅ (Reichweite A) · #17 🔵 Backlog (Design bestätigt)
 
 Drei zusammenhängende Verbesserungen an den **Projekt-Headern** der Sidebar. Alle
 betreffen `public/sidebar.js` (Header-Render ab Zeile 941) plus Persistenz in
@@ -136,36 +136,68 @@ Worktree-Identifikation verwässern.
 
 ## 17 Projekte manuell sortieren
 
-**Ist:** Projekt-Reihenfolge ist **automatisch** (`session-cache.js:342–355`):
-1. favorisiert zuerst, 2. fehlende zuletzt, 3. leere zuletzt, 4. nach jüngster
-Session-Änderung (Recency). **Kein** persistierter manueller Order. (`sortedOrder`
-in `app.js:258`/`sidebar.js:3` ist Item-Order **innerhalb** eines Projekts, nicht die
-Projekt-Order.)
+> **Design bestätigt (2026-06-30).** Favoriten-Pin + wählbare Standard-Sortierung
+> (Aktivität/Alpha/Manuell); Favoriten-Block nutzt **dieselbe** Sortierung wie der Rest.
 
-**Ziel:** Anwender kann Projekte **selbst sortieren**. Per **Setting** umschaltbar
-zwischen Standard-Sortierung (heute) und manueller Order.
+**Ist:** Eine **globale, hardcodierte** Sortierung (`session-cache.js:342–355`):
+1. favorisiert zuerst, 2. fehlende zuletzt, 3. leere zuletzt, 4. Recency. „Favorisiert zuerst"
+ist fest eingebacken → Favoriten stehen auch im Normal-Modus oben. Der Stern-Toggle
+(`showFavoritedProjectsOnly`, `app.js:1045`, `sidebar.js:928`) ist ein **Filter** (nur
+Favoriten zeigen), keine Sortierung. Kein manueller Order, keine Wahl. (`sortedOrder` in
+`app.js`/`sidebar.js` ist Item-Order **innerhalb** eines Projekts, nicht die Projekt-Order.)
 
-**Umsetzung (größer — erst Design bestätigen):**
+**Ziel:** Sortierung entkoppeln und wählbar machen.
 
-- **Setting (global):** `projectSortMode = 'auto' | 'manual'` (Default `auto`,
-  non-breaking) im globalen Settings-Blob.
-- **Persistenz manueller Order:** Array `projectOrder = [projectPath, …]` im globalen
-  Blob, ODER Spalte `sort_order` an `project_meta` (angehängte Migration). Empfehlung:
-  Blob-Array (einfacher, eine Schreiboperation beim Reorder).
-- **Sort-Logik:** `session-cache.js:342` erweitern — bei `manual` nach
-  `projectOrder`-Index sortieren, unbekannte/neue Projekte ans Ende (dann Recency).
-  Favorisiert-zuerst als optionaler Vorrang beibehalten oder im Manual-Mode aufheben
-  (Designfrage).
-- **Interaktion:** Drag-to-reorder der Projekt-Header in der Sidebar (Pointer-Drag wie
-  Session-Drag aus `sidebar-group-interactions-plan.md`); Drop schreibt `projectOrder`,
-  `loadProjects()`.
-- **UI-Hinweis:** im Auto-Mode Drag deaktiviert/ignoriert.
+### Modell (bestätigt)
 
-**Tests:** Pure-Sort-Helper (`auto` vs `manual` mit Order-Array, neue Projekte ans
-Ende) Electron-frei testbar — Muster wie `*-status.js`.
+- **Favoriten-Pin** `pinFavorites` (global Blob, Default **true** = heutiges Verhalten):
+  favorisierte Projekte bilden oben einen **eigenen Block**. Aus → mischen sich normal ein.
+- **Standard-Sortierung** `projectSortMode = 'activity' | 'alpha' | 'manual'` (Default
+  `activity` = Recency, non-breaking). Gilt für **beide** Blöcke gleich (Entscheidung 1).
+  - `activity`: nach letzter Session-Änderung (heute).
+  - `alpha`: nach Anzeigename (`displayName || shortName`, #16).
+  - `manual`: nach `projectOrder`-Index.
+- **Manueller Order** `projectOrder = [projectPath, …]` (global Blob). **Eine** Liste über
+  alle Projekte; die Blöcke (Favoriten / Rest) sind nur **Partitionen** dieser Liste unter
+  Beibehaltung der Reihenfolge. Neue/unbekannte Projekte ans Ende.
 
-**Offen (zu klären):**
-- Verhält sich Favorisiert-Vorrang im Manual-Mode wie? (Vorschlag: Favoriten bleiben
-  oben, Rest nach manueller Order — oder voll manuell inkl. Favoriten.)
-- Reorder auch in der **Folder-First**-Ansicht (`sidebar-folder-first-view-plan.md`)
-  und im **Grid**? Erstmal nur Directory-Sidebar, Rest später.
+### Sort-Logik (`session-cache.js:342` umbauen)
+
+1. `missing` / leer → wie bisher ans Ende.
+2. Rest: wenn `pinFavorites`, in **Favoriten-Block** + **Rest-Block** partitionieren.
+3. Jeden Block nach `projectSortMode` sortieren (activity/alpha/manual identisch).
+4. **Favorisieren/Entfavorisieren** (Entscheidung 3): Projekt wechselt nur den Block;
+   bei `manual` behält es seinen `projectOrder`-Index (landet im neuen Block „passend zur
+   Sortierung" an seiner manuellen Position), bei activity/alpha sortiert es sich automatisch
+   neu. → fällt durch das Partitions-Modell **von selbst** richtig.
+
+### Interaktion / UI (Entscheidung 4)
+
+- **Drag-Handle pro Header** `.project-drag-handle` (kleines Zieh-Symbol, ⠿), **nur sichtbar
+  wenn `manual`** — via Sidebar-Klasse `sort-manual` (CSS schaltet Handle ein/aus). Drag
+  startet am Handle (Pointer-Drag wie `startSidebarSessionDrag`), Drop schreibt `projectOrder`
+  + `loadProjects()`. In `activity`/`alpha` ist das Handle aus, kein Drag.
+- Drag bleibt **innerhalb** seines Blocks (Favoriten lassen sich nicht in den Rest ziehen,
+  ohne zu entfavorisieren) — reordnet nur die Block-internen `projectOrder`-Mitglieder.
+- **Sortier-Wahl** als kleines Control in der Sidebar-Filterzeile (`#session-filters`, neben
+  Stern-Toggle + View-Mode-Toggle) — Cycle-Button oder Mini-Dropdown `activity/alpha/manual`.
+  (Alternativ Global-Settings; Filterzeile ist näher dran und konsistent.)
+
+### Persistenz
+
+Alles globaler Settings-Blob (kein Schema-Eingriff): `pinFavorites`, `projectSortMode`,
+`projectOrder`. Mapping in den Projekt-Datensatz analog `favorited`/`displayName`
+(`session-cache.js buildProjectsFromCache`).
+
+### Tests
+
+Pure-Sort-Helper Electron-frei (`*-status.js`-Muster): Eingabe = Projekte (+favorited,
++modified, +displayName) + `{pinFavorites, projectSortMode, projectOrder}` → erwartete
+Reihenfolge. Fälle: activity/alpha/manual × pin an/aus, neue Projekte ans Ende,
+favorisieren verschiebt Block ohne manuelle Position zu verlieren.
+
+### Scope v1 / später
+
+- **v1:** Directory-Sidebar. **Folder-First** (`sidebar-folder-first-view-plan.md`) + **Grid**
+  später (eigene Header-Pfade).
+- Folder-First sortiert intern Projekte je Ordner — `projectSortMode` dort nachziehen, wenn v1 steht.
