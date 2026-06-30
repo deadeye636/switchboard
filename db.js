@@ -131,6 +131,19 @@ db.exec(`
   )
 `);
 
+// Project handoffs — saved handoff packets (markdown) per project, for the
+// Handoff library: created from a running session, later seeded into a fresh one.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS project_handoffs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    projectPath TEXT NOT NULL,
+    label TEXT,
+    content TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_project_handoffs_project ON project_handoffs(projectPath)');
+
 // Index for fast folder lookups
 db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_folder ON session_cache(folder)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_slug ON session_cache(slug)');
@@ -348,6 +361,10 @@ const stmts = {
   bookmarkDeleteById: db.prepare('DELETE FROM bookmarks WHERE id = ?'),
   bookmarkListAll: db.prepare('SELECT * FROM bookmarks ORDER BY createdAt DESC'),
   bookmarkListBySession: db.prepare('SELECT * FROM bookmarks WHERE sessionId = ? ORDER BY entryIndex ASC'),
+  // Project handoffs (Handoff library)
+  handoffInsert: db.prepare('INSERT INTO project_handoffs (projectPath, label, content, createdAt) VALUES (?, ?, ?, ?)'),
+  handoffListByProject: db.prepare('SELECT id, label, content, createdAt FROM project_handoffs WHERE projectPath = ? ORDER BY createdAt DESC'),
+  handoffDeleteById: db.prepare('DELETE FROM project_handoffs WHERE id = ?'),
   // Session tags
   tagsGet: db.prepare('SELECT tag, color FROM session_tags WHERE sessionId = ? ORDER BY tag'),
   tagInsert: db.prepare('INSERT OR REPLACE INTO session_tags (sessionId, tag, color) VALUES (?, ?, ?)'),
@@ -534,6 +551,21 @@ function removeBookmark(id) {
 // All bookmarks (newest first) or just one session's (in transcript order).
 function listBookmarks(sessionId) {
   return sessionId ? stmts.bookmarkListBySession.all(sessionId) : stmts.bookmarkListAll.all();
+}
+
+// --- Project handoffs (Handoff library) ---
+function saveProjectHandoff(projectPath, label, content) {
+  const info = runWithBusyRetry(() =>
+    stmts.handoffInsert.run(projectPath, label || null, String(content || ''), new Date().toISOString()));
+  return info.lastInsertRowid;
+}
+
+function listProjectHandoffs(projectPath) {
+  return projectPath ? stmts.handoffListByProject.all(projectPath) : [];
+}
+
+function deleteProjectHandoff(id) {
+  runWithBusyRetry(() => stmts.handoffDeleteById.run(Number(id)));
 }
 
 function getSessionTags(sessionId) {
@@ -916,6 +948,7 @@ module.exports = {
   getMeta, getAllMeta, setName, toggleStar, setArchived,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   toggleBookmark, removeBookmark, listBookmarks,
+  saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder,

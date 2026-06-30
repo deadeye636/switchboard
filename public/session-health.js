@@ -160,23 +160,18 @@ Avoid:
 `;
   }
 
-  function buildHandoffRequestPrompt(session = {}) {
-    const metrics = [
-      session.userMessageCount ? `${formatInteger(session.userMessageCount)} user turns` : null,
-      session.cacheReadTokens ? `${formatCompact(session.cacheReadTokens)} cache-read tokens` : null,
-      session.activeMinutes ? `${formatDuration(session.activeMinutes)} active time` : null,
-    ].filter(Boolean).join(', ') || 'local metrics unavailable';
-    const goal = session.name || session.aiTitle || session.summary || 'the current task';
-
-    return `Create a concise handoff for starting a fresh session.
+  // Editable handoff request prompt. The placeholders {goal} {project}
+  // {sessionId} {metrics} are filled per-session by fillHandoffPrompt. Users can
+  // override this whole text in Settings (or replace it with a skill like /handoff).
+  const DEFAULT_HANDOFF_PROMPT = `Create a concise handoff for starting a fresh session.
 
 Use your current session context to summarize the actual work state. Do not continue implementing.
 
 Known local context from Switchboard:
-- Goal/session title: ${goal}
-- Project: ${session.projectPath || 'unknown'}
-- Previous session: ${session.sessionId || 'unknown'}
-- Session shape: ${metrics}
+- Goal/session title: {goal}
+- Project: {project}
+- Previous session: {sessionId}
+- Session shape: {metrics}
 
 Return only a markdown handoff with these sections:
 - Goal
@@ -187,6 +182,29 @@ Return only a markdown handoff with these sections:
 - Next actions
 - Avoid
 `;
+
+  // Substitute the {placeholders} in a handoff prompt template with the session's
+  // local values. Templates without placeholders (e.g. a bare "/handoff" skill
+  // command) pass through unchanged.
+  function fillHandoffPrompt(template, session = {}) {
+    const metrics = [
+      session.userMessageCount ? `${formatInteger(session.userMessageCount)} user turns` : null,
+      session.cacheReadTokens ? `${formatCompact(session.cacheReadTokens)} cache-read tokens` : null,
+      session.activeMinutes ? `${formatDuration(session.activeMinutes)} active time` : null,
+    ].filter(Boolean).join(', ') || 'local metrics unavailable';
+    const goal = session.name || session.aiTitle || session.summary || 'the current task';
+    const values = {
+      goal,
+      project: session.projectPath || 'unknown',
+      sessionId: session.sessionId || 'unknown',
+      metrics,
+    };
+    return String(template == null ? '' : template)
+      .replace(/\{(goal|project|sessionId|metrics)\}/g, (_m, key) => values[key]);
+  }
+
+  function buildHandoffRequestPrompt(session = {}) {
+    return fillHandoffPrompt(DEFAULT_HANDOFF_PROMPT, session);
   }
 
   return {
@@ -194,5 +212,7 @@ Return only a markdown handoff with these sections:
     getSessionHealth,
     buildHandoffTemplate,
     buildHandoffRequestPrompt,
+    DEFAULT_HANDOFF_PROMPT,
+    fillHandoffPrompt,
   };
 });

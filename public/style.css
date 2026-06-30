@@ -6832,3 +6832,68 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .session-tabs-overflow-item:hover { background: rgba(255, 255, 255, 0.06); }
 .session-tabs-overflow-item.active { color: #fff; background: rgba(255, 255, 255, 0.08); }
 
+
+/* --- Handoff library (#03): capture bar + resume picker --- */
+.handoff-capture-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #1c2128;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  color: #c9d1d9;
+  font-size: 13px;
+  max-width: 90vw;
+}
+.handoff-capture-bar button {
+  border: 1px solid #30363d;
+  background: #21262d;
+  color: #c9d1d9;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.handoff-capture-bar .handoff-capture-confirm { background: #2ea043; border-color: #2ea043; color: #fff; }
+.handoff-capture-bar button:hover { filter: brightness(1.1); }
+
+.popover-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.handoff-list { margin: 10px 0; max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.handoff-row { display: flex; align-items: stretch; gap: 6px; }
+.handoff-row .handoff-pick {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: #c9d1d9;
+}
+.handoff-row .handoff-pick:hover { background: #1c2128; border-color: #3fb950; }
+.handoff-row .handoff-row-label { font-size: 13px; color: #fff; }
+.handoff-row .handoff-row-date { font-size: 11px; color: #8b949e; }
+.handoff-row .handoff-del {
+  background: none;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  border-radius: 6px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+.handoff-row .handoff-del:hover { color: #f85149; border-color: #f85149; }

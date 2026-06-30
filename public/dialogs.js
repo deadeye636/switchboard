@@ -154,45 +154,114 @@ async function showHandoffReviewDialog(session) {
 // with it → switch. Driven by the pure state machine in handoff-flow.js. Every
 // token-spending step is gated behind an explicit user confirmation; cancelling
 // at any point leaves both the old and (not-yet-created) new session untouched.
-async function runHandoff(session, project) {
-  let state = createHandoffState();
-  let packet = '';
+// Non-modal bar shown after the request prompt is sent, so the user can answer an
+// interactive skill question (e.g. /handoff asking chat-vs-file) in the live terminal
+// before capturing. Resolves 'capture' or 'cancel'. Used only in Handoff-library mode.
+function showHandoffCaptureBar() {
+  document.querySelectorAll('.handoff-capture-bar').forEach(el => el.remove());
+  const bar = document.createElement('div');
+  bar.className = 'handoff-capture-bar';
+  bar.innerHTML = `
+    <span class="handoff-capture-text">Prompt sent — answer any skill question in the terminal, then capture.</span>
+    <button type="button" class="handoff-capture-confirm">Capture handoff</button>
+    <button type="button" class="handoff-capture-cancel">Cancel</button>
+  `;
+  document.body.appendChild(bar);
+  return new Promise(resolve => {
+    function close(result) { bar.remove(); resolve(result); }
+    bar.querySelector('.handoff-capture-confirm').onclick = () => close('capture');
+    bar.querySelector('.handoff-capture-cancel').onclick = () => close('cancel');
+  });
+}
 
-  while (!isHandoffTerminal(state)) {
-    const { action } = nextHandoffStep(state);
-
-    if (action === 'request-packet') {
-      // Token step #1 — authorized by the "Hand off (guided)" button. The prompt
-      // instructs the agent to return only a markdown handoff and not continue.
-      const requestPrompt = buildHandoffRequestPrompt(session);
-      window.api.sendInput(session.sessionId, `\x1b[200~${requestPrompt}\x1b[201~\r`);
-      showControlToast({ message: 'Asked the agent for a handoff packet — review it once it finishes.' });
-      state = advanceHandoff(state);
-    } else if (action === 'capture-packet') {
-      const reviewed = await showHandoffReviewDialog(session);
-      if (reviewed === null) { state = cancelHandoff(state); break; }
-      packet = reviewed;
-      state = advanceHandoff(state);
-    } else if (action === 'launch-session') {
-      // No tokens yet; the launch + seed happens together in the next step.
-      state = advanceHandoff(state);
-    } else if (action === 'seed-session') {
-      // Token step #2 — authorized by the "Start fresh session" button. Start a
-      // FRESH session (not a fork): forking via --resume --fork-session inherits
-      // the bloated context we are trying to escape. resolveDefaultSessionOptions
-      // never sets forkFrom, so this is a clean --session-id session.
-      const options = await resolveDefaultSessionOptions(project);
-      const newId = await launchNewSession(project, options, packet);
-      if (!newId) { state = cancelHandoff(state); break; }
-      state = advanceHandoff(state);
-    } else if (action === 'finish') {
-      // launchNewSession already focused the new session via showSession().
-      showControlToast({ message: 'Handed off → fresh lean session seeded with the packet.' });
-      state = advanceHandoff(state);
-    } else {
-      break;
+// Small dialog to name a handoff before saving it to the project library.
+// Resolves the (trimmed) label, or null on cancel.
+function showHandoffSaveDialog(session) {
+  const overlay = document.createElement('div');
+  overlay.className = 'new-session-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'new-session-dialog';
+  const title = cleanDisplayName(session.name || session.aiTitle || session.summary) || 'Handoff';
+  const now = new Date();
+  const stamp = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}. ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const suggested = `${title} · ${stamp}`;
+  dialog.innerHTML = `
+    <h3>Save Handoff</h3>
+    <div class="add-project-hint">Stored with this project. Resume it later from the new-session menu → "Claude Handoff resume".</div>
+    <input type="text" id="handoff-save-label" class="settings-input" style="width:100%;box-sizing:border-box;">
+    <div class="new-session-actions">
+      <button type="button" class="new-session-cancel-btn">Cancel</button>
+      <button type="button" class="new-session-start-btn">Save handoff</button>
+    </div>
+  `;
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+  const input = dialog.querySelector('#handoff-save-label');
+  input.value = suggested;
+  input.focus();
+  input.select();
+  return new Promise(resolve => {
+    function close(result) { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(result); }
+    dialog.querySelector('.new-session-cancel-btn').onclick = () => close(null);
+    dialog.querySelector('.new-session-start-btn').onclick = () => close(input.value.trim() || suggested);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+    function onKey(e) {
+      if (e.key === 'Escape') close(null);
+      else if (e.key === 'Enter') close(input.value.trim() || suggested);
     }
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+async function runHandoff(session, project) {
+  const g = (await window.api.getSetting('global')) || {};
+  const handoffLibrary = !!g.handoffLibrary;
+  const template = (typeof g.handoffPrompt === 'string' && g.handoffPrompt.trim())
+    ? g.handoffPrompt : DEFAULT_HANDOFF_PROMPT;
+
+  // Token step #1 — authorized by the "Hand off (guided)" button. The prompt (or a
+  // skill command like /handoff) is typed into the running session.
+  const requestPrompt = fillHandoffPrompt(template, session);
+  window.api.sendInput(session.sessionId, `\x1b[200~${requestPrompt}\x1b[201~\r`);
+
+  if (handoffLibrary) {
+    // Decoupled capture: the prompt may be an interactive skill — let the user answer
+    // in the terminal, then capture explicitly (no modal covering the terminal).
+    const cap = await showHandoffCaptureBar();
+    if (cap !== 'capture') return;
+  } else {
+    showControlToast({ message: 'Asked the agent for a handoff packet — review it once it finishes.' });
   }
+
+  // Token step #0 (no tokens) — review/edit the captured packet.
+  const packet = await showHandoffReviewDialog(session);
+  if (packet === null) return;
+
+  // Library mode: choose target — fresh session now, or save to resume later.
+  if (handoffLibrary) {
+    const action = await showControlDialog({
+      title: 'Handoff Ready',
+      message: 'Start a fresh session seeded with this handoff now, or save it to the project to resume later.',
+      confirmLabel: 'Start fresh session',
+      secondaryLabel: 'Save for later',
+      cancelLabel: 'Cancel',
+      tone: 'default',
+    });
+    if (action === 'secondary') {
+      const label = await showHandoffSaveDialog(session);
+      if (label === null) return;
+      await window.api.saveHandoff({ projectPath: project.projectPath, label, content: packet });
+      showControlToast({ message: 'Handoff saved to project.' });
+      return;
+    }
+    if (action !== true) return; // cancelled
+  }
+
+  // Token step #2 — start a FRESH lean session (not a fork) seeded with the packet.
+  const options = await resolveDefaultSessionOptions(project);
+  const newId = await launchNewSession(project, options, packet);
+  if (!newId) return;
+  showControlToast({ message: 'Handed off → fresh lean session seeded with the packet.' });
 }
 
 async function launchScheduleCreator(project) {
@@ -242,9 +311,71 @@ async function launchScheduleCreator(project) {
   pollActiveSessions();
 }
 
-function showNewSessionPopover(project, anchorEl, { groupId = null } = {}) {
+// Picker for the Handoff library: list a project's saved handoffs (with delete),
+// and seed a fresh session from the chosen one.
+async function showHandoffResumePicker(project, groupId) {
+  let handoffs = [];
+  try { handoffs = (await window.api.listHandoffs(project.projectPath)) || []; } catch {}
+
+  const overlay = document.createElement('div');
+  overlay.className = 'new-session-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'new-session-dialog';
+  overlay.appendChild(dialog);
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function fmt(iso) {
+    try { const d = new Date(iso); return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+    catch { return ''; }
+  }
+  function close() { overlay.remove(); document.removeEventListener('keydown', onKey); }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+
+  function render() {
+    dialog.innerHTML = `
+      <h3>Resume from Handoff</h3>
+      <div class="add-project-hint">Start a fresh session seeded with a saved handoff.</div>
+      <div class="handoff-list"></div>
+      <div class="new-session-actions"><button type="button" class="new-session-cancel-btn">Cancel</button></div>
+    `;
+    const listEl = dialog.querySelector('.handoff-list');
+    if (!handoffs.length) {
+      listEl.innerHTML = '<div class="add-project-hint">No saved handoffs for this project.</div>';
+    } else {
+      handoffs.forEach(h => {
+        const row = document.createElement('div');
+        row.className = 'handoff-row';
+        row.innerHTML = '<button type="button" class="handoff-pick"><span class="handoff-row-label"></span><span class="handoff-row-date"></span></button><button type="button" class="handoff-del" title="Delete handoff">✕</button>';
+        row.querySelector('.handoff-row-label').textContent = h.label || 'Handoff';
+        row.querySelector('.handoff-row-date').textContent = fmt(h.createdAt);
+        row.querySelector('.handoff-pick').onclick = async () => {
+          close();
+          const options = await resolveDefaultSessionOptions(project);
+          await launchNewSession(project, options, h.content, groupId);
+        };
+        row.querySelector('.handoff-del').onclick = async () => {
+          try { await window.api.deleteHandoff(h.id); } catch {}
+          handoffs = handoffs.filter(x => x.id !== h.id);
+          render();
+        };
+        listEl.appendChild(row);
+      });
+    }
+    dialog.querySelector('.new-session-cancel-btn').onclick = () => close();
+  }
+
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+  render();
+}
+
+async function showNewSessionPopover(project, anchorEl, { groupId = null } = {}) {
   // Remove any existing popover
   document.querySelectorAll('.new-session-popover').forEach(el => el.remove());
+
+  // Handoff library: when on, offer "Claude Handoff resume" in the menu.
+  const handoffLibrary = !!((await window.api.getSetting('global'))?.handoffLibrary);
 
   const popover = document.createElement('div');
   popover.className = 'new-session-popover';
@@ -266,6 +397,28 @@ function showNewSessionPopover(project, anchorEl, { groupId = null } = {}) {
 
   popover.appendChild(claudeBtn);
   popover.appendChild(claudeOptsBtn);
+
+  // "Claude Handoff resume" — only in Handoff-library mode. Disabled+greyed when the
+  // project has no saved handoffs (visible, not hidden).
+  if (handoffLibrary) {
+    const resumeBtn = document.createElement('button');
+    resumeBtn.className = 'popover-option popover-option-handoff';
+    resumeBtn.innerHTML = '<svg class="popover-option-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg> Claude Handoff resume';
+    resumeBtn.disabled = true;
+    resumeBtn.title = 'Checking saved handoffs…';
+    resumeBtn.onclick = () => { popover.remove(); showHandoffResumePicker(project, groupId); };
+    popover.appendChild(resumeBtn);
+    // Enable once we know the project has at least one saved handoff.
+    window.api.listHandoffs(project.projectPath).then(list => {
+      if (Array.isArray(list) && list.length) {
+        resumeBtn.disabled = false;
+        resumeBtn.title = 'Start a fresh session from a saved handoff';
+      } else {
+        resumeBtn.title = 'No saved handoffs for this project';
+      }
+    }).catch(() => { resumeBtn.title = 'No saved handoffs for this project'; });
+  }
+
   popover.appendChild(termBtn);
 
   // Position relative to anchor, flip upward if it would overflow

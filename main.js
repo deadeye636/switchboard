@@ -50,6 +50,7 @@ const {
   getMeta, getAllMeta, toggleStar, setName, setArchived,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   toggleBookmark, removeBookmark, listBookmarks,
+  saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, replaceSessionMetrics,
@@ -1677,6 +1678,20 @@ ipcMain.handle('bookmark-remove', (_event, id) => {
 });
 ipcMain.handle('bookmark-list', (_event, sessionId) => {
   return listBookmarks(sessionId || null);
+});
+
+// --- IPC: project handoffs (Handoff library) ---
+ipcMain.handle('save-handoff', (_event, payload) => {
+  const { projectPath, label, content } = payload || {};
+  if (!projectPath || !content) return null;
+  return saveProjectHandoff(projectPath, label || null, content);
+});
+ipcMain.handle('list-handoffs', (_event, projectPath) => {
+  return listProjectHandoffs(projectPath || null);
+});
+ipcMain.handle('delete-handoff', (_event, id) => {
+  deleteProjectHandoff(id);
+  return { ok: true };
 });
 
 // --- IPC: session tags ---

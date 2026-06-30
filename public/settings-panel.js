@@ -93,6 +93,12 @@
     // #17 project list (global only): sort mode + favorites presentation.
     const projectSortValue = !isProject ? (current.projectSortMode || 'activity') : 'activity';
     const favoritesOwnListValue = !isProject ? !!current.favoritesOwnList : false;
+    // Handoff library (global only): toggle + editable request prompt.
+    const defaultHandoffPrompt = (typeof window !== 'undefined' && window.DEFAULT_HANDOFF_PROMPT) || '';
+    const handoffLibraryValue = !isProject ? !!current.handoffLibrary : false;
+    const handoffPromptValue = !isProject
+      ? ((typeof current.handoffPrompt === 'string' && current.handoffPrompt.length) ? current.handoffPrompt : defaultHandoffPrompt)
+      : '';
     // Notifications (global only) — alert sound on attention + read-only hotkey hint.
     const attentionSoundValue = !!((current.notifications || {}).sound);
     const isMacPlatform = !!(window.api && window.api.platform === 'darwin');
@@ -446,6 +452,28 @@
       </div>` : ''}
 
       ${!isProject ? `<div class="settings-section">
+        <div class="settings-section-title">Handoff</div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Handoff library</span>
+            <div class="settings-description">When on, a handoff can be saved to the project (instead of starting a fresh session right away) and later resumed from the new-session menu ("Claude Handoff resume").</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-handoff-library" ${handoffLibraryValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Handoff prompt</span>
+            <div class="settings-description">Sent to the running agent to produce the handoff. Use placeholders {goal} {project} {sessionId} {metrics}. Set it to a skill command like <code>/handoff</code> to run a skill instead. Clear the field to restore the default.</div>
+          </div>
+          <div class="settings-field-control">
+            <textarea class="settings-input" id="sv-handoff-prompt" spellcheck="false" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffPromptValue)}</textarea>
+          </div>
+        </div>
+      </div>` : ''}
+
+      ${!isProject ? `<div class="settings-section">
         <div class="settings-section-title">Keyboard Shortcuts</div>
         ${SHORTCUT_DEFS.map(def => `
         <div class="settings-field">
@@ -630,6 +658,12 @@
         settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'legacy';
         settings.projectSortMode = settingsViewerBody.querySelector('#sv-project-sort')?.value || 'activity';
         settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
+        settings.handoffLibrary = !!settingsViewerBody.querySelector('#sv-handoff-library')?.checked;
+        {
+          const hp = settingsViewerBody.querySelector('#sv-handoff-prompt')?.value || '';
+          // Empty or unchanged-from-default ⇒ store '' so the runtime default is used (no lock).
+          settings.handoffPrompt = (hp.trim() && hp.trim() !== defaultHandoffPrompt.trim()) ? hp : '';
+        }
         settings.tabPosition = settingsViewerBody.querySelector('#sv-tab-position').value || 'top';
         settings.tabCloseBehavior = settingsViewerBody.querySelector('#sv-tab-close').value || 'closeView';
         settings.tabMiddleClickCloses = settingsViewerBody.querySelector('#sv-tab-middle-click').checked;

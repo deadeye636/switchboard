@@ -1,6 +1,11 @@
 # Handoff-Store + Resume — Plan (#03-Erweiterung)
 
-> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: 🔵 Backlog (#03, Erweiterung) · Design bestätigt
+> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: ✅ Erledigt (#03-Erweiterung)
+>
+> Umgesetzt: DB `project_handoffs` + IPC; Settings-Gruppe „Handoff" (Toggle + editierbarer
+> Prompt, leer=Default); `runHandoff` nutzt Custom-Prompt/Skill, entkoppelt Senden/Capture bei
+> aktiver Library (nicht-modale Capture-Bar); Save-vs-Session-Abfrage; „Claude Handoff resume" im
+> Popover mit Picker (Liste/Löschen, disabled wenn leer). Default-Variante unverändert.
 
 Erweitert den **bereits vorhandenen** One-Click-Handoff um einen **speicherbaren** Handoff,
 der projektbezogen in Switchboard abgelegt und später beim Start einer neuen Session wieder
