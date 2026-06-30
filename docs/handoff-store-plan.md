@@ -52,9 +52,11 @@ Apply: einfach beim Öffnen der Dialoge live aus dem Blob lesen (kein Live-Reapp
 
 Maximaler Einfluss des Anwenders auf den Handoff: der **Request-Prompt** wird konfigurierbar.
 
-- **Setting `handoffPrompt`** (Textarea in der „Handoff"-Gruppe). Leer/ungesetzt → Default aus
-  `buildHandoffRequestPrompt` (`session-health.js:163`). `runHandoff` nimmt im
-  `request-packet`-Schritt (`dialogs.js:167`) den Custom-Text statt des Defaults.
+- **Setting `handoffPrompt`** (Textarea in der „Handoff"-Gruppe). Die Textarea zeigt **den
+  aktuellen Default-Text an** (aus `buildHandoffRequestPrompt`, `session-health.js:163`),
+  vollständig editierbar. **Feld komplett leeren → Default greift wieder** (leer/whitespace =
+  „use default", es wird **nie** ein leerer Prompt gesendet → kein Lock). `runHandoff` nimmt im
+  `request-packet`-Schritt (`dialogs.js:167`) den getrimmten Custom-Text, sonst den Default.
 - **Platzhalter** im Text erlauben (optional, simpel per Ersetzung): `{goal}`, `{project}`,
   `{sessionId}`, `{metrics}` — sonst wird der Text 1:1 getippt.
 - **Globalen Skill nutzen:** Da der Prompt nur als Text in die Session getippt wird, kann der
@@ -65,8 +67,27 @@ Maximaler Einfluss des Anwenders auf den Handoff: der **Request-Prompt** wird ko
 - Optional als Komfort: ein **Preset-Hinweis/Button** „Use `/handoff` skill", der die Textarea
   mit `/handoff` füllt. Reiner Convenience, technisch identisch.
 
+### Interaktive Skills (Rückfragen) — Senden ≠ Erfassen entkoppeln
+
+Manche Skills **fragen interaktiv zurück** (z.B. `/handoff`: „Output Chat oder MD-Datei?").
+Würde Switchboard direkt nach dem Senden den **modalen** Review-Dialog öffnen, verdeckt der das
+Terminal → die Rückfrage kann nicht beantwortet werden und die Erfassung griffe die **Frage**
+statt des Handoffs.
+
+**Lösung:** Senden und Erfassen **trennen**.
+- `request-packet` schickt den Prompt/Skill und zeigt nur einen Hinweis (Toast/Inline:
+  „Prompt sent — answer any skill question in the terminal, then capture").
+- **Kein** automatisches Öffnen des modalen Dialogs. Stattdessen erfasst der Anwender per
+  **expliziter Aktion** („Capture handoff"), sobald der Agent fertig ist (und eine evtl.
+  Skill-Rückfrage **im Terminal** beantwortet wurde). Erst dann öffnet der Review-Dialog und
+  liest die letzte Assistant-Antwort.
+- Für nicht-interaktive Prompts/Skills ist das identisch komfortabel (einmal „Capture" klicken);
+  der vorhandene „Refresh from session"-Button im Review bleibt als Nachlade-Option.
+- Gilt v.a. bei aktiver **Handoff library** / Custom-Skill; die heutige Default-Variante kann
+  ihren bisherigen Auto-Review behalten (non-interactive Default-Prompt).
+
 > Gilt für **beide** Varianten — der editierbare Prompt verbessert auch den heutigen
-> Default-Handoff.
+> Default-Handoff. Bei interaktiven Skills greift die Entkopplung oben.
 
 ## Storage
 
@@ -128,8 +149,12 @@ Icon: Claude-Icon wie die anderen Claude-Optionen; Label „Claude Handoff resum
 - `db.js`-Funktionen: save/list/get/delete (Round-Trip, Projekt-Filter) — Node-Test mit
   temp-DB (Muster vorhandener db-Tests).
 - `handoff-flow.js`-Erweiterung (choose-target-Zweig): Pure-Test.
+- `handoffPrompt`-Helfer (Pure): `customOrDefault(text)` → leer/whitespace ⇒ Default, sonst
+  getrimmt; testbar.
 - Smoke (Electron): Variante an → Handoff → Speichern → neue Session → „Claude Handoff resume" →
   Picker → frische Session seeded.
+- Smoke: Custom-Prompt = `/handoff` → Skill läuft (Bracketed-Paste + Enter triggert Slash-Parser),
+  interaktive Rückfrage im Terminal beantwortbar, danach „Capture" lädt den Handoff.
 
 ## Entscheidungen (bestätigt 2026-06-30)
 
@@ -142,6 +167,10 @@ Icon: Claude-Icon wie die anderen Claude-Optionen; Label „Claude Handoff resum
 6. **Verwaltung:** Löschen im Picker ✅
 7. **Editierbarer Handoff-Prompt** (neu): `handoffPrompt`-Textarea, Skill-Aufruf (`/handoff`)
    möglich; gilt für beide Varianten ✅
+8. **Default im Feld sichtbar**, Feld leeren → Default greift (kein leerer Prompt/Lock) ✅
+9. **Interaktive Skills:** Senden/Erfassen entkoppeln — kein Auto-Modal, explizite „Capture"-
+   Aktion nach Terminal-Antwort ✅
+10. **Beliebiger Skill:** Freitext `/<name>` (kein Dropdown, Skills nicht enumerierbar) ✅
 
 ## Scope-Abgrenzung
 

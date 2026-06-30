@@ -85,9 +85,11 @@ nächster Abschnitt. Gilt <strong>immer</strong> (auch für die Default-Variante
 <h2 id="editierbarer-handoff-prompt-skill-option">Editierbarer Handoff-Prompt (+ Skill-Option)</h2>
 <p>Maximaler Einfluss des Anwenders auf den Handoff: der <strong>Request-Prompt</strong> wird konfigurierbar.</p>
 <ul>
-<li><strong>Setting <code>handoffPrompt</code></strong> (Textarea in der „Handoff&quot;-Gruppe). Leer/ungesetzt → Default aus
-<code>buildHandoffRequestPrompt</code> (<code>session-health.js:163</code>). <code>runHandoff</code> nimmt im
-<code>request-packet</code>-Schritt (<code>dialogs.js:167</code>) den Custom-Text statt des Defaults.</li>
+<li><strong>Setting <code>handoffPrompt</code></strong> (Textarea in der „Handoff&quot;-Gruppe). Die Textarea zeigt <strong>den
+aktuellen Default-Text an</strong> (aus <code>buildHandoffRequestPrompt</code>, <code>session-health.js:163</code>),
+vollständig editierbar. <strong>Feld komplett leeren → Default greift wieder</strong> (leer/whitespace =
+„use default&quot;, es wird <strong>nie</strong> ein leerer Prompt gesendet → kein Lock). <code>runHandoff</code> nimmt im
+<code>request-packet</code>-Schritt (<code>dialogs.js:167</code>) den getrimmten Custom-Text, sonst den Default.</li>
 <li><strong>Platzhalter</strong> im Text erlauben (optional, simpel per Ersetzung): <code>{goal}</code>, <code>{project}</code>,
 <code>{sessionId}</code>, <code>{metrics}</code> — sonst wird der Text 1:1 getippt.</li>
 <li><strong>Globalen Skill nutzen:</strong> Da der Prompt nur als Text in die Session getippt wird, kann der
@@ -98,9 +100,27 @@ der Markdown in den Chat schreibt.</li>
 <li>Optional als Komfort: ein <strong>Preset-Hinweis/Button</strong> „Use <code>/handoff</code> skill&quot;, der die Textarea
 mit <code>/handoff</code> füllt. Reiner Convenience, technisch identisch.</li>
 </ul>
+<h3 id="interaktive-skills-rückfragen-senden-erfassen-entkoppeln">Interaktive Skills (Rückfragen) — Senden ≠ Erfassen entkoppeln</h3>
+<p>Manche Skills <strong>fragen interaktiv zurück</strong> (z.B. <code>/handoff</code>: „Output Chat oder MD-Datei?&quot;).
+Würde Switchboard direkt nach dem Senden den <strong>modalen</strong> Review-Dialog öffnen, verdeckt der das
+Terminal → die Rückfrage kann nicht beantwortet werden und die Erfassung griffe die <strong>Frage</strong>
+statt des Handoffs.</p>
+<p><strong>Lösung:</strong> Senden und Erfassen <strong>trennen</strong>.</p>
+<ul>
+<li><code>request-packet</code> schickt den Prompt/Skill und zeigt nur einen Hinweis (Toast/Inline:
+„Prompt sent — answer any skill question in the terminal, then capture&quot;).</li>
+<li><strong>Kein</strong> automatisches Öffnen des modalen Dialogs. Stattdessen erfasst der Anwender per
+<strong>expliziter Aktion</strong> („Capture handoff&quot;), sobald der Agent fertig ist (und eine evtl.
+Skill-Rückfrage <strong>im Terminal</strong> beantwortet wurde). Erst dann öffnet der Review-Dialog und
+liest die letzte Assistant-Antwort.</li>
+<li>Für nicht-interaktive Prompts/Skills ist das identisch komfortabel (einmal „Capture&quot; klicken);
+der vorhandene „Refresh from session&quot;-Button im Review bleibt als Nachlade-Option.</li>
+<li>Gilt v.a. bei aktiver <strong>Handoff library</strong> / Custom-Skill; die heutige Default-Variante kann
+ihren bisherigen Auto-Review behalten (non-interactive Default-Prompt).</li>
+</ul>
 <blockquote>
 <p>Gilt für <strong>beide</strong> Varianten — der editierbare Prompt verbessert auch den heutigen
-Default-Handoff.</p>
+Default-Handoff. Bei interaktiven Skills greift die Entkopplung oben.</p>
 </blockquote>
 <h2 id="storage">Storage</h2>
 <p>Neue DB-Tabelle (Muster <code>bookmarks</code>, <code>db.js:111</code>; Basis-<code>CREATE TABLE IF NOT EXISTS</code> <strong>oder</strong>
@@ -153,8 +173,12 @@ auto-löschen; Löschen nur manuell.</li>
 <li><code>db.js</code>-Funktionen: save/list/get/delete (Round-Trip, Projekt-Filter) — Node-Test mit
 temp-DB (Muster vorhandener db-Tests).</li>
 <li><code>handoff-flow.js</code>-Erweiterung (choose-target-Zweig): Pure-Test.</li>
+<li><code>handoffPrompt</code>-Helfer (Pure): <code>customOrDefault(text)</code> → leer/whitespace ⇒ Default, sonst
+getrimmt; testbar.</li>
 <li>Smoke (Electron): Variante an → Handoff → Speichern → neue Session → „Claude Handoff resume&quot; →
 Picker → frische Session seeded.</li>
+<li>Smoke: Custom-Prompt = <code>/handoff</code> → Skill läuft (Bracketed-Paste + Enter triggert Slash-Parser),
+interaktive Rückfrage im Terminal beantwortbar, danach „Capture&quot; lädt den Handoff.</li>
 </ul>
 <h2 id="entscheidungen-bestätigt-2026-06-30">Entscheidungen (bestätigt 2026-06-30)</h2>
 <ol>
@@ -167,6 +191,10 @@ Picker → frische Session seeded.</li>
 <li><strong>Verwaltung:</strong> Löschen im Picker ✅</li>
 <li><strong>Editierbarer Handoff-Prompt</strong> (neu): <code>handoffPrompt</code>-Textarea, Skill-Aufruf (<code>/handoff</code>)
 möglich; gilt für beide Varianten ✅</li>
+<li><strong>Default im Feld sichtbar</strong>, Feld leeren → Default greift (kein leerer Prompt/Lock) ✅</li>
+<li><strong>Interaktive Skills:</strong> Senden/Erfassen entkoppeln — kein Auto-Modal, explizite „Capture&quot;-
+Aktion nach Terminal-Antwort ✅</li>
+<li><strong>Beliebiger Skill:</strong> Freitext <code>/&lt;name&gt;</code> (kein Dropdown, Skills nicht enumerierbar) ✅</li>
 </ol>
 <h2 id="scope-abgrenzung">Scope-Abgrenzung</h2>
 <ul>
