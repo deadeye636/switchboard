@@ -197,66 +197,92 @@ Worktree-Identifikation verwässern.</p>
 <hr>
 <h2 id="17-projekte-manuell-sortieren">17 Projekte manuell sortieren</h2>
 <blockquote>
-<p><strong>Design bestätigt (2026-06-30).</strong> Favoriten-Pin + wählbare Standard-Sortierung
-(Aktivität/Alpha/Manuell); Favoriten-Block nutzt <strong>dieselbe</strong> Sortierung wie der Rest.</p>
+<p><strong>Design bestätigt (2026-06-30), schlankes Modell.</strong> <strong>Kein</strong> neuer Pin/Toggle. „Favoriten
+oben&quot; bleibt heutiges Verhalten; der vorhandene Stern-Toggle liefert die zwei Ansichten.
+<strong>Neu = nur die wählbare Sortierung</strong> (Aktivität/Alpha/Manuell), plus sichtbarer Trenner.</p>
 </blockquote>
 <p><strong>Ist:</strong> Eine <strong>globale, hardcodierte</strong> Sortierung (<code>session-cache.js:342–355</code>):</p>
 <ol>
-<li>favorisiert zuerst, 2. fehlende zuletzt, 3. leere zuletzt, 4. Recency. „Favorisiert zuerst&quot;
-ist fest eingebacken → Favoriten stehen auch im Normal-Modus oben. Der Stern-Toggle
-(<code>showFavoritedProjectsOnly</code>, <code>app.js:1045</code>, <code>sidebar.js:928</code>) ist ein <strong>Filter</strong> (nur
-Favoriten zeigen), keine Sortierung. Kein manueller Order, keine Wahl. (<code>sortedOrder</code> in
-<code>app.js</code>/<code>sidebar.js</code> ist Item-Order <strong>innerhalb</strong> eines Projekts, nicht die Projekt-Order.)</li>
+<li>favorisiert zuerst, 2. fehlende zuletzt, 3. leere zuletzt, 4. Recency. Der Stern-Toggle
+(<code>showFavoritedProjectsOnly</code>, <code>app.js:1045</code>, <code>sidebar.js:928</code>) schaltet die <strong>Ansicht</strong>:
+<strong>AUS</strong> = alle Projekte (Favoriten oben + Rest), <strong>AN</strong> = nur Favoriten. Kein manueller Order,
+keine Sortier-Wahl. (<code>sortedOrder</code> in <code>app.js</code>/<code>sidebar.js</code> ist Item-Order <strong>innerhalb</strong> eines
+Projekts, nicht die Projekt-Order.)</li>
 </ol>
-<p><strong>Ziel:</strong> Sortierung entkoppeln und wählbar machen.</p>
-<h3 id="modell-bestätigt">Modell (bestätigt)</h3>
+<p><strong>Ziel:</strong> „Favoriten oben&quot; <strong>so lassen</strong>, nur die <strong>Sortierung</strong> wählbar machen — innerhalb der
+jeweiligen Ansicht.</p>
+<h3 id="modell-schlank">Modell (schlank)</h3>
 <ul>
-<li><strong>Favoriten-Pin</strong> <code>pinFavorites</code> (global Blob, Default <strong>true</strong> = heutiges Verhalten):
-favorisierte Projekte bilden oben einen <strong>eigenen Block</strong>. Aus → mischen sich normal ein.</li>
-<li><strong>Standard-Sortierung</strong> <code>projectSortMode = &#39;activity&#39; | &#39;alpha&#39; | &#39;manual&#39;</code> (Default
-<code>activity</code> = Recency, non-breaking). Gilt für <strong>beide</strong> Blöcke gleich (Entscheidung 1).<ul>
+<li><p><strong>Kein neues Setting für „Favoriten oben&quot;</strong> — bleibt der AUS-Zustand des vorhandenen
+Stern-Toggles. Favorisiert-zuerst bleibt.</p>
+</li>
+<li><p><strong>Standard-Sortierung</strong> <code>projectSortMode = &#39;activity&#39; | &#39;alpha&#39; | &#39;manual&#39;</code> (global Blob,
+Default <code>activity</code> = heutige Recency, non-breaking):</p>
+<ul>
 <li><code>activity</code>: nach letzter Session-Änderung (heute).</li>
 <li><code>alpha</code>: nach Anzeigename (<code>displayName || shortName</code>, #16).</li>
 <li><code>manual</code>: nach <code>projectOrder</code>-Index.</li>
 </ul>
 </li>
-<li><strong>Manueller Order</strong> <code>projectOrder = [projectPath, …]</code> (global Blob). <strong>Eine</strong> Liste über
-alle Projekte; die Blöcke (Favoriten / Rest) sind nur <strong>Partitionen</strong> dieser Liste unter
-Beibehaltung der Reihenfolge. Neue/unbekannte Projekte ans Ende.</li>
+<li><p><strong>Wirkungsbereich je Ansicht:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Stern-Toggle</th>
+<th>Inhalt</th>
+<th>Sortierung wirkt auf</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>AUS</strong></td>
+<td>Favoriten-Block + Rest-Block (mit <strong>Trenner</strong>)</td>
+<td>jeden Block <strong>getrennt</strong> nach Modus</td>
+</tr>
+<tr>
+<td><strong>AN</strong></td>
+<td>nur Favoriten</td>
+<td>die eine Gruppe nach Modus</td>
+</tr>
+</tbody></table>
+</li>
+<li><p><strong>Manueller Order</strong> <code>projectOrder = [projectPath, …]</code> (global Blob). <strong>Eine</strong> Liste über alle
+Projekte; Favoriten-Block / Rest-Block sind nur <strong>Partitionen</strong> davon (Reihenfolge bleibt).
+Neue/unbekannte Projekte ans Ende. Favorisieren/Entfavorisieren wechselt nur den Block, der
+<code>projectOrder</code>-Index bleibt → Position „passend zur Sortierung&quot; fällt von selbst richtig.</p>
+</li>
 </ul>
 <h3 id="sort-logik-session-cachejs342-umbauen">Sort-Logik (<code>session-cache.js:342</code> umbauen)</h3>
 <ol>
 <li><code>missing</code> / leer → wie bisher ans Ende.</li>
-<li>Rest: wenn <code>pinFavorites</code>, in <strong>Favoriten-Block</strong> + <strong>Rest-Block</strong> partitionieren.</li>
-<li>Jeden Block nach <code>projectSortMode</code> sortieren (activity/alpha/manual identisch).</li>
-<li><strong>Favorisieren/Entfavorisieren</strong> (Entscheidung 3): Projekt wechselt nur den Block;
-bei <code>manual</code> behält es seinen <code>projectOrder</code>-Index (landet im neuen Block „passend zur
-Sortierung&quot; an seiner manuellen Position), bei activity/alpha sortiert es sich automatisch
-neu. → fällt durch das Partitions-Modell <strong>von selbst</strong> richtig.</li>
+<li>favorisiert-zuerst-Split <strong>beibehalten</strong> (Favoriten-Block oben, Rest unten).</li>
+<li><strong>Innerhalb</strong> jedes Blocks nach <code>projectSortMode</code> sortieren (statt fix Recency).</li>
+<li><code>activity</code>/<code>alpha</code> automatisch; <code>manual</code> nach <code>projectOrder</code>.</li>
 </ol>
-<h3 id="interaktion-ui-entscheidung-4">Interaktion / UI (Entscheidung 4)</h3>
+<h3 id="trenner">Trenner</h3>
+<p>In der <strong>AUS</strong>-Ansicht zwischen Favoriten-Block und Rest eine <strong>Trennzeile „Favoriten&quot;</strong>
+(<code>.project-favorites-divider</code>, Stil wie bestehende Section-Header) — nur wenn <strong>beide</strong> Blöcke
+nicht leer sind. Render in <code>sidebar.js</code> (Directory-Render-Loop) an der Stelle, wo <code>favorited</code>
+von true→false kippt. In der <strong>AN</strong>-Ansicht (nur Favoriten) kein Trenner.</p>
+<h3 id="interaktion-ui">Interaktion / UI</h3>
 <ul>
-<li><strong>Drag-Handle pro Header</strong> <code>.project-drag-handle</code> (kleines Zieh-Symbol, ⠿), <strong>nur sichtbar
-wenn <code>manual</code></strong> — via Sidebar-Klasse <code>sort-manual</code> (CSS schaltet Handle ein/aus). Drag
-startet am Handle (Pointer-Drag wie <code>startSidebarSessionDrag</code>), Drop schreibt <code>projectOrder</code><ul>
-<li><code>loadProjects()</code>. In <code>activity</code>/<code>alpha</code> ist das Handle aus, kein Drag.</li>
-</ul>
-</li>
-<li>Drag bleibt <strong>innerhalb</strong> seines Blocks (Favoriten lassen sich nicht in den Rest ziehen,
-ohne zu entfavorisieren) — reordnet nur die Block-internen <code>projectOrder</code>-Mitglieder.</li>
 <li><strong>Sortier-Wahl</strong> als kleines Control in der Sidebar-Filterzeile (<code>#session-filters</code>, neben
-Stern-Toggle + View-Mode-Toggle) — Cycle-Button oder Mini-Dropdown <code>activity/alpha/manual</code>.
-(Alternativ Global-Settings; Filterzeile ist näher dran und konsistent.)</li>
+Stern-Toggle + View-Mode-Toggle) — Cycle-Button oder Mini-Dropdown <code>activity/alpha/manual</code>.</li>
+<li><strong>Drag-Handle pro Header</strong> <code>.project-drag-handle</code> (Zieh-Symbol ⠿), <strong>nur sichtbar wenn
+<code>manual</code></strong> — via Sidebar-Klasse <code>sort-manual</code> (CSS schaltet ein/aus). Drag startet am Handle
+(Pointer-Drag wie <code>startSidebarSessionDrag</code>), Drop schreibt <code>projectOrder</code> + <code>loadProjects()</code>.
+In <code>activity</code>/<code>alpha</code> kein Handle, kein Drag.</li>
+<li>Drag bleibt <strong>innerhalb</strong> seines Blocks (Favoriten nicht in den Rest ziehbar ohne
+Entfavorisieren) — reordnet nur die Block-internen <code>projectOrder</code>-Mitglieder.</li>
 </ul>
 <h3 id="persistenz">Persistenz</h3>
-<p>Alles globaler Settings-Blob (kein Schema-Eingriff): <code>pinFavorites</code>, <code>projectSortMode</code>,
-<code>projectOrder</code>. Mapping in den Projekt-Datensatz analog <code>favorited</code>/<code>displayName</code>
-(<code>session-cache.js buildProjectsFromCache</code>).</p>
+<p>Globaler Settings-Blob (kein Schema-Eingriff): <code>projectSortMode</code>, <code>projectOrder</code>. Mapping in den
+Projekt-Datensatz analog <code>favorited</code>/<code>displayName</code> (<code>session-cache.js buildProjectsFromCache</code>),
+bzw. Order direkt in der Sort-Logik.</p>
 <h3 id="tests">Tests</h3>
-<p>Pure-Sort-Helper Electron-frei (<code>*-status.js</code>-Muster): Eingabe = Projekte (+favorited,
-+modified, +displayName) + <code>{pinFavorites, projectSortMode, projectOrder}</code> → erwartete
-Reihenfolge. Fälle: activity/alpha/manual × pin an/aus, neue Projekte ans Ende,
-favorisieren verschiebt Block ohne manuelle Position zu verlieren.</p>
+<p>Pure-Sort-Helper Electron-frei (<code>*-status.js</code>-Muster): Eingabe = Projekte (+favorited, +modified,
++displayName) + <code>{projectSortMode, projectOrder}</code> → erwartete Reihenfolge. Fälle:
+activity/alpha/manual, favorisiert-zuerst bleibt, neue Projekte ans Ende, Favorisieren behält
+manuelle Position.</p>
 <h3 id="scope-v1-später">Scope v1 / später</h3>
 <ul>
 <li><strong>v1:</strong> Directory-Sidebar. <strong>Folder-First</strong> (<code>sidebar-folder-first-view-plan.md</code>) + <strong>Grid</strong>

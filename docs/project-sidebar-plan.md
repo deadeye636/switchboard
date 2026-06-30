@@ -136,65 +136,78 @@ Worktree-Identifikation verwässern.
 
 ## 17 Projekte manuell sortieren
 
-> **Design bestätigt (2026-06-30).** Favoriten-Pin + wählbare Standard-Sortierung
-> (Aktivität/Alpha/Manuell); Favoriten-Block nutzt **dieselbe** Sortierung wie der Rest.
+> **Design bestätigt (2026-06-30), schlankes Modell.** **Kein** neuer Pin/Toggle. „Favoriten
+> oben" bleibt heutiges Verhalten; der vorhandene Stern-Toggle liefert die zwei Ansichten.
+> **Neu = nur die wählbare Sortierung** (Aktivität/Alpha/Manuell), plus sichtbarer Trenner.
 
 **Ist:** Eine **globale, hardcodierte** Sortierung (`session-cache.js:342–355`):
-1. favorisiert zuerst, 2. fehlende zuletzt, 3. leere zuletzt, 4. Recency. „Favorisiert zuerst"
-ist fest eingebacken → Favoriten stehen auch im Normal-Modus oben. Der Stern-Toggle
-(`showFavoritedProjectsOnly`, `app.js:1045`, `sidebar.js:928`) ist ein **Filter** (nur
-Favoriten zeigen), keine Sortierung. Kein manueller Order, keine Wahl. (`sortedOrder` in
-`app.js`/`sidebar.js` ist Item-Order **innerhalb** eines Projekts, nicht die Projekt-Order.)
+1. favorisiert zuerst, 2. fehlende zuletzt, 3. leere zuletzt, 4. Recency. Der Stern-Toggle
+(`showFavoritedProjectsOnly`, `app.js:1045`, `sidebar.js:928`) schaltet die **Ansicht**:
+**AUS** = alle Projekte (Favoriten oben + Rest), **AN** = nur Favoriten. Kein manueller Order,
+keine Sortier-Wahl. (`sortedOrder` in `app.js`/`sidebar.js` ist Item-Order **innerhalb** eines
+Projekts, nicht die Projekt-Order.)
 
-**Ziel:** Sortierung entkoppeln und wählbar machen.
+**Ziel:** „Favoriten oben" **so lassen**, nur die **Sortierung** wählbar machen — innerhalb der
+jeweiligen Ansicht.
 
-### Modell (bestätigt)
+### Modell (schlank)
 
-- **Favoriten-Pin** `pinFavorites` (global Blob, Default **true** = heutiges Verhalten):
-  favorisierte Projekte bilden oben einen **eigenen Block**. Aus → mischen sich normal ein.
-- **Standard-Sortierung** `projectSortMode = 'activity' | 'alpha' | 'manual'` (Default
-  `activity` = Recency, non-breaking). Gilt für **beide** Blöcke gleich (Entscheidung 1).
+- **Kein neues Setting für „Favoriten oben"** — bleibt der AUS-Zustand des vorhandenen
+  Stern-Toggles. Favorisiert-zuerst bleibt.
+- **Standard-Sortierung** `projectSortMode = 'activity' | 'alpha' | 'manual'` (global Blob,
+  Default `activity` = heutige Recency, non-breaking):
   - `activity`: nach letzter Session-Änderung (heute).
   - `alpha`: nach Anzeigename (`displayName || shortName`, #16).
   - `manual`: nach `projectOrder`-Index.
-- **Manueller Order** `projectOrder = [projectPath, …]` (global Blob). **Eine** Liste über
-  alle Projekte; die Blöcke (Favoriten / Rest) sind nur **Partitionen** dieser Liste unter
-  Beibehaltung der Reihenfolge. Neue/unbekannte Projekte ans Ende.
+- **Wirkungsbereich je Ansicht:**
+
+  | Stern-Toggle | Inhalt | Sortierung wirkt auf |
+  |---|---|---|
+  | **AUS** | Favoriten-Block + Rest-Block (mit **Trenner**) | jeden Block **getrennt** nach Modus |
+  | **AN** | nur Favoriten | die eine Gruppe nach Modus |
+
+- **Manueller Order** `projectOrder = [projectPath, …]` (global Blob). **Eine** Liste über alle
+  Projekte; Favoriten-Block / Rest-Block sind nur **Partitionen** davon (Reihenfolge bleibt).
+  Neue/unbekannte Projekte ans Ende. Favorisieren/Entfavorisieren wechselt nur den Block, der
+  `projectOrder`-Index bleibt → Position „passend zur Sortierung" fällt von selbst richtig.
 
 ### Sort-Logik (`session-cache.js:342` umbauen)
 
 1. `missing` / leer → wie bisher ans Ende.
-2. Rest: wenn `pinFavorites`, in **Favoriten-Block** + **Rest-Block** partitionieren.
-3. Jeden Block nach `projectSortMode` sortieren (activity/alpha/manual identisch).
-4. **Favorisieren/Entfavorisieren** (Entscheidung 3): Projekt wechselt nur den Block;
-   bei `manual` behält es seinen `projectOrder`-Index (landet im neuen Block „passend zur
-   Sortierung" an seiner manuellen Position), bei activity/alpha sortiert es sich automatisch
-   neu. → fällt durch das Partitions-Modell **von selbst** richtig.
+2. favorisiert-zuerst-Split **beibehalten** (Favoriten-Block oben, Rest unten).
+3. **Innerhalb** jedes Blocks nach `projectSortMode` sortieren (statt fix Recency).
+4. `activity`/`alpha` automatisch; `manual` nach `projectOrder`.
 
-### Interaktion / UI (Entscheidung 4)
+### Trenner
 
-- **Drag-Handle pro Header** `.project-drag-handle` (kleines Zieh-Symbol, ⠿), **nur sichtbar
-  wenn `manual`** — via Sidebar-Klasse `sort-manual` (CSS schaltet Handle ein/aus). Drag
-  startet am Handle (Pointer-Drag wie `startSidebarSessionDrag`), Drop schreibt `projectOrder`
-  + `loadProjects()`. In `activity`/`alpha` ist das Handle aus, kein Drag.
-- Drag bleibt **innerhalb** seines Blocks (Favoriten lassen sich nicht in den Rest ziehen,
-  ohne zu entfavorisieren) — reordnet nur die Block-internen `projectOrder`-Mitglieder.
+In der **AUS**-Ansicht zwischen Favoriten-Block und Rest eine **Trennzeile „Favoriten"**
+(`.project-favorites-divider`, Stil wie bestehende Section-Header) — nur wenn **beide** Blöcke
+nicht leer sind. Render in `sidebar.js` (Directory-Render-Loop) an der Stelle, wo `favorited`
+von true→false kippt. In der **AN**-Ansicht (nur Favoriten) kein Trenner.
+
+### Interaktion / UI
+
 - **Sortier-Wahl** als kleines Control in der Sidebar-Filterzeile (`#session-filters`, neben
   Stern-Toggle + View-Mode-Toggle) — Cycle-Button oder Mini-Dropdown `activity/alpha/manual`.
-  (Alternativ Global-Settings; Filterzeile ist näher dran und konsistent.)
+- **Drag-Handle pro Header** `.project-drag-handle` (Zieh-Symbol ⠿), **nur sichtbar wenn
+  `manual`** — via Sidebar-Klasse `sort-manual` (CSS schaltet ein/aus). Drag startet am Handle
+  (Pointer-Drag wie `startSidebarSessionDrag`), Drop schreibt `projectOrder` + `loadProjects()`.
+  In `activity`/`alpha` kein Handle, kein Drag.
+- Drag bleibt **innerhalb** seines Blocks (Favoriten nicht in den Rest ziehbar ohne
+  Entfavorisieren) — reordnet nur die Block-internen `projectOrder`-Mitglieder.
 
 ### Persistenz
 
-Alles globaler Settings-Blob (kein Schema-Eingriff): `pinFavorites`, `projectSortMode`,
-`projectOrder`. Mapping in den Projekt-Datensatz analog `favorited`/`displayName`
-(`session-cache.js buildProjectsFromCache`).
+Globaler Settings-Blob (kein Schema-Eingriff): `projectSortMode`, `projectOrder`. Mapping in den
+Projekt-Datensatz analog `favorited`/`displayName` (`session-cache.js buildProjectsFromCache`),
+bzw. Order direkt in der Sort-Logik.
 
 ### Tests
 
-Pure-Sort-Helper Electron-frei (`*-status.js`-Muster): Eingabe = Projekte (+favorited,
-+modified, +displayName) + `{pinFavorites, projectSortMode, projectOrder}` → erwartete
-Reihenfolge. Fälle: activity/alpha/manual × pin an/aus, neue Projekte ans Ende,
-favorisieren verschiebt Block ohne manuelle Position zu verlieren.
+Pure-Sort-Helper Electron-frei (`*-status.js`-Muster): Eingabe = Projekte (+favorited, +modified,
++displayName) + `{projectSortMode, projectOrder}` → erwartete Reihenfolge. Fälle:
+activity/alpha/manual, favorisiert-zuerst bleibt, neue Projekte ans Ende, Favorisieren behält
+manuelle Position.
 
 ### Scope v1 / später
 
