@@ -4373,6 +4373,8 @@ input:focus-visible {
   color: #7a7a90;
   width: 20px;
   height: 20px;
+  flex-shrink: 0;
+  margin-right: 2px;
   border-radius: 5px;
   cursor: pointer;
   display: flex;
@@ -4381,7 +4383,7 @@ input:focus-visible {
   padding: 0;
   line-height: 0;
   transition: all 0.15s;
-  opacity: 0.7;
+  opacity: 0;
 }
 .project-favorite-btn svg { display: block; }
 .project-header:hover .project-favorite-btn { opacity: 1; }

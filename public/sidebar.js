@@ -963,7 +963,8 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
     favoriteBtn.innerHTML = project.favorited
       ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'
       : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
-    header.appendChild(favoriteBtn);
+    // Favorit-Button vor den Projektnamen (links), nicht in die rechte Button-Leiste.
+    header.insertBefore(favoriteBtn, header.querySelector('.project-name'));
 
     const archiveGroupBtn = document.createElement('button');
     archiveGroupBtn.className = 'project-archive-btn';
