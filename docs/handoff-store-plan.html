@@ -36,7 +36,7 @@
 <body>
 <h1 id="handoff-store-resume-plan-03-erweiterung">Handoff-Store + Resume — Plan (#03-Erweiterung)</h1>
 <blockquote>
-<p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-06-30 · Status: 🔵 Backlog (#03, Erweiterung)</p>
+<p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-06-30 · Status: 🔵 Backlog (#03, Erweiterung) · Design bestätigt</p>
 </blockquote>
 <p>Erweitert den <strong>bereits vorhandenen</strong> One-Click-Handoff um einen <strong>speicherbaren</strong> Handoff,
 der projektbezogen in Switchboard abgelegt und später beim Start einer neuen Session wieder
@@ -68,22 +68,40 @@ Prompt in die laufende Session tippen (<code>buildHandoffRequestPrompt</code>, <
 Handoff wählen → frische Session damit seeden.</li>
 </ol>
 <hr>
-<h2 id="setting-option">Setting (Option)</h2>
-<p>Globaler Settings-Blob, <strong>Default aus</strong> (non-breaking). Name <strong>noch offen</strong> — Vorschläge:</p>
-<ul>
-<li><strong>„Handoff library&quot;</strong> (Toggle) ⭐ — kurz, trifft „speichern + später aufgreifen&quot;.</li>
-<li>„Save handoffs to Switchboard&quot;</li>
-<li>„Persistent handoffs&quot;</li>
+<h2 id="settings-eigene-gruppe-handoffquot-englische-ui">Settings — eigene Gruppe „Handoff&quot; (englische UI)</h2>
+<p>Globaler Settings-Blob. Eigene Settings-Gruppe <strong>„Handoff&quot;</strong> mit:</p>
+<ol>
+<li><strong><code>handoffLibrary</code></strong> (Toggle, <strong>Default aus</strong>, non-breaking) — Name bestätigt <strong>„Handoff library&quot;</strong>.
+Bei <strong>an</strong>:<ul>
+<li><code>runHandoff</code> bekommt nach dem Review die <strong>Speichern-vs-neue-Session</strong>-Abfrage.</li>
+<li>Im <code>showNewSessionPopover</code> erscheint <strong>„Claude Handoff resume&quot;</strong>.
+Bei <strong>aus</strong>: exakt heutiges Verhalten.</li>
 </ul>
-<p>Platzierung: Settings-Gruppe (englische UI), thematisch zu „Session Display&quot;/„Project list&quot;
-oder eine eigene Gruppe <strong>„Handoff&quot;</strong>. Apply analog <code>_applyProjectSortSettings</code> bzw. einfach
-beim Öffnen der Dialoge live aus dem Blob lesen.</p>
-<p>Wirkung bei <strong>an</strong>:</p>
+</li>
+<li><strong><code>handoffPrompt</code></strong> (Textarea, Default = aktueller <code>buildHandoffRequestPrompt</code>-Text) — siehe
+nächster Abschnitt. Gilt <strong>immer</strong> (auch für die Default-Variante), nicht nur bei aktiver Library.</li>
+</ol>
+<p>Apply: einfach beim Öffnen der Dialoge live aus dem Blob lesen (kein Live-Reapply nötig).</p>
+<h2 id="editierbarer-handoff-prompt-skill-option">Editierbarer Handoff-Prompt (+ Skill-Option)</h2>
+<p>Maximaler Einfluss des Anwenders auf den Handoff: der <strong>Request-Prompt</strong> wird konfigurierbar.</p>
 <ul>
-<li><code>showHandoffPrompt</code>/<code>runHandoff</code> bekommt nach dem Review die <strong>Speichern-vs-neue-Session</strong>-Abfrage.</li>
-<li>Im <code>showNewSessionPopover</code> erscheint <strong>„Claude Handoff resume&quot;</strong>.</li>
+<li><strong>Setting <code>handoffPrompt</code></strong> (Textarea in der „Handoff&quot;-Gruppe). Leer/ungesetzt → Default aus
+<code>buildHandoffRequestPrompt</code> (<code>session-health.js:163</code>). <code>runHandoff</code> nimmt im
+<code>request-packet</code>-Schritt (<code>dialogs.js:167</code>) den Custom-Text statt des Defaults.</li>
+<li><strong>Platzhalter</strong> im Text erlauben (optional, simpel per Ersetzung): <code>{goal}</code>, <code>{project}</code>,
+<code>{sessionId}</code>, <code>{metrics}</code> — sonst wird der Text 1:1 getippt.</li>
+<li><strong>Globalen Skill nutzen:</strong> Da der Prompt nur als Text in die Session getippt wird, kann der
+Anwender ihn auf einen <strong>Skill-Aufruf</strong> setzen, z.B. einfach <code>/handoff</code>. Dann läuft der
+globale Claude-Code-Skill; die Antwort wird wie gehabt aus dem Session-JSONL gelesen
+(<code>extractLatestAssistantText</code>) — <strong>kein</strong> Sonderpfad nötig. Funktioniert mit jedem Skill,
+der Markdown in den Chat schreibt.</li>
+<li>Optional als Komfort: ein <strong>Preset-Hinweis/Button</strong> „Use <code>/handoff</code> skill&quot;, der die Textarea
+mit <code>/handoff</code> füllt. Reiner Convenience, technisch identisch.</li>
 </ul>
-<p>Bei <strong>aus</strong>: exakt heutiges Verhalten.</p>
+<blockquote>
+<p>Gilt für <strong>beide</strong> Varianten — der editierbare Prompt verbessert auch den heutigen
+Default-Handoff.</p>
+</blockquote>
 <h2 id="storage">Storage</h2>
 <p>Neue DB-Tabelle (Muster <code>bookmarks</code>, <code>db.js:111</code>; Basis-<code>CREATE TABLE IF NOT EXISTS</code> <strong>oder</strong>
 angehängte Migration im <code>migrations</code>-Array <code>db.js:141</code> — nie bestehende Migration ändern):</p>
@@ -117,8 +135,10 @@ Toast „Handoff saved to project&quot;. Flow endet (keine neue Session, keine T
 <code>choose-target</code> nach <code>captured</code>) — bleibt Electron-frei + testbar.</p>
 <h2 id="neu-session-menü-claude-handoff-resumequot">Neu-Session-Menü „Claude Handoff resume&quot;</h2>
 <p>In <code>showNewSessionPopover</code> (<code>dialogs.js:245</code>) <strong>zwischen</strong> <code>claudeOptsBtn</code> und <code>termBtn</code> einen
-vierten Button einfügen — <strong>nur</strong> wenn Variante aktiv <strong>und</strong> für das Projekt gespeicherte
-Handoffs existieren (sonst ausblenden, kein toter Eintrag):</p>
+vierten Button einfügen — <strong>wenn die Library aktiv</strong> ist. Hat das Projekt <strong>keine</strong> gespeicherten
+Handoffs, bleibt der Eintrag <strong>sichtbar, aber deaktiviert</strong> (ausgegraut, <code>disabled</code>, Tooltip
+„No saved handoffs for this project&quot;) — visuell erkennbar, nicht versteckt. Bei Library <strong>aus</strong>
+erscheint der Eintrag gar nicht.</p>
 <ul>
 <li>Klick → Picker-Dialog: Liste der <code>listProjectHandoffs(project.projectPath)</code> (Label + Datum),
 Auswahl + optional <strong>Löschen</strong> je Eintrag.</li>
@@ -136,15 +156,17 @@ temp-DB (Muster vorhandener db-Tests).</li>
 <li>Smoke (Electron): Variante an → Handoff → Speichern → neue Session → „Claude Handoff resume&quot; →
 Picker → frische Session seeded.</li>
 </ul>
-<h2 id="offene-entscheidungen">Offene Entscheidungen</h2>
+<h2 id="entscheidungen-bestätigt-2026-06-30">Entscheidungen (bestätigt 2026-06-30)</h2>
 <ol>
-<li><strong>Name des Settings</strong> — „Handoff library&quot; (Empfehlung) oder anderer.</li>
-<li><strong>Setting-Gruppe</strong> — eigene „Handoff&quot;-Gruppe oder zu „Project list&quot;/„Session Display&quot;.</li>
-<li><strong>Label-Quelle</strong> — Auto (Session-Title + Datum) editierbar, ja? (Empfehlung: ja.)</li>
-<li><strong>Resume-Eintrag-Sichtbarkeit</strong> — nur wenn gespeicherte Handoffs existieren (Empfehlung) vs.
-immer (dann leerer Picker mit Hinweis).</li>
-<li><strong>Mehrere Handoffs pro Projekt</strong> — Liste (ja, Empfehlung) vs. nur der letzte (überschreiben).</li>
-<li><strong>Verwaltung</strong> — Löschen im Picker (Empfehlung); eigene „Handoffs&quot;-Übersicht später?</li>
+<li><strong>Setting-Name:</strong> „Handoff library&quot; ✅</li>
+<li><strong>Setting-Gruppe:</strong> eigene Gruppe „Handoff&quot; ✅</li>
+<li><strong>Label:</strong> Auto-Vorschlag (Session-Title + Datum), beim Speichern <strong>editierbar</strong> ✅</li>
+<li><strong>Resume-Eintrag:</strong> bei Library-an immer <strong>sichtbar</strong>; ohne gespeicherte Handoffs
+<strong>deaktiviert + ausgegraut</strong> (nicht versteckt) ✅</li>
+<li><strong>Mehrere Handoffs/Projekt:</strong> Liste ✅</li>
+<li><strong>Verwaltung:</strong> Löschen im Picker ✅</li>
+<li><strong>Editierbarer Handoff-Prompt</strong> (neu): <code>handoffPrompt</code>-Textarea, Skill-Aufruf (<code>/handoff</code>)
+möglich; gilt für beide Varianten ✅</li>
 </ol>
 <h2 id="scope-abgrenzung">Scope-Abgrenzung</h2>
 <ul>
