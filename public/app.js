@@ -384,7 +384,7 @@ function refreshSessionStatusViews() {
 // finished while you were looking at it stays in the inbox until you open it,
 // nothing silently drops.
 let runningInboxSetting = { mode: 'until-read', minutes: 5 };
-const RUNNING_INBOX_MODES = ['always', 'never', 'after-finish', 'until-read'];
+const RUNNING_INBOX_MODES = ['always', 'never', 'after-finish', 'until-read', 'timed'];
 
 // Runtime fields the inbox filter needs, merged into every runtime snapshot that
 // feeds getAttentionInboxItems / getNextAttentionInboxItem.
@@ -397,11 +397,12 @@ function attentionInboxRuntimeFields() {
   };
 }
 
-// Only 'after-finish' needs a heartbeat: a finished session must drop out of the
-// inbox once its window elapses even when no other event fires a re-render.
+// Window-based modes ('after-finish', 'timed') need a heartbeat: a finished
+// session must drop out of the inbox once its window elapses even when no other
+// event fires a re-render.
 let runningInboxTick = null;
 function ensureRunningInboxTick() {
-  const need = runningInboxSetting.mode === 'after-finish';
+  const need = runningInboxSetting.mode === 'after-finish' || runningInboxSetting.mode === 'timed';
   if (need && !runningInboxTick) {
     runningInboxTick = setInterval(() => { if (finishedAt.size) refreshSessionStatusViews(); }, 30000);
   } else if (!need && runningInboxTick) {
@@ -592,7 +593,9 @@ function clearNotifications(sessionId) {
   // running session isn't in attentionSessions, so this stamp removal is the
   // *only* state change for until-read — fold it into the re-render guard or the
   // item lingers until some unrelated event repaints the sidebar.
-  const stampCleared = finishedAt.delete(sessionId);
+  // Exception: 'timed' keeps the session for its full window regardless of
+  // opening (removal only by timeout), so the stamp must survive a focus there.
+  const stampCleared = runningInboxSetting.mode === 'timed' ? false : finishedAt.delete(sessionId);
   const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
   if (item) item.classList.remove('needs-attention');
   if (changed || stampCleared) refreshSessionStatusViews();

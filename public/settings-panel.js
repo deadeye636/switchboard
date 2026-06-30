@@ -111,7 +111,7 @@
 
     // Running-in-inbox (global only): how live-but-idle sessions appear in the attention inbox.
     const runningInboxValue = (!isProject && current.runningInbox) || {};
-    const runningInboxModeValue = ['always', 'never', 'after-finish', 'until-read'].includes(runningInboxValue.mode)
+    const runningInboxModeValue = ['always', 'never', 'after-finish', 'until-read', 'timed'].includes(runningInboxValue.mode)
       ? runningInboxValue.mode : 'until-read';
     const runningInboxMinutesValue = runningInboxValue.minutes > 0 ? runningInboxValue.minutes : 5;
 
@@ -530,12 +530,13 @@
         <div class="settings-field">
           <div class="settings-field-info">
             <span class="settings-label">Running sessions in attention inbox</span>
-            <div class="settings-description">When a live session is idle (not working, not awaiting you), whether it shows in the attention list. <b>Until opened</b>: sessions that finished while focused stay until you open them. <b>For a few minutes</b>: they drop after the time below. <b>Always</b>/<b>Never</b>: unconditional. Sessions that never ran are never shown.</div>
+            <div class="settings-description">When a live session is idle (not working, not awaiting you), whether it shows in the attention list. <b>Until opened</b>: stays until you open it. <b>Until opened, or after a few minutes</b>: whichever comes first. <b>For a few minutes (even after opening)</b>: stays the full time below regardless of opening it. <b>Always</b>/<b>Never</b>: unconditional. Sessions that never ran are never shown.</div>
           </div>
           <div class="settings-field-control">
             <select class="settings-select" id="sv-running-inbox-mode">
               <option value="until-read" ${runningInboxModeValue === 'until-read' ? 'selected' : ''}>Until opened</option>
-              <option value="after-finish" ${runningInboxModeValue === 'after-finish' ? 'selected' : ''}>For a few minutes after finishing</option>
+              <option value="after-finish" ${runningInboxModeValue === 'after-finish' ? 'selected' : ''}>Until opened, or after a few minutes</option>
+              <option value="timed" ${runningInboxModeValue === 'timed' ? 'selected' : ''}>For a few minutes (even after opening)</option>
               <option value="always" ${runningInboxModeValue === 'always' ? 'selected' : ''}>Always</option>
               <option value="never" ${runningInboxModeValue === 'never' ? 'selected' : ''}>Never</option>
             </select>

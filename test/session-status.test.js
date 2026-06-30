@@ -122,6 +122,19 @@ test('running-in-inbox: after-finish surfaces within the window and drops past i
     [], 'no stamp ⇒ hidden');
 });
 
+test('running-in-inbox: timed uses the same window as after-finish (open-clearing is renderer-side)', () => {
+  const finishedAt = new Map([['run', 1000]]);
+  assert.deepEqual(
+    runInbox({ runningInboxMode: 'timed', runningInboxMinutes: 5, finishedAt, now: 1000 + 2 * 60000 }),
+    ['run'], 'within window ⇒ shown');
+  assert.deepEqual(
+    runInbox({ runningInboxMode: 'timed', runningInboxMinutes: 5, finishedAt, now: 1000 + 6 * 60000 }),
+    [], 'past window ⇒ hidden');
+  assert.deepEqual(
+    runInbox({ runningInboxMode: 'timed', runningInboxMinutes: 5, now: 1000 }),
+    [], 'no stamp ⇒ hidden');
+});
+
 test('next attention inbox item cycles after the current session', () => {
   const sessions = [
     { sessionId: 'running-old', modified: '2026-06-12T09:00:00.000Z', summary: 'old run' },

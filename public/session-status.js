@@ -92,6 +92,10 @@
   //   until-read   — only sessions that finished (busy→idle stamp in runtime.finishedAt)
   //                  and haven't been focused since; stays until opened
   //   after-finish — same gate, but drops once runtime.now - finishedAt exceeds the window
+  //                  (and on open — clearNotifications clears the stamp)
+  //   timed        — same window as after-finish; differs only outside this pure
+  //                  helper: opening the session does NOT clear the stamp, so it
+  //                  stays for the full window regardless of being read
   // The finishedAt gate means a session that never worked (no stamp) is never
   // surfaced as running clutter. Default mode is 'always' so callers that don't
   // pass a mode keep the historical behaviour.
@@ -103,7 +107,7 @@
     const finishedAt = getMapValue(runtime.finishedAt, session.sessionId);
     if (!finishedAt) return false;
     if (mode === 'until-read') return true;
-    // after-finish: hide once the window has elapsed. Missing `now` ⇒ keep visible.
+    // after-finish / timed: hide once the window has elapsed. Missing `now` ⇒ keep visible.
     const minutes = runtime.runningInboxMinutes > 0 ? runtime.runningInboxMinutes : RUNNING_INBOX_DEFAULT_MINUTES;
     const now = Number.isFinite(runtime.now) ? runtime.now : finishedAt;
     return (now - finishedAt) < minutes * 60000;
