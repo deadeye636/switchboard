@@ -933,11 +933,6 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
 
     // Project-favorites filter: when active, only render favorited projects.
     if (typeof showFavoritedProjectsOnly !== 'undefined' && showFavoritedProjectsOnly && !project.favorited) continue;
-    // "Favorites as separate list": favorites live only behind the star filter, so
-    // hide them from the normal list (unless the star filter is active).
-    if (typeof favoritesOwnList !== 'undefined' && favoritesOwnList
-      && !(typeof showFavoritedProjectsOnly !== 'undefined' && showFavoritedProjectsOnly)
-      && project.favorited) continue;
 
     const result = processProjectSessions(project, resort);
     if (!result) continue;
