@@ -340,28 +340,6 @@
         <div class="settings-section-title">Session Display</div>
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">Project sorting</span>
-            <div class="settings-description">Order of projects in the sidebar. Manual lets you drag projects into place (a grip handle appears on each project header).</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-project-sort">
-              <option value="activity" ${projectSortValue === 'activity' ? 'selected' : ''}>Activity (most recent first)</option>
-              <option value="alpha" ${projectSortValue === 'alpha' ? 'selected' : ''}>Alphabetical</option>
-              <option value="manual" ${projectSortValue === 'manual' ? 'selected' : ''}>Manual (drag to reorder)</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Favorites as separate list</span>
-            <div class="settings-description">On: favorites are shown only via the star filter, not pinned. Off: favorites are pinned on top of the project list, with a divider above the rest.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-favorites-own-list" ${favoritesOwnListValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
             <span class="settings-label">Sidebar on startup</span>
             <div class="settings-description">Collapse state of project/group sections when the app starts: all expanded, all collapsed, or remember the last state.</div>
           </div>
@@ -437,6 +415,32 @@
           </div>
           <div class="settings-field-control">
             <label class="settings-toggle"><input type="checkbox" id="sv-tab-drag" ${tabDragValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+      </div>` : ''}
+
+      ${!isProject ? `<div class="settings-section">
+        <div class="settings-section-title">Project list</div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Project sorting</span>
+            <div class="settings-description">Order of projects in the sidebar. Manual lets you drag projects into place (a grip handle appears on each project header).</div>
+          </div>
+          <div class="settings-field-control">
+            <select class="settings-select" id="sv-project-sort">
+              <option value="activity" ${projectSortValue === 'activity' ? 'selected' : ''}>Activity (most recent first)</option>
+              <option value="alpha" ${projectSortValue === 'alpha' ? 'selected' : ''}>Alphabetical</option>
+              <option value="manual" ${projectSortValue === 'manual' ? 'selected' : ''}>Manual (drag to reorder)</option>
+            </select>
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Favorites as separate list</span>
+            <div class="settings-description">On: favorites are not shown in the main list — only via the star filter in the toolbar. Off: favorites are pinned on top of the list (with a divider) and the star filter is hidden.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-favorites-own-list" ${favoritesOwnListValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
           </div>
         </div>
       </div>` : ''}

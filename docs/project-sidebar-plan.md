@@ -140,10 +140,14 @@ Worktree-Identifikation verwässern.
 > (`favoritesOwnList`, Default **aus**): aus = Favoriten **oben angeheftet** im Standard-View
 > (Block + Trenner), an = Favoriten nur als **eigene Liste** über den Stern-Toggle (nicht
 > angeheftet). Plus wählbare **Sortierung** `projectSortMode` (Aktivität/Alpha/Manuell).
-> Beide Optionen (Sortierung + „Favorites as separate list") liegen in den **globalen Settings
-> unter „Session Display"** (englische UI); persistiert im globalen Settings-Blob, render-seitig
-> in `projectSortMode`/`favoritesOwnList` gespiegelt (+ localStorage-Cache fürs erste Paint).
-> Manueller Order via Drag (`projectOrder`, localStorage). Scope v1: Directory-Sidebar.
+> Beide Optionen (Sortierung + „Favorites as separate list") liegen in den **globalen Settings**
+> als eigene Gruppe **„Project list"** (unterhalb „Session Display", englische UI); persistiert
+> im globalen Blob, render-seitig in `projectSortMode`/`favoritesOwnList` gespiegelt
+> (+ localStorage-Cache fürs erste Paint). Manueller Order via Drag (`projectOrder`, localStorage).
+>
+> **„Favorites as separate list":** OFF (Default) = Favoriten oben angeheftet + Trenner, der
+> Stern-Filter wird **ausgeblendet** (redundant). ON = Favoriten **nicht** in der Hauptliste,
+> nur über den **sichtbaren** Stern-Filter. Scope v1: Directory-Sidebar.
 
 **Ist:** Eine **globale, hardcodierte** Sortierung (`session-cache.js:342–355`):
 1. favorisiert zuerst, 2. fehlende zuletzt, 3. leere zuletzt, 4. Recency. Der Stern-Toggle

@@ -1059,6 +1059,22 @@ if (favoriteToggle) {
     refreshSidebar({ resort: true });
   });
 }
+// The star filter only makes sense when favorites are a separate list. When they
+// are pinned on top (favoritesOwnList off) the filter is redundant → hide it (and
+// drop any active filter so the pinned list shows).
+function updateFavoriteToggleVisibility() {
+  if (!favoriteToggle) return;
+  if (favoritesOwnList) {
+    favoriteToggle.style.display = '';
+  } else {
+    favoriteToggle.style.display = 'none';
+    if (showFavoritedProjectsOnly) {
+      showFavoritedProjectsOnly = false;
+      favoriteToggle.classList.remove('active');
+    }
+  }
+}
+updateFavoriteToggleVisibility();
 
 // --- Sidebar view mode toggle (directory-first <-> folder-first) ---
 const VIEW_MODE_ICONS = {
@@ -1098,6 +1114,7 @@ window._applyProjectSortSettings = (g) => {
   favoritesOwnList = !!g.favoritesOwnList;
   localStorage.setItem('projectSortMode', projectSortMode);
   localStorage.setItem('favoritesOwnList', favoritesOwnList ? '1' : '0');
+  if (typeof updateFavoriteToggleVisibility === 'function') updateFavoriteToggleVisibility();
   if (typeof refreshSidebar === 'function') refreshSidebar({ resort: true });
 };
 // Persist the manual project order (written by drag-reorder in the sidebar).
