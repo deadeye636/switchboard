@@ -77,6 +77,23 @@
     const visCountValue = fieldValue('visibleSessionCount', 10);
     const maxAgeValue = fieldValue('sessionMaxAgeDays', 3);
     const themeValue = fieldValue('terminalTheme', 'switchboard');
+    // Terminal font (size + family). Family presets carry a monospace fallback;
+    // a value not in the list is treated as a custom family.
+    const DEFAULT_TERMINAL_FONT = "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace";
+    const TERMINAL_FONT_PRESETS = [
+      { label: 'Default (SF Mono / Fira / Cascadia)', value: DEFAULT_TERMINAL_FONT },
+      { label: 'Cascadia Code', value: "'Cascadia Code', 'Cascadia Mono', monospace" },
+      { label: 'Consolas', value: 'Consolas, monospace' },
+      { label: 'Fira Code', value: "'Fira Code', monospace" },
+      { label: 'JetBrains Mono', value: "'JetBrains Mono', monospace" },
+      { label: 'Source Code Pro', value: "'Source Code Pro', monospace" },
+      { label: 'Menlo / SF Mono', value: "'SF Mono', Menlo, monospace" },
+    ];
+    const terminalFontSizeValue = fieldValue('terminalFontSize', 12);
+    const terminalFontFamilyValue = fieldValue('terminalFontFamily', DEFAULT_TERMINAL_FONT);
+    const terminalFontIsPreset = TERMINAL_FONT_PRESETS.some(f => f.value === terminalFontFamilyValue);
+    const terminalFontSelectValue = terminalFontIsPreset ? terminalFontFamilyValue : 'custom';
+    const terminalFontCustomValue = terminalFontIsPreset ? '' : terminalFontFamilyValue;
     const rightClickValue = fieldValue('terminalRightClick', 'menu');
     const mouseReportingValue = fieldValue('terminalMouseReporting', 'on');
     const displayModeValue = fieldValue('sessionDisplayMode', 'legacy');
@@ -254,6 +271,41 @@
                 `<option value="${key}" ${themeValue === key ? 'selected' : ''}>${escapeHtml(t.label)}</option>`
               ).join('')}
             </select>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Terminal Font</span>
+            <div class="settings-description">Font family for terminal sessions. Use a monospace font &mdash; proportional fonts break column alignment. The font must be installed; an unknown name falls back silently. Pick <b>Custom</b> to enter your own family. Also adjustable live with ${isMacPlatform ? '⌘' : 'Ctrl'} + / - / 0.</div>
+          </div>
+          <div class="settings-field-control">
+            <select class="settings-select" id="sv-terminal-font-family">
+              ${TERMINAL_FONT_PRESETS.map(f =>
+                `<option value="${escapeHtml(f.value)}" ${terminalFontSelectValue === f.value ? 'selected' : ''}>${escapeHtml(f.label)}</option>`
+              ).join('')}
+              <option value="custom" ${terminalFontSelectValue === 'custom' ? 'selected' : ''}>Custom&hellip;</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Custom font family</span>
+            <div class="settings-description">Used only when <b>Custom</b> is selected above, e.g. <code>'IBM Plex Mono', monospace</code>.</div>
+          </div>
+          <div class="settings-field-control">
+            <input type="text" class="settings-input" id="sv-terminal-font-custom" placeholder="${escapeHtml(DEFAULT_TERMINAL_FONT)}" value="${escapeHtml(terminalFontCustomValue)}">
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Terminal Font Size</span>
+            <div class="settings-description">Font size in pixels for terminal sessions (8&ndash;28).</div>
+          </div>
+          <div class="settings-field-control">
+            <input type="number" class="settings-input settings-input-compact" id="sv-terminal-font-size" min="8" max="28" value="${terminalFontSizeValue}">
           </div>
         </div>
 
@@ -683,6 +735,13 @@
         settings.visibleSessionCount = parseInt(settingsViewerBody.querySelector('#sv-visible-count').value) || 10;
         settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
+        {
+          const famSel = settingsViewerBody.querySelector('#sv-terminal-font-family').value;
+          const famCustom = settingsViewerBody.querySelector('#sv-terminal-font-custom').value.trim();
+          settings.terminalFontFamily = famSel === 'custom' ? (famCustom || DEFAULT_TERMINAL_FONT) : famSel;
+          const size = parseInt(settingsViewerBody.querySelector('#sv-terminal-font-size').value, 10);
+          settings.terminalFontSize = Math.max(8, Math.min(28, Number.isFinite(size) ? size : 12));
+        }
         settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').value || 'menu';
         settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').checked ? 'on' : 'off';
         settings.settingsOpenMode = settingsViewerBody.querySelector('#sv-settings-open-mode').value || 'overlay';
@@ -744,6 +803,12 @@
         }
         if (settings.terminalTheme && typeof window._applyTerminalTheme === 'function') {
           window._applyTerminalTheme(settings.terminalTheme);
+        }
+        if (settings.terminalFontFamily && typeof window._setTerminalFontFamily === 'function') {
+          window._setTerminalFontFamily(settings.terminalFontFamily);
+        }
+        if (settings.terminalFontSize && typeof window._setTerminalFontSize === 'function') {
+          window._setTerminalFontSize(settings.terminalFontSize);
         }
         if (settings.notifications && typeof window._setNotificationSettings === 'function') {
           window._setNotificationSettings(settings.notifications);

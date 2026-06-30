@@ -2153,6 +2153,8 @@ async function reapplyGlobalSettings() {
   if (g.notifications) window._setNotificationSettings?.(g.notifications);
   if (g.runningInbox) window._setRunningInboxSetting?.(g.runningInbox);
   if (g.terminalTheme) window._applyTerminalTheme?.(g.terminalTheme);
+  if (g.terminalFontFamily) window._setTerminalFontFamily?.(g.terminalFontFamily);
+  if (g.terminalFontSize) window._setTerminalFontSize?.(g.terminalFontSize);
   if (g.terminalRightClick) window._applyTerminalRightClick?.(g.terminalRightClick);
   if (g.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(g.terminalMouseReporting !== 'off');
   if (g.visibleSessionCount) window._setVisibleSessionCount?.(g.visibleSessionCount);
@@ -2266,6 +2268,10 @@ setTimeout(() => {
       currentThemeName = global.terminalTheme;
       TERMINAL_THEME = getTerminalTheme();
     }
+    // Terminal font (size + family) — set the module vars before any terminal is
+    // created so the first open already uses them.
+    if (global.terminalFontFamily) window._setTerminalFontFamily?.(global.terminalFontFamily);
+    if (global.terminalFontSize) window._setTerminalFontSize?.(global.terminalFontSize);
     if (global.notifications) {
       window._setNotificationSettings(global.notifications);
     }

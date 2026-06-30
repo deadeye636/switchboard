@@ -16,6 +16,19 @@
 const isMac = window.api.platform === 'darwin';
 function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } = {}) {
   terminal.attachCustomKeyEventHandler((e) => {
+    // Cmd/Ctrl +/-/0 → terminal-only font zoom. preventDefault stops Chromium's
+    // built-in page zoom (which would scale the whole UI, not just the terminal).
+    if ((isMac ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      let delta = null;
+      if (e.key === '=' || e.key === '+') delta = 1;
+      else if (e.key === '-' || e.key === '_') delta = -1;
+      else if (e.key === '0') delta = 0;
+      if (delta !== null) {
+        if (e.type === 'keydown') { e.preventDefault(); window._nudgeTerminalFontSize?.(delta); }
+        return false;
+      }
+    }
+
     // Cmd/Ctrl+F → open terminal search bar
     if (e.key === 'f' && (isMac ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey) {
       if (e.type === 'keydown' && onFind) onFind();
@@ -169,6 +182,62 @@ function fitAndScroll(entry) {
     }
   });
 }
+
+// --- Terminal font (size + family), terminal-only ---
+// Live-adjustable; both new and existing terminals share these. Changing either
+// alters the glyph cell size, so every change re-fits (recomputes cols/rows and
+// resizes the PTY). This is xterm font config, NOT Electron zoomFactor — the
+// latter would scale the whole UI (sidebar included), not just the terminal.
+const DEFAULT_TERMINAL_FONT_FAMILY = "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace";
+const DEFAULT_TERMINAL_FONT_SIZE = 12;
+const TERMINAL_FONT_SIZE_MIN = 8;
+const TERMINAL_FONT_SIZE_MAX = 28;
+let terminalFontSize = DEFAULT_TERMINAL_FONT_SIZE;
+let terminalFontFamily = DEFAULT_TERMINAL_FONT_FAMILY;
+
+function clampTerminalFontSize(n) {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return DEFAULT_TERMINAL_FONT_SIZE;
+  return Math.max(TERMINAL_FONT_SIZE_MIN, Math.min(TERMINAL_FONT_SIZE_MAX, v));
+}
+
+function applyTerminalFontToAll() {
+  for (const [, entry] of openSessions) {
+    entry.terminal.options.fontSize = terminalFontSize;
+    entry.terminal.options.fontFamily = terminalFontFamily;
+    safeFit(entry);
+  }
+}
+
+window._setTerminalFontSize = (n) => {
+  terminalFontSize = clampTerminalFontSize(n);
+  applyTerminalFontToAll();
+  return terminalFontSize;
+};
+
+window._setTerminalFontFamily = (family) => {
+  terminalFontFamily = (typeof family === 'string' && family.trim()) ? family.trim() : DEFAULT_TERMINAL_FONT_FAMILY;
+  applyTerminalFontToAll();
+  return terminalFontFamily;
+};
+
+// Persist the zoomed size back into the global blob so it survives a restart.
+// Merge-read so we never clobber other global keys.
+async function persistTerminalFontSize(v) {
+  try {
+    const g = (await window.api.getSetting('global')) || {};
+    g.terminalFontSize = v;
+    await window.api.setSetting('global', g);
+  } catch { /* best-effort */ }
+}
+
+// Ctrl/Cmd +/-/0 zoom (terminal-only). delta 0 ⇒ reset to default.
+window._nudgeTerminalFontSize = (delta) => {
+  const next = delta === 0 ? DEFAULT_TERMINAL_FONT_SIZE : terminalFontSize + delta;
+  const v = window._setTerminalFontSize(next);
+  persistTerminalFontSize(v);
+  return v;
+};
 
 // --- Terminal write buffering ---
 // Batch incoming terminal data to coalesce IPC chunks into fewer write() calls.
@@ -412,8 +481,8 @@ function createTerminalEntry(session, opts = {}) {
   let hoveredLinkUri = null;
 
   const terminal = new Terminal({
-    fontSize: 12,
-    fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
+    fontSize: terminalFontSize,
+    fontFamily: terminalFontFamily,
     theme: TERMINAL_THEME,
     cursorBlink: false,
     scrollback: opts.scrollback ?? (gridViewActive ? SCROLLBACK_GRID : SCROLLBACK_SINGLE),
