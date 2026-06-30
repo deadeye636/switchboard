@@ -9,12 +9,20 @@ sessions across projects. See `README.md` for the user-facing feature list.
 
 ## Fork context (important)
 
-This repo is **our own version**, built in a single git repo with three remotes:
+This repo is **our own version** ("<old-codename>" is the codename of our variant — it shows up in
+code comments to distinguish our fork's behaviour from haydng/jbr). It lives in a single git
+repo with our own `origin` plus the upstream forks we port from.
 
-- Branch **`<old-codename>`** = our main line. Base = the **HaydnG** fork.
-- Remotes: `haydng` (base), `jbr` (JeanBaptisteRenard — feature source), `upstream` (doctly — original).
+- Branch **`main`** = our main line (was `<old-codename>` before the GitHub move; the codename stays).
+- **`origin`** = `git@github.com:deadeye636/switchboard.git` — our repo. `main` is the default branch.
+  Pushed via SSH; `core.sshCommand` points at native Windows OpenSSH so the Bitwarden SSH agent
+  is used (Git-bundled MSYS ssh can't reach the agent pipe — see memory `ssh-key-bitwarden`).
+- **Reference branches on origin** (read-only snapshots of the porting sources, recognizable by
+  name, not generic): `haydng` (= `haydng/main`, the base) and `jbr` (= `jbr/main`, feature source).
+- **Upstream remotes** (fetch sources for porting): `haydng` (base), `jbr` (JeanBaptisteRenard —
+  feature source), `upstream` (doctly — original). Plus extra read-only forks.
 - `../switchboard-jbr` = a read-only **git worktree** on `jbr/main` for reference.
-- Both forks diverged from merge-base `b98c2f8`. Version numbers between forks are not comparable.
+- All forks diverged from merge-base `b98c2f8`. Version numbers between forks are not comparable.
 
 Feature-adoption catalogue: `docs/jbr-uebernahme-katalog.html` (JBR candidates with refs).
 
@@ -22,13 +30,13 @@ Feature-adoption catalogue: `docs/jbr-uebernahme-katalog.html` (JBR candidates w
 
 Adopt JBR features one at a time, never bulk-merge:
 
-1. `git checkout -b port/<feature> <old-codename>`
+1. `git checkout -b port/<feature> main`
 2. `git cherry-pick <commits>` — resolve conflicts (shared hot-paths: `main.js`, `public/sidebar.js`,
    `db.js`, `session-cache.js` collide because both forks rewrote them).
-3. `npm test` must be green (baseline: **185 passing**).
-4. `git checkout <old-codename> && git merge --ff-only port/<feature>`.
+3. `npm test` must be green (baseline: **436 passing**).
+4. `git checkout main && git merge --ff-only port/<feature>`.
 
-`<old-codename>` must always stay runnable and green.
+`main` must always stay runnable and green.
 
 ## Architecture
 

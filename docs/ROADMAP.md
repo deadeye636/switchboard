@@ -7,7 +7,7 @@
 
 # Switchboard — Roadmap
 
-**Stand:** 2026-06-30 · **Branch:** `<old-codename>` · Tests grün (`npm test`)
+**Stand:** 2026-06-30 · **Branch:** `main` · Tests grün (`npm test`)
 
 Zentrales Board für alles Geplante, Laufende und Erledigte. Eine Aufgabe lebt **genau
 einmal** — Status entscheidet, in welcher Sektion sie steht. Detailpläne stehen in eigenen
