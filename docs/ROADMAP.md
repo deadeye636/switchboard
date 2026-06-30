@@ -32,6 +32,7 @@ Dateien und werden hier nur verlinkt.
 | #17 | P2 | **Projekte manuell sortierbar** — per Setting aktivierbar vs. Standard-Sortierung; Ist-Verhalten erst klären | [Plan](project-sidebar-plan.md#17-projekte-manuell-sortieren) |
 | #03 | P2 | **One-Click-Handoff** — „Handoff empfohlen" von Rat zu Aktion machen | [Roadmap §Phase 3](productivity-roadmap.md) |
 | #04 | P2 | **Flexibles Grid-Layout** (Karten-Resize / Drag-Reorder, 5B) | [Roadmap §Phase 5B](productivity-roadmap.md) |
+| #19 | P2 | **CI / Autobuild** (GitHub Actions: Test-CI + Win/Mac/Linux-Build + Release) | [Plan](ci-autobuild-plan.md) |
 | #05 | P3 | **Attention-Erkennung härten** via Claude-Code-Hooks + Bulk-Aktionen | [Roadmap §Phase 4](productivity-roadmap.md) |
 
 ---

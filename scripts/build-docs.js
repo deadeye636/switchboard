@@ -18,6 +18,7 @@ const DOCS = [
   ['sidebar-group-interactions-plan.md', 'sidebar-group-interactions-plan.html'],
   ['project-sidebar-plan.md', 'project-sidebar-plan.html'],
   ['windows-tray-fix-plan.md', 'windows-tray-fix-plan.html'],
+  ['ci-autobuild-plan.md', 'ci-autobuild-plan.html'],
 ];
 
 // Bespoke, von Hand gepflegte HTML-Pläne (keine MD-Quelle) — nur zur Doku, nicht generiert:
