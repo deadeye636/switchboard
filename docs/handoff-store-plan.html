@@ -54,8 +54,11 @@ Dialogen: startet sofort eine frische Session, direkt mit dem lokalen Handoff-Te
 (Liste + Löschen, disabled+ausgegraut wenn leer).</li>
 <li>Default-Variante (System aus) unverändert. Tests: <code>handoff-prompt.test.js</code>; Suite 448 grün.</li>
 </ul>
-<p><strong>Offen/optional für später:</strong> verwaiste Pure-State-Machine <code>handoff-flow.js</code> (von <code>runHandoff</code>
-nicht mehr genutzt) aufräumen; „New session&quot; könnte optional das Agent-Packet statt des lokalen
+<p><strong>Refactor (erledigt):</strong> tote State-Machine <code>handoff-flow.js</code> entfernt; lebender Helper →
+<code>handoff-extract.js</code>; pure Button-Matrix <code>handoff-actions.js</code> (<code>computeHandoffActions</code>, getestet);
+Handoff-Orchestrierung aus <code>dialogs.js</code> nach <code>public/handoff.js</code> ausgelagert. Tests:
+<code>handoff-extract.test.js</code>, <code>handoff-actions.test.js</code> (State-Machine-Tests entfernt).</p>
+<p><strong>Offen/optional für später:</strong> „New session&quot; könnte optional das Agent-Packet statt des lokalen
 Templates seeden (aktuell bewusst Template = kein Agent-Roundtrip).</p>
 </blockquote>
 <p>Erweitert den <strong>bereits vorhandenen</strong> One-Click-Handoff um einen <strong>speicherbaren</strong> Handoff,

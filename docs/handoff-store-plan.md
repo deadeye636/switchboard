@@ -18,8 +18,12 @@
 >   (Liste + Löschen, disabled+ausgegraut wenn leer).
 > - Default-Variante (System aus) unverändert. Tests: `handoff-prompt.test.js`; Suite 448 grün.
 >
-> **Offen/optional für später:** verwaiste Pure-State-Machine `handoff-flow.js` (von `runHandoff`
-> nicht mehr genutzt) aufräumen; „New session" könnte optional das Agent-Packet statt des lokalen
+> **Refactor (erledigt):** tote State-Machine `handoff-flow.js` entfernt; lebender Helper →
+> `handoff-extract.js`; pure Button-Matrix `handoff-actions.js` (`computeHandoffActions`, getestet);
+> Handoff-Orchestrierung aus `dialogs.js` nach `public/handoff.js` ausgelagert. Tests:
+> `handoff-extract.test.js`, `handoff-actions.test.js` (State-Machine-Tests entfernt).
+>
+> **Offen/optional für später:** „New session" könnte optional das Agent-Packet statt des lokalen
 > Templates seeden (aktuell bewusst Template = kein Agent-Roundtrip).
 
 Erweitert den **bereits vorhandenen** One-Click-Handoff um einen **speicherbaren** Handoff,
