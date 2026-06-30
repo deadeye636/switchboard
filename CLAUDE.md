@@ -38,6 +38,12 @@ Adopt JBR features one at a time, never bulk-merge:
 
 `main` must always stay runnable and green.
 
+**Detecting upstream changes:** `npm run upstream:check` fetches `haydng` + `jbr` and reports
+new/updated/removed branches and new commits since the last review (marker in
+`.git/upstream-seen.json`, not versioned). After reviewing/porting, `npm run upstream:seen`
+marks the current state as seen so the next check only shows fresh activity. It watches **all**
+upstream branches, not just `main`.
+
 ## Architecture
 
 - **Main process** (`main.js` + `main-lifecycle.js`): app lifecycle, IPC handlers, terminal (PTY)
