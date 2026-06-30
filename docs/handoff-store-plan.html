@@ -37,10 +37,26 @@
 <h1 id="handoff-store-resume-plan-03-erweiterung">Handoff-Store + Resume — Plan (#03-Erweiterung)</h1>
 <blockquote>
 <p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-06-30 · Status: ✅ Erledigt (#03-Erweiterung)</p>
-<p>Umgesetzt: DB <code>project_handoffs</code> + IPC; Settings-Gruppe „Handoff&quot; (Toggle + editierbarer
-Prompt, leer=Default); <code>runHandoff</code> nutzt Custom-Prompt/Skill, entkoppelt Senden/Capture bei
-aktiver Library (nicht-modale Capture-Bar); Save-vs-Session-Abfrage; „Claude Handoff resume&quot; im
-Popover mit Picker (Liste/Löschen, disabled wenn leer). Default-Variante unverändert.</p>
+<p><strong>Umgesetzt (Commits <code>2acfa76</code> + <code>d390d93</code>):</strong></p>
+<ul>
+<li>DB <code>project_handoffs</code> + IPC (<code>save/list/delete-handoff</code>) + preload-Bindings.</li>
+<li>Settings-Gruppe „Handoff&quot;: Toggle <strong>„Integrated Handoff System&quot;</strong> (<code>handoffLibrary</code>-Key) +
+editierbare Prompt-Textarea (zeigt <code>DEFAULT_HANDOFF_PROMPT</code>, leer ⇒ Default). <code>session-health.js</code>
+liefert <code>window.DEFAULT_HANDOFF_PROMPT</code> (auch in <code>settings.html</code> geladen).</li>
+<li><code>runHandoff</code> nutzt Custom-Prompt/Skill (<code>fillHandoffPrompt</code> + Platzhalter). Bei aktivem System:
+Senden/Capture entkoppelt (nicht-modale Capture-Bar) → Review → Abfrage „Start fresh session&quot;
+vs „Save for later&quot;.</li>
+<li><strong>„New session&quot;-Dialogbutton</strong> (<code>tertiaryLabel</code> in <code>showControlDialog</code>) in <strong>beiden</strong> Handoff-
+Dialogen: startet sofort eine frische Session, direkt mit dem lokalen Handoff-Template geseedet
+(<code>newSessionFromHandoff</code>).</li>
+<li>Nicht-laufende Session: bei aktivem System zusätzlich „Save to library&quot;.</li>
+<li>„Claude Handoff resume&quot; im Neu-Session-Popover (zwischen Configure &amp; Terminal) mit Picker
+(Liste + Löschen, disabled+ausgegraut wenn leer).</li>
+<li>Default-Variante (System aus) unverändert. Tests: <code>handoff-prompt.test.js</code>; Suite 448 grün.</li>
+</ul>
+<p><strong>Offen/optional für später:</strong> verwaiste Pure-State-Machine <code>handoff-flow.js</code> (von <code>runHandoff</code>
+nicht mehr genutzt) aufräumen; „New session&quot; könnte optional das Agent-Packet statt des lokalen
+Templates seeden (aktuell bewusst Template = kein Agent-Roundtrip).</p>
 </blockquote>
 <p>Erweitert den <strong>bereits vorhandenen</strong> One-Click-Handoff um einen <strong>speicherbaren</strong> Handoff,
 der projektbezogen in Switchboard abgelegt und später beim Start einer neuen Session wieder

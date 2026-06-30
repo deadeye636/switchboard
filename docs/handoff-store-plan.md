@@ -2,10 +2,25 @@
 
 > **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: ✅ Erledigt (#03-Erweiterung)
 >
-> Umgesetzt: DB `project_handoffs` + IPC; Settings-Gruppe „Handoff" (Toggle + editierbarer
-> Prompt, leer=Default); `runHandoff` nutzt Custom-Prompt/Skill, entkoppelt Senden/Capture bei
-> aktiver Library (nicht-modale Capture-Bar); Save-vs-Session-Abfrage; „Claude Handoff resume" im
-> Popover mit Picker (Liste/Löschen, disabled wenn leer). Default-Variante unverändert.
+> **Umgesetzt (Commits `2acfa76` + `d390d93`):**
+> - DB `project_handoffs` + IPC (`save/list/delete-handoff`) + preload-Bindings.
+> - Settings-Gruppe „Handoff": Toggle **„Integrated Handoff System"** (`handoffLibrary`-Key) +
+>   editierbare Prompt-Textarea (zeigt `DEFAULT_HANDOFF_PROMPT`, leer ⇒ Default). `session-health.js`
+>   liefert `window.DEFAULT_HANDOFF_PROMPT` (auch in `settings.html` geladen).
+> - `runHandoff` nutzt Custom-Prompt/Skill (`fillHandoffPrompt` + Platzhalter). Bei aktivem System:
+>   Senden/Capture entkoppelt (nicht-modale Capture-Bar) → Review → Abfrage „Start fresh session"
+>   vs „Save for later".
+> - **„New session"-Dialogbutton** (`tertiaryLabel` in `showControlDialog`) in **beiden** Handoff-
+>   Dialogen: startet sofort eine frische Session, direkt mit dem lokalen Handoff-Template geseedet
+>   (`newSessionFromHandoff`).
+> - Nicht-laufende Session: bei aktivem System zusätzlich „Save to library".
+> - „Claude Handoff resume" im Neu-Session-Popover (zwischen Configure & Terminal) mit Picker
+>   (Liste + Löschen, disabled+ausgegraut wenn leer).
+> - Default-Variante (System aus) unverändert. Tests: `handoff-prompt.test.js`; Suite 448 grün.
+>
+> **Offen/optional für später:** verwaiste Pure-State-Machine `handoff-flow.js` (von `runHandoff`
+> nicht mehr genutzt) aufräumen; „New session" könnte optional das Agent-Packet statt des lokalen
+> Templates seeden (aktuell bewusst Template = kein Agent-Roundtrip).
 
 Erweitert den **bereits vorhandenen** One-Click-Handoff um einen **speicherbaren** Handoff,
 der projektbezogen in Switchboard abgelegt und später beim Start einer neuen Session wieder
