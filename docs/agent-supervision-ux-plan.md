@@ -1,5 +1,7 @@
 # Agent Supervision UX Plan
 
+> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: ✅ Erledigt (#13) · Phase 1–6 umgesetzt
+
 **Goal:** Make Switchboard feel like an agent control room, where a human can quickly see which agents are running, blocked, ready for review, or safe to ignore.
 
 **Approach:** Build this in small, testable slices. Start by making session state explicit and centralizing attention state in the sidebar, then improve grid supervision, keyboard/accessibility behavior, and safer bulk actions.

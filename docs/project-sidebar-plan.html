@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projekt-Sidebar — Pläne</title>
+<!-- GENERIERT aus docs/project-sidebar-plan.md via scripts/build-docs.js. Nicht von Hand editieren. -->
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --line:#30363d;
+    --txt:#c9d1d9; --mut:#8b949e; --hi:#3fb950; --mid:#d29922; --lo:#f85149;
+    --acc:#58a6ff; --code:#1f2630;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:32px;max-width:1100px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px;border-bottom:2px solid var(--line);padding-bottom:12px}
+  h2{font-size:20px;margin:34px 0 10px;color:#fff}
+  h3{font-size:16px;margin:22px 0 8px;color:var(--acc)}
+  h4{font-size:14px;margin:16px 0 6px;color:#fff}
+  a{color:var(--acc);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:var(--code);padding:1px 6px;border-radius:4px;font:12.5px/1.4 'Cascadia Code',Consolas,monospace;color:#e6edf3}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:12px 0;background:var(--panel)}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#fff}
+  blockquote{margin:12px 0;padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:6px;color:var(--mut)}
+  blockquote p{margin:0}
+  ul{margin:6px 0 6px 0;padding-left:22px} li{margin:3px 0}
+  input[type=checkbox]{margin-right:6px}
+  hr{border:0;border-top:1px solid var(--line);margin:26px 0}
+  strong{color:#fff}
+</style>
+</head>
+<body>
+<h1 id="projekt-sidebar-pläne">Projekt-Sidebar — Pläne</h1>
+<blockquote>
+<p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-06-30 · Status: #15 ✅ erledigt · #16/#17 🔵 Backlog</p>
+</blockquote>
+<p>Drei zusammenhängende Verbesserungen an den <strong>Projekt-Headern</strong> der Sidebar. Alle
+betreffen <code>public/sidebar.js</code> (Header-Render ab Zeile 941) plus Persistenz in
+<code>db.js</code>. Reihenfolge unabhängig umsetzbar.</p>
+<p><strong>Gemeinsamer Kontext (Ist-Zustand):</strong></p>
+<ul>
+<li>Projekt-Header-Render: <code>public/sidebar.js:941–972</code>. Name-Span: <code>sidebar.js:946</code>
+(<code>&lt;span class=&quot;project-name&quot;&gt;${shortName}&lt;/span&gt;</code>), <code>shortName</code> aus
+<code>project.projectPath</code> (letzte 2 Pfad-Segmente, <code>sidebar.js:944</code>).</li>
+<li>Header-Action-Buttons rechts: schedule / settings (gear) / <strong>favorite</strong> / archive /
+hide (<code>sidebar.js:948–977</code>).</li>
+<li>Projekt-Settings öffnen: gear → <code>openSettingsViewer(&#39;project&#39;, project.projectPath)</code>
+(<code>sidebar.js:1325</code>), Scope <code>project:</code>-Settings-Blob.</li>
+<li>Projekt-Persistenz: Tabelle <code>project_meta(projectPath, favorited)</code> (<code>db.js:102–106</code>);
+Settings-Blob <code>settings(key,value)</code> mit <code>getSetting/setSetting</code> (<code>db.js:769–781</code>,
+IPC <code>main.js:1411–1416</code>), Projekt-scoped geladen via <code>project:</code>-Präfix.</li>
+</ul>
+<hr>
+<h2 id="15-favoriten-icon-vor-dem-projektnamen">15 Favoriten-Icon vor dem Projektnamen</h2>
+<blockquote>
+<p>✅ <strong>Erledigt.</strong> Statt eines zweiten Icons wurde der <strong>vorhandene</strong> Favorit-Button vor
+den Namen verschoben (<code>sidebar.js</code> <code>insertBefore(... &#39;.project-name&#39;)</code>); Default
+unsichtbar, Hover-Reveal, gold-persistent bei Favorit (<code>style.css</code> <code>.project-favorite-btn</code>).</p>
+</blockquote>
+<p><strong>Ist:</strong> Favorisieren ist <strong>fertig</strong> — Toggle-Stern als rechter Action-Button
+(<code>.project-favorite-btn</code>, <code>sidebar.js:960–966</code>, Klick <code>sidebar.js:1327–1335</code>,
+<code>toggleProjectFavorite</code> → <code>db.js:487–491</code>, Sortierung „favorisiert zuerst&quot;
+<code>session-cache.js:342</code>). Der Stern ist aber nur <strong>rechts als Hover-Aktion</strong>; vor dem
+Namen gibt es <strong>keinen</strong> dauerhaften Favoriten-Indikator.</p>
+<p><strong>Ziel:</strong> Bei favorisiertem Projekt ein gefülltes Stern-Icon <strong>direkt vor dem
+Projektnamen</strong> anzeigen (analog <code>missingIcon</code>, <code>sidebar.js:945</code>).</p>
+<p><strong>Umsetzung (klein, reines Frontend):</strong></p>
+<ul>
+<li>In <code>sidebar.js:946</code> vor <code>&lt;span class=&quot;project-name&quot;&gt;</code> ein bedingtes
+<code>favIcon = project.favorited ? &#39;&lt;svg class=&quot;project-fav-icon&quot; …filled star…&gt; &#39; : &#39;&#39;</code>
+einsetzen (gleiches Polygon wie der gefüllte Stern aus <code>sidebar.js:964</code>).</li>
+<li>CSS <code>.project-fav-icon</code> in <code>style.css</code> (Farbe = Akzent/Gold, Größe 14, vertikal
+zentriert), Muster wie <code>.project-missing-icon</code>.</li>
+<li>Der rechte Toggle-Button bleibt unverändert (Steuerung), der Leading-Star ist nur
+Anzeige. morphdom-Update unkritisch (innerHTML wird neu gebaut).</li>
+</ul>
+<p><strong>Tests:</strong> kein Pure-Helper nötig; visuell im Electron-Smoke (favorisiert → Stern vor
+Name, entfernt → weg).</p>
+<p><strong>Offen:</strong> soll der Leading-Star <strong>klickbar</strong> sein (zweiter Toggle) oder rein
+dekorativ? Empfehlung: dekorativ, Toggle bleibt der rechte Button.</p>
+<hr>
+<h2 id="16-projektname-umbenennen">16 Projektname umbenennen</h2>
+<p><strong>Ist:</strong> Anzeigename ist <strong>immer</strong> aus dem Pfad abgeleitet (<code>shortName</code>,
+<code>sidebar.js:944</code>). Kein Override, keine Persistenz für einen Custom-Namen.</p>
+<p><strong>Ziel:</strong> Feld in den <strong>Projekteinstellungen</strong> (gear → Settings-Viewer, Scope
+<code>project</code>), in dem ein Anzeigename gesetzt wird. <strong>Leer = aktueller Default</strong>
+(<code>shortName</code>).</p>
+<p><strong>Umsetzung:</strong></p>
+<ul>
+<li><strong>Persistenz:</strong> Projekt-scoped Settings-Blob nutzen — Key z.B.
+<code>project:&lt;path&gt;</code> → Feld <code>displayName</code> (kein DB-Migration-Risiko; Pattern existiert,
+<code>main.js:1411–1416</code>, <code>db.js:769–781</code>). Alternativ Spalte <code>displayName</code> an
+<code>project_meta</code> per <strong>angehängter</strong> Migration (<code>db.js</code>), falls Blob unpraktisch.
+Empfehlung: Settings-Blob (non-schema, schnell).</li>
+<li><strong>UI:</strong> im Settings-Viewer (<code>settings-panel.js</code>, <code>openSettingsViewer(&#39;project&#39;, …)</code>)
+ein Textfeld „Anzeigename (leer = Verzeichnis)&quot; ergänzen; Save schreibt/löscht den
+Wert (leer → Key entfernen → Default greift).</li>
+<li><strong>Render:</strong> <code>sidebar.js:944</code> →
+<code>const display = project.displayName?.trim() || shortName;</code> und in <code>:946</code> <code>display</code>
+statt <code>shortName</code> verwenden. <code>project.displayName</code> muss in den Projekt-Datensatz
+gelangen (Cache-Build <code>session-cache.js:buildProjectsFromCache</code>, analog <code>favorited</code>
+via <code>getFavoritedProjects</code>).</li>
+<li>Tooltip/Title am Header weiterhin den echten Pfad zeigen (Disambiguierung).</li>
+</ul>
+<p><strong>Tests:</strong> Pure-Mapping „displayName || shortName&quot; als Helper testbar; sonst Smoke
+(setzen, leeren, Persistenz über Neustart).</p>
+<p><strong>Offen:</strong> Custom-Name auch in <strong>Grid</strong>-Karten und Tab-Titeln spiegeln? (Konsistenz —
+empfohlen, aber separater kleiner Schritt.)</p>
+<hr>
+<h2 id="17-projekte-manuell-sortieren">17 Projekte manuell sortieren</h2>
+<p><strong>Ist:</strong> Projekt-Reihenfolge ist <strong>automatisch</strong> (<code>session-cache.js:342–355</code>):</p>
+<ol>
+<li>favorisiert zuerst, 2. fehlende zuletzt, 3. leere zuletzt, 4. nach jüngster
+Session-Änderung (Recency). <strong>Kein</strong> persistierter manueller Order. (<code>sortedOrder</code>
+in <code>app.js:258</code>/<code>sidebar.js:3</code> ist Item-Order <strong>innerhalb</strong> eines Projekts, nicht die
+Projekt-Order.)</li>
+</ol>
+<p><strong>Ziel:</strong> Anwender kann Projekte <strong>selbst sortieren</strong>. Per <strong>Setting</strong> umschaltbar
+zwischen Standard-Sortierung (heute) und manueller Order.</p>
+<p><strong>Umsetzung (größer — erst Design bestätigen):</strong></p>
+<ul>
+<li><strong>Setting (global):</strong> <code>projectSortMode = &#39;auto&#39; | &#39;manual&#39;</code> (Default <code>auto</code>,
+non-breaking) im globalen Settings-Blob.</li>
+<li><strong>Persistenz manueller Order:</strong> Array <code>projectOrder = [projectPath, …]</code> im globalen
+Blob, ODER Spalte <code>sort_order</code> an <code>project_meta</code> (angehängte Migration). Empfehlung:
+Blob-Array (einfacher, eine Schreiboperation beim Reorder).</li>
+<li><strong>Sort-Logik:</strong> <code>session-cache.js:342</code> erweitern — bei <code>manual</code> nach
+<code>projectOrder</code>-Index sortieren, unbekannte/neue Projekte ans Ende (dann Recency).
+Favorisiert-zuerst als optionaler Vorrang beibehalten oder im Manual-Mode aufheben
+(Designfrage).</li>
+<li><strong>Interaktion:</strong> Drag-to-reorder der Projekt-Header in der Sidebar (Pointer-Drag wie
+Session-Drag aus <code>sidebar-group-interactions-plan.md</code>); Drop schreibt <code>projectOrder</code>,
+<code>loadProjects()</code>.</li>
+<li><strong>UI-Hinweis:</strong> im Auto-Mode Drag deaktiviert/ignoriert.</li>
+</ul>
+<p><strong>Tests:</strong> Pure-Sort-Helper (<code>auto</code> vs <code>manual</code> mit Order-Array, neue Projekte ans
+Ende) Electron-frei testbar — Muster wie <code>*-status.js</code>.</p>
+<p><strong>Offen (zu klären):</strong></p>
+<ul>
+<li>Verhält sich Favorisiert-Vorrang im Manual-Mode wie? (Vorschlag: Favoriten bleiben
+oben, Rest nach manueller Order — oder voll manuell inkl. Favoriten.)</li>
+<li>Reorder auch in der <strong>Folder-First</strong>-Ansicht (<code>sidebar-folder-first-view-plan.md</code>)
+und im <strong>Grid</strong>? Erstmal nur Directory-Sidebar, Rest später.</li>
+</ul>
+
+</body>
+</html>

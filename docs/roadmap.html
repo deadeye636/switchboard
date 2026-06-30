@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switchboard — Roadmap</title>
+<!-- GENERIERT aus docs/ROADMAP.md via scripts/build-docs.js. Nicht von Hand editieren. -->
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --line:#30363d;
+    --txt:#c9d1d9; --mut:#8b949e; --hi:#3fb950; --mid:#d29922; --lo:#f85149;
+    --acc:#58a6ff; --code:#1f2630;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:32px;max-width:1100px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px;border-bottom:2px solid var(--line);padding-bottom:12px}
+  h2{font-size:20px;margin:34px 0 10px;color:#fff}
+  h3{font-size:16px;margin:22px 0 8px;color:var(--acc)}
+  h4{font-size:14px;margin:16px 0 6px;color:#fff}
+  a{color:var(--acc);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:var(--code);padding:1px 6px;border-radius:4px;font:12.5px/1.4 'Cascadia Code',Consolas,monospace;color:#e6edf3}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:12px 0;background:var(--panel)}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#fff}
+  blockquote{margin:12px 0;padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:6px;color:var(--mut)}
+  blockquote p{margin:0}
+  ul{margin:6px 0 6px 0;padding-left:22px} li{margin:3px 0}
+  input[type=checkbox]{margin-right:6px}
+  hr{border:0;border-top:1px solid var(--line);margin:26px 0}
+  strong{color:#fff}
+</style>
+</head>
+<body>
+<h1 id="switchboard-roadmap">Switchboard — Roadmap</h1>
+<p><strong>Stand:</strong> 2026-06-30 · <strong>Branch:</strong> <code><old-codename></code> · Tests grün (<code>npm test</code>)</p>
+<p>Zentrales Board für alles Geplante, Laufende und Erledigte. Eine Aufgabe lebt <strong>genau
+einmal</strong> — Status entscheidet, in welcher Sektion sie steht. Detailpläne stehen in eigenen
+Dateien und werden hier nur verlinkt.</p>
+<p><strong>Legende:</strong> 🟡 In Arbeit · 🔵 Backlog · 🟢 Erledigt
+<strong>Priorität:</strong> P1 (als Nächstes) · P2 (danach) · P3 (irgendwann)</p>
+<hr>
+<h2 id="in-arbeit">🟡 In Arbeit</h2>
+<blockquote>
+<p>Aktuell kein Feature aktiv. Nächster Kandidat siehe Backlog (P2: #16).</p>
+</blockquote>
+<hr>
+<h2 id="backlog">🔵 Backlog</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Prio</th>
+<th>Aufgabe</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>#02</td>
+<td>P1</td>
+<td>Session-Display <strong>Phase 3 — Detach</strong> (abkoppelbare Fenster)</td>
+<td><a href="session-display-plan.html">Plan</a></td>
+</tr>
+<tr>
+<td>#16</td>
+<td>P2</td>
+<td><strong>Projektname änderbar</strong> — Feld in den Projekteinstellungen; leer = aktueller Default (Verzeichnis)</td>
+<td><a href="project-sidebar-plan.html#16-projektname-umbenennen">Plan</a></td>
+</tr>
+<tr>
+<td>#17</td>
+<td>P2</td>
+<td><strong>Projekte manuell sortierbar</strong> — per Setting aktivierbar vs. Standard-Sortierung; Ist-Verhalten erst klären</td>
+<td><a href="project-sidebar-plan.html#17-projekte-manuell-sortieren">Plan</a></td>
+</tr>
+<tr>
+<td>#03</td>
+<td>P2</td>
+<td><strong>One-Click-Handoff</strong> — „Handoff empfohlen&quot; von Rat zu Aktion machen</td>
+<td><a href="productivity-roadmap.html">Roadmap §Phase 3</a></td>
+</tr>
+<tr>
+<td>#04</td>
+<td>P2</td>
+<td><strong>Flexibles Grid-Layout</strong> (Karten-Resize / Drag-Reorder, 5B)</td>
+<td><a href="productivity-roadmap.html">Roadmap §Phase 5B</a></td>
+</tr>
+<tr>
+<td>#05</td>
+<td>P3</td>
+<td><strong>Attention-Erkennung härten</strong> via Claude-Code-Hooks + Bulk-Aktionen</td>
+<td><a href="productivity-roadmap.html">Roadmap §Phase 4</a></td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="erledigt">🟢 Erledigt</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Aufgabe</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>#18</td>
+<td><strong>Bug-Fix:</strong> Windows-TrayIcon leer — Icon ins Paket (<code>build.files</code>) + 16px + Logging statt stillem Fallback</td>
+<td><a href="windows-tray-fix-plan.html">Plan</a></td>
+</tr>
+<tr>
+<td>#15</td>
+<td><strong>Favoriten-Icon vor Projektnamen</strong> — vorhandenen Favorit-Button vor den Namen verschoben (Hover-Reveal, gold bei Favorit)</td>
+<td><a href="project-sidebar-plan.html#15-favoriten-icon-vor-dem-projektnamen">Plan</a></td>
+</tr>
+<tr>
+<td>#01</td>
+<td><strong>JBR-Feature-Übernahme</strong> — 36 portiert, 6 Skip; Rest (5.1–5.4) Dev-Infra, bewusst Skip (kein CI/Hosting, <old-codename> ohne eslint)</td>
+<td><a href="jbr-uebernahme-katalog.html">Katalog</a></td>
+</tr>
+<tr>
+<td>#06</td>
+<td>Session-Display <strong>Phase 1 — Tabs</strong> (Setting legacy/tabs, Tab-Leiste, Overflow, Single-View)</td>
+<td><a href="session-display-plan.html">Plan</a></td>
+</tr>
+<tr>
+<td>#07</td>
+<td>Session-Display <strong>Phase 2 — Settings-Fenster</strong> (eigenes Fenster, Live-Apply, sticky Save-Bar)</td>
+<td><a href="session-display-plan.html">Plan</a></td>
+</tr>
+<tr>
+<td>#08</td>
+<td><strong>Native Notifications + Taskbar-Badge + Tray</strong> (Produktivität Phase 1)</td>
+<td><a href="productivity-roadmap.html">Roadmap</a></td>
+</tr>
+<tr>
+<td>#09</td>
+<td><strong>„Während du weg warst&quot;-Zusammenfassung</strong> (Produktivität Phase 2)</td>
+<td><a href="productivity-roadmap.html">Roadmap</a></td>
+</tr>
+<tr>
+<td>#10</td>
+<td><strong>Session-Gruppen</strong> (5A — <code>groups-model.js</code>, Sidebar + Grid)</td>
+<td><a href="productivity-roadmap.html">Roadmap §Phase 5A</a></td>
+</tr>
+<tr>
+<td>#11</td>
+<td><strong>Sidebar Folder-First-Ansicht</strong> (Gruppen top-level, umschaltbar)</td>
+<td><a href="sidebar-folder-first-view-plan.html">Plan</a></td>
+</tr>
+<tr>
+<td>#12</td>
+<td><strong>Sidebar Gruppen-Interaktionen</strong> (Drag in Gruppe, neue Session aus Gruppe, Doppelklick-Rename)</td>
+<td><a href="sidebar-group-interactions-plan.html">Plan</a></td>
+</tr>
+<tr>
+<td>#13</td>
+<td><strong>Agent-Supervision UX</strong> Phase 1–6 (Attention-Inbox, Status-Chips, Grid-Filter, A11y, Dialoge, Timeline)</td>
+<td><a href="agent-supervision-ux-plan.html">Plan</a></td>
+</tr>
+<tr>
+<td>#14</td>
+<td><strong>Sidebar-Polish</strong> — Klappzustand-Default, „letzter Stand&quot; merkt Projekt-Header, Settings-i18n</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="pflege">Pflege</h2>
+<ul>
+<li>Neue Aufgabe → Zeile in <strong>Backlog</strong> (nächste freie <code>#nr</code>, Prio setzen).</li>
+<li>Start → Zeile nach <strong>In Arbeit</strong> verschieben.</li>
+<li>Fertig → Zeile nach <strong>Erledigt</strong> verschieben.</li>
+<li>Detailplan (großes Feature) → eigene <code>*-plan.md</code> Datei, hier verlinken (auf die <code>.md</code>;
+in der HTML-Ansicht wird der Link automatisch auf das <code>.html</code>-Generat umgebogen).</li>
+<li>Generat nie von Hand anfassen: <code>roadmap.html</code> + die <code>*-plan.html</code>/<code>*-roadmap.html</code> werden
+per <code>npm run docs:build</code> (und pre-commit) aus den <code>.md</code> erzeugt.</li>
+</ul>
+
+</body>
+</html>

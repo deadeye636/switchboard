@@ -1,5 +1,7 @@
 # Sidebar group interactions — plan
 
+> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: ✅ Erledigt (#12)
+
 Three additions to the sidebar user-group UX, all front-end only (groups live in
 the `groups` settings blob; `assignSessionToGroup` / `renameUserGroup` already
 persist + re-render).

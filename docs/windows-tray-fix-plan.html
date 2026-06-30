@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Windows-TrayIcon-Fix — Plan</title>
+<!-- GENERIERT aus docs/windows-tray-fix-plan.md via scripts/build-docs.js. Nicht von Hand editieren. -->
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --line:#30363d;
+    --txt:#c9d1d9; --mut:#8b949e; --hi:#3fb950; --mid:#d29922; --lo:#f85149;
+    --acc:#58a6ff; --code:#1f2630;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:32px;max-width:1100px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px;border-bottom:2px solid var(--line);padding-bottom:12px}
+  h2{font-size:20px;margin:34px 0 10px;color:#fff}
+  h3{font-size:16px;margin:22px 0 8px;color:var(--acc)}
+  h4{font-size:14px;margin:16px 0 6px;color:#fff}
+  a{color:var(--acc);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:var(--code);padding:1px 6px;border-radius:4px;font:12.5px/1.4 'Cascadia Code',Consolas,monospace;color:#e6edf3}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:12px 0;background:var(--panel)}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#fff}
+  blockquote{margin:12px 0;padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:6px;color:var(--mut)}
+  blockquote p{margin:0}
+  ul{margin:6px 0 6px 0;padding-left:22px} li{margin:3px 0}
+  input[type=checkbox]{margin-right:6px}
+  hr{border:0;border-top:1px solid var(--line);margin:26px 0}
+  strong{color:#fff}
+</style>
+</head>
+<body>
+<h1 id="windows-trayicon-fix-plan">Windows-TrayIcon-Fix — Plan</h1>
+<blockquote>
+<p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-06-30 · Status: 🔵 Backlog (#18) · Prio P1 (Bug)</p>
+</blockquote>
+<p><strong>Symptom:</strong> Unter Windows zeigt das Tray-Icon <strong>nichts</strong> (leerer Platz im Tray).
+Menü/Tooltip funktionieren, nur das Bild fehlt.</p>
+<h2 id="ist-zustand">Ist-Zustand</h2>
+<ul>
+<li><code>createTray()</code> lädt das Icon: <code>main.js:429</code>
+<code>nativeImage.createFromPath(path.join(__dirname, &#39;build&#39;, &#39;icon.png&#39;))</code>, dann
+<code>resize({width:18,height:18})</code> (<code>main.js:430</code>), Fallback <code>createEmpty()</code> (<code>:432</code>).</li>
+<li>Tray-Instanz: <code>main.js:435</code>. Aufruf <code>createTray()</code>: <code>main.js:2309</code>.</li>
+<li>Keine <code>process.platform</code>-Verzweigung, kein Template-Image — Code ist plattform-neutral.</li>
+<li>Assets existieren im Repo: <code>build/icon.png</code>, <code>build/icon.ico</code>, <code>build/icons/16x16.png</code> u.a.</li>
+</ul>
+<h2 id="root-cause-ranking">Root Cause (Ranking)</h2>
+<ol>
+<li><strong><code>build/</code> wird nicht ins Paket aufgenommen</strong> (Hauptursache).
+<code>package.json</code> → <code>build.files</code> (<code>package.json:63–68</code>) listet nur
+<code>*.js</code>, <code>workers/**</code>, <code>public/**</code>, <code>node_modules/**</code> — <strong>nicht</strong> <code>build/**</code>.<ul>
+<li>Dev: <code>__dirname</code> = Projektwurzel → <code>build/icon.png</code> da → Icon sichtbar.</li>
+<li>Gepackt (ASAR): <code>__dirname</code> = <code>…/resources/app(.asar)</code> → <code>build/icon.png</code>
+<strong>fehlt</strong> → <code>createFromPath</code> liefert leeres Image → <code>createEmpty()</code>-Fallback →
+<strong>leerer Tray</strong>.</li>
+</ul>
+</li>
+<li><strong>18×18 ungewöhnlich</strong> für Windows (erwartet 16×16 oder 32×32) — sekundär.</li>
+<li><strong><code>.png</code> statt <code>.ico</code></strong> — unter Windows konventionell <code>.ico</code>, aber PNG geht meist.</li>
+</ol>
+<h2 id="fix">Fix</h2>
+<p><strong>Kern (löst #1):</strong> Icon mit ins Paket nehmen.</p>
+<ul>
+<li>Option A (empfohlen): <code>package.json</code> → <code>build.files</code> um <code>&quot;build/icon.*&quot;</code> (oder
+<code>&quot;build/**/*&quot;</code>) ergänzen. Damit liegt das Icon im ASAR, <code>__dirname/build/icon.png</code>
+resolved auch gepackt.</li>
+<li>Option B: <code>build.extraResources</code> für <code>build/icon.png</code> + im Code Pfad über
+<code>process.resourcesPath</code> auflösen (mehr Code, nicht nötig wenn A reicht).</li>
+</ul>
+<p><strong>Robustheit (löst #2/#3, klein):</strong></p>
+<ul>
+<li>Windows gezielt <code>build/icon.ico</code> (oder <code>build/icons/16x16.png</code>) laden; <code>resize</code> auf
+16×16 statt 18×18.</li>
+<li>Nach dem Laden <code>trayImage.isEmpty()</code> prüfen und <strong>loggen</strong>, statt still auf
+<code>createEmpty()</code> zu fallen — macht künftige Fehlpfade sichtbar (<code>main.js:431</code>).</li>
+</ul>
+<h2 id="schritte">Schritte</h2>
+<ol>
+<li><code>package.json:63</code> <code>files</code> um <code>&quot;build/icon.*&quot;</code> erweitern.</li>
+<li><code>main.js:429</code> plattform-bewusst: Windows → <code>icon.ico</code>/16×16, sonst wie bisht;
+<code>resize</code> 16×16; bei leerem Image <code>log.error</code> statt stillem Fallback.</li>
+<li><code>npm run build:win</code> (per CLAUDE.md: <code>unset NoDefaultCurrentDirectoryInExePath</code>),
+Installer ausführen, Tray prüfen.</li>
+</ol>
+<h2 id="verify">Verify</h2>
+<ul>
+<li><strong>Gepackt</strong> (entscheidend, nicht nur <code>npm start</code>): Installer aus <code>dist/</code> starten →
+Tray zeigt Icon, Tooltip/Menü ok.</li>
+<li><code>npm test</code> bleibt grün (keine Test-Logik betroffen).</li>
+<li>Regression macOS/Linux: Tray weiterhin sichtbar (Pfad-Änderung darf dort nicht brechen).</li>
+</ul>
+
+</body>
+</html>

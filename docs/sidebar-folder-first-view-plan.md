@@ -1,5 +1,7 @@
 # Sidebar folder-first view — plan
 
+> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: ✅ Erledigt (#11)
+
 Add a second sidebar layout that can be toggled against the existing one.
 
 - **Directory-first** (current): project dir → user-groups / slug-groups / loose

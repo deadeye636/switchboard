@@ -1,5 +1,9 @@
 # Switchboard Productivity Roadmap
 
+> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: teils erledigt (#08 Notifications/Tray, #09 „Während du weg warst", #10 Gruppen, #11 Folder-First) · offen: #03 One-Click-Handoff, #04 Grid-Layout 5B, #05 Detection-Härtung/Bulk
+>
+> Strategie- und Detaildokument. Der laufende Status steht im [Board](ROADMAP.md).
+
 **North Star:** Boost a human's productivity at *managing* Claude Code sessions — minimize the time and attention cost of supervising many agents at once.
 
 **Framing:** Switchboard already has a strong supervision layer (attention inbox, status model, timeline, session health, usage monitoring). The biggest wins now come from getting that intelligence **out of the app window** and **shortening every context switch**, rather than adding new surfaces.

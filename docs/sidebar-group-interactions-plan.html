@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidebar group interactions — plan</title>
+<!-- GENERIERT aus docs/sidebar-group-interactions-plan.md via scripts/build-docs.js. Nicht von Hand editieren. -->
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --line:#30363d;
+    --txt:#c9d1d9; --mut:#8b949e; --hi:#3fb950; --mid:#d29922; --lo:#f85149;
+    --acc:#58a6ff; --code:#1f2630;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:32px;max-width:1100px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px;border-bottom:2px solid var(--line);padding-bottom:12px}
+  h2{font-size:20px;margin:34px 0 10px;color:#fff}
+  h3{font-size:16px;margin:22px 0 8px;color:var(--acc)}
+  h4{font-size:14px;margin:16px 0 6px;color:#fff}
+  a{color:var(--acc);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:var(--code);padding:1px 6px;border-radius:4px;font:12.5px/1.4 'Cascadia Code',Consolas,monospace;color:#e6edf3}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto}
+  pre code{background:none;padding:0}
+  table{border-collapse:collapse;width:100%;margin:12px 0;background:var(--panel)}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#fff}
+  blockquote{margin:12px 0;padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:6px;color:var(--mut)}
+  blockquote p{margin:0}
+  ul{margin:6px 0 6px 0;padding-left:22px} li{margin:3px 0}
+  input[type=checkbox]{margin-right:6px}
+  hr{border:0;border-top:1px solid var(--line);margin:26px 0}
+  strong{color:#fff}
+</style>
+</head>
+<body>
+<h1 id="sidebar-group-interactions-plan">Sidebar group interactions — plan</h1>
+<blockquote>
+<p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-06-30 · Status: ✅ Erledigt (#12)</p>
+</blockquote>
+<p>Three additions to the sidebar user-group UX, all front-end only (groups live in
+the <code>groups</code> settings blob; <code>assignSessionToGroup</code> / <code>renameUserGroup</code> already
+persist + re-render).</p>
+<h2 id="feature-1-drag-a-session-into-a-group-sidebar">Feature 1 — drag a session into a group (sidebar)</h2>
+<ul>
+<li>Pointer-based drag on <code>.session-item</code> rows in the sidebar (grid already has a
+reference impl in <code>grid-view.js</code>, but the sidebar is a simple list so we use a
+lighter ghost + drop-target approach instead of FLIP).</li>
+<li><code>startSidebarSessionDrag(session, item, e)</code> in <code>sidebar.js</code>, bound via
+<code>item.onpointerdown</code> in <code>rebindSidebarEvents</code> (property assignment avoids
+listener stacking across morphdom re-renders).</li>
+<li>Ignore drags that start on buttons / pin / inputs. Only begin after a 6px move
+threshold so plain clicks still open the session.</li>
+<li>Floating <code>.sidebar-drag-ghost</code> follows the cursor; <code>.user-group</code> under the
+cursor (via <code>elementFromPoint</code>) gets <code>.drop-target</code>.</li>
+<li>On drop over a <code>.user-group</code>: <code>assignSessionToGroup(sessionId, groupId)</code>.
+Suppress the trailing <code>click</code> so the session doesn&#39;t also open.</li>
+</ul>
+<h2 id="feature-2-new-session-from-a-group-folder">Feature 2 — new session from a group folder</h2>
+<ul>
+<li>Add <code>.user-group-new-btn</code> to the group header (mirrors <code>.project-new-btn</code>).</li>
+<li>Determine the group&#39;s project via <code>getProjectForGroup(groupId)</code> (most common
+project among current members) and open <code>showNewSessionPopover(project, btn, { groupId })</code>.</li>
+<li>Thread an optional <code>groupId</code> through <code>showNewSessionPopover</code> →
+<code>launchNewSession</code> / <code>launchTerminalSession</code> / <code>showNewSessionDialog</code>; after the
+session is created, <code>assignSessionToGroup(newSessionId, groupId)</code>.</li>
+</ul>
+<h2 id="feature-3-double-click-group-name-to-rename">Feature 3 — double-click group name to rename</h2>
+<ul>
+<li>Mirror session <code>startRename</code>: <code>startGroupRename(nameEl, group)</code> swaps the name
+for a <code>.group-rename-input</code>, saves via <code>renameUserGroup(groupId, name)</code> on
+blur/Enter, restores on Escape.</li>
+<li>Bind <code>nameEl.ondblclick</code> in <code>rebindSidebarEvents</code> (the <code>.user-group-header</code>
+loop). Stop propagation so it doesn&#39;t toggle collapse.</li>
+<li>morphdom: skip updating a <code>.user-group</code> that has an active
+<code>.group-rename-input</code> (extend <code>onBeforeElUpdated</code>).</li>
+</ul>
+<h2 id="files">Files</h2>
+<ul>
+<li><code>public/sidebar.js</code> — buildUserGroup button, rebind (dblclick + drag),
+startGroupRename, startSidebarSessionDrag, morphdom guard.</li>
+<li><code>public/app.js</code> — <code>getProjectForGroup</code>, thread <code>groupId</code> into launch.</li>
+<li><code>public/dialogs.js</code> — <code>groupId</code> param on popover/dialog/launch.</li>
+<li><code>public/style.css</code> — new button, drag ghost, drop-target, group rename input.</li>
+</ul>
+<h2 id="verify">Verify</h2>
+<ul>
+<li><code>npm run build</code> (or equivalent) succeeds; quick run shows no console errors.</li>
+<li>Prettier/format check passes.</li>
+</ul>
+
+</body>
+</html>
