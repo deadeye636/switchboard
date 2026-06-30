@@ -5825,6 +5825,40 @@ body.sidebar-session-dragging * {
   box-shadow: 0 6px 18px rgba(0,0,0,0.4);
 }
 
+/* #17 — project sorting: drag handle (manual mode only), favorites divider, drop hints */
+.project-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+  margin-right: 0;
+  color: #7a7a90;
+  cursor: grab;
+  flex-shrink: 0;
+  transition: opacity 0.12s;
+}
+.sort-manual .project-drag-handle {
+  width: 14px;
+  opacity: 0.45;
+  margin-right: 2px;
+}
+.sort-manual .project-header:hover .project-drag-handle { opacity: 0.9; }
+.project-drag-handle:active { cursor: grabbing; }
+.project-favorites-divider {
+  padding: 6px 12px 3px;
+  margin-top: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #8b949e;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.project-group.dragging { opacity: 0.5; }
+.project-group.drop-target-before { box-shadow: inset 0 2px 0 0 rgba(120,130,255,0.8); }
+.project-group.drop-target-after { box-shadow: inset 0 -2px 0 0 rgba(120,130,255,0.8); }
+
 .user-group.collapsed .user-group-sessions { display: none; }
 /* Nested sessions hang off a slim accent connector that fades downward,
    aligned under the folder glyph so the hierarchy reads at a glance. */

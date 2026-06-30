@@ -123,6 +123,19 @@
           </div>
         </div>
       </div>` : ''}
+      ${!isProject ? `
+      <div class="settings-section">
+        <div class="settings-section-title">Sidebar</div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Eigene Favoritenliste</span>
+            <div class="settings-description">An: Favoriten als eigene Liste über den Stern-Filter (nicht angeheftet). Aus: Favoriten oben angeheftet, mit Trenner zu den übrigen Projekten.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-favorites-own-list" ${localStorage.getItem('favoritesOwnList') === '1' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+      </div>` : ''}
       <div class="settings-section">
         <div class="settings-section-title">Claude CLI Options</div>
 
@@ -661,6 +674,12 @@
         }
         if (settings.shortcuts && typeof window._applyShortcuts === 'function') {
           window._applyShortcuts(settings.shortcuts);
+        }
+        // #17: "Eigene Favoritenliste" lives in localStorage (render-synchronous),
+        // not the settings blob. Apply via the app.js setter (updates var + refreshes).
+        const favOwnCb = settingsViewerBody.querySelector('#sv-favorites-own-list');
+        if (favOwnCb && typeof window._setFavoritesOwnList === 'function') {
+          window._setFavoritesOwnList(favOwnCb.checked);
         }
         if (typeof refreshSidebar === 'function') refreshSidebar();
       }

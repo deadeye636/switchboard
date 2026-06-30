@@ -904,10 +904,17 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath) {
 // by the directory-first view and the folder-first "Ungrouped" area (the latter
 // passes nestWorktrees:false so every project — worktrees included — renders flat
 // and no worktree is orphaned when its parent has no ungrouped sessions).
-function appendProjectGroups(container, projects, resort, newSortedOrder, { nestWorktrees = true } = {}) {
+function appendProjectGroups(container, projects, resort, newSortedOrder, { nestWorktrees = true, sortable = false } = {}) {
   const worktreePattern = /^(.+?)\/\.claude\/worktrees\/([^/]+)\/?$/;
   const worktreeMap = new Map(); // parentPath → [worktreeProject, ...]
   const worktreeSet = new Set();
+  // #17: divider between the favorites block and the rest (directory view only,
+  // favorites pinned on top, not in the favorites-only filter).
+  const showFavDivider = sortable
+    && !(typeof favoritesOwnList !== 'undefined' && favoritesOwnList)
+    && !(typeof showFavoritedProjectsOnly !== 'undefined' && showFavoritedProjectsOnly);
+  let sawFavorite = false;
+  let dividerDone = false;
   if (nestWorktrees) {
     for (const project of projects) {
       const match = project.projectPath.match(worktreePattern);
@@ -937,6 +944,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
     const group = document.createElement('div');
     group.className = 'project-group' + (project.missing ? ' missing' : '');
     group.id = fId;
+    group.dataset.projectPath = project.projectPath;
 
     const header = document.createElement('div');
     header.className = 'project-header';
@@ -946,6 +954,14 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
     header.title = project.projectPath;
     const missingIcon = project.missing ? '<svg class="project-missing-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> ' : '';
     header.innerHTML = `<span class="arrow">&#9660;</span> ${missingIcon}<span class="project-name">${escapeHtml(display)}</span>`;
+    if (sortable) {
+      const dragHandle = document.createElement('span');
+      dragHandle.className = 'project-drag-handle';
+      dragHandle.textContent = '⡀'; // ⠀-style grip (⠿)
+      dragHandle.innerHTML = '<svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor"><circle cx="3.5" cy="3" r="1.3"/><circle cx="8.5" cy="3" r="1.3"/><circle cx="3.5" cy="7" r="1.3"/><circle cx="8.5" cy="7" r="1.3"/><circle cx="3.5" cy="11" r="1.3"/><circle cx="8.5" cy="11" r="1.3"/></svg>';
+      dragHandle.title = 'Verschieben (Sortierung: Manuell)';
+      header.insertBefore(dragHandle, header.firstChild);
+    }
 
     const scheduleBtn = document.createElement('button');
     scheduleBtn.className = 'project-schedule-btn';
@@ -1071,6 +1087,17 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
       sessionsList.appendChild(wtGroup);
     }
 
+    if (showFavDivider) {
+      if (project.favorited) {
+        sawFavorite = true;
+      } else if (sawFavorite && !dividerDone) {
+        const divider = document.createElement('div');
+        divider.className = 'project-favorites-divider';
+        divider.textContent = 'Weitere Projekte';
+        container.appendChild(divider);
+        dividerDone = true;
+      }
+    }
     container.appendChild(group);
   }
 }
@@ -1176,8 +1203,14 @@ function renderProjects(projects, resort) {
   }
   // projects are now in the correct order (data order for resort, preserved order otherwise)
 
+  // #17: apply the chosen project sort (favorites pin + activity/alpha/manual).
+  if (typeof sortProjects === 'function') {
+    projects = sortProjects(projects, { favoritesOwnList, projectSortMode, projectOrder });
+  }
+  sidebarContent.classList.toggle('sort-manual', typeof projectSortMode !== 'undefined' && projectSortMode === 'manual');
+
   const newSortedOrder = [];
-  appendProjectGroups(newSidebar, projects, resort, newSortedOrder);
+  appendProjectGroups(newSidebar, projects, resort, newSortedOrder, { sortable: true });
   finalizeSidebar(newSidebar, projects, newSortedOrder, false);
 }
 
@@ -1323,6 +1356,10 @@ function rebindSidebarEvents(projects) {
     const fId = folderId(project.projectPath);
     const header = document.getElementById('ph-' + fId);
     if (!header) continue;
+    const dragHandle = header.querySelector('.project-drag-handle');
+    if (dragHandle) {
+      dragHandle.onpointerdown = (e) => { e.stopPropagation(); startProjectDrag(project, header, e); };
+    }
     const newBtn = header.querySelector('.project-new-btn');
     if (newBtn) {
       newBtn.onclick = (e) => { e.stopPropagation(); showNewSessionPopover(project, newBtn); };
@@ -2384,6 +2421,80 @@ function startSidebarSessionDrag(session, item, e) {
       };
       document.addEventListener('click', swallow, { capture: true, once: true });
       setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 0);
+    } else {
+      cleanup();
+    }
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
+
+// #17: manual reorder of project headers (drag from the grip handle). Only active
+// in manual sort mode. On drop, persists the new full project order and re-renders;
+// the favorites/rest partitioning is re-applied by sortProjects on the next render.
+function startProjectDrag(project, header, e) {
+  if (e.button !== 0) return;
+  if (typeof projectSortMode === 'undefined' || projectSortMode !== 'manual') return;
+  const group = header.closest('.project-group');
+  if (!group) return;
+  const container = group.parentElement;
+  if (!container) return;
+
+  const startX = e.clientX, startY = e.clientY;
+  let dragging = false, ghost = null, dropTarget = null, dropAfter = false;
+
+  const clearDropTarget = () => {
+    if (dropTarget) { dropTarget.classList.remove('drop-target-before', 'drop-target-after'); dropTarget = null; }
+  };
+  const beginDrag = () => {
+    dragging = true;
+    document.body.classList.add('sidebar-session-dragging');
+    group.classList.add('dragging');
+    ghost = document.createElement('div');
+    ghost.className = 'sidebar-drag-ghost';
+    ghost.textContent = header.querySelector('.project-name')?.textContent || 'Projekt';
+    document.body.appendChild(ghost);
+  };
+  const moveGhost = (x, y) => { if (ghost) { ghost.style.left = (x + 12) + 'px'; ghost.style.top = (y + 12) + 'px'; } };
+  const updateDropTarget = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const g = el && el.closest ? el.closest('.project-group') : null;
+    clearDropTarget();
+    if (g && g !== group && g.parentElement === container) {
+      const r = g.getBoundingClientRect();
+      dropAfter = (y - r.top) > r.height / 2;
+      dropTarget = g;
+      dropTarget.classList.add(dropAfter ? 'drop-target-after' : 'drop-target-before');
+    }
+  };
+  const onMove = (ev) => {
+    if (!dragging) {
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+      beginDrag();
+    }
+    moveGhost(ev.clientX, ev.clientY);
+    updateDropTarget(ev.clientX, ev.clientY);
+  };
+  const cleanup = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.body.classList.remove('sidebar-session-dragging');
+    group.classList.remove('dragging');
+    if (ghost) { ghost.remove(); ghost = null; }
+    clearDropTarget();
+  };
+  const onUp = () => {
+    if (dragging && dropTarget) {
+      const target = dropTarget;
+      const after = dropAfter;
+      cleanup();
+      if (after) target.after(group); else target.before(group);
+      const order = Array.from(container.querySelectorAll('.project-group'))
+        .map(g => g.dataset.projectPath)
+        .filter(Boolean);
+      if (typeof window._persistProjectOrder === 'function') window._persistProjectOrder(order);
+      if (typeof refreshSidebar === 'function') refreshSidebar({ resort: true });
     } else {
       cleanup();
     }

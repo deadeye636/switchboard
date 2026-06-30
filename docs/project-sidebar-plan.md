@@ -1,6 +1,6 @@
 # Projekt-Sidebar — Pläne
 
-> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: #15 ✅ · #16 ✅ (Reichweite A) · #17 🔵 Backlog (Design bestätigt)
+> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: #15 ✅ · #16 ✅ (Reichweite A) · #17 ✅ (v1 Directory-Sidebar)
 
 Drei zusammenhängende Verbesserungen an den **Projekt-Headern** der Sidebar. Alle
 betreffen `public/sidebar.js` (Header-Render ab Zeile 941) plus Persistenz in
@@ -136,9 +136,12 @@ Worktree-Identifikation verwässern.
 
 ## 17 Projekte manuell sortieren
 
-> **Design bestätigt (2026-06-30), schlankes Modell.** **Kein** neuer Pin/Toggle. „Favoriten
-> oben" bleibt heutiges Verhalten; der vorhandene Stern-Toggle liefert die zwei Ansichten.
-> **Neu = nur die wählbare Sortierung** (Aktivität/Alpha/Manuell), plus sichtbarer Trenner.
+> **Design bestätigt (2026-06-30), in Umsetzung.** Setting **„Eigene Favoritenliste"**
+> (`favoritesOwnList`, Default **aus**): aus = Favoriten **oben angeheftet** im Standard-View
+> (Block + Trenner), an = Favoriten nur als **eigene Liste** über den Stern-Toggle (nicht
+> angeheftet). Plus wählbare **Sortierung** `projectSortMode` (Aktivität/Alpha/Manuell).
+> State via `localStorage` (render-synchron, wie `sidebarViewMode`); Sortier-Control in der
+> Filterzeile, `favoritesOwnList` als Checkbox im Settings-Dialog. Scope v1: Directory-Sidebar.
 
 **Ist:** Eine **globale, hardcodierte** Sortierung (`session-cache.js:342–355`):
 1. favorisiert zuerst, 2. fehlende zuletzt, 3. leere zuletzt, 4. Recency. Der Stern-Toggle

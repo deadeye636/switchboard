@@ -20,7 +20,7 @@ Dateien und werden hier nur verlinkt.
 
 ## 🟡 In Arbeit
 
-> Aktuell kein Feature aktiv. Nächster Kandidat siehe Backlog (P2: #17).
+> Aktuell kein Feature aktiv. Nächster Kandidat siehe Backlog (P1: #02 Detach).
 
 ---
 
@@ -29,7 +29,6 @@ Dateien und werden hier nur verlinkt.
 | ID | Prio | Aufgabe | Detail |
 |----|------|---------|--------|
 | #02 | P1 | Session-Display **Phase 3 — Detach** (abkoppelbare Fenster) | [Plan](session-display-plan.html) |
-| #17 | P2 | **Projekte manuell sortierbar** — per Setting aktivierbar vs. Standard-Sortierung; Ist-Verhalten erst klären | [Plan](project-sidebar-plan.md#17-projekte-manuell-sortieren) |
 | #03 | P2 | **One-Click-Handoff** — „Handoff empfohlen" von Rat zu Aktion machen | [Roadmap §Phase 3](productivity-roadmap.md) |
 | #04 | P2 | **Flexibles Grid-Layout** (Karten-Resize / Drag-Reorder, 5B) | [Roadmap §Phase 5B](productivity-roadmap.md) |
 | #19 | P2 | **CI / Autobuild** (GitHub Actions: Test-CI + Win/Mac/Linux-Build + Release) | [Plan](ci-autobuild-plan.md) |
@@ -41,6 +40,7 @@ Dateien und werden hier nur verlinkt.
 
 | ID | Aufgabe | Detail |
 |----|---------|--------|
+| #17 | **Projekte sortieren** — Sortierung Aktivität/Alpha/Manuell (Filterzeilen-Control) + Drag-Reorder; Setting „Eigene Favoritenliste" (Favoriten oben angeheftet + Trenner vs. eigene Liste) | [Plan](project-sidebar-plan.md#17-projekte-manuell-sortieren) |
 | #18 | **Bug-Fix:** Windows-TrayIcon leer — Icon ins Paket (`build.files`) + 16px + Logging statt stillem Fallback | [Plan](windows-tray-fix-plan.md) |
 | #16 | **Projektname umbenennen** (Reichweite A) — Display-Name im Projekt-Settings, leer = Verzeichnis; Sidebar (Directory + Folder-First), Settings-Titel, Plans/Memory | [Plan](project-sidebar-plan.md#16-projektname-umbenennen) |
 | #15 | **Favoriten-Icon vor Projektnamen** — vorhandenen Favorit-Button vor den Namen verschoben (Hover-Reveal, gold bei Favorit) | [Plan](project-sidebar-plan.md#15-favoriten-icon-vor-dem-projektnamen) |
