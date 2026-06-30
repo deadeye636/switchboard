@@ -426,9 +426,18 @@ function createTray() {
   if (tray) return;
   let trayImage;
   try {
-    trayImage = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png'));
-    if (!trayImage.isEmpty()) trayImage = trayImage.resize({ width: 18, height: 18 });
-  } catch {
+    // Icon liegt jetzt mit im Paket (build.files), sonst ist __dirname/build im ASAR leer.
+    const iconPath = path.join(__dirname, 'build', 'icon.png');
+    trayImage = nativeImage.createFromPath(iconPath);
+    if (trayImage.isEmpty()) {
+      log.error('[tray] icon image empty (asset im Paket?):', iconPath);
+    } else {
+      // Windows-Tray erwartet 16px; macOS/Linux 18px wie bisher.
+      const size = process.platform === 'win32' ? 16 : 18;
+      trayImage = trayImage.resize({ width: size, height: size });
+    }
+  } catch (err) {
+    log.error('[tray] failed to load icon:', err?.message || String(err));
     trayImage = nativeImage.createEmpty();
   }
   try {
