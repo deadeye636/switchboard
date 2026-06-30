@@ -36,7 +36,7 @@
 <body>
 <h1 id="projekt-sidebar-pläne">Projekt-Sidebar — Pläne</h1>
 <blockquote>
-<p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-06-30 · Status: #15 ✅ erledigt · #16/#17 🔵 Backlog</p>
+<p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-06-30 · Status: #15 ✅ · #16 ✅ (Reichweite A) · #17 🔵 Backlog</p>
 </blockquote>
 <p>Drei zusammenhängende Verbesserungen an den <strong>Projekt-Headern</strong> der Sidebar. Alle
 betreffen <code>public/sidebar.js</code> (Header-Render ab Zeile 941) plus Persistenz in
@@ -89,27 +89,111 @@ dekorativ? Empfehlung: dekorativ, Toggle bleibt der rechte Button.</p>
 <p><strong>Ziel:</strong> Feld in den <strong>Projekteinstellungen</strong> (gear → Settings-Viewer, Scope
 <code>project</code>), in dem ein Anzeigename gesetzt wird. <strong>Leer = aktueller Default</strong>
 (<code>shortName</code>).</p>
-<p><strong>Umsetzung:</strong></p>
-<ul>
-<li><strong>Persistenz:</strong> Projekt-scoped Settings-Blob nutzen — Key z.B.
-<code>project:&lt;path&gt;</code> → Feld <code>displayName</code> (kein DB-Migration-Risiko; Pattern existiert,
-<code>main.js:1411–1416</code>, <code>db.js:769–781</code>). Alternativ Spalte <code>displayName</code> an
-<code>project_meta</code> per <strong>angehängter</strong> Migration (<code>db.js</code>), falls Blob unpraktisch.
-Empfehlung: Settings-Blob (non-schema, schnell).</li>
-<li><strong>UI:</strong> im Settings-Viewer (<code>settings-panel.js</code>, <code>openSettingsViewer(&#39;project&#39;, …)</code>)
-ein Textfeld „Anzeigename (leer = Verzeichnis)&quot; ergänzen; Save schreibt/löscht den
-Wert (leer → Key entfernen → Default greift).</li>
-<li><strong>Render:</strong> <code>sidebar.js:944</code> →
-<code>const display = project.displayName?.trim() || shortName;</code> und in <code>:946</code> <code>display</code>
-statt <code>shortName</code> verwenden. <code>project.displayName</code> muss in den Projekt-Datensatz
-gelangen (Cache-Build <code>session-cache.js:buildProjectsFromCache</code>, analog <code>favorited</code>
-via <code>getFavoritedProjects</code>).</li>
-<li>Tooltip/Title am Header weiterhin den echten Pfad zeigen (Disambiguierung).</li>
-</ul>
-<p><strong>Tests:</strong> Pure-Mapping „displayName || shortName&quot; als Helper testbar; sonst Smoke
-(setzen, leeren, Persistenz über Neustart).</p>
-<p><strong>Offen:</strong> Custom-Name auch in <strong>Grid</strong>-Karten und Tab-Titeln spiegeln? (Konsistenz —
-empfohlen, aber separater kleiner Schritt.)</p>
+<blockquote>
+<p>✅ <strong>Erledigt (Reichweite A).</strong> Storage = Settings-Blob <code>project:&lt;path&gt;.displayName</code>;
+<code>getProjectDisplayNames()</code> (db.js) → <code>proj.displayName</code> injiziert (session-cache + main.js
+get-memories/get-work-files); Pure-Helper <code>public/project-name.js</code> <code>projectDisplayLabel</code>;
+Settings-Feld „Project → Display name&quot;; Render in Sidebar (Directory + Folder-First via
+<code>projectDisplayMap</code>), Settings-Titel, Plans/Memory. B/C unten weiterhin offen/ausgeschlossen.</p>
+</blockquote>
+<p><strong>Reichweite-Entscheidung (2026-06-30):</strong> v1 = <strong>nur A (Projekt-Ebene)</strong>. B (Session-Ebene)
+ist bewusst zurückgestellt, alle Infos unten vermerkt. C (Worktrees) bleibt ausgeschlossen.</p>
+<p><strong>Persistenz:</strong> Projekt-scoped Settings-Blob — Key <code>project:&lt;path&gt;</code> → Feld <code>displayName</code>
+(kein DB-Migration-Risiko; Pattern existiert, <code>main.js:1411–1416</code>, <code>db.js:769–781</code>).
+Empfehlung bestätigt: Settings-Blob (non-schema, schnell). Alternative <code>project_meta</code>-Spalte
+verworfen, weil der Settings-Viewer Blobs schreibt → Spalte bräuchte separates IPC.</p>
+<p><strong>Ins Render-Objekt:</strong> <code>project.displayName</code> analog <code>project.favorited</code> injizieren — in
+<code>session-cache.js buildProjectsFromCache</code> <strong>eine</strong> Batch-Query
+<code>SELECT key,value FROM settings WHERE key LIKE &#39;project:%&#39;</code>, displayName pro Pfad anhängen
+(Muster von <code>getFavoritedProjects</code>, kein N+1).</p>
+<p><strong>UI:</strong> im Settings-Viewer (<code>settings-panel.js</code>, <code>openSettingsViewer(&#39;project&#39;, …)</code>) neue
+Sektion „Project&quot; mit Textfeld „Display name (leer = Verzeichnis)&quot; (Projekt-only, kein
+„Use global&quot;). Save: <code>settings.displayName = wert.trim()</code> bzw. Key <strong>löschen</strong> wenn leer.</p>
+<h3 id="a-reichweite-v1-projekt-ebene">A — Reichweite v1 (Projekt-Ebene)</h3>
+<p>Helper <code>displayName?.trim() || shortName</code>, Tooltip/<code>title</code> = echter Pfad. Stellen:</p>
+<table>
+<thead>
+<tr>
+<th>Stelle</th>
+<th>Ref</th>
+<th>Quelle</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Sidebar Directory-Header</td>
+<td><code>sidebar.js:944/946</code></td>
+<td><code>project</code>-Objekt</td>
+</tr>
+<tr>
+<td>Sidebar Folder-First-Header</td>
+<td><code>sidebar.js:1274/1275</code> (<code>.ff-project-name</code>)</td>
+<td><code>projectPath</code> → Map nötig¹</td>
+</tr>
+<tr>
+<td>Settings-Viewer-Titel</td>
+<td><code>settings-panel.js:36/39</code></td>
+<td><code>projectPath</code> → aus geladenem Blob direkt</td>
+</tr>
+<tr>
+<td>Plans/Memory-Gruppen</td>
+<td><code>plans-memory-view.js:146/352-353</code> (<code>proj.shortName</code>)</td>
+<td><code>proj</code>-Objekt²</td>
+</tr>
+<tr>
+<td>Work-Files / Command-Palette-Label</td>
+<td><code>main.js:1208/1359</code> (<code>p.shortName</code>)</td>
+<td><code>p</code>-Objekt²</td>
+</tr>
+</tbody></table>
+<p>¹ Folder-First-Header bekommt nur <code>projectPath</code> (<code>sidebar.js:1274</code>) — entweder Projekt-Objekt
+durchreichen oder dieselbe Pfad→Name-Map nutzen.
+² <code>proj.shortName</code> / <code>p.shortName</code> werden in <code>main.js</code> (<code>:1086/1131/1314</code>) gebildet — dort
+<code>displayName</code> mit aufnehmen, dann tragen Plans/Memory + Work-Files automatisch.</p>
+<p><strong>Tests:</strong> Pure-Helper „displayName || shortName&quot; Electron-frei; sonst Smoke (setzen, leeren,
+Neustart-Persistenz).</p>
+<h3 id="b-session-ebene-zurückgestellt-später-aktivierbar">B — Session-Ebene (zurückgestellt, später aktivierbar)</h3>
+<p>Diese Stellen leiten den Namen <strong>direkt aus <code>session.projectPath</code></strong> ab (nicht aus dem
+Projekt-Objekt). Um sie abzudecken: eine <strong>Pfad→displayName-Map</strong> im Renderer bereitstellen
+(z.B. aus den geladenen Projekten) und an diesen Stellen <code>mapDisplayName(path) || shortName</code>
+verwenden.</p>
+<table>
+<thead>
+<tr>
+<th>Stelle</th>
+<th>Ref</th>
+<th>Sichtbar als</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Grid-Karten</td>
+<td><code>grid-view.js:141</code>, <code>grid-view.js:473</code></td>
+<td>Projekt-Label pro Karte</td>
+</tr>
+<tr>
+<td>Session-Detail „Project:&quot;</td>
+<td><code>app.js:1344</code>, <code>dialogs.js:49</code>, <code>sidebar.js:1758</code></td>
+<td>Info-Feld</td>
+</tr>
+<tr>
+<td>New-Session-Dialog-Titel</td>
+<td><code>dialogs.js:371</code></td>
+<td>„New Session — X&quot;</td>
+</tr>
+<tr>
+<td>Suche (Match)</td>
+<td><code>app.js:1258</code></td>
+<td>matcht <code>shortName</code> — Custom-Name mitsuchen</td>
+</tr>
+</tbody></table>
+<p><strong>⚠ Achtung Gruppierung:</strong> <code>sidebar.js:37</code> und <code>session-cleanup.js:54</code> bilden mit demselben
+<code>shortName</code>-Muster einen <strong>Gruppier-/Fallback-Key</strong>, <strong>nicht</strong> nur Anzeige. Dort den
+Custom-Name <strong>nicht</strong> einsetzen — sonst ändert sich die Gruppierung. Nur reine
+Anzeige-Stellen umstellen.</p>
+<h3 id="c-worktrees-ausgeschlossen">C — Worktrees (ausgeschlossen)</h3>
+<p>Bleibt draußen. Worktree-Namen folgen einem <strong>eigenen</strong> Muster (letztes Segment /
+Worktree-Regex), nicht dem 2-Segment-<code>shortName</code>: <code>sidebar.js:1026</code>, <code>sidebar.js:1457</code>,
+<code>sidebar.js:1477</code>, <code>sidebar.js:1494</code>. Kein Custom-Name hier — separates Konzept, würde
+Worktree-Identifikation verwässern.</p>
 <hr>
 <h2 id="17-projekte-manuell-sortieren">17 Projekte manuell sortieren</h2>
 <p><strong>Ist:</strong> Projekt-Reihenfolge ist <strong>automatisch</strong> (<code>session-cache.js:342–355</code>):</p>

@@ -48,7 +48,7 @@ const { encodeProjectPath } = require('./encode-project-path');
 
 const {
   getMeta, getAllMeta, toggleStar, setName, setArchived,
-  toggleProjectFavorite, getFavoritedProjects,
+  toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   toggleBookmark, removeBookmark, listBookmarks,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
@@ -482,7 +482,7 @@ sessionCache.init({
     deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics,
     deleteSearchFolder, deleteSearchSession, upsertSearchEntries,
     setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
-    getFavoritedProjects,
+    getFavoritedProjects, getProjectDisplayNames,
   },
 });
 const { readSessionFile, readFolderFromFilesystem, refreshFolder, reconcileCacheFromFilesystem,
@@ -1109,6 +1109,7 @@ function scanMdFiles(dir) {
 ipcMain.handle('get-memories', () => {
   const global = getSetting('global') || {};
   const hiddenProjects = new Set(global.hiddenProjects || []);
+  const projectDisplayNames = getProjectDisplayNames();
 
   // --- Global files ---
   const globalFiles = scanMdFiles(CLAUDE_DIR).map(f => ({ ...f, displayPath: '~/.claude' }));
@@ -1184,7 +1185,8 @@ ipcMain.handle('get-memories', () => {
         }
 
         if (files.length > 0) {
-          projects.push({ folder, projectPath: projectPath || '', shortName, files });
+          const displayName = (projectPath && projectDisplayNames.get(projectPath)) || '';
+          projects.push({ folder, projectPath: projectPath || '', shortName, displayName, files });
         }
       }
     }
@@ -1205,7 +1207,7 @@ ipcMain.handle('get-memories', () => {
   try {
     const allFiles = [
       ...globalFiles.map(f => ({ ...f, label: 'Global' })),
-      ...projects.flatMap(p => p.files.map(f => ({ ...f, label: p.shortName }))),
+      ...projects.flatMap(p => p.files.map(f => ({ ...f, label: p.displayName || p.shortName }))),
     ];
     const sig = computeIndexSignature(allFiles.map(f => ({
       filePath: f.filePath,
@@ -1294,6 +1296,7 @@ function walkWorkFiles(dir, baseDir, results) {
 ipcMain.handle('get-work-files', () => {
   const global = getSetting('global') || {};
   const hiddenProjects = new Set(global.hiddenProjects || []);
+  const projectDisplayNames = getProjectDisplayNames();
   const projects = [];
 
   try {
@@ -1323,7 +1326,8 @@ ipcMain.handle('get-work-files', () => {
         const files = allFiles.slice(0, WORK_FILES_CAP);
 
         if (files.length > 0) {
-          projects.push({ projectPath, shortName, files, totalCount });
+          const displayName = projectDisplayNames.get(projectPath) || '';
+          projects.push({ projectPath, shortName, displayName, files, totalCount });
         }
       }
     }
@@ -1356,7 +1360,7 @@ ipcMain.handle('get-work-files', () => {
         }
         return {
           id: f.filePath, type: 'work-file', folder: null,
-          title: f.proj.shortName + ' ' + f.relativePath,
+          title: (f.proj.displayName || f.proj.shortName) + ' ' + f.relativePath,
           body,
         };
       });

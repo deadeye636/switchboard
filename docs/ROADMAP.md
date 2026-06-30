@@ -20,7 +20,7 @@ Dateien und werden hier nur verlinkt.
 
 ## 🟡 In Arbeit
 
-> Aktuell kein Feature aktiv. Nächster Kandidat siehe Backlog (P2: #16).
+> Aktuell kein Feature aktiv. Nächster Kandidat siehe Backlog (P2: #17).
 
 ---
 
@@ -29,7 +29,6 @@ Dateien und werden hier nur verlinkt.
 | ID | Prio | Aufgabe | Detail |
 |----|------|---------|--------|
 | #02 | P1 | Session-Display **Phase 3 — Detach** (abkoppelbare Fenster) | [Plan](session-display-plan.html) |
-| #16 | P2 | **Projektname änderbar** — Feld in den Projekteinstellungen; leer = aktueller Default (Verzeichnis) | [Plan](project-sidebar-plan.md#16-projektname-umbenennen) |
 | #17 | P2 | **Projekte manuell sortierbar** — per Setting aktivierbar vs. Standard-Sortierung; Ist-Verhalten erst klären | [Plan](project-sidebar-plan.md#17-projekte-manuell-sortieren) |
 | #03 | P2 | **One-Click-Handoff** — „Handoff empfohlen" von Rat zu Aktion machen | [Roadmap §Phase 3](productivity-roadmap.md) |
 | #04 | P2 | **Flexibles Grid-Layout** (Karten-Resize / Drag-Reorder, 5B) | [Roadmap §Phase 5B](productivity-roadmap.md) |
@@ -42,6 +41,7 @@ Dateien und werden hier nur verlinkt.
 | ID | Aufgabe | Detail |
 |----|---------|--------|
 | #18 | **Bug-Fix:** Windows-TrayIcon leer — Icon ins Paket (`build.files`) + 16px + Logging statt stillem Fallback | [Plan](windows-tray-fix-plan.md) |
+| #16 | **Projektname umbenennen** (Reichweite A) — Display-Name im Projekt-Settings, leer = Verzeichnis; Sidebar (Directory + Folder-First), Settings-Titel, Plans/Memory | [Plan](project-sidebar-plan.md#16-projektname-umbenennen) |
 | #15 | **Favoriten-Icon vor Projektnamen** — vorhandenen Favorit-Button vor den Namen verschoben (Hover-Reveal, gold bei Favorit) | [Plan](project-sidebar-plan.md#15-favoriten-icon-vor-dem-projektnamen) |
 | #01 | **JBR-Feature-Übernahme** — 36 portiert, 6 Skip; Rest (5.1–5.4) Dev-Infra, bewusst Skip (kein CI/Hosting, <old-codename> ohne eslint) | [Katalog](jbr-uebernahme-katalog.html) |
 | #06 | Session-Display **Phase 1 — Tabs** (Setting legacy/tabs, Tab-Leiste, Overflow, Single-View) | [Plan](session-display-plan.html) |

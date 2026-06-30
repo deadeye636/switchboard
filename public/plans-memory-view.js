@@ -143,7 +143,7 @@ function renderMemories(filterIds) {
   for (const proj of data.projects) {
     const projFiles = filterIds ? proj.files.filter(f => filterIds.has(f.filePath)) : proj.files;
     if (projFiles.length === 0) continue;
-    memoryContent.appendChild(buildMemoryGroup(proj.folder, proj.shortName, projFiles));
+    memoryContent.appendChild(buildMemoryGroup(proj.folder, projectDisplayLabel(proj.displayName, proj.shortName), projFiles));
   }
 }
 
@@ -350,7 +350,7 @@ function buildWorkFilesGroup(proj, files) {
 
   const nameSpan = document.createElement('span');
   nameSpan.className = 'project-name';
-  nameSpan.textContent = proj.shortName;
+  nameSpan.textContent = projectDisplayLabel(proj.displayName, proj.shortName);
   header.appendChild(nameSpan);
 
   const countBadge = document.createElement('span');

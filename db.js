@@ -340,6 +340,7 @@ const stmts = {
   `),
   projectMetaGet: db.prepare('SELECT * FROM project_meta WHERE projectPath = ?'),
   projectMetaGetAll: db.prepare('SELECT projectPath FROM project_meta WHERE favorited = 1'),
+  settingsByPrefix: db.prepare('SELECT key, value FROM settings WHERE key LIKE ?'),
   // Bookmarks (toggle by {sessionId, entryIndex} anchor)
   bookmarkGet: db.prepare('SELECT id FROM bookmarks WHERE sessionId = ? AND entryIndex = ?'),
   bookmarkInsert: db.prepare('INSERT INTO bookmarks (sessionId, entryIndex, timestamp, label, createdAt) VALUES (?, ?, ?, ?, ?)'),
@@ -495,6 +496,19 @@ function getFavoritedProjects() {
   const set = new Set();
   for (const row of stmts.projectMetaGetAll.all()) set.add(row.projectPath);
   return set;
+}
+
+// Map projectPath -> custom displayName (only non-empty), from the per-project
+// settings blobs (`project:<path>`). Consumed wherever a project name is rendered.
+function getProjectDisplayNames() {
+  const map = new Map();
+  for (const row of stmts.settingsByPrefix.all('project:%')) {
+    let val;
+    try { val = JSON.parse(row.value); } catch { val = null; }
+    const name = val && typeof val.displayName === 'string' ? val.displayName.trim() : '';
+    if (name) map.set(row.key.slice('project:'.length), name);
+  }
+  return map;
 }
 
 // --- Bookmarks + session tags ---
@@ -900,7 +914,7 @@ function closeDb() {
 
 module.exports = {
   getMeta, getAllMeta, setName, toggleStar, setArchived,
-  toggleProjectFavorite, getFavoritedProjects,
+  toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   toggleBookmark, removeBookmark, listBookmarks,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,

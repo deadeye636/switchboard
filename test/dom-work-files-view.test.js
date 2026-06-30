@@ -100,6 +100,7 @@ function setupWorkFilesDom() {
   // Load dependencies
   evalInWindow(dom, path.join(PUBLIC_DIR, 'utils.js'));
   evalInWindow(dom, path.join(PUBLIC_DIR, 'icons.js'));
+  evalInWindow(dom, path.join(PUBLIC_DIR, 'project-name.js'));
   evalInWindow(dom, path.join(PUBLIC_DIR, 'plans-memory-view.js'));
 
   return {

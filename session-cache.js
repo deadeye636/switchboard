@@ -14,7 +14,7 @@ let PROJECTS_DIR, activeSessions, getMainWindow, log;
 let deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics;
 let deleteSearchFolder, deleteSearchSession, upsertSearchEntries;
 let setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName;
-let getFavoritedProjects;
+let getFavoritedProjects, getProjectDisplayNames;
 
 function init(ctx) {
   PROJECTS_DIR = ctx.PROJECTS_DIR;
@@ -39,6 +39,7 @@ function init(ctx) {
   getMeta = ctx.db.getMeta;
   setName = ctx.db.setName;
   getFavoritedProjects = ctx.db.getFavoritedProjects;
+  getProjectDisplayNames = ctx.db.getProjectDisplayNames;
 }
 
 // readSessionFile is imported from read-session-file.js (shared with worker)
@@ -331,11 +332,13 @@ function buildProjectsFromCache(showArchived) {
   }
 
   const favorited = typeof getFavoritedProjects === 'function' ? getFavoritedProjects() : new Set();
+  const displayNames = typeof getProjectDisplayNames === 'function' ? getProjectDisplayNames() : new Map();
 
   const projects = [];
   for (const proj of projectMap.values()) {
     proj.sessions.sort((a, b) => new Date(b.modified) - new Date(a.modified));
     proj.favorited = favorited.has(proj.projectPath);
+    proj.displayName = displayNames.get(proj.projectPath) || '';
     projects.push(proj);
   }
 

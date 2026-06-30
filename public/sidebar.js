@@ -942,8 +942,10 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
     header.className = 'project-header';
     header.id = 'ph-' + fId;
     const shortName = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
+    const display = projectDisplayLabel(project.displayName, shortName);
+    header.title = project.projectPath;
     const missingIcon = project.missing ? '<svg class="project-missing-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> ' : '';
-    header.innerHTML = `<span class="arrow">&#9660;</span> ${missingIcon}<span class="project-name">${escapeHtml(shortName)}</span>`;
+    header.innerHTML = `<span class="arrow">&#9660;</span> ${missingIcon}<span class="project-name">${escapeHtml(display)}</span>`;
 
     const scheduleBtn = document.createElement('button');
     scheduleBtn.className = 'project-schedule-btn';
@@ -1142,7 +1144,13 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder, folderMode) {
   }
 }
 
+// projectPath -> custom displayName, refreshed on every render so the folder-first
+// sub-headers (which only carry a projectPath) can resolve the same custom name.
+const projectDisplayMap = new Map();
+
 function renderProjects(projects, resort) {
+  projectDisplayMap.clear();
+  for (const p of projects) projectDisplayMap.set(p.projectPath, p.displayName || '');
   // Folder-first is an alternate top-level layout; the directory-first path below
   // is the default.
   if (typeof sidebarViewMode !== 'undefined' && sidebarViewMode === 'folder') {
@@ -1272,7 +1280,9 @@ function buildFolderProjectSubsection(scopePrefix, projectPath, sessions, missin
   header.className = 'ff-project-header';
   header.id = 'ph-' + sid;
   const shortName = projectPath.split('/').filter(Boolean).slice(-2).join('/');
-  header.innerHTML = `<span class="arrow">&#9660;</span><span class="ff-project-name">${escapeHtml(shortName)}</span><span class="ff-project-count">${sessions.length}</span>`;
+  const display = projectDisplayLabel(projectDisplayMap.get(projectPath), shortName);
+  header.title = projectPath;
+  header.innerHTML = `<span class="arrow">&#9660;</span><span class="ff-project-name">${escapeHtml(display)}</span><span class="ff-project-count">${sessions.length}</span>`;
 
   const newBtn = document.createElement('button');
   newBtn.className = 'project-new-btn ff-project-new-btn';

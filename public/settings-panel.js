@@ -36,7 +36,10 @@
       ? projectPath.split('/').filter(Boolean).slice(-2).join('/')
       : 'Global';
 
-    settingsViewerTitle.textContent = (isProject ? 'Project Settings — ' : 'Global Settings — ') + shortName;
+    const titleName = isProject && typeof current.displayName === 'string' && current.displayName.trim()
+      ? current.displayName.trim()
+      : shortName;
+    settingsViewerTitle.textContent = (isProject ? 'Project Settings — ' : 'Global Settings — ') + titleName;
 
     // Show settings viewer, hide others. Null-safe: the standalone settings
     // window (settings.html) has none of these main-app elements.
@@ -64,6 +67,7 @@
       return (current[fieldName] === undefined || current[fieldName] === null) ? 'disabled' : '';
     }
 
+    const displayNameValue = isProject && typeof current.displayName === 'string' ? current.displayName : '';
     const permModeValue = fieldValue('permissionMode', '');
     const worktreeValue = fieldValue('worktree', false);
     const worktreeNameValue = fieldValue('worktreeName', '');
@@ -106,6 +110,19 @@
 
     settingsViewerBody.innerHTML = `
     <div class="settings-form">
+      ${isProject ? `
+      <div class="settings-section">
+        <div class="settings-section-title">Project</div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Display name</span>
+            <div class="settings-description">Shown instead of the folder name in the sidebar. Leave empty to use the directory (<code>${escapeHtml(shortName)}</code>).</div>
+          </div>
+          <div class="settings-field-control">
+            <input type="text" class="settings-input" id="sv-display-name" placeholder="${escapeHtml(shortName)}" value="${escapeHtml(displayNameValue)}">
+          </div>
+        </div>
+      </div>` : ''}
       <div class="settings-section">
         <div class="settings-section-title">Claude CLI Options</div>
 
@@ -564,6 +581,9 @@
             if (fieldMap[field]) settings[field] = fieldMap[field]();
           }
         });
+        // Project-only field (no "use global"): custom display name, '' = use directory.
+        const dnInput = settingsViewerBody.querySelector('#sv-display-name');
+        if (dnInput) settings.displayName = dnInput.value.trim();
       } else {
         settings.permissionMode = settingsViewerBody.querySelector('#sv-perm-mode').value || null;
         settings.worktree = settingsViewerBody.querySelector('#sv-worktree').checked;
@@ -644,6 +664,10 @@
         }
         if (typeof refreshSidebar === 'function') refreshSidebar();
       }
+
+      // Project scope: reload projects so a changed display name is re-derived
+      // (buildProjectsFromCache reads the per-project settings blob main-side).
+      if (isProject && typeof loadProjects === 'function') loadProjects();
 
       // Write/remove the reversible ~/.claude hook when the toggle changes
       if (!isProject && settings.attentionHooks !== attentionHooksValue) {

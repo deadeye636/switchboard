@@ -1,6 +1,6 @@
 # Projekt-Sidebar — Pläne
 
-> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: #15 ✅ erledigt · #16/#17 🔵 Backlog
+> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: #15 ✅ · #16 ✅ (Reichweite A) · #17 🔵 Backlog
 
 Drei zusammenhängende Verbesserungen an den **Projekt-Headern** der Sidebar. Alle
 betreffen `public/sidebar.js` (Header-Render ab Zeile 941) plus Persistenz in
@@ -63,28 +63,74 @@ dekorativ? Empfehlung: dekorativ, Toggle bleibt der rechte Button.
 `project`), in dem ein Anzeigename gesetzt wird. **Leer = aktueller Default**
 (`shortName`).
 
-**Umsetzung:**
+> ✅ **Erledigt (Reichweite A).** Storage = Settings-Blob `project:<path>.displayName`;
+> `getProjectDisplayNames()` (db.js) → `proj.displayName` injiziert (session-cache + main.js
+> get-memories/get-work-files); Pure-Helper `public/project-name.js` `projectDisplayLabel`;
+> Settings-Feld „Project → Display name"; Render in Sidebar (Directory + Folder-First via
+> `projectDisplayMap`), Settings-Titel, Plans/Memory. B/C unten weiterhin offen/ausgeschlossen.
 
-- **Persistenz:** Projekt-scoped Settings-Blob nutzen — Key z.B.
-  `project:<path>` → Feld `displayName` (kein DB-Migration-Risiko; Pattern existiert,
-  `main.js:1411–1416`, `db.js:769–781`). Alternativ Spalte `displayName` an
-  `project_meta` per **angehängter** Migration (`db.js`), falls Blob unpraktisch.
-  Empfehlung: Settings-Blob (non-schema, schnell).
-- **UI:** im Settings-Viewer (`settings-panel.js`, `openSettingsViewer('project', …)`)
-  ein Textfeld „Anzeigename (leer = Verzeichnis)" ergänzen; Save schreibt/löscht den
-  Wert (leer → Key entfernen → Default greift).
-- **Render:** `sidebar.js:944` →
-  `const display = project.displayName?.trim() || shortName;` und in `:946` `display`
-  statt `shortName` verwenden. `project.displayName` muss in den Projekt-Datensatz
-  gelangen (Cache-Build `session-cache.js:buildProjectsFromCache`, analog `favorited`
-  via `getFavoritedProjects`).
-- Tooltip/Title am Header weiterhin den echten Pfad zeigen (Disambiguierung).
+**Reichweite-Entscheidung (2026-06-30):** v1 = **nur A (Projekt-Ebene)**. B (Session-Ebene)
+ist bewusst zurückgestellt, alle Infos unten vermerkt. C (Worktrees) bleibt ausgeschlossen.
 
-**Tests:** Pure-Mapping „displayName || shortName" als Helper testbar; sonst Smoke
-(setzen, leeren, Persistenz über Neustart).
+**Persistenz:** Projekt-scoped Settings-Blob — Key `project:<path>` → Feld `displayName`
+(kein DB-Migration-Risiko; Pattern existiert, `main.js:1411–1416`, `db.js:769–781`).
+Empfehlung bestätigt: Settings-Blob (non-schema, schnell). Alternative `project_meta`-Spalte
+verworfen, weil der Settings-Viewer Blobs schreibt → Spalte bräuchte separates IPC.
 
-**Offen:** Custom-Name auch in **Grid**-Karten und Tab-Titeln spiegeln? (Konsistenz —
-empfohlen, aber separater kleiner Schritt.)
+**Ins Render-Objekt:** `project.displayName` analog `project.favorited` injizieren — in
+`session-cache.js buildProjectsFromCache` **eine** Batch-Query
+`SELECT key,value FROM settings WHERE key LIKE 'project:%'`, displayName pro Pfad anhängen
+(Muster von `getFavoritedProjects`, kein N+1).
+
+**UI:** im Settings-Viewer (`settings-panel.js`, `openSettingsViewer('project', …)`) neue
+Sektion „Project" mit Textfeld „Display name (leer = Verzeichnis)" (Projekt-only, kein
+„Use global"). Save: `settings.displayName = wert.trim()` bzw. Key **löschen** wenn leer.
+
+### A — Reichweite v1 (Projekt-Ebene)
+
+Helper `displayName?.trim() || shortName`, Tooltip/`title` = echter Pfad. Stellen:
+
+| Stelle | Ref | Quelle |
+|--------|-----|--------|
+| Sidebar Directory-Header | `sidebar.js:944/946` | `project`-Objekt |
+| Sidebar Folder-First-Header | `sidebar.js:1274/1275` (`.ff-project-name`) | `projectPath` → Map nötig¹ |
+| Settings-Viewer-Titel | `settings-panel.js:36/39` | `projectPath` → aus geladenem Blob direkt |
+| Plans/Memory-Gruppen | `plans-memory-view.js:146/352-353` (`proj.shortName`) | `proj`-Objekt² |
+| Work-Files / Command-Palette-Label | `main.js:1208/1359` (`p.shortName`) | `p`-Objekt² |
+
+¹ Folder-First-Header bekommt nur `projectPath` (`sidebar.js:1274`) — entweder Projekt-Objekt
+durchreichen oder dieselbe Pfad→Name-Map nutzen.
+² `proj.shortName` / `p.shortName` werden in `main.js` (`:1086/1131/1314`) gebildet — dort
+`displayName` mit aufnehmen, dann tragen Plans/Memory + Work-Files automatisch.
+
+**Tests:** Pure-Helper „displayName || shortName" Electron-frei; sonst Smoke (setzen, leeren,
+Neustart-Persistenz).
+
+### B — Session-Ebene (zurückgestellt, später aktivierbar)
+
+Diese Stellen leiten den Namen **direkt aus `session.projectPath`** ab (nicht aus dem
+Projekt-Objekt). Um sie abzudecken: eine **Pfad→displayName-Map** im Renderer bereitstellen
+(z.B. aus den geladenen Projekten) und an diesen Stellen `mapDisplayName(path) || shortName`
+verwenden.
+
+| Stelle | Ref | Sichtbar als |
+|--------|-----|--------------|
+| Grid-Karten | `grid-view.js:141`, `grid-view.js:473` | Projekt-Label pro Karte |
+| Session-Detail „Project:" | `app.js:1344`, `dialogs.js:49`, `sidebar.js:1758` | Info-Feld |
+| New-Session-Dialog-Titel | `dialogs.js:371` | „New Session — X" |
+| Suche (Match) | `app.js:1258` | matcht `shortName` — Custom-Name mitsuchen |
+
+**⚠ Achtung Gruppierung:** `sidebar.js:37` und `session-cleanup.js:54` bilden mit demselben
+`shortName`-Muster einen **Gruppier-/Fallback-Key**, **nicht** nur Anzeige. Dort den
+Custom-Name **nicht** einsetzen — sonst ändert sich die Gruppierung. Nur reine
+Anzeige-Stellen umstellen.
+
+### C — Worktrees (ausgeschlossen)
+
+Bleibt draußen. Worktree-Namen folgen einem **eigenen** Muster (letztes Segment /
+Worktree-Regex), nicht dem 2-Segment-`shortName`: `sidebar.js:1026`, `sidebar.js:1457`,
+`sidebar.js:1477`, `sidebar.js:1494`. Kein Custom-Name hier — separates Konzept, würde
+Worktree-Identifikation verwässern.
 
 ---
 
