@@ -25,7 +25,10 @@
       label: 'Working',
       className: 'status-busy',
       priority: 80,
-      inInbox: true,
+      // "Working" = agent actively producing output → not the user's turn. The
+      // finished signal arrives separately as response-ready (see setActivity in
+      // app.js), so the attention inbox stays "your turn" only.
+      inInbox: false,
     },
     running: {
       key: 'running',
@@ -78,10 +81,38 @@
     return Number.isFinite(time) ? time : 0;
   }
 
+  const RUNNING_INBOX_DEFAULT_MINUTES = 5;
+
+  // Whether a session's status should appear in the attention inbox. Every status
+  // except `running` is fixed via `inInbox`. `running` is user-configurable
+  // (runtime.runningInboxMode) because a live-but-idle terminal isn't inherently
+  // "your turn":
+  //   always       — every running session
+  //   never        — none
+  //   until-read   — only sessions that finished (busy→idle stamp in runtime.finishedAt)
+  //                  and haven't been focused since; stays until opened
+  //   after-finish — same gate, but drops once runtime.now - finishedAt exceeds the window
+  // The finishedAt gate means a session that never worked (no stamp) is never
+  // surfaced as running clutter. Default mode is 'always' so callers that don't
+  // pass a mode keep the historical behaviour.
+  function inboxIncludes(status, session, runtime) {
+    if (status.key !== 'running') return status.inInbox;
+    const mode = runtime.runningInboxMode || 'always';
+    if (mode === 'always') return true;
+    if (mode === 'never') return false;
+    const finishedAt = getMapValue(runtime.finishedAt, session.sessionId);
+    if (!finishedAt) return false;
+    if (mode === 'until-read') return true;
+    // after-finish: hide once the window has elapsed. Missing `now` ⇒ keep visible.
+    const minutes = runtime.runningInboxMinutes > 0 ? runtime.runningInboxMinutes : RUNNING_INBOX_DEFAULT_MINUTES;
+    const now = Number.isFinite(runtime.now) ? runtime.now : finishedAt;
+    return (now - finishedAt) < minutes * 60000;
+  }
+
   function getAttentionInboxItems(sessions, runtime = {}) {
     return sessions
       .map(session => ({ session, status: getSessionStatus(session, runtime) }))
-      .filter(item => item.status.inInbox)
+      .filter(item => inboxIncludes(item.status, item.session, runtime))
       .sort((a, b) => {
         if (a.status.priority !== b.status.priority) return b.status.priority - a.status.priority;
         return sessionActivityTime(b.session, runtime) - sessionActivityTime(a.session, runtime);

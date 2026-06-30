@@ -85,6 +85,43 @@ test('attention inbox orders human-critical sessions first then recent activity'
   assert.deepEqual(result.map(item => item.session.sessionId), ['attention', 'ready', 'running-old']);
 });
 
+// --- running-in-inbox modes (configurable) ---
+const runSession = { sessionId: 'run', modified: '2026-06-12T10:00:00.000Z' };
+function runInbox(overrides) {
+  return getAttentionInboxItems([runSession], state({ activePtyIds: new Set(['run']), ...overrides }))
+    .map(item => item.session.sessionId);
+}
+
+test('running-in-inbox: default/unspecified mode keeps the historical always-on behavior', () => {
+  assert.deepEqual(runInbox({}), ['run']);
+});
+
+test('running-in-inbox: always shows running regardless of finish stamp', () => {
+  assert.deepEqual(runInbox({ runningInboxMode: 'always' }), ['run']);
+});
+
+test('running-in-inbox: never hides running entirely', () => {
+  assert.deepEqual(runInbox({ runningInboxMode: 'never', finishedAt: new Map([['run', 1000]]), now: 1000 }), []);
+});
+
+test('running-in-inbox: until-read needs a finish stamp', () => {
+  assert.deepEqual(runInbox({ runningInboxMode: 'until-read' }), [], 'no stamp ⇒ never-worked session stays out');
+  assert.deepEqual(runInbox({ runningInboxMode: 'until-read', finishedAt: new Map([['run', 1000]]) }), ['run']);
+});
+
+test('running-in-inbox: after-finish surfaces within the window and drops past it', () => {
+  const finishedAt = new Map([['run', 1000]]);
+  assert.deepEqual(
+    runInbox({ runningInboxMode: 'after-finish', runningInboxMinutes: 5, finishedAt, now: 1000 + 2 * 60000 }),
+    ['run'], 'within 5 min ⇒ shown');
+  assert.deepEqual(
+    runInbox({ runningInboxMode: 'after-finish', runningInboxMinutes: 5, finishedAt, now: 1000 + 6 * 60000 }),
+    [], 'past 5 min ⇒ hidden');
+  assert.deepEqual(
+    runInbox({ runningInboxMode: 'after-finish', runningInboxMinutes: 5, now: 1000 }),
+    [], 'no stamp ⇒ hidden');
+});
+
 test('next attention inbox item cycles after the current session', () => {
   const sessions = [
     { sessionId: 'running-old', modified: '2026-06-12T09:00:00.000Z', summary: 'old run' },

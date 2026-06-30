@@ -109,6 +109,12 @@
     const notifyEnabledValue = notificationsValue.enabled !== false; // default on
     const notifyOnReadyValue = !!notificationsValue.notifyOnReady; // default off
 
+    // Running-in-inbox (global only): how live-but-idle sessions appear in the attention inbox.
+    const runningInboxValue = (!isProject && current.runningInbox) || {};
+    const runningInboxModeValue = ['always', 'never', 'after-finish', 'until-read'].includes(runningInboxValue.mode)
+      ? runningInboxValue.mode : 'until-read';
+    const runningInboxMinutesValue = runningInboxValue.minutes > 0 ? runningInboxValue.minutes : 5;
+
     // Working copy of the (global-only) re-bindable keyboard shortcuts.
     let scShortcuts = normalizeShortcuts(isProject ? null : current.shortcuts);
     const scIsMac = typeof isMac !== 'undefined' ? isMac : /Mac|iPhone|iPad/.test(navigator.platform);
@@ -520,6 +526,31 @@
             <label class="settings-toggle"><input type="checkbox" id="sv-attention-sound" ${attentionSoundValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
           </div>
         </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Running sessions in attention inbox</span>
+            <div class="settings-description">When a live session is idle (not working, not awaiting you), whether it shows in the attention list. <b>Until opened</b>: sessions that finished while focused stay until you open them. <b>For a few minutes</b>: they drop after the time below. <b>Always</b>/<b>Never</b>: unconditional. Sessions that never ran are never shown.</div>
+          </div>
+          <div class="settings-field-control">
+            <select class="settings-select" id="sv-running-inbox-mode">
+              <option value="until-read" ${runningInboxModeValue === 'until-read' ? 'selected' : ''}>Until opened</option>
+              <option value="after-finish" ${runningInboxModeValue === 'after-finish' ? 'selected' : ''}>For a few minutes after finishing</option>
+              <option value="always" ${runningInboxModeValue === 'always' ? 'selected' : ''}>Always</option>
+              <option value="never" ${runningInboxModeValue === 'never' ? 'selected' : ''}>Never</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Keep finished sessions for</span>
+            <div class="settings-description">Minutes a finished session stays in the inbox &mdash; used only by &ldquo;For a few minutes after finishing&rdquo;.</div>
+          </div>
+          <div class="settings-field-control">
+            <input type="number" class="settings-input settings-input-compact" id="sv-running-inbox-minutes" min="1" max="120" value="${runningInboxMinutesValue}">
+          </div>
+        </div>
       </div>` : ''}
 
       <div class="settings-btn-row">
@@ -678,6 +709,10 @@
           notifyOnReady: settingsViewerBody.querySelector('#sv-notify-ready').checked,
           sound: settingsViewerBody.querySelector('#sv-attention-sound').checked,
         };
+        settings.runningInbox = {
+          mode: settingsViewerBody.querySelector('#sv-running-inbox-mode')?.value || 'until-read',
+          minutes: Math.max(1, Math.min(120, parseInt(settingsViewerBody.querySelector('#sv-running-inbox-minutes')?.value, 10) || 5)),
+        };
         // Merge over existing shortcuts so non-managed keys (e.g. <old-codename>'s
         // nextAttention) survive — scShortcuts carries only the session-nav/grid bindings.
         settings.shortcuts = { ...(current.shortcuts || {}), ...scShortcuts };
@@ -711,6 +746,9 @@
         }
         if (settings.notifications && typeof window._setNotificationSettings === 'function') {
           window._setNotificationSettings(settings.notifications);
+        }
+        if (settings.runningInbox && typeof window._setRunningInboxSetting === 'function') {
+          window._setRunningInboxSetting(settings.runningInbox);
         }
         if (typeof window._applyNotificationSettings === 'function') {
           window._applyNotificationSettings(settings);

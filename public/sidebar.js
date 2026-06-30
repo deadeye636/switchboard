@@ -30,6 +30,9 @@ function getSessionRuntimeState() {
     openSessions,
     lastActivityTime,
     activeSessionId,
+    // Running-in-inbox config + finish stamps (app.js). Spread last so the inbox
+    // filter (session-status.js inboxIncludes) sees the live setting.
+    ...attentionInboxRuntimeFields(),
   };
 }
 

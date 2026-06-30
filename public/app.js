@@ -329,6 +329,7 @@ const attentionSessions = new Set(); // sessions needing user action (OSC 9 or h
 const attentionReason = new Map(); // sessionId → { reason, source } — for hook>osc9 precedence
 const responseReadySessions = new Set(); // Claude finished, user hasn't looked (terminal state)
 const sessionBusyState = new Map(); // sessionId → boolean (currently active)
+const finishedAt = new Map(); // sessionId → ms timestamp of the last busy→idle edge (drives running-in-inbox)
 const lastActivityTime = new Map(); // sessionId → Date of last terminal output
 const lastViewedTime = new Map(); // sessionId → Date the session last became focused
 const filesTouchedSinceViewed = new Map(); // sessionId → Map<path, { at, kind }>
@@ -375,6 +376,50 @@ function refreshSessionStatusViews() {
   syncNativeNotifications();
 }
 
+// --- Running sessions in the attention inbox (configurable) ---
+// A live-but-idle terminal isn't inherently "your turn". The inbox membership of
+// `running` sessions is therefore user-configurable; the classification itself
+// lives in the pure session-status.js helper (inboxIncludes). We only feed it the
+// current setting + `finishedAt` map. Default 'until-read': a session that
+// finished while you were looking at it stays in the inbox until you open it,
+// nothing silently drops.
+let runningInboxSetting = { mode: 'until-read', minutes: 5 };
+const RUNNING_INBOX_MODES = ['always', 'never', 'after-finish', 'until-read'];
+
+// Runtime fields the inbox filter needs, merged into every runtime snapshot that
+// feeds getAttentionInboxItems / getNextAttentionInboxItem.
+function attentionInboxRuntimeFields() {
+  return {
+    finishedAt,
+    runningInboxMode: runningInboxSetting.mode,
+    runningInboxMinutes: runningInboxSetting.minutes,
+    now: Date.now(),
+  };
+}
+
+// Only 'after-finish' needs a heartbeat: a finished session must drop out of the
+// inbox once its window elapses even when no other event fires a re-render.
+let runningInboxTick = null;
+function ensureRunningInboxTick() {
+  const need = runningInboxSetting.mode === 'after-finish';
+  if (need && !runningInboxTick) {
+    runningInboxTick = setInterval(() => { if (finishedAt.size) refreshSessionStatusViews(); }, 30000);
+  } else if (!need && runningInboxTick) {
+    clearInterval(runningInboxTick);
+    runningInboxTick = null;
+  }
+}
+
+// Bridge for settings-panel.js so the toggle applies live without a restart.
+window._setRunningInboxSetting = (cfg) => {
+  runningInboxSetting = {
+    mode: RUNNING_INBOX_MODES.includes(cfg?.mode) ? cfg.mode : 'until-read',
+    minutes: cfg?.minutes > 0 ? cfg.minutes : 5,
+  };
+  ensureRunningInboxTick();
+  refreshSessionStatusViews();
+};
+
 // --- Next-attention focus (shared by the inbox button and the hotkey) ---
 function statusRuntime() {
   return {
@@ -385,6 +430,7 @@ function statusRuntime() {
     openSessions,
     lastActivityTime,
     activeSessionId,
+    ...attentionInboxRuntimeFields(),
   };
 }
 
@@ -453,6 +499,16 @@ function setActivity(sessionId, active) {
 
   const wasActive = sessionBusyState.get(sessionId) || false;
   sessionBusyState.set(sessionId, active);
+
+  if (active && !wasActive) {
+    // New work started → any earlier "finished" stamp is stale.
+    finishedAt.delete(sessionId);
+  } else if (wasActive && !active) {
+    // busy→idle edge: stamp the finish time. Unfocused sessions become
+    // response-ready below; for the focused-then-left case this stamp is what
+    // lets the configurable running-inbox (after-finish / until-read) surface it.
+    finishedAt.set(sessionId, Date.now());
+  }
 
   if (wasActive && !active) {
     // Activity ended → response-ready if user isn't looking at this session
@@ -531,6 +587,9 @@ function clearNotifications(sessionId) {
   clearUnread(sessionId);
   const changed = attentionSessions.delete(sessionId);
   attentionReason.delete(sessionId);
+  // Opening the session settles it — drop the finish stamp so it won't reappear
+  // in the running-inbox (until-read removal / after-finish "you looked").
+  finishedAt.delete(sessionId);
   const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
   if (item) item.classList.remove('needs-attention');
   if (changed) refreshSessionStatusViews();
@@ -1472,6 +1531,7 @@ function updateRunningIndicators() {
         attentionReason.delete(id);
         responseReadySessions.delete(id);
         sessionBusyState.delete(id);
+        finishedAt.delete(id);
       }
       const dot = item.querySelector('.session-status-dot');
       if (dot) dot.classList.toggle('running', running);
@@ -2085,6 +2145,7 @@ async function reapplyGlobalSettings() {
   if (!g) return;
   try { window._applyNotificationSettings?.(g); } catch {}
   if (g.notifications) window._setNotificationSettings?.(g.notifications);
+  if (g.runningInbox) window._setRunningInboxSetting?.(g.runningInbox);
   if (g.terminalTheme) window._applyTerminalTheme?.(g.terminalTheme);
   if (g.terminalRightClick) window._applyTerminalRightClick?.(g.terminalRightClick);
   if (g.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(g.terminalMouseReporting !== 'off');
@@ -2201,6 +2262,9 @@ setTimeout(() => {
     }
     if (global.notifications) {
       window._setNotificationSettings(global.notifications);
+    }
+    if (global.runningInbox) {
+      window._setRunningInboxSetting(global.runningInbox);
     }
     if (global.terminalRightClick) terminalRightClickMode = global.terminalRightClick;
     if (global.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') {
