@@ -5,6 +5,13 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Which platform to build'
+        type: choice
+        default: mac
+        options: [all, mac, win, linux]
 
 permissions:
   contents: write
@@ -33,6 +40,13 @@ jobs:
             arch: arm64
 
     runs-on: ${{ matrix.os }}
+
+    # On manual dispatch, only run the chosen platform (or all). Tag/PR builds
+    # ignore this and always run the full matrix.
+    if: >-
+      github.event_name != 'workflow_dispatch'
+      || github.event.inputs.platform == 'all'
+      || github.event.inputs.platform == matrix.platform
 
     steps:
       - uses: actions/checkout@v4
