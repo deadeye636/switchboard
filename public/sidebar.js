@@ -690,6 +690,9 @@ function processProjectSessions(project, resort) {
       visibleCount: visible.length,
       olderCount: older.length,
       projectMatchedOnly: !!project._projectMatchedOnly,
+      // Genuinely empty project (no sessions after backend filtering, nothing
+      // truncated) with no active filter → keep it as an empty placeholder row.
+      emptyPlaceholder: filtered.length === 0 && older.length === 0 && !anyFilterActive,
     })) {
       return null;
     }
@@ -1283,8 +1286,20 @@ function renderProjectsFolderFirst(projects, resort) {
   const ungroupedProjects = [];
   for (const project of projects) {
     const sessions = ungroupedByProject.get(project.projectPath);
-    if (!sessions || sessions.length === 0) continue;
-    ungroupedProjects.push({ ...project, sessions });
+    if (sessions && sessions.length > 0) {
+      ungroupedProjects.push({ ...project, sessions });
+      continue;
+    }
+    // Projects with no visible sessions in any folder or ungrouped bucket
+    // (projectRecency only holds projects that contributed a session). Mirror
+    // the directory-first path: hand the untouched project to processProjectSessions,
+    // which renders an empty project row when no filter is active and hides it under
+    // an active filter. Without this, archiving the last session silently dropped the
+    // whole project from the folder view — the explicit hide feature should be the
+    // only way to remove a project.
+    if (!projectRecency.has(project.projectPath)) {
+      ungroupedProjects.push({ ...project });
+    }
   }
   ungroupedProjects.sort((a, b) => (projectRecency.get(b.projectPath) || 0) - (projectRecency.get(a.projectPath) || 0));
 

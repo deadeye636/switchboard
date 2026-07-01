@@ -88,6 +88,9 @@ The win target is **x64-only** (arm64 toolchain not available here).
 - **Git commits: always via the `git-commit` skill**, not raw `git commit`. The skill
   builds a Conventional-Commits message in **German**. Only fall back to raw `git commit`
   if the skill is unavailable. One logical change per commit.
+- **Commit only after the feature is confirmed working.** Don't commit a change just
+  because tests pass — wait until the behaviour has been verified (manual check in the
+  app, or the user confirms it works). Green tests alone are not a green light to commit.
 - Don't add a framework, build step, or bundler to the renderer beyond the existing esbuild CodeMirror bundle.
 - When touching `db.js` schema: append a migration, never edit an existing one.
 - When adding IPC: handler in `main.js` + binding in `preload.js` + (if it returns to UI) a renderer caller.
