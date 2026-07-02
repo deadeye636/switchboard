@@ -129,7 +129,7 @@
     // Notifications (global only) — alert sound on attention + read-only hotkey hint.
     const attentionSoundValue = !!((current.notifications || {}).sound);
     const isMacPlatform = !!(window.api && window.api.platform === 'darwin');
-    const nextAttentionShortcutLabel = isMacPlatform ? '\u2318\u21e7A' : 'Ctrl+Shift+A';
+    const nextAttentionShortcutLabel = isMacPlatform ? '⌘⇧A' : 'Ctrl+Shift+A';
 
     // Notifications live in the global blob under `notifications`.
     const notificationsValue = (!isProject && current.notifications) || {};
@@ -150,564 +150,795 @@
     let shellProfiles = [];
     try { shellProfiles = await window.api.getShellProfiles(); } catch {};
 
-    settingsViewerBody.innerHTML = `
-    <div class="settings-form">
-      ${isProject ? `
-      <div class="settings-section">
-        <div class="settings-section-title">Project</div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Display name</span>
-            <div class="settings-description">Shown instead of the folder name in the sidebar. Leave empty to use the directory (<code>${escapeHtml(shortName)}</code>).</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="text" class="settings-input" id="sv-display-name" placeholder="${escapeHtml(shortName)}" value="${escapeHtml(displayNameValue)}">
-          </div>
-        </div>
-      </div>` : ''}
-      <div class="settings-section">
-        <div class="settings-section-title">Claude CLI Options</div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Auto mode</span>
-            <div class="settings-description">Auto-accept Claude's file edits without prompting (Claude's Shift+Tab "auto-accept edits"). Claude still asks before running risky commands. Shortcut for Permission Mode &rarr; Accept Edits.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-auto-mode" ${permModeValue === 'acceptEdits' ? 'checked' : ''} ${fieldDisabled('permissionMode')}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <div class="settings-field-header">
-              <span class="settings-label">Permission Mode</span>
-              ${useGlobalCheckbox('permissionMode')}
-            </div>
-            <div class="settings-description">Permission mode passed to the <code>claude</code> command. "Accept Edits" is the same as Auto mode above.</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-perm-mode" ${fieldDisabled('permissionMode')}>
-              <option value="">Default — ask before each action</option>
-              <option value="acceptEdits" ${permModeValue === 'acceptEdits' ? 'selected' : ''}>Accept Edits — auto mode (auto-accept file edits)</option>
-              <option value="plan" ${permModeValue === 'plan' ? 'selected' : ''}>Plan — read-only, propose a plan first</option>
-              <option value="dontAsk" ${permModeValue === 'dontAsk' ? 'selected' : ''}>Don't Ask — skip routine confirmations</option>
-              <option value="bypassPermissions" ${permModeValue === 'bypassPermissions' ? 'selected' : ''}>Bypass — skip all permission checks</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <div class="settings-field-header">
-              <span class="settings-label">Worktree</span>
-              ${useGlobalCheckbox('worktree')}
-            </div>
-            <div class="settings-description">Enable worktree for new sessions</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-worktree" ${worktreeValue ? 'checked' : ''} ${fieldDisabled('worktree')}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <div class="settings-field-header">
-              <span class="settings-label">Worktree Name</span>
-              ${useGlobalCheckbox('worktreeName')}
-            </div>
-            <div class="settings-description">Custom name for worktree branches</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="text" class="settings-input" id="sv-worktree-name" placeholder="auto" value="${escapeHtml(worktreeNameValue)}" ${fieldDisabled('worktreeName')} style="width:140px">
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <div class="settings-field-header">
-              <span class="settings-label">Chrome</span>
-              ${useGlobalCheckbox('chrome')}
-            </div>
-            <div class="settings-description">Enable Chrome browser automation</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-chrome" ${chromeValue ? 'checked' : ''} ${fieldDisabled('chrome')}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-
-        <div class="settings-field settings-field-wide">
-          <div class="settings-field-info">
-            <div class="settings-field-header">
-              <span class="settings-label">Additional Directories</span>
-              ${useGlobalCheckbox('addDirs')}
-            </div>
-            <div class="settings-description">Extra directories to include in Claude sessions</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="text" class="settings-input" id="sv-add-dirs" placeholder="/path/to/dir1, /path/to/dir2" value="${escapeHtml(addDirsValue)}" ${fieldDisabled('addDirs')}>
-          </div>
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <div class="settings-section-title">Session Launch</div>
-
-        <div class="settings-field settings-field-wide">
-          <div class="settings-field-info">
-            <div class="settings-field-header">
-              <span class="settings-label">Pre-launch Command</span>
-              ${useGlobalCheckbox('preLaunchCmd')}
-            </div>
-            <div class="settings-description">Prepended to the claude command (e.g. "aws-vault exec profile --")</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="text" class="settings-input" id="sv-pre-launch" placeholder="e.g. aws-vault exec profile --" value="${escapeHtml(preLaunchValue)}" ${fieldDisabled('preLaunchCmd')}>
-          </div>
-        </div>
-      </div>
-
-      ${!isProject ? `<div class="settings-section">
-        <div class="settings-section-title">Application</div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Terminal Theme</span>
-            <div class="settings-description">Color theme for terminal sessions</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-terminal-theme">
-              ${Object.entries(TERMINAL_THEMES).map(([key, t]) =>
-                `<option value="${key}" ${themeValue === key ? 'selected' : ''}>${escapeHtml(t.label)}</option>`
-              ).join('')}
-            </select>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Terminal Font</span>
-            <div class="settings-description">Font family for terminal sessions. Use a monospace font &mdash; proportional fonts break column alignment. The font must be installed; an unknown name falls back silently. Pick <b>Custom</b> to enter your own family. Also adjustable live with ${isMacPlatform ? '⌘' : 'Ctrl'} + / - / 0.</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-terminal-font-family">
-              ${TERMINAL_FONT_PRESETS.map(f =>
-                `<option value="${escapeHtml(f.value)}" ${terminalFontSelectValue === f.value ? 'selected' : ''}>${escapeHtml(f.label)}</option>`
-              ).join('')}
-              <option value="custom" ${terminalFontSelectValue === 'custom' ? 'selected' : ''}>Custom&hellip;</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Custom font family</span>
-            <div class="settings-description">Used only when <b>Custom</b> is selected above, e.g. <code>'IBM Plex Mono', monospace</code>.</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="text" class="settings-input" id="sv-terminal-font-custom" placeholder="${escapeHtml(DEFAULT_TERMINAL_FONT)}" value="${escapeHtml(terminalFontCustomValue)}">
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Terminal Font Size</span>
-            <div class="settings-description">Font size in pixels for terminal sessions (8&ndash;28).</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="number" class="settings-input settings-input-compact" id="sv-terminal-font-size" min="8" max="28" value="${terminalFontSizeValue}">
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Terminal Right-Click</span>
-            <div class="settings-description">What a right-click in the terminal does. Menu = context menu with file-link actions, copy &amp; paste. Copy or paste = copy the selection, or paste when nothing is selected (Windows/PuTTY style). Copy only = copy the selection. Native = xterm default. Takes effect on the next right-click.</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-right-click">
-              <option value="menu" ${rightClickValue === 'menu' ? 'selected' : ''}>Menu</option>
-              <option value="copy-paste" ${rightClickValue === 'copy-paste' ? 'selected' : ''}>Copy or paste</option>
-              <option value="copy" ${rightClickValue === 'copy' ? 'selected' : ''}>Copy only</option>
-              <option value="default" ${rightClickValue === 'default' ? 'selected' : ''}>Native</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Terminal Mouse Reporting</span>
-            <div class="settings-description">When on, terminal apps (e.g. Claude Code's TUI) can use the mouse for scrolling/clicking; select text with Shift+drag. When off, Switchboard strips the mouse-tracking escape sequences so plain left-click+drag always selects text — but the TUI no longer receives mouse events. Takes full effect on the next session output (open terminals are reset immediately).</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-mouse-reporting" ${mouseReportingValue !== 'off' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">GPU rendering (WebGL)</span>
-            <div class="settings-description">Render terminals with the GPU (WebGL) instead of the default DOM renderer. Faster for heavy full-screen output, but the terminal text may briefly flicker/"staircase" when switching tabs or resizing, and only ~16 terminals can hold a GPU context at once. Leave off unless you have very output-heavy sessions.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-terminal-webgl" ${terminalWebglValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Terminal close behavior</span>
-            <div class="settings-description">What closing a plain terminal tab does — independent of the Claude session close behavior. Kill on close = end the shell process. Keep running = close the view only; the shell keeps running and can be reopened.</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-terminal-close-behavior">
-              <option value="kill" ${terminalCloseValue !== 'keep' ? 'selected' : ''}>Kill on close</option>
-              <option value="keep" ${terminalCloseValue === 'keep' ? 'selected' : ''}>Keep running</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Shell Profile</span>
-            <div class="settings-description">Shell used for terminal and Claude sessions. Changes take effect for new sessions only.</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-shell-profile">
-              <option value="auto" ${shellProfileValue === 'auto' ? 'selected' : ''}>Auto (detect)</option>
-              ${shellProfiles.map(p =>
-                `<option value="${escapeHtml(p.id)}" ${shellProfileValue === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
-              ).join('')}
-            </select>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Max Visible Sessions</span>
-            <div class="settings-description">Show up to this many sessions before collapsing the rest behind "+N older"</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="number" class="settings-input settings-input-compact" id="sv-visible-count" min="1" max="100" value="${visCountValue}">
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Session Max Age (days)</span>
-            <div class="settings-description">Sessions older than this are hidden behind "+N older" even if under the count limit</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="number" class="settings-input settings-input-compact" id="sv-max-age" min="1" max="365" value="${maxAgeValue}">
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Usage colours — 5h (%)</span>
-            <div class="settings-description">The 5-hour usage bar turns green below the first value, orange from there, and red at or above the second. Defaults 60 / 80.</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="number" class="settings-input settings-input-compact" id="sv-usage-5h-warn" min="1" max="99" value="${usage5hWarnValue}" title="Orange from this %">
-            <input type="number" class="settings-input settings-input-compact" id="sv-usage-5h-crit" min="2" max="100" value="${usage5hCritValue}" title="Red at/above this %">
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Usage colours — 7d (%)</span>
-            <div class="settings-description">Thresholds for the 7-day usage bar (and the Quota bar). Same green / orange / red scale. Defaults 75 / 90.</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="number" class="settings-input settings-input-compact" id="sv-usage-7d-warn" min="1" max="99" value="${usage7dWarnValue}" title="Orange from this %">
-            <input type="number" class="settings-input settings-input-compact" id="sv-usage-7d-crit" min="2" max="100" value="${usage7dCritValue}" title="Red at/above this %">
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Restore open sessions on launch</span>
-            <div class="settings-description">Reopen the sessions you had open when Switchboard last quit, restoring the active session and grid view. Sessions are resumed, not kept running in the background.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-restore-sessions" ${restoreSessionsValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">IDE Emulation</span>
-            <div class="settings-description">Emulate an IDE so Claude can open files and diffs in a side panel. Disable to use your own IDE instead. Changes take effect for new sessions only.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-mcp-emulation" ${mcpEmulationValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Claude Code hooks for attention</span>
-            <div class="settings-description">More reliable attention detection via Claude Code hooks (catches permission/tool prompts the terminal heuristic can miss). Adds a reversible HTTP hook to <code>~/.claude/settings.json</code>; turning this off removes it. OSC-9 detection still works either way.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-attention-hooks" ${attentionHooksValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-      </div>` : ''}
-
-      ${!isProject ? `<div class="settings-section">
-        <div class="settings-section-title">Session Display</div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Sidebar on startup</span>
-            <div class="settings-description">Collapse state of project/group sections when the app starts: all expanded, all collapsed, or remember the last state.</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-collapse-default">
-              <option value="expanded" ${collapseDefaultValue === 'expanded' ? 'selected' : ''}>All expanded</option>
-              <option value="collapsed" ${collapseDefaultValue === 'collapsed' ? 'selected' : ''}>All collapsed</option>
-              <option value="remember" ${collapseDefaultValue === 'remember' ? 'selected' : ''}>Last state</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Open settings as</span>
-            <div class="settings-description">Clicking the gear opens settings as an overlay in the main window or as a separate window.</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-settings-open-mode">
-              <option value="overlay" ${settingsOpenModeValue === 'overlay' ? 'selected' : ''}>Overlay</option>
-              <option value="window" ${settingsOpenModeValue === 'window' ? 'selected' : ''}>Separate window</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Display mode</span>
-            <div class="settings-description">Grid = default behavior (sidebar + grid overview / single view). Tabs = a tab bar above the terminal to switch between open sessions; the grid mosaic stays reachable via the overview button.</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-display-mode">
-              <option value="grid" ${displayModeValue !== 'tabs' ? 'selected' : ''}>Grid</option>
-              <option value="tabs" ${displayModeValue === 'tabs' ? 'selected' : ''}>Tabs</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Tab position</span>
-            <div class="settings-description">Tab bar above or below the terminal (tabs mode only).</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-tab-position">
-              <option value="top" ${tabPositionValue === 'top' ? 'selected' : ''}>Top</option>
-              <option value="bottom" ${tabPositionValue === 'bottom' ? 'selected' : ''}>Bottom</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Close tab (×)</span>
-            <div class="settings-description">Close view = the session keeps running in the background, reopenable any time. Stop session = ends the process.</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-tab-close">
-              <option value="closeView" ${tabCloseValue === 'closeView' ? 'selected' : ''}>Close view</option>
-              <option value="stopSession" ${tabCloseValue === 'stopSession' ? 'selected' : ''}>Stop session</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Middle-click closes tab</span>
-            <div class="settings-description">Middle mouse button on a tab closes it (follows the × action above).</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-tab-middle-click" ${tabMiddleClickValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Reorder tabs by drag</span>
-            <div class="settings-description">Drag tabs into a different order with the mouse. The order is remembered.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-tab-drag" ${tabDragValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Auto-close tab after exit</span>
-            <div class="settings-description">When a session's process exits, close its tab automatically. Never = keep it open (re-click to relaunch, or click another tab). On success and error = close after any exit. On success only = keep failed sessions (non-zero exit) open so you can read the error.</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-tab-autoclose-mode">
-              <option value="never" ${tabAutoCloseModeValue === 'never' ? 'selected' : ''}>Never</option>
-              <option value="onSuccess" ${tabAutoCloseModeValue === 'onSuccess' ? 'selected' : ''}>On success only</option>
-              <option value="always" ${tabAutoCloseModeValue === 'always' ? 'selected' : ''}>On success and error</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Auto-close delay (seconds)</span>
-            <div class="settings-description">How long the exit banner stays before the tab closes. 0 = close immediately. Ignored when auto-close is Never.</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="number" class="settings-input settings-input-compact" id="sv-tab-autoclose-delay" min="0" max="120" value="${tabAutoCloseDelayValue}">
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Live-render background tabs</span>
-            <div class="settings-description">Render terminal output in background tabs immediately instead of buffering it until you switch. Removes the flicker when returning to a tab that produced output, at some CPU/GPU cost for busy background sessions. Off = buffer and replay on switch.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-tabs-live-render" ${tabsLiveRenderValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-      </div>` : ''}
-
-      ${!isProject ? `<div class="settings-section">
-        <div class="settings-section-title">Project list</div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Project sorting</span>
-            <div class="settings-description">Order of projects in the sidebar. Manual lets you drag projects into place (a grip handle appears on each project header).</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-project-sort">
-              <option value="activity" ${projectSortValue === 'activity' ? 'selected' : ''}>Activity (most recent first)</option>
-              <option value="alpha" ${projectSortValue === 'alpha' ? 'selected' : ''}>Alphabetical</option>
-              <option value="manual" ${projectSortValue === 'manual' ? 'selected' : ''}>Manual (drag to reorder)</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Favorites as separate list</span>
-            <div class="settings-description">On: favorites are not shown in the main list — only via the star filter in the toolbar. Off: favorites are pinned on top of the list (with a divider) and the star filter is hidden.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-favorites-own-list" ${favoritesOwnListValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Automatically add projects</span>
-            <div class="settings-description">On: every project you use with Claude Code appears automatically (all <code>~/.claude/projects</code> folders). Off: the current projects are kept and new ones no longer appear on their own — add them yourself with the + button (a session you start from Switchboard also adds its project). Switching back on restores full auto-discovery.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-project-auto-add" ${projectAutoAddValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-      </div>` : ''}
-
-      ${!isProject ? `<div class="settings-section">
-        <div class="settings-section-title">Handoff</div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Integrated Handoff System</span>
-            <div class="settings-description">When on, a handoff can be saved to the project (instead of starting a fresh session right away) and later resumed from the new-session menu ("Claude Handoff resume"). The guided flow needs a running session.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-handoff-library" ${handoffLibraryValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Handoff prompt</span>
-            <div class="settings-description">Sent to the running agent to produce the handoff. Use placeholders {goal} {project} {sessionId} {metrics}. Set it to a skill command like <code>/handoff</code> to run a skill instead. Clear the field to restore the default.</div>
-          </div>
-          <div class="settings-field-control">
-            <textarea class="settings-input" id="sv-handoff-prompt" spellcheck="false" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffPromptValue)}</textarea>
-          </div>
-        </div>
-      </div>` : ''}
-
-      ${!isProject ? `<div class="settings-section">
-        <div class="settings-section-title">Keyboard Shortcuts</div>
-        ${SHORTCUT_DEFS.map(def => `
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">${escapeHtml(def.label)}</span>
-            <div class="settings-description">${escapeHtml(def.description)}</div>
-          </div>
-          <div class="settings-field-control">
-            <button class="settings-shortcut-btn" id="sv-sc-${def.id}" data-sc-id="${def.id}">${escapeHtml(formatBinding(def.id, scIsMac, scShortcuts))}</button>
-          </div>
-        </div>`).join('')}
-        <div class="settings-hint">Click a shortcut, then press the new combination. At least one modifier (${scIsMac ? 'Cmd' : 'Ctrl'}, ${scIsMac ? 'Option' : 'Alt'} or Shift) is required. Press Esc to cancel, or click again to reset to defaults.</div>
-      </div>` : ''}
-
-      ${!isProject ? `<div class="settings-section">
-        <div class="settings-section-title">Notifications</div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Enable notifications</span>
-            <div class="settings-description">Show a native OS notification and dock/taskbar badge when a session needs you while Switchboard is unfocused</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-notify-enabled" ${notifyEnabledValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Notify when a session is ready</span>
-            <div class="settings-description">Also notify when an agent finishes and is ready for review, not just when it needs action</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-notify-ready" ${notifyOnReadyValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Alert sound on attention</span>
-            <div class="settings-description">Play a short chime when a session needs your attention. Press <code>${escapeHtml(nextAttentionShortcutLabel)}</code> to jump to the next session needing you.</div>
-          </div>
-          <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-attention-sound" ${attentionSoundValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Running sessions in attention inbox</span>
-            <div class="settings-description">When a live session is idle (not working, not awaiting you), whether it shows in the attention list. <b>Until opened</b>: stays until you open it. <b>Until opened, or after a few minutes</b>: whichever comes first. <b>For a few minutes (even after opening)</b>: stays the full time below regardless of opening it. <b>Always</b>/<b>Never</b>: unconditional. Sessions that never ran are never shown.</div>
-          </div>
-          <div class="settings-field-control">
-            <select class="settings-select" id="sv-running-inbox-mode">
-              <option value="until-read" ${runningInboxModeValue === 'until-read' ? 'selected' : ''}>Until opened</option>
-              <option value="after-finish" ${runningInboxModeValue === 'after-finish' ? 'selected' : ''}>Until opened, or after a few minutes</option>
-              <option value="timed" ${runningInboxModeValue === 'timed' ? 'selected' : ''}>For a few minutes (even after opening)</option>
-              <option value="always" ${runningInboxModeValue === 'always' ? 'selected' : ''}>Always</option>
-              <option value="never" ${runningInboxModeValue === 'never' ? 'selected' : ''}>Never</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">Keep finished sessions for</span>
-            <div class="settings-description">Minutes a finished session stays in the inbox &mdash; used only by &ldquo;For a few minutes after finishing&rdquo;.</div>
-          </div>
-          <div class="settings-field-control">
-            <input type="number" class="settings-input settings-input-compact" id="sv-running-inbox-minutes" min="1" max="120" value="${runningInboxMinutesValue}">
-          </div>
-        </div>
-      </div>` : ''}
-
+    // Shared button row (both scopes).
+    const btnRow = `
       <div class="settings-btn-row">
         <button class="settings-cancel-btn" id="sv-cancel-btn">Cancel</button>
         <button class="settings-save-btn" id="sv-save-btn">Save Settings</button>
         ${isProject ? '<button class="settings-remove-btn" id="sv-remove-btn">Hide Project</button>' : ''}
-      </div>
-    </div>
-  `;
+      </div>`;
+
+    // Small building blocks for the global two-pane layout.
+    const help = `<button type="button" class="settings-help" aria-expanded="false" aria-label="More info">?</button>`;
+    const advChev = `<svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>`;
+
+    if (isProject) {
+      // ---- Project scope: single-column form (unchanged behaviour) ----
+      settingsViewerBody.classList.remove('sv-two-pane');
+      settingsViewerBody.innerHTML = `
+      <div class="settings-form">
+        <div class="settings-section">
+          <div class="settings-section-title">Project</div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <span class="settings-label">Display name</span>
+              <div class="settings-description">Shown instead of the folder name in the sidebar. Leave empty to use the directory (<code>${escapeHtml(shortName)}</code>).</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-display-name" placeholder="${escapeHtml(shortName)}" value="${escapeHtml(displayNameValue)}">
+            </div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-section-title">Claude CLI Options</div>
+
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <span class="settings-label">Auto mode</span>
+              <div class="settings-description">Auto-accept Claude's file edits without prompting (Claude's Shift+Tab "auto-accept edits"). Claude still asks before running risky commands. Shortcut for Permission Mode &rarr; Accept Edits.</div>
+            </div>
+            <div class="settings-field-control">
+              <label class="settings-toggle"><input type="checkbox" id="sv-auto-mode" ${permModeValue === 'acceptEdits' ? 'checked' : ''} ${fieldDisabled('permissionMode')}><span class="settings-toggle-slider"></span></label>
+            </div>
+          </div>
+
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Permission Mode</span>
+                ${useGlobalCheckbox('permissionMode')}
+              </div>
+              <div class="settings-description">Permission mode passed to the <code>claude</code> command. "Accept Edits" is the same as Auto mode above.</div>
+            </div>
+            <div class="settings-field-control">
+              <select class="settings-select" id="sv-perm-mode" ${fieldDisabled('permissionMode')}>
+                <option value="">Default — ask before each action</option>
+                <option value="acceptEdits" ${permModeValue === 'acceptEdits' ? 'selected' : ''}>Accept Edits — auto mode (auto-accept file edits)</option>
+                <option value="plan" ${permModeValue === 'plan' ? 'selected' : ''}>Plan — read-only, propose a plan first</option>
+                <option value="dontAsk" ${permModeValue === 'dontAsk' ? 'selected' : ''}>Don't Ask — skip routine confirmations</option>
+                <option value="bypassPermissions" ${permModeValue === 'bypassPermissions' ? 'selected' : ''}>Bypass — skip all permission checks</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Worktree</span>
+                ${useGlobalCheckbox('worktree')}
+              </div>
+              <div class="settings-description">Enable worktree for new sessions</div>
+            </div>
+            <div class="settings-field-control">
+              <label class="settings-toggle"><input type="checkbox" id="sv-worktree" ${worktreeValue ? 'checked' : ''} ${fieldDisabled('worktree')}><span class="settings-toggle-slider"></span></label>
+            </div>
+          </div>
+
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Worktree Name</span>
+                ${useGlobalCheckbox('worktreeName')}
+              </div>
+              <div class="settings-description">Custom name for worktree branches</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-worktree-name" placeholder="auto" value="${escapeHtml(worktreeNameValue)}" ${fieldDisabled('worktreeName')} style="width:140px">
+            </div>
+          </div>
+
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Chrome</span>
+                ${useGlobalCheckbox('chrome')}
+              </div>
+              <div class="settings-description">Enable Chrome browser automation</div>
+            </div>
+            <div class="settings-field-control">
+              <label class="settings-toggle"><input type="checkbox" id="sv-chrome" ${chromeValue ? 'checked' : ''} ${fieldDisabled('chrome')}><span class="settings-toggle-slider"></span></label>
+            </div>
+          </div>
+
+          <div class="settings-field settings-field-wide">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Additional Directories</span>
+                ${useGlobalCheckbox('addDirs')}
+              </div>
+              <div class="settings-description">Extra directories to include in Claude sessions</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-add-dirs" placeholder="/path/to/dir1, /path/to/dir2" value="${escapeHtml(addDirsValue)}" ${fieldDisabled('addDirs')}>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Session Launch</div>
+
+          <div class="settings-field settings-field-wide">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Pre-launch Command</span>
+                ${useGlobalCheckbox('preLaunchCmd')}
+              </div>
+              <div class="settings-description">Prepended to the claude command (e.g. "aws-vault exec profile --")</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-pre-launch" placeholder="e.g. aws-vault exec profile --" value="${escapeHtml(preLaunchValue)}" ${fieldDisabled('preLaunchCmd')}>
+            </div>
+          </div>
+        </div>
+        ${btnRow}
+      </div>`;
+    } else {
+      // ---- Global scope: two-pane layout (nav + category panes) ----
+      settingsViewerBody.classList.add('sv-two-pane');
+      settingsViewerBody.innerHTML = `
+      <div class="settings-shell">
+        <nav class="settings-nav">
+          <div class="settings-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7a7a90" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input id="sv-search" type="text" placeholder="Search settings…" autocomplete="off">
+          </div>
+          <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">11</span></button>
+          <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
+          <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
+          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">5</span></button>
+          <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
+          <div class="settings-nav-sep"></div>
+          <button class="settings-nav-item" data-cat="shortcuts">Keyboard Shortcuts <span class="settings-nav-count">${SHORTCUT_DEFS.length}</span></button>
+          <button class="settings-nav-item" data-cat="handoff">Handoff <span class="settings-nav-count">2</span></button>
+        </nav>
+
+        <div class="settings-main">
+          <div class="settings-form">
+            <div class="settings-no-results" id="sv-no-results">No settings match your search.</div>
+
+            <!-- ===== Sessions & CLI ===== -->
+            <section class="settings-cat active" data-cat="sessions">
+              <div class="settings-cat-head"><h2>Sessions &amp; CLI</h2><p>How Claude launches and what it may touch.</p></div>
+
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Permission Mode</span>${help}</div>
+                    <div class="settings-description">How much Claude asks before acting. "Accept Edits" takes file edits automatically — risky commands still prompt.</div>
+                    <div class="settings-more">Passed to the <code>claude</code> command. <b>Default</b>: asks before each action. <b>Accept Edits</b>: auto-accepts file edits only. <b>Plan</b>: read-only, proposes a plan first. <b>Don't Ask</b>: skips routine confirmations. <b>Bypass</b>: skips all permission checks — use with care.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-perm-mode">
+                      <option value="">Default — ask before each action</option>
+                      <option value="acceptEdits" ${permModeValue === 'acceptEdits' ? 'selected' : ''}>Accept Edits — auto-accept file edits</option>
+                      <option value="plan" ${permModeValue === 'plan' ? 'selected' : ''}>Plan — read-only, propose a plan first</option>
+                      <option value="dontAsk" ${permModeValue === 'dontAsk' ? 'selected' : ''}>Don't Ask — skip routine confirmations</option>
+                      <option value="bypassPermissions" ${permModeValue === 'bypassPermissions' ? 'selected' : ''}>Bypass — skip all permission checks</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Auto-accept edits</span>
+                    <div class="settings-description">Shortcut for Permission Mode → Accept Edits.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-auto-mode" ${permModeValue === 'acceptEdits' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">IDE emulation</span>${help}</div>
+                    <div class="settings-description">Let Claude open files and diffs in a side panel. Off = use your own editor.</div>
+                    <div class="settings-more">Emulates an IDE so Claude can open files and diffs in a side panel. Disable to use your own IDE instead. Changes take effect for new sessions only.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-mcp-emulation" ${mcpEmulationValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Restore sessions on launch</span>${help}</div>
+                    <div class="settings-description">Reopen the sessions you had open when you last quit.</div>
+                    <div class="settings-more">Restores the active session and grid view too. Sessions are resumed, not kept running in the background.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-restore-sessions" ${restoreSessionsValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Shell profile</span>
+                    <div class="settings-description">Shell for new terminal and Claude sessions. New sessions only.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-shell-profile">
+                      <option value="auto" ${shellProfileValue === 'auto' ? 'selected' : ''}>Auto (detect)</option>
+                      ${shellProfiles.map(p =>
+                        `<option value="${escapeHtml(p.id)}" ${shellProfileValue === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+                      ).join('')}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Worktree</span>
+                    <div class="settings-description">Run new sessions in a separate git worktree.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-worktree" ${worktreeValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Worktree branch name</span>
+                    <div class="settings-description">Blank = generated automatically.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-worktree-name" placeholder="auto" value="${escapeHtml(worktreeNameValue)}" style="width:140px">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Chrome automation</span>
+                    <div class="settings-description">Allow Claude to drive a Chrome browser.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-chrome" ${chromeValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field settings-field-wide">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Additional directories</span>
+                    <div class="settings-description">Extra folders Claude may read outside the project.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-add-dirs" placeholder="/path/to/dir1, /path/to/dir2" value="${escapeHtml(addDirsValue)}">
+                  </div>
+                </div>
+                <div class="settings-field settings-field-wide">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Pre-launch command</span>
+                    <div class="settings-description">Runs before <code>claude</code>, e.g. <code>aws-vault exec profile --</code>.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-pre-launch" placeholder="e.g. aws-vault exec profile --" value="${escapeHtml(preLaunchValue)}">
+                  </div>
+                </div>
+              </div>
+
+              <details class="settings-adv">
+                <summary>${advChev}Advanced</summary>
+                <div class="settings-section">
+                  <div class="settings-field">
+                    <div class="settings-field-info">
+                      <div class="settings-field-header"><span class="settings-label">Claude Code hooks for attention</span>${help}</div>
+                      <div class="settings-description">More reliable attention detection than the terminal check alone.</div>
+                      <div class="settings-more">Catches permission and tool prompts the terminal heuristic can miss. Adds a reversible HTTP hook to <code>~/.claude/settings.json</code>; turning this off removes it again. OSC-9 detection keeps working either way.</div>
+                    </div>
+                    <div class="settings-field-control">
+                      <label class="settings-toggle"><input type="checkbox" id="sv-attention-hooks" ${attentionHooksValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </section>
+
+            <!-- ===== Terminal ===== -->
+            <section class="settings-cat" data-cat="terminal">
+              <div class="settings-cat-head"><h2>Terminal</h2><p>Appearance and input for terminal sessions.</p></div>
+
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Theme</span>
+                    <div class="settings-description">Color theme for terminal sessions.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-terminal-theme">
+                      ${Object.entries(TERMINAL_THEMES).map(([key, t]) =>
+                        `<option value="${key}" ${themeValue === key ? 'selected' : ''}>${escapeHtml(t.label)}</option>`
+                      ).join('')}
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Font</span>${help}</div>
+                    <div class="settings-description">Use a monospace font. Live-adjust the size with ${isMacPlatform ? '⌘' : 'Ctrl'} + / − / 0.</div>
+                    <div class="settings-more">Proportional fonts break column alignment. The font must be installed; an unknown name falls back silently. Pick <b>Custom</b> to enter your own family below.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-terminal-font-family">
+                      ${TERMINAL_FONT_PRESETS.map(f =>
+                        `<option value="${escapeHtml(f.value)}" ${terminalFontSelectValue === f.value ? 'selected' : ''}>${escapeHtml(f.label)}</option>`
+                      ).join('')}
+                      <option value="custom" ${terminalFontSelectValue === 'custom' ? 'selected' : ''}>Custom&hellip;</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Custom font family</span>
+                    <div class="settings-description">Used only when <b>Custom</b> is selected above, e.g. <code>'IBM Plex Mono', monospace</code>.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-terminal-font-custom" placeholder="${escapeHtml(DEFAULT_TERMINAL_FONT)}" value="${escapeHtml(terminalFontCustomValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Font size</span>
+                    <div class="settings-description">Pixels, 8 to 28.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-terminal-font-size" min="8" max="28" value="${terminalFontSizeValue}">
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Right-click action</span>${help}</div>
+                    <div class="settings-description">Menu, copy/paste (Windows style), copy only, or the native xterm default.</div>
+                    <div class="settings-more"><b>Menu</b>: context menu with file-link actions, copy &amp; paste. <b>Copy or paste</b>: copy the selection, or paste when nothing is selected. <b>Copy only</b>: copy the selection. <b>Native</b>: xterm default. Takes effect on the next right-click.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-right-click">
+                      <option value="menu" ${rightClickValue === 'menu' ? 'selected' : ''}>Menu</option>
+                      <option value="copy-paste" ${rightClickValue === 'copy-paste' ? 'selected' : ''}>Copy or paste</option>
+                      <option value="copy" ${rightClickValue === 'copy' ? 'selected' : ''}>Copy only</option>
+                      <option value="default" ${rightClickValue === 'default' ? 'selected' : ''}>Native</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Mouse reporting</span>${help}</div>
+                    <div class="settings-description">On: apps like Claude's TUI get mouse events — select text with Shift+drag. Off: plain drag always selects text.</div>
+                    <div class="settings-more">When off, Switchboard strips the mouse-tracking escape sequences so a plain left-click+drag always selects text — but the TUI no longer receives mouse events. Takes full effect on the next output; open terminals reset immediately.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-mouse-reporting" ${mouseReportingValue !== 'off' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Closing a terminal tab</span>${help}</div>
+                    <div class="settings-description">Kill the shell, or keep it running to reopen later.</div>
+                    <div class="settings-more">Independent of the Claude session close behavior. <b>Kill the shell</b>: end the shell process. <b>Keep running</b>: close the view only; the shell keeps running and can be reopened.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-terminal-close-behavior">
+                      <option value="kill" ${terminalCloseValue !== 'keep' ? 'selected' : ''}>Kill the shell</option>
+                      <option value="keep" ${terminalCloseValue === 'keep' ? 'selected' : ''}>Keep running</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <details class="settings-adv">
+                <summary>${advChev}Advanced</summary>
+                <div class="settings-section">
+                  <div class="settings-field">
+                    <div class="settings-field-info">
+                      <div class="settings-field-header"><span class="settings-label">GPU rendering (WebGL)</span>${help}</div>
+                      <div class="settings-description">Render terminals via the GPU. Faster for heavy output, but may flicker on tab switch.</div>
+                      <div class="settings-more">Uses WebGL instead of the default DOM renderer. Text may briefly flicker or "staircase" when switching tabs or resizing, and only about 16 terminals can hold a GPU context at once. Leave off unless you have very output-heavy sessions.</div>
+                    </div>
+                    <div class="settings-field-control">
+                      <label class="settings-toggle"><input type="checkbox" id="sv-terminal-webgl" ${terminalWebglValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </section>
+
+            <!-- ===== Layout & Tabs ===== -->
+            <section class="settings-cat" data-cat="layout">
+              <div class="settings-cat-head"><h2>Layout &amp; Tabs</h2><p>How sessions and windows are arranged.</p></div>
+
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Display mode</span>${help}</div>
+                    <div class="settings-description">Grid overview, or a tab bar above the terminal.</div>
+                    <div class="settings-more"><b>Grid</b>: sidebar + grid overview / single view. <b>Tabs</b>: a tab bar above the terminal to switch between open sessions; the grid mosaic stays reachable via the overview button.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-display-mode">
+                      <option value="grid" ${displayModeValue !== 'tabs' ? 'selected' : ''}>Grid</option>
+                      <option value="tabs" ${displayModeValue === 'tabs' ? 'selected' : ''}>Tabs</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Open settings as</span>
+                    <div class="settings-description">Overlay in the main window, or a separate window.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-settings-open-mode">
+                      <option value="overlay" ${settingsOpenModeValue === 'overlay' ? 'selected' : ''}>Overlay</option>
+                      <option value="window" ${settingsOpenModeValue === 'window' ? 'selected' : ''}>Separate window</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Sidebar on startup</span>
+                    <div class="settings-description">Start with project/group sections expanded, collapsed, or in the last state.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-collapse-default">
+                      <option value="expanded" ${collapseDefaultValue === 'expanded' ? 'selected' : ''}>All expanded</option>
+                      <option value="collapsed" ${collapseDefaultValue === 'collapsed' ? 'selected' : ''}>All collapsed</option>
+                      <option value="remember" ${collapseDefaultValue === 'remember' ? 'selected' : ''}>Last state</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Tab position</span>
+                    <div class="settings-description">Tab bar above or below the terminal (tabs mode only).</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-tab-position">
+                      <option value="top" ${tabPositionValue === 'top' ? 'selected' : ''}>Top</option>
+                      <option value="bottom" ${tabPositionValue === 'bottom' ? 'selected' : ''}>Bottom</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Closing a tab (×)</span>${help}</div>
+                    <div class="settings-description">Close view keeps the session running; stop session ends it.</div>
+                    <div class="settings-more"><b>Close view</b>: the session keeps running in the background, reopenable any time. <b>Stop session</b>: ends the process.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-tab-close">
+                      <option value="closeView" ${tabCloseValue === 'closeView' ? 'selected' : ''}>Close view</option>
+                      <option value="stopSession" ${tabCloseValue === 'stopSession' ? 'selected' : ''}>Stop session</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Middle-click closes a tab</span>
+                    <div class="settings-description">Follows the × action above.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-tab-middle-click" ${tabMiddleClickValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Reorder tabs by dragging</span>
+                    <div class="settings-description">The order is remembered.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-tab-drag" ${tabDragValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Auto-close tab after a session exits</span>${help}</div>
+                    <div class="settings-description">On success only keeps failed sessions open so you can read the error.</div>
+                    <div class="settings-more"><b>Never</b>: keep the tab open (re-click to relaunch, or click another tab). <b>On success and error</b>: close after any exit. <b>On success only</b>: keep sessions that exited with an error.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-tab-autoclose-mode">
+                      <option value="never" ${tabAutoCloseModeValue === 'never' ? 'selected' : ''}>Never</option>
+                      <option value="onSuccess" ${tabAutoCloseModeValue === 'onSuccess' ? 'selected' : ''}>On success only</option>
+                      <option value="always" ${tabAutoCloseModeValue === 'always' ? 'selected' : ''}>On success and error</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Auto-close delay (seconds)</span>
+                    <div class="settings-description">How long the exit banner shows first. 0 = close immediately. Ignored when auto-close is Never.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-tab-autoclose-delay" min="0" max="120" value="${tabAutoCloseDelayValue}">
+                  </div>
+                </div>
+              </div>
+
+              <details class="settings-adv">
+                <summary>${advChev}Advanced</summary>
+                <div class="settings-section">
+                  <div class="settings-field">
+                    <div class="settings-field-info">
+                      <div class="settings-field-header"><span class="settings-label">Live-render background tabs</span>${help}</div>
+                      <div class="settings-description">Draw output in background tabs right away instead of on switch. No flicker, but more CPU for busy sessions.</div>
+                      <div class="settings-more">Removes the flicker when returning to a tab that produced output, at some CPU/GPU cost for busy background sessions. Off = buffer the output and replay it when you switch to the tab.</div>
+                    </div>
+                    <div class="settings-field-control">
+                      <label class="settings-toggle"><input type="checkbox" id="sv-tabs-live-render" ${tabsLiveRenderValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </section>
+
+            <!-- ===== Projects & Sidebar ===== -->
+            <section class="settings-cat" data-cat="projects">
+              <div class="settings-cat-head"><h2>Projects &amp; Sidebar</h2><p>Which projects appear and how the session list is trimmed.</p></div>
+
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Project order</span>${help}</div>
+                    <div class="settings-description">Order of projects in the sidebar.</div>
+                    <div class="settings-more"><b>Manual</b> lets you drag projects into place — a grip handle appears on each project header.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-project-sort">
+                      <option value="activity" ${projectSortValue === 'activity' ? 'selected' : ''}>Activity (most recent first)</option>
+                      <option value="alpha" ${projectSortValue === 'alpha' ? 'selected' : ''}>Alphabetical</option>
+                      <option value="manual" ${projectSortValue === 'manual' ? 'selected' : ''}>Manual (drag to reorder)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Favorites as a separate list</span>${help}</div>
+                    <div class="settings-description">On: reach favorites via the star filter. Off: pin them on top of the list.</div>
+                    <div class="settings-more">On: favorites are not shown in the main list — only via the star filter in the toolbar. Off: favorites are pinned on top of the list with a divider, and the star filter is hidden.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-favorites-own-list" ${favoritesOwnListValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Add projects automatically</span>${help}</div>
+                    <div class="settings-description">On: every project you use with Claude Code shows up on its own. Off: add them yourself with +.</div>
+                    <div class="settings-more">On: all <code>~/.claude/projects</code> folders appear automatically. Off: the current projects stay and new ones no longer appear on their own — add them with the + button (starting a session from Switchboard also adds its project). Switching back on restores full auto-discovery.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-project-auto-add" ${projectAutoAddValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Max visible sessions</span>
+                    <div class="settings-description">Show this many before collapsing the rest behind "+N older".</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-visible-count" min="1" max="100" value="${visCountValue}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Hide sessions older than (days)</span>
+                    <div class="settings-description">Older sessions collapse behind "+N older" even if under the count limit.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-max-age" min="1" max="365" value="${maxAgeValue}">
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- ===== Usage & Notifications ===== -->
+            <section class="settings-cat" data-cat="usage">
+              <div class="settings-cat-head"><h2>Usage &amp; Notifications</h2><p>Usage-bar colours and when Switchboard alerts you.</p></div>
+
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Usage colours — 5-hour bar (%)</span>
+                    <div class="settings-description"><span class="settings-usage-scale"><i style="background:#3ecf5a"></i><i style="background:#e0a13c"></i><i style="background:#e05a5a"></i></span>Green below the first value, orange from there, red at or above the second. Defaults 60 / 80.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-usage-5h-warn" min="1" max="99" value="${usage5hWarnValue}" title="Orange from this %">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-usage-5h-crit" min="2" max="100" value="${usage5hCritValue}" title="Red at/above this %">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Usage colours — 7-day &amp; quota bars (%)</span>
+                    <div class="settings-description"><span class="settings-usage-scale"><i style="background:#3ecf5a"></i><i style="background:#e0a13c"></i><i style="background:#e05a5a"></i></span>Same green / orange / red scale for the weekly and quota bars. Defaults 75 / 90.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-usage-7d-warn" min="1" max="99" value="${usage7dWarnValue}" title="Orange from this %">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-usage-7d-crit" min="2" max="100" value="${usage7dCritValue}" title="Red at/above this %">
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Enable notifications</span>
+                    <div class="settings-description">OS notification and taskbar badge when a session needs you and Switchboard is unfocused.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-notify-enabled" ${notifyEnabledValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Notify when a session is ready</span>
+                    <div class="settings-description">Also alert when an agent finishes and is ready for review, not only when it needs action.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-notify-ready" ${notifyOnReadyValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Alert sound</span>
+                    <div class="settings-description">Play a short chime when a session needs you. Press <code>${escapeHtml(nextAttentionShortcutLabel)}</code> to jump to the next one.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-attention-sound" ${attentionSoundValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Idle running sessions in the inbox</span>${help}</div>
+                    <div class="settings-description">When a live but idle session (not working, not awaiting you) shows in the attention list.</div>
+                    <div class="settings-more"><b>Until opened</b>: stays until you open it. <b>Until opened, or after a few minutes</b>: whichever comes first. <b>For a few minutes (even after opening)</b>: stays the full time set below regardless. <b>Always</b> / <b>Never</b>: unconditional. Sessions that never ran are never shown.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-running-inbox-mode">
+                      <option value="until-read" ${runningInboxModeValue === 'until-read' ? 'selected' : ''}>Until opened</option>
+                      <option value="after-finish" ${runningInboxModeValue === 'after-finish' ? 'selected' : ''}>Until opened, or after a few minutes</option>
+                      <option value="timed" ${runningInboxModeValue === 'timed' ? 'selected' : ''}>For a few minutes (even after opening)</option>
+                      <option value="always" ${runningInboxModeValue === 'always' ? 'selected' : ''}>Always</option>
+                      <option value="never" ${runningInboxModeValue === 'never' ? 'selected' : ''}>Never</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Keep finished sessions for (minutes)</span>
+                    <div class="settings-description">How long a finished session stays in the inbox — used only by the timed modes above.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-running-inbox-minutes" min="1" max="120" value="${runningInboxMinutesValue}">
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- ===== Keyboard Shortcuts ===== -->
+            <section class="settings-cat" data-cat="shortcuts">
+              <div class="settings-cat-head"><h2>Keyboard Shortcuts</h2><p>Click a shortcut, then press the new combination.</p></div>
+              <div class="settings-section">
+                ${SHORTCUT_DEFS.map(def => `
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">${escapeHtml(def.label)}</span>
+                    <div class="settings-description">${escapeHtml(def.description)}</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <button class="settings-shortcut-btn" id="sv-sc-${def.id}" data-sc-id="${def.id}">${escapeHtml(formatBinding(def.id, scIsMac, scShortcuts))}</button>
+                  </div>
+                </div>`).join('')}
+              </div>
+              <div class="settings-hint">At least one modifier (${scIsMac ? 'Cmd' : 'Ctrl'}, ${scIsMac ? 'Option' : 'Alt'} or Shift) is required. Press Esc to cancel, or click a shortcut again to reset it to defaults.</div>
+            </section>
+
+            <!-- ===== Handoff ===== -->
+            <section class="settings-cat" data-cat="handoff">
+              <div class="settings-cat-head"><h2>Handoff</h2><p>Save a session's context and pick it up later.</p></div>
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Integrated handoff</span>${help}</div>
+                    <div class="settings-description">Save a handoff to the project and resume it later from the new-session menu.</div>
+                    <div class="settings-more">When on, a handoff can be saved to the project (instead of starting a fresh session right away) and later resumed from the new-session menu ("Claude Handoff resume"). The guided flow needs a running session.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-handoff-library" ${handoffLibraryValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field settings-field-wide">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Handoff prompt</span>
+                    <div class="settings-description">Sent to the running agent to produce the handoff. Placeholders: {goal} {project} {sessionId} {metrics}. Set a skill command like <code>/handoff</code> to run a skill instead. Clear the field to restore the default.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <textarea class="settings-input" id="sv-handoff-prompt" spellcheck="false" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffPromptValue)}</textarea>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            ${btnRow}
+          </div>
+        </div>
+      </div>`;
+
+      // --- Global two-pane wiring: category nav, live search, "?" help toggles ---
+      const navItems = Array.from(settingsViewerBody.querySelectorAll('.settings-nav-item'));
+      const cats = Array.from(settingsViewerBody.querySelectorAll('.settings-cat'));
+      const searchInput = settingsViewerBody.querySelector('#sv-search');
+      const noResults = settingsViewerBody.querySelector('#sv-no-results');
+      const mainScroll = settingsViewerBody.querySelector('.settings-main');
+
+      function showCat(cat) {
+        cats.forEach(c => c.classList.toggle('active', c.dataset.cat === cat));
+        navItems.forEach(n => n.classList.toggle('active', n.dataset.cat === cat));
+        if (mainScroll) mainScroll.scrollTop = 0;
+      }
+
+      function applyGlobalSearch(q) {
+        q = (q || '').trim().toLowerCase();
+        if (!q) {
+          settingsViewerBody.querySelectorAll('.settings-cat .settings-field').forEach(f => { f.style.display = ''; });
+          settingsViewerBody.querySelectorAll('.settings-cat-head, .settings-section, .settings-hint, details.settings-adv').forEach(e => { e.style.display = ''; });
+          if (noResults) noResults.style.display = 'none';
+          const active = navItems.find(n => n.classList.contains('active')) || navItems[0];
+          showCat(active ? active.dataset.cat : 'sessions');
+          return;
+        }
+        // Search across all categories at once.
+        cats.forEach(c => c.classList.add('active'));
+        settingsViewerBody.querySelectorAll('.settings-cat-head').forEach(e => e.style.display = 'none');
+        settingsViewerBody.querySelectorAll('details.settings-adv').forEach(d => { d.style.display = ''; d.open = true; });
+        let any = false;
+        cats.forEach(cat => {
+          cat.querySelectorAll('.settings-field').forEach(f => {
+            const match = f.textContent.toLowerCase().includes(q);
+            f.style.display = match ? '' : 'none';
+            if (match) any = true;
+          });
+          cat.querySelectorAll('.settings-section').forEach(s => {
+            const vis = Array.from(s.querySelectorAll('.settings-field')).some(f => f.style.display !== 'none');
+            s.style.display = vis ? '' : 'none';
+          });
+          cat.querySelectorAll('details.settings-adv').forEach(d => {
+            const vis = Array.from(d.querySelectorAll('.settings-field')).some(f => f.style.display !== 'none');
+            d.style.display = vis ? '' : 'none';
+          });
+          const hint = cat.querySelector('.settings-hint');
+          if (hint) hint.style.display = 'none';
+        });
+        if (noResults) noResults.style.display = any ? 'none' : 'block';
+      }
+
+      navItems.forEach(n => n.addEventListener('click', () => {
+        if (searchInput) searchInput.value = '';
+        applyGlobalSearch('');
+        showCat(n.dataset.cat);
+      }));
+      if (searchInput) searchInput.addEventListener('input', (e) => applyGlobalSearch(e.target.value));
+
+      settingsViewerBody.querySelectorAll('.settings-help').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const info = btn.closest('.settings-field-info');
+          const more = info && info.querySelector('.settings-more');
+          if (!more) return;
+          const open = more.classList.toggle('open');
+          btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+      });
+    }
 
     // Auto mode is a friendly shortcut for Permission Mode = Accept Edits.
     // Keep the toggle and the dropdown in sync so there's a single underlying
@@ -981,7 +1212,7 @@
       if (!isProject && settings.mcpEmulation !== mcpEmulationValue) {
         const notice = document.createElement('div');
         notice.className = 'settings-notice';
-        notice.textContent = 'IDE Emulation setting changed. New sessions will use the updated setting \u2014 running sessions are not affected.';
+        notice.textContent = 'IDE Emulation setting changed. New sessions will use the updated setting — running sessions are not affected.';
         const saveBtn = settingsViewerBody.querySelector('#sv-save-btn');
         saveBtn.parentElement.insertBefore(notice, saveBtn);
         setTimeout(() => notice.remove(), 8000);

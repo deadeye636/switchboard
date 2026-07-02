@@ -4881,6 +4881,10 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
 
 .settings-no-results { display: none; text-align: center; color: #7a7a90; padding: 48px 0; font-size: 13px; }
 
+/* Usage-threshold colour swatch (green / orange / red) shown next to the usage fields */
+.settings-usage-scale { display: inline-flex; gap: 3px; margin-right: 7px; vertical-align: middle; }
+.settings-usage-scale i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
 /* --- Buttons --- */
 .settings-btn-row {
   position: sticky;
