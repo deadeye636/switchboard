@@ -32,6 +32,7 @@ Dateien und werden hier nur verlinkt.
 | #04 | P2 | **Flexibles Grid-Layout** (Karten-Resize / Drag-Reorder, 5B) | [Roadmap §Phase 5B](productivity-roadmap.md) |
 | #19 | P2 | **CI / Autobuild** (GitHub Actions: Test-CI + Win/Mac/Linux-Build + Release) | [Plan](ci-autobuild-plan.md) |
 | #05 | P3 | **Attention-Erkennung härten** via Claude-Code-Hooks + Bulk-Aktionen | [Roadmap §Phase 4](productivity-roadmap.md) |
+| #32 | P2 | **Projekt-Verwaltung („Projects"-Tab)** — Symbol rechts neben Work-Files → Großraum-Liste aller Projekte mit **Trust entfernen/setzen** (`~/.claude.json` `hasTrustDialogAccepted`, atomar), Hidden/Favorit/Allowlist/rename/remap/remove. Aggregierter IPC `get-projects-admin` + neuer `set-project-trust`. Feasibility geprüft (nur ein Trust-Feld; Datei enthält Secrets → chirurgisch editieren). **Umsetzung in neuer Session.** Offene Punkte im Plan (Trust-Setzen hinter Warn-Confirm; MCP/Cost-Anzeige als Ausbaustufe; alte Hide-UI ersetzen). | [Plan](projects-admin-plan.md) |
 
 ---
 
