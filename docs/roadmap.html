@@ -82,6 +82,30 @@ Dateien und werden hier nur verlinkt.</p>
 <td><a href="productivity-roadmap.html">Roadmap §Phase 4</a></td>
 </tr>
 <tr>
+<td>#43</td>
+<td>P3</td>
+<td><strong>Background-Agents in der Subagent-Ansicht zeigen</strong> — Claude Codes neues Background-Agents-Feature legt pro Agent nur einen <code>.meta.json</code>-Sidecar unter <code>&lt;parent&gt;/subagents/</code> an, <strong>kein</strong> Transcript-<code>.jsonl</code> (beobachtet 2026-07-02: Session <code>876c2b28</code>, „Feldtexte W6&quot;-Agents fertig, aber unsichtbar). Switchboard nistet Subagents über Scan von <code>subagents/*.jsonl</code> → ohne <code>.jsonl</code> nicht anzeigbar. Klären wo Background-Agent-Transcripts landen (evtl. eigene Top-Level-Sessions) und Erkennung/Anzeige ergänzen.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#42</td>
+<td>P3</td>
+<td><strong>Multi-LLM / Multi-Agent-Support (Codex, …)</strong> — neben Claude Code weitere Coding-CLIs als Session-Typ starten &amp; verwalten: <strong>Codex</strong>, GitHub Copilot CLI, OpenCode u. a. Betrifft Session-Start (Kommando/Args je Agent), Erkennung/Scan (nicht nur <code>~/.claude/projects</code>), evtl. eigene Session-Cache-Quelle. <strong>Groß</strong>, eigener Detailplan nötig; Basis für #41.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#41</td>
+<td>P3</td>
+<td><strong>Agent-Badges: welches Tool läuft wo (prüfen)</strong> <em>(Quelle: supacode)</em> — pro Session/Zeile Badge, das den <strong>Agent-Typ</strong> zeigt (Claude / Codex / Copilot CLI / OpenCode) + Live-Präsenz, hook-getrieben. Teil-Redundanz mit #13 (Status-Chips, aber nur Claude). Sinnvoll erst mit #42 (Multi-LLM). <strong>Erst prüfen</strong>, ob eigenständig oder in #13 aufgehen.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#40</td>
+<td>P3</td>
+<td><strong>Remote-Repo über SSH (wie lokal behandeln)</strong> <em>(Quelle: supacode)</em> — Repo/Projekt auf entferntem Host per SSH öffnen und in Switchboard wie ein lokales führen: Session-Scan, Terminal (PTY über SSH), Datei-/Diff-Zugriff. <strong>Groß</strong> — eigener Detailplan nötig (Transport, Auth via Bitwarden-SSH-Agent, Remote-<code>~/.claude/projects</code>-Scan, PTY-Bridging, Watcher-Ersatz). Vor Umsetzung Scope/Architektur klären.</td>
+<td>—</td>
+</tr>
+<tr>
 <td>#39</td>
 <td>P3</td>
 <td><strong>&quot;Dismiss All&quot; für Notifications</strong> <em>(Quelle: supacode)</em> — ein Button/Aktion, die alle offenen In-App-Notifications / Attention-Marker auf einmal quittiert. Ergänzt die Attention-Inbox (#13). Klein, reiner Renderer + evtl. State-Reset.</td>
