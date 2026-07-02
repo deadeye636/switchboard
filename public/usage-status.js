@@ -182,5 +182,65 @@
     };
   }
 
-  return { formatUsageStatus, getUsageLimitCards, getUsageRefreshDelayMs, withCachedUsageFallback };
+  // 3-tier colour scale for the status-bar bars: green (ok) → orange (warn) → red
+  // (crit). Thresholds are user-configurable (defaults mirror Claude's rough 60/80).
+  function usageLevel3(value, warn = 60, crit = 80) {
+    const v = Number(value);
+    if (!Number.isFinite(v)) return 'ok';
+    if (v >= crit) return 'crit';
+    if (v >= warn) return 'warn';
+    return 'ok';
+  }
+
+  // Bars shown inline in the status bar: 5h, 7d, and the extra-usage quota (only when
+  // >0%). `thresholds` is keyed by bar key (session / weekAll / extraUsage), each
+  // { warn, crit }; missing keys fall back to usageLevel3's defaults. Returns
+  // [{ key, label, percent, level }].
+  function getUsageBars(usage = {}, thresholds = {}) {
+    const th = (key) => thresholds[key] || {};
+    const bars = [];
+    for (const [key, label] of [['session', '5h'], ['weekAll', '7d']]) {
+      const value = pct(usage[key]);
+      if (value === null) continue;
+      const t = th(key);
+      bars.push({ key, label, percent: value, level: usageLevel3(value, t.warn, t.crit) });
+    }
+    const quotaPct = pct(usage.extraUsage);
+    if (quotaPct !== null && quotaPct > 0) {
+      const t = th('extraUsage');
+      bars.push({ key: 'extraUsage', label: 'Quota', percent: quotaPct, level: usageLevel3(quotaPct, t.warn, t.crit) });
+    }
+    return bars;
+  }
+
+  // Multi-line tooltip: every window with its reset time (24h, already formatted),
+  // plus the extra-usage quota with its $ amounts.
+  function getUsageTooltip(usage = {}) {
+    const lines = ['Claude usage'];
+    const rows = [
+      ['session', '5h (session)', 'sessionReset'],
+      ['weekAll', '7d (all models)', 'weekAllReset'],
+      ['weekSonnet', '7d (Sonnet)', 'weekSonnetReset'],
+      ['weekOpus', '7d (Opus)', 'weekOpusReset'],
+    ];
+    for (const [key, label, resetKey] of rows) {
+      const value = pct(usage[key]);
+      if (value === null) continue;
+      const reset = usage[resetKey] ? ` — resets ${usage[resetKey]}` : '';
+      lines.push(`${label}: ${value}%${reset}`);
+    }
+    const quotaPct = pct(usage.extraUsage);
+    if (quotaPct !== null) {
+      const currency = usage.extraUsageCurrency || 'USD';
+      const hasAmounts = usage.extraUsageUsed !== undefined && usage.extraUsageLimit !== undefined;
+      const amounts = hasAmounts
+        ? ` (${formatMoney(usage.extraUsageUsed, currency)} / ${formatMoney(usage.extraUsageLimit, currency)})`
+        : '';
+      lines.push(`Extra usage quota: ${quotaPct}%${amounts}`);
+    }
+    if (usage._stale) lines.push('(cached — usage API unavailable)');
+    return lines.join('\n');
+  }
+
+  return { formatUsageStatus, getUsageLimitCards, getUsageRefreshDelayMs, withCachedUsageFallback, usageLevel3, getUsageBars, getUsageTooltip };
 });

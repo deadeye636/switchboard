@@ -76,6 +76,10 @@
     const addDirsValue = fieldValue('addDirs', '');
     const visCountValue = fieldValue('visibleSessionCount', 10);
     const maxAgeValue = fieldValue('sessionMaxAgeDays', 3);
+    const usage5hWarnValue = fieldValue('usage5hWarn', 60);
+    const usage5hCritValue = fieldValue('usage5hCrit', 80);
+    const usage7dWarnValue = fieldValue('usage7dWarn', 75);
+    const usage7dCritValue = fieldValue('usage7dCrit', 90);
     const themeValue = fieldValue('terminalTheme', 'switchboard');
     // Terminal font (size + family). Family presets carry a monospace fallback;
     // a value not in the list is treated as a custom family.
@@ -394,6 +398,28 @@
           </div>
           <div class="settings-field-control">
             <input type="number" class="settings-input settings-input-compact" id="sv-max-age" min="1" max="365" value="${maxAgeValue}">
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Usage colours — 5h (%)</span>
+            <div class="settings-description">The 5-hour usage bar turns green below the first value, orange from there, and red at or above the second. Defaults 60 / 80.</div>
+          </div>
+          <div class="settings-field-control">
+            <input type="number" class="settings-input settings-input-compact" id="sv-usage-5h-warn" min="1" max="99" value="${usage5hWarnValue}" title="Orange from this %">
+            <input type="number" class="settings-input settings-input-compact" id="sv-usage-5h-crit" min="2" max="100" value="${usage5hCritValue}" title="Red at/above this %">
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Usage colours — 7d (%)</span>
+            <div class="settings-description">Thresholds for the 7-day usage bar (and the Quota bar). Same green / orange / red scale. Defaults 75 / 90.</div>
+          </div>
+          <div class="settings-field-control">
+            <input type="number" class="settings-input settings-input-compact" id="sv-usage-7d-warn" min="1" max="99" value="${usage7dWarnValue}" title="Orange from this %">
+            <input type="number" class="settings-input settings-input-compact" id="sv-usage-7d-crit" min="2" max="100" value="${usage7dCritValue}" title="Red at/above this %">
           </div>
         </div>
 
@@ -793,6 +819,19 @@
         settings.addDirs = settingsViewerBody.querySelector('#sv-add-dirs').value.trim();
         settings.visibleSessionCount = parseInt(settingsViewerBody.querySelector('#sv-visible-count').value) || 10;
         settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
+        {
+          const clampPair = (warnSel, critSel, dWarn, dCrit) => {
+            const warn = Math.max(1, Math.min(99, parseInt(settingsViewerBody.querySelector(warnSel).value, 10) || dWarn));
+            const crit = Math.max(warn + 1, Math.min(100, parseInt(settingsViewerBody.querySelector(critSel).value, 10) || dCrit));
+            return { warn, crit };
+          };
+          const five = clampPair('#sv-usage-5h-warn', '#sv-usage-5h-crit', 60, 80);
+          const seven = clampPair('#sv-usage-7d-warn', '#sv-usage-7d-crit', 75, 90);
+          settings.usage5hWarn = five.warn;
+          settings.usage5hCrit = five.crit;
+          settings.usage7dWarn = seven.warn;
+          settings.usage7dCrit = seven.crit;
+        }
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
         {
           const famSel = settingsViewerBody.querySelector('#sv-terminal-font-family').value;
@@ -897,6 +936,9 @@
         }
         if (typeof window._setTerminalWebgl === 'function') {
           window._setTerminalWebgl(settings.terminalWebgl === true);
+        }
+        if (typeof window._setUsageThresholds === 'function') {
+          window._setUsageThresholds({ fiveHWarn: settings.usage5hWarn, fiveHCrit: settings.usage5hCrit, sevenDWarn: settings.usage7dWarn, sevenDCrit: settings.usage7dCrit });
         }
         if (settings.shortcuts && typeof window._applyShortcuts === 'function') {
           window._applyShortcuts(settings.shortcuts);

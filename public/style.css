@@ -370,6 +370,24 @@ input:focus-visible {
   background: rgba(224,80,112,0.75);
 }
 
+/* Per-window usage bars (5h / 7d / Quota) — see renderUsageStatus. Each is a
+   label + a compact bar + a coloured value; the 3-tier colour (green/orange/red)
+   is applied per bar, not on the whole container. */
+.status-bar-usage-bar { display: inline-flex; align-items: center; gap: 5px; }
+.status-bar-usage-name { color: #9a9ab0; }
+.status-bar-usage-bar .status-bar-usage-track { width: 44px; }
+.status-bar-usage-value { font-variant-numeric: tabular-nums; color: #c0c0d0; }
+.status-bar-usage-sep { color: #55556a; }
+
+.status-bar-usage-bar.usage-level-ok .status-bar-usage-value { color: #7ed99b; }
+.status-bar-usage-bar.usage-level-ok .status-bar-usage-fill { background: rgba(110,205,140,0.75); }
+.status-bar-usage-bar.usage-level-warn .status-bar-usage-value { color: #ffb070; }
+.status-bar-usage-bar.usage-level-warn .status-bar-usage-fill { background: rgba(240,150,70,0.85); }
+.status-bar-usage-bar.usage-level-crit .status-bar-usage-value { color: #ff8a8a; }
+.status-bar-usage-bar.usage-level-crit .status-bar-usage-fill { background: rgba(232,80,90,0.9); }
+
+#status-bar-usage.usage-status-stale { opacity: 0.6; }
+
 #status-bar-activity {
   margin-left: auto;
   white-space: nowrap;

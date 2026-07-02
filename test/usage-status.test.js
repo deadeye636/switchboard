@@ -6,6 +6,9 @@ const {
   getUsageLimitCards,
   getUsageRefreshDelayMs,
   withCachedUsageFallback,
+  usageLevel3,
+  getUsageBars,
+  getUsageTooltip,
 } = require('../public/usage-status');
 
 test('formatUsageStatus summarizes current usage buckets compactly', () => {
@@ -137,6 +140,57 @@ test('formatUsageStatus returns useful rate-limit and error states', () => {
     level: 'warning',
     percent: null,
   });
+});
+
+test('usageLevel3 maps to green/orange/red at the configured thresholds', () => {
+  assert.equal(usageLevel3(59, 60, 80), 'ok');
+  assert.equal(usageLevel3(60, 60, 80), 'warn');
+  assert.equal(usageLevel3(79, 60, 80), 'warn');
+  assert.equal(usageLevel3(80, 60, 80), 'crit');
+  assert.equal(usageLevel3(100, 60, 80), 'crit');
+  // custom thresholds
+  assert.equal(usageLevel3(50, 40, 70), 'warn');
+  assert.equal(usageLevel3(70, 40, 70), 'crit');
+});
+
+test('getUsageBars returns 5h + 7d, and quota only when >0%', () => {
+  const th = { session: { warn: 60, crit: 80 }, weekAll: { warn: 60, crit: 80 }, extraUsage: { warn: 60, crit: 80 } };
+  const bars = getUsageBars({ session: 17, weekAll: 82, extraUsage: 0 }, th);
+  assert.deepEqual(bars.map(b => [b.label, b.percent, b.level]), [
+    ['5h', 17, 'ok'],
+    ['7d', 82, 'crit'],
+  ]);
+
+  const withQuota = getUsageBars({ session: 65, extraUsage: 12 }, th);
+  assert.deepEqual(withQuota.map(b => [b.label, b.percent, b.level]), [
+    ['5h', 65, 'warn'],
+    ['Quota', 12, 'ok'],
+  ]);
+
+  assert.deepEqual(getUsageBars({}), []);
+});
+
+test('getUsageBars applies per-window thresholds (5h vs 7d coloured differently)', () => {
+  const bars = getUsageBars({ session: 50, weekAll: 50 }, {
+    session: { warn: 40, crit: 90 }, // 50 → orange
+    weekAll: { warn: 60, crit: 80 }, // 50 → green
+  });
+  assert.equal(bars.find(b => b.key === 'session').level, 'warn');
+  assert.equal(bars.find(b => b.key === 'weekAll').level, 'ok');
+});
+
+test('getUsageTooltip lists every window with reset times and quota amounts', () => {
+  const tip = getUsageTooltip({
+    session: 17, sessionReset: '14:30 (CEST)',
+    weekAll: 7, weekAllReset: 'Jul 8 at 09:00 (CEST)',
+    weekSonnet: 3, weekOpus: 12,
+    extraUsage: 0, extraUsageUsed: 0, extraUsageLimit: 5000, extraUsageCurrency: 'USD',
+  });
+  assert.match(tip, /5h \(session\): 17% — resets 14:30 \(CEST\)/);
+  assert.match(tip, /7d \(all models\): 7% — resets Jul 8 at 09:00 \(CEST\)/);
+  assert.match(tip, /7d \(Sonnet\): 3%/);
+  assert.match(tip, /7d \(Opus\): 12%/);
+  assert.match(tip, /Extra usage quota: 0% \(\$0\.00 \/ \$50\.00\)/);
 });
 
 test('getUsageRefreshDelayMs respects usage API retry-after windows', () => {

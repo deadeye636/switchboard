@@ -2190,6 +2190,7 @@ async function reapplyGlobalSettings() {
   if (g.terminalRightClick) window._applyTerminalRightClick?.(g.terminalRightClick);
   if (g.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(g.terminalMouseReporting !== 'off');
   window._setTerminalWebgl?.(g.terminalWebgl === true);
+  window._setUsageThresholds?.({ fiveHWarn: g.usage5hWarn, fiveHCrit: g.usage5hCrit, sevenDWarn: g.usage7dWarn, sevenDCrit: g.usage7dCrit });
   if (g.visibleSessionCount) window._setVisibleSessionCount?.(g.visibleSessionCount);
   if (g.sessionMaxAgeDays) window._setSessionMaxAge?.(g.sessionMaxAgeDays);
   if (g.shortcuts && typeof setAppShortcuts === 'function') setAppShortcuts(g.shortcuts);
@@ -2316,6 +2317,7 @@ setTimeout(() => {
       setTerminalMouseReporting(global.terminalMouseReporting !== 'off');
     }
     window._setTerminalWebgl?.(global.terminalWebgl === true);
+    window._setUsageThresholds?.({ fiveHWarn: global.usage5hWarn, fiveHCrit: global.usage5hCrit, sevenDWarn: global.usage7dWarn, sevenDCrit: global.usage7dCrit });
     if (global.shortcuts) setAppShortcuts(global.shortcuts);
     if (typeof window._applySessionDisplaySettings === 'function') window._applySessionDisplaySettings(global);
   }
@@ -2381,6 +2383,28 @@ let usageStatusTimer = null;
 const USAGE_RETRY_AT_KEY = 'usageStatusRetryAt';
 const USAGE_CACHE_KEY = 'usageStatusLastValue';
 let cachedStatusBarUsage = null;
+// Usage colour thresholds (%): < warn = green, warn..crit = orange, >= crit = red.
+// Configurable per window (5h vs 7d) so 7d can be coloured differently; the Quota
+// bar reuses the 7d thresholds. Defaults mirror Claude's rough 60/80 guidance.
+function clampUsageThreshold(warn, crit, defWarn, defCrit) {
+  let w = Number(warn), c = Number(crit);
+  if (!Number.isFinite(w)) w = defWarn;
+  if (!Number.isFinite(c)) c = defCrit;
+  w = Math.max(1, Math.min(99, w));
+  c = Math.max(w + 1, Math.min(100, c));
+  return { warn: w, crit: c };
+}
+let usageThresholds = {
+  session: { warn: 60, crit: 80 },   // 5h
+  weekAll: { warn: 75, crit: 90 },   // 7d
+  extraUsage: { warn: 75, crit: 90 }, // Quota (reuses 7d)
+};
+window._setUsageThresholds = (cfg = {}) => {
+  const five = clampUsageThreshold(cfg.fiveHWarn, cfg.fiveHCrit, 60, 80);
+  const seven = clampUsageThreshold(cfg.sevenDWarn, cfg.sevenDCrit, 75, 90);
+  usageThresholds = { session: five, weekAll: seven, extraUsage: seven };
+  if (cachedStatusBarUsage) renderUsageStatus(cachedStatusBarUsage);
+};
 
 function renderDefaultStatus() {
   const totalSessions = cachedAllProjects.reduce((n, p) => n + p.sessions.length, 0);
@@ -2395,26 +2419,58 @@ function renderDefaultStatus() {
 
 function renderUsageStatus(usage) {
   if (!statusBarUsage || typeof formatUsageStatus !== 'function') return;
-  const status = formatUsageStatus(usage);
-  statusBarUsage.title = status.title;
-  statusBarUsage.className = status.level && status.level !== 'empty' ? `usage-status-${status.level}` : '';
   statusBarUsage.innerHTML = '';
-  if (!status.text) return;
+  statusBarUsage.className = '';
 
-  const label = document.createElement('span');
-  label.className = 'status-bar-usage-label';
-  label.textContent = status.text;
-  statusBarUsage.appendChild(label);
+  // Per-window bars (5h, 7d, Quota>0). Empty for error/rate-limit/no-data states —
+  // fall back to the compact single-label rendering (with its own title/level).
+  const bars = (typeof getUsageBars === 'function') ? getUsageBars(usage, usageThresholds) : [];
+  if (bars.length === 0) {
+    const status = formatUsageStatus(usage);
+    statusBarUsage.title = status.title;
+    statusBarUsage.className = status.level && status.level !== 'empty' ? `usage-status-${status.level}` : '';
+    if (status.text) {
+      const label = document.createElement('span');
+      label.className = 'status-bar-usage-label';
+      label.textContent = status.text;
+      statusBarUsage.appendChild(label);
+    }
+    return;
+  }
 
-  if (Number.isFinite(status.percent)) {
+  statusBarUsage.title = (typeof getUsageTooltip === 'function') ? getUsageTooltip(usage) : '';
+  if (usage && usage._stale) statusBarUsage.classList.add('usage-status-stale');
+
+  bars.forEach((bar, i) => {
+    const group = document.createElement('span');
+    group.className = `status-bar-usage-bar usage-level-${bar.level}`;
+
+    const label = document.createElement('span');
+    label.className = 'status-bar-usage-name';
+    label.textContent = bar.label;
+    group.appendChild(label);
+
     const track = document.createElement('span');
     track.className = 'status-bar-usage-track';
     const fill = document.createElement('span');
     fill.className = 'status-bar-usage-fill';
-    fill.style.width = `${Math.max(1, Math.min(100, status.percent))}%`;
+    fill.style.width = `${Math.max(2, Math.min(100, bar.percent))}%`;
     track.appendChild(fill);
-    statusBarUsage.appendChild(track);
-  }
+    group.appendChild(track);
+
+    const value = document.createElement('span');
+    value.className = 'status-bar-usage-value';
+    value.textContent = `${bar.percent}%`;
+    group.appendChild(value);
+
+    statusBarUsage.appendChild(group);
+    if (i < bars.length - 1) {
+      const sep = document.createElement('span');
+      sep.className = 'status-bar-usage-sep';
+      sep.textContent = '·';
+      statusBarUsage.appendChild(sep);
+    }
+  });
 }
 
 async function refreshStatusBarUsage() {
