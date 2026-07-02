@@ -20,7 +20,9 @@ Dateien und werden hier nur verlinkt.
 
 ## 🟡 In Arbeit
 
-> Aktuell kein Feature aktiv. Nächster Kandidat siehe Backlog (P1: #02 Detach).
+| ID | Prio | Aufgabe | Detail |
+|----|------|---------|--------|
+| #33 | P2 | **Settings-UI Redesign (nur Global-Scope).** Global-Settings von einer langen Spalte (8 Sektionen, ~45 Felder) auf **Zwei-Spalten-Layout**: linke **Kategorie-Navi** mit 7 Gruppen (Sessions & CLI · Terminal · Layout & Tabs · Projects & Sidebar · Usage & Notifications · Shortcuts · Handoff), **Live-Suche** über alle Felder, **„?"-Aufklapp** je Langtext (Kurzsatz sichtbar, Volltext inline auf Klick), **Advanced-Disclosure** für Nischenschalter (GPU-Rendering, Live-Render, Attention-Hooks). Alte „Application"-Sammelsektion aufgeteilt auf Terminal/Layout/Usage. Beschreibungstexte **gekürzt** (humanizer-geprüft), aktive Labels. **Nur der Global-Zweig** in `settings-panel.js` (HTML-Template + CSS); **Save-/IPC-Logik und Projekt-Rendering unverändert** (Projekt-Settings behalten eigenen Einstieg aus der Sidebar). Mockup v3 abgenommen. Dateien: `public/settings-panel.js`, `public/style.css`. | Mockup (Artifact) |
 
 ---
 
@@ -32,7 +34,7 @@ Dateien und werden hier nur verlinkt.
 | #04 | P2 | **Flexibles Grid-Layout** (Karten-Resize / Drag-Reorder, 5B) | [Roadmap §Phase 5B](productivity-roadmap.md) |
 | #19 | P2 | **CI / Autobuild** (GitHub Actions: Test-CI + Win/Mac/Linux-Build + Release) | [Plan](ci-autobuild-plan.md) |
 | #05 | P3 | **Attention-Erkennung härten** via Claude-Code-Hooks + Bulk-Aktionen | [Roadmap §Phase 4](productivity-roadmap.md) |
-| #33 | P2 | **Settings-UI Redesign (nur Global-Scope).** Global-Settings von einer langen Spalte (8 Sektionen, ~45 Felder) auf **Zwei-Spalten-Layout** umstellen: linke **Kategorie-Navi** mit 7 Gruppen (Sessions & CLI · Terminal · Layout & Tabs · Projects & Sidebar · Usage & Notifications · Shortcuts · Handoff), **Live-Suche** über alle Felder, **„?"-Aufklapp** je Langtext (Kurzsatz sichtbar, Volltext inline auf Klick), **Advanced-Disclosure** für Nischenschalter (GPU-Rendering, Live-Render, Attention-Hooks). Alte „Application"-Sammelsektion aufgeteilt auf Terminal/Layout/Usage. Alle Beschreibungstexte **gekürzt** (humanizer-geprüft), aktive Labels. **Nur der Global-Zweig** in `settings-panel.js` (HTML-Template + CSS-Klassen); **Save-/IPC-Logik und Projekt-Rendering unverändert** (Projekt-Settings behalten eigenen Einstieg aus der Sidebar). Mockup v3 abgenommen. Dateien: `public/settings-panel.js`, `public/style.css`. | Mockup (Artifact) |
+| #34 | P2 | **Zoom-Schaltflächen in der Statusbar** — unten rechts zwei Buttons: **xterm-Zoom** (Terminal-Schriftgröße) + **Electron-Zoom** (UI), je mit Live-Anzeige + `−`/Wert/`+`/Reset-Popover. xterm-Zoom ist bereits persistent (`terminalFontSize`); **Electron-Zoom wird persistent gemacht** (`electronZoomLevel`, Startup-Restore, Tastatur-Nudges speichern + broadcasten). Neu: `public/statusbar-zoom.js`, IPC `get-zoom-level`/`nudge-zoom`, Notify-Hook in `terminal-manager`. Dateien: `main.js`, `preload.js`, `terminal-manager.js`, `index.html`, `style.css`. | [Plan](statusbar-zoom-plan.md) |
 
 ---
 
