@@ -81,12 +81,6 @@ Dateien und werden hier nur verlinkt.</p>
 <td><strong>Attention-Erkennung härten</strong> via Claude-Code-Hooks + Bulk-Aktionen</td>
 <td><a href="productivity-roadmap.html">Roadmap §Phase 4</a></td>
 </tr>
-<tr>
-<td>#31</td>
-<td>P2</td>
-<td><strong>Setting: Projekte automatisch hinzufügen vs. manuell.</strong> Aktuell werden <strong>alle</strong> <code>~/.claude/projects</code>-Ordner automatisch entdeckt und angezeigt (<code>session-cache.js</code> <code>buildProjectsFromCache</code> — Loop 1 = Ordner mit Sessions, Loop 2 = leere Ordner <code>:282-308</code>; live via <code>startProjectsWatcher</code>). <code>hiddenProjects</code> ist nur eine Ausblend-Liste. Gewünscht: Setting <strong><code>projectAutoAdd</code></strong> — <strong>Default: auto</strong> (wie jetzt), <strong>aus</strong>: nur <strong>manuell hinzugefügte</strong> Projekte zeigen (Allowlist), plus <strong>„Add project&quot;-Aktion</strong>. Umsetzung: <code>buildProjectsFromCache</code> im Manual-Modus auf eine <code>addedProjects</code>-Allowlist filtern; Setting + Add-UI. <strong>Vorab genauer prüfen</strong>, ob es außer der Ordner-Discovery noch andere Auto-Add-Trigger gibt (z.B. beim Session-Start in neuem cwd). Dateien: <code>session-cache.js</code>, <code>settings-panel.js</code>, <code>public/sidebar.js</code> (Add-Aktion), evtl. <code>main.js</code>/<code>db.js</code>.</td>
-<td>—</td>
-</tr>
 </tbody></table>
 <hr>
 <h2 id="erledigt">🟢 Erledigt</h2>
@@ -156,6 +150,11 @@ Dateien und werden hier nur verlinkt.</p>
 <tr>
 <td>#24</td>
 <td><strong>Feature: External Terminal + File Explorer + Terminal-Close-Verhalten.</strong> (a) Neue Aktion <strong>„External Terminal&quot;</strong> im Neue-Session-Popover → <code>openExternalTerminal(cwd)</code> (<code>main.js</code>): Windows <code>wt.exe -d</code> (Fallback cmd), macOS <code>open -a Terminal</code>, Linux <code>gnome-terminal</code>/Fallbacks; <code>execFile</code>, launch-and-forget (kein Monitoring). (b) Neue Aktion <strong>„Open in File Explorer&quot;</strong> → <code>shell.openPath</code> via bestehendes <code>openPath</code>. (c) Setting <strong><code>terminalCloseBehavior</code></strong> (Kill on close / Keep running, Default <strong>kill</strong>) — nur für Plain-Terminals, entkoppelt von <code>tabCloseBehavior</code> (#21); verdrahtet in <code>session-tabs.js</code> <code>closeTab</code>. Dateien: <code>main.js</code>, <code>preload.js</code>, <code>public/dialogs.js</code>, <code>public/settings-panel.js</code>, <code>public/session-tabs.js</code>.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#31</td>
+<td><strong>Setting: Projekte automatisch hinzufügen vs. manuell.</strong> <code>projectAutoAdd</code> (Default <strong>an</strong> = alle <code>~/.claude/projects</code> entdecken). <strong>Aus (manuell):</strong> <code>buildProjectsFromCache</code> filtert auf Allowlist <code>addedProjects</code>; beim Umschalten auf aus werden die aktuell sichtbaren Projekte eingefroren (Seed). Allowlist wächst durch „+ Add project&quot; <strong>und</strong> aus Switchboard gestartete Sessions (<code>open-terminal</code> → <code>ensureProjectAdded</code>); externe Claude-Sessions bleiben draußen. Remove entfernt auch aus der Allowlist. Wieder <strong>an</strong> → Allowlist ignoriert, alles zurück. Neuer IPC <code>set-project-auto-add</code> (Flag + Seed + <code>projects-changed</code>). Manuelle Add-/Remove-UI + <code>hiddenProjects</code> waren bereits vorhanden. Dateien: <code>session-cache.js</code>, <code>main.js</code>, <code>preload.js</code>, <code>public/settings-panel.js</code>.</td>
 <td>—</td>
 </tr>
 <tr>
