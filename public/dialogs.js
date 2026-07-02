@@ -134,6 +134,21 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
 
   popover.appendChild(termBtn);
 
+  // External terminal — launch the OS terminal in the project directory
+  // (launch-and-forget; not monitored/shown in the app).
+  const extTermBtn = document.createElement('button');
+  extTermBtn.className = 'popover-option popover-option-terminal';
+  extTermBtn.innerHTML = '<svg class="popover-option-icon terminal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/><path d="M15 3h6v6"/><path d="M21 3l-7 7"/></svg> External Terminal';
+  extTermBtn.onclick = () => { popover.remove(); window.api.openExternalTerminal(project.projectPath); };
+  popover.appendChild(extTermBtn);
+
+  // Open the project directory in the OS file explorer.
+  const explorerBtn = document.createElement('button');
+  explorerBtn.className = 'popover-option';
+  explorerBtn.innerHTML = '<svg class="popover-option-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 002-2V8a2 2 0 00-2-2h-7.9a2 2 0 01-1.69-.9L9.6 3.9A2 2 0 007.93 3H4a2 2 0 00-2 2v13c0 1.1.9 2 2 2z"/></svg> Open in File Explorer';
+  explorerBtn.onclick = () => { popover.remove(); window.api.openPath(project.projectPath); };
+  popover.appendChild(explorerBtn);
+
   // Position relative to anchor, flip upward if it would overflow
   document.body.appendChild(popover);
   const rect = anchorEl.getBoundingClientRect();

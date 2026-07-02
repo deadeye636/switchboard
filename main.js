@@ -745,6 +745,34 @@ ipcMain.handle('open-path', (_event, filePath) => {
   return shell.openPath(resolved);
 });
 
+// --- IPC: open the OS terminal in a directory (launch-and-forget, no monitoring) ---
+ipcMain.handle('open-external-terminal', (_event, cwdPath) => {
+  if (typeof cwdPath !== 'string' || !cwdPath) return { ok: false, error: 'no path' };
+  const cwd = path.resolve(cwdPath);
+  if (!fs.existsSync(cwd)) return { ok: false, error: 'path not found' };
+  try {
+    if (process.platform === 'win32') {
+      // Prefer Windows Terminal; fall back to a cmd window in the directory. The cwd
+      // is passed via execFile's option (no shell quoting of spaces).
+      execFile('wt.exe', ['-d', cwd], (err) => {
+        if (err) execFile('cmd.exe', ['/c', 'start', 'cmd.exe'], { cwd }, () => {});
+      });
+    } else if (process.platform === 'darwin') {
+      execFile('open', ['-a', 'Terminal', cwd], () => {});
+    } else {
+      execFile('gnome-terminal', ['--working-directory=' + cwd], (err) => {
+        if (err) execFile('x-terminal-emulator', ['--working-directory=' + cwd], (e2) => {
+          if (e2) execFile('xterm', [], { cwd }, () => {});
+        });
+      });
+    }
+    return { ok: true };
+  } catch (e) {
+    log.warn('[open-external-terminal]', e?.message || String(e));
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
 // --- IPC: read clipboard (terminal right-click paste; see clipboard-write-text) ---
 ipcMain.handle('read-clipboard', () => clipboard.readText());
 
@@ -1919,28 +1947,48 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
   let mcpServer = null;
   try {
     if (isPlainTerminal) {
-      // Plain terminal: interactive login shell, no claude command
-      // Inject a shell function to override `claude` with a helpful message
-      const claudeShim = 'claude() { echo "\\033[33mTo start a Claude session, use the + button in the sidebar.\\033[0m"; return 1; }; export -f claude 2>/dev/null;';
+      // Plain terminal: interactive login shell, no claude command. Override `claude`
+      // with a helpful hint so users don't try to launch it here. The override MUST
+      // match the shell's syntax — a bash function def written into PowerShell/cmd
+      // shows up as a garbage line (#23) — so branch per shell type.
+      const shellBase = path.basename(shell).toLowerCase();
+      const isPowerShell = shellBase.includes('pwsh') || shellBase.includes('powershell');
+      const isCmd = shellBase === 'cmd.exe' || shellBase === 'cmd';
+      const isBashLike = !isPowerShell && !isCmd; // bash/zsh/sh/fish/wsl
+      const hint = 'To start a Claude session, use the + button in the sidebar.';
+      const bashShim = `claude() { printf '\\033[33m%s\\033[0m\\n' '${hint}'; return 1; }; export -f claude 2>/dev/null;`;
+
+      const env = {
+        ...cleanPtyEnv,
+        TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'iTerm.app', TERM_PROGRAM_VERSION: '3.6.6', FORCE_COLOR: '3', ITERM_SESSION_ID: '1',
+        CLAUDECODE: '1',
+      };
+      // ENV (sh/dash) + BASH_ENV inject the function for bash-like shells; useless
+      // for PowerShell/cmd, so don't set them there.
+      if (isBashLike) { env.ENV = bashShim; env.BASH_ENV = bashShim; }
+
       ptyProcess = pty.spawn(shell, shellArgs(shell, undefined, shellExtraArgs), {
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
         cwd: isWsl ? os.homedir() : projectPath,
-        env: {
-          ...cleanPtyEnv,
-          TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'iTerm.app', TERM_PROGRAM_VERSION: '3.6.6', FORCE_COLOR: '3', ITERM_SESSION_ID: '1',
-          CLAUDECODE: '1',
-          // ZDOTDIR trick won't work reliably; instead inject via ENV (sh/bash) or precmd
-          ENV: claudeShim,
-          BASH_ENV: claudeShim,
-        },
+        env,
       });
-      // For zsh, ENV/BASH_ENV don't apply — write the function after shell starts
+
+      // ENV/BASH_ENV don't apply to zsh/pwsh/cmd — write the shell-appropriate
+      // override after the shell starts, then clear the pasted line.
+      let initCmd;
+      if (isPowerShell) {
+        initCmd = `function claude { Write-Host "${hint}" -ForegroundColor Yellow }; Clear-Host\r`;
+      } else if (isCmd) {
+        initCmd = `doskey claude=echo ${hint} & cls\r`;
+      } else {
+        initCmd = bashShim + ' clear\n';
+      }
       setTimeout(() => {
         if (!ptyProcess._isDisposed) {
           try {
-            ptyProcess.write(claudeShim + ' clear\n');
+            ptyProcess.write(initCmd);
           } catch {}
         }
       }, 300);

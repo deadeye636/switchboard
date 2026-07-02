@@ -97,6 +97,7 @@
     const rightClickValue = fieldValue('terminalRightClick', 'menu');
     const mouseReportingValue = fieldValue('terminalMouseReporting', 'on');
     const terminalWebglValue = fieldValue('terminalWebgl', false);
+    const terminalCloseValue = fieldValue('terminalCloseBehavior', 'kill');
     const displayModeValue = fieldValue('sessionDisplayMode', 'grid');
     const settingsOpenModeValue = fieldValue('settingsOpenMode', 'overlay');
     const collapseDefaultValue = fieldValue('sidebarCollapseDefault', 'remember');
@@ -345,6 +346,19 @@
           </div>
           <div class="settings-field-control">
             <label class="settings-toggle"><input type="checkbox" id="sv-terminal-webgl" ${terminalWebglValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Terminal close behavior</span>
+            <div class="settings-description">What closing a plain terminal tab does — independent of the Claude session close behavior. Kill on close = end the shell process. Keep running = close the view only; the shell keeps running and can be reopened.</div>
+          </div>
+          <div class="settings-field-control">
+            <select class="settings-select" id="sv-terminal-close-behavior">
+              <option value="kill" ${terminalCloseValue !== 'keep' ? 'selected' : ''}>Kill on close</option>
+              <option value="keep" ${terminalCloseValue === 'keep' ? 'selected' : ''}>Keep running</option>
+            </select>
           </div>
         </div>
 
@@ -790,6 +804,7 @@
         settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').value || 'menu';
         settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').checked ? 'on' : 'off';
         settings.terminalWebgl = settingsViewerBody.querySelector('#sv-terminal-webgl').checked;
+        settings.terminalCloseBehavior = settingsViewerBody.querySelector('#sv-terminal-close-behavior').value || 'kill';
         settings.settingsOpenMode = settingsViewerBody.querySelector('#sv-settings-open-mode').value || 'overlay';
         settings.sidebarCollapseDefault = settingsViewerBody.querySelector('#sv-collapse-default').value || 'remember';
         settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'grid';

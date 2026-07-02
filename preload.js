@@ -66,6 +66,7 @@ contextBridge.exposeInMainWorld('api', {
   worktreeStatus: (worktreePath) => ipcRenderer.invoke('worktree-status', worktreePath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   openPath: (filePath) => ipcRenderer.invoke('open-path', filePath),
+  openExternalTerminal: (cwdPath) => ipcRenderer.invoke('open-external-terminal', cwdPath),
   writeClipboard: (text) => ipcRenderer.invoke('clipboard-write-text', text),
   readClipboard: () => ipcRenderer.invoke('read-clipboard'),
 

@@ -58,7 +58,8 @@ if (typeof module !== 'undefined' && module.exports) {
 
   let displayMode = 'grid';        // grid | tabs
   let tabPosition = 'top';         // top | bottom
-  let closeBehavior = 'closeView'; // closeView | stopSession
+  let closeBehavior = 'closeView'; // closeView | stopSession (Claude sessions)
+  let terminalCloseBehavior = 'kill'; // kill | keep (plain terminals, decoupled)
   let middleClickCloses = true;
   let dragReorder = true;
   let autoCloseMode = 'always';    // never | onSuccess | always
@@ -120,7 +121,12 @@ if (typeof module !== 'undefined' && module.exports) {
   }
 
   function closeTab(sessionId) {
-    if (closeBehavior === 'stopSession') {
+    // Plain terminals use their own close behavior (kill | keep), decoupled from the
+    // Claude-session tabCloseBehavior (closeView | stopSession).
+    const entry = (typeof openSessions !== 'undefined') ? openSessions.get(sessionId) : null;
+    const isTerminal = !!(entry && entry.session && entry.session.type === 'terminal');
+    const kill = isTerminal ? (terminalCloseBehavior === 'kill') : (closeBehavior === 'stopSession');
+    if (kill) {
       try { window.api.stopSession(sessionId); } catch { /* ignore */ }
     }
     performClose(sessionId);
@@ -324,6 +330,7 @@ if (typeof module !== 'undefined' && module.exports) {
     displayMode = g.sessionDisplayMode === 'tabs' ? 'tabs' : 'grid';
     tabPosition = g.tabPosition === 'bottom' ? 'bottom' : 'top';
     closeBehavior = g.tabCloseBehavior === 'stopSession' ? 'stopSession' : 'closeView';
+    terminalCloseBehavior = g.terminalCloseBehavior === 'keep' ? 'keep' : 'kill';
     middleClickCloses = g.tabMiddleClickCloses !== false;
     dragReorder = g.tabDragReorder !== false;
     autoCloseMode = resolveAutoCloseMode(g);
