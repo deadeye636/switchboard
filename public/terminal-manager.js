@@ -62,14 +62,11 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
       return false;
     }
 
-    // On Windows/Linux, Ctrl+V is captured by xterm as a control character (0x16)
-    // instead of triggering a paste. Block xterm's key pipeline and paste the
-    // clipboard ourselves — the Edit menu { role: 'paste' } that used to handle
-    // this was removed with the application menu.
+    // On Windows/Linux, xterm maps Ctrl+V to a control character (0x16). Block
+    // that so no stray ^V reaches the PTY. The actual paste is handled once by
+    // the capture-phase 'paste' listener below — pasting here too would double
+    // it, because the browser still fires a native paste event on Ctrl+V.
     if (!isMac && e.key === 'v' && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
-      if (e.type === 'keydown') {
-        window.api.readClipboard().then((t) => { if (t) pasteIntoTerminal(terminal, getSessionId(), t); }).catch(() => {});
-      }
       return false;
     }
 
@@ -110,6 +107,19 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
       }
     }, { capture: true });
   }
+
+  // Single paste path. Intercept the native paste event on the container (capture
+  // phase, so it runs before xterm's own textarea paste handler) and route it
+  // through pasteIntoTerminal exactly once. Without this, Ctrl+V (and OS
+  // right-click paste) would paste twice — once from xterm, once from us — and
+  // xterm's terminal.paste() also normalizes \n to \r, merging pasted lines on
+  // resize. Handling it here keeps the bracketed multiline packet intact.
+  container.addEventListener('paste', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const text = e.clipboardData && e.clipboardData.getData('text');
+    if (text) pasteIntoTerminal(terminal, getSessionId(), text);
+  }, { capture: true });
 
   // Ctrl/Cmd + mouse wheel → terminal-only font zoom (VS Code / Windows Terminal
   // convention). Capture phase + passive:false so we intercept before xterm's
@@ -158,6 +168,10 @@ function clampRowsToContentBox(proposedRows, clientHeight, verticalPadding, cell
 function safeFit(entry) {
   const el = entry.element; // .terminal-container
   const dims = entry.fitAddon.proposeDimensions();
+  // Was this fit clamped against a real, measured cell height? A brand-new
+  // terminal hasn't painted yet, so cellH is 0 and the clamp is a no-op — the
+  // proposed row count can overshoot by 1-2 rows.
+  let measured = true;
   if (dims && dims.rows > 1) {
     const cs = getComputedStyle(el);
     const padV = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
@@ -167,14 +181,31 @@ function safeFit(entry) {
       entry.terminal._core?._renderService?.dimensions?.css?.cell?.height ||
       el.querySelector('.xterm-rows')?.firstElementChild?.getBoundingClientRect().height ||
       0;
+    measured = cellH > 0;
     const clampedRows = clampRowsToContentBox(dims.rows, el.clientHeight, padV, cellH);
     entry.terminal.resize(dims.cols, clampedRows);
   } else {
     entry.fitAddon.fit();
   }
-  // Cache the container size this fit was computed for, so showSession can skip a
-  // redundant resize (and its reflow) when the box hasn't changed on a tab switch.
-  if (el) { entry._fitW = el.clientWidth; entry._fitH = el.clientHeight; }
+  if (el && measured) {
+    // Cache the container size this fit was computed for, so showSession can skip
+    // a redundant resize (and its reflow) when the box hasn't changed on a tab
+    // switch. Only cache a MEASURED fit.
+    entry._fitW = el.clientWidth;
+    entry._fitH = el.clientHeight;
+    entry._refitTries = 0;
+  } else if (!measured) {
+    // The cell wasn't measured yet (fresh terminal, pre-paint): the row count may
+    // overshoot and clip the last row below the viewport. Re-fit on the next frame
+    // once painted. Capped so a never-painted terminal (hidden grid card) can't
+    // spin every frame; a real show later re-fits it anyway.
+    entry._refitTries = (entry._refitTries || 0) + 1;
+    if (entry._refitTries <= 5) {
+      requestAnimationFrame(() => {
+        if (openSessions.has(entry.session.sessionId)) safeFit(entry);
+      });
+    }
+  }
 }
 
 // Fit a terminal that just became visible (from display:none or reparent).
