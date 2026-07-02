@@ -93,12 +93,6 @@ Dateien und werden hier nur verlinkt.</p>
 <td><strong>Feature: Terminal integriert vs. extern + Kill-on-Close.</strong> (a) Setting, ob der integrierte Terminal genutzt wird oder ein <strong>externer</strong> Terminal gelauncht wird — vorab <strong>prüfen ob möglich</strong> (welche Terminals, Windows/Mac/Linux, cwd/env-Übergabe, PTY-Anbindung) inkl. Vor-/Nachteilen. (b) Separate Option, ob ein Terminal <strong>beim Schließen sofort beendet</strong> wird — <strong>entkoppelt</strong> von der Claude-Session-Close-/Auto-Close-Logik (#21). Dateien: <code>main.js</code> (Spawn), <code>settings-panel.js</code>, <code>session-tabs.js</code>.</td>
 <td>—</td>
 </tr>
-<tr>
-<td>#27</td>
-<td>P3</td>
-<td><strong>Resize-Flicker (Known Limitation).</strong> Beim Fenster-Resize bricht xterm alle Zeilen neu um (Spaltenzahl ändert sich) — renderer-unabhängig, inhärent. Zusätzlich der <strong>Settle-Repaint</strong> (<code>main.js:2199-2213</code>, PTY-Nudge <code>cols+1→cols</code> 150 ms nach Resize) für Cursor-Korrektheit in TUIs → sichtbarer Voll-Redraw nach dem Loslassen; <strong>im Grid feuert er pro Session → alle sichtbaren Cards flashen</strong>. <strong>Getestet &amp; verworfen:</strong> Fit-Debounce im Resize-Handler brachte <strong>keine</strong> Besserung (verschiebt nur den Fit, beseitigt Reflow/Settle nicht). <strong>Mögliche künftige Milderung:</strong> Settle-Repaint auf die <strong>fokussierte</strong> Session begrenzen (Hintergrund-/Grid-Cards brauchen die Cursor-Korrektur nicht) — main.js müsste die aktive/fokussierte Session kennen (Flag mit <code>terminal-resize</code> mitschicken). Settle-Repaint <strong>nicht</strong> global entfernen (Cursor-Bug nach Resize). Dateien: <code>main.js</code> (<code>terminal-resize</code>), evtl. <code>preload.js</code>/Renderer für das Flag.</td>
-<td>—</td>
-</tr>
 </tbody></table>
 <hr>
 <h2 id="erledigt">🟢 Erledigt</h2>
@@ -158,6 +152,11 @@ Dateien und werden hier nur verlinkt.</p>
 <tr>
 <td>#22</td>
 <td><strong>Bug-Fix: Tab-Wechsel Flicker (Ansatz B)</strong> — synchroner <code>safeFit</code> vor dem Paint in <code>showSession</code> (Zwischenschritt; final überholt durch #20). Datei: <code>terminal-manager.js</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>#27</td>
+<td><strong>Resize-Flicker deutlich reduziert.</strong> Ursache: (a) inhärenter xterm-Reflow beim Umbrechen (Spaltenänderung) — unvermeidbar; (b) <strong>Settle-Repaint</strong> (ConPTY <code>cols+1→cols</code>-Nudge nach Resize) = sichtbarer Voll-Redraw, im Grid pro Session → alle Cards flashten (Hauptübeltäter). Fit-Debounce brachte nichts (verworfen). Fix: Settle-Repaint <strong>deaktiviert</strong> (<code>RESIZE_SETTLE_ENABLED=false</code>, <code>main.js</code>) — „Text-Move&quot; nach Resize fast weg. Trade-off: der Cursor-nach-Resize-Fix in mehrzeiligen TUIs (Commit <code>87c3efc</code>) entfällt (akzeptiert). Zusätzlich als Kill-Switch reaktivierbar; dann greift die neue <strong>Fokus-Gating</strong> (<code>settle</code>-Flag via <code>terminal-resize</code>, nur fokussierte Session nudgen → keine Grid-Card-Flashes). Dateien: <code>main.js</code>, <code>preload.js</code>, <code>terminal-manager.js</code>.</td>
 <td>—</td>
 </tr>
 <tr>
