@@ -43,22 +43,9 @@ Dateien und werden hier nur verlinkt.</p>
 <strong>Priorität:</strong> P1 (als Nächstes) · P2 (danach) · P3 (irgendwann)</p>
 <hr>
 <h2 id="in-arbeit">🟡 In Arbeit</h2>
-<table>
-<thead>
-<tr>
-<th>ID</th>
-<th>Prio</th>
-<th>Aufgabe</th>
-<th>Detail</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>#33</td>
-<td>P2</td>
-<td><strong>Settings-UI Redesign (nur Global-Scope).</strong> Global-Settings von einer langen Spalte (8 Sektionen, ~45 Felder) auf <strong>Zwei-Spalten-Layout</strong>: linke <strong>Kategorie-Navi</strong> mit 7 Gruppen (Sessions &amp; CLI · Terminal · Layout &amp; Tabs · Projects &amp; Sidebar · Usage &amp; Notifications · Shortcuts · Handoff), <strong>Live-Suche</strong> über alle Felder, <strong>„?&quot;-Aufklapp</strong> je Langtext (Kurzsatz sichtbar, Volltext inline auf Klick), <strong>Advanced-Disclosure</strong> für Nischenschalter (GPU-Rendering, Live-Render, Attention-Hooks). Alte „Application&quot;-Sammelsektion aufgeteilt auf Terminal/Layout/Usage. Beschreibungstexte <strong>gekürzt</strong> (humanizer-geprüft), aktive Labels. <strong>Nur der Global-Zweig</strong> in <code>settings-panel.js</code> (HTML-Template + CSS); <strong>Save-/IPC-Logik und Projekt-Rendering unverändert</strong> (Projekt-Settings behalten eigenen Einstieg aus der Sidebar). Mockup v3 abgenommen. Dateien: <code>public/settings-panel.js</code>, <code>public/style.css</code>.</td>
-<td>Mockup (Artifact)</td>
-</tr>
-</tbody></table>
+<blockquote>
+<p>Aktuell kein Feature aktiv. Nächster Kandidat siehe Backlog (P1: #02 Detach).</p>
+</blockquote>
 <hr>
 <h2 id="backlog">🔵 Backlog</h2>
 <table>
@@ -95,6 +82,12 @@ Dateien und werden hier nur verlinkt.</p>
 <td><a href="productivity-roadmap.html">Roadmap §Phase 4</a></td>
 </tr>
 <tr>
+<td>#35</td>
+<td>P2</td>
+<td><strong>Zentrale Bookmark-Ansicht (&quot;Bookmarks&quot;-Tab)</strong> — Bookmarks aktuell nur über Overlay (Ctrl+Shift+B) als flache Liste. Neu: <strong>Icon oben rechts neben Work-Files</strong> (<code>#sidebar-tabs</code>, neben Projects-Tab) → Großraum-Liste <strong>aller</strong> Bookmarks <strong>session-/projektübergreifend</strong> mit <strong>Filtern</strong> (Text/Label, Projekt, Session, Typ Session-Level vs. Nachricht, Sortierung; optional Gruppierung Projekt→Session). Klick springt zur Transcript-Stelle (Reuse <code>bookmarksTags</code>/<code>openSessionAt</code>). <code>bookmarks</code>-Tabelle hat kein <code>projectPath</code> → Auflösung via Session-Cache in neuem Aggregat-IPC <code>get-bookmarks-admin</code>. Overlay bleibt als Schnellzugriff. Neu: <code>public/bookmarks-view.js</code>. Dateien: <code>main.js</code>, <code>preload.js</code>, <code>index.html</code>, <code>app.js</code>, <code>plans-memory-view.js</code>, <code>style.css</code>.</td>
+<td><a href="bookmarks-view-plan.md">Plan</a></td>
+</tr>
+<tr>
 <td>#34</td>
 <td>P2</td>
 <td><strong>Zoom-Schaltflächen in der Statusbar</strong> — unten rechts zwei Buttons: <strong>xterm-Zoom</strong> (Terminal-Schriftgröße) + <strong>Electron-Zoom</strong> (UI), je mit Live-Anzeige + <code>−</code>/Wert/<code>+</code>/Reset-Popover. xterm-Zoom ist bereits persistent (<code>terminalFontSize</code>); <strong>Electron-Zoom wird persistent gemacht</strong> (<code>electronZoomLevel</code>, Startup-Restore, Tastatur-Nudges speichern + broadcasten). Neu: <code>public/statusbar-zoom.js</code>, IPC <code>get-zoom-level</code>/<code>nudge-zoom</code>, Notify-Hook in <code>terminal-manager</code>. Dateien: <code>main.js</code>, <code>preload.js</code>, <code>terminal-manager.js</code>, <code>index.html</code>, <code>style.css</code>.</td>
@@ -112,6 +105,11 @@ Dateien und werden hier nur verlinkt.</p>
 </tr>
 </thead>
 <tbody><tr>
+<td>#33</td>
+<td><strong>Settings-UI Redesign (nur Global-Scope)</strong> — Global-Settings von einer langen Einspalten-Form (8 Sektionen, ~45 Felder) auf <strong>Zwei-Spalten-Layout</strong>: linke <strong>Kategorie-Navi</strong> mit 7 Gruppen (Sessions &amp; CLI · Terminal · Layout &amp; Tabs · Projects &amp; Sidebar · Usage &amp; Notifications · Shortcuts · Handoff), <strong>Live-Suche</strong> über alle Felder, <strong>„?&quot;-Aufklapp</strong> je Langtext (Kurzsatz sichtbar, Volltext inline via <code>.settings-more</code>), <strong>Advanced-Disclosure</strong> für Nischenschalter (GPU, Live-Render, Attention-Hooks). Alte „Application&quot;-Sammelsektion aufgeteilt auf Terminal/Layout/Usage; Beschreibungstexte gekürzt (humanizer), aktive Labels; Usage-Felder mit Farb-Swatch. <strong>Nur der Global-Zweig</strong> in <code>settings-panel.js</code> (eigener <code>if (isProject)</code>-Split); <strong>Save-/IPC-Logik und Projekt-Rendering unverändert</strong> — ID-Diff alt↔neu = 0 entfernt. Tests grün (479/0). Dateien: <code>public/settings-panel.js</code>, <code>public/style.css</code>.</td>
+<td>—</td>
+</tr>
+<tr>
 <td>#32</td>
 <td><strong>Projekt-Verwaltung („Projects&quot;-Tab)</strong> — neuer Sidebar-Tab neben Work-Files → Großraum-Tabelle aller Projekte (inkl. hidden + config-only). Pro Projekt: <strong>Trust</strong> entfernen/setzen (setzen hinter Warn-Confirm) via atomarem RMW auf <code>~/.claude.json</code> (<code>.bak</code>, nur <code>hasTrustDialogAccepted</code>), Hidden/Favorit/Allowlist-Toggles, Inline-Rename, Remap, Remove + read-only Info-Spalten (Sessions, Last activity, MCP/allowedTools/cost). <strong>Remove</strong> mit optionalem Hard-Delete (Session-History auf Disk und/oder <code>~/.claude.json</code>-Eintrag). <strong>Remap</strong> zieht den <code>~/.claude.json</code>-Block (Trust/MCP/cost) mit um. Alte Hide/Restore-UI bleibt parallel. Neu: <code>claude-config.js</code>, <code>session-cache.buildProjectsAdmin</code>, <code>public/projects-admin.js</code>, IPCs <code>get-projects-admin</code>/<code>set-project-trust</code>/<code>delete-project-sessions</code>/<code>remove-project-config</code>. Tests: <code>test/claude-config.test.js</code>.</td>
 <td><a href="projects-admin-plan.md">Plan</a></td>
