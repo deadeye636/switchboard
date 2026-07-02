@@ -519,7 +519,7 @@ sessionCache.init({
     getFavoritedProjects, getProjectDisplayNames,
   },
 });
-const { readSessionFile, readFolderFromFilesystem, refreshFolder, reconcileCacheFromFilesystem,
+const { readSessionFile, readFolderFromFilesystem, refreshFolder, refreshFile, reconcileCacheFromFilesystem,
         buildProjectsFromCache, buildProjectsAdmin, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker } = sessionCache;
 const { resolveJsonlPath } = require('./read-session-file');
 const claudeConfig = require('./claude-config');
@@ -2507,15 +2507,38 @@ let projectsWatcher = null;
 function startProjectsWatcher() {
   if (!fs.existsSync(PROJECTS_DIR)) return;
 
-  const pendingFolders = new Set();
+  const pendingFolders = new Set();      // top-level folder add/remove → full refresh
+  const pendingFiles = new Map();         // folder → Set<relFilename> → per-file refresh (#1)
   let debounceTimer = null;
+  let burstStartedAt = 0;
+  // Trailing debounce for calm periods, capped by a max-wait so a *continuous*
+  // storm of JSONL appends (busy multi-agent session) can't keep resetting the
+  // timer forever and starve the flush. Guarantees a flush at least every
+  // MAX_WAIT_MS while events keep coming.
+  const DEBOUNCE_MS = 500;
+  const MAX_WAIT_MS = 2500;
 
   function flushChanges() {
     debounceTimer = null;
     const folders = new Set(pendingFolders);
     pendingFolders.clear();
+    const files = new Map(pendingFiles);
+    pendingFiles.clear();
 
     let changed = false;
+
+    // Per-file refreshes (perf #1): update just the changed transcript(s) instead
+    // of re-scanning the whole folder on every append.
+    for (const [folder, relSet] of files) {
+      if (folders.has(folder)) continue; // a full folder refresh below covers it
+      const folderPath = path.join(PROJECTS_DIR, folder);
+      if (!fs.existsSync(folderPath)) { deleteCachedFolder(folder); changed = true; continue; }
+      detectSessionTransitions(folder);
+      for (const rel of relSet) refreshFile(folder, rel);
+      changed = true;
+    }
+
+    // Folder-level events (top-level add/remove) → full folder refresh.
     for (const folder of folders) {
       const folderPath = path.join(PROJECTS_DIR, folder);
       if (fs.existsSync(folderPath)) {
@@ -2544,15 +2567,21 @@ function startProjectsWatcher() {
       // Only care about .jsonl changes or top-level folder add/remove
       const basename = parts[parts.length - 1];
       if (parts.length === 1) {
-        pendingFolders.add(folder);
+        pendingFolders.add(folder); // folder created/removed → full refresh
       } else if (basename.endsWith('.jsonl')) {
-        pendingFolders.add(folder);
+        // Per-file: record the specific changed transcript (relative path incl. folder).
+        if (!pendingFiles.has(folder)) pendingFiles.set(folder, new Set());
+        pendingFiles.get(folder).add(filename);
       } else {
         return;
       }
 
+      const now = Date.now();
+      if (!debounceTimer) burstStartedAt = now; // first event of a new burst
+      const waited = now - burstStartedAt;
+      const delay = Math.min(DEBOUNCE_MS, Math.max(0, MAX_WAIT_MS - waited));
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(flushChanges, 500);
+      debounceTimer = setTimeout(flushChanges, delay);
     });
 
     projectsWatcher.on('error', (err) => {
@@ -2718,6 +2747,9 @@ app.on('before-quit', () => {
 
 // Close SQLite after all windows are closed to avoid "connection is not open" errors
 app.on('will-quit', () => {
+  // Flush any debounced per-file re-index so the last transcript edits inside a
+  // debounce window are persisted before we close the DB (perf review item H).
+  try { sessionCache.flushPendingReindex(); } catch {}
   // Terminate the search worker gracefully before closing the DB, so the
   // worker's read-only connection is released before the WAL checkpoint.
   // shutdown() suppresses the restart logic before calling terminate().

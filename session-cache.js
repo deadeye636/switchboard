@@ -3,7 +3,7 @@ const fs = require('fs');
 const { Worker } = require('worker_threads');
 const { getFolderIndexMtimeMs } = require('./folder-index-state');
 const { deriveProjectPath } = require('./derive-project-path');
-const { readSessionFile, enumerateSessionFiles, resolveJsonlPath } = require('./read-session-file');
+const { readSessionFile, enumerateSessionFiles, resolveJsonlPath, subagentSessionId } = require('./read-session-file');
 const { encodeProjectPath } = require('./encode-project-path');
 
 /**
@@ -60,6 +60,35 @@ function readFolderFromFilesystem(folder) {
 }
 
 /** Refresh a single folder incrementally: only re-read changed/new .jsonl files */
+// Resolve a folder's projectPath cheaply: reuse the last-derived path while its
+// directory still exists, else derive from the JSONL heads (I/O). Shared by the
+// folder- and file-level refresh paths.
+function folderProjectPath(folder, folderPath) {
+  const knownMeta = getFolderMeta ? getFolderMeta(folder) : null;
+  if (knownMeta && knownMeta.projectPath && fs.existsSync(knownMeta.projectPath)) return knownMeta.projectPath;
+  return deriveProjectPath(folderPath, folder);
+}
+
+function isHiddenProject(projectPath) {
+  return ((getSetting('global') || {}).hiddenProjects || []).includes(projectPath);
+}
+
+// Title precedence: user rename (session_meta.name) > JSONL custom-title (Claude
+// /title) > JSONL ai-title. AI titles must NEVER promote to session_meta.name or
+// they'd overwrite the user's UI rename on the next index pass.
+function sessionName(s) {
+  return getMeta(s.sessionId)?.name || s.customTitle || s.aiTitle || '';
+}
+
+// The search-index row for a session (external-content FTS body = its text).
+function buildSearchEntry(s) {
+  const name = sessionName(s);
+  return {
+    id: s.sessionId, type: 'session', folder: s.folder,
+    title: (name ? name + ' ' : '') + s.summary, body: s.textContent,
+  };
+}
+
 function refreshFolder(folder) {
   const folderPath = path.join(PROJECTS_DIR, folder);
   if (!fs.existsSync(folderPath)) {
@@ -72,11 +101,7 @@ function refreshFolder(folder) {
   // every watcher flush — deriving each time is wasted I/O on hot folders.
   // A vanished directory falls through to a fresh derive so the missing-
   // project remap detection keeps working.
-  const knownMeta = getFolderMeta ? getFolderMeta(folder) : null;
-  let projectPath = knownMeta && knownMeta.projectPath && fs.existsSync(knownMeta.projectPath)
-    ? knownMeta.projectPath
-    : null;
-  if (!projectPath) projectPath = deriveProjectPath(folderPath, folder);
+  const projectPath = folderProjectPath(folder, folderPath);
   if (!projectPath) {
     setFolderMeta(folder, null, getFolderIndexMtimeMs(folderPath));
     return;
@@ -87,8 +112,7 @@ function refreshFolder(folder) {
   // re-add the very sessions the user just cleared (and churn the DB). Record the
   // current mtime so the sweep treats the folder as up-to-date and skips it until
   // it is un-hidden (unhideProject forces a fresh refresh).
-  const hiddenProjects = (getSetting('global') || {}).hiddenProjects || [];
-  if (hiddenProjects.includes(projectPath)) {
+  if (isHiddenProject(projectPath)) {
     setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
     return;
   }
@@ -149,14 +173,7 @@ function refreshFolder(folder) {
       // write point for an incremental refresh — short transaction, fine to run
       // outside the upsert batch.
       replaceSessionMetrics(s.sessionId, s.dailyMetrics);
-      // Title precedence: user rename (session_meta.name) > JSONL custom-title > JSONL ai-title.
-      // Only customTitle (Claude /title) promotes to session_meta.name — AI titles must NEVER
-      // be written there or they'd overwrite the user's UI rename on the next index pass.
-      const name = getMeta(s.sessionId)?.name || s.customTitle || s.aiTitle || '';
-      searchEntriesToUpsert.push({
-        id: s.sessionId, type: 'session', folder: s.folder,
-        title: (name ? name + ' ' : '') + s.summary, body: s.textContent,
-      });
+      searchEntriesToUpsert.push(buildSearchEntry(s));
       if (s.customTitle) namesToSet.push({ id: s.sessionId, name: s.customTitle });
     }
     changed = true;
@@ -190,6 +207,107 @@ function refreshFolder(folder) {
 
   // Update folder mtime
   setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+}
+
+// Debounced per-file re-index (perf #1 + #4 + review item B). Re-reading and
+// re-indexing a transcript on *every* append is the dominant cost in the hot
+// path — catastrophic for a 200 MB+ host session (full readFileSync per line),
+// and the FTS re-tokenize is the single most expensive write. So a storm of
+// appends is coalesced into ONE read+index per quiet window, capped by a
+// max-wait so a continuously-appending session still refreshes at least every
+// REINDEX_MAX_WAIT_MS. Session-cache metadata therefore lags by at most ~max-wait
+// during a burst — invisible for a session that is by definition actively
+// changing — and the throttled reconcile sweep stays as the safety net.
+const _reindexTimers = new Map(); // key(filePath) -> { timer, firstAt, fn }
+const REINDEX_DEBOUNCE_MS = 800;
+const REINDEX_MAX_WAIT_MS = 3000;
+function scheduleReindex(key, fn) {
+  const now = Date.now();
+  let e = _reindexTimers.get(key);
+  if (!e) { e = { firstAt: now, timer: null, fn }; _reindexTimers.set(key, e); }
+  else e.fn = fn;
+  const waited = now - e.firstAt;
+  const delay = Math.min(REINDEX_DEBOUNCE_MS, Math.max(0, REINDEX_MAX_WAIT_MS - waited));
+  if (e.timer) clearTimeout(e.timer);
+  e.timer = setTimeout(() => { _reindexTimers.delete(key); try { e.fn(); } catch {} }, delay);
+  if (typeof e.timer.unref === 'function') e.timer.unref();
+}
+function cancelReindex(key) {
+  const e = _reindexTimers.get(key);
+  if (e && e.timer) clearTimeout(e.timer);
+  _reindexTimers.delete(key);
+}
+// Run every pending re-index now — call before the process exits so the last
+// edits inside a debounce window aren't lost (perf review item H).
+function flushPendingReindex() {
+  for (const [key, e] of [..._reindexTimers]) {
+    if (e.timer) clearTimeout(e.timer);
+    _reindexTimers.delete(key);
+    try { e.fn(); } catch {}
+  }
+}
+
+// Incremental single-file refresh (perf #1). The projects watcher fires per
+// changed .jsonl; re-indexing just that one file avoids re-enumerating +
+// re-stating the whole folder and rebuilding its cached-row map on every append
+// — the dominant per-flush cost when a busy multi-agent session has many
+// subagent files. The throttled folder-level reconcileCacheFromFilesystem sweep
+// stays as the safety net for anything a per-file pass misses (e.g. a delete
+// event that never arrived).
+//
+// `relFilename` is the watcher's path relative to PROJECTS_DIR, e.g.
+// "<folder>/<uuid>.jsonl" (top-level) or "<folder>/<uuid>/subagents/<f>.jsonl".
+function refreshFile(folder, relFilename) {
+  const folderPath = path.join(PROJECTS_DIR, folder);
+  const rel = relFilename.split(/[\\/]/).filter(Boolean);
+  const inner = rel.slice(1); // path within the folder
+  if (inner.length === 0) return;
+  // Subagent transcripts live one or more levels below <folder>; their parent
+  // session UUID is the first path segment inside the folder.
+  const parentSessionId = inner.length >= 2 ? inner[0] : null;
+  const filePath = path.join(PROJECTS_DIR, ...rel);
+
+  const projectPath = folderProjectPath(folder, folderPath);
+  if (!projectPath) return;
+  // Hidden/removed project: don't re-index its folder back into the cache.
+  if (isHiddenProject(projectPath)) {
+    cancelReindex(filePath);
+    setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+    return;
+  }
+
+  if (!fs.existsSync(filePath)) {
+    // Deleted file → drop its row immediately (deletes must not lag), stamping the
+    // sessionId the same way readSessionFile does (top-level = filename; subagent
+    // = sub:<parent>:<agentId>).
+    cancelReindex(filePath);
+    const base = path.basename(filePath, '.jsonl');
+    let sessionId = base;
+    if (parentSessionId) {
+      const m = base.match(/^agent-(.+)$/);
+      try { sessionId = subagentSessionId(parentSessionId, m ? m[1] : base); } catch { sessionId = null; }
+    }
+    if (sessionId) { deleteCachedSession(sessionId); deleteSearchSession(sessionId); }
+    setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+    return;
+  }
+
+  // Stamp the folder as indexed-as-of-now up front (cheap single-row write) so the
+  // reconcile sweep doesn't jump in with a full-folder refresh while the heavy
+  // read+FTS is still pending in the debounce window below.
+  setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+
+  scheduleReindex(filePath, () => {
+    const s = readSessionFile(filePath, folder, projectPath, { parentSessionId });
+    // null = file not yet a valid session (no first user turn) or became invalid.
+    // Leave any existing row as-is; the reconcile sweep reconciles genuine losses.
+    if (!s) return;
+    upsertCachedSessions([s]);
+    replaceSessionMetrics(s.sessionId, s.dailyMetrics);
+    deleteSearchSession(s.sessionId);
+    upsertSearchEntries([buildSearchEntry(s)]);
+    if (s.customTitle) setName(s.sessionId, s.customTitle);
+  });
 }
 
 /**
@@ -566,6 +684,8 @@ module.exports = {
   readSessionFile,
   readFolderFromFilesystem,
   refreshFolder,
+  refreshFile,
+  flushPendingReindex,
   reconcileCacheFromFilesystem,
   buildProjectsFromCache,
   buildProjectsAdmin,
