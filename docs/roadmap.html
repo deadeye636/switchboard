@@ -94,12 +94,6 @@ Dateien und werden hier nur verlinkt.</p>
 <td>—</td>
 </tr>
 <tr>
-<td>#26</td>
-<td>P2</td>
-<td><strong>Bug (vorbestehend): Grid-Übersicht (Mosaik) + <code>#grid-viewer</code>-Toolbar erscheinen nicht.</strong> Im Grid-Modus zeigt der Overview-Button weder die Kachel-Ansicht noch die obere Toolbar („Reset layout&quot; etc.). Existiert auch in älteren Versionen → <strong>nicht</strong> vom Flicker/Rename-Umbau. Verdacht: <code>gridViewActive</code>-<strong>Desync</strong> (State hängt stale auf <code>true</code>) → <code>toggleGridView</code> (<code>grid-view.js:1637</code>) nimmt den Hide- statt Show-Zweig, <code>showGridView</code> (<code>:1410</code>, setzt <code>gridViewer.display=&#39;block&#39;</code> + mountet Cards via <code>wrapInGridCard</code>) wird nie erreicht. Diagnose live in DevTools: <code>gridViewActive</code>, <code>localStorage.gridViewActive</code>, ob <code>#terminals</code> die Klasse <code>grid-layout</code> trägt, ob der Klick den Show- oder Hide-Zweig nimmt. Mögliche weitere Desync-Quelle: Pfade, die <code>gridViewActive</code>/<code>grid-layout</code> ohne Gegenstück setzen (Trace-Agent fand u.a. den Startup-Restore, jetzt via <code>!display-mode-tabs</code>-Guard entschärft). Dateien: <code>grid-view.js</code> (<code>toggleGridView</code>/<code>showGridView</code>/<code>hideGridView</code>), <code>app.js</code> (<code>gridViewActive</code>, <code>returnToTerminal</code>).</td>
-<td>—</td>
-</tr>
-<tr>
 <td>#27</td>
 <td>P3</td>
 <td><strong>Resize-Flicker (Known Limitation / optionale Milderung).</strong> Beim Fenster-Resize bricht xterm alle Zeilen neu um (Spaltenzahl ändert sich) — renderer-unabhängig, inhärent. Zusätzlich der <strong>Settle-Repaint</strong> (<code>main.js:2199-2213</code>, PTY-Nudge <code>cols+1→cols</code> 150 ms nach Resize) für Cursor-Korrektheit in TUIs → sichtbarer Voll-Redraw kurz nach dem Loslassen. Optionale Milderung: Fit im Resize-Handler (<code>app.js</code> <code>window.resize</code>) <strong>debouncen</strong> (nur bei Pause umbrechen statt jedes Event) — Trade-off: Terminal „hängt&quot; beim Ziehen hinterher. Settle-Repaint <strong>nicht</strong> entfernen (sonst Cursor-Bug nach Resize).</td>
@@ -164,6 +158,11 @@ Dateien und werden hier nur verlinkt.</p>
 <tr>
 <td>#22</td>
 <td><strong>Bug-Fix: Tab-Wechsel Flicker (Ansatz B)</strong> — synchroner <code>safeFit</code> vor dem Paint in <code>showSession</code> (Zwischenschritt; final überholt durch #20). Datei: <code>terminal-manager.js</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>#26</td>
+<td><strong>Bug (vorbestehend, entschärft): Grid-Übersicht + Toolbar erschienen nicht.</strong> Ursache war ein <strong><code>gridViewActive</code>-Desync</strong> — der State hing stale auf <code>true</code>, also nahm der Overview-Klick den Hide- statt Show-Zweig (<code>toggleGridView</code>, <code>grid-view.js:1637</code>), <code>showGridView</code> wurde nie erreicht. Behoben durch: localStorage-Reset (<code>gridViewActive</code>), Startup-Grid-Restore mit <code>!display-mode-tabs</code>-Guard (<code>app.js</code>), expliziter <code>returnToTerminal()</code> beim Tab→Grid-Wechsel (<code>session-tabs.js</code>). Nach Tab↔Grid-Roundtrip wieder konsistent. <strong>Falls ohne manuellen Reset erneut</strong> → verbleibende Desync-Pfade härten (jede Stelle, die <code>gridViewActive</code>/<code>grid-layout</code> ohne Gegenstück setzt).</td>
 <td>—</td>
 </tr>
 <tr>
