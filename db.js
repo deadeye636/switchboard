@@ -42,6 +42,25 @@ db.pragma('busy_timeout = 5000');
 // NORMAL fsyncs only at checkpoints, not every commit — the standard WAL
 // pairing; FULL adds no extra integrity in WAL mode but fsyncs every write.
 db.pragma('synchronous = NORMAL');
+// Bigger page cache + mmap so the hot indexing path (busy multi-agent sessions
+// re-index folders on every JSONL append) reads/writes mostly in memory instead
+// of hammering the disk. cache_size is negative = KiB (16 MiB); mmap_size in bytes.
+db.pragma('cache_size = -16000');
+db.pragma('mmap_size = 268435456'); // 256 MiB
+// Keep the WAL from ballooning under sustained writes: auto-checkpoint roughly
+// every ~8 MiB of WAL (2000 pages) instead of the 4 MiB default, plus a periodic
+// PASSIVE checkpoint that reclaims WAL space without ever blocking writers.
+db.pragma('wal_autocheckpoint = 2000');
+// Only the main process runs the periodic reclaim; a worker thread that opens
+// the DB (read-only search connection) must not fire its own checkpoints.
+let _isMainThread = true;
+try { _isMainThread = require('worker_threads').isMainThread; } catch {}
+if (_isMainThread) {
+  const _walCheckpointTimer = setInterval(() => {
+    try { db.pragma('wal_checkpoint(PASSIVE)'); } catch {}
+  }, 60000);
+  if (typeof _walCheckpointTimer.unref === 'function') _walCheckpointTimer.unref();
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS session_meta (
