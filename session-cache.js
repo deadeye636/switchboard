@@ -357,6 +357,17 @@ function buildProjectsFromCache(showArchived) {
     return new Date(bDate) - new Date(aDate);
   });
 
+  // Manual project mode (projectAutoAdd === false): only show projects on the
+  // explicit allowlist (addedProjects), so newly-discovered ~/.claude/projects
+  // folders (e.g. from Claude sessions started outside Switchboard) don't appear.
+  // The allowlist is seeded with the current set when the user switches to manual
+  // (see the set-project-auto-add IPC); a missing/invalid list falls back to
+  // showing everything so we never blank the sidebar unexpectedly.
+  if (global.projectAutoAdd === false && Array.isArray(global.addedProjects)) {
+    const added = new Set(global.addedProjects);
+    return projects.filter(p => added.has(p.projectPath));
+  }
+
   return projects;
 }
 

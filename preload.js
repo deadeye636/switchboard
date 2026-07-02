@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('api', {
   browseFolder: () => ipcRenderer.invoke('browse-folder'),
   addProject: (projectPath) => ipcRenderer.invoke('add-project', projectPath),
   removeProject: (projectPath) => ipcRenderer.invoke('remove-project', projectPath),
+  setProjectAutoAdd: (enabled) => ipcRenderer.invoke('set-project-auto-add', enabled),
   getHiddenProjects: () => ipcRenderer.invoke('get-hidden-projects'),
   unhideProject: (projectPath) => ipcRenderer.invoke('unhide-project', projectPath),
   remapProject: (oldPath, newPath) => ipcRenderer.invoke('remap-project', oldPath, newPath),

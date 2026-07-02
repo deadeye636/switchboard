@@ -119,6 +119,7 @@
     // #17 project list (global only): sort mode + favorites presentation.
     const projectSortValue = !isProject ? (current.projectSortMode || 'activity') : 'activity';
     const favoritesOwnListValue = !isProject ? !!current.favoritesOwnList : false;
+    const projectAutoAddValue = !isProject ? (current.projectAutoAdd !== false) : true;
     // Handoff library (global only): toggle + editable request prompt.
     const defaultHandoffPrompt = (typeof window !== 'undefined' && window.DEFAULT_HANDOFF_PROMPT) || '';
     const handoffLibraryValue = !isProject ? !!current.handoffLibrary : false;
@@ -592,6 +593,15 @@
             <label class="settings-toggle"><input type="checkbox" id="sv-favorites-own-list" ${favoritesOwnListValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
           </div>
         </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Automatically add projects</span>
+            <div class="settings-description">On: every project you use with Claude Code appears automatically (all <code>~/.claude/projects</code> folders). Off: the current projects are kept and new ones no longer appear on their own — add them yourself with the + button (a session you start from Switchboard also adds its project). Switching back on restores full auto-discovery.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-project-auto-add" ${projectAutoAddValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
       </div>` : ''}
 
       ${!isProject ? `<div class="settings-section">
@@ -939,6 +949,14 @@
         }
         if (typeof window._setUsageThresholds === 'function') {
           window._setUsageThresholds({ fiveHWarn: settings.usage5hWarn, fiveHCrit: settings.usage5hCrit, sevenDWarn: settings.usage7dWarn, sevenDCrit: settings.usage7dCrit });
+        }
+        {
+          const autoAddEl = settingsViewerBody.querySelector('#sv-project-auto-add');
+          if (autoAddEl && typeof window.api.setProjectAutoAdd === 'function') {
+            // Owns projectAutoAdd + the addedProjects seed in main; notifies the
+            // renderer to reload the sidebar. Not stored via the generic blob save.
+            await window.api.setProjectAutoAdd(autoAddEl.checked);
+          }
         }
         if (settings.shortcuts && typeof window._applyShortcuts === 'function') {
           window._applyShortcuts(settings.shortcuts);

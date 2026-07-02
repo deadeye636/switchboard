@@ -531,6 +531,9 @@ ipcMain.handle('add-project', (_event, projectPath) => {
       fs.writeFileSync(seedFile, line + '\n');
     }
 
+    // Explicit add → allowlist, so it shows in manual project mode too.
+    ensureProjectAdded(projectPath);
+
     // Immediately index the new folder so it's in cache before frontend renders
     refreshFolder(folder);
     notifyRendererProjectsChanged();
@@ -549,6 +552,10 @@ ipcMain.handle('remove-project', (_event, projectPath) => {
     const hidden = global.hiddenProjects || [];
     if (!hidden.includes(projectPath)) hidden.push(projectPath);
     global.hiddenProjects = hidden;
+    // Also drop from the manual-mode allowlist so it stays gone in manual mode.
+    if (Array.isArray(global.addedProjects)) {
+      global.addedProjects = global.addedProjects.filter(p => p !== projectPath);
+    }
     setSetting('global', global);
 
     // Clean up DB cache and search index for this folder
@@ -583,6 +590,42 @@ ipcMain.handle('unhide-project', (_event, projectPath) => {
 
     const folder = encodeProjectPath(projectPath);
     try { refreshFolder(folder); } catch {}
+    notifyRendererProjectsChanged();
+    return { ok: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// --- Manual-project-mode allowlist helper ---
+// Add a projectPath to the `addedProjects` allowlist (used only when
+// projectAutoAdd === false). Idempotent; persists to the global settings blob.
+function ensureProjectAdded(projectPath) {
+  if (!projectPath) return;
+  const global = getSetting('global') || {};
+  const added = Array.isArray(global.addedProjects) ? global.addedProjects : [];
+  if (!added.includes(projectPath)) {
+    added.push(projectPath);
+    global.addedProjects = added;
+    setSetting('global', global);
+  }
+}
+
+// --- IPC: set-project-auto-add ---
+// Toggle automatic project discovery. When turning OFF (manual mode), freeze the
+// currently-visible projects into the allowlist so nothing disappears; new folders
+// discovered afterwards won't appear unless added explicitly. Turning ON again
+// ignores the allowlist (everything is discovered as before).
+ipcMain.handle('set-project-auto-add', (_event, enabled) => {
+  try {
+    const global = getSetting('global') || {};
+    if (!enabled) {
+      // Snapshot the current (auto-discovered) set before flipping the flag.
+      const visible = buildProjectsFromCache(false).map(p => p.projectPath);
+      global.addedProjects = [...new Set(visible)];
+    }
+    global.projectAutoAdd = !!enabled;
+    setSetting('global', global);
     notifyRendererProjectsChanged();
     return { ok: true };
   } catch (err) {
@@ -1853,6 +1896,10 @@ ipcMain.handle('archive-session', (_event, sessionId, archived) => {
 // --- IPC: open-terminal ---
 ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, sessionOptions) => {
   if (!mainWindow) return { ok: false, error: 'no window' };
+
+  // Manual project mode: a session launched from Switchboard means the user is
+  // actively using this project → add it to the allowlist so it shows.
+  if (projectPath && getSetting('global')?.projectAutoAdd === false) ensureProjectAdded(projectPath);
 
   // Reattach to existing session
   if (activeSessions.has(sessionId)) {
