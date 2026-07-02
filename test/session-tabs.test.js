@@ -4,7 +4,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildTabModel } = require('../public/session-tabs');
+const {
+  buildTabModel,
+  resolveAutoCloseMode,
+  resolveAutoCloseDelaySec,
+  shouldAutoClose,
+} = require('../public/session-tabs');
 
 const S = (sessionId, name, closed = false) => ({ sessionId, name, closed });
 
@@ -40,4 +45,35 @@ test('handles empty / undefined inputs safely', () => {
   assert.deepEqual(buildTabModel([], null, []), []);
   assert.deepEqual(buildTabModel(undefined, null, undefined), []);
   assert.deepEqual(buildTabModel([S('a', 'A')], null, undefined).map(t => t.sessionId), ['a']);
+});
+
+// --- Auto-close on exit ---
+
+test('resolveAutoCloseMode defaults to always and validates the value', () => {
+  assert.equal(resolveAutoCloseMode(undefined), 'always');
+  assert.equal(resolveAutoCloseMode({}), 'always');
+  assert.equal(resolveAutoCloseMode({ tabAutoCloseMode: 'bogus' }), 'always');
+  assert.equal(resolveAutoCloseMode({ tabAutoCloseMode: 'never' }), 'never');
+  assert.equal(resolveAutoCloseMode({ tabAutoCloseMode: 'onSuccess' }), 'onSuccess');
+  assert.equal(resolveAutoCloseMode({ tabAutoCloseMode: 'always' }), 'always');
+});
+
+test('resolveAutoCloseDelaySec defaults to 5, honours 0, floors, rejects junk', () => {
+  assert.equal(resolveAutoCloseDelaySec(undefined), 5);
+  assert.equal(resolveAutoCloseDelaySec({}), 5);
+  assert.equal(resolveAutoCloseDelaySec({ tabAutoCloseDelaySec: 0 }), 0);
+  assert.equal(resolveAutoCloseDelaySec({ tabAutoCloseDelaySec: 12 }), 12);
+  assert.equal(resolveAutoCloseDelaySec({ tabAutoCloseDelaySec: 3.9 }), 3);
+  assert.equal(resolveAutoCloseDelaySec({ tabAutoCloseDelaySec: -4 }), 5);
+  assert.equal(resolveAutoCloseDelaySec({ tabAutoCloseDelaySec: 'x' }), 5);
+});
+
+test('shouldAutoClose applies the mode against the exit code', () => {
+  assert.equal(shouldAutoClose('never', 0), false);
+  assert.equal(shouldAutoClose('never', 1), false);
+  assert.equal(shouldAutoClose('onSuccess', 0), true);
+  assert.equal(shouldAutoClose('onSuccess', 1), false);
+  assert.equal(shouldAutoClose('always', 0), true);
+  assert.equal(shouldAutoClose('always', 1), true);
+  assert.equal(shouldAutoClose('bogus', 0), false);
 });

@@ -156,9 +156,9 @@ function clampRowsToContentBox(proposedRows, clientHeight, verticalPadding, cell
 // Fit terminal to container, clamping rows to the container's true content-box
 // height to avoid bottom-row clipping (see clampRowsToContentBox above).
 function safeFit(entry) {
+  const el = entry.element; // .terminal-container
   const dims = entry.fitAddon.proposeDimensions();
   if (dims && dims.rows > 1) {
-    const el = entry.element; // .terminal-container
     const cs = getComputedStyle(el);
     const padV = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     // Prefer the private xterm render-service path (same source FitAddon uses).
@@ -172,14 +172,31 @@ function safeFit(entry) {
   } else {
     entry.fitAddon.fit();
   }
+  // Cache the container size this fit was computed for, so showSession can skip a
+  // redundant resize (and its reflow) when the box hasn't changed on a tab switch.
+  if (el) { entry._fitW = el.clientWidth; entry._fitH = el.clientHeight; }
 }
 
 // Fit a terminal that just became visible (from display:none or reparent).
+// Flush the WebGL glyph atlas and force a full-row redraw. xterm's WebGL renderer
+// caches a glyph texture atlas; on a hidden->visible transition WITHOUT a dimension
+// change (tab switch, grid<->single) nothing triggers a repaint, so the stale atlas
+// renders misaligned ("staircase") until the next incidental write. No-op / harmless
+// on the DOM-renderer fallback.
+function forceRepaint(entry) {
+  if (!entry.webglAddon) return; // WebGL-atlas fix only; the DOM renderer repaints correctly on its own
+  try {
+    entry.webglAddon.clearTextureAtlas();
+    entry.terminal.refresh(0, entry.terminal.rows - 1);
+  } catch { /* ignore */ }
+}
+
 // Defers to requestAnimationFrame so the container has dimensions.
 function fitAndScroll(entry) {
   const wasAtBottom = isAtBottom(entry.terminal);
   requestAnimationFrame(() => {
     safeFit(entry);
+    forceRepaint(entry);
     if (wasAtBottom) {
       entry.terminal.scrollToBottom();
     }
@@ -223,6 +240,13 @@ window._setTerminalFontFamily = (family) => {
   applyTerminalFontToAll();
   return terminalFontFamily;
 };
+
+// Tabs mode "live render background tabs" setting (default on). When on, terminal
+// output is written to xterm even while a tab is in the background instead of being
+// buffered and replayed on show — the replay write + scroll snap was the source of
+// the flicker when returning to a tab that produced output. Off = legacy buffering.
+let tabsLiveRenderEnabled = true;
+window._setTabsLiveRender = (v) => { tabsLiveRenderEnabled = v !== false; };
 
 // Persist the zoomed size back into the global blob so it survives a restart.
 // Merge-read so we never clobber other global keys.
@@ -379,8 +403,13 @@ function flushTerminalBuffer(sessionId) {
   if (!terminalMouseReportingEnabled) data = stripMouseReporting(data);
   lastFlushAt.set(sessionId, performance.now());
 
+  // Live-render mode (tabs, default on): write output to background tabs too, so
+  // there's nothing to replay on show → no catch-up write/scroll flicker when
+  // returning to a tab that produced output. Off (or grid): buffer + replay.
+  const liveRender = tabsLiveRenderEnabled && document.body.classList.contains('display-mode-tabs');
+
   // Stage A: skip write() for non-visible sessions; accumulate raw data for replay.
-  if (!isSessionVisible(sessionId)) {
+  if (!liveRender && !isSessionVisible(sessionId)) {
     let arr = rawReplayBuffers.get(sessionId);
     if (!arr) { arr = []; rawReplayBuffers.set(sessionId, arr); }
     arr.push(data);
@@ -391,11 +420,12 @@ function flushTerminalBuffer(sessionId) {
   const wasAtBottom = isAtBottom(entry.terminal);
   const savedViewportY = entry.terminal.buffer.active.viewportY;
   entry.terminal.write(data, () => {
-    if (sessionId !== activeSessionId) return;
     if (wasAtBottom) {
+      // Follow the output even for a live-rendered background tab (invisible now),
+      // so switching to it later lands on the latest line without a scroll snap.
       entry.terminal.scrollToBottom();
-    } else {
-      // Restore scroll position so redraws don't yank the user away
+    } else if (sessionId === activeSessionId) {
+      // Restore scroll position so redraws don't yank the user away.
       entry.terminal.scrollLines(savedViewportY - entry.terminal.buffer.active.viewportY);
     }
   });
@@ -625,6 +655,17 @@ function createTerminalEntry(session, opts = {}) {
     trackActivity(entry.session.sessionId, '\x07');
   });
 
+  // Tabs mode: the container is laid out the moment it's appended (visibility:hidden,
+  // not display:none), so fit it now — before its first paint — and cache the size.
+  // Otherwise the first showSession would run the initial fit and reflow the grid
+  // once, a one-time text jump on the first switch to the session.
+  if (document.body.classList.contains('display-mode-tabs') &&
+      container.clientWidth > 0 && container.clientHeight > 0) {
+    // z-index stack: the container is laid out immediately (no display:none), so fit
+    // it now — before its first show — to avoid a one-time reflow on first reveal.
+    safeFit(entry);
+  }
+
   return entry;
 }
 
@@ -636,7 +677,21 @@ function createTerminalEntry(session, opts = {}) {
 // in grid-view.js) and restores it when they scroll back in; showSession
 // restores it for single view. Loading must happen after terminal.open()
 // (needs attached DOM); failure falls back to xterm's DOM renderer.
+// Renderer selection. Default is xterm's DOM renderer (no GPU texture atlas → no
+// stale-atlas "staircase" on show, no ~16 WebGL-context-per-process cap). WebGL is
+// an opt-in setting (`terminalWebgl`) for users who want GPU acceleration and accept
+// the tab-switch repaint cost. Toggled live via window._setTerminalWebgl.
+let webglEnabled = false;
+window._setTerminalWebgl = (on) => {
+  webglEnabled = !!on;
+  for (const [sessionId, entry] of openSessions) {
+    if (webglEnabled) loadTerminalWebgl(entry);
+    else suspendTerminalWebgl(sessionId);
+  }
+};
+
 function loadTerminalWebgl(entry) {
+  if (!webglEnabled) return; // DOM renderer unless WebGL is opted in
   if (entry.webglAddon || !entry.terminal) return;
   try {
     const webglAddon = new WebglAddon.WebglAddon();
@@ -740,7 +795,6 @@ function showSession(sessionId) {
     }
   } else {
     // Single terminal view
-    document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('visible'));
     placeholder.style.display = 'none';
     hidePlanViewer();
     if (session) showTerminalHeader(session);
@@ -748,15 +802,51 @@ function showSession(sessionId) {
       // Restore the full scrollback budget for the focused terminal (the grid
       // may have trimmed it — see showGridView). Growing the limit is lossless.
       entry.terminal.options.scrollback = SCROLLBACK_SINGLE;
-      restoreTerminalWebgl(sessionId); // grid may have suspended the GL context
-      entry.element.classList.add('visible');
-      // Drain any data that accumulated while this session was non-visible.
-      // Must happen after classList.add('visible') so isSessionVisible is true
-      // if any nested flush fires, and after scrollback restore so the buffer
-      // is at full capacity when the replay write lands.
-      drainReplayBuffer(sessionId);
-      entry.terminal.focus();
-      fitAndScroll(entry);
+      const el = entry.element;
+
+      if (document.body.classList.contains('display-mode-tabs')) {
+        // Tabs mode: z-index stack. Every open terminal stays mounted AND painted
+        // (see the CSS — no display:none / visibility:hidden); switching just moves
+        // the target on top (z-index via .visible) and enables its input. Because the
+        // target was already painted underneath, there is no hidden->visible repaint,
+        // so no "staircase"/reflow flicker even when it gained lines while inactive.
+        // Refit only on a real size change (file panel width, window resize); a plain
+        // switch keeps the box, so we skip the resize (sub-row jitter would otherwise
+        // reflow ±1 row).
+        const w = el.clientWidth, h = el.clientHeight;
+        const REFIT_TOL = 8;
+        if (w > 0 && h > 0 && (Math.abs(w - (entry._fitW || 0)) > REFIT_TOL || Math.abs(h - (entry._fitH || 0)) > REFIT_TOL)) {
+          safeFit(entry); // records _fitW/_fitH
+        }
+        drainReplayBuffer(sessionId);
+        // Promote this terminal on top; demote the others. Inactive containers get
+        // pointer-events:none via CSS and only the active terminal is focused, so
+        // input always lands on the visible one (no `inert` needed → no cross-mode
+        // cleanup when switching to grid mode).
+        document.querySelectorAll('.terminal-container.visible').forEach(c => {
+          if (c !== el) c.classList.remove('visible');
+        });
+        el.classList.add('visible');
+        if (webglEnabled) {
+          // Bound GL contexts to the active terminal only (others fall back to DOM,
+          // still painted). Restoring WebGL on the active one may repaint it once.
+          for (const [sid, e] of openSessions) {
+            if (sid !== sessionId && e.webglAddon) suspendTerminalWebgl(sid);
+          }
+          restoreTerminalWebgl(sessionId);
+          forceRepaint(entry);
+        }
+        entry.terminal.focus();
+      } else {
+        // Grid mode, single view: inactive containers are display:none (not painted),
+        // so reveal first (to gain layout), then drain + fit.
+        restoreTerminalWebgl(sessionId);
+        document.querySelectorAll('.terminal-container.visible').forEach(c => c.classList.remove('visible'));
+        el.classList.add('visible');
+        drainReplayBuffer(sessionId);
+        entry.terminal.focus();
+        fitAndScroll(entry);
+      }
     }
   }
   if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();

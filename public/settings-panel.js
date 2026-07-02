@@ -96,13 +96,17 @@
     const terminalFontCustomValue = terminalFontIsPreset ? '' : terminalFontFamilyValue;
     const rightClickValue = fieldValue('terminalRightClick', 'menu');
     const mouseReportingValue = fieldValue('terminalMouseReporting', 'on');
-    const displayModeValue = fieldValue('sessionDisplayMode', 'legacy');
+    const terminalWebglValue = fieldValue('terminalWebgl', false);
+    const displayModeValue = fieldValue('sessionDisplayMode', 'grid');
     const settingsOpenModeValue = fieldValue('settingsOpenMode', 'overlay');
     const collapseDefaultValue = fieldValue('sidebarCollapseDefault', 'remember');
     const tabPositionValue = fieldValue('tabPosition', 'top');
     const tabCloseValue = fieldValue('tabCloseBehavior', 'closeView');
     const tabMiddleClickValue = fieldValue('tabMiddleClickCloses', true);
     const tabDragValue = fieldValue('tabDragReorder', true);
+    const tabAutoCloseModeValue = fieldValue('tabAutoCloseMode', 'always');
+    const tabAutoCloseDelayValue = fieldValue('tabAutoCloseDelaySec', 5);
+    const tabsLiveRenderValue = fieldValue('tabsLiveRender', true);
     const mcpEmulationValue = fieldValue('mcpEmulation', true);
     const restoreSessionsValue = fieldValue('restoreSessionsOnLaunch', true);
     const attentionHooksValue = fieldValue('attentionHooks', false);
@@ -336,6 +340,16 @@
 
         <div class="settings-field">
           <div class="settings-field-info">
+            <span class="settings-label">GPU rendering (WebGL)</span>
+            <div class="settings-description">Render terminals with the GPU (WebGL) instead of the default DOM renderer. Faster for heavy full-screen output, but the terminal text may briefly flicker/"staircase" when switching tabs or resizing, and only ~16 terminals can hold a GPU context at once. Leave off unless you have very output-heavy sessions.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-terminal-webgl" ${terminalWebglValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
             <span class="settings-label">Shell Profile</span>
             <div class="settings-description">Shell used for terminal and Claude sessions. Changes take effect for new sessions only.</div>
           </div>
@@ -430,11 +444,11 @@
         <div class="settings-field">
           <div class="settings-field-info">
             <span class="settings-label">Display mode</span>
-            <div class="settings-description">Legacy = current behavior (sidebar + grid overview). Tabs = a tab bar above the terminal to switch between open sessions; the grid mosaic stays reachable via the overview button.</div>
+            <div class="settings-description">Grid = default behavior (sidebar + grid overview / single view). Tabs = a tab bar above the terminal to switch between open sessions; the grid mosaic stays reachable via the overview button.</div>
           </div>
           <div class="settings-field-control">
             <select class="settings-select" id="sv-display-mode">
-              <option value="legacy" ${displayModeValue === 'legacy' ? 'selected' : ''}>Legacy</option>
+              <option value="grid" ${displayModeValue !== 'tabs' ? 'selected' : ''}>Grid</option>
               <option value="tabs" ${displayModeValue === 'tabs' ? 'selected' : ''}>Tabs</option>
             </select>
           </div>
@@ -479,6 +493,37 @@
           </div>
           <div class="settings-field-control">
             <label class="settings-toggle"><input type="checkbox" id="sv-tab-drag" ${tabDragValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Auto-close tab after exit</span>
+            <div class="settings-description">When a session's process exits, close its tab automatically. Never = keep it open (re-click to relaunch, or click another tab). On success and error = close after any exit. On success only = keep failed sessions (non-zero exit) open so you can read the error.</div>
+          </div>
+          <div class="settings-field-control">
+            <select class="settings-select" id="sv-tab-autoclose-mode">
+              <option value="never" ${tabAutoCloseModeValue === 'never' ? 'selected' : ''}>Never</option>
+              <option value="onSuccess" ${tabAutoCloseModeValue === 'onSuccess' ? 'selected' : ''}>On success only</option>
+              <option value="always" ${tabAutoCloseModeValue === 'always' ? 'selected' : ''}>On success and error</option>
+            </select>
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Auto-close delay (seconds)</span>
+            <div class="settings-description">How long the exit banner stays before the tab closes. 0 = close immediately. Ignored when auto-close is Never.</div>
+          </div>
+          <div class="settings-field-control">
+            <input type="number" class="settings-input settings-input-compact" id="sv-tab-autoclose-delay" min="0" max="120" value="${tabAutoCloseDelayValue}">
+          </div>
+        </div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Live-render background tabs</span>
+            <div class="settings-description">Render terminal output in background tabs immediately instead of buffering it until you switch. Removes the flicker when returning to a tab that produced output, at some CPU/GPU cost for busy background sessions. Off = buffer and replay on switch.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-tabs-live-render" ${tabsLiveRenderValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
           </div>
         </div>
       </div>` : ''}
@@ -744,9 +789,10 @@
         }
         settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').value || 'menu';
         settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').checked ? 'on' : 'off';
+        settings.terminalWebgl = settingsViewerBody.querySelector('#sv-terminal-webgl').checked;
         settings.settingsOpenMode = settingsViewerBody.querySelector('#sv-settings-open-mode').value || 'overlay';
         settings.sidebarCollapseDefault = settingsViewerBody.querySelector('#sv-collapse-default').value || 'remember';
-        settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'legacy';
+        settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'grid';
         settings.projectSortMode = settingsViewerBody.querySelector('#sv-project-sort')?.value || 'activity';
         settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
         settings.handoffLibrary = !!settingsViewerBody.querySelector('#sv-handoff-library')?.checked;
@@ -759,6 +805,12 @@
         settings.tabCloseBehavior = settingsViewerBody.querySelector('#sv-tab-close').value || 'closeView';
         settings.tabMiddleClickCloses = settingsViewerBody.querySelector('#sv-tab-middle-click').checked;
         settings.tabDragReorder = settingsViewerBody.querySelector('#sv-tab-drag').checked;
+        settings.tabAutoCloseMode = settingsViewerBody.querySelector('#sv-tab-autoclose-mode').value || 'always';
+        {
+          const d = parseInt(settingsViewerBody.querySelector('#sv-tab-autoclose-delay').value, 10);
+          settings.tabAutoCloseDelaySec = Math.max(0, Math.min(120, Number.isFinite(d) ? d : 5));
+        }
+        settings.tabsLiveRender = settingsViewerBody.querySelector('#sv-tabs-live-render').checked;
         settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
         settings.restoreSessionsOnLaunch = settingsViewerBody.querySelector('#sv-restore-sessions').checked;
         settings.attentionHooks = settingsViewerBody.querySelector('#sv-attention-hooks').checked;
@@ -827,6 +879,9 @@
         }
         if (settings.terminalMouseReporting && typeof window._applyTerminalMouseReporting === 'function') {
           window._applyTerminalMouseReporting(settings.terminalMouseReporting);
+        }
+        if (typeof window._setTerminalWebgl === 'function') {
+          window._setTerminalWebgl(settings.terminalWebgl === true);
         }
         if (settings.shortcuts && typeof window._applyShortcuts === 'function') {
           window._applyShortcuts(settings.shortcuts);

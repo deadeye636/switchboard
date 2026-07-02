@@ -2312,6 +2312,16 @@ input:focus-visible {
   display: block;
 }
 
+/* Tabs mode: z-index stack. All open terminals stay laid out AND painted (no
+   display:none / visibility:hidden), stacked in the same absolute box. The active
+   one is raised (z-index) and interactive; inactive ones sit behind, covered by the
+   active terminal's opaque background, and get pointer-events:none (plus `inert` in
+   JS). Keeping them painted means a switch never triggers a hidden->visible repaint,
+   so the terminal text doesn't reflow/"staircase" on switch — even if the target
+   gained lines while inactive. Tabs mode is single-view only (no grid). */
+body.display-mode-tabs .terminal-container { display: block; z-index: 0; pointer-events: none; }
+body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events: auto; }
+
 .terminal-container.drag-over {
   outline: 2px solid rgba(128, 136, 255, 0.6);
   outline-offset: -2px;
@@ -2321,6 +2331,12 @@ input:focus-visible {
 .terminal-container .xterm-viewport {
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.1) transparent;
+  /* Always reserve the scrollbar gutter so the viewport width stays constant
+     whether the scrollbar is present or not. Without this, switching tabs (or
+     content crossing the overflow threshold) toggled the 8px scrollbar, changed
+     the usable width, and shifted the column count by one → the terminal text
+     visibly jumped left/right on every tab switch. */
+  scrollbar-gutter: stable;
 }
 
 .terminal-container .xterm-viewport::-webkit-scrollbar {

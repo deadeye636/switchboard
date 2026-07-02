@@ -967,6 +967,15 @@ window.api.onSessionForked((oldId, newId) => {
   pollActiveSessions();
 });
 
+// Clear the main terminal area to the idle placeholder (no active session).
+// Exposed for the session-tabs close fallback: when the closed tab was the active
+// one and no other tab remains, the strip has nothing to switch to.
+window.clearActiveTerminalView = function () {
+  setActiveSession(null);
+  terminalHeader.style.display = 'none';
+  placeholder.style.display = '';
+};
+
 window.api.onProcessExited((sessionId, exitCode) => {
   const entry = openSessions.get(sessionId);
   const session = sessionMap.get(sessionId);
@@ -1020,6 +1029,10 @@ window.api.onProcessExited((sessionId, exitCode) => {
   if (gridViewActive) {
     gridViewerCount.textContent = gridCards.size + ' session' + (gridCards.size !== 1 ? 's' : '');
   }
+
+  // Tabs mode: optionally auto-close the tab after the exit (setting-driven; the
+  // scheduler no-ops in grid mode and honours the mode/delay from settings).
+  if (typeof window.scheduleTabAutoClose === 'function') window.scheduleTabAutoClose(sessionId, exitCode);
 
   pollActiveSessions();
 });
@@ -1987,6 +2000,7 @@ window.addEventListener('resize', () => {
   if (activeSessionId && openSessions.has(activeSessionId)) {
     const entry = openSessions.get(activeSessionId);
     safeFit(entry);
+    forceRepaint(entry); // flush the WebGL atlas so the resize doesn't leave a staircase
   }
 });
 
@@ -2157,6 +2171,7 @@ async function reapplyGlobalSettings() {
   if (g.terminalFontSize) window._setTerminalFontSize?.(g.terminalFontSize);
   if (g.terminalRightClick) window._applyTerminalRightClick?.(g.terminalRightClick);
   if (g.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(g.terminalMouseReporting !== 'off');
+  window._setTerminalWebgl?.(g.terminalWebgl === true);
   if (g.visibleSessionCount) window._setVisibleSessionCount?.(g.visibleSessionCount);
   if (g.sessionMaxAgeDays) window._setSessionMaxAge?.(g.sessionMaxAgeDays);
   if (g.shortcuts && typeof setAppShortcuts === 'function') setAppShortcuts(g.shortcuts);
@@ -2282,6 +2297,7 @@ setTimeout(() => {
     if (global.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') {
       setTerminalMouseReporting(global.terminalMouseReporting !== 'off');
     }
+    window._setTerminalWebgl?.(global.terminalWebgl === true);
     if (global.shortcuts) setAppShortcuts(global.shortcuts);
     if (typeof window._applySessionDisplaySettings === 'function') window._applySessionDisplaySettings(global);
   }
@@ -2479,7 +2495,10 @@ async function restoreOpenSessionsOnLaunch() {
   // it is refreshed on the next normal quit.
   if (!hasRestorableUpdateSessions(state)) return false;
 
-  if (state.gridViewActive) {
+  // Don't restore the grid mosaic in tabs mode (single-view only) — a stale grid
+  // flag would otherwise leave gridViewActive=true in tabs and desync the
+  // tab→grid restore. Mirrors the guard in toggleGridView.
+  if (state.gridViewActive && !document.body.classList.contains('display-mode-tabs')) {
     localStorage.setItem('gridViewActive', '1');
     if (!gridViewActive) showGridView();
   }

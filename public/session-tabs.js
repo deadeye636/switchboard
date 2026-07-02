@@ -27,21 +27,46 @@ function buildTabModel(sessions, activeId, order) {
     });
 }
 
+// Pure: resolve the auto-close-on-exit mode from persisted settings.
+// 'never' | 'onSuccess' | 'always'. Default 'always'.
+function resolveAutoCloseMode(g) {
+  const v = g && g.tabAutoCloseMode;
+  return (v === 'never' || v === 'onSuccess' || v === 'always') ? v : 'always';
+}
+
+// Pure: resolve the auto-close delay in seconds. Default 5, floored at 0
+// (0 = close immediately). Missing / non-numeric / negative → default 5.
+function resolveAutoCloseDelaySec(g) {
+  const n = g && g.tabAutoCloseDelaySec;
+  if (typeof n !== 'number' || !isFinite(n) || n < 0) return 5;
+  return Math.floor(n);
+}
+
+// Pure: given the mode and a process exit code, should the tab auto-close?
+function shouldAutoClose(mode, exitCode) {
+  if (mode === 'always') return true;
+  if (mode === 'onSuccess') return exitCode === 0;
+  return false; // 'never' or unknown
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { buildTabModel };
+  module.exports = { buildTabModel, resolveAutoCloseMode, resolveAutoCloseDelaySec, shouldAutoClose };
 }
 
 (function () {
   if (typeof document === 'undefined') return; // node test context
 
-  let displayMode = 'legacy';      // legacy | tabs
+  let displayMode = 'grid';        // grid | tabs
   let tabPosition = 'top';         // top | bottom
   let closeBehavior = 'closeView'; // closeView | stopSession
   let middleClickCloses = true;
   let dragReorder = true;
+  let autoCloseMode = 'always';    // never | onSuccess | always
+  let autoCloseDelaySec = 5;       // seconds; 0 = close immediately
   let tabOrder = [];               // sessionId[] persisted order
   let dragId = null;
   let initialized = false;         // first applySessionDisplaySettings = startup
+  const autoCloseTimers = new Map(); // sessionId → pending auto-close timeout id
 
   function stripEl() { return document.getElementById('session-tabs'); }
 
@@ -73,18 +98,57 @@ if (typeof module !== 'undefined' && module.exports) {
     return typeof attentionSessions !== 'undefined' && attentionSessions.has(sessionId);
   }
 
+  // Tear down a tab's view and, when it was the active session, fall back to the
+  // next open tab (or the idle placeholder if none remain) so the main area is
+  // never left blank. Shared by manual close (×/middle-click) and auto-close.
+  function performClose(sessionId) {
+    const wasActive = (typeof activeSessionId !== 'undefined' && activeSessionId === sessionId);
+    cancelTabAutoClose(sessionId);
+    // For 'closeView' the PTY in main keeps running and the session stays in the
+    // sidebar, reopenable; 'stopSession' (handled by the caller) ends the process.
+    if (typeof destroySession === 'function') destroySession(sessionId);
+    tabOrder = tabOrder.filter(id => id !== sessionId);
+    if (wasActive) {
+      const remaining = buildTabModel(collectSessions(), null, tabOrder);
+      if (remaining.length > 0) {
+        if (typeof showSession === 'function') showSession(remaining[0].sessionId);
+      } else if (typeof window.clearActiveTerminalView === 'function') {
+        window.clearActiveTerminalView();
+      }
+    }
+    refreshSessionTabs();
+  }
+
   function closeTab(sessionId) {
     if (closeBehavior === 'stopSession') {
       try { window.api.stopSession(sessionId); } catch { /* ignore */ }
     }
-    // Either way the renderer view is torn down; for 'closeView' the PTY in main
-    // keeps running and the session stays in the sidebar, reopenable.
-    if (typeof destroySession === 'function') destroySession(sessionId);
-    tabOrder = tabOrder.filter(id => id !== sessionId);
-    refreshSessionTabs();
+    performClose(sessionId);
+  }
+
+  // Schedule an auto-close after the session's process exits. Only in tabs mode,
+  // only when the mode/exit-code combination opts in. The timer no-ops if the
+  // session was relaunched (a fresh, non-closed entry exists) or already torn down.
+  function scheduleTabAutoClose(sessionId, exitCode) {
+    if (displayMode !== 'tabs') return;
+    if (!shouldAutoClose(autoCloseMode, exitCode)) return;
+    cancelTabAutoClose(sessionId);
+    const t = setTimeout(() => {
+      autoCloseTimers.delete(sessionId);
+      const entry = (typeof openSessions !== 'undefined') ? openSessions.get(sessionId) : null;
+      if (!entry || !entry.closed) return; // relaunched or gone — leave it be
+      performClose(sessionId);
+    }, autoCloseDelaySec * 1000);
+    autoCloseTimers.set(sessionId, t);
+  }
+
+  function cancelTabAutoClose(sessionId) {
+    const t = autoCloseTimers.get(sessionId);
+    if (t) { clearTimeout(t); autoCloseTimers.delete(sessionId); }
   }
 
   function activateTab(sessionId) {
+    cancelTabAutoClose(sessionId); // user re-engaged with the session
     if (typeof showSession === 'function') showSession(sessionId);
     refreshSessionTabs();
   }
@@ -255,29 +319,41 @@ if (typeof module !== 'undefined' && module.exports) {
   function applySessionDisplaySettings(g) {
     g = g || {};
     const prevMode = displayMode;
-    displayMode = g.sessionDisplayMode === 'tabs' ? 'tabs' : 'legacy';
+    // Non-tabs is the "grid" mode (sidebar + grid overview / single view). Legacy
+    // stored values ('legacy') still map here — anything that isn't 'tabs' is grid.
+    displayMode = g.sessionDisplayMode === 'tabs' ? 'tabs' : 'grid';
     tabPosition = g.tabPosition === 'bottom' ? 'bottom' : 'top';
     closeBehavior = g.tabCloseBehavior === 'stopSession' ? 'stopSession' : 'closeView';
     middleClickCloses = g.tabMiddleClickCloses !== false;
     dragReorder = g.tabDragReorder !== false;
+    autoCloseMode = resolveAutoCloseMode(g);
+    autoCloseDelaySec = resolveAutoCloseDelaySec(g);
+    if (typeof window._setTabsLiveRender === 'function') window._setTabsLiveRender(g.tabsLiveRender !== false);
     tabOrder = Array.isArray(g.tabOrder) ? g.tabOrder.slice() : [];
     applyMode();
 
-    // Tabs mode is single-view only; the grid mosaic is legacy-only. On a real
-    // user mode switch, scope the grid per mode WITHOUT losing the legacy grid
-    // preference (saved separately so legacy keeps its mosaic). Skip on the first
+    // Tabs mode is single-view only; the grid mosaic belongs to grid mode. On a real
+    // user mode switch, scope the grid per mode WITHOUT losing the grid-mode mosaic
+    // preference (saved separately so grid mode keeps its mosaic). Skip on the first
     // apply (startup) — the persisted gridViewActive already matches the mode.
     if (initialized && prevMode !== displayMode) {
       if (displayMode === 'tabs') {
-        try { localStorage.setItem('legacyGridPref', localStorage.getItem('gridViewActive') || '0'); } catch { /* ignore */ }
+        try { localStorage.setItem('gridModePref', localStorage.getItem('gridViewActive') || '0'); } catch { /* ignore */ }
         if (typeof gridViewActive !== 'undefined' && gridViewActive && typeof toggleGridView === 'function') {
           toggleGridView(); // hide grid → single (persists gridViewActive=0)
         }
       } else {
         let pref = '0';
-        try { pref = localStorage.getItem('legacyGridPref') || '0'; } catch { /* ignore */ }
+        try { pref = localStorage.getItem('gridModePref') || '0'; } catch { /* ignore */ }
         if (pref === '1' && typeof gridViewActive !== 'undefined' && !gridViewActive && typeof toggleGridView === 'function') {
-          toggleGridView(); // restore legacy's grid mosaic
+          toggleGridView(); // restore grid mode's mosaic
+        } else if (typeof returnToTerminal === 'function') {
+          // Grid-mode single view: re-establish the view explicitly. Tabs CSS paints
+          // all containers regardless of `.visible`, so tabs can sit in a
+          // zero-`.visible` state; grid-mode CSS shows only `.visible`, so without
+          // this the area goes blank. returnToTerminal shows the active session (or
+          // the placeholder).
+          returnToTerminal();
         }
       }
     }
@@ -285,5 +361,7 @@ if (typeof module !== 'undefined' && module.exports) {
   }
 
   window.refreshSessionTabs = refreshSessionTabs;
+  window.scheduleTabAutoClose = scheduleTabAutoClose;
+  window.cancelTabAutoClose = cancelTabAutoClose;
   window._applySessionDisplaySettings = applySessionDisplaySettings;
 })();
