@@ -6878,6 +6878,11 @@ body.grid-dragging .grid-card-header {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  background: #18181f;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  color: #e0e0e8;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
 }
 .bm-dialog-title { font-weight: 600; font-size: 13px; }
 .bm-dialog-hint { font-size: 11px; color: #8a8a9a; }
