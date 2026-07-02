@@ -93,8 +93,17 @@
       </tr>`;
   }
 
-  function render() {
+  // Just the table rows for the current filter. Split out so a filter keystroke
+  // can refresh only the <tbody> — a full re-render would replace the search
+  // input element and steal its focus mid-typing.
+  function rowsHtml() {
     const rows = data.filter(matches);
+    return rows.length
+      ? rows.map(rowHtml).join('')
+      : `<tr><td colspan="10" class="pa-empty">No projects match.</td></tr>`;
+  }
+
+  function render() {
     const allowHeader = autoAdd ? '' : '<th>Allowlist</th>';
     viewer.innerHTML = `
       <div class="pa-header">
@@ -114,14 +123,19 @@
             </tr>
           </thead>
           <tbody>
-            ${rows.length ? rows.map(rowHtml).join('') : `<tr><td colspan="10" class="pa-empty">No projects match.</td></tr>`}
+            ${rowsHtml()}
           </tbody>
         </table>
       </div>`;
 
     const search = viewer.querySelector('.pa-search');
     if (search) {
-      search.addEventListener('input', () => { filter = search.value.trim().toLowerCase(); render(); });
+      // Update only the tbody so the input keeps focus and caret while typing.
+      search.addEventListener('input', () => {
+        filter = search.value.trim().toLowerCase();
+        const tbody = viewer.querySelector('.pa-table tbody');
+        if (tbody) tbody.innerHTML = rowsHtml();
+      });
     }
   }
 

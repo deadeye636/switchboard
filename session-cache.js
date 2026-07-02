@@ -82,6 +82,17 @@ function refreshFolder(folder) {
     return;
   }
 
+  // Hidden/removed project: don't re-index its folder back into the cache. The
+  // folder stays on disk after a "Remove", so the reconcile sweep would otherwise
+  // re-add the very sessions the user just cleared (and churn the DB). Record the
+  // current mtime so the sweep treats the folder as up-to-date and skips it until
+  // it is un-hidden (unhideProject forces a fresh refresh).
+  const hiddenProjects = (getSetting('global') || {}).hiddenProjects || [];
+  if (hiddenProjects.includes(projectPath)) {
+    setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+    return;
+  }
+
   // Get what's currently cached for this folder.
   // cachedMap: DB sessionId → { modified, filePath } so we can do mtime comparison
   // even for subagents whose DB sessionId differs from the on-disk filename.
