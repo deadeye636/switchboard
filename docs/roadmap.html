@@ -85,7 +85,7 @@ Dateien und werden hier nur verlinkt.</p>
 <td>#43</td>
 <td>P3</td>
 <td><strong>Subagent-Spawn über <code>.meta.json</code> erkennen (nicht nur <code>.jsonl</code>)</strong> — Claude Code schreibt beim Spawn eines Task-Subagents sofort <code>&lt;parent&gt;/subagents/agent-&lt;id&gt;.meta.json</code> (<code>agentType</code>, <code>description</code>, <code>toolUseId</code>, <code>spawnDepth</code>), das <code>.jsonl</code>-Transcript aber erst wenn der Agent Output produziert. Ein gespawnter, aber nicht (mehr) bis zum Output gelaufener Agent (queued, Parent-Turn endet/wird unterbrochen) hat <strong>nur</strong> <code>meta.json</code> → <code>detectSubagentTransitions</code>/<code>enumerateSessionFiles</code> (scannen nur <code>subagents/*.jsonl</code>) sehen ihn nie (beobachtet 2026-07-02: Session <code>876c2b28</code>, „Feldtexte W6&quot;-Agents — meta identisch zu lauffähigen W5-Agents, aber ohne jsonl; Parent zuletzt 22:26, Spawns 22:28). <strong>Kein Background-Agents-Sonderformat, kein Datenverlust — reine Sichtbarkeit.</strong> Fix: <code>subagents/*.meta.json</code> mitscannen → Placeholder-Subagent-Row (Name aus <code>description</code>, Status „spawned/leer/abgebrochen&quot;) sobald meta da ist; Upgrade auf volle Row wenn das <code>.jsonl</code> nachkommt. Dateien: <code>read-session-file.js</code> (<code>enumerateSessionFiles</code>), <code>session-transitions.js</code>, <code>session-cache.js</code>, Subagent-Rendering in <code>public/sidebar.js</code>.</td>
-<td>—</td>
+<td><a href="subagent-meta-spawn-plan.md">Plan</a></td>
 </tr>
 <tr>
 <td>#42</td>
