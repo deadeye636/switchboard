@@ -175,13 +175,18 @@ function safeFit(entry) {
   if (dims && dims.rows > 1) {
     const cs = getComputedStyle(el);
     const padV = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-    // Prefer the private xterm render-service path (same source FitAddon uses).
-    // Fall back to measuring the first row element if the internal path is gone.
-    const cellH =
-      entry.terminal._core?._renderService?.dimensions?.css?.cell?.height ||
+    // The render-service metric is the accurate, post-paint cell height (the same
+    // source FitAddon uses). The DOM fallback can return a PROVISIONAL row height
+    // right after open() — before font metrics settle — which under-measures the
+    // cell, inflates maxRows, and defeats the clamp. So use the fallback only for
+    // the math, and treat the fit as "measured" ONLY when the render-service value
+    // is present. Otherwise a fresh terminal caches an overshoot that survives
+    // until an unrelated resize (a tab switch) re-fits it correctly.
+    const rsCellH = entry.terminal._core?._renderService?.dimensions?.css?.cell?.height || 0;
+    const cellH = rsCellH ||
       el.querySelector('.xterm-rows')?.firstElementChild?.getBoundingClientRect().height ||
       0;
-    measured = cellH > 0;
+    measured = rsCellH > 0;
     const clampedRows = clampRowsToContentBox(dims.rows, el.clientHeight, padV, cellH);
     entry.terminal.resize(dims.cols, clampedRows);
   } else {
