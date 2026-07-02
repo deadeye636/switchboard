@@ -82,6 +82,30 @@ Dateien und werden hier nur verlinkt.</p>
 <td><a href="productivity-roadmap.html">Roadmap §Phase 4</a></td>
 </tr>
 <tr>
+<td>#39</td>
+<td>P3</td>
+<td><strong>&quot;Dismiss All&quot; für Notifications</strong> <em>(Quelle: supacode)</em> — ein Button/Aktion, die alle offenen In-App-Notifications / Attention-Marker auf einmal quittiert. Ergänzt die Attention-Inbox (#13). Klein, reiner Renderer + evtl. State-Reset.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#38</td>
+<td>P3</td>
+<td><strong>Branch-Rename aus Sidebar + Command-Palette</strong> <em>(Quelle: supacode)</em> — Git-Branch einer Session/eines Projekts direkt umbenennen (Kontextmenü Sidebar; optional Command-Palette). <code>git branch -m</code> via neuem IPC (<code>execFile</code>, kein Shell-Interp.). Nicht verwechseln mit Projekt-<strong>Display</strong>-Name (#16, rein kosmetisch) — hier echter Git-Rename.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#37</td>
+<td>P3</td>
+<td><strong>Per-Session/Projekt Farbe + eigener Titel</strong> <em>(Quelle: supacode)</em> — pro Session/Projekt-Zeile frei wählbare Akzentfarbe + optionaler Kurztitel für schnelle visuelle Trennung bei vielen parallelen Sessions. Abgrenzung: <code>customizing-colors.md</code> ist globales Theming, hier <strong>pro Eintrag</strong>. Nutzt evtl. bestehende Favoriten/Gruppen-Infrastruktur.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#36</td>
+<td>P3</td>
+<td><strong>Worktree-/Session-History-Navigation</strong> <em>(Quelle: supacode)</em> — Hotkey (z. B. Alt+←/→) durch die zuletzt gewählten Sessions/Projekte vor/zurück steppen (MRU-Stack). Passt zum Porting-Workflow mit vielen Worktrees/Branches. Reine Renderer-Nav über bestehenden Session-Wechsel.</td>
+<td>—</td>
+</tr>
+<tr>
 <td>#35</td>
 <td>P2</td>
 <td><strong>Zentrale Bookmark-Ansicht (&quot;Bookmarks&quot;-Tab)</strong> — Bookmarks aktuell nur über Overlay (Ctrl+Shift+B) als flache Liste. Neu: <strong>Icon oben rechts neben Work-Files</strong> (<code>#sidebar-tabs</code>, neben Projects-Tab) → Großraum-Liste <strong>aller</strong> Bookmarks <strong>session-/projektübergreifend</strong> mit <strong>Filtern</strong> (Text/Label, Projekt, Session, Typ Session-Level vs. Nachricht, Sortierung; optional Gruppierung Projekt→Session). Klick springt zur Transcript-Stelle (Reuse <code>bookmarksTags</code>/<code>openSessionAt</code>). <code>bookmarks</code>-Tabelle hat kein <code>projectPath</code> → Auflösung via Session-Cache in neuem Aggregat-IPC <code>get-bookmarks-admin</code>. Overlay bleibt als Schnellzugriff. Neu: <code>public/bookmarks-view.js</code>. Dateien: <code>main.js</code>, <code>preload.js</code>, <code>index.html</code>, <code>app.js</code>, <code>plans-memory-view.js</code>, <code>style.css</code>.</td>
