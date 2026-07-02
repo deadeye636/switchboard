@@ -36,7 +36,7 @@
 <body>
 <h1 id="switchboard-productivity-roadmap">Switchboard Productivity Roadmap</h1>
 <blockquote>
-<p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-06-30 · Status: teils erledigt (#08 Notifications/Tray, #09 „Während du weg warst&quot;, #10 Gruppen, #11 Folder-First) · offen: #03 One-Click-Handoff, #04 Grid-Layout 5B, #05 Detection-Härtung/Bulk</p>
+<p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-07-02 · Status: teils erledigt (#08 Notifications/Tray, #09 „Während du weg warst&quot;, #10 Gruppen, #11 Folder-First, #05 Detection-Härtung/Bulk) · offen: #04 Grid-Layout 5B</p>
 <p>Strategie- und Detaildokument. Der laufende Status steht im <a href="roadmap.html">Board</a>.</p>
 </blockquote>
 <p><strong>North Star:</strong> Boost a human&#39;s productivity at <em>managing</em> Claude Code sessions — minimize the time and attention cost of supervising many agents at once.</p>
@@ -162,8 +162,8 @@
 <h2 id="phase-4-harden-detection-amp-scale-supervision-opportunities-5-6">Phase 4: Harden detection &amp; scale supervision  <em>(Opportunities #5 + #6)</em></h2>
 <p><strong>Goal:</strong> Fewer missed prompts; manage many agents with one gesture.</p>
 <ul>
-<li><input disabled="" type="checkbox"> Investigate Claude Code hooks (e.g. permission / PreToolUse) as a more reliable attention signal than OSC-9 regex; fall back to current heuristic.</li>
-<li><input disabled="" type="checkbox"> Add safe <strong>bulk actions</strong> from the grid command center (e.g. focus-through-queue, dismiss-all-ready). Keep anything token-spending or destructive behind explicit confirmation, consistent with the existing styled-dialog pattern.</li>
+<li><input checked="" disabled="" type="checkbox"> Investigate Claude Code hooks (e.g. permission / PreToolUse) as a more reliable attention signal than OSC-9 regex; fall back to current heuristic. — Loopback-HTTP-Ingest (<code>main.js:1704</code>), Klassifikation <code>attention-source.js</code>, opt-in Setting <code>attentionHooks</code> (reversibler <code>~/.claude/settings.json</code>-Write), OSC-9 als Fallback.</li>
+<li><input checked="" disabled="" type="checkbox"> Add safe <strong>bulk actions</strong> from the grid command center (e.g. focus-through-queue, dismiss-all-ready). Keep anything token-spending or destructive behind explicit confirmation, consistent with the existing styled-dialog pattern. — <code>bulk-actions.js</code> + <code>grid-view.js:144</code> (Step / Mark N ready seen / Stop N running hinter Confirm).</li>
 </ul>
 <hr>
 <h2 id="phase-5-organise-sessions-into-groups-flexible-grid-layout-opportunity-7">Phase 5: Organise sessions into groups + flexible grid layout  <em>(Opportunity #7)</em></h2>

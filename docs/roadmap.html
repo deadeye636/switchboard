@@ -35,7 +35,7 @@
 </head>
 <body>
 <h1 id="switchboard-roadmap">Switchboard — Roadmap</h1>
-<p><strong>Stand:</strong> 2026-07-01 · <strong>Branch:</strong> <code>main</code> · Tests grün (<code>npm test</code>)</p>
+<p><strong>Stand:</strong> 2026-07-03 · <strong>Branch:</strong> <code>main</code> · Tests grün (<code>npm test</code>)</p>
 <p>Zentrales Board für alles Geplante, Laufende und Erledigte. Eine Aufgabe lebt <strong>genau
 einmal</strong> — Status entscheidet, in welcher Sektion sie steht. Detailpläne stehen in eigenen
 Dateien und werden hier nur verlinkt.</p>
@@ -74,12 +74,6 @@ Dateien und werden hier nur verlinkt.</p>
 <td>P2</td>
 <td><strong>CI / Autobuild</strong> (GitHub Actions: Test-CI + Win/Mac/Linux-Build + Release)</td>
 <td><a href="ci-autobuild-plan.html">Plan</a></td>
-</tr>
-<tr>
-<td>#05</td>
-<td>P3</td>
-<td><strong>Attention-Erkennung härten</strong> via Claude-Code-Hooks + Bulk-Aktionen</td>
-<td><a href="productivity-roadmap.html">Roadmap §Phase 4</a></td>
 </tr>
 <tr>
 <td>#43</td>
@@ -147,6 +141,16 @@ Dateien und werden hier nur verlinkt.</p>
 </tr>
 </thead>
 <tbody><tr>
+<td>#44</td>
+<td><strong>Indexing-Perf bei Busy-Multi-Agent-Sessions gehärtet.</strong> Bisher re-indexte der Projects-Watcher bei jedem JSONL-Append den <strong>ganzen Ordner</strong> (enumerate+stat aller Files, voller <code>readSessionFile</code>, FTS-Re-Tokenize) → bei vielen Subagent-Files + großen Transcripts (200 MB+) Main-Thread-Block, Eingaben verzögert, DB-Write-Flut (WAL wuchs auf ~18 MB). Fix zweiteilig: (a) <code>f7c9f88</code> <strong>Per-File-Reindex mit Debounce</strong> — <code>refreshFile()</code> indext nur die geänderte Datei, adaptiver Watcher-Debounce (500 ms/2,5 s-Cap) + Per-File-Reindex-Debounce (800 ms/3 s-Cap); Append-Storm kollabiert auf 1 Read+FTS pro Ruhefenster; <code>flushPendingReindex</code> bei will-quit. (b) <code>be44043</code> <strong>DB-Tuning</strong> — <code>cache_size=-16000</code>, <code>mmap_size=256 MiB</code>, <code>wal_autocheckpoint=2000</code> + periodischer PASSIVE-Checkpoint (60 s). Dateien: <code>main.js</code>, <code>session-cache.js</code>, <code>db.js</code>. <strong>Verifiziert 2026-07-02</strong> unter echter Busy-Session (5 Subagents, 748→796 Msgs): WAL-Plateau (kein Wachstum), mainCPU ~0,2 %, kein Block — altes Symptom reproduziert nicht. Rest-Risiko: einzelnes 200-MB-Transcript (synchroner FTS-Read blockiert kurz, nur Frequenz gedrosselt).</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#05</td>
+<td><strong>Attention-Erkennung härten + Bulk-Aktionen</strong> (Prod. Phase 4) — Claude-Code-Hooks als zuverlässiges Attention-Signal statt reiner OSC-9-Regex: Loopback-HTTP-Ingest (<code>main.js:1704</code> <code>startAttentionHookServer</code>), Klassifikation <code>Notification</code>/<code>PermissionRequest</code>/<code>Stop</code>/<code>SubagentStop</code> (<code>attention-source.js</code>), opt-in Setting <code>attentionHooks</code> (Default OFF) mit reversiblem <code>~/.claude/settings.json</code>-Write (Sentinel-URL, <code>stripSwitchboardHooks</code>), OSC-9 bleibt Fallback (<code>reduceAttention</code>). Bulk-Aktionen im Grid-Command-Center (<code>bulk-actions.js</code>, <code>grid-view.js:144</code>): Step ▶ durch Queue, Mark N ready seen (Undo), Stop N running (hinter Styled-Confirm). Tests: <code>attention-source.test.js</code>, <code>bulk-actions.test.js</code>.</td>
+<td><a href="productivity-roadmap.html">Roadmap</a></td>
+</tr>
+<tr>
 <td>#34</td>
 <td><strong>Zoom-Schaltflächen in der Statusbar</strong> — unten rechts zwei Buttons: <strong>xterm-Zoom</strong> (Terminal-Schriftgröße) + <strong>Electron-Zoom</strong> (UI), je Live-Anzeige + Popover (<code>−</code>/Wert/<code>+</code>/<code>⟲</code>) und Mausrad-über-Button. Electron-Zoom jetzt <strong>persistent</strong> (<code>electronZoomLevel</code>, Startup-Restore, Tastatur-Shortcuts Ctrl +/−/0 speichern + broadcasten via <code>zoom-changed</code>); xterm-Zoom war schon persistent. Range Level ±3 @ 0.5 (≈58–173 %). Neu: <code>public/statusbar-zoom.js</code>, IPCs <code>get-zoom-level</code>/<code>nudge-zoom</code>, Helfer <code>applyMainZoom</code>/<code>clampZoomLevel</code> (main.js), Event <code>terminal-font-changed</code> + Getter in <code>terminal-manager</code>. Tests: <code>test/statusbar-zoom.test.js</code>. Dateien: <code>main.js</code>, <code>preload.js</code>, <code>terminal-manager.js</code>, <code>index.html</code>, <code>style.css</code>.</td>
 <td><a href="statusbar-zoom-plan.md">Plan</a></td>

@@ -1,6 +1,6 @@
 # Switchboard Productivity Roadmap
 
-> **[← Roadmap](ROADMAP.md)** · Stand 2026-06-30 · Status: teils erledigt (#08 Notifications/Tray, #09 „Während du weg warst", #10 Gruppen, #11 Folder-First) · offen: #03 One-Click-Handoff, #04 Grid-Layout 5B, #05 Detection-Härtung/Bulk
+> **[← Roadmap](ROADMAP.md)** · Stand 2026-07-02 · Status: teils erledigt (#08 Notifications/Tray, #09 „Während du weg warst", #10 Gruppen, #11 Folder-First, #05 Detection-Härtung/Bulk) · offen: #04 Grid-Layout 5B
 >
 > Strategie- und Detaildokument. Der laufende Status steht im [Board](ROADMAP.md).
 
@@ -89,8 +89,8 @@ Confirmed in the codebase so we don't rebuild it:
 
 **Goal:** Fewer missed prompts; manage many agents with one gesture.
 
-- [ ] Investigate Claude Code hooks (e.g. permission / PreToolUse) as a more reliable attention signal than OSC-9 regex; fall back to current heuristic.
-- [ ] Add safe **bulk actions** from the grid command center (e.g. focus-through-queue, dismiss-all-ready). Keep anything token-spending or destructive behind explicit confirmation, consistent with the existing styled-dialog pattern.
+- [x] Investigate Claude Code hooks (e.g. permission / PreToolUse) as a more reliable attention signal than OSC-9 regex; fall back to current heuristic. — Loopback-HTTP-Ingest (`main.js:1704`), Klassifikation `attention-source.js`, opt-in Setting `attentionHooks` (reversibler `~/.claude/settings.json`-Write), OSC-9 als Fallback.
+- [x] Add safe **bulk actions** from the grid command center (e.g. focus-through-queue, dismiss-all-ready). Keep anything token-spending or destructive behind explicit confirmation, consistent with the existing styled-dialog pattern. — `bulk-actions.js` + `grid-view.js:144` (Step / Mark N ready seen / Stop N running hinter Confirm).
 
 ---
 
