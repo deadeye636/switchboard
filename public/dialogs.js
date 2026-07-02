@@ -234,10 +234,11 @@ async function showNewSessionDialog(project, groupId) {
 
   const modes = [
     { value: null, label: 'Default', desc: 'Prompt for all actions' },
-    { value: 'acceptEdits', label: 'Accept Edits', desc: 'Auto-accept file edits, prompt for others' },
+    { value: 'acceptEdits', label: 'Accept Edits', desc: 'Auto-accept file edits & common fs commands' },
     { value: 'plan', label: 'Plan Mode', desc: 'Read-only exploration, no writes' },
-    { value: 'dontAsk', label: "Don't Ask", desc: 'Auto-deny tools not explicitly allowed' },
-    { value: 'bypassPermissions', label: 'Bypass', desc: 'Auto-accept all tool calls' },
+    { value: 'auto', label: 'Auto', desc: 'Auto-approve tool calls, background safety checks (preview)' },
+    { value: 'dontAsk', label: "Don't Ask", desc: 'Auto-deny tools unless pre-approved' },
+    { value: 'bypassPermissions', label: 'Bypass', desc: 'Skip all prompts except ask-rules & root/home removals' },
   ];
 
   function renderModeGrid() {
@@ -368,10 +369,11 @@ async function showResumeSessionDialog(session) {
 
   const modes = [
     { value: null, label: 'Default', desc: 'Prompt for all actions' },
-    { value: 'acceptEdits', label: 'Accept Edits', desc: 'Auto-accept file edits, prompt for others' },
+    { value: 'acceptEdits', label: 'Accept Edits', desc: 'Auto-accept file edits & common fs commands' },
     { value: 'plan', label: 'Plan Mode', desc: 'Read-only exploration, no writes' },
-    { value: 'dontAsk', label: "Don't Ask", desc: 'Auto-deny tools not explicitly allowed' },
-    { value: 'bypassPermissions', label: 'Bypass', desc: 'Auto-accept all tool calls' },
+    { value: 'auto', label: 'Auto', desc: 'Auto-approve tool calls, background safety checks (preview)' },
+    { value: 'dontAsk', label: "Don't Ask", desc: 'Auto-deny tools unless pre-approved' },
+    { value: 'bypassPermissions', label: 'Bypass', desc: 'Skip all prompts except ask-rules & root/home removals' },
   ];
 
   function renderModeGrid() {

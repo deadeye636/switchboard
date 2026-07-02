@@ -69,6 +69,7 @@
 
     const displayNameValue = isProject && typeof current.displayName === 'string' ? current.displayName : '';
     const permModeValue = fieldValue('permissionMode', '');
+    const dangerousSkipValue = fieldValue('dangerouslySkipPermissions', false);
     const worktreeValue = fieldValue('worktree', false);
     const worktreeNameValue = fieldValue('worktreeName', '');
     const chromeValue = fieldValue('chrome', false);
@@ -184,30 +185,34 @@
 
           <div class="settings-field">
             <div class="settings-field-info">
-              <span class="settings-label">Auto mode</span>
-              <div class="settings-description">Auto-accept Claude's file edits without prompting (Claude's Shift+Tab "auto-accept edits"). Claude still asks before running risky commands. Shortcut for Permission Mode &rarr; Accept Edits.</div>
+              <div class="settings-field-header">
+                <span class="settings-label">Permission Mode</span>
+                ${useGlobalCheckbox('permissionMode')}
+              </div>
+              <div class="settings-description">Permission mode passed to the <code>claude</code> command.</div>
             </div>
             <div class="settings-field-control">
-              <label class="settings-toggle"><input type="checkbox" id="sv-auto-mode" ${permModeValue === 'acceptEdits' ? 'checked' : ''} ${fieldDisabled('permissionMode')}><span class="settings-toggle-slider"></span></label>
+              <select class="settings-select" id="sv-perm-mode" ${fieldDisabled('permissionMode')}>
+                <option value="">Default — ask each time</option>
+                <option value="acceptEdits" ${permModeValue === 'acceptEdits' ? 'selected' : ''}>Accept Edits — auto file edits</option>
+                <option value="plan" ${permModeValue === 'plan' ? 'selected' : ''}>Plan — read-only</option>
+                <option value="auto" ${permModeValue === 'auto' ? 'selected' : ''}>Auto — auto-approve (preview)</option>
+                <option value="dontAsk" ${permModeValue === 'dontAsk' ? 'selected' : ''}>Don't Ask — auto-deny unless allowed</option>
+                <option value="bypassPermissions" ${permModeValue === 'bypassPermissions' ? 'selected' : ''}>Bypass — skip all prompts</option>
+              </select>
             </div>
           </div>
 
           <div class="settings-field">
             <div class="settings-field-info">
               <div class="settings-field-header">
-                <span class="settings-label">Permission Mode</span>
-                ${useGlobalCheckbox('permissionMode')}
+                <span class="settings-label">Dangerous Skip</span>
+                ${useGlobalCheckbox('dangerouslySkipPermissions')}
               </div>
-              <div class="settings-description">Permission mode passed to the <code>claude</code> command. "Accept Edits" is the same as Auto mode above.</div>
+              <div class="settings-description">Start every new session with <code>--dangerously-skip-permissions</code> — skips all permission prompts (same effect as Bypass) and overrides Permission Mode. Use with extreme caution.</div>
             </div>
             <div class="settings-field-control">
-              <select class="settings-select" id="sv-perm-mode" ${fieldDisabled('permissionMode')}>
-                <option value="">Default — ask before each action</option>
-                <option value="acceptEdits" ${permModeValue === 'acceptEdits' ? 'selected' : ''}>Accept Edits — auto mode (auto-accept file edits)</option>
-                <option value="plan" ${permModeValue === 'plan' ? 'selected' : ''}>Plan — read-only, propose a plan first</option>
-                <option value="dontAsk" ${permModeValue === 'dontAsk' ? 'selected' : ''}>Don't Ask — skip routine confirmations</option>
-                <option value="bypassPermissions" ${permModeValue === 'bypassPermissions' ? 'selected' : ''}>Bypass — skip all permission checks</option>
-              </select>
+              <label class="settings-toggle"><input type="checkbox" id="sv-dangerous-skip" ${dangerousSkipValue ? 'checked' : ''} ${fieldDisabled('dangerouslySkipPermissions')}><span class="settings-toggle-slider"></span></label>
             </div>
           </div>
 
@@ -315,25 +320,26 @@
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Permission Mode</span>${help}</div>
                     <div class="settings-description">How much Claude asks before acting. "Accept Edits" takes file edits automatically — risky commands still prompt.</div>
-                    <div class="settings-more">Passed to the <code>claude</code> command. <b>Default</b>: asks before each action. <b>Accept Edits</b>: auto-accepts file edits only. <b>Plan</b>: read-only, proposes a plan first. <b>Don't Ask</b>: skips routine confirmations. <b>Bypass</b>: skips all permission checks — use with care.</div>
+                    <div class="settings-more">Passed to the <code>claude</code> command. <b>Default</b>: asks before each action. <b>Accept Edits</b>: auto-accepts file edits and common filesystem commands. <b>Plan</b>: read-only, proposes a plan first. <b>Auto</b>: auto-approves tool calls with background safety checks (research preview). <b>Don't Ask</b>: auto-denies tools unless pre-approved. <b>Bypass</b>: skips all prompts except explicit ask rules and root/home removals — use with care.</div>
                   </div>
                   <div class="settings-field-control">
                     <select class="settings-select" id="sv-perm-mode">
-                      <option value="">Default — ask before each action</option>
-                      <option value="acceptEdits" ${permModeValue === 'acceptEdits' ? 'selected' : ''}>Accept Edits — auto-accept file edits</option>
-                      <option value="plan" ${permModeValue === 'plan' ? 'selected' : ''}>Plan — read-only, propose a plan first</option>
-                      <option value="dontAsk" ${permModeValue === 'dontAsk' ? 'selected' : ''}>Don't Ask — skip routine confirmations</option>
-                      <option value="bypassPermissions" ${permModeValue === 'bypassPermissions' ? 'selected' : ''}>Bypass — skip all permission checks</option>
+                      <option value="">Default — ask each time</option>
+                      <option value="acceptEdits" ${permModeValue === 'acceptEdits' ? 'selected' : ''}>Accept Edits — auto file edits</option>
+                      <option value="plan" ${permModeValue === 'plan' ? 'selected' : ''}>Plan — read-only</option>
+                      <option value="auto" ${permModeValue === 'auto' ? 'selected' : ''}>Auto — auto-approve (preview)</option>
+                      <option value="dontAsk" ${permModeValue === 'dontAsk' ? 'selected' : ''}>Don't Ask — auto-deny unless allowed</option>
+                      <option value="bypassPermissions" ${permModeValue === 'bypassPermissions' ? 'selected' : ''}>Bypass — skip all prompts</option>
                     </select>
                   </div>
                 </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
-                    <span class="settings-label">Auto-accept edits</span>
-                    <div class="settings-description">Shortcut for Permission Mode → Accept Edits.</div>
+                    <div class="settings-field-header"><span class="settings-label">Dangerous Skip</span>${help}</div>
+                    <div class="settings-description">Start every new session with <code>--dangerously-skip-permissions</code> — skips all permission prompts (same effect as Bypass) and overrides Permission Mode. Use with extreme caution.</div>
                   </div>
                   <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-auto-mode" ${permModeValue === 'acceptEdits' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                    <label class="settings-toggle"><input type="checkbox" id="sv-dangerous-skip" ${dangerousSkipValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">
@@ -940,30 +946,13 @@
       });
     }
 
-    // Auto mode is a friendly shortcut for Permission Mode = Accept Edits.
-    // Keep the toggle and the dropdown in sync so there's a single underlying
-    // `permissionMode` value (the dropdown is what the save logic reads).
-    const autoModeToggle = settingsViewerBody.querySelector('#sv-auto-mode');
-    const permModeSelect = settingsViewerBody.querySelector('#sv-perm-mode');
-    if (autoModeToggle && permModeSelect) {
-      autoModeToggle.addEventListener('change', () => {
-        if (autoModeToggle.checked) {
-          permModeSelect.value = 'acceptEdits';
-        } else if (permModeSelect.value === 'acceptEdits') {
-          permModeSelect.value = '';
-        }
-      });
-      permModeSelect.addEventListener('change', () => {
-        autoModeToggle.checked = permModeSelect.value === 'acceptEdits';
-      });
-    }
-
     // Use-global checkboxes toggle field disabled state
     settingsViewerBody.querySelectorAll('.use-global-cb').forEach(cb => {
       cb.addEventListener('change', () => {
         const field = cb.dataset.field;
         const fieldMap = {
           permissionMode: 'sv-perm-mode',
+          dangerouslySkipPermissions: 'sv-dangerous-skip',
           worktree: 'sv-worktree',
           worktreeName: 'sv-worktree-name',
           chrome: 'sv-chrome',
@@ -972,11 +961,6 @@
         };
         const input = settingsViewerBody.querySelector('#' + fieldMap[field]);
         if (input) input.disabled = cb.checked;
-        // Auto mode mirrors the permission-mode dropdown, so it follows the
-        // same "use global default" enabled/disabled state.
-        if (field === 'permissionMode' && autoModeToggle) {
-          autoModeToggle.disabled = cb.checked;
-        }
       });
     });
 
@@ -1039,6 +1023,7 @@
             const field = cb.dataset.field;
             const fieldMap = {
               permissionMode: () => settingsViewerBody.querySelector('#sv-perm-mode').value || null,
+              dangerouslySkipPermissions: () => settingsViewerBody.querySelector('#sv-dangerous-skip').checked,
               worktree: () => settingsViewerBody.querySelector('#sv-worktree').checked,
               worktreeName: () => settingsViewerBody.querySelector('#sv-worktree-name').value.trim(),
               chrome: () => settingsViewerBody.querySelector('#sv-chrome').checked,
@@ -1053,6 +1038,7 @@
         if (dnInput) settings.displayName = dnInput.value.trim();
       } else {
         settings.permissionMode = settingsViewerBody.querySelector('#sv-perm-mode').value || null;
+        settings.dangerouslySkipPermissions = settingsViewerBody.querySelector('#sv-dangerous-skip').checked;
         settings.worktree = settingsViewerBody.querySelector('#sv-worktree').checked;
         settings.worktreeName = settingsViewerBody.querySelector('#sv-worktree-name').value.trim();
         settings.chrome = settingsViewerBody.querySelector('#sv-chrome').checked;

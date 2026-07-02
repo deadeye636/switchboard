@@ -188,7 +188,7 @@ let settingsWindow = null;
 function openSettingsWindow() {
   if (settingsWindow && !settingsWindow.isDestroyed()) { settingsWindow.focus(); return; }
   settingsWindow = new BrowserWindow({
-    width: 760, height: 820, minWidth: 520, minHeight: 480,
+    width: 900, height: 820, minWidth: 640, minHeight: 480,
     title: 'Switchboard — Settings',
     parent: mainWindow || undefined,
     icon: path.join(__dirname, 'build', 'icon.png'),
