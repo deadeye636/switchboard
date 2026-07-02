@@ -20,9 +20,7 @@ Dateien und werden hier nur verlinkt.
 
 ## 🟡 In Arbeit
 
-| ID | Prio | Aufgabe | Detail |
-|----|------|---------|--------|
-| #32 | P2 | **Projekt-Verwaltung („Projects"-Tab)** — neuer Sidebar-Tab neben Work-Files → Großraum-Tabelle aller Projekte. Neu: `claude-config.js` (atomares Trust-RMW auf `~/.claude.json` + `.bak`), IPC `get-projects-admin`/`set-project-trust`, `session-cache.buildProjectsAdmin`, Renderer `public/projects-admin.js`. **Trust setzen** hinter Warn-Confirm, entfernen frei; **voll** mit Info-Spalten (MCP/allowedTools/last-cost); alte Hide/Restore-UI bleibt parallel. Hidden/Favorit/Allowlist/rename/remap/remove verdrahtet. **Remove-Dialog** mit optionalem Hard-Delete (Session-History auf Disk + `~/.claude.json`-Eintrag; IPCs `delete-project-sessions`/`remove-project-config`). Tests grün. **Offen:** manuelle Verifikation in der App. | [Plan](projects-admin-plan.md) |
+> Aktuell kein Feature aktiv. Nächster Kandidat siehe Backlog (P1: #02 Detach).
 
 ---
 
@@ -42,6 +40,7 @@ Dateien und werden hier nur verlinkt.
 
 | ID | Aufgabe | Detail |
 |----|---------|--------|
+| #32 | **Projekt-Verwaltung („Projects"-Tab)** — neuer Sidebar-Tab neben Work-Files → Großraum-Tabelle aller Projekte (inkl. hidden + config-only). Pro Projekt: **Trust** entfernen/setzen (setzen hinter Warn-Confirm) via atomarem RMW auf `~/.claude.json` (`.bak`, nur `hasTrustDialogAccepted`), Hidden/Favorit/Allowlist-Toggles, Inline-Rename, Remap, Remove + read-only Info-Spalten (Sessions, Last activity, MCP/allowedTools/cost). **Remove** mit optionalem Hard-Delete (Session-History auf Disk und/oder `~/.claude.json`-Eintrag). **Remap** zieht den `~/.claude.json`-Block (Trust/MCP/cost) mit um. Alte Hide/Restore-UI bleibt parallel. Neu: `claude-config.js`, `session-cache.buildProjectsAdmin`, `public/projects-admin.js`, IPCs `get-projects-admin`/`set-project-trust`/`delete-project-sessions`/`remove-project-config`. Tests: `test/claude-config.test.js`. | [Plan](projects-admin-plan.md) |
 | #17 | **Projekte sortieren** — Sortierung Aktivität/Alpha/Manuell (Filterzeilen-Control) + Drag-Reorder; Setting „Eigene Favoritenliste" (Favoriten oben angeheftet + Trenner vs. eigene Liste) | [Plan](project-sidebar-plan.md#17-projekte-manuell-sortieren) |
 | #03 | **Handoff-Store + Resume** — Setting **„Integrated Handoff System"** + editierbarer Prompt (Skill-fähig, `/handoff`); Handoff speicherbar (DB `project_handoffs`) statt/neben neuer Session, auch bei nicht-laufender Session („Save to library"); „Claude Handoff resume" im Neu-Session-Menü mit Picker (Liste/Löschen). Basis-One-Click-Handoff war schon da | [Plan](handoff-store-plan.md) |
 | #18 | **Bug-Fix:** Windows-TrayIcon leer — Icon ins Paket (`build.files`) + 16px + Logging statt stillem Fallback | [Plan](windows-tray-fix-plan.md) |

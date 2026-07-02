@@ -43,22 +43,9 @@ Dateien und werden hier nur verlinkt.</p>
 <strong>Priorität:</strong> P1 (als Nächstes) · P2 (danach) · P3 (irgendwann)</p>
 <hr>
 <h2 id="in-arbeit">🟡 In Arbeit</h2>
-<table>
-<thead>
-<tr>
-<th>ID</th>
-<th>Prio</th>
-<th>Aufgabe</th>
-<th>Detail</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>#32</td>
-<td>P2</td>
-<td><strong>Projekt-Verwaltung („Projects&quot;-Tab)</strong> — neuer Sidebar-Tab neben Work-Files → Großraum-Tabelle aller Projekte. Neu: <code>claude-config.js</code> (atomares Trust-RMW auf <code>~/.claude.json</code> + <code>.bak</code>), IPC <code>get-projects-admin</code>/<code>set-project-trust</code>, <code>session-cache.buildProjectsAdmin</code>, Renderer <code>public/projects-admin.js</code>. <strong>Trust setzen</strong> hinter Warn-Confirm, entfernen frei; <strong>voll</strong> mit Info-Spalten (MCP/allowedTools/last-cost); alte Hide/Restore-UI bleibt parallel. Hidden/Favorit/Allowlist/rename/remap/remove verdrahtet. <strong>Remove-Dialog</strong> mit optionalem Hard-Delete (Session-History auf Disk + <code>~/.claude.json</code>-Eintrag; IPCs <code>delete-project-sessions</code>/<code>remove-project-config</code>). Tests grün. <strong>Offen:</strong> manuelle Verifikation in der App.</td>
-<td><a href="projects-admin-plan.md">Plan</a></td>
-</tr>
-</tbody></table>
+<blockquote>
+<p>Aktuell kein Feature aktiv. Nächster Kandidat siehe Backlog (P1: #02 Detach).</p>
+</blockquote>
 <hr>
 <h2 id="backlog">🔵 Backlog</h2>
 <table>
@@ -112,6 +99,11 @@ Dateien und werden hier nur verlinkt.</p>
 </tr>
 </thead>
 <tbody><tr>
+<td>#32</td>
+<td><strong>Projekt-Verwaltung („Projects&quot;-Tab)</strong> — neuer Sidebar-Tab neben Work-Files → Großraum-Tabelle aller Projekte (inkl. hidden + config-only). Pro Projekt: <strong>Trust</strong> entfernen/setzen (setzen hinter Warn-Confirm) via atomarem RMW auf <code>~/.claude.json</code> (<code>.bak</code>, nur <code>hasTrustDialogAccepted</code>), Hidden/Favorit/Allowlist-Toggles, Inline-Rename, Remap, Remove + read-only Info-Spalten (Sessions, Last activity, MCP/allowedTools/cost). <strong>Remove</strong> mit optionalem Hard-Delete (Session-History auf Disk und/oder <code>~/.claude.json</code>-Eintrag). <strong>Remap</strong> zieht den <code>~/.claude.json</code>-Block (Trust/MCP/cost) mit um. Alte Hide/Restore-UI bleibt parallel. Neu: <code>claude-config.js</code>, <code>session-cache.buildProjectsAdmin</code>, <code>public/projects-admin.js</code>, IPCs <code>get-projects-admin</code>/<code>set-project-trust</code>/<code>delete-project-sessions</code>/<code>remove-project-config</code>. Tests: <code>test/claude-config.test.js</code>.</td>
+<td><a href="projects-admin-plan.md">Plan</a></td>
+</tr>
+<tr>
 <td>#17</td>
 <td><strong>Projekte sortieren</strong> — Sortierung Aktivität/Alpha/Manuell (Filterzeilen-Control) + Drag-Reorder; Setting „Eigene Favoritenliste&quot; (Favoriten oben angeheftet + Trenner vs. eigene Liste)</td>
 <td><a href="project-sidebar-plan.html#17-projekte-manuell-sortieren">Plan</a></td>
