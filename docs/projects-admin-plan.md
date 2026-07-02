@@ -71,19 +71,16 @@ Forward-Slashes — mit Switchboards `projectPath` matchen.
   verdrahtet Aktionen. Tab-Handler: bei `data-tab="projects"` → `hideAllViewers()` +
   `#projects-viewer` zeigen (und `hideAllViewers` um den neuen Viewer ergänzen).
 
-## Offene Entscheidungen (beim Start der neuen Session klären)
+## Entscheidungen (mit User geklärt, 2026-07-02)
 
-1. **Trust setzen (auf `true`)** — erlauben **hinter Bestätigungsdialog mit
-   Sicherheitswarnung**, oder **nur entfernen** (`false`)? Hintergrund: der Trust-Prompt
-   ist ein Sicherheits-Gate (verhindert, dass fremder/geklonter Code ungefragt
-   Tools/Hooks ausführt). Auto-`true` umgeht das im Namen des Users.
-   **Empfehlung:** entfernen frei; setzen nur mit explizitem Warn-Confirm.
-2. **MCP-Server / allowedTools / last-cost mit anzeigen** (read-only) — oder erstmal
-   schlank ohne? **Empfehlung:** erst schlank (Trust/Hidden/Favorit/Allowlist/rename/
-   remap/remove), Rest als Ausbaustufe.
-3. **Bestehende Hide/Restore-UI ersetzen** (konsolidieren) oder **zusätzlich**?
-   **Empfehlung:** neue Verwaltung wird die primäre; alte Restore-UI später entfernen,
-   wenn die neue steht.
+1. **Trust setzen (auf `true`)** — **erlaubt, aber hinter Warn-Confirm** (danger-Dialog
+   mit Sicherheitswarnung). Entfernen (`false`) direkt ohne Confirm. Umgesetzt in
+   `projects-admin.js` (`showControlDialog`, tone `danger`).
+2. **MCP-Server / allowedTools / last-cost** — **voll anzeigen** (read-only Info-Spalte:
+   MCP-Count, allowedTools-Count, last cost; Tokens via IPC verfügbar). Aus
+   `~/.claude.json` (`getProjectClaudeMeta`).
+3. **Bestehende Hide/Restore-UI** — **beide behalten**. Neuer Projects-Tab läuft parallel
+   zur alten Restore-UI; kein Entfernen der alten UI in diesem Zug.
 
 ## Umsetzungsschritte (für die neue Session)
 

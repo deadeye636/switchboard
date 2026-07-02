@@ -20,7 +20,9 @@ Dateien und werden hier nur verlinkt.
 
 ## 🟡 In Arbeit
 
-> Aktuell kein Feature aktiv. Nächster Kandidat siehe Backlog (P1: #02 Detach).
+| ID | Prio | Aufgabe | Detail |
+|----|------|---------|--------|
+| #32 | P2 | **Projekt-Verwaltung („Projects"-Tab)** — neuer Sidebar-Tab neben Work-Files → Großraum-Tabelle aller Projekte. Neu: `claude-config.js` (atomares Trust-RMW auf `~/.claude.json` + `.bak`), IPC `get-projects-admin`/`set-project-trust`, `session-cache.buildProjectsAdmin`, Renderer `public/projects-admin.js`. **Trust setzen** hinter Warn-Confirm, entfernen frei; **voll** mit Info-Spalten (MCP/allowedTools/last-cost); alte Hide/Restore-UI bleibt parallel. Hidden/Favorit/Allowlist/rename/remap/remove verdrahtet. **Remove-Dialog** mit optionalem Hard-Delete (Session-History auf Disk + `~/.claude.json`-Eintrag; IPCs `delete-project-sessions`/`remove-project-config`). Tests grün. **Offen:** manuelle Verifikation in der App. | [Plan](projects-admin-plan.md) |
 
 ---
 
@@ -32,7 +34,7 @@ Dateien und werden hier nur verlinkt.
 | #04 | P2 | **Flexibles Grid-Layout** (Karten-Resize / Drag-Reorder, 5B) | [Roadmap §Phase 5B](productivity-roadmap.md) |
 | #19 | P2 | **CI / Autobuild** (GitHub Actions: Test-CI + Win/Mac/Linux-Build + Release) | [Plan](ci-autobuild-plan.md) |
 | #05 | P3 | **Attention-Erkennung härten** via Claude-Code-Hooks + Bulk-Aktionen | [Roadmap §Phase 4](productivity-roadmap.md) |
-| #32 | P2 | **Projekt-Verwaltung („Projects"-Tab)** — Symbol rechts neben Work-Files → Großraum-Liste aller Projekte mit **Trust entfernen/setzen** (`~/.claude.json` `hasTrustDialogAccepted`, atomar), Hidden/Favorit/Allowlist/rename/remap/remove. Aggregierter IPC `get-projects-admin` + neuer `set-project-trust`. Feasibility geprüft (nur ein Trust-Feld; Datei enthält Secrets → chirurgisch editieren). **Umsetzung in neuer Session.** Offene Punkte im Plan (Trust-Setzen hinter Warn-Confirm; MCP/Cost-Anzeige als Ausbaustufe; alte Hide-UI ersetzen). | [Plan](projects-admin-plan.md) |
+| #33 | P2 | **Settings-UI Redesign (nur Global-Scope).** Global-Settings von einer langen Spalte (8 Sektionen, ~45 Felder) auf **Zwei-Spalten-Layout** umstellen: linke **Kategorie-Navi** mit 7 Gruppen (Sessions & CLI · Terminal · Layout & Tabs · Projects & Sidebar · Usage & Notifications · Shortcuts · Handoff), **Live-Suche** über alle Felder, **„?"-Aufklapp** je Langtext (Kurzsatz sichtbar, Volltext inline auf Klick), **Advanced-Disclosure** für Nischenschalter (GPU-Rendering, Live-Render, Attention-Hooks). Alte „Application"-Sammelsektion aufgeteilt auf Terminal/Layout/Usage. Alle Beschreibungstexte **gekürzt** (humanizer-geprüft), aktive Labels. **Nur der Global-Zweig** in `settings-panel.js` (HTML-Template + CSS-Klassen); **Save-/IPC-Logik und Projekt-Rendering unverändert** (Projekt-Settings behalten eigenen Einstieg aus der Sidebar). Mockup v3 abgenommen. Dateien: `public/settings-panel.js`, `public/style.css`. | Mockup (Artifact) |
 
 ---
 

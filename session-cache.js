@@ -372,6 +372,63 @@ function buildProjectsFromCache(showArchived) {
 }
 
 
+// Aggregate view of ALL projects for the Projects-admin tab (#32). Unlike
+// buildProjectsFromCache this does NOT drop hidden projects and does NOT apply the
+// manual-mode allowlist filter — the admin UI needs to see (and act on) everything.
+// Returns lightweight rows (counts only, no per-session objects). Trust + ~/.claude.json
+// extra meta are layered on by the main-process IPC.
+function buildProjectsAdmin() {
+  const global = getSetting('global') || {};
+  const hiddenProjects = new Set(global.hiddenProjects || []);
+  const favorited = typeof getFavoritedProjects === 'function' ? getFavoritedProjects() : new Set();
+  const displayNames = typeof getProjectDisplayNames === 'function' ? getProjectDisplayNames() : new Map();
+
+  const map = new Map(); // projectPath -> { sessionCount, lastActivity }
+  const ensure = (projectPath) => {
+    if (!map.has(projectPath)) map.set(projectPath, { sessionCount: 0, lastActivity: null });
+    return map.get(projectPath);
+  };
+
+  for (const row of getAllCached()) {
+    if (!row.projectPath) continue;
+    const e = ensure(row.projectPath);
+    e.sessionCount++;
+    const mod = row.modified || null;
+    if (mod && (!e.lastActivity || new Date(mod) > new Date(e.lastActivity))) e.lastActivity = mod;
+  }
+
+  // Include empty project directories (no sessions yet), like buildProjectsFromCache.
+  try {
+    const folderMeta = getAllFolderMeta();
+    const dirs = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory() && d.name !== '.git');
+    for (const d of dirs) {
+      let projectPath = folderMeta.get(d.name)?.projectPath;
+      if (!projectPath) {
+        projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name), d.name);
+        if (projectPath) setFolderMeta(d.name, projectPath, 0);
+      }
+      if (projectPath) ensure(projectPath);
+    }
+  } catch {}
+
+  const rows = [];
+  for (const [projectPath, e] of map) {
+    rows.push({
+      projectPath,
+      folder: encodeProjectPath(projectPath),
+      displayName: displayNames.get(projectPath) || '',
+      sessionCount: e.sessionCount,
+      lastActivity: e.lastActivity,
+      missing: !fs.existsSync(projectPath),
+      hidden: hiddenProjects.has(projectPath),
+      favorite: favorited.has(projectPath),
+    });
+  }
+  return rows;
+}
+
+
 function notifyRendererProjectsChanged() {
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -486,6 +543,7 @@ module.exports = {
   refreshFolder,
   reconcileCacheFromFilesystem,
   buildProjectsFromCache,
+  buildProjectsAdmin,
   notifyRendererProjectsChanged,
   sendStatus,
   populateCacheViaWorker,

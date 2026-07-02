@@ -43,9 +43,22 @@ Dateien und werden hier nur verlinkt.</p>
 <strong>Priorität:</strong> P1 (als Nächstes) · P2 (danach) · P3 (irgendwann)</p>
 <hr>
 <h2 id="in-arbeit">🟡 In Arbeit</h2>
-<blockquote>
-<p>Aktuell kein Feature aktiv. Nächster Kandidat siehe Backlog (P1: #02 Detach).</p>
-</blockquote>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Prio</th>
+<th>Aufgabe</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>#32</td>
+<td>P2</td>
+<td><strong>Projekt-Verwaltung („Projects&quot;-Tab)</strong> — neuer Sidebar-Tab neben Work-Files → Großraum-Tabelle aller Projekte. Neu: <code>claude-config.js</code> (atomares Trust-RMW auf <code>~/.claude.json</code> + <code>.bak</code>), IPC <code>get-projects-admin</code>/<code>set-project-trust</code>, <code>session-cache.buildProjectsAdmin</code>, Renderer <code>public/projects-admin.js</code>. <strong>Trust setzen</strong> hinter Warn-Confirm, entfernen frei; <strong>voll</strong> mit Info-Spalten (MCP/allowedTools/last-cost); alte Hide/Restore-UI bleibt parallel. Hidden/Favorit/Allowlist/rename/remap/remove verdrahtet. <strong>Remove-Dialog</strong> mit optionalem Hard-Delete (Session-History auf Disk + <code>~/.claude.json</code>-Eintrag; IPCs <code>delete-project-sessions</code>/<code>remove-project-config</code>). Tests grün. <strong>Offen:</strong> manuelle Verifikation in der App.</td>
+<td><a href="projects-admin-plan.md">Plan</a></td>
+</tr>
+</tbody></table>
 <hr>
 <h2 id="backlog">🔵 Backlog</h2>
 <table>
@@ -82,10 +95,10 @@ Dateien und werden hier nur verlinkt.</p>
 <td><a href="productivity-roadmap.html">Roadmap §Phase 4</a></td>
 </tr>
 <tr>
-<td>#32</td>
+<td>#33</td>
 <td>P2</td>
-<td><strong>Projekt-Verwaltung („Projects&quot;-Tab)</strong> — Symbol rechts neben Work-Files → Großraum-Liste aller Projekte mit <strong>Trust entfernen/setzen</strong> (<code>~/.claude.json</code> <code>hasTrustDialogAccepted</code>, atomar), Hidden/Favorit/Allowlist/rename/remap/remove. Aggregierter IPC <code>get-projects-admin</code> + neuer <code>set-project-trust</code>. Feasibility geprüft (nur ein Trust-Feld; Datei enthält Secrets → chirurgisch editieren). <strong>Umsetzung in neuer Session.</strong> Offene Punkte im Plan (Trust-Setzen hinter Warn-Confirm; MCP/Cost-Anzeige als Ausbaustufe; alte Hide-UI ersetzen).</td>
-<td><a href="projects-admin-plan.md">Plan</a></td>
+<td><strong>Settings-UI Redesign (nur Global-Scope).</strong> Global-Settings von einer langen Spalte (8 Sektionen, ~45 Felder) auf <strong>Zwei-Spalten-Layout</strong> umstellen: linke <strong>Kategorie-Navi</strong> mit 7 Gruppen (Sessions &amp; CLI · Terminal · Layout &amp; Tabs · Projects &amp; Sidebar · Usage &amp; Notifications · Shortcuts · Handoff), <strong>Live-Suche</strong> über alle Felder, <strong>„?&quot;-Aufklapp</strong> je Langtext (Kurzsatz sichtbar, Volltext inline auf Klick), <strong>Advanced-Disclosure</strong> für Nischenschalter (GPU-Rendering, Live-Render, Attention-Hooks). Alte „Application&quot;-Sammelsektion aufgeteilt auf Terminal/Layout/Usage. Alle Beschreibungstexte <strong>gekürzt</strong> (humanizer-geprüft), aktive Labels. <strong>Nur der Global-Zweig</strong> in <code>settings-panel.js</code> (HTML-Template + CSS-Klassen); <strong>Save-/IPC-Logik und Projekt-Rendering unverändert</strong> (Projekt-Settings behalten eigenen Einstieg aus der Sidebar). Mockup v3 abgenommen. Dateien: <code>public/settings-panel.js</code>, <code>public/style.css</code>.</td>
+<td>Mockup (Artifact)</td>
 </tr>
 </tbody></table>
 <hr>

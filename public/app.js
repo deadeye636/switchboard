@@ -41,6 +41,7 @@ const memoryPanel = new ViewerPanel(memoryViewer, {
 });
 const workFilesContent = document.getElementById('work-files-content');
 const workFilesViewer = document.getElementById('work-files-viewer');
+const projectsViewer = document.getElementById('projects-viewer');
 const workFilesPanel = new ViewerPanel(workFilesViewer, {
   copyPath: true, copyContent: true,
   language: 'auto', storageKey: 'workFilesPreviewMode',
@@ -2042,6 +2043,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     statsContent.style.display = 'none';
     memoryContent.style.display = 'none';
     workFilesContent.style.display = 'none';
+    projectsViewer.style.display = 'none';
     sessionFilters.style.display = 'none';
     searchBar.style.display = 'none';
 
@@ -2083,6 +2085,18 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       searchInput.placeholder = 'Search work files...';
       workFilesContent.style.display = '';
       loadWorkFiles();
+    } else if (tabName === 'projects') {
+      // Big-viewport admin list in the main area (its own filter, no sidebar content).
+      placeholder.style.display = 'none';
+      terminalArea.style.display = 'none';
+      planViewer.style.display = 'none';
+      statsViewer.style.display = 'none';
+      memoryViewer.style.display = 'none';
+      workFilesViewer.style.display = 'none';
+      settingsViewer.style.display = 'none';
+      timelineViewer.style.display = 'none';
+      projectsViewer.style.display = 'flex';
+      loadProjectsAdmin();
     }
   });
 });

@@ -487,8 +487,9 @@ sessionCache.init({
   },
 });
 const { readSessionFile, readFolderFromFilesystem, refreshFolder, reconcileCacheFromFilesystem,
-        buildProjectsFromCache, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker } = sessionCache;
+        buildProjectsFromCache, buildProjectsAdmin, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker } = sessionCache;
 const { resolveJsonlPath } = require('./read-session-file');
+const claudeConfig = require('./claude-config');
 
 
 // --- IPC: browse-folder ---
@@ -667,11 +668,129 @@ ipcMain.handle('remap-project', (_event, oldPath, newPath) => {
 
     // Refresh the folder cache so the new path takes effect
     refreshFolder(folder);
+
+    // Move the project's ~/.claude.json entry (trust/MCP/cost) to the new path so it
+    // survives the remap. Non-fatal: the session cwd rewrite above already succeeded.
+    try {
+      const moved = claudeConfig.renameProjectEntry(oldPath, newPath);
+      if (moved && moved.error) log.warn('[remap] ~/.claude.json move failed: ' + moved.error);
+    } catch (err) {
+      log.warn('[remap] ~/.claude.json move threw: ' + err.message);
+    }
+
     notifyRendererProjectsChanged();
     return { ok: true };
   } catch (err) {
     return { error: err.message };
   }
+});
+
+// --- IPC: get-projects-admin (#32) ---
+// Aggregated per-project admin view: cache-derived rows (all projects incl. hidden)
+// layered with trust state + read-only ~/.claude.json meta (MCP/allowedTools/cost/tokens),
+// plus any project that only exists in ~/.claude.json (so trust can still be managed).
+// Returns ONLY aggregated fields — never the raw secret-bearing config.
+ipcMain.handle('get-projects-admin', () => {
+  try {
+    const global = getSetting('global') || {};
+    const autoAdd = global.projectAutoAdd !== false;
+    const allowed = Array.isArray(global.addedProjects) ? new Set(global.addedProjects) : null;
+
+    const trustMap = claudeConfig.getProjectTrustMap();      // normalized -> bool
+    const metaMap = claudeConfig.getProjectClaudeMeta();     // normalized -> {counts...}
+
+    const rows = buildProjectsAdmin();
+    const byNorm = new Map();
+    for (const r of rows) byNorm.set(claudeConfig.normalizeClaudePath(r.projectPath), r);
+
+    // Fold in ~/.claude.json-only projects (have trust/meta but no Switchboard cache).
+    const cfgForKeys = claudeConfig.readClaudeConfig();
+    const cfgKeys = cfgForKeys && cfgForKeys.projects ? Object.keys(cfgForKeys.projects) : [];
+    for (const norm of trustMap.keys()) {
+      if (byNorm.has(norm)) continue;
+      const key = cfgKeys.find(k => claudeConfig.normalizeClaudePath(k) === norm) || null;
+      const projectPath = key || norm;
+      const r = {
+        projectPath,
+        folder: encodeProjectPath(projectPath),
+        displayName: '',
+        sessionCount: 0,
+        lastActivity: null,
+        missing: !fs.existsSync(projectPath),
+        hidden: (global.hiddenProjects || []).includes(projectPath),
+        favorite: false,
+        configOnly: true,
+      };
+      rows.push(r);
+      byNorm.set(norm, r);
+    }
+
+    for (const r of rows) {
+      const norm = claudeConfig.normalizeClaudePath(r.projectPath);
+      r.trusted = trustMap.has(norm) ? trustMap.get(norm) : null;
+      const m = metaMap.get(norm) || {};
+      r.mcpServersCount = m.mcpServersCount || 0;
+      r.allowedToolsCount = m.allowedToolsCount || 0;
+      r.lastCost = m.lastCost != null ? m.lastCost : null;
+      r.inputTokens = m.inputTokens != null ? m.inputTokens : null;
+      r.outputTokens = m.outputTokens != null ? m.outputTokens : null;
+      // In manual mode, whether the project is on the explicit allowlist.
+      r.inAllowlist = allowed ? allowed.has(r.projectPath) : true;
+    }
+
+    return { ok: true, autoAdd, projects: rows };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// --- IPC: set-project-trust (#32) ---
+// Atomic RMW on ~/.claude.json, only the `hasTrustDialogAccepted` field. Setting to
+// true is a security decision (the renderer gates it behind a warning confirm).
+ipcMain.handle('set-project-trust', (_event, projectPath, trusted) => {
+  const result = claudeConfig.setProjectTrust(projectPath, trusted);
+  if (result.ok) notifyRendererProjectsChanged();
+  return result;
+});
+
+// --- IPC: delete-project-sessions (#32) ---
+// Hard-delete a project's on-disk session history: every ~/.claude/projects/<folder>
+// that resolves to this projectPath (legacy encodings can leave several), plus its DB
+// cache + search index. Session .jsonl files are gone afterwards. Guards each target to
+// stay strictly inside PROJECTS_DIR before removing.
+ipcMain.handle('delete-project-sessions', (_event, projectPath) => {
+  try {
+    if (!projectPath) return { error: 'No project path' };
+    const encoded = encodeProjectPath(projectPath);
+    let removed = 0;
+    const dirs = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory() && d.name !== '.git');
+    for (const d of dirs) {
+      const folderPath = path.join(PROJECTS_DIR, d.name);
+      const pp = deriveProjectPath(folderPath, d.name);
+      if (pp !== projectPath && d.name !== encoded) continue;
+      // Safety: never remove anything outside PROJECTS_DIR.
+      const resolved = path.resolve(folderPath);
+      if (!resolved.startsWith(path.resolve(PROJECTS_DIR) + path.sep)) continue;
+      fs.rmSync(resolved, { recursive: true, force: true });
+      try { deleteCachedFolder(d.name); } catch {}
+      try { deleteSearchFolder(d.name); } catch {}
+      removed++;
+    }
+    notifyRendererProjectsChanged();
+    return { ok: true, removed };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// --- IPC: remove-project-config (#32) ---
+// Hard-delete the project's entry from ~/.claude.json (trust, MCP, allowedTools, cost).
+// Atomic RMW with .bak; all other keys/secrets preserved.
+ipcMain.handle('remove-project-config', (_event, projectPath) => {
+  const result = claudeConfig.removeProjectEntry(projectPath);
+  if (result.ok) notifyRendererProjectsChanged();
+  return result;
 });
 
 // --- IPC: delete-worktree ---

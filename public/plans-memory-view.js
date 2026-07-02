@@ -97,6 +97,7 @@ function hideAllViewers() {
   statsViewer.style.display = 'none';
   memoryViewer.style.display = 'none';
   workFilesViewer.style.display = 'none';
+  if (typeof projectsViewer !== 'undefined' && projectsViewer) projectsViewer.style.display = 'none';
   settingsViewer.style.display = 'none';
   jsonlViewer.style.display = 'none';
   timelineViewer.style.display = 'none';
