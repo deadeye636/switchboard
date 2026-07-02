@@ -266,6 +266,14 @@ function createWindow() {
   // window.open() then sets location.href) routes through our IPC instead of
   // creating a child BrowserWindow.
   mainWindow.webContents.on('did-finish-load', () => {
+    // Restore persisted Electron UI zoom (#34). setZoomLevel resets to 0 on each
+    // load, so re-apply after the page is ready.
+    try {
+      const g = getSetting('global') || {};
+      if (typeof g.electronZoomLevel === 'number' && g.electronZoomLevel !== 0) {
+        mainWindow.webContents.setZoomLevel(clampZoomLevel(g.electronZoomLevel));
+      }
+    } catch { /* best-effort */ }
     mainWindow.webContents.executeJavaScript(`
       window.open = function(url) {
         if (url && /^https?:\\/\\//i.test(url)) { window.api.openExternal(url); return null; }
@@ -303,13 +311,13 @@ function createWindow() {
       mainWindow.setFullScreen(!mainWindow.isFullScreen());
       event.preventDefault();
     } else if (primary && (key === '+' || key === '=')) {
-      wc.setZoomLevel(wc.getZoomLevel() + 0.5);
+      applyMainZoom(wc.getZoomLevel() + 0.5);
       event.preventDefault();
     } else if (primary && key === '-') {
-      wc.setZoomLevel(wc.getZoomLevel() - 0.5);
+      applyMainZoom(wc.getZoomLevel() - 0.5);
       event.preventDefault();
     } else if (primary && key === '0') {
-      wc.setZoomLevel(0);
+      applyMainZoom(0);
       event.preventDefault();
     }
   });
@@ -366,6 +374,31 @@ function buildMenu() {
   // DevTools/zoom/fullscreen accelerators are wired in the before-input-event
   // handler in createWindow().
   Menu.setApplicationMenu(null);
+}
+
+// --- Electron UI zoom (#34) ---
+// Zoom level (not factor); Electron factor = 1.2 ** level. Clamped so the UI stays
+// usable. Applied via applyMainZoom, which also persists (survives restart) and
+// broadcasts `zoom-changed` so the statusbar button stays in sync — including when
+// the user zooms via the keyboard accelerators.
+const ZOOM_LEVEL_MIN = -3;
+const ZOOM_LEVEL_MAX = 3;
+function clampZoomLevel(level) {
+  const v = Number(level);
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(ZOOM_LEVEL_MIN, Math.min(ZOOM_LEVEL_MAX, v));
+}
+function applyMainZoom(level) {
+  if (!mainWindow || mainWindow.isDestroyed()) return 0;
+  const l = clampZoomLevel(level);
+  mainWindow.webContents.setZoomLevel(l);
+  try {
+    const g = getSetting('global') || {};
+    g.electronZoomLevel = l;
+    setSetting('global', g);
+  } catch { /* best-effort */ }
+  mainWindow.webContents.send('zoom-changed', l);
+  return l;
 }
 
 // --- Native notifications, dock/taskbar badge, and tray (Spec 01) ---
@@ -1855,6 +1888,18 @@ ipcMain.on('get-windows-build', (event) => {
     try { build = parseInt(os.release().split('.')[2], 10) || 0; } catch { build = 0; }
   }
   event.returnValue = build;
+});
+
+// --- IPC: Electron UI zoom (#34) ---
+ipcMain.handle('get-zoom-level', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow.webContents.getZoomLevel();
+  const g = getSetting('global') || {};
+  return typeof g.electronZoomLevel === 'number' ? g.electronZoomLevel : 0;
+});
+// delta 0 = reset to 100 %; otherwise nudge current level by delta (±0.5 like the keys).
+ipcMain.handle('nudge-zoom', (_event, delta) => {
+  const cur = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow.webContents.getZoomLevel() : 0;
+  return applyMainZoom(delta === 0 ? 0 : cur + Number(delta || 0));
 });
 
 // --- IPC: bookmarks ---

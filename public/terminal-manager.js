@@ -232,8 +232,14 @@ function applyTerminalFontToAll() {
 window._setTerminalFontSize = (n) => {
   terminalFontSize = clampTerminalFontSize(n);
   applyTerminalFontToAll();
+  // Notify UI (statusbar zoom button #34) — covers every path: Ctrl+wheel, shortcuts,
+  // settings, nudge — since they all funnel through here.
+  try { window.dispatchEvent(new CustomEvent('terminal-font-changed', { detail: terminalFontSize })); } catch {}
   return terminalFontSize;
 };
+
+// Current terminal font size (for the statusbar zoom button initial render).
+window._getTerminalFontSize = () => terminalFontSize;
 
 window._setTerminalFontFamily = (family) => {
   terminalFontFamily = (typeof family === 'string' && family.trim()) ? family.trim() : DEFAULT_TERMINAL_FONT_FAMILY;

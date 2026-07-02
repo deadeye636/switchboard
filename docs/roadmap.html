@@ -87,12 +87,6 @@ Dateien und werden hier nur verlinkt.</p>
 <td><strong>Zentrale Bookmark-Ansicht (&quot;Bookmarks&quot;-Tab)</strong> — Bookmarks aktuell nur über Overlay (Ctrl+Shift+B) als flache Liste. Neu: <strong>Icon oben rechts neben Work-Files</strong> (<code>#sidebar-tabs</code>, neben Projects-Tab) → Großraum-Liste <strong>aller</strong> Bookmarks <strong>session-/projektübergreifend</strong> mit <strong>Filtern</strong> (Text/Label, Projekt, Session, Typ Session-Level vs. Nachricht, Sortierung; optional Gruppierung Projekt→Session). Klick springt zur Transcript-Stelle (Reuse <code>bookmarksTags</code>/<code>openSessionAt</code>). <code>bookmarks</code>-Tabelle hat kein <code>projectPath</code> → Auflösung via Session-Cache in neuem Aggregat-IPC <code>get-bookmarks-admin</code>. Overlay bleibt als Schnellzugriff. Neu: <code>public/bookmarks-view.js</code>. Dateien: <code>main.js</code>, <code>preload.js</code>, <code>index.html</code>, <code>app.js</code>, <code>plans-memory-view.js</code>, <code>style.css</code>.</td>
 <td><a href="bookmarks-view-plan.md">Plan</a></td>
 </tr>
-<tr>
-<td>#34</td>
-<td>P2</td>
-<td><strong>Zoom-Schaltflächen in der Statusbar</strong> — unten rechts zwei Buttons: <strong>xterm-Zoom</strong> (Terminal-Schriftgröße) + <strong>Electron-Zoom</strong> (UI), je mit Live-Anzeige + <code>−</code>/Wert/<code>+</code>/Reset-Popover. xterm-Zoom ist bereits persistent (<code>terminalFontSize</code>); <strong>Electron-Zoom wird persistent gemacht</strong> (<code>electronZoomLevel</code>, Startup-Restore, Tastatur-Nudges speichern + broadcasten). Neu: <code>public/statusbar-zoom.js</code>, IPC <code>get-zoom-level</code>/<code>nudge-zoom</code>, Notify-Hook in <code>terminal-manager</code>. Dateien: <code>main.js</code>, <code>preload.js</code>, <code>terminal-manager.js</code>, <code>index.html</code>, <code>style.css</code>.</td>
-<td><a href="statusbar-zoom-plan.md">Plan</a></td>
-</tr>
 </tbody></table>
 <hr>
 <h2 id="erledigt">🟢 Erledigt</h2>
@@ -105,6 +99,11 @@ Dateien und werden hier nur verlinkt.</p>
 </tr>
 </thead>
 <tbody><tr>
+<td>#34</td>
+<td><strong>Zoom-Schaltflächen in der Statusbar</strong> — unten rechts zwei Buttons: <strong>xterm-Zoom</strong> (Terminal-Schriftgröße) + <strong>Electron-Zoom</strong> (UI), je Live-Anzeige + Popover (<code>−</code>/Wert/<code>+</code>/<code>⟲</code>) und Mausrad-über-Button. Electron-Zoom jetzt <strong>persistent</strong> (<code>electronZoomLevel</code>, Startup-Restore, Tastatur-Shortcuts Ctrl +/−/0 speichern + broadcasten via <code>zoom-changed</code>); xterm-Zoom war schon persistent. Range Level ±3 @ 0.5 (≈58–173 %). Neu: <code>public/statusbar-zoom.js</code>, IPCs <code>get-zoom-level</code>/<code>nudge-zoom</code>, Helfer <code>applyMainZoom</code>/<code>clampZoomLevel</code> (main.js), Event <code>terminal-font-changed</code> + Getter in <code>terminal-manager</code>. Tests: <code>test/statusbar-zoom.test.js</code>. Dateien: <code>main.js</code>, <code>preload.js</code>, <code>terminal-manager.js</code>, <code>index.html</code>, <code>style.css</code>.</td>
+<td><a href="statusbar-zoom-plan.md">Plan</a></td>
+</tr>
+<tr>
 <td>#33</td>
 <td><strong>Settings-UI Redesign (nur Global-Scope)</strong> — Global-Settings von einer langen Einspalten-Form (8 Sektionen, ~45 Felder) auf <strong>Zwei-Spalten-Layout</strong>: linke <strong>Kategorie-Navi</strong> mit 7 Gruppen (Sessions &amp; CLI · Terminal · Layout &amp; Tabs · Projects &amp; Sidebar · Usage &amp; Notifications · Shortcuts · Handoff), <strong>Live-Suche</strong> über alle Felder, <strong>„?&quot;-Aufklapp</strong> je Langtext (Kurzsatz sichtbar, Volltext inline via <code>.settings-more</code>), <strong>Advanced-Disclosure</strong> für Nischenschalter (GPU, Live-Render, Attention-Hooks). Alte „Application&quot;-Sammelsektion aufgeteilt auf Terminal/Layout/Usage; Beschreibungstexte gekürzt (humanizer), aktive Labels; Usage-Felder mit Farb-Swatch. <strong>Nur der Global-Zweig</strong> in <code>settings-panel.js</code> (eigener <code>if (isProject)</code>-Split); <strong>Save-/IPC-Logik und Projekt-Rendering unverändert</strong> — ID-Diff alt↔neu = 0 entfernt. Tests grün (479/0). Dateien: <code>public/settings-panel.js</code>, <code>public/style.css</code>.</td>
 <td>—</td>
