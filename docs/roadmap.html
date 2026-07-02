@@ -81,18 +81,6 @@ Dateien und werden hier nur verlinkt.</p>
 <td><strong>Attention-Erkennung härten</strong> via Claude-Code-Hooks + Bulk-Aktionen</td>
 <td><a href="productivity-roadmap.html">Roadmap §Phase 4</a></td>
 </tr>
-<tr>
-<td>#23</td>
-<td>P2</td>
-<td><strong>Bug: integrierter Terminal zeigt Müllzeile.</strong> Beim Start des Plain-Terminals (Session-Auswahl → „Terminal&quot;) steht in Zeile 2 der rohe Claude-Shim: <code>claude() { echo &quot;\033[33m…&quot;; }; export -f claude 2&gt;/dev/null; clear</code>. Ursache: der Bash-Shim wird auf Windows/PowerShell wörtlich ins pwsh geschrieben (<code>main.js:1924</code> + <code>setTimeout</code>-<code>ptyProcess.write</code> <code>:1943</code>) statt als Funktion interpretiert. Fix: Shim je Shell (pwsh vs. bash/zsh) korrekt setzen oder auf Windows weglassen/ersetzen.</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#24</td>
-<td>P2</td>
-<td><strong>Feature: Terminal integriert vs. extern + Kill-on-Close.</strong> (a) Setting, ob der integrierte Terminal genutzt wird oder ein <strong>externer</strong> Terminal gelauncht wird — vorab <strong>prüfen ob möglich</strong> (welche Terminals, Windows/Mac/Linux, cwd/env-Übergabe, PTY-Anbindung) inkl. Vor-/Nachteilen. (b) Separate Option, ob ein Terminal <strong>beim Schließen sofort beendet</strong> wird — <strong>entkoppelt</strong> von der Claude-Session-Close-/Auto-Close-Logik (#21). Dateien: <code>main.js</code> (Spawn), <code>settings-panel.js</code>, <code>session-tabs.js</code>.</td>
-<td>—</td>
-</tr>
 </tbody></table>
 <hr>
 <h2 id="erledigt">🟢 Erledigt</h2>
@@ -152,6 +140,16 @@ Dateien und werden hier nur verlinkt.</p>
 <tr>
 <td>#22</td>
 <td><strong>Bug-Fix: Tab-Wechsel Flicker (Ansatz B)</strong> — synchroner <code>safeFit</code> vor dem Paint in <code>showSession</code> (Zwischenschritt; final überholt durch #20). Datei: <code>terminal-manager.js</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>#23</td>
+<td><strong>Bug-Fix: integrierter Terminal zeigt Müllzeile.</strong> Der Plain-Terminal-Shim (<code>claude()</code>-Override) war Bash-Syntax und wurde auf Windows wörtlich ins pwsh geschrieben → Müllzeile 2. Jetzt <strong>je Shell-Typ</strong> (<code>main.js</code>): bash/zsh/sh/wsl → <code>ENV</code>/<code>BASH_ENV</code> + <code>printf</code>-Shim; <strong>PowerShell</strong> → <code>function claude { Write-Host … }; Clear-Host</code>; <strong>cmd</strong> → <code>doskey</code> + <code>cls</code>.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#24</td>
+<td><strong>Feature: External Terminal + File Explorer + Terminal-Close-Verhalten.</strong> (a) Neue Aktion <strong>„External Terminal&quot;</strong> im Neue-Session-Popover → <code>openExternalTerminal(cwd)</code> (<code>main.js</code>): Windows <code>wt.exe -d</code> (Fallback cmd), macOS <code>open -a Terminal</code>, Linux <code>gnome-terminal</code>/Fallbacks; <code>execFile</code>, launch-and-forget (kein Monitoring). (b) Neue Aktion <strong>„Open in File Explorer&quot;</strong> → <code>shell.openPath</code> via bestehendes <code>openPath</code>. (c) Setting <strong><code>terminalCloseBehavior</code></strong> (Kill on close / Keep running, Default <strong>kill</strong>) — nur für Plain-Terminals, entkoppelt von <code>tabCloseBehavior</code> (#21); verdrahtet in <code>session-tabs.js</code> <code>closeTab</code>. Dateien: <code>main.js</code>, <code>preload.js</code>, <code>public/dialogs.js</code>, <code>public/settings-panel.js</code>, <code>public/session-tabs.js</code>.</td>
 <td>—</td>
 </tr>
 <tr>
