@@ -102,6 +102,11 @@ const isRendererReload = navigationEntry?.type === 'reload';
 // Map<sessionId, { terminal, element, fitAddon, session, closed }>
 const openSessions = new Map();
 window._openSessions = openSessions;
+// Sessions the user deliberately stopped/archived. onProcessExited suppresses the
+// "exited (code 1) — re-click to relaunch" banner and the timed auto-close for these
+// (both are meant for sessions that end on their own), and closes the tab cleanly.
+const userStoppedSessions = new Set();
+window._markUserStopped = (id) => { if (id) userStoppedSessions.add(id); };
 let activeSessionId = sessionStorage.getItem('activeSessionId') || null;
 function setActiveSession(id) {
   activeSessionId = id;
@@ -979,19 +984,24 @@ window.clearActiveTerminalView = function () {
 window.api.onProcessExited((sessionId, exitCode) => {
   const entry = openSessions.get(sessionId);
   const session = sessionMap.get(sessionId);
+  const userStopped = userStoppedSessions.has(sessionId);
+  userStoppedSessions.delete(sessionId);
   if (entry) {
     entry.closed = true;
     recordTimelineEvent(sessionId, 'exited', 'Process exited', `Exit code ${exitCode}.`);
     // Write a visible exit banner so the user can see when the process ended
     // and read any error output it printed (claude / devbox / shell stderr).
     // Without this, a fast-failing pre-launch command would tear down the
-    // terminal before the user could read the error.
-    try {
-      const colour = exitCode === 0 ? '\x1b[2m' : '\x1b[33m';
-      entry.terminal.write(
-        `\r\n${colour}── session exited (code ${exitCode}) — re-click this session in the sidebar to relaunch, or click another to dismiss ──\x1b[0m\r\n`
-      );
-    } catch {}
+    // terminal before the user could read the error. Skip it for a deliberate
+    // stop/archive — the "re-click to relaunch" hint is misleading there.
+    if (!userStopped) {
+      try {
+        const colour = exitCode === 0 ? '\x1b[2m' : '\x1b[33m';
+        entry.terminal.write(
+          `\r\n${colour}── session exited (code ${exitCode}) — re-click this session in the sidebar to relaunch, or click another to dismiss ──\x1b[0m\r\n`
+        );
+      } catch {}
+    }
   }
 
   // Plain terminal sessions are ephemeral — destroy immediately and remove from
@@ -1030,9 +1040,16 @@ window.api.onProcessExited((sessionId, exitCode) => {
     gridViewerCount.textContent = gridCards.size + ' session' + (gridCards.size !== 1 ? 's' : '');
   }
 
-  // Tabs mode: optionally auto-close the tab after the exit (setting-driven; the
-  // scheduler no-ops in grid mode and honours the mode/delay from settings).
-  if (typeof window.scheduleTabAutoClose === 'function') window.scheduleTabAutoClose(sessionId, exitCode);
+  if (userStopped) {
+    // Deliberate stop/archive: close the tab now (no timed auto-close, no banner).
+    // closeTabNow switches to a neighbour tab or the placeholder in tabs mode; a
+    // no-op in grid/legacy where the stop/archive handlers manage the view.
+    if (typeof window.closeTabNow === 'function') window.closeTabNow(sessionId);
+  } else if (typeof window.scheduleTabAutoClose === 'function') {
+    // Tabs mode: optionally auto-close the tab after the exit (setting-driven; the
+    // scheduler no-ops in grid mode and honours the mode/delay from settings).
+    window.scheduleTabAutoClose(sessionId, exitCode);
+  }
 
   pollActiveSessions();
 });
@@ -1470,6 +1487,7 @@ async function confirmAndStopSession(sessionId) {
     },
   });
   if (!confirmed) return;
+  userStoppedSessions.add(sessionId); // suppress the relaunch banner + timed auto-close
   await window.api.stopSession(sessionId);
   recordTimelineEvent(sessionId, 'stopped', 'Session stopped', 'Stopped by the user.');
   activePtyIds.delete(sessionId);

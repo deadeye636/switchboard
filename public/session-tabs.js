@@ -370,5 +370,8 @@ if (typeof module !== 'undefined' && module.exports) {
   window.refreshSessionTabs = refreshSessionTabs;
   window.scheduleTabAutoClose = scheduleTabAutoClose;
   window.cancelTabAutoClose = cancelTabAutoClose;
+  // Close a tab immediately (deliberate stop/archive) — switches to a neighbour or
+  // the placeholder. Only meaningful in tabs mode; grid/legacy manage their own view.
+  window.closeTabNow = (sessionId) => { if (displayMode === 'tabs') performClose(sessionId); };
   window._applySessionDisplaySettings = applySessionDisplaySettings;
 })();

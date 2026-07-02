@@ -1422,6 +1422,7 @@ function showGridView() {
   memoryViewer.style.display = 'none';
   settingsViewer.style.display = 'none';
   jsonlViewer.style.display = 'none';
+  timelineViewer.style.display = 'none'; // was missing → timeline overlapped the grid
   terminalArea.style.display = '';
 
   // Switch #terminals to grid layout

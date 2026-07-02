@@ -1453,6 +1453,7 @@ function rebindSidebarEvents(projects) {
         const archivedIds = sessions.map(s => s.sessionId);
         for (const s of sessions) {
           if (activePtyIds.has(s.sessionId)) {
+            window._markUserStopped?.(s.sessionId);
             await window.api.stopSession(s.sessionId);
           }
           await window.api.archiveSession(s.sessionId, 1);
@@ -1590,7 +1591,7 @@ function rebindSidebarEvents(projects) {
         const archivedIds = archiveTargets.map(s => s.sessionId);
         for (const session of archiveTargets) {
           const sid = session.sessionId;
-          if (activePtyIds.has(sid)) await window.api.stopSession(sid);
+          if (activePtyIds.has(sid)) { window._markUserStopped?.(sid); await window.api.stopSession(sid); }
           await window.api.archiveSession(sid, 1);
           session.archived = 1;
         }
@@ -1824,6 +1825,7 @@ function rebindSidebarEvents(projects) {
             },
           });
           if (!confirmed) return;
+          window._markUserStopped?.(session.sessionId);
           await window.api.stopSession(session.sessionId);
           pollActiveSessions();
         }
