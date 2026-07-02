@@ -35,7 +35,7 @@
 </head>
 <body>
 <h1 id="switchboard-roadmap">Switchboard — Roadmap</h1>
-<p><strong>Stand:</strong> 2026-06-30 · <strong>Branch:</strong> <code>main</code> · Tests grün (<code>npm test</code>)</p>
+<p><strong>Stand:</strong> 2026-07-01 · <strong>Branch:</strong> <code>main</code> · Tests grün (<code>npm test</code>)</p>
 <p>Zentrales Board für alles Geplante, Laufende und Erledigte. Eine Aufgabe lebt <strong>genau
 einmal</strong> — Status entscheidet, in welcher Sektion sie steht. Detailpläne stehen in eigenen
 Dateien und werden hier nur verlinkt.</p>
@@ -80,6 +80,30 @@ Dateien und werden hier nur verlinkt.</p>
 <td>P3</td>
 <td><strong>Attention-Erkennung härten</strong> via Claude-Code-Hooks + Bulk-Aktionen</td>
 <td><a href="productivity-roadmap.html">Roadmap §Phase 4</a></td>
+</tr>
+<tr>
+<td>#23</td>
+<td>P2</td>
+<td><strong>Bug: integrierter Terminal zeigt Müllzeile.</strong> Beim Start des Plain-Terminals (Session-Auswahl → „Terminal&quot;) steht in Zeile 2 der rohe Claude-Shim: <code>claude() { echo &quot;\033[33m…&quot;; }; export -f claude 2&gt;/dev/null; clear</code>. Ursache: der Bash-Shim wird auf Windows/PowerShell wörtlich ins pwsh geschrieben (<code>main.js:1924</code> + <code>setTimeout</code>-<code>ptyProcess.write</code> <code>:1943</code>) statt als Funktion interpretiert. Fix: Shim je Shell (pwsh vs. bash/zsh) korrekt setzen oder auf Windows weglassen/ersetzen.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#24</td>
+<td>P2</td>
+<td><strong>Feature: Terminal integriert vs. extern + Kill-on-Close.</strong> (a) Setting, ob der integrierte Terminal genutzt wird oder ein <strong>externer</strong> Terminal gelauncht wird — vorab <strong>prüfen ob möglich</strong> (welche Terminals, Windows/Mac/Linux, cwd/env-Übergabe, PTY-Anbindung) inkl. Vor-/Nachteilen. (b) Separate Option, ob ein Terminal <strong>beim Schließen sofort beendet</strong> wird — <strong>entkoppelt</strong> von der Claude-Session-Close-/Auto-Close-Logik (#21). Dateien: <code>main.js</code> (Spawn), <code>settings-panel.js</code>, <code>session-tabs.js</code>.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#26</td>
+<td>P2</td>
+<td><strong>Bug (vorbestehend): Grid-Übersicht (Mosaik) + <code>#grid-viewer</code>-Toolbar erscheinen nicht.</strong> Im Grid-Modus zeigt der Overview-Button weder die Kachel-Ansicht noch die obere Toolbar („Reset layout&quot; etc.). Existiert auch in älteren Versionen → <strong>nicht</strong> vom Flicker/Rename-Umbau. Verdacht: <code>gridViewActive</code>-<strong>Desync</strong> (State hängt stale auf <code>true</code>) → <code>toggleGridView</code> (<code>grid-view.js:1637</code>) nimmt den Hide- statt Show-Zweig, <code>showGridView</code> (<code>:1410</code>, setzt <code>gridViewer.display=&#39;block&#39;</code> + mountet Cards via <code>wrapInGridCard</code>) wird nie erreicht. Diagnose live in DevTools: <code>gridViewActive</code>, <code>localStorage.gridViewActive</code>, ob <code>#terminals</code> die Klasse <code>grid-layout</code> trägt, ob der Klick den Show- oder Hide-Zweig nimmt. Mögliche weitere Desync-Quelle: Pfade, die <code>gridViewActive</code>/<code>grid-layout</code> ohne Gegenstück setzen (Trace-Agent fand u.a. den Startup-Restore, jetzt via <code>!display-mode-tabs</code>-Guard entschärft). Dateien: <code>grid-view.js</code> (<code>toggleGridView</code>/<code>showGridView</code>/<code>hideGridView</code>), <code>app.js</code> (<code>gridViewActive</code>, <code>returnToTerminal</code>).</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#27</td>
+<td>P3</td>
+<td><strong>Resize-Flicker (Known Limitation / optionale Milderung).</strong> Beim Fenster-Resize bricht xterm alle Zeilen neu um (Spaltenzahl ändert sich) — renderer-unabhängig, inhärent. Zusätzlich der <strong>Settle-Repaint</strong> (<code>main.js:2199-2213</code>, PTY-Nudge <code>cols+1→cols</code> 150 ms nach Resize) für Cursor-Korrektheit in TUIs → sichtbarer Voll-Redraw kurz nach dem Loslassen. Optionale Milderung: Fit im Resize-Handler (<code>app.js</code> <code>window.resize</code>) <strong>debouncen</strong> (nur bei Pause umbrechen statt jedes Event) — Trade-off: Terminal „hängt&quot; beim Ziehen hinterher. Settle-Repaint <strong>nicht</strong> entfernen (sonst Cursor-Bug nach Resize).</td>
+<td>—</td>
 </tr>
 </tbody></table>
 <hr>
@@ -131,6 +155,21 @@ Dateien und werden hier nur verlinkt.</p>
 <td>#07</td>
 <td>Session-Display <strong>Phase 2 — Settings-Fenster</strong> (eigenes Fenster, Live-Apply, sticky Save-Bar)</td>
 <td><a href="session-display-plan.html">Plan</a></td>
+</tr>
+<tr>
+<td>#21</td>
+<td><strong>Auto-Close Tab bei Session-Exit</strong> (Tabs-Mode) — Setting Modus <code>Never</code>/<code>On success only</code>/<code>On success and error</code> (Default) + Delay in Sekunden (Default 5, <code>0</code> = sofort). Timer no-opt bei Relaunch; gemeinsamer <code>performClose</code> mit Aktiv-Tab-Fallback (Nachbar-Tab bzw. Placeholder) — behebt nebenbei die blanke Hauptfläche beim manuellen Schließen des aktiven Tabs. Dateien: <code>session-tabs.js</code>, <code>app.js</code> (<code>onProcessExited</code>, <code>clearActiveTerminalView</code>), <code>settings-panel.js</code></td>
+<td><a href="session-display-plan.html">Plan</a></td>
+</tr>
+<tr>
+<td>#22</td>
+<td><strong>Bug-Fix: Tab-Wechsel Flicker (Ansatz B)</strong> — synchroner <code>safeFit</code> vor dem Paint in <code>showSession</code> (Zwischenschritt; final überholt durch #20). Datei: <code>terminal-manager.js</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>#20</td>
+<td><strong>Bug-Fix: Tab-Wechsel Flicker — final (DOM-Renderer + z-index-Stapel).</strong> Ursache zweiteilig: (a) xterm-<strong>WebGL</strong>-Glyph-Atlas rendert beim <code>hidden→visible</code> stale („Treppe&quot;, korrigiert sich erst beim nächsten Write), (b) <code>display:none</code>/<code>visibility:hidden</code> → inaktive Terminals werden nicht gepaintet, neue Zeilen erst beim Zeigen nachgezeichnet. Lösung: <strong>DOM-Renderer als Default</strong> (kein Atlas, kein ~16-Kontext-Limit) — WebGL nur noch <strong>opt-in per Setting „GPU rendering (WebGL)&quot;</strong> (<code>terminalWebgl</code>, default aus, live via <code>window._setTerminalWebgl</code>). Tabs-Mode nutzt einen <strong>z-index-Stapel</strong>: alle Terminals bleiben gemountet <strong>und gepaintet</strong>, Wechsel promotet nur das aktive (<code>.visible</code> → z-index/pointer-events), synchron, kein <code>hidden→visible</code>-Repaint → kein Flicker auch bei neu dazugekommenen Zeilen. <code>REFIT_TOL</code> (Sub-Zeilen-Jitter), File-Panel-Breiten-Fit, Live-Render-Setting bleiben. <code>forceRepaint</code> nur noch WebGL-aktiv. <strong>Zusätzlich:</strong> (c) Display-Mode-Wert <code>legacy</code>→<strong><code>grid</code></strong> umbenannt (Label + Source; alte <code>legacy</code>-Werte mappen abwärtskompatibel, localStorage-Key <code>legacyGridPref</code>→<code>gridModePref</code>). (d) <strong>Bug-Fix Tabs→Grid-Wechsel ließ Hauptbereich leer</strong> — Grid-Single-View wurde nicht wiederhergestellt (verließ sich auf Rest-<code>.visible</code>, das der z-index-Stapel maskiert); jetzt expliziter <code>returnToTerminal()</code>-Aufruf + Startup-Grid-Restore mit <code>!display-mode-tabs</code>-Guard. Offener Rest: Resize-Reflow → #27; Grid-Overview-Mosaik-Bug (vorbestehend) → #26. Dateien: <code>public/terminal-manager.js</code>, <code>public/style.css</code>, <code>public/settings-panel.js</code>, <code>public/app.js</code>, <code>public/session-tabs.js</code></td>
+<td>—</td>
 </tr>
 <tr>
 <td>#08</td>
