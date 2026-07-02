@@ -82,12 +82,6 @@ Dateien und werden hier nur verlinkt.</p>
 <td><a href="productivity-roadmap.html">Roadmap §Phase 4</a></td>
 </tr>
 <tr>
-<td>#30</td>
-<td>P3</td>
-<td><strong>Statusbar-Usage neu darstellen.</strong> Aktuell nur Text: <code>Usage: 5h 17% · 7d 7% · Quota 0%</code> (<code>#status-bar-usage</code>, gefüllt in <code>app.js</code> via <code>formatUsageStatus</code>/<code>getUsage…</code>). Ziel: pro Fenster <strong>Mini-Progressbar + Wert</strong>, z.B. <code>5h [▓▓░░] 17% · 7d [▓░░░] 7% · Quota 0%</code>. <strong>Farbe</strong> von Bar <strong>und</strong> Wert nach Auslastung <strong>grün → orange → rot</strong> (Schwellen tbd, z.B. &lt;60 grün, &lt;85 orange, sonst rot). <strong>Mouseover:</strong> mehrzeiliger Tooltip mit <strong>Reset-Datum/-Zeit in 24h</strong>. <strong>Offene Frage:</strong> was soll „Quota&quot; konkret anzeigen (Gesamt-Kontingent? separates Limit?) — klären. Dateien: <code>public/app.js</code> (Usage-Render), <code>public/style.css</code>, evtl. Usage-Datenquelle (<code>main.js</code>/Usage-API).</td>
-<td>—</td>
-</tr>
-<tr>
 <td>#31</td>
 <td>P2</td>
 <td><strong>Setting: Projekte automatisch hinzufügen vs. manuell.</strong> Aktuell werden <strong>alle</strong> <code>~/.claude/projects</code>-Ordner automatisch entdeckt und angezeigt (<code>session-cache.js</code> <code>buildProjectsFromCache</code> — Loop 1 = Ordner mit Sessions, Loop 2 = leere Ordner <code>:282-308</code>; live via <code>startProjectsWatcher</code>). <code>hiddenProjects</code> ist nur eine Ausblend-Liste. Gewünscht: Setting <strong><code>projectAutoAdd</code></strong> — <strong>Default: auto</strong> (wie jetzt), <strong>aus</strong>: nur <strong>manuell hinzugefügte</strong> Projekte zeigen (Allowlist), plus <strong>„Add project&quot;-Aktion</strong>. Umsetzung: <code>buildProjectsFromCache</code> im Manual-Modus auf eine <code>addedProjects</code>-Allowlist filtern; Setting + Add-UI. <strong>Vorab genauer prüfen</strong>, ob es außer der Ordner-Discovery noch andere Auto-Add-Trigger gibt (z.B. beim Session-Start in neuem cwd). Dateien: <code>session-cache.js</code>, <code>settings-panel.js</code>, <code>public/sidebar.js</code> (Add-Aktion), evtl. <code>main.js</code>/<code>db.js</code>.</td>
@@ -162,6 +156,11 @@ Dateien und werden hier nur verlinkt.</p>
 <tr>
 <td>#24</td>
 <td><strong>Feature: External Terminal + File Explorer + Terminal-Close-Verhalten.</strong> (a) Neue Aktion <strong>„External Terminal&quot;</strong> im Neue-Session-Popover → <code>openExternalTerminal(cwd)</code> (<code>main.js</code>): Windows <code>wt.exe -d</code> (Fallback cmd), macOS <code>open -a Terminal</code>, Linux <code>gnome-terminal</code>/Fallbacks; <code>execFile</code>, launch-and-forget (kein Monitoring). (b) Neue Aktion <strong>„Open in File Explorer&quot;</strong> → <code>shell.openPath</code> via bestehendes <code>openPath</code>. (c) Setting <strong><code>terminalCloseBehavior</code></strong> (Kill on close / Keep running, Default <strong>kill</strong>) — nur für Plain-Terminals, entkoppelt von <code>tabCloseBehavior</code> (#21); verdrahtet in <code>session-tabs.js</code> <code>closeTab</code>. Dateien: <code>main.js</code>, <code>preload.js</code>, <code>public/dialogs.js</code>, <code>public/settings-panel.js</code>, <code>public/session-tabs.js</code>.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#30</td>
+<td><strong>Statusbar-Usage neu dargestellt.</strong> Statt reinem Text jetzt pro Fenster <strong>Mini-Progressbar + Wert</strong> (<code>5h [▓] 17% · 7d [▓] 7% · Quota …</code>). <strong>Quota</strong> = monatliches Extra-Usage/Overage-Budget (<code>extraUsage</code>), <strong>nur angezeigt wenn &gt;0%</strong>. <strong>Farbe</strong> (Bar-Fill + Wert) grün→orange→rot, <strong>Schwellen einstellbar pro Fenster</strong> (Settings <code>usage5hWarn/Crit</code> Default 60/80, <code>usage7dWarn/Crit</code> Default 75/90; Quota nutzt 7d). <strong>Tooltip</strong> mehrzeilig: 5h/7d/Sonnet/Opus mit Reset-Zeit (24h, <code>formatResetTime</code>) + Quota-$ (Used/Limit). Neue pure Helfer <code>usageLevel3</code>/<code>getUsageBars</code>/<code>getUsageTooltip</code> (getestet). Dateien: <code>public/usage-status.js</code>, <code>public/app.js</code> (<code>renderUsageStatus</code>, <code>usageThresholds</code>), <code>public/settings-panel.js</code>, <code>public/style.css</code>.</td>
 <td>—</td>
 </tr>
 <tr>
