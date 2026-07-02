@@ -3,12 +3,15 @@ const assert = require('node:assert');
 const { sortProjects } = require('../public/project-sort.js');
 
 // Helper to build a project with a single session at `modified`.
-function P(path, { fav = false, modified = '2026-01-01', missing = false, empty = false, displayName } = {}) {
+// `empty` → no sessions; `lastActivity` → an empty project that still carries a
+// last-activity timestamp (all its sessions were archived).
+function P(path, { fav = false, modified = '2026-01-01', missing = false, empty = false, displayName, lastActivity } = {}) {
   return {
     projectPath: path,
     favorited: fav,
     missing,
     displayName,
+    lastActivity,
     sessions: empty ? [] : [{ modified }],
   };
 }
@@ -68,6 +71,16 @@ test('missing and empty go to the end', () => {
   ], { projectSortMode: 'activity' });
   assert.strictEqual(paths(r)[0], 'a/normal');
   assert.strictEqual(paths(r)[paths(r).length - 1], 'a/missing');
+});
+
+test('all-archived project sorts by lastActivity, only never-used empties sink', () => {
+  const r = sortProjects([
+    P('a/old', { modified: '2026-01-01' }),
+    P('a/archived', { empty: true, lastActivity: '2026-06-01' }),
+    P('a/new', { modified: '2026-09-01' }),
+    P('a/nevers', { empty: true }), // no lastActivity → genuinely empty → last
+  ], { projectSortMode: 'activity' });
+  assert.deepStrictEqual(paths(r), ['a/new', 'a/archived', 'a/old', 'a/nevers']);
 });
 
 test('manual respects favorites block when pinned', () => {

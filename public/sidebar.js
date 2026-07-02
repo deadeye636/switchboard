@@ -1301,7 +1301,12 @@ function renderProjectsFolderFirst(projects, resort) {
       ungroupedProjects.push({ ...project });
     }
   }
-  ungroupedProjects.sort((a, b) => (projectRecency.get(b.projectPath) || 0) - (projectRecency.get(a.projectPath) || 0));
+  // Effective recency: a contributed session's time, else the project's
+  // lastActivity (all-archived projects) so they hold their spot instead of
+  // sinking; genuinely never-used empties fall back to 0 → bottom.
+  const ffRecency = (p) => projectRecency.get(p.projectPath)
+    || (p.lastActivity ? new Date(p.lastActivity).getTime() : 0);
+  ungroupedProjects.sort((a, b) => ffRecency(b) - ffRecency(a));
 
   const newSortedOrder = [];
   if (ungroupedProjects.length > 0) {

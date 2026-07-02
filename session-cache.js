@@ -236,9 +236,18 @@ function buildProjectsFromCache(showArchived) {
   // otherwise folders whose sessions are all archived would appear in the sidebar as
   // undismissable phantom entries.
   const projectMap = new Map();
+  // Track the newest session activity per projectPath across ALL cached rows
+  // (archived included). Used to sort a project whose only sessions are archived
+  // — it becomes an empty placeholder below, but should still rank by its last
+  // real activity instead of being lumped with never-used empty folders.
+  const lastActivityByPath = new Map();
   for (const row of cachedRows) {
     if (!row.projectPath) continue;
     if (hiddenProjects.has(row.projectPath)) continue;
+    if (row.modified) {
+      const prev = lastActivityByPath.get(row.projectPath);
+      if (!prev || row.modified > prev) lastActivityByPath.set(row.projectPath, row.modified);
+    }
     const meta = metaMap.get(row.sessionId);
     const s = {
       sessionId: row.sessionId,
@@ -302,6 +311,9 @@ function buildProjectsFromCache(showArchived) {
           projectPath,
           missing: !fs.existsSync(projectPath),
           sessions: [],
+          // null for genuinely never-used folders; an ISO date when the folder's
+          // sessions exist but are all archived (so it sorts by real recency).
+          lastActivity: lastActivityByPath.get(projectPath) || null,
         });
       }
     }
@@ -349,11 +361,13 @@ function buildProjectsFromCache(showArchived) {
     // Missing projects go to the bottom
     if (a.missing && !b.missing) return 1;
     if (!a.missing && b.missing) return -1;
-    // Empty projects go to the bottom
-    if (a.sessions.length === 0 && b.sessions.length > 0) return 1;
-    if (b.sessions.length === 0 && a.sessions.length > 0) return -1;
-    const aDate = a.sessions[0]?.modified || '';
-    const bDate = b.sessions[0]?.modified || '';
+    // Effective recency: a live session's timestamp, or (for a project whose
+    // sessions are all archived) its last-known activity. Only projects with no
+    // recency at all — genuinely never-used empty folders — sink to the bottom.
+    const aDate = a.sessions[0]?.modified || a.lastActivity || '';
+    const bDate = b.sessions[0]?.modified || b.lastActivity || '';
+    if (!aDate && bDate) return 1;
+    if (!bDate && aDate) return -1;
     return new Date(bDate) - new Date(aDate);
   });
 

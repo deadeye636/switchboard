@@ -1667,6 +1667,11 @@ async function loadProjects({ resort = false } = {}) {
       hasReinjected = true;
       // Still pending — re-inject into cached data
       for (const projList of [cachedProjects, cachedAllProjects]) {
+        // The default list mirrors the backend's archive exclusion: don't
+        // re-inject an archived pending session there, or an otherwise-empty
+        // project looks non-empty and the sidebar's "all filtered out" guard
+        // drops the whole project (kept in the archived list so undo still works).
+        if (projList === cachedProjects && pending.session && pending.session.archived) continue;
         let proj = projList.find(p => p.projectPath === pending.projectPath);
         if (!proj) {
           // Project not in list (no other sessions) — create a synthetic entry

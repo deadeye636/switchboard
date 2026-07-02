@@ -22,10 +22,15 @@
     return custom || shortNameOf(p);
   }
   function recencyOf(p) {
-    return (p.sessions && p.sessions[0] && p.sessions[0].modified) || '';
+    // Fall back to lastActivity so a project whose sessions are all archived
+    // (rendered as an empty placeholder) still sorts by its real last activity.
+    return (p.sessions && p.sessions[0] && p.sessions[0].modified) || p.lastActivity || '';
   }
+  // "No recency at all" = a genuinely never-used empty folder. These sink to the
+  // bottom; an all-archived project keeps its recency via lastActivity, so it is
+  // NOT treated as empty here and stays at its natural position.
   function isEmptyOf(p) {
-    return !p.sessions || p.sessions.length === 0;
+    return !recencyOf(p);
   }
 
   function sortProjects(projects, opts) {
