@@ -2163,7 +2163,17 @@ ipcMain.on('terminal-input', (_event, sessionId, data) => {
 });
 
 // --- IPC: terminal-resize (fire-and-forget) ---
-ipcMain.on('terminal-resize', (_event, sessionId, cols, rows) => {
+// #27: the post-resize settle-repaint (ConPTY cols+1->cols nudge) is disabled — it
+// caused a visible full-screen redraw ("text moves") after every resize, which was
+// the dominant resize flicker. Trade-off: it existed to fix the cursor landing on the
+// wrong row after xterm reflows a multi-line TUI input on resize (commit 87c3efc).
+// That niche cursor glitch is accepted in favour of a calm resize. Flip back to true
+// to restore the cursor fix; the per-session gating below then limits it to the
+// focused session so background/grid cards don't flash.
+const RESIZE_SETTLE_ENABLED = false;
+
+ipcMain.on('terminal-resize', (_event, sessionId, cols, rows, settle) => {
+  if (!RESIZE_SETTLE_ENABLED) settle = false;
   const session = activeSessions.get(sessionId);
   if (session && !session.exited) {
     // For plain terminals, suppress buffering during resize to avoid
@@ -2196,13 +2206,15 @@ ipcMain.on('terminal-resize', (_event, sessionId, cols, rows) => {
           }, 50);
         } catch {}
       }, 50);
-    } else if (!session.isPlainTerminal) {
+    } else if (settle && !session.isPlainTerminal) {
       // Subsequent resizes: ConPTY repaints, but xterm's own buffer reflow of
       // wrapped lines can leave the cursor on the wrong row (e.g. navigating a
       // multi-line input after a resize). Once the resize settles, nudge the PTY
       // (cols±1) so ConPTY emits a clean full frame that overwrites the
       // mis-reflowed cells and repositions the cursor — mirroring how Windows
       // Terminal relies on ConPTY's repaint instead of its own reflow.
+      // #27: only for the focused session (settle=true) — nudging background/grid
+      // cards made every visible card flash on a window resize.
       clearTimeout(session._resizeSettleTimer);
       session._resizeSettleTimer = setTimeout(() => {
         try {

@@ -71,7 +71,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Send (fire-and-forget)
   sendInput: (id, data) => ipcRenderer.send('terminal-input', id, data),
-  resizeTerminal: (id, cols, rows) => ipcRenderer.send('terminal-resize', id, cols, rows),
+  resizeTerminal: (id, cols, rows, settle) => ipcRenderer.send('terminal-resize', id, cols, rows, settle),
   closeTerminal: (id) => ipcRenderer.send('close-terminal', id),
 
   // Native notifications, dock/taskbar badge, tray (Spec 01)

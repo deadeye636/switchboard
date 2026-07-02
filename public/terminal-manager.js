@@ -645,7 +645,15 @@ function createTerminalEntry(session, opts = {}) {
   setupTerminalContextMenu(container, terminal, () => entry.session.sessionId, () => hoveredLinkUri);
   setupDragAndDrop(container, () => entry.session.sessionId);
   terminal.onResize(({ cols, rows }) => {
-    window.api.resizeTerminal(entry.session.sessionId, cols, rows);
+    // #27: only the focused session gets the post-resize settle-repaint (the ConPTY
+    // full-frame nudge that fixes the cursor after reflow). Background/grid cards
+    // don't need the cursor fix, and nudging them made every visible card flash on a
+    // window resize. Focused = the active single session, or the focused grid card.
+    const sid = entry.session.sessionId;
+    const focused = (typeof gridViewActive !== 'undefined' && gridViewActive)
+      ? (typeof gridFocusedSessionId !== 'undefined' && gridFocusedSessionId === sid)
+      : (activeSessionId === sid);
+    window.api.resizeTerminal(sid, cols, rows, focused);
   });
   terminal.onTitleChange(title => {
     entry.ptyTitle = title;
