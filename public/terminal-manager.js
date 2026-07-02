@@ -117,8 +117,38 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
   container.addEventListener('paste', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    const text = e.clipboardData && e.clipboardData.getData('text');
-    if (text) pasteIntoTerminal(terminal, getSessionId(), text);
+    const cd = e.clipboardData;
+    if (!cd) return;
+    const text = cd.getData('text');
+    const files = cd.files;
+    const hasImageItem = Array.from(cd.items || [])
+      .some(it => it.kind === 'file' && it.type && it.type.startsWith('image/'));
+
+    const send = (s) => { if (s) pasteIntoTerminal(terminal, getSessionId(), s); };
+    const filePaths = () => (files && files.length)
+      ? Array.from(files).map(f => shellEscape(window.api.getPathForFile(f))).filter(Boolean).join(' ')
+      : '';
+
+    if (hasImageItem) {
+      // A screenshot/bitmap → snapshot to a temp PNG and insert its path (Claude
+      // Code shows it as [Image #N]). A copied image FILE has no bitmap, so the
+      // save returns null and we fall back to its real path below.
+      window.api.saveClipboardImage()
+        .then((imgPath) => {
+          if (imgPath) return send(shellEscape(imgPath) + ' ');
+          const p = filePaths();
+          send(p ? p + ' ' : text);
+        })
+        .catch(() => { const p = filePaths(); send(p ? p + ' ' : text); });
+      return;
+    }
+
+    // Copied files (pdf/txt/exe/…) → insert absolute path(s), like drag-and-drop.
+    const p = filePaths();
+    if (p) { send(p + ' '); return; }
+
+    // Plain text — bracketed multiline handled by pasteIntoTerminal.
+    send(text);
   }, { capture: true });
 
   // Ctrl/Cmd + mouse wheel → terminal-only font zoom (VS Code / Windows Terminal

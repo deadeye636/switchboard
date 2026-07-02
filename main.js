@@ -979,6 +979,30 @@ ipcMain.handle('clipboard-write-text', (_event, text) => {
   if (typeof text === 'string') clipboard.writeText(text);
 });
 
+// --- IPC: save a clipboard bitmap to a temp PNG (terminal image paste) ---
+// Claude Code ingests an image *file path* as [Image #N]. Native clipboard-image
+// paste isn't available everywhere (e.g. Windows), so on Ctrl+V we snapshot the
+// clipboard bitmap to a temp PNG and insert its path — giving image paste on all
+// platforms. Returns the absolute path, or null when the clipboard has no bitmap
+// (e.g. plain text or a copied file, which the caller handles differently).
+let _clipboardImageSeq = 0;
+const CLIPBOARD_TMP_DIR = path.join(os.tmpdir(), 'switchboard-clipboard');
+ipcMain.handle('save-clipboard-image', () => {
+  try {
+    const img = clipboard.readImage();
+    if (!img || img.isEmpty()) return null;
+    const png = img.toPNG();
+    if (!png || !png.length) return null;
+    fs.mkdirSync(CLIPBOARD_TMP_DIR, { recursive: true });
+    const file = path.join(CLIPBOARD_TMP_DIR, `paste-${Date.now()}-${_clipboardImageSeq++}.png`);
+    fs.writeFileSync(file, png);
+    return file;
+  } catch (err) {
+    log.error(`[clipboard-image] save failed: ${err.message}`);
+    return null;
+  }
+});
+
 // --- IPC: MCP bridge ---
 ipcMain.on('mcp-diff-response', (_event, sessionId, diffId, action, editedContent) => {
   resolvePendingDiff(sessionId, diffId, action, editedContent);

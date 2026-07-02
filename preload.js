@@ -77,6 +77,7 @@ contextBridge.exposeInMainWorld('api', {
   openExternalTerminal: (cwdPath) => ipcRenderer.invoke('open-external-terminal', cwdPath),
   writeClipboard: (text) => ipcRenderer.invoke('clipboard-write-text', text),
   readClipboard: () => ipcRenderer.invoke('read-clipboard'),
+  saveClipboardImage: () => ipcRenderer.invoke('save-clipboard-image'),
 
   // Send (fire-and-forget)
   sendInput: (id, data) => ipcRenderer.send('terminal-input', id, data),
