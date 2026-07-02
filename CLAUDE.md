@@ -33,7 +33,7 @@ Adopt JBR features one at a time, never bulk-merge:
 1. `git checkout -b port/<feature> main`
 2. `git cherry-pick <commits>` — resolve conflicts (shared hot-paths: `main.js`, `public/sidebar.js`,
    `db.js`, `session-cache.js` collide because both forks rewrote them).
-3. `npm test` must be green (baseline: **436 passing**).
+3. `npm test` must be green — no new failures vs. the pre-port run.
 4. `git checkout main && git merge --ff-only port/<feature>`.
 
 `main` must always stay runnable and green.
@@ -62,7 +62,7 @@ upstream branches, not just `main`.
 
 ## Commands
 
-- `npm test` — runs `node --test` over `test/*.test.js` (44 files, 368 tests). No Electron needed. Keep it green.
+- `npm test` — runs `node --test` over `test/*.test.js`. No Electron needed. Keep it green (run it for the current pass count — don't rely on a hardcoded number here).
   (Note: `trigger-watcher.test.js` uses real `fs.watch`/timers and takes ~5 min — run the suite in the background.)
 - `npm start` — bundles CodeMirror, then launches Electron.
 - `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe`.

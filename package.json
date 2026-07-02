@@ -75,7 +75,7 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "HaydnG",
+      "owner": "deadeye636",
       "repo": "switchboard"
     },
     "mac": {

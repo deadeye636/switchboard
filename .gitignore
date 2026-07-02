@@ -15,3 +15,7 @@ prompts/
 temp/
 # Scratch space (work-files workspace convention)
 .work-files/
+
+# Claude Code: personal/local config + scratchpad (not shared)
+.claude/settings.local.json
+.claude/scratchpad/
