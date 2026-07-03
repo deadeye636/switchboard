@@ -7,16 +7,20 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   function shouldRenderProjectGroup({
     visibleCount = 0,
+    olderCount = 0,
     projectMatchedOnly = false,
     emptyPlaceholder = false,
   } = {}) {
-    // emptyPlaceholder: a project with no sessions at all (all archived, or a
-    // fresh project directory) — nothing filtered and nothing truncated away.
-    // Render it as an empty placeholder row so archiving the last session doesn't
-    // silently drop the whole project; the explicit hide feature should be the
-    // only thing that removes a project. Distinct from the "all sessions truncated
-    // away" case (olderCount > 0), which stays hidden.
-    return projectMatchedOnly || visibleCount > 0 || emptyPlaceholder;
+    // A non-hidden project always renders — the backend already dropped hidden
+    // projects, so anything reaching here should stay visible. That includes a
+    // project whose sessions are all older than the fold threshold (visibleCount
+    // 0, olderCount > 0): render the group with its sessions folded behind
+    // "+N older" instead of silently dropping the whole project (#54). The
+    // explicit hide / auto-hide feature (#57) is the only thing that removes a
+    // project. emptyPlaceholder covers the no-sessions case (all archived / fresh
+    // directory). Only case left hidden: an active search/filter that this project
+    // matches nothing in (visibleCount 0, olderCount 0, emptyPlaceholder false).
+    return projectMatchedOnly || visibleCount > 0 || olderCount > 0 || emptyPlaceholder;
   }
 
   return { shouldRenderProjectGroup };

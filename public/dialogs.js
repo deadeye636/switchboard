@@ -521,7 +521,11 @@ function showAddProjectDialog() {
     if (!hidden || hidden.length === 0) { section.style.display = 'none'; return; }
     section.style.display = 'block';
     listEl.innerHTML = '';
-    for (const projectPath of hidden) {
+    for (const entry of hidden) {
+      // get-hidden-projects returns { path, autoHidden } objects; tolerate a bare
+      // string too in case of an older main-process build.
+      const projectPath = typeof entry === 'string' ? entry : entry.path;
+      const autoHidden = typeof entry === 'object' && entry ? !!entry.autoHidden : false;
       const row = document.createElement('div');
       row.className = 'hidden-project-row';
       const name = document.createElement('span');
@@ -537,6 +541,16 @@ function showAddProjectDialog() {
         renderHiddenProjects();
       };
       row.appendChild(name);
+      // "auto" badge for projects hidden automatically after inactivity (#57).
+      // A row-level sibling (not inside the RTL-directioned path span) so it lays
+      // out predictably between the path and the Restore button.
+      if (autoHidden) {
+        const badge = document.createElement('span');
+        badge.className = 'hidden-project-auto-badge';
+        badge.textContent = 'auto';
+        badge.title = 'Hidden automatically after inactivity';
+        row.appendChild(badge);
+      }
       row.appendChild(unhide);
       listEl.appendChild(row);
     }

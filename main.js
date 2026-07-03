@@ -49,6 +49,7 @@ const { encodeProjectPath } = require('./encode-project-path');
 const {
   getMeta, getAllMeta, toggleStar, setName, setArchived,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
+  getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   toggleBookmark, removeBookmark, listBookmarks,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
@@ -523,7 +524,7 @@ sessionCache.init({
   },
 });
 const { readSessionFile, readFolderFromFilesystem, refreshFolder, refreshFile, reconcileCacheFromFilesystem,
-        buildProjectsFromCache, buildProjectsAdmin, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker } = sessionCache;
+        buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker } = sessionCache;
 const { resolveJsonlPath } = require('./read-session-file');
 const claudeConfig = require('./claude-config');
 
@@ -612,7 +613,9 @@ ipcMain.handle('remove-project', (_event, projectPath) => {
 // List of projectPaths the user has hidden (for the restore UI).
 ipcMain.handle('get-hidden-projects', () => {
   const global = getSetting('global') || {};
-  return global.hiddenProjects || [];
+  const auto = getAutoHiddenProjects();
+  // Return objects so the restore UI can flag auto-hidden projects with a badge.
+  return (global.hiddenProjects || []).map(p => ({ path: p, autoHidden: auto.has(p) }));
 });
 
 // --- IPC: unhide-project ---
@@ -624,6 +627,9 @@ ipcMain.handle('unhide-project', (_event, projectPath) => {
     const global = getSetting('global') || {};
     global.hiddenProjects = (global.hiddenProjects || []).filter(p => p !== projectPath);
     setSetting('global', global);
+    // #57: restart the grace timer + clear the auto flag so an unhidden stale
+    // project isn't re-hidden on the next auto-hide pass.
+    try { resetProjectAutoHide(projectPath); } catch {}
 
     const folder = encodeProjectPath(projectPath);
     try { refreshFolder(folder); } catch {}
@@ -639,12 +645,66 @@ ipcMain.handle('unhide-project', (_event, projectPath) => {
 // projectAutoAdd === false). Idempotent; persists to the global settings blob.
 function ensureProjectAdded(projectPath) {
   if (!projectPath) return;
+  // #57: adding / re-adding a project restarts its auto-hide grace timer so a just-
+  // added stale project isn't immediately auto-hidden again on the next pass.
+  try { resetProjectAutoHide(projectPath); } catch {}
   const global = getSetting('global') || {};
   const added = Array.isArray(global.addedProjects) ? global.addedProjects : [];
   if (!added.includes(projectPath)) {
     added.push(projectPath);
     global.addedProjects = added;
     setSetting('global', global);
+  }
+}
+
+// --- #57: Auto-hide stale projects ---
+// One pass over all known projects: any non-hidden project with no running session
+// whose effective activity (max of newest session activity and autoHideResetAt) is
+// older than `autoHideDays` gets added to hiddenProjects with the autoHidden flag set.
+// Runs in the main process on app start and on the throttled project refresh.
+let lastAutoHideAt = 0;
+const AUTO_HIDE_THROTTLE_MS = 10000;
+function applyAutoHide(force) {
+  try {
+    const global = getSetting('global') || {};
+    const days = Number(global.autoHideDays) || 0;
+    if (!(days > 0)) return;
+
+    const now = Date.now();
+    if (!force && now - lastAutoHideAt < AUTO_HIDE_THROTTLE_MS) return;
+    lastAutoHideAt = now;
+
+    // Projects with a live (non-exited) session are active — never auto-hide them.
+    const runningPaths = new Set();
+    for (const [, session] of activeSessions) {
+      if (session.exited) continue;
+      if (session.projectPath) runningPaths.add(session.projectPath);
+    }
+
+    const hidden = new Set(global.hiddenProjects || []);
+    let changed = false;
+    // buildProjectsAdmin returns every project (hidden included) with lastActivity.
+    for (const row of buildProjectsAdmin()) {
+      if (hidden.has(row.projectPath)) continue;      // already hidden (manual or auto)
+      if (runningPaths.has(row.projectPath)) continue; // has a running session
+      const meta = getProjectMeta(row.projectPath);
+      const activityMs = row.lastActivity ? new Date(row.lastActivity).getTime() : 0;
+      const resetMs = meta && meta.autoHideResetAt ? new Date(meta.autoHideResetAt).getTime() : 0;
+      const eff = Math.max(activityMs, resetMs);
+      if (shouldAutoHide(eff, now, days)) {
+        hidden.add(row.projectPath);
+        try { setProjectAutoHidden(row.projectPath, 1); } catch {}
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      global.hiddenProjects = [...hidden];
+      setSetting('global', global);
+      notifyRendererProjectsChanged();
+    }
+  } catch (err) {
+    log.error('[auto-hide] applyAutoHide failed:', err && err.message);
   }
 }
 
@@ -1108,6 +1168,9 @@ ipcMain.handle('get-projects', async (_event, showArchived) => {
     // older build, so sessions/worktrees don't silently go missing. Stat-gated,
     // so it's cheap when nothing has changed.
     reconcileCacheFromFilesystem();
+    // #57: apply auto-hide before building the response so freshly-hidden projects
+    // drop out of this render. Internally throttled, so it's cheap on rapid calls.
+    applyAutoHide();
     return buildProjectsFromCache(showArchived);
   } catch (err) {
     console.error('Error listing projects:', err);
@@ -3023,7 +3086,11 @@ if (!gotSingleInstanceLock) {
     // inaccessible on open). populateCacheViaWorker runs in a Worker thread
     // and is non-blocking; concurrent callers share the same in-flight
     // Promise so the FTS-recreated path below (if also triggered) is free.
-    populateCacheViaWorker();
+    populateCacheViaWorker().then(() => {
+      // #57: run one auto-hide pass once the cache is populated on startup, so
+      // stale projects are hidden before the first sidebar render settles.
+      try { applyAutoHide(true); } catch {}
+    });
 
     // File-trigger watcher — allows harness scripts to inject input into open
     // PTY sessions by dropping a JSON file in ~/.switchboard/triggers/.

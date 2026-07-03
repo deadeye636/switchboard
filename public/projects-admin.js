@@ -81,7 +81,7 @@
         <td class="pa-center">${row.sessionCount || 0}</td>
         <td class="pa-nowrap">${escapeHtml(fmtDate(row.lastActivity))}</td>
         <td class="pa-center">${trustCell(row)}</td>
-        <td class="pa-center">${boolToggle('hidden', !!row.hidden, 'Hidden', 'Visible', 'Toggle hidden in sidebar')}</td>
+        <td class="pa-center">${boolToggle('hidden', !!row.hidden, 'Hidden', 'Visible', 'Toggle hidden in sidebar')}${row.hidden && row.autoHidden ? '<span class="pa-auto-badge" title="Hidden automatically by inactivity">auto</span>' : ''}</td>
         <td class="pa-center">${boolToggle('favorite', !!row.favorite, '★', '☆', 'Toggle favorite')}</td>
         ${allowCol}
         <td class="pa-info">${escapeHtml(info)}</td>

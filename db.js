@@ -120,9 +120,17 @@ db.exec(`
 db.exec(`
   CREATE TABLE IF NOT EXISTS project_meta (
     projectPath TEXT PRIMARY KEY,
-    favorited INTEGER DEFAULT 0
+    favorited INTEGER DEFAULT 0,
+    autoHidden INTEGER DEFAULT 0,
+    autoHideResetAt TEXT
   )
 `);
+// Idempotently add the auto-hide columns to project_meta tables created before
+// the #57 auto-hide feature (the CREATE TABLE above already has them for fresh
+// installs). autoHidden marks a hide that was set automatically (vs. manual);
+// autoHideResetAt restarts the inactivity timer (grace after unhide / re-add).
+try { db.exec('ALTER TABLE project_meta ADD COLUMN autoHidden INTEGER DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE project_meta ADD COLUMN autoHideResetAt TEXT'); } catch {}
 
 // Bookmarks — flag individual transcript messages, anchored by {sessionId, entryIndex}.
 // <old-codename> JSONL has no per-message uuid, so the position index is the stable anchor;
@@ -396,6 +404,16 @@ const stmts = {
   `),
   projectMetaGet: db.prepare('SELECT * FROM project_meta WHERE projectPath = ?'),
   projectMetaGetAll: db.prepare('SELECT projectPath FROM project_meta WHERE favorited = 1'),
+  // Auto-hide (#57): mark/clear the automatic-hide flag and (re)start the grace timer.
+  projectMetaSetAutoHidden: db.prepare(`
+    INSERT INTO project_meta (projectPath, autoHidden) VALUES (?, ?)
+    ON CONFLICT(projectPath) DO UPDATE SET autoHidden = excluded.autoHidden
+  `),
+  projectMetaResetAutoHide: db.prepare(`
+    INSERT INTO project_meta (projectPath, autoHidden, autoHideResetAt) VALUES (?, 0, ?)
+    ON CONFLICT(projectPath) DO UPDATE SET autoHidden = 0, autoHideResetAt = excluded.autoHideResetAt
+  `),
+  projectMetaAutoHidden: db.prepare('SELECT projectPath FROM project_meta WHERE autoHidden = 1'),
   settingsByPrefix: db.prepare('SELECT key, value FROM settings WHERE key LIKE ?'),
   // Bookmarks (toggle by {sessionId, entryIndex} anchor)
   bookmarkGet: db.prepare('SELECT id FROM bookmarks WHERE sessionId = ? AND entryIndex = ?'),
@@ -590,6 +608,31 @@ function toggleProjectFavorite(projectPath) {
 function getFavoritedProjects() {
   const set = new Set();
   for (const row of stmts.projectMetaGetAll.all()) set.add(row.projectPath);
+  return set;
+}
+
+// --- Auto-hide meta (#57) ---
+// Raw project_meta row (or null) — used by applyAutoHide to read autoHideResetAt.
+function getProjectMeta(projectPath) {
+  return stmts.projectMetaGet.get(projectPath) || null;
+}
+
+// Mark/clear the automatic-hide flag for a project (distinguishes auto from manual hide).
+function setProjectAutoHidden(projectPath, autoHidden) {
+  runWithBusyRetry(() => stmts.projectMetaSetAutoHidden.run(projectPath, autoHidden ? 1 : 0));
+}
+
+// Reset the auto-hide grace timer to now and clear the auto-hidden flag. Called on
+// unhide and on add/re-add so a just-restored stale project isn't re-hidden immediately.
+function resetProjectAutoHide(projectPath) {
+  runWithBusyRetry(() => stmts.projectMetaResetAutoHide.run(projectPath, new Date().toISOString()));
+}
+
+// Set of projectPaths whose current hide was set automatically — consumed by the
+// hidden-projects UI to show an "auto" badge.
+function getAutoHiddenProjects() {
+  const set = new Set();
+  for (const row of stmts.projectMetaAutoHidden.all()) set.add(row.projectPath);
   return set;
 }
 
@@ -1093,6 +1136,7 @@ function closeDb() {
 module.exports = {
   getMeta, getAllMeta, setName, toggleStar, setArchived,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
+  getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   toggleBookmark, removeBookmark, listBookmarks,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,

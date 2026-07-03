@@ -14,7 +14,7 @@ let PROJECTS_DIR, activeSessions, getMainWindow, log;
 let deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics;
 let deleteSearchFolder, deleteSearchSession, upsertSearchEntries;
 let setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName;
-let getFavoritedProjects, getProjectDisplayNames;
+let getFavoritedProjects, getProjectDisplayNames, getAutoHiddenProjects;
 
 function init(ctx) {
   PROJECTS_DIR = ctx.PROJECTS_DIR;
@@ -40,6 +40,7 @@ function init(ctx) {
   setName = ctx.db.setName;
   getFavoritedProjects = ctx.db.getFavoritedProjects;
   getProjectDisplayNames = ctx.db.getProjectDisplayNames;
+  getAutoHiddenProjects = ctx.db.getAutoHiddenProjects;
 }
 
 // readSessionFile is imported from read-session-file.js (shared with worker)
@@ -525,6 +526,7 @@ function buildProjectsAdmin() {
   const hiddenProjects = new Set(global.hiddenProjects || []);
   const favorited = typeof getFavoritedProjects === 'function' ? getFavoritedProjects() : new Set();
   const displayNames = typeof getProjectDisplayNames === 'function' ? getProjectDisplayNames() : new Map();
+  const autoHiddenSet = typeof getAutoHiddenProjects === 'function' ? getAutoHiddenProjects() : new Set();
 
   const map = new Map(); // projectPath -> { sessionCount, lastActivity }
   const ensure = (projectPath) => {
@@ -565,12 +567,22 @@ function buildProjectsAdmin() {
       lastActivity: e.lastActivity,
       missing: !fs.existsSync(projectPath),
       hidden: hiddenProjects.has(projectPath),
+      autoHidden: autoHiddenSet.has(projectPath),
       favorite: favorited.has(projectPath),
     });
   }
   return rows;
 }
 
+
+// Pure predicate for #57 auto-hide — kept dependency-free so it's unit-testable
+// without Electron. `effectiveActivityMs` is max(newest session activity,
+// autoHideResetAt) for the project; auto-hide fires only when the feature is on
+// (days > 0) and the project has been inactive for longer than `days`.
+function shouldAutoHide(effectiveActivityMs, nowMs, days) {
+  if (!(days > 0)) return false;
+  return (nowMs - effectiveActivityMs) > days * 86400000;
+}
 
 function notifyRendererProjectsChanged() {
   const mainWindow = getMainWindow();
@@ -677,6 +689,11 @@ function populateCacheViaWorker() {
     settle();
   });
   });
+
+  // Return the in-flight promise so first callers can await/chain on scan
+  // completion (the two `await populateCacheViaWorker()` sites, and the #57
+  // startup auto-hide pass). Without this the first caller got `undefined`.
+  return populatePromise;
 }
 
 module.exports = {
@@ -689,6 +706,7 @@ module.exports = {
   reconcileCacheFromFilesystem,
   buildProjectsFromCache,
   buildProjectsAdmin,
+  shouldAutoHide,
   notifyRendererProjectsChanged,
   sendStatus,
   populateCacheViaWorker,

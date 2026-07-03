@@ -77,6 +77,7 @@
     const addDirsValue = fieldValue('addDirs', '');
     const visCountValue = fieldValue('visibleSessionCount', 10);
     const maxAgeValue = fieldValue('sessionMaxAgeDays', 3);
+    const autoHideDaysValue = fieldValue('autoHideDays', 0);
     const usage5hWarnValue = fieldValue('usage5hWarn', 60);
     const usage5hCritValue = fieldValue('usage5hCrit', 80);
     const usage7dWarnValue = fieldValue('usage7dWarn', 75);
@@ -302,7 +303,7 @@
           <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">11</span></button>
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
-          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">5</span></button>
+          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">6</span></button>
           <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
           <div class="settings-nav-sep"></div>
           <button class="settings-nav-item" data-cat="shortcuts">Keyboard Shortcuts <span class="settings-nav-count">${SHORTCUT_DEFS.length}</span></button>
@@ -770,6 +771,16 @@
                     <input type="number" class="settings-input settings-input-compact" id="sv-max-age" min="1" max="365" value="${maxAgeValue}">
                   </div>
                 </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Auto-hide inactive projects after (days)</span>
+                    <div class="settings-description">Projects with no session activity for this many days are moved to Hidden automatically. 0 disables it.</div>
+                    <div class="settings-more">The project stays available under "Hidden Projects" (with an <b>auto</b> badge) and can be restored anytime. Restoring or re-adding a project restarts its timer.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-auto-hide-days" min="0" max="3650" value="${autoHideDaysValue}">
+                  </div>
+                </div>
               </div>
             </section>
 
@@ -1071,6 +1082,7 @@
         settings.addDirs = settingsViewerBody.querySelector('#sv-add-dirs').value.trim();
         settings.visibleSessionCount = parseInt(settingsViewerBody.querySelector('#sv-visible-count').value) || 10;
         settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
+        settings.autoHideDays = parseInt(settingsViewerBody.querySelector('#sv-auto-hide-days').value) || 0;
         {
           const clampPair = (warnSel, critSel, dWarn, dCrit) => {
             const warn = Math.max(1, Math.min(99, parseInt(settingsViewerBody.querySelector(warnSel).value, 10) || dWarn));
