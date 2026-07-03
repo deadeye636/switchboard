@@ -82,15 +82,9 @@ Dateien und werden hier nur verlinkt.</p>
 <td>—</td>
 </tr>
 <tr>
-<td>#48</td>
-<td>P3</td>
-<td><strong>Terminal File-Path-Links</strong> <em>(Quelle: brianstanley)</em> — Dateipfade in der Terminalausgabe klickbar machen → im Editor/File-Explorer öffnen (Reuse <code>openPath</code> / External-Terminal-Infra aus #24). Standalone-UX via xterm-Link-Provider. Ref: <code>brianstanley/main</code> @ <code>3725607</code>. Dateien: <code>public/terminal-manager.js</code>, ggf. <code>preload.js</code>/<code>main.js</code> für die Open-Aktion.</td>
-<td>—</td>
-</tr>
-<tr>
 <td>#49</td>
 <td>P3</td>
-<td><strong>HTML/MD-Preview-Panel</strong> <em>(Quelle: brianstanley)</em> — gerendertes Markdown/HTML einer Datei als Vorschau anzeigen. Renderer-seitig, Reuse des vorhandenen <code>marked</code> + Tag-Escape/Sanitizing aus dem JSONL-Viewer. Ref: <code>brianstanley/main</code> @ <code>bbc9e52</code>. Dateien: <code>public/</code>, <code>index.html</code>.</td>
+<td><strong>HTML/MD-Preview-Panel (+ Bild-Vorschau)</strong> <em>(Quelle: brianstanley)</em> — gerendertes Markdown/HTML einer Datei als Vorschau anzeigen. Renderer-seitig, Reuse des vorhandenen <code>marked</code> + Tag-Escape/Sanitizing aus dem JSONL-Viewer. Ref: <code>brianstanley/main</code> @ <code>bbc9e52</code>. <strong>Beim Port beachten:</strong> (a) #46-DOMPurify-Wrap an beiden Markdown-innerHTML-Stellen erhalten (brianstanley-Diff schreibt an <code>viewer-panel.js:397</code> rohes <code>marked</code> zurück); (b) HTML-Preview = sandboxed iframe (<code>allow-same-origin</code>, kein <code>allow-scripts</code>) absegnen. <strong>Zusatz-Scope (aus #48-Test):</strong> File-Panel/<code>ViewerPanel</code> rendert Bilder aktuell als Byte-Text (<code>read-file-for-panel</code> liest immer UTF-8) — Bild-Extensions (<code>png/jpg/jpeg/gif/webp/svg</code>) als <code>&lt;img&gt;</code>/Data-URL-Vorschau ergänzen; ggf. Binär-Read-Pfad im IPC. Dateien: <code>public/{viewer-panel,viewer-toolbar,file-panel}.js</code>, <code>style.css</code>, ggf. <code>main.js</code>/<code>preload.js</code>.</td>
 <td>—</td>
 </tr>
 <tr>
@@ -165,6 +159,11 @@ Dateien und werden hier nur verlinkt.</p>
 </tr>
 </thead>
 <tbody><tr>
+<td>#48</td>
+<td><strong>Terminal File-Path-Links</strong> <em>(Port: brianstanley <code>3725607</code>)</em> — Dateipfade in der Terminalausgabe klickbar → Klick öffnet die Datei im File-Panel. xterm <code>registerLinkProvider</code> mit Extension-Whitelist (<code>html/md/markdown/json/txt/log/csv/xml/svg/css/js/ts/py/yaml</code>), Refactor der <code>file://</code>-Link-Behandlung in <code>openTerminalFileUri</code>. Main: <code>resolvePanelFilePath</code> (<code>~/</code>-Expansion) in <code>read/save/watch/unwatch-file</code>, <strong>komponiert mit dem #46-Denylist-Guard</strong> (erst resolven, dann <code>isSensitivePath</code>). Konflikt-Port neben unserem Flush/Background-Write-Block (#20/#44) gelöst; Test-Stub um <code>registerLinkProvider</code> ergänzt. Suite 507/0, in App verifiziert. Bild-als-Text-Lücke dabei entdeckt → in #49 gezogen. Dateien: <code>main.js</code>, <code>public/terminal-manager.js</code>, <code>test/terminal-background-write.test.js</code>.</td>
+<td>—</td>
+</tr>
+<tr>
 <td>#52</td>
 <td><strong>Secret-Insert Wrapper — geschlossen (won&#39;t-fix)</strong> <em>(Folge zu #47)</em> — Idee: Wrapper-Script (<code>db-query.sh &quot;&lt;query&gt;&quot;</code>) liest die Secret-Datei intern, gibt nur das Ergebnis zurück → Agent sieht den Wert nie. <strong>Kein Benefit im aktuellen Modell:</strong> Agent = Claude Code in derselben PTY, gleicher OS-User, beliebiger Shell-Zugriff → kann <code>cat db-query.sh</code> (Pfad ablesen) und die 0600-Datei direkt lesen; ein In-Process-Wrapper ist keine harte Grenze, sondern Discouragement/Security-Theater. <code>{ref}</code> aus #47 hält den Klartext bereits aus Prompt/Transcript. Eine echte Garantie bräuchte einen Broker im Main-Prozess (Secret bleibt in <code>safeStorage</code>, Agent triggert nur benannte Operation) — separates Feature, bei Bedarf neu aufmachen.</td>
 <td>—</td>
