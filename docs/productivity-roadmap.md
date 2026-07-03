@@ -1,6 +1,6 @@
 # Switchboard Productivity Roadmap
 
-> **[← Roadmap](ROADMAP.md)** · Stand 2026-07-02 · Status: teils erledigt (#08 Notifications/Tray, #09 „Während du weg warst", #10 Gruppen, #11 Folder-First, #05 Detection-Härtung/Bulk) · offen: #04 Grid-Layout 5B
+> **[← Roadmap](ROADMAP.md)** · Stand 2026-07-03 · Status: erledigt (#08 Notifications/Tray, #09 „Während du weg warst", #10 Gruppen, #11 Folder-First, #05 Detection-Härtung/Bulk, #04 Grid-Layout 5B) · offen: — (Kür-Rest → #45)
 >
 > Strategie- und Detaildokument. Der laufende Status steht im [Board](ROADMAP.md).
 
@@ -128,12 +128,12 @@ This is two related-but-separable features. Ship **5A (groups)** first — it de
 
 Recommended approach: **snap-to-grid spans + drag-to-reorder**, not a free-form absolute canvas — it preserves the existing CSS-grid architecture and keeps terminal `fitAndScroll` clean on every geometry change.
 
-- [ ] **Resize:** let a card span columns/rows (e.g. 1×1, 2×1, 2×2) by dragging a corner handle; snap to the grid; persist span per session. Call `fitAndScroll` after the span changes so the terminal reflows.
-- [ ] **Drag-to-reorder:** drag a card to a new slot (and into/out of a group); persist order. Reuse the group-assignment drag interaction from 5A.
-- [ ] Persist per-session layout (span + order + group) so the grid restores across restarts, like `gridViewActive` / `gridStatusFilter`.
-- [ ] Add a "reset layout" affordance.
-- [ ] Keep performance sane: debounce `fitAndScroll`, batch DOM writes, respect `prefers-reduced-motion` for any drag animation.
-- [ ] Validate: `npm test`, `ReadLints`, Electron smoke run with several live terminals (resize/drag/reorder, confirm terminals stay fit and scrollback intact).
+- [x] **Resize:** let a card span columns/rows (e.g. 1×1, 2×1, 2×2) by dragging a corner handle; snap to the grid; persist span per session. Call `fitAndScroll` after the span changes so the terminal reflows.
+- [x] **Drag-to-reorder:** drag a card to a new slot (and into/out of a group); persist order. Reuse the group-assignment drag interaction from 5A.
+- [x] Persist per-session layout (span + order + group) so the grid restores across restarts, like `gridViewActive` / `gridStatusFilter`.
+- [x] Add a "reset layout" affordance.
+- [x] Keep performance sane: debounce `fitAndScroll`, batch DOM writes, respect `prefers-reduced-motion` for any drag animation.
+- [x] Validate: `npm test`, `ReadLints`, Electron smoke run with several live terminals (resize/drag/reorder, confirm terminals stay fit and scrollback intact).
 - [ ] **Stretch (separate spike):** fully free-form absolute-positioned canvas with x/y/w/h per card. Higher cost (collision, persistence, fit recalculation); only pursue if span-based layout proves too rigid in real use.
 
 ---
