@@ -64,27 +64,9 @@ Dateien und werden hier nur verlinkt.</p>
 <td><a href="session-display-plan.html">Plan</a></td>
 </tr>
 <tr>
-<td>#54</td>
-<td>P2</td>
-<td><strong>Bug: manuell hinzugefügtes Projekt mit nur alten Sessions erscheint nicht</strong> — im Manuell-Modus (<code>projectAutoAdd=false</code>) filtert der Sidebar-Altersfilter (<code>sidebar.js:677</code>, <code>sessionMaxAgeDays</code>) alle Sessions eines added Projekts, wenn sie älter als N Tage sind → 0 sichtbar, alle „older&quot; → <code>shouldRenderProjectGroup</code> rendert die Gruppe nicht (empty-placeholder greift nur bei <code>older.length===0</code>). Beobachtet 2026-07-03: <code>D:\Projekte\example</code> (5 Sessions, alle &gt;3 Tage, in <code>addedProjects</code>). <strong>Fix-Ansatz → #57 (Auto-Hide + stillen Filter ersetzen).</strong> Dateien: <code>public/sidebar.js</code>, ggf. <code>session-cache.js</code>.</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#57</td>
-<td>P2</td>
-<td><strong>Auto-Hide stale Projekte (ersetzt stillen Altersfilter)</strong> — Setting <code>autoHideDays</code> (Default 0=aus): nach N Tagen Inaktivität wird der <strong>Hide-Flag automatisch</strong> gesetzt (Projekt sichtbar in „Hidden&quot;, per Unhide zurückholbar) — statt heimlichem Render-Filter. Reset-Timer (<code>project_meta.autoHideResetAt</code>) bei Unhide/Add-Project; <code>autoHidden</code>-Marker + Badge. <code>shouldRenderProjectGroup</code> rendert nicht-hidden Projekte künftig <strong>immer</strong>; <code>sessionMaxAgeDays</code> nur noch Session-Fold. Löst #54.</td>
-<td><a href="auto-hide-projects-plan.md">Plan</a></td>
-</tr>
-<tr>
 <td>#55</td>
 <td>P2</td>
 <td><strong>Bug: verwaiste Hidden Projects</strong> — <code>hiddenProjects</code> (switchboard-DB-Setting) wird beim Entfernen eines Projekts (Projekt-Verwaltung / aus Claude) <strong>nicht</strong> mitgeräumt; <code>get-hidden-projects</code> (<code>main.js:611</code>) liefert die rohe Liste ohne Abgleich gegen <code>.claude.json</code>/Existenz → Add-Project-Hidden-Liste zeigt entfernte Projekte (verifiziert 2026-07-03: <code>~</code>, <code><redacted-path></code>, <code><redacted-project></code> — keiner mehr in <code>.claude.json</code>). Fix: <code>hiddenProjects</code> beim Projekt-Remove prunen <strong>und</strong> <code>get-hidden-projects</code> gegen <code>.claude.json</code> filtern. Dateien: <code>main.js</code>.</td>
-<td>—</td>
-</tr>
-<tr>
-<td>#53</td>
-<td>P3</td>
-<td><strong>Add-Project-Dialog: „Hidden Projects&quot;-Sektion entfernen</strong> — redundant, Hide/Restore läuft über die Projekt-Verwaltung (#32). Sektion + <code>getHiddenProjects</code>/<code>unhideProject</code>-UI aus <code>public/dialogs.js</code> (<code>#hidden-projects-section</code>, ~502) raus.</td>
 <td>—</td>
 </tr>
 <tr>
@@ -195,6 +177,11 @@ Dateien und werden hier nur verlinkt.</p>
 </tr>
 </thead>
 <tbody><tr>
+<td>#57</td>
+<td><strong>Auto-Hide stale Projekte + stillen Altersfilter ersetzt</strong> (löst #54, erledigt #53 mit) — Setting <code>autoHideDays</code> (Default 0=aus): nach N Tagen Inaktivität wird der Hide-Flag <strong>automatisch</strong> gesetzt (<code>applyAutoHide</code> im Main, Start-Hook + get-projects-Refresh, laufende Sessions ausgenommen, throttled). <code>project_meta</code> +<code>autoHidden</code>/<code>autoHideResetAt</code>; Reset-Timer bei <code>unhide-project</code>/<code>ensureProjectAdded</code>. <strong>#54 gefixt:</strong> <code>shouldRenderProjectGroup</code> (<code>sidebar-state.js</code>) rendert nicht-hidden Projekte auch bei <code>olderCount&gt;0</code> — Projekt mit nur alten Sessions bleibt sichtbar (Sessions eingeklappt); <code>sessionMaxAgeDays</code> nur noch Session-Fold. <strong>#53 mit-erledigt:</strong> Hidden-Verwaltung raus aus Add-Project-Dialog (<code>dialogs.js</code>), <code>autoHidden</code>-„auto&quot;-Badge jetzt in der Projekt-Verwaltung (<code>projects-admin.js</code>, <code>buildProjectsAdmin</code> liefert <code>autoHidden</code>). Reiner Helfer <code>shouldAutoHide</code>; Nebenfix <code>populateCacheViaWorker</code> gibt Promise zurück. Tests <code>auto-hide.test.js</code> (+10), Suite 507/0. Dateien: <code>db.js</code>, <code>main.js</code>, <code>session-cache.js</code>, <code>public/{sidebar-state,settings-panel,projects-admin,dialogs}.js</code>, <code>style.css</code>.</td>
+<td><a href="auto-hide-projects-plan.md">Plan</a></td>
+</tr>
+<tr>
 <td>#47</td>
 <td><strong>Saved Variables (v2)</strong> <em>(Quelle: brianstanley <code>d1d5ef1</code>)</em> — benannte, wiederverwendbare Werte (optional <strong>secret</strong> → <code>safeStorage</code>-verschlüsselt), Scope global/projekt, Tags. <strong>Management-Tab</strong> (<code>data-tab=&quot;variables&quot;</code>, <code>public/variables-admin.js</code>): session-unabhängige CRUD-Tabelle, Scope-Dropdown, Secret maskiert + Augen-Toggle. <strong>Session-Quick-Pick</strong> (<code>public/variables-panel.js</code>, Terminal-Header-Icon) + <strong>Context-Menü</strong> <code>Variables ▸ Global/Project ▸ …</code> → Insert/Send/Copy. <strong>Insert-Template pro Variable</strong> mit Platzhaltern <code>{path}</code>/<code>{ref}</code>/<code>{value}</code> + Presets (SSH/MySQL/Postgres-service/pgpass/Bearer/Path/Shell-value/Custom, stateful Dropdown, multiline). <strong>Secret sicher:</strong> Wert nie im Prompt — <code>{path}</code>/<code>{ref}</code> materialisieren eine 0600-Temp-Datei (<code>userData/secret-refs</code>), Shell/Tool liest sie; cmd/WSL → Copy-Fallback + Toast. <strong>Cleanup:</strong> Session-Stop (Setting, Default an) + Quit + Startup; opt-in Alters-Sweep <code>secretRefSweepMinutes</code> (Default 0). Neu: Tabelle <code>saved_variables</code> (+<code>insertTemplate</code>), IPC <code>resolve-variable-insert</code>/<code>get-shell-type</code>/<code>list-all-saved-variables</code>, pures Modul <code>variable-insert.js</code>. Tests <code>variable-insert.test.js</code> + DB-Roundtrip, 497/0. Dateien: <code>db.js</code>, <code>main.js</code>, <code>preload.js</code>, <code>variable-insert.js</code>, <code>public/{variables-admin,variables-panel,terminal-context-menu,app,settings-panel}.js</code>, <code>index.html</code>, <code>style.css</code>. Follow-ups: #50 API-Key-Override, #52 Wrapper.</td>
 <td><a href="saved-variables-plan.md">Plan</a></td>
