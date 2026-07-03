@@ -64,10 +64,34 @@ Dateien und werden hier nur verlinkt.</p>
 <td><a href="session-display-plan.html">Plan</a></td>
 </tr>
 <tr>
+<td>#46</td>
+<td>P2</td>
+<td><strong>Security-/Robustheits-Härtung (Port kreaddis, hunk-weise)</strong> — aus <code>kreaddis/main</code>. (1) <strong>Bugfix Stale-Lock-Cleanup</strong> (<code>6d3f7aa</code> b): <code>cleanStaleLockFiles</code> prüft <code>data.pid === process.pid</code> (<code>mcp-bridge.js:472</code>) → tote Locks werden nie entfernt; Fix <code>process.kill(pid,0)</code>. (2) <strong>Schedule-Pfad-Validierung</strong> (<code>48f1c6c</code> b): <code>run-schedule-now</code> führt ungeprüften <code>filePath</code> als Claude-Command aus (<code>schedule-ipc.js:185</code>) → auf <code>commands/schedule-*.md</code> beschränken. (3) Path-Denylist erweitern (<code>.credentials.json</code>, SSH-Keys außerhalb <code>~/.ssh</code>, <code>.npmrc</code>, Shell-History; <code>main.js:112</code>). (4) WS <code>maxPayload</code> 8 MiB (<code>mcp-bridge.js:318</code>). (5) Dead-Code <code>validateShellArg</code> entfernen (<code>main.js:173</code>). Nicht: VT-Parse-Skip (<code>5a8174b</code>, schon drin). Refs: <code>kreaddis/main</code> @ <code>6d3f7aa</code>, <code>48f1c6c</code>; verwandt <code>75e19ed</code> (Audit-Fixes), <code>fd509b1</code> (Grid-Offscreen-Write-Skip, Perf).</td>
+<td>—</td>
+</tr>
+<tr>
 <td>#43</td>
 <td>P3</td>
 <td><strong>Subagent-Spawn über <code>.meta.json</code> erkennen (nicht nur <code>.jsonl</code>)</strong> — Claude Code schreibt beim Spawn eines Task-Subagents sofort <code>&lt;parent&gt;/subagents/agent-&lt;id&gt;.meta.json</code> (<code>agentType</code>, <code>description</code>, <code>toolUseId</code>, <code>spawnDepth</code>), das <code>.jsonl</code>-Transcript aber erst wenn der Agent Output produziert. Ein gespawnter, aber nicht (mehr) bis zum Output gelaufener Agent (queued, Parent-Turn endet/wird unterbrochen) hat <strong>nur</strong> <code>meta.json</code> → <code>detectSubagentTransitions</code>/<code>enumerateSessionFiles</code> (scannen nur <code>subagents/*.jsonl</code>) sehen ihn nie (beobachtet 2026-07-02: Session <code>876c2b28</code>, „Feldtexte W6&quot;-Agents — meta identisch zu lauffähigen W5-Agents, aber ohne jsonl; Parent zuletzt 22:26, Spawns 22:28). <strong>Kein Background-Agents-Sonderformat, kein Datenverlust — reine Sichtbarkeit.</strong> Fix: <code>subagents/*.meta.json</code> mitscannen → Placeholder-Subagent-Row (Name aus <code>description</code>, Status „spawned/leer/abgebrochen&quot;) sobald meta da ist; Upgrade auf volle Row wenn das <code>.jsonl</code> nachkommt. Dateien: <code>read-session-file.js</code> (<code>enumerateSessionFiles</code>), <code>session-transitions.js</code>, <code>session-cache.js</code>, Subagent-Rendering in <code>public/sidebar.js</code>.</td>
 <td><a href="subagent-meta-spawn-plan.md">Plan</a></td>
+</tr>
+<tr>
+<td>#47</td>
+<td>P3</td>
+<td><strong>Saved Variables + API-Key-Override</strong> <em>(Quelle: brianstanley)</em> — wiederverwendbare Variablen/Snippets zentral pflegen + optionaler per-Session-API-Key-Override; eigenes Panel + DB-Tabelle. Provider-unabhängig. <strong>Neuimplementierung</strong> nötig: brianstanley legt die Tabelle per <code>CREATE TABLE</code> an → auf unser Migrations-Array (<code>db.js</code>, ans Ende <strong>anhängen</strong>, nie bestehende ändern) umbauen. Ref: <code>brianstanley/main</code> @ <code>d1d5ef1</code> (+ <code>fb81d18</code> Key-Override). Dateien: <code>db.js</code> (neue Migration), <code>main.js</code>, <code>preload.js</code>, neu <code>public/variables-panel.js</code>, <code>public/app.js</code>, <code>index.html</code>.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#48</td>
+<td>P3</td>
+<td><strong>Terminal File-Path-Links</strong> <em>(Quelle: brianstanley)</em> — Dateipfade in der Terminalausgabe klickbar machen → im Editor/File-Explorer öffnen (Reuse <code>openPath</code> / External-Terminal-Infra aus #24). Standalone-UX via xterm-Link-Provider. Ref: <code>brianstanley/main</code> @ <code>3725607</code>. Dateien: <code>public/terminal-manager.js</code>, ggf. <code>preload.js</code>/<code>main.js</code> für die Open-Aktion.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#49</td>
+<td>P3</td>
+<td><strong>HTML/MD-Preview-Panel</strong> <em>(Quelle: brianstanley)</em> — gerendertes Markdown/HTML einer Datei als Vorschau anzeigen. Renderer-seitig, Reuse des vorhandenen <code>marked</code> + Tag-Escape/Sanitizing aus dem JSONL-Viewer. Ref: <code>brianstanley/main</code> @ <code>bbc9e52</code>. Dateien: <code>public/</code>, <code>index.html</code>.</td>
+<td>—</td>
 </tr>
 <tr>
 <td>#45</td>
