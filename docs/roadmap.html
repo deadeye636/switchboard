@@ -142,6 +142,12 @@ Dateien und werden hier nur verlinkt.</p>
 <td>—</td>
 </tr>
 <tr>
+<td>#51</td>
+<td>P3</td>
+<td><strong>AFK-Timeout je Session steuern (<code>CLAUDE_AFK_TIMEOUT_MS</code>)</strong> — Claude Codes AskUserQuestion-Auto-Continue (Default 60 s, danach läuft der Agent ohne Antwort weiter) pro <strong>aus Switchboard gestarteter</strong> Session steuerbar machen, Kaskade <strong>Global → Projekt → Session</strong> (leer = erben, „off&quot; = nie, <code>2147483647</code> ms). Env-Injection beim PTY-Spawn: neuer Setting-Key <code>afkTimeoutSec</code> (Sekunden) in <code>SETTING_DEFAULTS</code> (<code>main.js:1829</code>, Merge via <code>get-effective-settings</code> <code>main.js:1849</code> greift automatisch), Per-Session-Override in <code>sessionOptions</code> (<code>dialogs.js:7</code> / New-Session-Popover), Injection in <code>ptyEnv</code> (<code>main.js:2289</code>) nur wenn gesetzt, <code>CLAUDE_AFK_TIMEOUT_MS</code> aus <code>cleanPtyEnv</code>-Basis (<code>main.js:32</code>) strippen damit Switchboard autoritativ ist. UI-Feld global+projekt in „Sessions &amp; CLI&quot; (<code>settings-panel.js</code>). Reiner Helfer <code>afkTimeoutToEnvMs</code> testbar. <strong>Teilt PTY-Env-Hebel mit #50</strong> (<code>main.js:2289</code>). Nicht: <code>~/.claude/settings.json</code>-Write, <code>/config</code>-Toggle (CC-seitig noch nicht da), <code>CLAUDE_AFK_COUNTDOWN_MS</code> (Folgeschritt).</td>
+<td><a href="afk-timeout-setting-plan.md">Plan</a></td>
+</tr>
+<tr>
 <td>#35</td>
 <td>P2</td>
 <td><strong>Zentrale Bookmark-Ansicht (&quot;Bookmarks&quot;-Tab)</strong> — Bookmarks aktuell nur über Overlay (Ctrl+Shift+B) als flache Liste. Neu: <strong>Icon oben rechts neben Work-Files</strong> (<code>#sidebar-tabs</code>, neben Projects-Tab) → Großraum-Liste <strong>aller</strong> Bookmarks <strong>session-/projektübergreifend</strong> mit <strong>Filtern</strong> (Text/Label, Projekt, Session, Typ Session-Level vs. Nachricht, Sortierung; optional Gruppierung Projekt→Session). Klick springt zur Transcript-Stelle (Reuse <code>bookmarksTags</code>/<code>openSessionAt</code>). <code>bookmarks</code>-Tabelle hat kein <code>projectPath</code> → Auflösung via Session-Cache in neuem Aggregat-IPC <code>get-bookmarks-admin</code>. Overlay bleibt als Schnellzugriff. Neu: <code>public/bookmarks-view.js</code>. Dateien: <code>main.js</code>, <code>preload.js</code>, <code>index.html</code>, <code>app.js</code>, <code>plans-memory-view.js</code>, <code>style.css</code>.</td>
