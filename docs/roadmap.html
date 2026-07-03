@@ -64,12 +64,6 @@ Dateien und werden hier nur verlinkt.</p>
 <td><a href="session-display-plan.html">Plan</a></td>
 </tr>
 <tr>
-<td>#46</td>
-<td>P2</td>
-<td><strong>Security-/Robustheits-Härtung (Port kreaddis, hunk-weise)</strong> — aus <code>kreaddis/main</code>. (1) <strong>Bugfix Stale-Lock-Cleanup</strong> (<code>6d3f7aa</code> b): <code>cleanStaleLockFiles</code> prüft <code>data.pid === process.pid</code> (<code>mcp-bridge.js:472</code>) → tote Locks werden nie entfernt; Fix <code>process.kill(pid,0)</code>. (2) <strong>Schedule-Pfad-Validierung</strong> (<code>48f1c6c</code> b): <code>run-schedule-now</code> führt ungeprüften <code>filePath</code> als Claude-Command aus (<code>schedule-ipc.js:185</code>) → auf <code>commands/schedule-*.md</code> beschränken. (3) Path-Denylist erweitern (<code>.credentials.json</code>, SSH-Keys außerhalb <code>~/.ssh</code>, <code>.npmrc</code>, Shell-History; <code>main.js:112</code>). (4) WS <code>maxPayload</code> 8 MiB (<code>mcp-bridge.js:318</code>). (5) Dead-Code <code>validateShellArg</code> entfernen (<code>main.js:173</code>). Nicht: VT-Parse-Skip (<code>5a8174b</code>, schon drin). Refs: <code>kreaddis/main</code> @ <code>6d3f7aa</code>, <code>48f1c6c</code>; verwandt <code>75e19ed</code> (Audit-Fixes), <code>fd509b1</code> (Grid-Offscreen-Write-Skip, Perf).</td>
-<td>—</td>
-</tr>
-<tr>
 <td>#43</td>
 <td>P3</td>
 <td><strong>Subagent-Spawn über <code>.meta.json</code> erkennen (nicht nur <code>.jsonl</code>)</strong> — Claude Code schreibt beim Spawn eines Task-Subagents sofort <code>&lt;parent&gt;/subagents/agent-&lt;id&gt;.meta.json</code> (<code>agentType</code>, <code>description</code>, <code>toolUseId</code>, <code>spawnDepth</code>), das <code>.jsonl</code>-Transcript aber erst wenn der Agent Output produziert. Ein gespawnter, aber nicht (mehr) bis zum Output gelaufener Agent (queued, Parent-Turn endet/wird unterbrochen) hat <strong>nur</strong> <code>meta.json</code> → <code>detectSubagentTransitions</code>/<code>enumerateSessionFiles</code> (scannen nur <code>subagents/*.jsonl</code>) sehen ihn nie (beobachtet 2026-07-02: Session <code>876c2b28</code>, „Feldtexte W6&quot;-Agents — meta identisch zu lauffähigen W5-Agents, aber ohne jsonl; Parent zuletzt 22:26, Spawns 22:28). <strong>Kein Background-Agents-Sonderformat, kein Datenverlust — reine Sichtbarkeit.</strong> Fix: <code>subagents/*.meta.json</code> mitscannen → Placeholder-Subagent-Row (Name aus <code>description</code>, Status „spawned/leer/abgebrochen&quot;) sobald meta da ist; Upgrade auf volle Row wenn das <code>.jsonl</code> nachkommt. Dateien: <code>read-session-file.js</code> (<code>enumerateSessionFiles</code>), <code>session-transitions.js</code>, <code>session-cache.js</code>, Subagent-Rendering in <code>public/sidebar.js</code>.</td>
@@ -78,7 +72,13 @@ Dateien und werden hier nur verlinkt.</p>
 <tr>
 <td>#47</td>
 <td>P3</td>
-<td><strong>Saved Variables + API-Key-Override</strong> <em>(Quelle: brianstanley)</em> — wiederverwendbare Variablen/Snippets zentral pflegen + optionaler per-Session-API-Key-Override; eigenes Panel + DB-Tabelle. Provider-unabhängig. <strong>Neuimplementierung</strong> nötig: brianstanley legt die Tabelle per <code>CREATE TABLE</code> an → auf unser Migrations-Array (<code>db.js</code>, ans Ende <strong>anhängen</strong>, nie bestehende ändern) umbauen. Ref: <code>brianstanley/main</code> @ <code>d1d5ef1</code> (+ <code>fb81d18</code> Key-Override). Dateien: <code>db.js</code> (neue Migration), <code>main.js</code>, <code>preload.js</code>, neu <code>public/variables-panel.js</code>, <code>public/app.js</code>, <code>index.html</code>.</td>
+<td><strong>Saved Variables Panel</strong> <em>(Quelle: brianstanley)</em> — benannte, wiederverwendbare Werte (optional <strong>secret</strong> → <code>safeStorage</code>-verschlüsselt), Scope global/projekt, Tags. Terminal-Header-Button → Dialog → Copy/Insert/Send ins Terminal. Neue Tabelle <code>saved_variables</code> als <strong>Top-Level <code>CREATE TABLE IF NOT EXISTS</code></strong> (Repo-Präzedenz <code>bookmarks</code>/<code>session_tags</code>/<code>project_handoffs</code>, <strong>nicht</strong> Migrations-Array). Ref: <code>brianstanley/main</code> @ <code>d1d5ef1</code>. Dateien: <code>db.js</code>, <code>main.js</code> (5 IPC), <code>preload.js</code>, neu <code>public/variables-panel.js</code>, <code>public/app.js</code>, <code>index.html</code>, <code>style.css</code>. API-Key-Override abgetrennt → #50.</td>
+<td>—</td>
+</tr>
+<tr>
+<td>#50</td>
+<td>P3</td>
+<td><strong>Per-Session API-Key-Override</strong> <em>(abgetrennt von #47)</em> — optionales Passwortfeld in den Session-Dialogen, das <code>ANTHROPIC_API_KEY</code> <strong>nur transient</strong> pro Session in die PTY-<code>env</code> injiziert (<code>open-terminal</code>, <code>main.js</code>) — <strong>nie</strong> im Command-String oder der Settings-DB. Persistenz nur via <code>saved_variables</code> <code>secret</code> (<code>safeStorage</code>). Picker-Aufsatz aus <code>brianstanley</code> @ <code>fb81d18</code>. <strong>Net-new</strong> (wir sind OAuth/Claude-only) — vor Umsetzung klären, ob überhaupt gewünscht.</td>
 <td>—</td>
 </tr>
 <tr>
@@ -159,6 +159,11 @@ Dateien und werden hier nur verlinkt.</p>
 </tr>
 </thead>
 <tbody><tr>
+<td>#46</td>
+<td><strong>Security-/Robustheits-Härtung (Port kreaddis).</strong> (1) <strong>Stale-Lock-Bugfix</strong>: <code>cleanStaleLockFiles</code> prüfte <code>data.pid === process.pid</code> → tote Locks aus abgestürzten Runs nie entfernt; jetzt Liveness via <code>process.kill(pid,0)</code> (<code>mcp-bridge.js</code>). (2) <strong><code>run-schedule-now</code> Pfad-Validierung</strong> — führte ungeprüften <code>filePath</code> als Claude-Command aus, jetzt nur <code>commands/schedule-*.md</code> (<code>schedule-ipc.js</code>). (3) <strong>XSS-Fix <code>renderJsonlText</code></strong>: rohes <code>marked.parse()</code> (marked-erzeugte <code>javascript:</code>-hrefs schlugen durch) → <code>DOMPurify.sanitize</code> wie Schwester-Viewer (<code>public/jsonl-viewer.js</code>). (4) Path-Denylist +<code>.credentials.json</code>/SSH-Keys außerhalb <code>~/.ssh</code>/<code>.npmrc</code>/Shell-History (<code>main.js</code>). (5) WS <code>maxPayload</code> 8 MiB (<code>mcp-bridge.js</code>). (6) Dead-Code <code>validateShellArg</code> entfernt. (7) Header-Text-Join via <code>contentToText</code> (<code>read-session-file.js</code>). Refs <code>kreaddis/main</code> @ <code>6d3f7aa</code>, <code>48f1c6c</code>. Tests 486/0; XSS per jsdom verifiziert.</td>
+<td>—</td>
+</tr>
+<tr>
 <td>#19</td>
 <td><strong>CI / Autobuild (GitHub Actions).</strong> Test-CI <code>ci.yml</code> (Linux, <code>npm ci</code> + <code>npm test</code>, auto bei Push/PR + <code>workflow_dispatch</code>) hält <code>main</code> grün. Multi-OS-Installer-Build <code>build.yml</code> (win/mac/linux via <code>electron-builder</code>) läuft <strong>nur explizit</strong>: <code>workflow_dispatch</code> mit Plattform-Wahl + Tag <code>v*</code> → Draft-Release im eigenen Repo (<code>build.publish</code> = <code>deadeye636</code>). <strong>PR-Auto-Build entfernt</strong> (kein Bauen bei normaler Arbeit, spart mac-10×-Minuten). Mac-Build-Trigger als <code>scripts/build-mac.bat</code> (<code>gh workflow run build.yml -f platform=mac</code>); win analog per <code>-f platform=win</code>. Bewusst Skip: eslint (jbr 5.3), pre-commit-Tests (5.4); c8-Coverage-Gate (5.1) als möglicher Folgeschritt.</td>
 <td><a href="ci-autobuild-plan.html">Plan</a></td>
