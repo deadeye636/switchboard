@@ -64,22 +64,16 @@ Dateien und werden hier nur verlinkt.</p>
 <td><a href="session-display-plan.html">Plan</a></td>
 </tr>
 <tr>
-<td>#04</td>
-<td>P2</td>
-<td><strong>Flexibles Grid-Layout</strong> (Karten-Resize / Drag-Reorder, 5B)</td>
-<td><a href="productivity-roadmap.html">Roadmap §Phase 5B</a></td>
-</tr>
-<tr>
-<td>#19</td>
-<td>P2</td>
-<td><strong>CI / Autobuild</strong> (GitHub Actions: Test-CI + Win/Mac/Linux-Build + Release)</td>
-<td><a href="ci-autobuild-plan.html">Plan</a></td>
-</tr>
-<tr>
 <td>#43</td>
 <td>P3</td>
 <td><strong>Subagent-Spawn über <code>.meta.json</code> erkennen (nicht nur <code>.jsonl</code>)</strong> — Claude Code schreibt beim Spawn eines Task-Subagents sofort <code>&lt;parent&gt;/subagents/agent-&lt;id&gt;.meta.json</code> (<code>agentType</code>, <code>description</code>, <code>toolUseId</code>, <code>spawnDepth</code>), das <code>.jsonl</code>-Transcript aber erst wenn der Agent Output produziert. Ein gespawnter, aber nicht (mehr) bis zum Output gelaufener Agent (queued, Parent-Turn endet/wird unterbrochen) hat <strong>nur</strong> <code>meta.json</code> → <code>detectSubagentTransitions</code>/<code>enumerateSessionFiles</code> (scannen nur <code>subagents/*.jsonl</code>) sehen ihn nie (beobachtet 2026-07-02: Session <code>876c2b28</code>, „Feldtexte W6&quot;-Agents — meta identisch zu lauffähigen W5-Agents, aber ohne jsonl; Parent zuletzt 22:26, Spawns 22:28). <strong>Kein Background-Agents-Sonderformat, kein Datenverlust — reine Sichtbarkeit.</strong> Fix: <code>subagents/*.meta.json</code> mitscannen → Placeholder-Subagent-Row (Name aus <code>description</code>, Status „spawned/leer/abgebrochen&quot;) sobald meta da ist; Upgrade auf volle Row wenn das <code>.jsonl</code> nachkommt. Dateien: <code>read-session-file.js</code> (<code>enumerateSessionFiles</code>), <code>session-transitions.js</code>, <code>session-cache.js</code>, Subagent-Rendering in <code>public/sidebar.js</code>.</td>
 <td><a href="subagent-meta-spawn-plan.md">Plan</a></td>
+</tr>
+<tr>
+<td>#45</td>
+<td>P3</td>
+<td><strong>Grid-Layout A11y + DOM-Tests</strong> — Kür-Ergänzung zu #04 (Code fertig, jenseits der Spec-08-Akzeptanzkriterien). (a) <strong>Keyboard-Bedienung</strong> für Karten-Resize/Reorder: aktuell nur Pointer-Drag (<code>startCardResize</code>/<code>startCardDrag</code>), kein Tastatur-Weg; <code>navigateGrid</code> bewegt nur den Fokus, das Resize-Handle ist <code>aria-hidden</code>. Nachrüsten: fokussierte Karte per <code>Shift</code>+Pfeil resizen, „Move-Mode&quot; zum Reorder, ARIA-Live-Ansagen. Datei: <code>public/grid-view.js</code>. (b) <strong>DOM-/Integrationstests</strong> für Resize/Drag/Persistenz/Group-Drop — bislang nur das pure Modell getestet (<code>test/grid-layout.test.js</code>), der Interaktionspfad ist ungetestet; braucht jsdom- oder Electron-E2E-Harness (Projekt fährt <code>node --test</code> ohne DOM).</td>
+<td>—</td>
 </tr>
 <tr>
 <td>#42</td>
@@ -141,6 +135,16 @@ Dateien und werden hier nur verlinkt.</p>
 </tr>
 </thead>
 <tbody><tr>
+<td>#19</td>
+<td><strong>CI / Autobuild (GitHub Actions).</strong> Test-CI <code>ci.yml</code> (Linux, <code>npm ci</code> + <code>npm test</code>, auto bei Push/PR + <code>workflow_dispatch</code>) hält <code>main</code> grün. Multi-OS-Installer-Build <code>build.yml</code> (win/mac/linux via <code>electron-builder</code>) läuft <strong>nur explizit</strong>: <code>workflow_dispatch</code> mit Plattform-Wahl + Tag <code>v*</code> → Draft-Release im eigenen Repo (<code>build.publish</code> = <code>deadeye636</code>). <strong>PR-Auto-Build entfernt</strong> (kein Bauen bei normaler Arbeit, spart mac-10×-Minuten). Mac-Build-Trigger als <code>scripts/build-mac.bat</code> (<code>gh workflow run build.yml -f platform=mac</code>); win analog per <code>-f platform=win</code>. Bewusst Skip: eslint (jbr 5.3), pre-commit-Tests (5.4); c8-Coverage-Gate (5.1) als möglicher Folgeschritt.</td>
+<td><a href="ci-autobuild-plan.html">Plan</a></td>
+</tr>
+<tr>
+<td>#04</td>
+<td><strong>Flexibles Grid-Layout</strong> (Prod. Phase 5B / Spec 08) — Karten-<strong>Resize</strong> (colSpan/rowSpan per Corner-Handle-Drag, Snap, Clamp an Spaltenzahl; <code>startCardResize</code>, <code>normalizeSpan</code>), <strong>Drag-Reorder</strong> (Header-Drag, Drop-before/after, order-Persistenz; <code>startCardDrag</code>, <code>persistGridOrder</code>), <strong>Drag in/aus Gruppe</strong> (Region-Drop → <code>assignSessionToGroup</code>), <strong>Persistenz</strong> <code>{order,colSpan,rowSpan}</code> je Session in localStorage <code>gridLayout</code> (Restore via <code>applyLayout</code>), <strong>Reset</strong>-Button (<code>resetGridLayout</code>), <code>prefers-reduced-motion</code>-Respekt, debounced <code>fitAndScroll</code>. Über Spec hinaus: Windows-11-Snap-Popover + FLIP-Animation. Pures Modell <code>grid-layout.js</code>, getestet <code>test/grid-layout.test.js</code>. Dateien: <code>public/grid-view.js</code>, <code>public/grid-layout.js</code>, <code>index.html</code>, <code>style.css</code>. Kür-Rest (A11y-Keyboard, DOM-Tests) → #45.</td>
+<td><a href="productivity-roadmap.html">Roadmap §Phase 5B</a></td>
+</tr>
+<tr>
 <td>#44</td>
 <td><strong>Indexing-Perf bei Busy-Multi-Agent-Sessions gehärtet.</strong> Bisher re-indexte der Projects-Watcher bei jedem JSONL-Append den <strong>ganzen Ordner</strong> (enumerate+stat aller Files, voller <code>readSessionFile</code>, FTS-Re-Tokenize) → bei vielen Subagent-Files + großen Transcripts (200 MB+) Main-Thread-Block, Eingaben verzögert, DB-Write-Flut (WAL wuchs auf ~18 MB). Fix zweiteilig: (a) <code>f7c9f88</code> <strong>Per-File-Reindex mit Debounce</strong> — <code>refreshFile()</code> indext nur die geänderte Datei, adaptiver Watcher-Debounce (500 ms/2,5 s-Cap) + Per-File-Reindex-Debounce (800 ms/3 s-Cap); Append-Storm kollabiert auf 1 Read+FTS pro Ruhefenster; <code>flushPendingReindex</code> bei will-quit. (b) <code>be44043</code> <strong>DB-Tuning</strong> — <code>cache_size=-16000</code>, <code>mmap_size=256 MiB</code>, <code>wal_autocheckpoint=2000</code> + periodischer PASSIVE-Checkpoint (60 s). Dateien: <code>main.js</code>, <code>session-cache.js</code>, <code>db.js</code>. <strong>Verifiziert 2026-07-02</strong> unter echter Busy-Session (5 Subagents, 748→796 Msgs): WAL-Plateau (kein Wachstum), mainCPU ~0,2 %, kein Block — altes Symptom reproduziert nicht. Rest-Risiko: einzelnes 200-MB-Transcript (synchroner FTS-Read blockiert kurz, nur Frequenz gedrosselt).</td>
 <td>—</td>

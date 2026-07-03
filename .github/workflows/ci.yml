@@ -1,0 +1,41 @@
+name: CI (tests)
+
+# Cheap test gate to keep `main` green. Linux only (1x minute multiplier) — the
+# multi-OS installer build lives in build.yml and runs only manually / on tag.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      # node-gyp under Python 3.12 needs setuptools (distutils removed).
+      - name: Install setuptools (node-gyp distutils fix)
+        run: python -m pip install setuptools
+
+      # Builds native modules (better-sqlite3, node-pty) + applies patch-package
+      # via the postinstall hook, matching a local install.
+      - name: Install dependencies
+        run: npm ci
+
+      # trigger-watcher.test.js uses real fs.watch/timers and takes ~5 min, so
+      # give the whole suite a generous ceiling rather than letting the job's
+      # default step handling cut it off.
+      - name: Run tests
+        run: npm test
+        timeout-minutes: 15

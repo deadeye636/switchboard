@@ -36,7 +36,12 @@
 <body>
 <h1 id="ci-autobuild-github-actions-plan">CI / Autobuild (GitHub Actions) — Plan</h1>
 <blockquote>
-<p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-06-30 · Status: 🔵 Backlog (#19)</p>
+<p><strong><a href="roadmap.html">← Roadmap</a></strong> · Stand 2026-07-03 · Status: 🟢 Erledigt (#19)</p>
+<p><strong>Umgesetzt:</strong> Test-CI <code>ci.yml</code> (Linux, auto bei Push/PR + manuell). Build <code>build.yml</code>
+<strong>nur explizit</strong> — <code>workflow_dispatch</code> (Plattform-Wahl) + Tag <code>v*</code> → Draft-Release; der
+frühere <code>pull_request</code>-Auto-Build wurde <strong>entfernt</strong> (Kostenzähmung, mac 10×). Publish steht
+bereits auf <code>deadeye636</code>. Mac manuell anstoßen: <code>scripts/build-mac.bat</code>. Offene Entscheidungen
+unten sind damit beantwortet (Auslöser: manuell+Tag; Test-CI: nur Linux).</p>
 </blockquote>
 <p>Automatischer Build für <strong>Windows + macOS + Linux</strong> über GitHub Actions, plus Test-CI.
 Möglich geworden durch den eigenen <code>origin</code> (deadeye636) — vorher als jbr-Katalog <strong>5.2</strong>

@@ -3,8 +3,6 @@ name: Build & Release
 on:
   push:
     tags: ['v*']
-  pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
       platform:
@@ -18,7 +16,7 @@ permissions:
 
 jobs:
   # Build the job matrix dynamically. On manual dispatch we keep only the chosen
-  # platform (or all); tag/PR builds always get the full matrix. This runs in a
+  # platform (or all); tag builds always get the full matrix. This runs in a
   # setup job because the `matrix` context is not available in a job-level `if`.
   setup:
     runs-on: ubuntu-latest
