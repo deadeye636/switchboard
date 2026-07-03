@@ -7212,6 +7212,16 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 }
 .pa-table tr:hover td { background: rgba(255,255,255,0.02); }
 .pa-center { text-align: center; }
+.pa-auto-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  border-radius: 4px;
+  background: rgba(120,130,255,0.18);
+  color: #9aa2ff;
+  vertical-align: middle;
+}
 .pa-nowrap { white-space: nowrap; color: #9a9aac; }
 .pa-name { min-width: 220px; }
 .pa-name-text { font-weight: 500; color: #e8e8f0; }

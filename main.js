@@ -520,7 +520,7 @@ sessionCache.init({
     deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics,
     deleteSearchFolder, deleteSearchSession, upsertSearchEntries,
     setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
-    getFavoritedProjects, getProjectDisplayNames,
+    getFavoritedProjects, getProjectDisplayNames, getAutoHiddenProjects,
   },
 });
 const { readSessionFile, readFolderFromFilesystem, refreshFolder, refreshFile, reconcileCacheFromFilesystem,
