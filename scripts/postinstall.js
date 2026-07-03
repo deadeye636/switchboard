@@ -43,18 +43,6 @@ if (process.platform !== 'win32') {
   }
 }
 
-// Git-Hooks aktivieren: pre-commit generiert docs/roadmap.html aus docs/ROADMAP.md.
-try {
-  const repoRoot = path.join(__dirname, '..');
-  const hooksDir = path.join(repoRoot, '.githooks');
-  if (fs.existsSync(hooksDir) && fs.existsSync(path.join(repoRoot, '.git'))) {
-    execSync('git config core.hooksPath .githooks', { stdio: 'ignore', cwd: repoRoot });
-    if (process.platform !== 'win32') {
-      try { fs.chmodSync(path.join(hooksDir, 'pre-commit'), 0o755); } catch {}
-    }
-  }
-} catch {}
-
 function findFiles(dir, suffix) {
   const results = [];
   try {

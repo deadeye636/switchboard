@@ -24,7 +24,8 @@ repo with our own `origin` plus the upstream forks we port from.
 - `../switchboard-jbr` = a read-only **git worktree** on `jbr/main` for reference.
 - All forks diverged from merge-base `b98c2f8`. Version numbers between forks are not comparable.
 
-Feature-adoption catalogue: `docs/jbr-uebernahme-katalog.html` (JBR candidates with refs).
+Feature-adoption catalogue: closed issue [#1](https://github.com/deadeye636/switchboard/issues/1)
+(JBR candidates + refs live in its "Umsetzung" comment).
 
 ### Porting workflow
 
@@ -43,6 +44,23 @@ new/updated/removed branches and new commits since the last review (marker in
 `.git/upstream-seen.json`, not versioned). After reviewing/porting, `npm run upstream:seen`
 marks the current state as seen so the next check only shows fresh activity. It watches **all**
 upstream branches, not just `main`.
+
+## Backlog & workflow
+
+The task board is **GitHub Issues** on `deadeye636/switchboard`, not a file. Migrated 2026-07-03 from
+the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, contiguous #1–#62.
+
+- **Read the backlog:** `gh issue list` (open) / `gh issue view <n>`. For in-context grepping use the
+  generated mirror **`docs/BACKLOG.md`** (open issues only, read-only — never hand-edit).
+- **Regenerate the mirror:** `node scripts/build-backlog.js` after any issue change.
+- **Issue shape (keep it):** body = **the requirement only**. Plan/design and implementation go in
+  **comments** (normal issue timeline). Done → an "Umsetzung" comment (with `git log main` commit refs)
+  + close the issue. Open items carry no completion comment.
+- **Labels:** prio `P1`/`P2`/`P3` (open only), type `bug`/`feature`/`port`/`chore`, `source:*`
+  (`jbr`/`brianstanley`/`supacode`/`kreaddis`), `wontfix`.
+- **New task:** `gh issue create` with the requirement + labels; plan/discuss in comments.
+- `gh` default repo is pinned to `deadeye636/switchboard` (`gh repo set-default`) — always our fork,
+  never `doctly`. Decisions still land in commit messages + memory.
 
 ## Architecture
 

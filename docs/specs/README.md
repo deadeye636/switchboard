@@ -1,6 +1,6 @@
 # Switchboard Feature Specs
 
-Each file in this folder is a **self-contained spec for one feature**, written so a single agent can pick it up and implement it without needing the original planning conversation. They derive from `docs/productivity-roadmap.md`.
+Each file in this folder is a **self-contained spec for one feature**, written so a single agent can pick it up and implement it without needing the original planning conversation. They derive from the productivity roadmap (since migrated to GitHub Issues — see `docs/BACKLOG.md`).
 
 **Every agent must read this README first**, then their assigned spec.
 

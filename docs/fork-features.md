@@ -12,8 +12,8 @@ At a glance:
 - **A reliability/infra wave**: crash-resistance, packaging, caching, hardening
 
 > How this was derived: `git diff upstream/main...main`. Per-feature design docs
-> live in `docs/specs/` (features 01–08), with the planning context in
-> `docs/productivity-roadmap.md` and `docs/agent-supervision-ux-plan.md`.
+> live in `docs/specs/` (features 01–08); the planning context now lives in the
+> GitHub Issues (backlog mirror: `docs/BACKLOG.md`).
 
 ---
 

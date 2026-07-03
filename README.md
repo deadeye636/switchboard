@@ -234,7 +234,7 @@ preload.js         Context bridge (IPC bindings)
 db.js              SQLite session cache & metadata
 public/            Renderer (HTML/CSS/JS), incl. pure supervision modules
 test/              Unit tests (node --test) for the pure modules
-docs/              Feature specs & roadmap (see docs/fork-features.md)
+docs/              Feature docs (see docs/fork-features.md); backlog = GitHub Issues / docs/BACKLOG.md
 scripts/           Build & postinstall scripts
 build/             Icons, entitlements, builder resources
 .github/workflows/ CI/CD

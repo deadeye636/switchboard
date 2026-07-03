@@ -1,5 +1,5 @@
 // Pure helper: order the sidebar's project list by the chosen mode.
-// Electron-free (UMD) so it can be unit-tested. See docs/project-sidebar-plan.md "## 17".
+// Electron-free (UMD) so it can be unit-tested. See issue #17 (Projekte sortieren).
 //
 // Rules (stable sort over a copy):
 //   1. unless favoritesOwnList: favorited projects first
