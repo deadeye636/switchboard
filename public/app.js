@@ -13,6 +13,7 @@ const terminalHeaderName = document.getElementById('terminal-header-name');
 const terminalHeaderId = document.getElementById('terminal-header-id');
 const terminalHeaderStatus = document.getElementById('terminal-header-status');
 const terminalHeaderShell = document.getElementById('terminal-header-shell');
+const terminalVariablesBtn = document.getElementById('terminal-variables-btn');
 const terminalStopBtn = document.getElementById('terminal-stop-btn');
 const runningToggle = document.getElementById('running-toggle');
 const todayToggle = document.getElementById('today-toggle');
@@ -1503,6 +1504,16 @@ async function confirmAndStopSession(sessionId) {
 // --- Terminal header controls ---
 terminalStopBtn.addEventListener('click', () => {
   if (activeSessionId) confirmAndStopSession(activeSessionId);
+});
+
+terminalVariablesBtn.addEventListener('click', () => {
+  const entry = activeSessionId ? openSessions.get(activeSessionId) : null;
+  const session = activeSessionId ? (sessionMap.get(activeSessionId) || entry?.session) : null;
+  window.showSavedVariablesPanel?.({
+    sessionId: activeSessionId,
+    projectPath: session?.projectPath || null,
+    running: !!activeSessionId && activePtyIds.has(activeSessionId),
+  });
 });
 
 

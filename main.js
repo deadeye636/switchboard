@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, session, shell, Tray } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, safeStorage, screen, session, shell, Tray } = require('electron');
 const { Worker } = require('worker_threads');
 const { execFile } = require('child_process');
 const path = require('path');
@@ -58,6 +58,7 @@ const {
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated, searchFtsRecreated,
   getSetting, setSetting, deleteSetting,
+  listSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
   closeDb,
   DB_PATH,
@@ -1680,6 +1681,162 @@ ipcMain.handle('set-setting', (_event, key, value) => {
 ipcMain.handle('delete-setting', (_event, key) => {
   deleteSetting(key);
   return { ok: true };
+});
+
+// --- IPC: saved variables ---
+// Named, reusable values shown in the terminal Saved Variables panel. Secret
+// values are encrypted at-rest via Electron safeStorage; if the OS keychain is
+// unavailable we fall back to plain storage (with a logged warning) rather than
+// crash so the feature still works in headless/dev environments.
+function normalizeSavedVariableTags(tags) {
+  const raw = Array.isArray(tags) ? tags : String(tags || '').split(',');
+  const seen = new Set();
+  const normalized = [];
+  for (const item of raw) {
+    const tag = String(item || '').trim();
+    const key = tag.toLowerCase();
+    if (!tag || seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(tag.slice(0, 40));
+    if (normalized.length >= 20) break;
+  }
+  return normalized;
+}
+
+function encryptSavedVariableValue(value, secret) {
+  const stringValue = String(value ?? '');
+  if (!secret) {
+    return { value: stringValue, valueEncoding: 'plain' };
+  }
+  if (!safeStorage.isEncryptionAvailable()) {
+    log.warn('[saved-variables] safeStorage unavailable — storing secret value as plain text');
+    return { value: stringValue, valueEncoding: 'plain' };
+  }
+  return {
+    value: safeStorage.encryptString(stringValue).toString('base64'),
+    valueEncoding: 'safe-storage',
+  };
+}
+
+function decryptSavedVariableValue(row) {
+  if (!row) return '';
+  if (row.valueEncoding === 'safe-storage') {
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error('System secret storage is unavailable');
+    }
+    return safeStorage.decryptString(Buffer.from(row.value || '', 'base64'));
+  }
+  return String(row.value ?? '');
+}
+
+function serializeSavedVariable(row, includeValue = false) {
+  if (!row) return null;
+  const serialized = {
+    id: row.id,
+    name: row.name,
+    secret: !!row.secret,
+    scope: row.scope || 'global',
+    projectPath: row.projectPath || null,
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    createdAt: row.createdAt || null,
+    updatedAt: row.updatedAt || null,
+    lastUsedAt: row.lastUsedAt || null,
+  };
+  if (includeValue) serialized.value = decryptSavedVariableValue(row);
+  return serialized;
+}
+
+function savedVariablePromptValue(value) {
+  const stringValue = String(value ?? '');
+  return /[\s;]/.test(stringValue) ? JSON.stringify(stringValue) : stringValue;
+}
+
+function savedVariablePromptLine(variable) {
+  return `${variable.name}=${savedVariablePromptValue(variable.value)}`;
+}
+
+function formatSavedVariablesForPrompt(variables) {
+  if (!variables.length) return '';
+  if (variables.length === 1) return savedVariablePromptLine(variables[0]);
+  return `Saved variables: ${variables.map(savedVariablePromptLine).join('; ')}`;
+}
+
+ipcMain.handle('list-saved-variables', (_event, projectPath) => {
+  try {
+    return listSavedVariables(typeof projectPath === 'string' ? projectPath : null)
+      .map(row => serializeSavedVariable(row));
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('get-saved-variable', (_event, id) => {
+  try {
+    const row = getSavedVariable(id);
+    if (!row) return { ok: false, error: 'Variable not found' };
+    return { ok: true, variable: serializeSavedVariable(row, true) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('save-saved-variable', (_event, input = {}) => {
+  try {
+    const name = String(input.name || '').trim().slice(0, 120);
+    if (!name) return { ok: false, error: 'Name is required' };
+
+    const scope = input.scope === 'project' ? 'project' : 'global';
+    const projectPath = scope === 'project' ? String(input.projectPath || '').trim() : null;
+    if (scope === 'project' && !projectPath) {
+      return { ok: false, error: 'Project scope requires an active project' };
+    }
+
+    const secret = !!input.secret;
+    const encoded = encryptSavedVariableValue(input.value, secret);
+    const row = saveSavedVariable({
+      id: input.id || require('crypto').randomUUID(),
+      name,
+      value: encoded.value,
+      valueEncoding: encoded.valueEncoding,
+      secret,
+      scope,
+      projectPath,
+      tags: normalizeSavedVariableTags(input.tags),
+    });
+
+    return { ok: true, variable: serializeSavedVariable(row) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('delete-saved-variable', (_event, id) => {
+  try {
+    deleteSavedVariable(id);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('use-saved-variables', (_event, ids = []) => {
+  try {
+    const variables = [];
+    for (const id of Array.isArray(ids) ? ids : []) {
+      const row = getSavedVariable(id);
+      if (!row) continue;
+      const variable = serializeSavedVariable(row, true);
+      variables.push(variable);
+      touchSavedVariable(id);
+    }
+    return {
+      ok: true,
+      text: formatSavedVariablesForPrompt(variables),
+      variables: variables.map(({ value, ...variable }) => variable),
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 
 // --- Claude Code hook → attention ingest (spec 05) -----------------------------

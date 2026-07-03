@@ -55,6 +55,11 @@ contextBridge.exposeInMainWorld('api', {
   createScheduleSession: (projectPath) => ipcRenderer.invoke('create-schedule-session', projectPath),
   runScheduleNow: (filePath) => ipcRenderer.invoke('run-schedule-now', filePath),
   getShellProfiles: () => ipcRenderer.invoke('get-shell-profiles'),
+  listSavedVariables: (projectPath) => ipcRenderer.invoke('list-saved-variables', projectPath),
+  getSavedVariable: (id) => ipcRenderer.invoke('get-saved-variable', id),
+  saveSavedVariable: (variable) => ipcRenderer.invoke('save-saved-variable', variable),
+  deleteSavedVariable: (id) => ipcRenderer.invoke('delete-saved-variable', id),
+  useSavedVariables: (ids) => ipcRenderer.invoke('use-saved-variables', ids),
 
   browseFolder: () => ipcRenderer.invoke('browse-folder'),
   addProject: (projectPath) => ipcRenderer.invoke('add-project', projectPath),

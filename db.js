@@ -163,6 +163,26 @@ db.exec(`
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_project_handoffs_project ON project_handoffs(projectPath)');
 
+// Saved variables — named, reusable values (name+value) shown in the terminal
+// Saved Variables panel. Optionally secret (value encrypted at-rest via Electron
+// safeStorage), scoped global or per-project, with freeform tags.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS saved_variables (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    value TEXT NOT NULL,
+    valueEncoding TEXT DEFAULT 'plain',
+    secret INTEGER DEFAULT 0,
+    scope TEXT DEFAULT 'global',
+    projectPath TEXT,
+    tags TEXT DEFAULT '[]',
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    lastUsedAt TEXT
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_saved_variables_scope_project ON saved_variables(scope, projectPath)');
+
 // Index for fast folder lookups
 db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_folder ON session_cache(folder)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_slug ON session_cache(slug)');
@@ -486,6 +506,31 @@ const stmts = {
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
   `),
   settingsDelete: db.prepare('DELETE FROM settings WHERE key = ?'),
+  // Saved variables (Saved Variables panel)
+  savedVariablesList: db.prepare(`
+    SELECT id, name, secret, scope, projectPath, tags, createdAt, updatedAt, lastUsedAt
+    FROM saved_variables
+    WHERE scope = 'global' OR (scope = 'project' AND projectPath = ?)
+    ORDER BY LOWER(name), updatedAt DESC
+  `),
+  savedVariableGet: db.prepare('SELECT * FROM saved_variables WHERE id = ?'),
+  savedVariableUpsert: db.prepare(`
+    INSERT INTO saved_variables
+      (id, name, value, valueEncoding, secret, scope, projectPath, tags, createdAt, updatedAt, lastUsedAt)
+    VALUES
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      value = excluded.value,
+      valueEncoding = excluded.valueEncoding,
+      secret = excluded.secret,
+      scope = excluded.scope,
+      projectPath = excluded.projectPath,
+      tags = excluded.tags,
+      updatedAt = excluded.updatedAt
+  `),
+  savedVariableDelete: db.prepare('DELETE FROM saved_variables WHERE id = ?'),
+  savedVariableTouch: db.prepare('UPDATE saved_variables SET lastUsedAt = ? WHERE id = ?'),
   searchQuery: db.prepare(`
     SELECT search_map.id, snippet(search_fts, 1, '<mark>', '</mark>', '...', 40) as snippet
     FROM search_fts
@@ -845,6 +890,68 @@ function deleteSetting(key) {
   runWithBusyRetry(() => stmts.settingsDelete.run(key));
 }
 
+// --- Saved variable functions ---
+
+function parseSavedVariableTags(tags) {
+  if (Array.isArray(tags)) return tags;
+  if (!tags) return [];
+  try {
+    const parsed = JSON.parse(tags);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeSavedVariableRow(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    secret: !!row.secret,
+    tags: parseSavedVariableTags(row.tags),
+  };
+}
+
+function listSavedVariables(projectPath = null) {
+  return stmts.savedVariablesList.all(projectPath || '').map(normalizeSavedVariableRow);
+}
+
+function getSavedVariable(id) {
+  return normalizeSavedVariableRow(stmts.savedVariableGet.get(id));
+}
+
+function saveSavedVariable(variable) {
+  const now = variable.updatedAt || new Date().toISOString();
+  const existing = variable.id ? stmts.savedVariableGet.get(variable.id) : null;
+  const createdAt = variable.createdAt || existing?.createdAt || now;
+  const row = {
+    id: variable.id,
+    name: variable.name,
+    value: variable.value,
+    valueEncoding: variable.valueEncoding || 'plain',
+    secret: variable.secret ? 1 : 0,
+    scope: variable.scope || 'global',
+    projectPath: variable.scope === 'project' ? (variable.projectPath || null) : null,
+    tags: JSON.stringify(Array.isArray(variable.tags) ? variable.tags : []),
+    createdAt,
+    updatedAt: now,
+    lastUsedAt: existing?.lastUsedAt || null,
+  };
+  runWithBusyRetry(() => stmts.savedVariableUpsert.run(
+    row.id, row.name, row.value, row.valueEncoding, row.secret, row.scope,
+    row.projectPath, row.tags, row.createdAt, row.updatedAt, row.lastUsedAt
+  ));
+  return getSavedVariable(row.id);
+}
+
+function deleteSavedVariable(id) {
+  runWithBusyRetry(() => stmts.savedVariableDelete.run(id));
+}
+
+function touchSavedVariable(id) {
+  runWithBusyRetry(() => stmts.savedVariableTouch.run(new Date().toISOString(), id));
+}
+
 // --- Daily activity aggregate (for stats heatmap) ---
 
 // Returns [{date: 'YYYY-MM-DD', messageCount, sessionCount}, ...] sorted ASC.
@@ -976,6 +1083,7 @@ module.exports = {
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated, searchFtsRecreated,
   getSetting, setSetting, deleteSetting,
+  listSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   getDailyActivity,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
   closeDb,
