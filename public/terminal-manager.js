@@ -182,15 +182,22 @@ function isAtBottom(terminal) {
 // the bottom portion is clipped by overflow:hidden (measured: 16 px / ~1.14
 // rows in both single and grid views).
 //
-// Fix: clamp proposed rows to floor((clientHeight − verticalPadding) /
-// cellHeight). clientHeight is the padding-box height (excludes borders only),
-// so subtracting the vertical padding gives the true content-box height.
-// Math.min ensures we only ever shrink an overshoot, never add rows.
-// Returns proposedRows unchanged when cellHeight ≤ 0 (unmeasured state).
-function clampRowsToContentBox(proposedRows, clientHeight, verticalPadding, cellHeight) {
-  if (cellHeight <= 0) return proposedRows;
-  const maxRows = Math.max(1, Math.floor((clientHeight - verticalPadding) / cellHeight));
-  return Math.min(proposedRows, maxRows);
+// clampRowsToContentBox / bottomRowClipped are pure geometry helpers defined in
+// terminal-fit.js (loaded before this script) and exposed as globals there, so
+// node --test can exercise the math without a DOM.
+
+// Cheap self-heal check: is the rendered grid overshooting its container's content
+// box (bottom row clipped by overflow:hidden)? Reads the post-paint cell height from
+// the render service — returns false while unmeasured so a fresh terminal never
+// raises a false alarm. Callers re-fit when this is true (#59).
+function isBottomRowClipped(entry) {
+  const el = entry && entry.element;
+  if (!el || !entry.terminal) return false;
+  const rsCellH = entry.terminal._core?._renderService?.dimensions?.css?.cell?.height || 0;
+  if (rsCellH <= 0) return false;
+  const cs = getComputedStyle(el);
+  const padV = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  return bottomRowClipped(entry.terminal.rows, rsCellH, el.clientHeight, padV);
 }
 
 // Fit terminal to container, clamping rows to the container's true content-box
@@ -232,10 +239,13 @@ function safeFit(entry) {
   } else if (!measured) {
     // The cell wasn't measured yet (fresh terminal, pre-paint): the row count may
     // overshoot and clip the last row below the viewport. Re-fit on the next frame
-    // once painted. Capped so a never-painted terminal (hidden grid card) can't
-    // spin every frame; a real show later re-fits it anyway.
+    // once painted. Keep retrying until the render service reports a real cell
+    // height, but bounded to a ~30-frame (~500 ms) settle budget so a never-painted
+    // terminal (hidden grid card) can't spin forever; a real show later re-fits it
+    // anyway. The old 5-frame cap gave up too early on a busy main thread / large
+    // scrollback, leaving a cached overshoot that only an unrelated resize healed (#59).
     entry._refitTries = (entry._refitTries || 0) + 1;
-    if (entry._refitTries <= 5) {
+    if (entry._refitTries <= 30) {
       requestAnimationFrame(() => {
         if (openSessions.has(entry.session.sessionId)) safeFit(entry);
       });
@@ -458,6 +468,9 @@ function drainReplayBuffer(sessionId) {
   rawReplayBuffers.delete(sessionId);
   entry.terminal.write(data, () => {
     entry.terminal.scrollToBottom();
+    // Self-heal: a flush that painted the grid may reveal a cached row overshoot
+    // (bottom row clipped). Re-fit if so — cheap measurement at an existing hook (#59).
+    if (isBottomRowClipped(entry)) safeFit(entry);
   });
 }
 
@@ -975,6 +988,11 @@ function showSession(sessionId) {
           forceRepaint(entry);
         }
         entry.terminal.focus();
+        // Self-heal for the sub-REFIT_TOL case: a switch that skipped the re-fit
+        // above (height delta ≤ 8px) can still leave the bottom row clipped. Catch
+        // it directly instead of lowering REFIT_TOL (which would reintroduce ±1-row
+        // tab-switch jitter) (#59).
+        if (isBottomRowClipped(entry)) safeFit(entry);
       } else {
         // Grid mode, single view: inactive containers are display:none (not painted),
         // so reveal first (to gain layout), then drain + fit.
