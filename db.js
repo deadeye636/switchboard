@@ -176,11 +176,15 @@ db.exec(`
     scope TEXT DEFAULT 'global',
     projectPath TEXT,
     tags TEXT DEFAULT '[]',
+    insertTemplate TEXT DEFAULT '',
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL,
     lastUsedAt TEXT
   )
 `);
+// Idempotently add insertTemplate to DBs created before the insert-template
+// feature (the CREATE TABLE above already has it for fresh installs).
+try { db.exec("ALTER TABLE saved_variables ADD COLUMN insertTemplate TEXT DEFAULT ''"); } catch {}
 db.exec('CREATE INDEX IF NOT EXISTS idx_saved_variables_scope_project ON saved_variables(scope, projectPath)');
 
 // Index for fast folder lookups
@@ -507,18 +511,27 @@ const stmts = {
   `),
   settingsDelete: db.prepare('DELETE FROM settings WHERE key = ?'),
   // Saved variables (Saved Variables panel)
+  // insertTemplate is NOT a secret (it only describes how to insert, not the
+  // value) so it is safe to carry in the list statements; `value` stays excluded.
   savedVariablesList: db.prepare(`
-    SELECT id, name, secret, scope, projectPath, tags, createdAt, updatedAt, lastUsedAt
+    SELECT id, name, secret, scope, projectPath, tags, insertTemplate, createdAt, updatedAt, lastUsedAt
     FROM saved_variables
     WHERE scope = 'global' OR (scope = 'project' AND projectPath = ?)
+    ORDER BY LOWER(name), updatedAt DESC
+  `),
+  // Every variable regardless of scope/project — used by the Variables admin tab
+  // which needs the full CRUD list (not just the ones applicable to one project).
+  savedVariablesListAll: db.prepare(`
+    SELECT id, name, secret, scope, projectPath, tags, insertTemplate, createdAt, updatedAt, lastUsedAt
+    FROM saved_variables
     ORDER BY LOWER(name), updatedAt DESC
   `),
   savedVariableGet: db.prepare('SELECT * FROM saved_variables WHERE id = ?'),
   savedVariableUpsert: db.prepare(`
     INSERT INTO saved_variables
-      (id, name, value, valueEncoding, secret, scope, projectPath, tags, createdAt, updatedAt, lastUsedAt)
+      (id, name, value, valueEncoding, secret, scope, projectPath, tags, insertTemplate, createdAt, updatedAt, lastUsedAt)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       value = excluded.value,
@@ -527,6 +540,7 @@ const stmts = {
       scope = excluded.scope,
       projectPath = excluded.projectPath,
       tags = excluded.tags,
+      insertTemplate = excluded.insertTemplate,
       updatedAt = excluded.updatedAt
   `),
   savedVariableDelete: db.prepare('DELETE FROM saved_variables WHERE id = ?'),
@@ -909,11 +923,16 @@ function normalizeSavedVariableRow(row) {
     ...row,
     secret: !!row.secret,
     tags: parseSavedVariableTags(row.tags),
+    insertTemplate: row.insertTemplate || '',
   };
 }
 
 function listSavedVariables(projectPath = null) {
   return stmts.savedVariablesList.all(projectPath || '').map(normalizeSavedVariableRow);
+}
+
+function listAllSavedVariables() {
+  return stmts.savedVariablesListAll.all().map(normalizeSavedVariableRow);
 }
 
 function getSavedVariable(id) {
@@ -933,13 +952,14 @@ function saveSavedVariable(variable) {
     scope: variable.scope || 'global',
     projectPath: variable.scope === 'project' ? (variable.projectPath || null) : null,
     tags: JSON.stringify(Array.isArray(variable.tags) ? variable.tags : []),
+    insertTemplate: typeof variable.insertTemplate === 'string' ? variable.insertTemplate : '',
     createdAt,
     updatedAt: now,
     lastUsedAt: existing?.lastUsedAt || null,
   };
   runWithBusyRetry(() => stmts.savedVariableUpsert.run(
     row.id, row.name, row.value, row.valueEncoding, row.secret, row.scope,
-    row.projectPath, row.tags, row.createdAt, row.updatedAt, row.lastUsedAt
+    row.projectPath, row.tags, row.insertTemplate, row.createdAt, row.updatedAt, row.lastUsedAt
   ));
   return getSavedVariable(row.id);
 }
@@ -1083,7 +1103,7 @@ module.exports = {
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated, searchFtsRecreated,
   getSetting, setSetting, deleteSetting,
-  listSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
+  listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   getDailyActivity,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
   closeDb,

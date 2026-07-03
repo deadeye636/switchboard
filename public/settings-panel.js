@@ -116,6 +116,8 @@
     const mcpEmulationValue = fieldValue('mcpEmulation', true);
     const restoreSessionsValue = fieldValue('restoreSessionsOnLaunch', true);
     const attentionHooksValue = fieldValue('attentionHooks', false);
+    const secretRefCleanupValue = fieldValue('secretRefCleanupOnSessionStop', true);
+    const secretRefSweepValue = fieldValue('secretRefSweepMinutes', 0);
     const shellProfileValue = fieldValue('shellProfile', 'auto');
     // #17 project list (global only): sort mode + favorites presentation.
     const projectSortValue = !isProject ? (current.projectSortMode || 'activity') : 'activity';
@@ -548,6 +550,29 @@
                     </div>
                     <div class="settings-field-control">
                       <label class="settings-toggle"><input type="checkbox" id="sv-terminal-webgl" ${terminalWebglValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                    </div>
+                  </div>
+                </div>
+                <div class="settings-section">
+                  <div class="settings-section-title">Saved variables</div>
+                  <div class="settings-field">
+                    <div class="settings-field-info">
+                      <div class="settings-field-header"><span class="settings-label">Delete secret temp files on session stop</span>${help}</div>
+                      <div class="settings-description">When a session ends, remove the temp files created for its inserted secret references.</div>
+                      <div class="settings-more">Secret variables inserted via <code>{path}</code>/<code>{ref}</code> write the value to a 0600 temp file the shell or tool reads. Leave on to wipe them as soon as the session stops. App quit and startup always wipe them regardless of this setting.</div>
+                    </div>
+                    <div class="settings-field-control">
+                      <label class="settings-toggle"><input type="checkbox" id="sv-secret-ref-cleanup" ${secretRefCleanupValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                    </div>
+                  </div>
+                  <div class="settings-field">
+                    <div class="settings-field-info">
+                      <div class="settings-field-header"><span class="settings-label">Secret temp-file sweep (minutes)</span>${help}</div>
+                      <div class="settings-description">Also delete secret temp files older than this many minutes. 0 = off.</div>
+                      <div class="settings-more">Extra age-based cleanup on top of session-stop/quit. Keep at 0 unless you want short-lived refs — set too low it can delete a ref before a long-running prompt uses it.</div>
+                    </div>
+                    <div class="settings-field-control">
+                      <input type="number" min="0" class="settings-input settings-input-compact" id="sv-secret-ref-sweep" value="${secretRefSweepValue}">
                     </div>
                   </div>
                 </div>
@@ -1095,6 +1120,10 @@
         settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
         settings.restoreSessionsOnLaunch = settingsViewerBody.querySelector('#sv-restore-sessions').checked;
         settings.attentionHooks = settingsViewerBody.querySelector('#sv-attention-hooks').checked;
+        const svSecretCleanup = settingsViewerBody.querySelector('#sv-secret-ref-cleanup');
+        if (svSecretCleanup) settings.secretRefCleanupOnSessionStop = svSecretCleanup.checked;
+        const svSecretSweep = settingsViewerBody.querySelector('#sv-secret-ref-sweep');
+        if (svSecretSweep) settings.secretRefSweepMinutes = Math.max(0, parseInt(svSecretSweep.value, 10) || 0);
         settings.shellProfile = settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto';
         settings.notifications = {
           ...(current.notifications || {}),

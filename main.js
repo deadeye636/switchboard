@@ -58,11 +58,14 @@ const {
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated, searchFtsRecreated,
   getSetting, setSetting, deleteSetting,
-  listSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
+  listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
   closeDb,
   DB_PATH,
 } = require('./db');
+
+// Pure insert-template helpers (no Electron deps — unit-tested separately).
+const { defaultInsertTemplate, shellRefFor, substituteInsertTemplate } = require('./variable-insert');
 
 // --- Search query worker ---
 // Routes 'search' IPC off the main thread so that a slow FTS5 phrase query
@@ -1738,6 +1741,7 @@ function serializeSavedVariable(row, includeValue = false) {
     scope: row.scope || 'global',
     projectPath: row.projectPath || null,
     tags: Array.isArray(row.tags) ? row.tags : [],
+    insertTemplate: row.insertTemplate || '',
     createdAt: row.createdAt || null,
     updatedAt: row.updatedAt || null,
     lastUsedAt: row.lastUsedAt || null,
@@ -1802,6 +1806,7 @@ ipcMain.handle('save-saved-variable', (_event, input = {}) => {
       scope,
       projectPath,
       tags: normalizeSavedVariableTags(input.tags),
+      insertTemplate: String(input.insertTemplate || '').slice(0, 2000),
     });
 
     return { ok: true, variable: serializeSavedVariable(row) };
@@ -1834,6 +1839,152 @@ ipcMain.handle('use-saved-variables', (_event, ids = []) => {
       text: formatSavedVariablesForPrompt(variables),
       variables: variables.map(({ value, ...variable }) => variable),
     };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// Full CRUD list for the Variables admin tab: every variable regardless of scope.
+ipcMain.handle('list-all-saved-variables', () => {
+  try {
+    return listAllSavedVariables().map(row => serializeSavedVariable(row));
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// --- Secret variable materialization (temp file + shell reference) -------------
+// A secret's plaintext must NEVER be typed into the terminal input/prompt (it
+// would land in shell history, scrollback, the Claude transcript, …). Instead we
+// write the decrypted value to a 0600 temp file under userData/secret-refs and
+// hand back a shell substitution that reads it at exec time. Files are swept by
+// TTL on each create and wiped on quit.
+const secretRefFiles = new Set();
+const secretRefBySession = new Map(); // sessionId -> Set<path>
+
+// Track a materialized secret-ref temp file, optionally scoped to the session
+// that inserted it (so it can be wiped when that session stops).
+function trackSecretRef(filePath, sessionId) {
+  secretRefFiles.add(filePath);
+  if (!sessionId) return;
+  let s = secretRefBySession.get(sessionId);
+  if (!s) { s = new Set(); secretRefBySession.set(sessionId, s); }
+  s.add(filePath);
+}
+
+// Delete a session's secret-ref temp files (called on its PTY exit when the
+// cleanup-on-session-stop setting is on). Best-effort.
+function cleanupSecretRefsForSession(sessionId) {
+  const s = secretRefBySession.get(sessionId);
+  if (!s) return;
+  for (const p of s) { try { fs.unlinkSync(p); } catch {} secretRefFiles.delete(p); }
+  secretRefBySession.delete(sessionId);
+}
+
+function getSecretRefDir() {
+  return path.join(app.getPath('userData'), 'secret-refs');
+}
+
+// Map a resolved shell path to the coarse family we build references for.
+function classifyShellType(shellPath) {
+  if (isWslShell(shellPath)) return 'unknown'; // temp file is a Windows path WSL can't cat directly
+  const base = path.basename(shellPath || '').toLowerCase();
+  if (base.includes('powershell') || base.includes('pwsh')) return 'pwsh';
+  if (base === 'cmd.exe' || base === 'cmd') return 'cmd';
+  if (base.includes('bash') || base.includes('zsh') || base === 'sh' || base === 'dash' || base === 'ksh') return 'bash';
+  return 'unknown';
+}
+
+// Resolve the effective shell family for a project (mirrors createTerminalSession's
+// profile precedence: project override → global → default → auto detection).
+function resolveShellTypeForProject(projectPath) {
+  const global = getSetting('global') || {};
+  const project = projectPath ? (getSetting('project:' + projectPath) || {}) : {};
+  let profileId = SETTING_DEFAULTS.shellProfile;
+  if (global.shellProfile !== undefined && global.shellProfile !== null) profileId = global.shellProfile;
+  if (project.shellProfile !== undefined && project.shellProfile !== null) profileId = project.shellProfile;
+  return classifyShellType(resolveShell(profileId).path);
+}
+
+// Delete secret-ref temp files older than maxAgeMs (best-effort, tolerant).
+// Opt-in: a missing/<=0 maxAgeMs is a no-op (age-sweep off).
+function sweepSecretRefs(maxAgeMs) {
+  if (!maxAgeMs || maxAgeMs <= 0) return;
+  const dir = getSecretRefDir();
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return; }
+  const now = Date.now();
+  for (const name of names) {
+    const p = path.join(dir, name);
+    try {
+      if (now - fs.statSync(p).mtimeMs > maxAgeMs) {
+        fs.unlinkSync(p);
+        secretRefFiles.delete(p);
+      }
+    } catch {}
+  }
+}
+
+// Wipe every secret-ref temp file (tracked + any strays) — called on quit.
+function cleanupSecretRefs() {
+  for (const p of secretRefFiles) { try { fs.unlinkSync(p); } catch {} }
+  secretRefFiles.clear();
+  try {
+    const dir = getSecretRefDir();
+    for (const name of fs.readdirSync(dir)) {
+      try { fs.unlinkSync(path.join(dir, name)); } catch {}
+    }
+  } catch {}
+}
+
+// Resolve the shell family for a project so the renderer can pick the right
+// reference syntax (or fall back to clipboard copy for cmd/unknown).
+ipcMain.handle('get-shell-type', (_event, projectPath) => {
+  try {
+    return { ok: true, shellType: resolveShellTypeForProject(typeof projectPath === 'string' ? projectPath : null) };
+  } catch (err) {
+    return { ok: false, error: err.message, shellType: 'unknown' };
+  }
+});
+
+// Resolve a variable's insert-template into the exact text to place in the
+// terminal. Supersedes the raw-value / materialize-secret-ref paths: it applies
+// the variable's insertTemplate (or the secret/non-secret default), materializing
+// a 0600 temp file only when the template references it via {path}/{ref}.
+//   - {value}  → raw plaintext (leaves main only for non-secret defaults or an
+//                explicit {value} template — a deliberate, documented choice).
+//   - {path}   → path of a 0600 temp file holding the decrypted value.
+//   - {ref}    → shell-native inline read of that file; if the shell can't do it
+//                (cmd/unknown/WSL) we return { fallback:'copy', value } instead.
+ipcMain.handle('resolve-variable-insert', (_event, id, shellType, sessionId) => {
+  try {
+    const row = getSavedVariable(id);
+    if (!row) return { ok: false, error: 'Variable not found' };
+    const value = decryptSavedVariableValue(row);
+    const tmpl = (row.insertTemplate && row.insertTemplate.trim()) || defaultInsertTemplate(!!row.secret);
+    const needsRef = tmpl.includes('{ref}');
+    const needsPath = tmpl.includes('{path}');
+    // A {ref} template on a shell without inline-read support can't be inserted
+    // safely → copy fallback. Checked before writing any temp file so we don't
+    // leave a stray secret file behind for the copy path.
+    if (needsRef && shellRefFor(shellType, '') === null) {
+      return { ok: false, fallback: 'copy', value };
+    }
+    let filePath = null;
+    if (needsRef || needsPath) {
+      const dir = getSecretRefDir();
+      fs.mkdirSync(dir, { recursive: true });
+      // Age-sweep is opt-in via the secretRefSweepMinutes setting (0 = off) so a
+      // long-running prompt's ref isn't purged mid-use; quit/startup/session-stop
+      // handle the rest.
+      sweepSecretRefs((Number(getSetting('global')?.secretRefSweepMinutes) || 0) * 60000);
+      filePath = path.join(dir, require('crypto').randomUUID());
+      fs.writeFileSync(filePath, value, { mode: 0o600 });
+      trackSecretRef(filePath, sessionId);
+    }
+    const ref = needsRef ? shellRefFor(shellType, filePath) : null;
+    const text = substituteInsertTemplate(tmpl, { path: filePath, ref, value });
+    return { ok: true, text };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -2584,6 +2735,12 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     activeSessions.delete(realId);
     // Clean up the original key too in case transition detection hasn't run yet
     activeSessions.delete(sessionId);
+    // Wipe this session's secret-ref temp files (default on; the prompt that used
+    // them is done). Quit/startup wipe still covers the setting-off case.
+    if (getSetting('global')?.secretRefCleanupOnSessionStop !== false) {
+      cleanupSecretRefsForSession(realId);
+      if (realId !== sessionId) cleanupSecretRefsForSession(sessionId);
+    }
   });
 
   if (sessionOptions?.forkFrom) {
@@ -2802,6 +2959,9 @@ if (!gotSingleInstanceLock) {
   }
 
   app.whenReady().then(() => {
+    // Wipe any secret-ref temp files left behind by a previous run that didn't
+    // quit cleanly (crash) — plaintext must not survive a restart.
+    try { cleanupSecretRefs(); } catch {}
     // Set Content Security Policy
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       callback({
@@ -2923,6 +3083,9 @@ app.on('before-quit', () => {
       try { session.pty.kill(); } catch {}
     }
   }
+
+  // Wipe any secret-ref temp files written for inline secret insertion.
+  cleanupSecretRefs();
 });
 
 // Close SQLite after all windows are closed to avoid "connection is not open" errors

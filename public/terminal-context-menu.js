@@ -138,18 +138,23 @@ async function runTerminalMenuAction(id, ctx) {
   const { terminal, sessionId, linkUri } = ctx;
   const link = classifyLinkUri(linkUri);
   if (id === 'manage-variables') {
-    window.showSavedVariablesPanel?.({
-      sessionId,
-      projectPath: ctx.projectPath || null,
-      running: typeof activePtyIds !== 'undefined' && !!sessionId && activePtyIds.has(sessionId),
-    });
+    window.openVariablesTab?.();
     return;
   }
   if (typeof id === 'string' && id.startsWith('insert-variable:')) {
     const varId = id.slice('insert-variable:'.length);
     try {
-      const res = await window.api.getSavedVariable(varId);
-      if (res && res.ok && res.variable) pasteIntoTerminal(terminal, sessionId, res.variable.value || '');
+      // SECURITY: never type a secret's plaintext. Main resolves the insert-
+      // template (raw value, temp-file path, or shell ref); fall back to
+      // clipboard for shells without inline-ref support.
+      const shellType = await (window.variablesInsert?.resolveShellType?.(ctx.projectPath) ?? Promise.resolve('unknown'));
+      const res = await window.api.resolveVariableInsert(varId, shellType, sessionId);
+      if (res && res.ok && typeof res.text === 'string') {
+        pasteIntoTerminal(terminal, sessionId, res.text);
+      } else if (res && res.fallback === 'copy') {
+        await window.api.writeClipboard(res.value || '');
+        window.showControlToast?.({ message: "Secret copied — paste manually (shell doesn't support inline refs)", timeoutMs: 3000 });
+      }
     } catch { /* variable gone / decrypt failed — no-op */ }
     try { terminal.focus(); } catch {}
     return;
@@ -226,6 +231,29 @@ function closeTerminalContextMenuForSession(sessionId) {
 // Render items into a container, recursing into `children` as flyout submenus.
 // Submenu parents are divs (not buttons) so they can hold a nested popover; leaf
 // entries are buttons. Show/hide is pure CSS (:hover/:focus-within).
+// Show `sub` next to its parent option, clamped inside the viewport: open to the
+// right by default, flip left if it would overflow, and shift up off the bottom.
+function openSubmenu(parentEl, sub) {
+  sub.style.position = 'fixed';
+  sub.style.display = 'block';
+  const pr = parentEl.getBoundingClientRect();
+  const sw = sub.offsetWidth;
+  const sh = sub.offsetHeight;
+  let left = pr.right - 2;
+  if (left + sw > window.innerWidth - 2) left = pr.left - sw + 2; // flip leftward
+  if (left < 2) left = 2;
+  let top = pr.top - 4;
+  if (top + sh > window.innerHeight - 2) top = Math.max(2, window.innerHeight - sh - 2);
+  sub.style.left = left + 'px';
+  sub.style.top = top + 'px';
+}
+
+function closeSubmenu(sub) {
+  sub.style.display = 'none';
+  // Reset any nested flyouts so they don't reappear without a fresh hover.
+  sub.querySelectorAll('.terminal-context-submenu').forEach(s => { s.style.display = 'none'; });
+}
+
 function renderMenuItems(container, items, ctx) {
   for (const item of items) {
     if (item === null) {
@@ -249,6 +277,13 @@ function renderMenuItems(container, items, ctx) {
       sub.className = 'popover terminal-context-submenu';
       renderMenuItems(sub, item.children, ctx);
       parent.appendChild(sub);
+      // Position the flyout in JS so it stays inside the viewport (pure-CSS
+      // left:100% runs off-screen near the edges). mouseleave doesn't fire when
+      // moving into `sub` (a DOM descendant), so open-on-enter/close-on-leave is
+      // enough. `sub` is position:fixed, so it isn't clipped by any ancestor.
+      parent.addEventListener('mouseenter', () => openSubmenu(parent, sub));
+      parent.addEventListener('focusin', () => openSubmenu(parent, sub));
+      parent.addEventListener('mouseleave', () => closeSubmenu(sub));
       container.appendChild(parent);
       continue;
     }
@@ -274,8 +309,6 @@ function positionTerminalMenu(menu, px, py) {
   if (y + mh > window.innerHeight) y = Math.max(0, window.innerHeight - mh - 4);
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
-  // Right half of the screen → open submenus leftward (avoid off-screen flyouts).
-  menu.classList.toggle('submenus-left', x > window.innerWidth / 2);
 }
 
 function showTerminalContextMenu(event, ctx) {

@@ -43,6 +43,7 @@ const memoryPanel = new ViewerPanel(memoryViewer, {
 const workFilesContent = document.getElementById('work-files-content');
 const workFilesViewer = document.getElementById('work-files-viewer');
 const projectsViewer = document.getElementById('projects-viewer');
+const variablesAdminContent = document.getElementById('variables-admin-content');
 const workFilesPanel = new ViewerPanel(workFilesViewer, {
   copyPath: true, copyContent: true,
   language: 'auto', storageKey: 'workFilesPreviewMode',
@@ -1509,12 +1510,20 @@ terminalStopBtn.addEventListener('click', () => {
 terminalVariablesBtn.addEventListener('click', () => {
   const entry = activeSessionId ? openSessions.get(activeSessionId) : null;
   const session = activeSessionId ? (sessionMap.get(activeSessionId) || entry?.session) : null;
-  window.showSavedVariablesPanel?.({
+  window.showVariablesQuickPick?.({
     sessionId: activeSessionId,
     projectPath: session?.projectPath || null,
     running: !!activeSessionId && activePtyIds.has(activeSessionId),
+    anchor: terminalVariablesBtn,
   });
 });
+
+// Switch the sidebar to the Variables admin tab (from quick-pick "Manage…" and
+// the terminal context menu). Clicking the tab button runs the normal handler.
+window.openVariablesTab = () => {
+  const btn = document.querySelector('.sidebar-tab[data-tab="variables"]');
+  if (btn) btn.click();
+};
 
 
 // --- Poll for active PTY sessions ---
@@ -2060,6 +2069,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     memoryContent.style.display = 'none';
     workFilesContent.style.display = 'none';
     projectsViewer.style.display = 'none';
+    variablesAdminContent.style.display = 'none';
     sessionFilters.style.display = 'none';
     searchBar.style.display = 'none';
 
@@ -2113,6 +2123,19 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       timelineViewer.style.display = 'none';
       projectsViewer.style.display = 'flex';
       loadProjectsAdmin();
+    } else if (tabName === 'variables') {
+      // Session-independent variable management in the main area (own filter).
+      placeholder.style.display = 'none';
+      terminalArea.style.display = 'none';
+      planViewer.style.display = 'none';
+      statsViewer.style.display = 'none';
+      memoryViewer.style.display = 'none';
+      workFilesViewer.style.display = 'none';
+      settingsViewer.style.display = 'none';
+      timelineViewer.style.display = 'none';
+      projectsViewer.style.display = 'none';
+      variablesAdminContent.style.display = 'flex';
+      loadVariablesAdmin();
     }
   });
 });
