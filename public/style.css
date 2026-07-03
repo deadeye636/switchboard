@@ -7082,6 +7082,20 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .session-tabs-overflow-item:hover { background: rgba(255, 255, 255, 0.06); }
 .session-tabs-overflow-item.active { color: #fff; background: rgba(255, 255, 255, 0.08); }
 
+/* Right-click context menu on a session tab (Close / Stop & close / Relaunch). */
+.session-tab-menu {
+  min-width: 160px; padding: 6px; z-index: 1000;
+  display: flex; flex-direction: column; gap: 2px;
+  background: #1c1c24; border: 1px solid #4a4a5a; border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+.session-tab-menu-item {
+  text-align: left; background: none; border: none; color: #d0d0d8;
+  cursor: pointer; padding: 6px 10px; border-radius: 4px; font-size: 12px;
+}
+.session-tab-menu-item:hover { background: rgba(255, 255, 255, 0.06); }
+.session-tab-menu-item.danger:hover { background: rgba(220, 60, 60, 0.18); color: #ff9a9a; }
+
 
 /* --- Handoff library (#03): capture bar + resume picker --- */
 .handoff-capture-bar {

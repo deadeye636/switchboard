@@ -2002,6 +2002,28 @@ async function openSession(session, customOptions) {
   pollActiveSessions();
 }
 
+// Relaunch a session from the tab context menu. If it's still running, stop the
+// PTY first and wait for it to actually exit — main deletes the session from
+// activeSessions on exit (see ptyProcess.onExit), so the follow-up open-terminal
+// resumes a fresh process instead of reattaching to the dead PTY. Then reopen.
+async function relaunchSession(sessionId) {
+  const session = sessionMap.get(sessionId) || openSessions.get(sessionId)?.session;
+  if (!session) return;
+  const entry = openSessions.get(sessionId);
+  if (entry && !entry.closed) {
+    userStoppedSessions.add(sessionId); // suppress the "re-click to relaunch" banner
+    try { await window.api.stopSession(sessionId); } catch { /* ignore */ }
+    // Wait (bounded ~3s) until the exit event marks the entry closed — by then
+    // main has cleared activeSessions, so openSession spawns fresh.
+    for (let i = 0; i < 100 && !openSessions.get(sessionId)?.closed; i++) {
+      await new Promise(r => setTimeout(r, 30));
+    }
+  }
+  destroySession(sessionId);
+  await openSession(session);
+}
+window.relaunchSession = relaunchSession;
+
 // Mount (attach) an already-running session's terminal WITHOUT switching the
 // single-terminal view — used by the grid auto-open path so every active
 // session surfaces as a card without the user clicking it first. The session is

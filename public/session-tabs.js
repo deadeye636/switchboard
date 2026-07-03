@@ -206,6 +206,11 @@ if (typeof module !== 'undefined' && module.exports) {
       tab.addEventListener('auxclick', (e) => {
         if (middleClickCloses && e.button === 1) { e.preventDefault(); closeTab(t.sessionId); }
       });
+      // Right-click → context menu (Close / Stop & close / Relaunch).
+      tab.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        openTabContextMenu(e.clientX, e.clientY, t.sessionId);
+      });
       if (dragReorder) wireDrag(tab, t.sessionId);
 
       if (t.active) activeEl = tab;
@@ -291,6 +296,53 @@ if (typeof module !== 'undefined' && module.exports) {
     setTimeout(() => {
       document.addEventListener('mousedown', function out(e) {
         if (activeOverflow && !activeOverflow.contains(e.target)) { closeOverflowMenu(); document.removeEventListener('mousedown', out, true); }
+      }, true);
+    }, 0);
+  }
+
+  // --- Tab context menu (right-click) ---
+
+  let activeCtxMenu = null;
+  function closeTabContextMenu() { if (activeCtxMenu) { activeCtxMenu.remove(); activeCtxMenu = null; } }
+
+  // Right-click a tab: Close (close the view, PTY keeps running), Stop & close
+  // (kill the process, then close), Relaunch (stop + reopen fresh).
+  function openTabContextMenu(x, y, sessionId) {
+    closeTabContextMenu();
+    closeOverflowMenu();
+    const pop = document.createElement('div');
+    pop.className = 'popover session-tab-menu';
+
+    const addItem = (label, handler, opts = {}) => {
+      const b = document.createElement('button');
+      b.className = 'session-tab-menu-item' + (opts.danger ? ' danger' : '');
+      b.textContent = label;
+      b.addEventListener('click', () => { closeTabContextMenu(); handler(); });
+      pop.appendChild(b);
+    };
+
+    addItem('Close', () => performClose(sessionId));
+    addItem('Stop & close', () => {
+      try { window.api.stopSession(sessionId); } catch { /* ignore */ }
+      performClose(sessionId);
+    }, { danger: true });
+    addItem('Relaunch', () => {
+      if (typeof window.relaunchSession === 'function') window.relaunchSession(sessionId);
+    });
+
+    document.body.appendChild(pop);
+    // Position at the cursor, clamped into the viewport.
+    pop.style.position = 'fixed';
+    const rect = pop.getBoundingClientRect();
+    pop.style.left = Math.max(4, Math.min(x, window.innerWidth - rect.width - 4)) + 'px';
+    pop.style.top = Math.max(4, Math.min(y, window.innerHeight - rect.height - 4)) + 'px';
+    activeCtxMenu = pop;
+    setTimeout(() => {
+      document.addEventListener('mousedown', function out(e) {
+        if (activeCtxMenu && !activeCtxMenu.contains(e.target)) { closeTabContextMenu(); document.removeEventListener('mousedown', out, true); }
+      }, true);
+      document.addEventListener('keydown', function esc(e) {
+        if (e.key === 'Escape') { closeTabContextMenu(); document.removeEventListener('keydown', esc, true); }
       }, true);
     }, 0);
   }

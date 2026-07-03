@@ -159,6 +159,11 @@ Dateien und werden hier nur verlinkt.</p>
 </tr>
 </thead>
 <tbody><tr>
+<td>#61</td>
+<td><strong>Tab-Kontextmenü (Rechtsklick)</strong> — im Tab-Mode öffnet Rechtsklick auf einen Tab ein Menü: <strong>Close</strong> (View schließen, PTY läuft weiter, Session bleibt in Sidebar), <strong>Stop &amp; close</strong> (<code>stopSession</code> + schließen), <strong>Relaunch</strong> (stoppt laufende Session, wartet aufs echte Exit — main löscht dann aus <code>activeSessions</code>, <code>ptyProcess.onExit</code> — und startet frisch via <code>openSession</code>, kein Reattach auf tote PTY). Neuer <code>contextmenu</code>-Handler + <code>.popover</code>-Menü in <code>session-tabs.js</code> (Muster wie Overflow-Menü, Cursor-Position, Click-outside/Escape), <code>relaunchSession</code> in <code>app.js</code>. Labels Englisch. Live verifiziert. Dateien: <code>public/{session-tabs,app}.js</code>, <code>style.css</code>.</td>
+<td>—</td>
+</tr>
+<tr>
 <td>#59</td>
 <td><strong>Bug: xterm Bottom-Row-Clip — behoben</strong> — unterste xterm-Zeile sporadisch abgeschnitten (Row-Overshoot → <code>overflow:hidden</code> clippt; Resize heilte). Zwei Rest-Fenster nach dem bestehenden Clamp: (1) Unmeasured-Cache mit rAF-Refit auf 5 Frames gecappt → keine Selbstkorrektur wenn Metriken spät settlen; (2) <code>REFIT_TOL=8</code> → Sub-8px-Overshoot blieb hängen. Fix <strong>A</strong>: Refit-Settle-Budget 5→<strong>30 Frames</strong> (~500 ms, bis <code>rsCellH&gt;0</code>). Fix <strong>B</strong>: <code>bottomRowClipped</code>/<code>isBottomRowClipped</code>-Self-Heal-Guard an bestehenden Hooks (<code>drainReplayBuffer</code>-Flush + <code>showSession</code>-Tabs-Zweig) → <code>safeFit</code> bei Overshoot, ohne <code>REFIT_TOL</code> zu senken (kein Jitter-Regress). Pure-Funcs nach <code>public/terminal-fit.js</code> (UMD) ausgelagert → testbar. Tests <code>test/xterm-fit.test.js</code> (+11). Live-Verifikation timing-bedingt schwer, über Pure-Tests + Regressionssuite abgesichert. Dateien: <code>public/{terminal-fit,terminal-manager}.js</code>, <code>index.html</code>.</td>
 <td><a href="xterm-bottom-row-clip-plan.md">Plan</a></td>
