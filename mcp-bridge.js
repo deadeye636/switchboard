@@ -318,6 +318,10 @@ async function startMcpServer(sessionId, workspaceFolders, mainWindow, log) {
   const wss = new WebSocketServer({
     port,
     host: '127.0.0.1',
+    // Cap frame size: ws defaults to 100 MiB and every frame is JSON.parsed on
+    // the broker (main) process. 8 MiB comfortably covers large diffs while a
+    // same-user client can't spike RSS / block the event loop with giant frames.
+    maxPayload: 8 * 1024 * 1024,
     handleProtocols: (protocols) => {
       if (protocols.has('mcp')) return 'mcp';
       return false;
@@ -469,10 +473,16 @@ function cleanStaleLockFiles(log) {
       const lockPath = path.join(IDE_DIR, file);
       try {
         const data = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-        if (data.ideName === 'Switchboard' && data.pid === process.pid) {
-          // Our PID but we didn't start it — stale from crash
-          fs.unlinkSync(lockPath);
-          if (log) log.info(`[mcp] Cleaned stale lock file: ${file}`);
+        // Remove Switchboard-owned locks whose recorded process is no longer
+        // alive (left behind by a crashed run). process.kill(pid, 0) sends no
+        // signal — it just probes existence and throws ESRCH when the PID is dead.
+        if (data.ideName === 'Switchboard' && typeof data.pid === 'number') {
+          let alive = true;
+          try { process.kill(data.pid, 0); } catch (e) { alive = (e.code === 'EPERM'); }
+          if (!alive) {
+            fs.unlinkSync(lockPath);
+            if (log) log.info(`[mcp] Cleaned stale lock file: ${file} (pid ${data.pid} dead)`);
+          }
         }
       } catch {
         // Not our lock file or can't parse — skip

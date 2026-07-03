@@ -56,8 +56,12 @@ function renderJsonlText(text) {
     // Escape XML/HTML-like tags so they render as visible text,
     // but preserve markdown code blocks (which may contain HTML examples).
     const escaped = text.replace(/<(\/?[a-zA-Z][a-zA-Z0-9_-]*(?:\s[^>]*)?\/?)\>/g, '&lt;$1&gt;');
-    let html = window.marked.parse(escaped);
-    return html;
+    const html = window.marked.parse(escaped);
+    // The escape above only catches <tag>-shaped text, not marked-generated
+    // hrefs such as [x](javascript:...). Sanitize like the sibling viewers
+    // (viewer-panel.js / viewer-toolbar.js); fall back to escaped plain text if
+    // DOMPurify isn't loaded — never depend on load order for XSS safety.
+    return window.DOMPurify ? window.DOMPurify.sanitize(html) : escapeHtml(text);
   }
   // Fallback if marked isn't loaded
   let html = escapeHtml(text);

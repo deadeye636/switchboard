@@ -184,21 +184,30 @@ function init(log, runCommand) {
   });
   ipcMain.handle('run-schedule-now', (_event, filePath) => {
     try {
-      const content = fs.readFileSync(filePath, 'utf8');
+      // Defense-in-depth: only run schedule files from a `.../commands/` dir named
+      // schedule-*.md. Without this, a filePath from a compromised renderer could
+      // point run-schedule-now at any .md and execute claude with attacker-chosen
+      // frontmatter (model, allowed-tools, permission-mode) and prompt.
+      const resolved = path.resolve(filePath);
+      if (!/^schedule-.*\.md$/i.test(path.basename(resolved)) ||
+          path.basename(path.dirname(resolved)) !== 'commands') {
+        return { ok: false, error: 'invalid schedule file path' };
+      }
+      const content = fs.readFileSync(resolved, 'utf8');
       const { meta, body } = parseFrontmatter(content);
       if (!body) return { ok: false, error: 'No prompt in schedule file' };
 
-      const commandsDir = path.dirname(filePath);
+      const commandsDir = path.dirname(resolved);
       const dotClaudeDir = path.dirname(commandsDir);
       const projectPath = path.dirname(dotClaudeDir);
 
       const folder = encodeProjectPath(projectPath);
       const schedule = {
-        file: path.basename(filePath),
-        filePath, projectPath, folder,
-        name: meta.name || path.basename(filePath),
+        file: path.basename(resolved),
+        filePath: resolved, projectPath, folder,
+        name: meta.name || path.basename(resolved),
         cron: meta.cron || '* * * * *',
-        slug: meta.slug || path.basename(filePath, '.md').replace(/^schedule-/, ''),
+        slug: meta.slug || path.basename(resolved, '.md').replace(/^schedule-/, ''),
         cli: meta.cli || {},
         prompt: body,
       };

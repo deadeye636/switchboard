@@ -118,6 +118,14 @@ const SENSITIVE_PATH_PATTERNS = [
   /[/\\]\.netrc$/i,
   /[/\\]\.docker[/\\]config\.json$/i,
   /[/\\]\.kube[/\\]config$/i,
+  // Claude's own OAuth token — the app's most sensitive local asset.
+  /[/\\]\.credentials\.json$/i,
+  /[/\\]\.claude[/\\]\.credentials/i,
+  // Private keys / package + shell secrets that can live outside ~/.ssh.
+  /[/\\]id_(?:rsa|ed25519|ecdsa|dsa)(?:\.pub)?$/i,
+  /[/\\]\.npmrc$/i,
+  /[/\\]\.pypirc$/i,
+  /[/\\]\.(?:bash|zsh)_history$/i,
 ];
 
 function isSensitivePath(filePath) {
@@ -166,15 +174,6 @@ function isAllowedMemoryPath(filePath) {
     if (resolved === root || resolved.startsWith(root + path.sep)) return true;
   }
   return false;
-}
-
-// --- Input sanitization for shell command arguments ---
-const SHELL_META_CHARS = /[;&|`$(){}!#\n\r]/;
-function validateShellArg(value, fieldName) {
-  if (!value) return;
-  if (SHELL_META_CHARS.test(value)) {
-    throw new Error(`${fieldName} contains invalid characters`);
-  }
 }
 
 // Active PTY sessions

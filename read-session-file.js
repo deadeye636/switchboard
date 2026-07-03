@@ -365,9 +365,7 @@ function readSessionDisplayHeader(filePath, opts = {}) {
       if (entry.type === 'custom-title' && entry.customTitle && !customTitle) customTitle = entry.customTitle;
       if (entry.type === 'ai-title' && entry.aiTitle && !aiTitle) aiTitle = entry.aiTitle;
       const msg = entry.message;
-      const txt = typeof msg === 'string' ? msg :
-        (typeof msg?.content === 'string' ? msg.content :
-        (msg?.content?.[0]?.text || ''));
+      const txt = typeof msg === 'string' ? msg : contentToText(msg?.content);
       if (!summary && (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user'))) {
         if (txt && !/<bash-input>|<bash-stdout>|<local-command-caveat>/.test(txt)) {
           const taskMatch = txt.match(/<scheduled-task\s+name="([^"]+)"/);
