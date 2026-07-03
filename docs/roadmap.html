@@ -85,7 +85,7 @@ Dateien und werden hier nur verlinkt.</p>
 <td>#49</td>
 <td>P3</td>
 <td><strong>HTML/MD-Preview-Panel (+ Bild-Vorschau)</strong> <em>(Quelle: brianstanley)</em> — gerendertes Markdown/HTML einer Datei als Vorschau anzeigen. Renderer-seitig, Reuse des vorhandenen <code>marked</code> + Tag-Escape/Sanitizing aus dem JSONL-Viewer. Ref: <code>brianstanley/main</code> @ <code>bbc9e52</code>. <strong>Beim Port beachten:</strong> (a) #46-DOMPurify-Wrap an beiden Markdown-innerHTML-Stellen erhalten (brianstanley-Diff schreibt an <code>viewer-panel.js:397</code> rohes <code>marked</code> zurück); (b) HTML-Preview = sandboxed iframe (<code>allow-same-origin</code>, kein <code>allow-scripts</code>) absegnen. <strong>Zusatz-Scope (aus #48-Test):</strong> File-Panel/<code>ViewerPanel</code> rendert Bilder aktuell als Byte-Text (<code>read-file-for-panel</code> liest immer UTF-8) — Bild-Extensions (<code>png/jpg/jpeg/gif/webp/svg</code>) als <code>&lt;img&gt;</code>/Data-URL-Vorschau ergänzen; ggf. Binär-Read-Pfad im IPC. Dateien: <code>public/{viewer-panel,viewer-toolbar,file-panel}.js</code>, <code>style.css</code>, ggf. <code>main.js</code>/<code>preload.js</code>.</td>
-<td>—</td>
+<td><a href="preview-panel-plan.md">Plan</a></td>
 </tr>
 <tr>
 <td>#45</td>
