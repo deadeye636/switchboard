@@ -47,9 +47,14 @@ function classifyLinkUri(uri) {
 }
 
 // Build the ordered list of menu items for a right-click. Returns an array of
-// { id, label } entries; a `null` entry marks a separator. Pure — the caller
-// (runTerminalMenuAction) maps each id to an effect.
-function buildTerminalMenuItems({ linkUri, hasSelection }) {
+// entries; a `null` entry marks a separator. An entry may carry `children` (a
+// nested item array) to render a flyout submenu. Pure — the caller
+// (runTerminalMenuAction) maps each leaf id to an effect.
+//
+// `isBookmarked` toggles the bookmark label add↔remove. `variableGroups` (when
+// provided as an array of { key, label, vars:[{id,name,secret}] }) appends the
+// Variables submenu; omit it (null) to leave the menu unchanged (e.g. tests).
+function buildTerminalMenuItems({ linkUri, hasSelection, isBookmarked = false, variableGroups = null }) {
   const items = [];
   const link = classifyLinkUri(linkUri);
   if (link.kind === 'file') {
@@ -65,7 +70,26 @@ function buildTerminalMenuItems({ linkUri, hasSelection }) {
   items.push({ id: 'paste', label: 'Paste' });
   items.push({ id: 'select-all', label: 'Select all' });
   items.push(null);
-  items.push({ id: 'bookmark', label: 'Bookmark session' });
+  items.push({ id: 'bookmark', label: isBookmarked ? 'Remove session bookmark' : 'Bookmark session' });
+  if (Array.isArray(variableGroups)) {
+    const children = [];
+    for (const group of variableGroups) {
+      if (!group || !group.vars || !group.vars.length) continue;
+      children.push({
+        id: `varscope:${group.key}`,
+        label: group.label,
+        children: group.vars.map(v => ({
+          id: `insert-variable:${v.id}`,
+          label: v.secret ? `${v.name}  ·secret` : v.name,
+        })),
+      });
+    }
+    if (children.length) {
+      children.push(null);
+      children.push({ id: 'manage-variables', label: 'Manage variables…' });
+      items.push({ id: 'variables', label: 'Variables', children });
+    }
+  }
   return items;
 }
 
@@ -86,10 +110,50 @@ function pasteIntoTerminal(terminal, sessionId, text) {
   if (terminal && typeof terminal.paste === 'function') terminal.paste(text);
 }
 
+// Fetch whether the session carries a session-level bookmark (SESSION_ANCHOR = -1).
+async function isSessionBookmarked(sessionId) {
+  if (!sessionId) return false;
+  try {
+    const rows = await window.api.bookmarkList(sessionId);
+    return Array.isArray(rows) && rows.some(r => r && r.entryIndex === -1);
+  } catch { return false; }
+}
+
+// Fetch saved variables for the session's project and group them by scope for
+// the Variables submenu. Returns [] on any error (submenu then shows Manage only).
+async function fetchVariableGroups(projectPath) {
+  let rows;
+  try { rows = await window.api.listSavedVariables(projectPath || null); } catch { return []; }
+  if (!Array.isArray(rows)) return [];
+  const project = rows.filter(r => r.scope === 'project');
+  const global = rows.filter(r => r.scope !== 'project');
+  const groups = [];
+  if (global.length) groups.push({ key: 'global', label: 'Global', vars: global });
+  if (project.length) groups.push({ key: 'project', label: 'Project', vars: project });
+  return groups;
+}
+
 // Execute the effect for a chosen menu item.
 async function runTerminalMenuAction(id, ctx) {
   const { terminal, sessionId, linkUri } = ctx;
   const link = classifyLinkUri(linkUri);
+  if (id === 'manage-variables') {
+    window.showSavedVariablesPanel?.({
+      sessionId,
+      projectPath: ctx.projectPath || null,
+      running: typeof activePtyIds !== 'undefined' && !!sessionId && activePtyIds.has(sessionId),
+    });
+    return;
+  }
+  if (typeof id === 'string' && id.startsWith('insert-variable:')) {
+    const varId = id.slice('insert-variable:'.length);
+    try {
+      const res = await window.api.getSavedVariable(varId);
+      if (res && res.ok && res.variable) pasteIntoTerminal(terminal, sessionId, res.variable.value || '');
+    } catch { /* variable gone / decrypt failed — no-op */ }
+    try { terminal.focus(); } catch {}
+    return;
+  }
   switch (id) {
     case 'open-panel':
       if (link.kind === 'file' && typeof openFileInPanel === 'function') {
@@ -159,18 +223,33 @@ function closeTerminalContextMenuForSession(sessionId) {
   if (activeTerminalMenu && activeTerminalMenuSessionId === sessionId) closeTerminalContextMenu();
 }
 
-function showTerminalContextMenu(event, ctx) {
-  closeTerminalContextMenu();
-  const hasSelection = !!(ctx.terminal && ctx.terminal.hasSelection && ctx.terminal.hasSelection());
-  const items = buildTerminalMenuItems({ linkUri: ctx.linkUri, hasSelection });
-
-  const menu = document.createElement('div');
-  menu.className = 'popover terminal-context-menu';
+// Render items into a container, recursing into `children` as flyout submenus.
+// Submenu parents are divs (not buttons) so they can hold a nested popover; leaf
+// entries are buttons. Show/hide is pure CSS (:hover/:focus-within).
+function renderMenuItems(container, items, ctx) {
   for (const item of items) {
     if (item === null) {
       const sep = document.createElement('div');
       sep.className = 'popover-separator';
-      menu.appendChild(sep);
+      container.appendChild(sep);
+      continue;
+    }
+    if (item.children && item.children.length) {
+      const parent = document.createElement('div');
+      parent.className = 'popover-option has-submenu';
+      parent.setAttribute('tabindex', '0');
+      const label = document.createElement('span');
+      label.textContent = item.label;
+      const arrow = document.createElement('span');
+      arrow.className = 'submenu-arrow';
+      arrow.textContent = '›';
+      parent.appendChild(label);
+      parent.appendChild(arrow);
+      const sub = document.createElement('div');
+      sub.className = 'popover terminal-context-submenu';
+      renderMenuItems(sub, item.children, ctx);
+      parent.appendChild(sub);
+      container.appendChild(parent);
       continue;
     }
     const btn = document.createElement('button');
@@ -180,21 +259,40 @@ function showTerminalContextMenu(event, ctx) {
       closeTerminalContextMenu();
       runTerminalMenuAction(item.id, ctx);
     });
-    menu.appendChild(btn);
+    container.appendChild(btn);
   }
+}
 
-  document.body.appendChild(menu);
-
-  // Position at the cursor, flipping back inside the viewport on overflow.
+// Clamp the menu inside the viewport and pick the submenu open-direction.
+function positionTerminalMenu(menu, px, py) {
   menu.style.position = 'fixed';
   const mw = menu.offsetWidth;
   const mh = menu.offsetHeight;
-  let x = event.clientX;
-  let y = event.clientY;
+  let x = px;
+  let y = py;
   if (x + mw > window.innerWidth) x = Math.max(0, window.innerWidth - mw - 4);
   if (y + mh > window.innerHeight) y = Math.max(0, window.innerHeight - mh - 4);
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
+  // Right half of the screen → open submenus leftward (avoid off-screen flyouts).
+  menu.classList.toggle('submenus-left', x > window.innerWidth / 2);
+}
+
+function showTerminalContextMenu(event, ctx) {
+  closeTerminalContextMenu();
+  const hasSelection = !!(ctx.terminal && ctx.terminal.hasSelection && ctx.terminal.hasSelection());
+  const sessionId = ctx.sessionId;
+  const projectPath = ctx.projectPath
+    || (typeof sessionMap !== 'undefined' && sessionId ? (sessionMap.get(sessionId)?.projectPath || null) : null);
+  const fullCtx = { ...ctx, projectPath };
+
+  // Synchronous base render; the bookmark toggle label and Variables submenu are
+  // filled in a tick later once their DB lookups resolve (enhanceTerminalMenu).
+  const menu = document.createElement('div');
+  menu.className = 'popover terminal-context-menu';
+  renderMenuItems(menu, buildTerminalMenuItems({ linkUri: ctx.linkUri, hasSelection }), fullCtx);
+  document.body.appendChild(menu);
+  positionTerminalMenu(menu, event.clientX, event.clientY);
 
   activeTerminalMenu = menu;
   activeTerminalMenuSessionId = ctx.sessionId;
@@ -203,6 +301,30 @@ function showTerminalContextMenu(event, ctx) {
     document.addEventListener('mousedown', onTerminalMenuClickOutside, true);
     document.addEventListener('keydown', onTerminalMenuKey, true);
   }, 0);
+
+  enhanceTerminalMenu(menu, fullCtx, { hasSelection, linkUri: ctx.linkUri, x: event.clientX, y: event.clientY });
+}
+
+// Fill in the bookmark toggle label + Variables submenu once the async DB
+// lookups resolve, if the same menu is still open. No-op when neither applies
+// (e.g. the api bindings are absent under test).
+async function enhanceTerminalMenu(menu, ctx, base) {
+  let isBookmarked = false;
+  let variableGroups = [];
+  try {
+    [isBookmarked, variableGroups] = await Promise.all([
+      isSessionBookmarked(ctx.sessionId),
+      fetchVariableGroups(ctx.projectPath),
+    ]);
+  } catch { return; }
+  if (activeTerminalMenu !== menu) return; // closed or replaced while awaiting
+  const hasVars = Array.isArray(variableGroups) && variableGroups.some(g => g && g.vars && g.vars.length);
+  if (!isBookmarked && !hasVars) return;
+  menu.replaceChildren();
+  renderMenuItems(menu, buildTerminalMenuItems({
+    linkUri: base.linkUri, hasSelection: base.hasSelection, isBookmarked, variableGroups,
+  }), ctx);
+  positionTerminalMenu(menu, base.x, base.y);
 }
 
 // Wire a terminal container's right-click to the configured behavior. Called
