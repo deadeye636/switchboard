@@ -258,7 +258,7 @@ function flushPendingReindex() {
 //
 // `relFilename` is the watcher's path relative to PROJECTS_DIR, e.g.
 // "<folder>/<uuid>.jsonl" (top-level) or "<folder>/<uuid>/subagents/<f>.jsonl".
-function refreshFile(folder, relFilename) {
+function refreshFile(folder, relFilename, opts = {}) {
   const folderPath = path.join(PROJECTS_DIR, folder);
   const rel = relFilename.split(/[\\/]/).filter(Boolean);
   const inner = rel.slice(1); // path within the folder
@@ -298,17 +298,33 @@ function refreshFile(folder, relFilename) {
   // read+FTS is still pending in the debounce window below.
   setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
 
-  scheduleReindex(filePath, () => {
+  const run = () => {
     const s = readSessionFile(filePath, folder, projectPath, { parentSessionId });
     // null = file not yet a valid session (no first user turn) or became invalid.
     // Leave any existing row as-is; the reconcile sweep reconciles genuine losses.
     if (!s) return;
+    // Capture the effective name before writing so we can tell the renderer when a
+    // rename (Claude /rename → JSONL custom-title, promoted via setName) actually
+    // changed it. Without this notify, the deferred reindex writes the new name to
+    // the DB but the sidebar keeps showing the old one until an unrelated refresh.
+    const prevName = (getMeta(s.sessionId) || {}).name || null;
     upsertCachedSessions([s]);
     replaceSessionMetrics(s.sessionId, s.dailyMetrics);
     deleteSearchSession(s.sessionId);
     upsertSearchEntries([buildSearchEntry(s)]);
     if (s.customTitle) setName(s.sessionId, s.customTitle);
-  });
+    const newName = (getMeta(s.sessionId) || {}).name || null;
+    if (newName !== prevName) notifyRendererProjectsChanged();
+  };
+
+  // opts.immediate: skip the reindex debounce and run inline. Used by the Stop-hook
+  // fast-path so a rename shows the instant the turn ends, not after both debounces.
+  if (opts.immediate) {
+    cancelReindex(filePath);
+    run();
+  } else {
+    scheduleReindex(filePath, run);
+  }
 }
 
 /**

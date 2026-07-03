@@ -2095,6 +2095,22 @@ function startAttentionHookServer() {
       try {
         const hook = JSON.parse(body || '{}');
         const sessionId = hook.session_id || hook.sessionId;
+        // Fast-path: a hook POST (Stop/Notification) is an instant push at a turn
+        // boundary. Refresh that session's transcript now — bypassing the watcher +
+        // reindex debounces — so a rename (Claude /rename → custom-title) shows the
+        // moment the turn ends instead of lagging up to several seconds (#60).
+        if (sessionId) {
+          try {
+            const sess = activeSessions.get(sessionId)
+              || [...activeSessions.values()].find(x => x.realSessionId === sessionId);
+            if (sess && sess.projectFolder) {
+              // relFilename is folder-prefixed (refreshFile strips the first segment).
+              refreshFile(sess.projectFolder, sess.projectFolder + '/' + sessionId + '.jsonl', { immediate: true });
+            }
+          } catch (err) {
+            log.warn(`[attention-hook] fast refresh failed: ${err.message}`);
+          }
+        }
         const signal = attentionSource.classifyAttentionSignal({ source: 'hook', payload: hook });
         if (sessionId && signal && mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('attention-signal', {
