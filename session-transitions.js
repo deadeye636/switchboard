@@ -136,6 +136,7 @@ function readNewSessionSignals(filePath) {
     let slug = null;
     let parentSessionId = null;
     let hasSnapshots = false;
+    let clearOrigin = false;
     for (const line of lines) {
       const entry = JSON.parse(line);
       // Skip snapshot lines — they carry no fork/session signals
@@ -145,12 +146,21 @@ function readNewSessionSignals(filePath) {
       if (entry.slug && !slug) slug = entry.slug;
       // --fork-session copies messages with original sessionId
       if (entry.sessionId && !parentSessionId) parentSessionId = entry.sessionId;
+      // /clear reuses the PTY but mints a new sessionId with NO lineage backref
+      // (no forkedFrom / parentSessionId / planContent). The only marker in the
+      // fresh file is a SessionStart hook attachment with source "clear".
+      if (entry.type === 'attachment' && entry.attachment
+          && entry.attachment.hookEvent === 'SessionStart'
+          && typeof entry.attachment.hookName === 'string'
+          && entry.attachment.hookName.endsWith(':clear')) {
+        clearOrigin = true;
+      }
       // Stop after finding a user or assistant message
       if (entry.type === 'user' || entry.type === 'assistant') break;
     }
-    return { forkedFrom, planContent, slug, parentSessionId, hasSnapshots };
+    return { forkedFrom, planContent, slug, parentSessionId, hasSnapshots, clearOrigin };
   } catch {
-    return { forkedFrom: null, planContent: false, slug: null, parentSessionId: null, hasSnapshots: false };
+    return { forkedFrom: null, planContent: false, slug: null, parentSessionId: null, hasSnapshots: false, clearOrigin: false };
   }
 }
 
@@ -216,7 +226,7 @@ function detectSessionTransitions(folder) {
 
       // File exists but has no parseable content yet — skip and retry next cycle
       // But if the file's mtime is older than 1 hour, treat it as stale and archive it
-      if (!signals.forkedFrom && !signals.parentSessionId && !signals.slug && !signals.planContent) {
+      if (!signals.forkedFrom && !signals.parentSessionId && !signals.slug && !signals.planContent && !signals.clearOrigin) {
         // Fork file with only snapshots (no user turn yet) — match immediately
         if (signals.hasSnapshots && session.forkFrom && !session.realSessionId) {
           log.info(`[detect] session=${sessionId} matching snapshot-only fork file=${newId}`);
@@ -278,8 +288,31 @@ function detectSessionTransitions(folder) {
         }
       }
 
+      // Clear: the fresh file carries a SessionStart:clear marker but NO lineage
+      // backref, so we can't match by metadata. Associate to the single active
+      // PTY session in this folder. If more than one Claude session is active
+      // here we can't tell which one cleared — skip rather than mis-rekey.
+      // Guard activeSessions.has(newId): once the winner has re-keyed, the file
+      // belongs to an existing session and must not be claimed again.
+      if (!matched && signals.clearOrigin && !activeSessions.has(newId)) {
+        const candidates = [...activeSessions].filter(([, s]) =>
+          !s.exited && !s.isPlainTerminal && s.projectFolder === folder);
+        // Only follow a freshly created clear file — avoids adopting stale files
+        // that surface at watcher start.
+        let fresh = false;
+        try { fresh = Date.now() - fs.statSync(newFilePath).mtimeMs < 300000; } catch {}
+        if (candidates.length === 1 && fresh) {
+          // The lone candidate is this iterating session (it passed the active/
+          // non-terminal/folder filter above), so this PTY is the one that cleared.
+          matched = true;
+        } else if (candidates.length > 1) {
+          log.info(`[detect] session=${sessionId} clear file=${newId} ambiguous (${candidates.length} active sessions in folder) — skipping`);
+        }
+      }
+
       if (matched) {
-        log.info(`[session-transition] ${sessionId} → ${newId} (${signals.forkedFrom || session.forkFrom ? 'fork' : 'plan-accept'})`);
+        const kind = signals.clearOrigin ? 'clear' : (signals.forkedFrom || session.forkFrom ? 'fork' : 'plan-accept');
+        log.info(`[session-transition] ${sessionId} → ${newId} (${kind})`);
         session.knownJsonlFiles = new Set(currentFiles);
         session.realSessionId = newId;
         // Update slug from new session

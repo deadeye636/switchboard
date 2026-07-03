@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const sessionTransitions = require('../session-transitions');
-const { detectSubagentTransitions, init } = sessionTransitions;
+const { detectSubagentTransitions, detectSessionTransitions, init } = sessionTransitions;
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-st-'));
@@ -160,6 +160,171 @@ test('post-bootstrap with no new agents emits zero events (IPC-flood regression)
     detectSubagentTransitions(sessionId, session, tmp);
 
     assert.equal(events.length, 0, 'no events should fire when nothing changed');
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+// --- detectSessionTransitions: /clear (and fork regression) ---
+
+/** Init the module against a real tmp PROJECTS_DIR. Returns controllable state. */
+function initSessions(projectsDir) {
+  const events = [];
+  const rekeys = [];
+  const win = {
+    isDestroyed: () => false,
+    webContents: { send: (channel, ...args) => events.push({ channel, args }) },
+  };
+  const activeSessions = new Map();
+  init({
+    PROJECTS_DIR: projectsDir,
+    activeSessions,
+    getMainWindow: () => win,
+    log: { info: () => {}, debug: () => {}, warn: () => {}, error: () => {} },
+    rekeyMcpServer: (oldId, newId) => rekeys.push([oldId, newId]),
+  });
+  return { events, rekeys, activeSessions };
+}
+
+function makeFolder(projectsDir, folder) {
+  const p = path.join(projectsDir, folder);
+  fs.mkdirSync(p, { recursive: true });
+  return p;
+}
+
+/** Write a fresh session file whose head carries a SessionStart:<source> marker. */
+function writeSessionStartFile(folderPath, newId, source = 'clear') {
+  const lines = [
+    JSON.stringify({ type: 'mode', mode: 'normal', sessionId: newId }),
+    JSON.stringify({ type: 'file-history-snapshot', messageId: 'm', isSnapshotUpdate: false }),
+    JSON.stringify({ type: 'attachment', parentUuid: null, attachment: { type: 'hook_success', hookEvent: 'SessionStart', hookName: 'SessionStart:' + source } }),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: 'hi' } }),
+  ];
+  fs.writeFileSync(path.join(folderPath, newId + '.jsonl'), lines.join('\n') + '\n', 'utf8');
+}
+
+function registerPtySession(activeSessions, id, folder, known, extra = {}) {
+  const session = {
+    exited: false, isPlainTerminal: false, projectFolder: folder,
+    knownJsonlFiles: new Set(known), forkFrom: null, ...extra,
+  };
+  activeSessions.set(id, session);
+  return session;
+}
+
+test('clear: single active PTY session in folder → rekeys to the new session id', () => {
+  const tmp = mkTmp();
+  try {
+    const folder = 'proj';
+    const folderPath = makeFolder(tmp, folder);
+    const oldId = 'old-sess', newId = 'new-sess';
+    fs.writeFileSync(path.join(folderPath, oldId + '.jsonl'), '{"type":"user"}\n', 'utf8');
+
+    const { events, rekeys, activeSessions } = initSessions(tmp);
+    const session = registerPtySession(activeSessions, oldId, folder, [oldId + '.jsonl']);
+    writeSessionStartFile(folderPath, newId, 'clear');
+
+    detectSessionTransitions(folder);
+
+    assert.deepEqual(rekeys, [[oldId, newId]], 'MCP server must be re-keyed old→new');
+    assert.ok(activeSessions.has(newId) && !activeSessions.has(oldId), 'map re-keyed');
+    assert.equal(session.realSessionId, newId);
+    const forked = events.filter(e => e.channel === 'session-forked');
+    assert.equal(forked.length, 1);
+    assert.deepEqual(forked[0].args, [oldId, newId]);
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+test('clear: SessionStart:startup (not :clear) does not rekey', () => {
+  const tmp = mkTmp();
+  try {
+    const folder = 'proj';
+    const folderPath = makeFolder(tmp, folder);
+    const oldId = 'old-sess', newId = 'new-sess';
+    fs.writeFileSync(path.join(folderPath, oldId + '.jsonl'), '{"type":"user"}\n', 'utf8');
+
+    const { events, rekeys, activeSessions } = initSessions(tmp);
+    registerPtySession(activeSessions, oldId, folder, [oldId + '.jsonl']);
+    writeSessionStartFile(folderPath, newId, 'startup');
+
+    detectSessionTransitions(folder);
+
+    assert.equal(rekeys.length, 0, 'startup is not a clear — no rekey');
+    assert.ok(activeSessions.has(oldId) && !activeSessions.has(newId));
+    assert.equal(events.filter(e => e.channel === 'session-forked').length, 0);
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+test('clear: no active Switchboard session in the folder (external clear) is ignored', () => {
+  const tmp = mkTmp();
+  try {
+    const clearFolder = 'proj', otherFolder = 'other';
+    const clearPath = makeFolder(tmp, clearFolder);
+    makeFolder(tmp, otherFolder);
+    const newId = 'new-sess';
+
+    const { rekeys, activeSessions } = initSessions(tmp);
+    // Only active session lives in a DIFFERENT folder.
+    registerPtySession(activeSessions, 'unrelated', otherFolder, ['unrelated.jsonl']);
+    writeSessionStartFile(clearPath, newId, 'clear');
+
+    detectSessionTransitions(clearFolder);
+
+    assert.equal(rekeys.length, 0, 'external clear must not touch unrelated sessions');
+    assert.ok(!activeSessions.has(newId));
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+test('clear: two active sessions in same folder is ambiguous → skip (no rekey)', () => {
+  const tmp = mkTmp();
+  try {
+    const folder = 'proj';
+    const folderPath = makeFolder(tmp, folder);
+    const idA = 'sess-a', idB = 'sess-b', newId = 'new-sess';
+    fs.writeFileSync(path.join(folderPath, idA + '.jsonl'), '{"type":"user"}\n', 'utf8');
+    fs.writeFileSync(path.join(folderPath, idB + '.jsonl'), '{"type":"user"}\n', 'utf8');
+
+    const { rekeys, activeSessions } = initSessions(tmp);
+    const known = [idA + '.jsonl', idB + '.jsonl'];
+    registerPtySession(activeSessions, idA, folder, known);
+    registerPtySession(activeSessions, idB, folder, known);
+    writeSessionStartFile(folderPath, newId, 'clear');
+
+    detectSessionTransitions(folder);
+
+    assert.equal(rekeys.length, 0, 'ambiguous → must not guess');
+    assert.ok(activeSessions.has(idA) && activeSessions.has(idB) && !activeSessions.has(newId));
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+test('fork regression: forkedFrom pointing at the active session still rekeys', () => {
+  const tmp = mkTmp();
+  try {
+    const folder = 'proj';
+    const folderPath = makeFolder(tmp, folder);
+    const oldId = 'old-sess', newId = 'new-sess';
+    fs.writeFileSync(path.join(folderPath, oldId + '.jsonl'), '{"type":"user"}\n', 'utf8');
+    const forkLines = [
+      JSON.stringify({ type: 'file-history-snapshot', messageId: 'm', isSnapshotUpdate: false }),
+      JSON.stringify({ forkedFrom: { sessionId: oldId }, type: 'user', sessionId: newId, message: { role: 'user', content: 'hi' } }),
+    ];
+    fs.writeFileSync(path.join(folderPath, newId + '.jsonl'), forkLines.join('\n') + '\n', 'utf8');
+
+    const { rekeys, activeSessions } = initSessions(tmp);
+    const session = registerPtySession(activeSessions, oldId, folder, [oldId + '.jsonl'], { forkFrom: oldId });
+
+    detectSessionTransitions(folder);
+
+    assert.deepEqual(rekeys, [[oldId, newId]]);
+    assert.equal(session.realSessionId, newId);
   } finally {
     cleanup(tmp);
   }
