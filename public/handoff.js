@@ -104,22 +104,31 @@ async function readLatestHandoffPacket(session) {
 }
 
 // Follow-up dialog that lets the human review/edit the captured handoff packet
-// before a fresh session is started. Resolves with the edited text, or null on
-// cancel. Prefilled by reading the latest assistant turn from the session JSONL
-// (no brittle terminal scraping); falls back to the local starter template.
-async function showHandoffReviewDialog(session) {
+// before a fresh session is started. Resolves with { action: 'start' | 'save',
+// text } (the edited packet), or null on cancel. Prefilled by reading the latest
+// assistant turn from the session JSONL (no brittle terminal scraping); falls back
+// to the local starter template. With the Integrated Handoff System on, the target
+// choice (start fresh vs save for later) lives here — no separate follow-up dialog.
+async function showHandoffReviewDialog(session, handoffLibrary) {
   const overlay = document.createElement('div');
   overlay.className = 'new-session-overlay';
 
   const dialog = document.createElement('div');
   dialog.className = 'new-session-dialog';
+  const hint = handoffLibrary
+    ? 'This text seeds a brand-new, lean session in the same project — or save it to resume later. Review and edit it first. Starting a session spends tokens; the old session is left untouched. If the agent is still writing, use “Refresh from session”.'
+    : 'This text seeds a brand-new, lean session in the same project. Review and edit it, then start the fresh session. Starting the session spends tokens; the old session is left untouched. If the agent is still writing, use “Refresh from session”.';
+  const saveBtn = handoffLibrary
+    ? '<button type="button" class="handoff-save-btn">Save for later</button>'
+    : '';
   dialog.innerHTML = `
     <h3>Review Handoff Packet</h3>
-    <div class="add-project-hint">This text seeds a brand-new, lean session in the same project. Review and edit it, then start the fresh session. Starting the session spends tokens; the old session is left untouched. If the agent is still writing, use “Refresh from session”.</div>
+    <div class="add-project-hint">${hint}</div>
     <textarea id="handoff-packet-text" class="settings-input" spellcheck="false" style="width:100%;min-height:260px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;"></textarea>
     <div class="new-session-actions">
       <button type="button" class="new-session-cancel-btn">Cancel</button>
       <button type="button" class="handoff-refresh-btn">Refresh from session</button>
+      ${saveBtn}
       <button type="button" class="new-session-start-btn">Start fresh session</button>
     </div>
   `;
@@ -144,9 +153,14 @@ async function showHandoffReviewDialog(session) {
       const latest = await readLatestHandoffPacket(session);
       if (latest) textarea.value = latest;
     };
+    const saveEl = dialog.querySelector('.handoff-save-btn');
+    if (saveEl) saveEl.onclick = () => {
+      const value = textarea.value.trim();
+      if (value) close({ action: 'save', text: value });
+    };
     dialog.querySelector('.new-session-start-btn').onclick = () => {
       const value = textarea.value.trim();
-      if (value) close(value);
+      if (value) close({ action: 'start', text: value });
     };
     overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
 
@@ -240,28 +254,19 @@ async function runHandoff(session, project) {
     showControlToast({ message: 'Asked the agent for a handoff packet — review it once it finishes.' });
   }
 
-  // Token step #0 (no tokens) — review/edit the captured packet.
-  const packet = await showHandoffReviewDialog(session);
-  if (packet === null) return;
+  // Token step #0 (no tokens) — review/edit the captured packet. In library mode
+  // the target choice (start fresh vs save for later) is part of this dialog.
+  const review = await showHandoffReviewDialog(session, handoffLibrary);
+  if (review === null) return;
+  const packet = review.text;
 
-  // Library mode: choose target — fresh session now, or save to resume later.
-  if (handoffLibrary) {
-    const action = await showControlDialog({
-      title: 'Handoff Ready',
-      message: 'Start a fresh session seeded with this handoff now, or save it to the project to resume later.',
-      confirmLabel: 'Start fresh session',
-      secondaryLabel: 'Save for later',
-      cancelLabel: 'Cancel',
-      tone: 'default',
-    });
-    if (action === 'secondary') {
-      const label = await showHandoffSaveDialog(session);
-      if (label === null) return;
-      await window.api.saveHandoff({ projectPath: project.projectPath, label, content: packet });
-      showControlToast({ message: 'Handoff saved to project.' });
-      return;
-    }
-    if (action !== true) return; // cancelled
+  // Library mode: "Save for later" chosen in the review dialog → store, done.
+  if (handoffLibrary && review.action === 'save') {
+    const label = await showHandoffSaveDialog(session);
+    if (label === null) return;
+    await window.api.saveHandoff({ projectPath: project.projectPath, label, content: packet });
+    showControlToast({ message: 'Handoff saved to project.' });
+    return;
   }
 
   // Token step #2 — start a FRESH lean session (not a fork) seeded with the packet.
