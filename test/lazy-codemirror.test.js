@@ -64,7 +64,7 @@ function setupViewerPanelDom() {
     setItem: () => {},
   };
 
-  // Stub a11y helper — <old-codename>'s viewer-toolbar.js calls the global
+  // Stub a11y helper — deadeye's viewer-toolbar.js calls the global
   // syncTitleToAriaLabel (defined in a11y-utils.js, not loaded in this harness).
   window.syncTitleToAriaLabel = () => {};
 
@@ -212,7 +212,7 @@ function setupViewerPanelDomHeld() {
     setItem: () => {},
   };
 
-  // Stub a11y helper — <old-codename>'s viewer-toolbar.js calls the global
+  // Stub a11y helper — deadeye's viewer-toolbar.js calls the global
   // syncTitleToAriaLabel (defined in a11y-utils.js, not loaded in this harness).
   window.syncTitleToAriaLabel = () => {};
 

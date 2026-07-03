@@ -149,6 +149,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // App version
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  getAboutInfo: () => ipcRenderer.invoke('get-about-info'),
 
   // MCP bridge (main → renderer)
   onMcpOpenDiff: (callback) => {

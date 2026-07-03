@@ -9,11 +9,11 @@ sessions across projects. See `README.md` for the user-facing feature list.
 
 ## Fork context (important)
 
-This repo is **our own version** ("<old-codename>" is the codename of our variant — it shows up in
+This repo is **our own version** ("deadeye" is the codename of our variant — it shows up in
 code comments to distinguish our fork's behaviour from haydng/jbr). It lives in a single git
 repo with our own `origin` plus the upstream forks we port from.
 
-- Branch **`main`** = our main line (was `<old-codename>` before the GitHub move; the codename stays).
+- Branch **`main`** = our main line (was `deadeye` before the GitHub move; the codename stays).
 - **`origin`** = `git@github.com:deadeye636/switchboard.git` — our repo. `main` is the default branch.
   Pushed via SSH; `core.sshCommand` points at native Windows OpenSSH so the Bitwarden SSH agent
   is used (Git-bundled MSYS ssh can't reach the agent pipe — see memory `ssh-key-bitwarden`).

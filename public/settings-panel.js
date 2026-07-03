@@ -75,6 +75,15 @@
     const chromeValue = fieldValue('chrome', false);
     const preLaunchValue = fieldValue('preLaunchCmd', '');
     const addDirsValue = fieldValue('addDirs', '');
+    const afkTimeoutValue = fieldValue('afkTimeoutSec', '');
+    // Normalize an AFK-timeout input into stored form ('' | non-negative int).
+    // 0 is kept (means off / never); empty / negative / non-numeric → '' (inherit).
+    const normalizeAfk = (raw) => {
+      const s = String(raw == null ? '' : raw).trim();
+      if (s === '') return '';
+      const n = Number(s);
+      return (Number.isFinite(n) && n >= 0) ? String(Math.floor(n)) : '';
+    };
     const visCountValue = fieldValue('visibleSessionCount', 10);
     const maxAgeValue = fieldValue('sessionMaxAgeDays', 3);
     const autoHideDaysValue = fieldValue('autoHideDays', 0);
@@ -287,6 +296,19 @@
               <input type="text" class="settings-input" id="sv-pre-launch" placeholder="e.g. aws-vault exec profile --" value="${escapeHtml(preLaunchValue)}" ${fieldDisabled('preLaunchCmd')}>
             </div>
           </div>
+
+          <div class="settings-field settings-field-wide">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">AskUserQuestion timeout (seconds)</span>
+                ${useGlobalCheckbox('afkTimeoutSec')}
+              </div>
+              <div class="settings-description">Seconds before Claude auto-continues an unanswered AskUserQuestion. Empty = Claude default (60). <code>0</code> = never auto-continue. Applies only to Switchboard-started sessions.</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-afk-timeout" placeholder="inherit / default (60)" value="${escapeHtml(afkTimeoutValue)}" ${fieldDisabled('afkTimeoutSec')} style="width:140px">
+            </div>
+          </div>
         </div>
         ${btnRow}
       </div>`;
@@ -308,6 +330,8 @@
           <div class="settings-nav-sep"></div>
           <button class="settings-nav-item" data-cat="shortcuts">Keyboard Shortcuts <span class="settings-nav-count">${SHORTCUT_DEFS.length}</span></button>
           <button class="settings-nav-item" data-cat="handoff">Handoff <span class="settings-nav-count">2</span></button>
+          <div class="settings-nav-sep"></div>
+          <button class="settings-nav-item" data-cat="about">About</button>
         </nav>
 
         <div class="settings-main">
@@ -425,6 +449,15 @@
                   </div>
                   <div class="settings-field-control">
                     <input type="text" class="settings-input" id="sv-pre-launch" placeholder="e.g. aws-vault exec profile --" value="${escapeHtml(preLaunchValue)}">
+                  </div>
+                </div>
+                <div class="settings-field settings-field-wide">
+                  <div class="settings-field-info">
+                    <span class="settings-label">AskUserQuestion timeout (seconds)</span>
+                    <div class="settings-description">Seconds before Claude auto-continues an unanswered AskUserQuestion. Empty = default (60). <code>0</code> = never auto-continue. Applies only to Switchboard-started sessions.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-afk-timeout" placeholder="default (60)" value="${escapeHtml(afkTimeoutValue)}" style="width:140px">
                   </div>
                 </div>
               </div>
@@ -911,6 +944,44 @@
               </div>
             </section>
 
+            <!-- ===== About ===== -->
+            <section class="settings-cat" data-cat="about">
+              <div class="settings-cat-head"><h2>About</h2><p>Version, build lineage and runtime.</p></div>
+
+              <div class="settings-section">
+                <div class="about-app">
+                  <div class="about-name">Switchboard</div>
+                  <div class="about-version">Version <span id="sv-about-version">…</span> · <code>deadeye</code></div>
+                  <div class="about-tagline">Browse, search, launch and monitor Claude Code sessions across projects.</div>
+                </div>
+              </div>
+
+              <div class="settings-section">
+                <div class="settings-section-title">Fork lineage</div>
+                <div class="settings-description">Our own variant (codename <code>deadeye</code>); upstream features are adopted one at a time rather than tracking a single fork.</div>
+                <ul class="about-list">
+                  <li><b>Base</b> — <code>haydng</code></li>
+                  <li><b>Feature source</b> — <code>jbr</code> (JeanBaptisteRenard)</li>
+                  <li><b>Original upstream</b> — <code>doctly</code></li>
+                  <li><b>Common merge-base</b> — <code>b98c2f8</code></li>
+                </ul>
+                <div class="settings-description">Repository: <code>github.com/deadeye636/switchboard</code></div>
+              </div>
+
+              <div class="settings-section">
+                <div class="settings-section-title">Runtime</div>
+                <div class="about-runtime">
+                  <div class="about-kv"><span>Electron</span><code id="sv-about-electron">…</code></div>
+                  <div class="about-kv"><span>Chromium</span><code id="sv-about-chrome">…</code></div>
+                  <div class="about-kv"><span>Node</span><code id="sv-about-node">…</code></div>
+                  <div class="about-kv"><span>V8</span><code id="sv-about-v8">…</code></div>
+                  <div class="about-kv"><span>Platform</span><code id="sv-about-platform">…</code></div>
+                </div>
+              </div>
+
+              <div class="settings-hint">Thanks to the upstream fork authors (haydng, JeanBaptisteRenard, doctly) whose work this builds on.</div>
+            </section>
+
             ${btnRow}
           </div>
         </div>
@@ -919,6 +990,18 @@
       // --- Global two-pane wiring: category nav, live search, "?" help toggles ---
       const navItems = Array.from(settingsViewerBody.querySelectorAll('.settings-nav-item'));
       const cats = Array.from(settingsViewerBody.querySelectorAll('.settings-cat'));
+      // Fill the About pane's version + runtime fields (async, best-effort).
+      if (window.api.getAboutInfo) {
+        window.api.getAboutInfo().then(info => {
+          const set = (id, v) => { const el = settingsViewerBody.querySelector(id); if (el) el.textContent = v; };
+          set('#sv-about-version', info.version);
+          set('#sv-about-electron', info.electron);
+          set('#sv-about-chrome', info.chrome);
+          set('#sv-about-node', info.node);
+          set('#sv-about-v8', info.v8);
+          set('#sv-about-platform', `${info.platform} / ${info.arch}`);
+        }).catch(() => {});
+      }
       const searchInput = settingsViewerBody.querySelector('#sv-search');
       const noResults = settingsViewerBody.querySelector('#sv-no-results');
       const mainScroll = settingsViewerBody.querySelector('.settings-main');
@@ -994,6 +1077,7 @@
           chrome: 'sv-chrome',
           preLaunchCmd: 'sv-pre-launch',
           addDirs: 'sv-add-dirs',
+          afkTimeoutSec: 'sv-afk-timeout',
         };
         const input = settingsViewerBody.querySelector('#' + fieldMap[field]);
         if (input) input.disabled = cb.checked;
@@ -1065,6 +1149,7 @@
               chrome: () => settingsViewerBody.querySelector('#sv-chrome').checked,
               preLaunchCmd: () => settingsViewerBody.querySelector('#sv-pre-launch').value.trim(),
               addDirs: () => settingsViewerBody.querySelector('#sv-add-dirs').value.trim(),
+              afkTimeoutSec: () => normalizeAfk(settingsViewerBody.querySelector('#sv-afk-timeout').value),
             };
             if (fieldMap[field]) settings[field] = fieldMap[field]();
           }
@@ -1080,6 +1165,7 @@
         settings.chrome = settingsViewerBody.querySelector('#sv-chrome').checked;
         settings.preLaunchCmd = settingsViewerBody.querySelector('#sv-pre-launch').value.trim();
         settings.addDirs = settingsViewerBody.querySelector('#sv-add-dirs').value.trim();
+        settings.afkTimeoutSec = normalizeAfk(settingsViewerBody.querySelector('#sv-afk-timeout').value);
         settings.visibleSessionCount = parseInt(settingsViewerBody.querySelector('#sv-visible-count').value) || 10;
         settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
         settings.autoHideDays = parseInt(settingsViewerBody.querySelector('#sv-auto-hide-days').value) || 0;
@@ -1147,7 +1233,7 @@
           mode: settingsViewerBody.querySelector('#sv-running-inbox-mode')?.value || 'until-read',
           minutes: Math.max(1, Math.min(120, parseInt(settingsViewerBody.querySelector('#sv-running-inbox-minutes')?.value, 10) || 5)),
         };
-        // Merge over existing shortcuts so non-managed keys (e.g. <old-codename>'s
+        // Merge over existing shortcuts so non-managed keys (e.g. deadeye's
         // nextAttention) survive — scShortcuts carries only the session-nav/grid bindings.
         settings.shortcuts = { ...(current.shortcuts || {}), ...scShortcuts };
       }

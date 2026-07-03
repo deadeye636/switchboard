@@ -738,7 +738,7 @@ async function showJsonlViewer(session) {
     const el = renderJsonlEntry(entry, toolResultMap);
     if (el) {
       // entryIndex = position in the entries array (stable across re-renders) —
-      // the anchor bookmarks are keyed on, since <old-codename> JSONL has no per-message uuid.
+      // the anchor bookmarks are keyed on, since deadeye JSONL has no per-message uuid.
       el.dataset.entryIndex = entryIndex;
       jsonlViewerBody.appendChild(el);
       window._decorateJsonlEntry?.(el, entry, session.sessionId, entryIndex);

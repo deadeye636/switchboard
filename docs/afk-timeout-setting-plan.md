@@ -5,7 +5,16 @@
 
 # Plan #51 — AFK-Timeout je Session steuern (`CLAUDE_AFK_TIMEOUT_MS`)
 
-**Status:** Backlog · **Prio:** P3 · **Branch-Vorschlag:** `feat/afk-timeout-setting`
+**Status:** Erledigt · **Prio:** P3 · **Branch:** `feat/afk-timeout-setting`
+
+> **Umsetzungs-Abweichung vom Plan:** Statt der Worte `off`/`never` ist **`0` = never**
+> (→ `2147483647`). Leer = erben/Default (60 s), negativ/ungültig = leer. Die Kaskade
+> (leer=erben) wird **direkt beim PTY-Spawn** in `main.js` aufgelöst (nicht über den
+> generischen `get-effective-settings`-Merge, der leere Projekt-Werte fälschlich
+> überschrieben und andere String-Keys getroffen hätte). Pure Helfer in `afk-timeout.js`
+> (`afkTimeoutToEnvMs`/`resolveAfkTimeoutSec`/`normalizeAfkInput`), Tests
+> `test/afk-timeout.test.js`. UI-Feld global+projekt (`settings-panel.js`) + Per-Session
+> im Configure-Dialog (`dialogs.js`, `#nsd-afk-timeout`). `[afk]`-Log bei Injection.
 
 ## Ziel
 

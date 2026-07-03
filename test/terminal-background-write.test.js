@@ -382,7 +382,7 @@ test('Stage A: destroySession clears rawReplayBuffers entry', () => {
 });
 
 // NOTE: jbr's upstream had a sync-block test calling handleTerminalData() here.
-// <old-codename> keeps the sync-block guard (ESC[?2026h/l → syncDepth) inline in app.js's
+// deadeye keeps the sync-block guard (ESC[?2026h/l → syncDepth) inline in app.js's
 // onTerminalData IPC callback, not as a callable in this module, so that test does
 // not map to our architecture. The B1 skip lives in flushTerminalBuffer and is
 // covered by the Stage A/B tests above; the sync-block path in app.js is untouched.

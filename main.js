@@ -35,7 +35,12 @@ const cleanPtyEnv = Object.fromEntries(
     !k.startsWith('GOOGLE_API_KEY') &&
     k !== 'NODE_OPTIONS' &&
     k !== 'ORIGINAL_XDG_CURRENT_DESKTOP' &&
-    k !== 'WT_SESSION'
+    k !== 'WT_SESSION' &&
+    // Strip any inherited AFK vars so Switchboard's per-session setting is
+    // authoritative — "empty" must really mean Claude's default, not a leaked
+    // shell value (#51).
+    k !== 'CLAUDE_AFK_TIMEOUT_MS' &&
+    k !== 'CLAUDE_AFK_COUNTDOWN_MS'
   )
 );
 
@@ -43,6 +48,7 @@ const cleanPtyEnv = Object.fromEntries(
 const { discoverShellProfiles, getShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, quoteArgvForShell } = require('./shell-profiles');
 const { startScheduler } = require('./schedule-runner');
 const { encodeProjectPath } = require('./encode-project-path');
+const { afkTimeoutToEnvMs, resolveAfkTimeoutSec } = require('./afk-timeout');
 
 
 
@@ -2689,6 +2695,20 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         ptyEnv.CLAUDE_CODE_SSE_PORT = String(mcpServer.port);
       }
 
+      // Per-session AskUserQuestion timeout (#51): cascade session > project >
+      // global, empty = inherit. Only inject when a value is actually set so an
+      // unset field leaves Claude's built-in default (60s) in place.
+      {
+        const g = getSetting('global') || {};
+        const p = projectPath ? (getSetting('project:' + projectPath) || {}) : {};
+        const sec = resolveAfkTimeoutSec(sessionOptions?.afkTimeoutSec, p.afkTimeoutSec, g.afkTimeoutSec);
+        const afkMs = afkTimeoutToEnvMs(sec);
+        if (afkMs != null) {
+          ptyEnv.CLAUDE_AFK_TIMEOUT_MS = afkMs;
+          log.info(`[afk] session=${sessionId} CLAUDE_AFK_TIMEOUT_MS=${afkMs} (from sec=${sec})`);
+        }
+      }
+
       ptyProcess = pty.spawn(shell, shellArgs(shell, claudeCmd, shellExtraArgs), {
         name: 'xterm-256color',
         cols: 120,
@@ -3017,6 +3037,17 @@ function startProjectsWatcher() {
 
 // --- IPC: app version ---
 ipcMain.handle('get-app-version', () => app.getVersion());
+
+// Version + runtime info for the settings "About" pane.
+ipcMain.handle('get-about-info', () => ({
+  version: app.getVersion(),
+  electron: process.versions.electron,
+  chrome: process.versions.chrome,
+  node: process.versions.node,
+  v8: process.versions.v8,
+  platform: process.platform,
+  arch: process.arch,
+}));
 
 // --- App lifecycle ---
 // Prevent a second Electron instance from killing active PTY sessions.

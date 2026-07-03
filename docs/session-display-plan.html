@@ -40,10 +40,10 @@
 <body>
 
 <h1>Plan — Session-Display-Modi: Tabs &amp; abkoppelbare Fenster</h1>
-<p class="sub"><strong>Status (Stand 2026-06-30):</strong> Eigen-Anforderung · <old-codename>, 433 Tests grün ·
+<p class="sub"><strong>Status (Stand 2026-06-30):</strong> Eigen-Anforderung · deadeye, 433 Tests grün ·
 Phase 1 Tabs <span class="badge b-hi">✅ erledigt</span> · Phase 2 Settings-Fenster <span class="badge b-hi">✅ erledigt</span> · Phase 3 Detach <span class="badge b-lo">offen</span></p>
 <div class="note" style="border-left-color:var(--hi)">
-<strong>Umgesetzt + in <old-codename>:</strong> <strong>Phase 1 Tabs</strong> (Setting legacy/tabs, Tab-Leiste, Overflow Scroll+▾,
+<strong>Umgesetzt + in deadeye:</strong> <strong>Phase 1 Tabs</strong> (Setting legacy/tabs, Tab-Leiste, Overflow Scroll+▾,
 ×-Verhalten/Mittelklick/Drag, <strong>Tabs = reine Single-View</strong> via Grid-Scoping pro Modus) — Commits
 <code>abc441d</code>/<code>0adde86</code>/<code>9c9838e</code>/<code>c6aad02</code>. <strong>Phase 2 Settings-Fenster</strong> (eigenes
 Fenster, <code>settingsOpenMode</code> overlay/window, Live-Apply-Broadcast, sticky Cancel/Save-Bar) — Commits
@@ -307,7 +307,7 @@ das Detach-Fenster</strong> (statt <code>showSession</code>); Close/Reattach am 
 <ul>
 <li><code>npm test</code> grün (Baseline 433 + neue Tests, Hintergrund ~5 min wg. trigger-watcher).</li>
 <li>Manuell in <code>npm start</code>: <strong>Legacy unverändert</strong>; <strong>Tabs</strong> (öffnen/wechseln/×-läuft-weiter, Overflow, reine Single-View/kein Grid, Setting-Persistenz); <strong>Detach</strong> (auslagern/reattach/Close, Attention-Badge bleibt in Sidebar, Quit schließt alle, Input im Detach-Fenster).</li>
-<li>Workflow je Phase: eigener <code>feat/*</code>-Branch → grün → <code>git-commit</code>-Skill (Deutsch) → ff-merge <old-codename>.</li>
+<li>Workflow je Phase: eigener <code>feat/*</code>-Branch → grün → <code>git-commit</code>-Skill (Deutsch) → ff-merge deadeye.</li>
 </ul>
 
 <h2>5 · Reihenfolge / Aufwand</h2>
@@ -320,7 +320,7 @@ das Detach-Fenster</strong> (statt <code>showSession</code>); Close/Reattach am 
 <p class="small">Nicht in Phase 1 umgesetzt (Backlog): <strong>Reappear im Grid</strong> bei „Ansicht schließen" + Grid-Auto-Open (Task #15) · Ctrl+Tab-Tab-Zyklus.</p>
 
 <p class="small" style="margin-top:24px;border-top:1px solid var(--line);padding-top:12px">
-Quelle Markdown-Plan: <code>~/.claude/plans/session-display-tabs.md</code> · erstellt 2026-06-29 · <old-codename> <code>050c669</code></p>
+Quelle Markdown-Plan: <code>~/.claude/plans/session-display-tabs.md</code> · erstellt 2026-06-29 · deadeye <code>050c669</code></p>
 
 </body>
 </html>

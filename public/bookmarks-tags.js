@@ -2,7 +2,7 @@
 //
 // Persisted in SQLite (db.js); reached via window.api.bookmark* / sessionTags*.
 // Bookmark anchors are { sessionId, entryIndex }; entryIndex = the position in
-// the transcript entries array (<old-codename> JSONL has no per-message uuid, so the
+// the transcript entries array (deadeye JSONL has no per-message uuid, so the
 // index is the stable anchor). entryIndex === -1 marks a session-level bookmark
 // made from the live terminal, which has no message granularity.
 //

@@ -292,6 +292,15 @@ async function showNewSessionDialog(project, groupId) {
         <input type="text" class="settings-input" id="nsd-add-dirs" placeholder="/path/to/dir1, /path/to/dir2" value="${escapeHtml(effective.addDirs || '')}">
       </div>
     </div>
+    <div class="settings-field settings-field-wide">
+      <div class="settings-field-info">
+        <span class="settings-label">AskUserQuestion timeout (seconds)</span>
+        <div class="settings-description">Empty = inherit (project/global, Claude default 60). <code>0</code> = never auto-continue.</div>
+      </div>
+      <div class="settings-field-control">
+        <input type="text" class="settings-input" id="nsd-afk-timeout" placeholder="inherit" value="" style="width:140px">
+      </div>
+    </div>
     <div class="new-session-actions">
       <button class="new-session-cancel-btn">Cancel</button>
       <button class="new-session-start-btn">Start</button>
@@ -338,6 +347,13 @@ async function showNewSessionDialog(project, groupId) {
     const preLaunch = dialog.querySelector('#nsd-pre-launch').value.trim();
     if (preLaunch) options.preLaunchCmd = preLaunch;
     options.addDirs = dialog.querySelector('#nsd-add-dirs').value.trim();
+    {
+      // Per-session AFK-timeout override; empty/negative/invalid → inherit (not set).
+      // 0 is a valid value (= off / never).
+      const raw = dialog.querySelector('#nsd-afk-timeout').value.trim();
+      const n = Number(raw);
+      if (raw !== '' && Number.isFinite(n) && n >= 0) options.afkTimeoutSec = String(Math.floor(n));
+    }
     if (effective.mcpEmulation === false) options.mcpEmulation = false;
     close();
     launchNewSession(project, options, undefined, groupId);

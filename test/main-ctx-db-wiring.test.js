@@ -13,7 +13,7 @@ const path = require('path');
 // was missing → session_metrics never populated → the stats screen showed 0 tokens /
 // 0 tool calls. No unit test booted main.js's init wiring, so task check stayed
 // green. This static check closes that gap.
-// (Note: JBR's touchCachedModified is dropped in <old-codename> — unused dead code.)
+// (Note: JBR's touchCachedModified is dropped in deadeye — unused dead code.)
 
 const root = path.join(__dirname, '..');
 

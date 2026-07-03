@@ -133,7 +133,7 @@ try { db.exec('ALTER TABLE project_meta ADD COLUMN autoHidden INTEGER DEFAULT 0'
 try { db.exec('ALTER TABLE project_meta ADD COLUMN autoHideResetAt TEXT'); } catch {}
 
 // Bookmarks — flag individual transcript messages, anchored by {sessionId, entryIndex}.
-// <old-codename> JSONL has no per-message uuid, so the position index is the stable anchor;
+// deadeye JSONL has no per-message uuid, so the position index is the stable anchor;
 // timestamp/label are denormalized for display so the overlay needs no transcript re-read.
 db.exec(`
   CREATE TABLE IF NOT EXISTS bookmarks (
