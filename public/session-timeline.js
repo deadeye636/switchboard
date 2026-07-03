@@ -35,7 +35,7 @@
   function formatTimelineEvent(event) {
     const date = new Date(event.at);
     const time = Number.isFinite(date.getTime())
-      ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
       : '';
     return {
       time,
