@@ -70,12 +70,6 @@ Dateien und werden hier nur verlinkt.</p>
 <td>—</td>
 </tr>
 <tr>
-<td>#56</td>
-<td>P3</td>
-<td><strong>Kosmetik: Session-Menü Icon-Dimming</strong> — bei gedimmtem Menü (links) wirkt das erste Icon „komisch&quot;; an die rechte (nicht-gedimmte) Darstellung angleichen. Reiner CSS/Style-Fix.</td>
-<td>—</td>
-</tr>
-<tr>
 <td>#43</td>
 <td>P3</td>
 <td><strong>Subagent-Spawn über <code>.meta.json</code> erkennen (nicht nur <code>.jsonl</code>)</strong> — Claude Code schreibt beim Spawn eines Task-Subagents sofort <code>&lt;parent&gt;/subagents/agent-&lt;id&gt;.meta.json</code> (<code>agentType</code>, <code>description</code>, <code>toolUseId</code>, <code>spawnDepth</code>), das <code>.jsonl</code>-Transcript aber erst wenn der Agent Output produziert. Ein gespawnter, aber nicht (mehr) bis zum Output gelaufener Agent (queued, Parent-Turn endet/wird unterbrochen) hat <strong>nur</strong> <code>meta.json</code> → <code>detectSubagentTransitions</code>/<code>enumerateSessionFiles</code> (scannen nur <code>subagents/*.jsonl</code>) sehen ihn nie (beobachtet 2026-07-02: Session <code>876c2b28</code>, „Feldtexte W6&quot;-Agents — meta identisch zu lauffähigen W5-Agents, aber ohne jsonl; Parent zuletzt 22:26, Spawns 22:28). <strong>Kein Background-Agents-Sonderformat, kein Datenverlust — reine Sichtbarkeit.</strong> Fix: <code>subagents/*.meta.json</code> mitscannen → Placeholder-Subagent-Row (Name aus <code>description</code>, Status „spawned/leer/abgebrochen&quot;) sobald meta da ist; Upgrade auf volle Row wenn das <code>.jsonl</code> nachkommt. Dateien: <code>read-session-file.js</code> (<code>enumerateSessionFiles</code>), <code>session-transitions.js</code>, <code>session-cache.js</code>, Subagent-Rendering in <code>public/sidebar.js</code>.</td>
@@ -177,6 +171,11 @@ Dateien und werden hier nur verlinkt.</p>
 </tr>
 </thead>
 <tbody><tr>
+<td>#56</td>
+<td><strong>Kosmetik: Session-Menü Icon-Dimming behoben</strong> — das Hover-Aktionsmenü (<code>.session-actions</code>) hatte einen horizontalen <code>linear-gradient</code> (links transparent → rechts solid, Solid-Punkt bei <code>10%</code> der Menübreite). Prozent skaliert mit Icon-Anzahl → bei breitem Menü (viele Icons) lag das erste Icon (Stop) im transparenten Fade und wirkte gedimmt. Fix: Verlauf durch <strong>soliden Hintergrund</strong> <code>#18181f</code> ersetzt, <code>padding-left</code>/<code>padding-right</code> symmetrisch 5px. Reiner CSS-Fix. Datei: <code>public/style.css</code>.</td>
+<td>—</td>
+</tr>
+<tr>
 <td>#57</td>
 <td><strong>Auto-Hide stale Projekte + stillen Altersfilter ersetzt</strong> (löst #54, erledigt #53 mit) — Setting <code>autoHideDays</code> (Default 0=aus): nach N Tagen Inaktivität wird der Hide-Flag <strong>automatisch</strong> gesetzt (<code>applyAutoHide</code> im Main, Start-Hook + get-projects-Refresh, laufende Sessions ausgenommen, throttled). <code>project_meta</code> +<code>autoHidden</code>/<code>autoHideResetAt</code>; Reset-Timer bei <code>unhide-project</code>/<code>ensureProjectAdded</code>. <strong>#54 gefixt:</strong> <code>shouldRenderProjectGroup</code> (<code>sidebar-state.js</code>) rendert nicht-hidden Projekte auch bei <code>olderCount&gt;0</code> — Projekt mit nur alten Sessions bleibt sichtbar (Sessions eingeklappt); <code>sessionMaxAgeDays</code> nur noch Session-Fold. <strong>#53 mit-erledigt:</strong> Hidden-Verwaltung raus aus Add-Project-Dialog (<code>dialogs.js</code>), <code>autoHidden</code>-„auto&quot;-Badge jetzt in der Projekt-Verwaltung (<code>projects-admin.js</code>, <code>buildProjectsAdmin</code> liefert <code>autoHidden</code>). Reiner Helfer <code>shouldAutoHide</code>; Nebenfix <code>populateCacheViaWorker</code> gibt Promise zurück. Tests <code>auto-hide.test.js</code> (+10), Suite 507/0. Dateien: <code>db.js</code>, <code>main.js</code>, <code>session-cache.js</code>, <code>public/{sidebar-state,settings-panel,projects-admin,dialogs}.js</code>, <code>style.css</code>.</td>
 <td><a href="auto-hide-projects-plan.md">Plan</a></td>
