@@ -66,8 +66,14 @@ Dateien und werden hier nur verlinkt.</p>
 <tr>
 <td>#54</td>
 <td>P2</td>
-<td><strong>Bug: manuell hinzugefügtes Projekt mit nur alten Sessions erscheint nicht</strong> — im Manuell-Modus (<code>projectAutoAdd=false</code>) filtert der Sidebar-Altersfilter (<code>sidebar.js:677</code>, <code>sessionMaxAgeDays</code>) alle Sessions eines added Projekts, wenn sie älter als N Tage sind → 0 sichtbar, alle „older&quot; → <code>shouldRenderProjectGroup</code> rendert die Gruppe nicht (empty-placeholder greift nur bei <code>older.length===0</code>). Beobachtet 2026-07-03: <code>D:\Projekte\example</code> (5 Sessions, alle &gt;3 Tage, in <code>addedProjects</code>). Fix: <code>addedProjects</code> immer als Platzhalter/older-Gruppe zeigen, unabhängig vom Altersfilter. Dateien: <code>public/sidebar.js</code>, ggf. <code>session-cache.js</code>.</td>
+<td><strong>Bug: manuell hinzugefügtes Projekt mit nur alten Sessions erscheint nicht</strong> — im Manuell-Modus (<code>projectAutoAdd=false</code>) filtert der Sidebar-Altersfilter (<code>sidebar.js:677</code>, <code>sessionMaxAgeDays</code>) alle Sessions eines added Projekts, wenn sie älter als N Tage sind → 0 sichtbar, alle „older&quot; → <code>shouldRenderProjectGroup</code> rendert die Gruppe nicht (empty-placeholder greift nur bei <code>older.length===0</code>). Beobachtet 2026-07-03: <code>D:\Projekte\example</code> (5 Sessions, alle &gt;3 Tage, in <code>addedProjects</code>). <strong>Fix-Ansatz → #57 (Auto-Hide + stillen Filter ersetzen).</strong> Dateien: <code>public/sidebar.js</code>, ggf. <code>session-cache.js</code>.</td>
 <td>—</td>
+</tr>
+<tr>
+<td>#57</td>
+<td>P2</td>
+<td><strong>Auto-Hide stale Projekte (ersetzt stillen Altersfilter)</strong> — Setting <code>autoHideDays</code> (Default 0=aus): nach N Tagen Inaktivität wird der <strong>Hide-Flag automatisch</strong> gesetzt (Projekt sichtbar in „Hidden&quot;, per Unhide zurückholbar) — statt heimlichem Render-Filter. Reset-Timer (<code>project_meta.autoHideResetAt</code>) bei Unhide/Add-Project; <code>autoHidden</code>-Marker + Badge. <code>shouldRenderProjectGroup</code> rendert nicht-hidden Projekte künftig <strong>immer</strong>; <code>sessionMaxAgeDays</code> nur noch Session-Fold. Löst #54.</td>
+<td><a href="auto-hide-projects-plan.md">Plan</a></td>
 </tr>
 <tr>
 <td>#55</td>
