@@ -340,7 +340,11 @@
     if (!body) return;
     const el = body.querySelector(`[data-entry-index="${index}"]`);
     if (!el) return;
-    el.scrollIntoView({ block: 'center' });
+    // Scroll *within* the body only — el.scrollIntoView() also scrolls outer
+    // ancestors, which pushes the fixed viewer header up and clips the title.
+    const bodyRect = body.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    body.scrollTop += (elRect.top - bodyRect.top) - (body.clientHeight - el.clientHeight) / 2;
     el.classList.add('bm-flash');
     setTimeout(() => el.classList.remove('bm-flash'), 1200);
   }
