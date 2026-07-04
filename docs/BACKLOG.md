@@ -3,9 +3,9 @@
 
 # Switchboard — Backlog
 
-Read-only Mirror der **offenen** [GitHub-Issues](https://github.com/deadeye636/switchboard/issues) (14 offen). Board wird über `gh issue` gepflegt, nicht hier.
+Read-only Mirror der **offenen** [GitHub-Issues](https://github.com/deadeye636/switchboard/issues) (15 offen). Board wird über `gh issue` gepflegt, nicht hier.
 
-**Stand:** 2026-07-03
+**Stand:** 2026-07-04
 
 
 ## P1 — als Nächstes
@@ -16,6 +16,7 @@ Read-only Mirror der **offenen** [GitHub-Issues](https://github.com/deadeye636/s
 
 - [#35](https://github.com/deadeye636/switchboard/issues/35) Zentrale Bookmark-Ansicht ("Bookmarks"-Tab) · _feature_
 - [#55](https://github.com/deadeye636/switchboard/issues/55) verwaiste Hidden Projects · _bug_
+- [#64](https://github.com/deadeye636/switchboard/issues/64) Doubled working-status indicator (ghost line) only heals on resize · _bug_
 
 ## P3 — irgendwann
 

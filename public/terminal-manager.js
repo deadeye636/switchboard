@@ -1036,3 +1036,21 @@ function setupDragAndDrop(container, getSessionId) {
     window.api.sendInput(getSessionId(), paths.join(' '));
   });
 }
+
+// TEMP DEBUG (#59-ghost): F5 = pure xterm renderer refresh on the focused session.
+// Diagnoses the doubled status-indicator: does a render-only refresh clear the ghost
+// (render-atlas / not-repainted) or does it survive (real stale buffer line → needs a
+// ConPTY full-frame). F5's default reload is suppressed. REMOVE after diagnosis.
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'F5') return;
+  e.preventDefault();
+  e.stopPropagation();
+  const sid = (typeof gridViewActive !== 'undefined' && gridViewActive)
+    ? (typeof gridFocusedSessionId !== 'undefined' ? gridFocusedSessionId : null)
+    : activeSessionId;
+  const entry = sid && openSessions.get(sid);
+  if (!entry || !entry.terminal) { console.log('[ghost-test] no focused terminal'); return; }
+  const t = entry.terminal;
+  t.refresh(0, t.rows - 1);
+  console.log('[ghost-test] refresh fired on', sid, 'rows', t.rows);
+}, true);
