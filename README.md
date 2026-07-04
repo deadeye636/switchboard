@@ -49,7 +49,7 @@ here are ports of other community forks (brianstanley, kreaddis), noted where ap
 - **Token/usage stats** — Per-(session, date, model) token, tool and message metrics collected into the DB.
 - **Settings overhaul** — Two-column layout, sticky Save/Cancel bar, an optional pop-out settings window, and permission modes aligned to the Claude CLI.
 - **Usage & search tweaks** — Status-bar usage as color-threshold progress bars; search with a 3-char minimum and an explicit reindex (Enter / refresh button).
-- **About tab** and a **German-based workflow** (Conventional-Commits in German, backlog as GitHub Issues, an `upstream:check` tool for detecting portable upstream changes).
+- **About tab** and a **GitHub-Issues backlog** (issues are the task board, mirrored to `docs/BACKLOG.md`; an `upstream:check` tool detects portable upstream changes).
 - **Extra security hardening** — Ported hardening (kreaddis #46) plus dependency audit fixes, on top of the upstream hardening wave.
 
 A per-module breakdown of both the inherited and the fork-specific features lives in

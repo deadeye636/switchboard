@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Generiert docs/BACKLOG.md aus den OFFENEN GitHub-Issues (deadeye636/switchboard).
-// Issues sind die Single Source of Truth — BACKLOG.md ist ein read-only Mirror fürs
-// schnelle In-Context-Grepping. NICHT von Hand editieren.
+// Generates docs/BACKLOG.md from the OPEN GitHub issues (deadeye636/switchboard).
+// The issues are the single source of truth — BACKLOG.md is a read-only mirror for
+// fast in-context grepping. Do NOT hand-edit.
 //
 //   node scripts/build-backlog.js
 //
-// Braucht die `gh` CLI (authentifiziert). Default-Repo via `gh repo set-default`.
+// Needs the `gh` CLI (authenticated). Default repo via `gh repo set-default`.
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -31,16 +31,16 @@ issues.sort((a, b) => (order[prioOf(a)] - order[prioOf(b)]) || (a.number - b.num
 const groups = { P1: [], P2: [], P3: [], 'P?': [] };
 for (const i of issues) groups[prioOf(i)].push(i);
 
-const labels = { P1: 'P1 — als Nächstes', P2: 'P2 — danach', P3: 'P3 — irgendwann', 'P?': 'Ohne Priorität' };
+const labels = { P1: 'P1 — next up', P2: 'P2 — after that', P3: 'P3 — someday', 'P?': 'No priority' };
 const url = n => `https://github.com/${REPO}/issues/${n}`;
 
 const out = [];
-out.push('<!-- GENERIERT aus offenen GitHub-Issues via `node scripts/build-backlog.js`.');
-out.push('     NICHT von Hand editieren — Issues sind die Quelle. -->', '');
+out.push('<!-- GENERATED from open GitHub issues via `node scripts/build-backlog.js`.');
+out.push('     Do NOT hand-edit — the issues are the source of truth. -->', '');
 out.push('# Switchboard — Backlog', '');
-out.push(`Read-only Mirror der **offenen** [GitHub-Issues](https://github.com/${REPO}/issues) ` +
-         `(${issues.length} offen). Board wird über \`gh issue\` gepflegt, nicht hier.`, '');
-out.push(`**Stand:** ${new Date().toISOString().slice(0, 10)}`, '');
+out.push(`Read-only mirror of the **open** [GitHub issues](https://github.com/${REPO}/issues) ` +
+         `(${issues.length} open). The board is maintained via \`gh issue\`, not here.`, '');
+out.push(`**As of:** ${new Date().toISOString().slice(0, 10)}`, '');
 
 for (const p of ['P1', 'P2', 'P3', 'P?']) {
   if (!groups[p].length) continue;
@@ -53,4 +53,4 @@ for (const p of ['P1', 'P2', 'P3', 'P?']) {
 out.push('');
 
 fs.writeFileSync(OUT, out.join('\n'));
-console.log(`docs/BACKLOG.md geschrieben — ${issues.length} offene Issues.`);
+console.log(`docs/BACKLOG.md written — ${issues.length} open issues.`);

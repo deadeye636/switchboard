@@ -103,9 +103,9 @@ The win target is **x64-only** (arm64 toolchain not available here).
 
 ## Conventions
 
-- **Git commits: always via the `git-commit` skill**, not raw `git commit`. The skill
-  builds a Conventional-Commits message in **German**. Only fall back to raw `git commit`
-  if the skill is unavailable. One logical change per commit.
+- **Git commits: Conventional Commits in English** (this is a public repo). The `git-commit`
+  skill defaults to German, so write the message in English (translate its output, or commit
+  directly). One logical change per commit.
 - **Commit only after the feature is confirmed working.** Don't commit a change just
   because tests pass — wait until the behaviour has been verified (manual check in the
   app, or the user confirms it works). Green tests alone are not a green light to commit.
@@ -114,5 +114,5 @@ The win target is **x64-only** (arm64 toolchain not available here).
 - When adding IPC: handler in `main.js` + binding in `preload.js` + (if it returns to UI) a renderer caller.
 - Prefer `execFile` over shell string interpolation for any external process (security).
 - **User-facing UI text is English** (settings labels/descriptions, sidebar labels, dialogs,
-  tooltips) — match the existing strings. Commit messages stay German (see above); code
-  comments may be either, but anything shown in the app is English.
+  tooltips) — match the existing strings. Commit messages are English (see above); code
+  comments are English too, and anything shown in the app is English.

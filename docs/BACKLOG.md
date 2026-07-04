@@ -1,33 +1,32 @@
-<!-- GENERIERT aus offenen GitHub-Issues via `node scripts/build-backlog.js`.
-     NICHT von Hand editieren — Issues sind die Quelle. -->
+<!-- GENERATED from open GitHub issues via `node scripts/build-backlog.js`.
+     Do NOT hand-edit — the issues are the source of truth. -->
 
 # Switchboard — Backlog
 
-Read-only Mirror der **offenen** [GitHub-Issues](https://github.com/deadeye636/switchboard/issues) (15 offen). Board wird über `gh issue` gepflegt, nicht hier.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (14 open). The board is maintained via `gh issue`, not here.
 
-**Stand:** 2026-07-04
+**As of:** 2026-07-04
 
 
-## P1 — als Nächstes
+## P1 — next up
 
-- [#2](https://github.com/deadeye636/switchboard/issues/2) Session-Display Phase 3 — Detach (abkoppelbare Fenster) · _feature_
+- [#2](https://github.com/deadeye636/switchboard/issues/2) Session display Phase 3 — Detach (detachable windows) · _feature_
 
-## P2 — danach
+## P2 — after that
 
-- [#35](https://github.com/deadeye636/switchboard/issues/35) Zentrale Bookmark-Ansicht ("Bookmarks"-Tab) · _feature_
-- [#55](https://github.com/deadeye636/switchboard/issues/55) verwaiste Hidden Projects · _bug_
+- [#35](https://github.com/deadeye636/switchboard/issues/35) Central bookmark view ("Bookmarks" tab) · _feature_
+- [#55](https://github.com/deadeye636/switchboard/issues/55) orphaned hidden projects · _bug_
 - [#64](https://github.com/deadeye636/switchboard/issues/64) Doubled working-status indicator (ghost line) only heals on resize · _bug_
 
-## P3 — irgendwann
+## P3 — someday
 
-- [#36](https://github.com/deadeye636/switchboard/issues/36) Worktree-/Session-History-Navigation · _feature, source:supacode_
-- [#37](https://github.com/deadeye636/switchboard/issues/37) Per-Session/Projekt Farbe + eigener Titel · _feature, source:supacode_
-- [#38](https://github.com/deadeye636/switchboard/issues/38) Branch-Rename aus Sidebar + Command-Palette · _feature, source:supacode_
-- [#39](https://github.com/deadeye636/switchboard/issues/39) "Dismiss All" für Notifications · _feature, source:supacode_
-- [#40](https://github.com/deadeye636/switchboard/issues/40) Remote-Repo über SSH (wie lokal behandeln) · _feature, source:supacode_
-- [#41](https://github.com/deadeye636/switchboard/issues/41) Agent-Badges: welches Tool läuft wo (prüfen) · _feature, source:supacode_
-- [#42](https://github.com/deadeye636/switchboard/issues/42) Multi-LLM / Multi-Agent-Support (Codex, …) · _feature_
-- [#43](https://github.com/deadeye636/switchboard/issues/43) Subagent-Spawn über .meta.json erkennen (nicht nur .jsonl) · _feature_
-- [#45](https://github.com/deadeye636/switchboard/issues/45) Grid-Layout A11y + DOM-Tests · _feature_
-- [#49](https://github.com/deadeye636/switchboard/issues/49) HTML/MD-Preview-Panel (+ Bild-Vorschau) · _port, source:brianstanley_
-- [#50](https://github.com/deadeye636/switchboard/issues/50) Per-Session API-Key-Override · _port, source:brianstanley_
+- [#36](https://github.com/deadeye636/switchboard/issues/36) Worktree/session history navigation · _feature, source:supacode_
+- [#37](https://github.com/deadeye636/switchboard/issues/37) Per-session/project color + custom title · _feature, source:supacode_
+- [#39](https://github.com/deadeye636/switchboard/issues/39) "Dismiss All" for notifications · _feature, source:supacode_
+- [#40](https://github.com/deadeye636/switchboard/issues/40) Remote repo over SSH (treat like local) · _feature, source:supacode_
+- [#41](https://github.com/deadeye636/switchboard/issues/41) Agent badges: which tool runs where (evaluate) · _feature, source:supacode_
+- [#42](https://github.com/deadeye636/switchboard/issues/42) Multi-LLM / multi-agent support (Codex, …) · _feature_
+- [#43](https://github.com/deadeye636/switchboard/issues/43) Detect subagent spawn via .meta.json (not only .jsonl) · _feature_
+- [#45](https://github.com/deadeye636/switchboard/issues/45) Grid layout a11y + DOM tests · _feature_
+- [#49](https://github.com/deadeye636/switchboard/issues/49) HTML/MD preview panel (+ image preview) · _port, source:brianstanley_
+- [#50](https://github.com/deadeye636/switchboard/issues/50) Per-session API key override · _port, source:brianstanley_
