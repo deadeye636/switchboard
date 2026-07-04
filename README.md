@@ -4,6 +4,15 @@ Your command center for Claude Code sessions.
 
 Switchboard is a desktop app that gives you a unified view of all your Claude Code sessions across every project. Launch, resume, fork, and monitor sessions from a single window — no more juggling terminal tabs or digging through `~/.claude/projects` to find that one conversation from last week.
 
+> ## ⚠️ Read this first — private fork, no warranty, no liability
+>
+> This repository (codename **deadeye**) is a **private downstream fork**, maintained for our own use.
+>
+> - **Almost all of the software — and all of the credit — belongs to the upstream authors** ([Doctly](https://github.com/doctly/switchboard), [HaydnG](https://github.com/HaydnG/switchboard), and [JeanBaptisteRenard](https://github.com/JeanBaptisteRenard/switchboard)). This fork only adds a thin layer of our own features on top. See [Credits](#license--credits).
+> - **This is not an official product.** It is **not affiliated with, endorsed by, or supported by** Anthropic, Doctly, or any upstream author.
+> - **No warranty. No support. No liability.** The software is provided *"as is"* under the MIT license, with **no guarantees of any kind**. You use it **entirely at your own risk**. Neither this fork's maintainer nor the upstream authors are liable for any damage, data loss, security incident, or other consequence arising from its use.
+> - **Builds are unsigned.** For anything you care about, **build it yourself from source** and run the code you audited — see [Security & Trust](#security--trust).
+
 ![Switchboard](build/screenshot.png)
 
 ### Key Features
@@ -21,6 +30,30 @@ Switchboard is a desktop app that gives you a unified view of all your Claude Co
 - **Plans & Memory** — Browse and edit your plan files and CLAUDE.md memory in one place
 - **Activity Stats** — Heatmap of your coding activity across all projects
 - **Session Names** — Picks up session names from Claude Code's `/rename` command automatically
+
+## What this fork adds
+
+Everything below is what **this fork** (deadeye) adds **on top of the base fork**
+([HaydnG](https://github.com/HaydnG/switchboard)). Everything else in this README describes
+features **inherited** from upstream — credit for those goes to the upstream authors. Some items
+here are ports of other community forks (brianstanley, kreaddis), noted where applicable.
+
+- **Tabbed single-view UI** — Session tabs replace the grid as the primary layout (grid stays as a legacy mode), with a right-click **tab context menu** (Close / Stop / Relaunch), auto-close, and viewer close buttons. The top menubar is removed for a cleaner window.
+- **Projects tab** — A dedicated project-management view: add projects manually or automatically, hide/restore projects, rename them, and a per-project `.work-files/` browser (view, delete, JSON/JSONL export).
+- **Sidebar power tools** — Mark projects as favorites, sort projects, keep an own favorites list, and configure the collapse state on startup.
+- **Terminal comfort & fixes** — Configurable font, size and zoom (Ctrl+mouse-wheel plus status-bar buttons), paste images/files from the clipboard via Ctrl+V, a right-click behavior dropdown (Menu / Copy / Paste / Native), a mouse-reporting toggle, an external-terminal + file-explorer launcher, and a batch of Windows ConPTY rendering fixes.
+- **Bookmarks & session tags** — Persisted in SQLite for fast recall.
+- **Saved Variables** — A reusable snippet/template panel with quick-pick, insert-template and a management tab (port of brianstanley's feature).
+- **Handoff library** — Save handoff packets, edit the prompt before sending, resume from a saved handoff, seed a fresh "New session" directly, and pick the target in the review dialog.
+- **Per-session AFK timeout** — Configurable idle handling per session.
+- **Token/usage stats** — Per-(session, date, model) token, tool and message metrics collected into the DB.
+- **Settings overhaul** — Two-column layout, sticky Save/Cancel bar, an optional pop-out settings window, and permission modes aligned to the Claude CLI.
+- **Usage & search tweaks** — Status-bar usage as color-threshold progress bars; search with a 3-char minimum and an explicit reindex (Enter / refresh button).
+- **About tab** and a **German-based workflow** (Conventional-Commits in German, backlog as GitHub Issues, an `upstream:check` tool for detecting portable upstream changes).
+- **Extra security hardening** — Ported hardening (kreaddis #46) plus dependency audit fixes, on top of the upstream hardening wave.
+
+A per-module breakdown of both the inherited and the fork-specific features lives in
+[`docs/fork-features.md`](docs/fork-features.md).
 
 ## Session Grid Overview
 
@@ -103,11 +136,29 @@ Switchboard treats your sessions like an agent control room — surfacing not ju
 | `Cmd+Shift+A` / `Ctrl+Shift+A` | Focus next session needing attention |
 | `Cmd+Shift+G` / `Ctrl+Shift+G` | Toggle grid overview |
 
+## Security & Trust
+
+These fork builds are **unsigned** and are **not audited, reviewed, or vouched for by anyone**.
+For anything you care about, **build it yourself from source** rather than trusting a prebuilt
+binary from a third party:
+
+```bash
+git clone https://github.com/deadeye636/switchboard.git
+cd switchboard
+npm install
+npm run build   # or build:win / build:mac / build:linux
+```
+
+That way you run exactly the code you can read and audit, with no trust placed in an opaque
+artifact. Any prebuilt release is **convenience-only** — see the disclaimer at the top of this
+README: no warranty, no liability, use at your own risk.
+
 ## Download
 
-Grab the latest release for your platform:
+Prebuilt (unsigned) releases for your platform — **convenience only**, prefer building from
+source (see [Security & Trust](#security--trust)):
 
-**[Download Switchboard](https://github.com/doctly/switchboard/releases/latest)**
+**[Download Switchboard](https://github.com/deadeye636/switchboard/releases/latest)**
 
 - **macOS**: `.dmg` (Apple Silicon & Intel)
 - **Windows**: `.exe` installer
@@ -239,3 +290,18 @@ scripts/           Build & postinstall scripts
 build/             Icons, entitlements, builder resources
 .github/workflows/ CI/CD
 ```
+
+## License & Credits
+
+Licensed under the **MIT License** — see [`LICENSE`](LICENSE). MIT includes an explicit
+**no-warranty / no-liability** clause; it applies in full to this fork.
+
+**Credits.** Switchboard was created by **[Doctly](https://github.com/doctly/switchboard)** and
+substantially extended by **[HaydnG](https://github.com/HaydnG/switchboard)** and
+**[JeanBaptisteRenard](https://github.com/JeanBaptisteRenard/switchboard)**. **Nearly all of the
+work and merit belongs to them.** This fork (deadeye) only adds a small set of our own features on
+top and repackages the app for our own use. Some of those additions are themselves ports of other
+community forks (brianstanley, kreaddis), credited in the commit history.
+
+This fork is **not affiliated with, endorsed by, or supported by** Anthropic, Doctly, or any of the
+upstream authors.

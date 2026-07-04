@@ -1,7 +1,14 @@
 # Fork Features
 
-Everything in this fork (`HaydnG/switchboard`) that is **not** in the upstream
-project (`doctly/switchboard`). The fork takes upstream `v0.0.30` to `v0.1.0`,
+> **Lineage.** This repo (codename *deadeye*) is a downstream fork of a fork:
+> `doctly/switchboard` (original) → `HaydnG/switchboard` (base) →
+> `JeanBaptisteRenard/switchboard` (feature source) → **this fork**. Nearly all of the
+> work and credit belongs to the upstream authors. **Waves 1–3 below document what the
+> HaydnG base adds over upstream `doctly`** (inherited by this fork). **Wave 4 documents
+> what *this* fork adds on top of HaydnG.**
+
+Everything in the HaydnG base fork (`HaydnG/switchboard`) that is **not** in the upstream
+project (`doctly/switchboard`). The base fork takes upstream `v0.0.30` to `v0.1.0`,
 adding two major feature waves plus a set of reliability/packaging fixes.
 
 At a glance:
@@ -240,6 +247,51 @@ Smaller but important changes (mostly in main/Node-side files).
   name collision), plus multi-size Linux **icons** (`build/icons/`).
 - Fork release pipeline via GitHub Actions with **unsigned fork builds** (no
   signing secrets required), publishing to `HaydnG/switchboard`.
+
+---
+
+## Wave 4 — deadeye fork additions (on top of HaydnG)
+
+Everything below is added by **this fork** on top of the HaydnG base. Derived via
+`git diff haydng/main...main`. Some items are ports of other community forks (noted).
+
+### UI / window
+- **Tabbed single-view** as the primary layout — session tabs, viewer close buttons; the
+  grid is kept as a legacy mode. Right-click **tab context menu** (Close / Stop / Relaunch),
+  auto-close, and removal of the top menubar for a cleaner window.
+- **Settings overhaul** — two-column layout, sticky Save/Cancel bar, optional pop-out
+  settings window, permission modes aligned to the Claude CLI.
+- **About tab.**
+
+### Projects & sidebar
+- **Projects tab** — dedicated project management: add manually vs. automatically, hide /
+  restore, rename, and a per-project `.work-files/` browser (view, delete, JSON/JSONL export).
+- **Sidebar** — favorite projects, project sorting, an own favorites list, and a
+  startup-collapse setting.
+
+### Terminal
+- Configurable **font / size / zoom** (Ctrl+mouse-wheel + status-bar buttons), **clipboard
+  image & file paste** via Ctrl+V, a right-click **behavior dropdown** (Menu / Copy / Paste /
+  Native), a **mouse-reporting** toggle, an **external-terminal + file-explorer** launcher,
+  and a batch of **Windows ConPTY** rendering fixes.
+- **Bookmarks & session tags** (SQLite).
+- **Saved Variables** — reusable snippet/template panel with quick-pick, insert-template and
+  a management tab (port of **brianstanley**).
+
+### Supervision extensions
+- **Handoff library** — save packets, editable prompt, resume, direct "New session" seed,
+  and target selection in the review dialog (extends inherited feature #03/#04).
+- **Per-session AFK timeout.**
+- **Attention inbox** made configurable — "Running" mode ("timed"), "Working" removed.
+- **Token/usage stats** — per-(session, date, model) token/tool/message metrics into the DB.
+- **Usage** as status-bar color-threshold progress bars.
+- **Search** — 3-char minimum + explicit reindex (Enter / refresh button).
+
+### Infra / hardening / tooling
+- Ported **security hardening** (kreaddis #46) + dependency audit fixes.
+- **`upstream:check`** tooling to detect portable upstream changes across all fork branches.
+- **German-based workflow** — Conventional-Commits in German, backlog migrated to GitHub Issues.
+- Windows build path for **VS 2026** (node-gyp 13 override, node-pty Spectre-off patch).
 
 ---
 
