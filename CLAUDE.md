@@ -119,3 +119,7 @@ The win target is **x64-only** (arm64 toolchain not available here).
 - **New fork feature → document it.** When you add a feature unique to this fork (not inherited
   from upstream), add it to the **README "What this fork adds"** list **and** to
   `docs/fork-features.md` (Wave 4). Keep entries terse and matched to the existing style.
+- **No personal or local identifiers in public artifacts.** Never write absolute paths, local
+  machine references (`C:\Users\<name>`, drive letters, home dirs), or personal names/emails into
+  issues, commit messages, code, or docs — use generic placeholders (`~`, `<project>`, `<user>`).
+  This repo is public: issues, issue **edit history**, and git history are all world-readable.
