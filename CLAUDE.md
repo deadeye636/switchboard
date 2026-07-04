@@ -116,3 +116,6 @@ The win target is **x64-only** (arm64 toolchain not available here).
 - **User-facing UI text is English** (settings labels/descriptions, sidebar labels, dialogs,
   tooltips) — match the existing strings. Commit messages are English (see above); code
   comments are English too, and anything shown in the app is English.
+- **New fork feature → document it.** When you add a feature unique to this fork (not inherited
+  from upstream), add it to the **README "What this fork adds"** list **and** to
+  `docs/fork-features.md` (Wave 4). Keep entries terse and matched to the existing style.
