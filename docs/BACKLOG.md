@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (17 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (18 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-04
 
@@ -33,3 +33,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#50](https://github.com/deadeye636/switchboard/issues/50) Per-session API key override · _port, source:brianstanley_
 - [#66](https://github.com/deadeye636/switchboard/issues/66) Create tasks from the message transcript · _feature_
 - [#67](https://github.com/deadeye636/switchboard/issues/67) Remove session-level bookmarks · _chore_
+- [#69](https://github.com/deadeye636/switchboard/issues/69) Open files in a configurable external editor · _feature_
