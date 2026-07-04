@@ -46,20 +46,20 @@ test('classifyLinkUri distinguishes file, url, and neither', () => {
 test('menu over a file link offers file actions then a separator then generic', () => {
   const items = buildTerminalMenuItems({ linkUri: 'file:///a/b.ts', hasSelection: true });
   const ids = items.map((i) => (i === null ? '---' : i.id));
-  assert.deepStrictEqual(ids, ['open-panel', 'open-system', 'copy-path', '---', 'copy', 'paste', 'select-all', '---', 'bookmark']);
+  assert.deepStrictEqual(ids, ['open-panel', 'open-system', 'copy-path', '---', 'copy', 'paste', 'select-all', '---', 'create-task']);
 });
 
 test('menu over a url link offers browser/copy-link', () => {
   const ids = buildTerminalMenuItems({ linkUri: 'https://x.dev', hasSelection: false })
     .map((i) => (i === null ? '---' : i.id));
-  assert.deepStrictEqual(ids, ['open-browser', 'copy-link', '---', 'paste', 'select-all', '---', 'bookmark']);
+  assert.deepStrictEqual(ids, ['open-browser', 'copy-link', '---', 'paste', 'select-all']);
 });
 
 test('menu with no link and no selection: no link separator, no copy', () => {
   const items = buildTerminalMenuItems({ linkUri: null, hasSelection: false });
   const ids = items.map((i) => (i === null ? '---' : i.id));
-  // Only the bookmark separator remains (no link section → no leading separator).
-  assert.deepStrictEqual(ids, ['paste', 'select-all', '---', 'bookmark']);
+  // No link section and no variables → just the generic actions, no separators.
+  assert.deepStrictEqual(ids, ['paste', 'select-all']);
   assert.ok(!ids.includes('copy'));
 });
 
@@ -177,8 +177,8 @@ test('showTerminalContextMenu renders file-link actions and clicking opens the p
     );
     const labels = [...h.window.document.querySelectorAll('.terminal-context-menu .popover-option')]
       .map((b) => b.textContent);
-    assert.deepStrictEqual(labels, ['Open in panel', 'Open in system editor', 'Copy path', 'Paste', 'Select all', 'Bookmark session']);
-    assert.strictEqual(h.window.document.querySelectorAll('.popover-separator').length, 2);
+    assert.deepStrictEqual(labels, ['Open in panel', 'Open in system editor', 'Copy path', 'Paste', 'Select all']);
+    assert.strictEqual(h.window.document.querySelectorAll('.popover-separator').length, 1);
 
     buttonByLabel(h.window, 'Open in panel').click();
     assert.deepStrictEqual(h.calls.openFileInPanel, [['s1', '/a/b.ts']]);

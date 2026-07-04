@@ -54,7 +54,7 @@ function classifyLinkUri(uri) {
 // `isBookmarked` toggles the bookmark label add↔remove. `variableGroups` (when
 // provided as an array of { key, label, vars:[{id,name,secret}] }) appends the
 // Variables submenu; omit it (null) to leave the menu unchanged (e.g. tests).
-function buildTerminalMenuItems({ linkUri, hasSelection, isBookmarked = false, variableGroups = null }) {
+function buildTerminalMenuItems({ linkUri, hasSelection, variableGroups = null }) {
   const items = [];
   const link = classifyLinkUri(linkUri);
   if (link.kind === 'file') {
@@ -69,8 +69,10 @@ function buildTerminalMenuItems({ linkUri, hasSelection, isBookmarked = false, v
   if (hasSelection) items.push({ id: 'copy', label: 'Copy' });
   items.push({ id: 'paste', label: 'Paste' });
   items.push({ id: 'select-all', label: 'Select all' });
-  items.push(null);
-  items.push({ id: 'bookmark', label: isBookmarked ? 'Remove session bookmark' : 'Bookmark session' });
+  if (hasSelection) {
+    items.push(null);
+    items.push({ id: 'create-task', label: 'Create task from selection' });
+  }
   if (Array.isArray(variableGroups)) {
     const children = [];
     for (const group of variableGroups) {
@@ -87,6 +89,7 @@ function buildTerminalMenuItems({ linkUri, hasSelection, isBookmarked = false, v
     if (children.length) {
       children.push(null);
       children.push({ id: 'manage-variables', label: 'Manage variables…' });
+      items.push(null); // separator before the Variables submenu
       items.push({ id: 'variables', label: 'Variables', children });
     }
   }
@@ -108,15 +111,6 @@ function pasteIntoTerminal(terminal, sessionId, text) {
     return;
   }
   if (terminal && typeof terminal.paste === 'function') terminal.paste(text);
-}
-
-// Fetch whether the session carries a session-level bookmark (SESSION_ANCHOR = -1).
-async function isSessionBookmarked(sessionId) {
-  if (!sessionId) return false;
-  try {
-    const rows = await window.api.bookmarkList(sessionId);
-    return Array.isArray(rows) && rows.some(r => r && r.entryIndex === -1);
-  } catch { return false; }
 }
 
 // Fetch saved variables for the session's project and group them by scope for
@@ -189,8 +183,10 @@ async function runTerminalMenuAction(id, ctx) {
     case 'select-all':
       terminal.selectAll();
       break;
-    case 'bookmark':
-      window.bookmarksTags?.bookmarkSession(sessionId);
+    case 'create-task':
+      if (terminal.hasSelection() && window.tasksView) {
+        window.tasksView.createFromSource({ sessionId, quote: terminal.getSelection() });
+      }
       break;
   }
   // Restore focus to the terminal for in-terminal actions — the menu button
@@ -338,24 +334,20 @@ function showTerminalContextMenu(event, ctx) {
   enhanceTerminalMenu(menu, fullCtx, { hasSelection, linkUri: ctx.linkUri, x: event.clientX, y: event.clientY });
 }
 
-// Fill in the bookmark toggle label + Variables submenu once the async DB
-// lookups resolve, if the same menu is still open. No-op when neither applies
-// (e.g. the api bindings are absent under test).
+// Fill in the Variables submenu once the async DB lookup resolves, if the same
+// menu is still open. No-op when there are no variables (e.g. the api bindings
+// are absent under test).
 async function enhanceTerminalMenu(menu, ctx, base) {
-  let isBookmarked = false;
   let variableGroups = [];
   try {
-    [isBookmarked, variableGroups] = await Promise.all([
-      isSessionBookmarked(ctx.sessionId),
-      fetchVariableGroups(ctx.projectPath),
-    ]);
+    variableGroups = await fetchVariableGroups(ctx.projectPath);
   } catch { return; }
   if (activeTerminalMenu !== menu) return; // closed or replaced while awaiting
   const hasVars = Array.isArray(variableGroups) && variableGroups.some(g => g && g.vars && g.vars.length);
-  if (!isBookmarked && !hasVars) return;
+  if (!hasVars) return;
   menu.replaceChildren();
   renderMenuItems(menu, buildTerminalMenuItems({
-    linkUri: base.linkUri, hasSelection: base.hasSelection, isBookmarked, variableGroups,
+    linkUri: base.linkUri, hasSelection: base.hasSelection, variableGroups,
   }), ctx);
   positionTerminalMenu(menu, base.x, base.y);
 }

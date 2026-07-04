@@ -43,6 +43,7 @@ const memoryPanel = new ViewerPanel(memoryViewer, {
 const workFilesContent = document.getElementById('work-files-content');
 const workFilesViewer = document.getElementById('work-files-viewer');
 const projectsViewer = document.getElementById('projects-viewer');
+const tasksViewer = document.getElementById('tasks-viewer');
 const variablesAdminContent = document.getElementById('variables-admin-content');
 const workFilesPanel = new ViewerPanel(workFilesViewer, {
   copyPath: true, copyContent: true,
@@ -1962,6 +1963,9 @@ if (timelineKindFilter) {
 // Terminal lifecycle (createTerminalEntry, destroySession, showSession, setupDragAndDrop) → terminal-manager.js
 
 async function openSession(session, customOptions) {
+  // Opening a terminal session is a fresh navigation — drop any pending
+  // "return to tasks" target so a later viewer-close doesn't jump back to tasks.
+  window.__tasksReturnTarget = null;
   const { sessionId, projectPath } = session;
 
   // If already open, handle closed-session cleanup or just show it
@@ -2236,6 +2240,14 @@ initGridObservers();
 // Close any open viewer overlay (Message History / Timeline / etc.) and restore
 // the terminal area — grid, the active single session, or the placeholder.
 function returnToTerminal() {
+  // If a viewer (e.g. View messages) was opened by jumping from a task, closing
+  // it returns to that task list instead of the terminal.
+  if (window.__tasksReturnTarget && typeof openTasksView === 'function') {
+    const t = window.__tasksReturnTarget;
+    window.__tasksReturnTarget = null;
+    openTasksView(t.filter, t.label);
+    return;
+  }
   hideAllViewers();
   if (gridViewActive) {
     placeholder.style.display = 'none';
@@ -2280,6 +2292,25 @@ async function reapplyGlobalSettings() {
     btn.addEventListener('click', returnToTerminal);
   });
 
+  // Terminal-header toolbar: View messages + Tasks scoped to the active session.
+  const activeSessionObject = () =>
+    (activeSessionId && openSessions.has(activeSessionId)) ? openSessions.get(activeSessionId).session : null;
+  const messagesBtn = document.getElementById('terminal-messages-btn');
+  if (messagesBtn) {
+    messagesBtn.addEventListener('click', () => {
+      const s = activeSessionObject();
+      if (s && typeof showJsonlViewer === 'function') showJsonlViewer(s);
+    });
+  }
+  const sessionTasksBtn = document.getElementById('terminal-tasks-btn');
+  if (sessionTasksBtn) {
+    sessionTasksBtn.addEventListener('click', () => {
+      const s = activeSessionObject();
+      if (!s || typeof openTasksView !== 'function') return;
+      openTasksView({ sessionId: s.sessionId }, 'Session · ' + (s.name || s.aiTitle || s.summary || s.sessionId));
+    });
+  }
+
   // Settings pop-out: open the standalone settings window, close the in-app overlay.
   const popoutBtn = document.getElementById('settings-popout-btn');
   if (popoutBtn) {
@@ -2308,7 +2339,8 @@ async function reapplyGlobalSettings() {
   document.addEventListener('keydown', (e) => {
     if (e._handled) return;
     // Esc closes an open Message History / Timeline viewer → back to terminal.
-    if (e.key === 'Escape' && (jsonlViewer.style.display !== 'none' || timelineViewer.style.display !== 'none')) {
+    if (e.key === 'Escape' && (jsonlViewer.style.display !== 'none' || timelineViewer.style.display !== 'none'
+        || (tasksViewer && tasksViewer.style.display !== 'none'))) {
       e.preventDefault();
       returnToTerminal();
       return;
@@ -2329,6 +2361,12 @@ async function reapplyGlobalSettings() {
     if (matchShortcut('toggleBookmark', e, isMac, appShortcuts)) {
       e.preventDefault();
       window.bookmarksTags?.handleBookmarkShortcut();
+      return;
+    }
+    // Create task from the current transcript selection (default Cmd/Ctrl+Shift+T).
+    if (matchShortcut('createTask', e, isMac, appShortcuts)) {
+      e.preventDefault();
+      window.bookmarksTags?.createTaskFromSelection();
       return;
     }
     // Session navigation: Cmd+Shift+[/], Cmd+Arrow

@@ -2303,6 +2303,8 @@ input:focus-visible {
   background: #6a6a80;
 }
 
+#terminal-messages-btn,
+#terminal-tasks-btn,
 #terminal-variables-btn,
 #terminal-stop-btn {
   cursor: pointer;
@@ -2317,6 +2319,8 @@ input:focus-visible {
   transition: all 0.15s;
 }
 
+#terminal-messages-btn,
+#terminal-tasks-btn,
 #terminal-variables-btn {
   color: #8a8aa0;
 }
@@ -2325,6 +2329,8 @@ input:focus-visible {
   color: #9b4058;
 }
 
+#terminal-messages-btn:hover,
+#terminal-tasks-btn:hover,
 #terminal-variables-btn:hover {
   color: #c0c0d0;
   background: rgba(255,255,255,0.06);
@@ -4366,8 +4372,9 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
   color: #8088ff;
 }
 
-/* Project header schedule button */
-.project-schedule-btn {
+/* Project header schedule + tasks buttons */
+.project-schedule-btn,
+.project-tasks-btn {
   background: transparent;
   border: none;
   color: #7a7a90;
@@ -4385,17 +4392,24 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
   opacity: 0.7;
 }
 
-.project-schedule-btn svg {
+.project-schedule-btn svg,
+.project-tasks-btn svg {
   display: block;
 }
 
-.project-header:hover .project-schedule-btn {
+.project-header:hover .project-schedule-btn,
+.project-header:hover .project-tasks-btn {
   opacity: 1;
 }
 
 .project-schedule-btn:hover {
   background: rgba(255,180,50,0.1);
   color: #e0a030;
+}
+
+.project-tasks-btn:hover {
+  background: rgba(152,195,121,0.12);
+  color: #98c379;
 }
 
 /* Project header gear button */
@@ -6865,29 +6879,73 @@ body.grid-dragging .grid-card-header {
 }
 #jsonl-bookmarks-btn:hover { color: #e5c07b; background: rgba(255, 255, 255, 0.06); }
 
-/* Per-message bookmark toggle (gutter, shown on entry hover or when active) */
+/* Per-message action gutter (bookmark · copy · task) — shown on entry hover */
 .jsonl-entry-bookmarkable { position: relative; }
-.jsonl-bookmark-toggle {
+.jsonl-entry-gutter {
   position: absolute;
   top: 4px;
   right: 4px;
-  background: none;
-  border: none;
-  color: #6a6a80;
-  cursor: pointer;
-  padding: 2px;
-  border-radius: 4px;
-  opacity: 0;
-  transition: opacity 0.1s ease, color 0.1s ease;
+  display: flex;
+  gap: 2px;
+  z-index: 2;
 }
-.jsonl-entry-bookmarkable:hover .jsonl-bookmark-toggle { opacity: 1; }
+.jsonl-gutter-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(20, 20, 28, 0.72);
+  color: #7a7a90;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease, color 0.1s ease, background 0.1s ease;
+}
+.jsonl-entry-bookmarkable:hover .jsonl-gutter-btn { opacity: 1; }
+.jsonl-gutter-btn:hover { background: rgba(255, 255, 255, 0.08); }
 .jsonl-bookmark-toggle:hover { color: #e5c07b; }
+.jsonl-copy-btn:hover { color: #61afef; }
+.jsonl-task-btn:hover { color: #98c379; }
 .jsonl-bookmark-toggle.active { opacity: 1; color: #e5c07b; }
 .jsonl-entry.bookmarked { box-shadow: inset 3px 0 0 #e5c07b; }
 .jsonl-entry.bm-flash { animation: bm-flash 1.2s ease; }
 @keyframes bm-flash {
   0% { background: rgba(229, 192, 123, 0.25); }
   100% { background: transparent; }
+}
+
+/* Floating "+ Task" affordance on a transcript text selection */
+.jsonl-selection-task-btn {
+  position: fixed;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  font-size: 12px;
+  color: #d8d8e4;
+  background: #2a2a38;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+.jsonl-selection-task-btn:hover { background: #34344a; color: #fff; }
+.jsonl-selection-task-btn svg { flex-shrink: 0; }
+
+/* Transcript right-click menu (the bare .popover class has no surface of its own) */
+.jsonl-context-menu {
+  position: fixed;
+  z-index: 1001;
+  min-width: 190px;
+  background: #1e1e2a;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 
 /* Sidebar tag chips */
@@ -8012,3 +8070,226 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .va-primary:hover { background: #e08765; }
 .va-secondary { background: #23232c; border-color: rgba(255,255,255,0.1); color: #c0c0d0; }
 .va-secondary:hover { border-color: rgba(255,255,255,0.2); }
+
+/* ========== TASKS VIEWER (task/note system) ========== */
+#tasks-viewer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: #111118;
+}
+.tv-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: #18181f;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+.tv-heading {
+  font-size: 13px;
+  font-weight: 500;
+  color: #b0b0c4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+.tv-header select,
+.tv-search {
+  height: 26px;
+  background: #23232c;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  color: #d0d0e0;
+  font-size: 12px;
+  padding: 0 8px;
+}
+.tv-search { flex: 1; min-width: 120px; }
+.tv-search:focus,
+.tv-header select:focus { outline: none; border-color: rgba(120, 160, 230, 0.6); }
+.tv-new {
+  height: 26px;
+  padding: 0 12px;
+  background: #f0885a;
+  border: none;
+  border-radius: 5px;
+  color: #1a1a20;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tv-new:hover { background: #e08765; }
+.tv-refresh {
+  height: 26px;
+  width: 26px;
+  background: #23232c;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  color: #c0c0d0;
+  cursor: pointer;
+}
+.tv-refresh:hover { border-color: rgba(255, 255, 255, 0.2); }
+.tv-header .viewer-header-close { margin-left: 2px; }
+
+.tv-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tv-body::-webkit-scrollbar { width: 5px; }
+.tv-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.06); border-radius: 3px; }
+.tv-loading, .tv-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: #6a6a80;
+  font-size: 13px;
+}
+
+.tv-card {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px 22px;
+  background: #17171f;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+}
+.tv-dates {
+  position: absolute;
+  right: 12px;
+  bottom: 7px;
+  font-size: 10px;
+  color: #6a6a80;
+  white-space: nowrap;
+}
+.tv-card[data-status="done"] { opacity: 0.65; }
+.tv-card[data-status="dropped"] { opacity: 0.5; }
+.tv-status {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tv-status-open { background: rgba(97, 175, 239, 0.15); color: #61afef; border-color: rgba(97, 175, 239, 0.35); }
+.tv-status-in_progress { background: rgba(229, 192, 123, 0.15); color: #e5c07b; border-color: rgba(229, 192, 123, 0.35); }
+.tv-status-done { background: rgba(152, 195, 121, 0.15); color: #98c379; border-color: rgba(152, 195, 121, 0.35); }
+.tv-status-dropped { background: rgba(255, 255, 255, 0.06); color: #8a8a9e; border-color: rgba(255, 255, 255, 0.12); }
+.tv-status:hover { filter: brightness(1.2); }
+.tv-main { flex: 1; min-width: 0; }
+.tv-title { font-size: 13px; color: #e0e0ec; font-weight: 500; word-break: break-word; }
+.tv-meta { margin-top: 3px; font-size: 11px; color: #7a7a90; }
+.tv-note { margin-top: 6px; font-size: 12px; color: #b8b8c8; white-space: pre-wrap; word-break: break-word; }
+.tv-quote {
+  margin: 6px 0 0;
+  padding: 4px 10px;
+  border-left: 2px solid rgba(255, 255, 255, 0.15);
+  color: #8f8fa4;
+  font-size: 12px;
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 4.5em;
+  overflow: hidden;
+}
+.tv-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.tv-actions button {
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #6a6a80;
+  font-size: 14px;
+  cursor: pointer;
+}
+.tv-actions button:hover { background: rgba(255, 255, 255, 0.08); color: #d0d0e0; }
+.tv-actions .tv-danger:hover { color: #e06c75; }
+
+.tv-dialog {
+  min-width: 480px;
+  max-width: 92vw;
+  padding: 20px 22px;
+}
+.tv-dialog .bm-dialog-title { font-size: 15px; margin-bottom: 12px; }
+.tv-dialog .bm-dialog-input { font-size: 14px; padding: 8px 10px; }
+.tv-dialog-quote {
+  margin: 0 0 10px;
+  padding: 5px 10px;
+  border-left: 2px solid rgba(255, 255, 255, 0.15);
+  color: #8f8fa4;
+  font-size: 12px;
+  font-style: italic;
+  white-space: pre-wrap;
+  max-height: 6em;
+  overflow-y: auto;
+}
+.tv-dialog-note {
+  width: 100%;
+  margin-top: 10px;
+  min-height: 96px;
+  background: #1a1a22;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  color: #d0d0e0;
+  font-size: 13px;
+  font-family: inherit;
+  padding: 8px 10px;
+  resize: vertical;
+}
+.tv-dialog-note:focus { outline: none; border-color: rgba(120, 160, 230, 0.6); }
+.tv-dialog-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #9a9aae;
+}
+.tv-dialog-status select {
+  flex: 1;
+  height: 28px;
+  background: #1a1a22;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  color: #d0d0e0;
+  font-size: 13px;
+  padding: 0 8px;
+}
+.tv-dialog-status select:focus { outline: none; border-color: rgba(120, 160, 230, 0.6); }
+
+/* Status pulldown from the card badge (the bare .popover class has no surface) */
+.tv-status-menu {
+  position: fixed;
+  z-index: 1001;
+  min-width: 140px;
+  background: #1e1e2a;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.tv-status-menu .tv-status-opt { display: flex; align-items: center; gap: 8px; }
+.tv-status-menu .tv-status-opt::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.tv-status-menu .tv-opt-open { color: #61afef; }
+.tv-status-menu .tv-opt-in_progress { color: #e5c07b; }
+.tv-status-menu .tv-opt-done { color: #98c379; }
+.tv-status-menu .tv-opt-dropped { color: #8a8a9e; }
+.tv-status-menu .tv-status-current { font-weight: 600; background: rgba(255, 255, 255, 0.06); }

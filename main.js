@@ -57,6 +57,7 @@ const {
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   toggleBookmark, removeBookmark, listBookmarks,
+  createTask, listTasks, getTask, updateTask, removeTask,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
@@ -2336,6 +2337,44 @@ ipcMain.handle('bookmark-remove', (_event, id) => {
 });
 ipcMain.handle('bookmark-list', (_event, sessionId) => {
   return listBookmarks(sessionId || null);
+});
+
+// --- IPC: tasks (scoped task/note system) ---
+
+// Enrich raw task rows with display names (project + session), resolved from the
+// session cache. Kept out of the DB layer so the stored rows stay minimal.
+function enrichTasks(rows) {
+  const displayNames = getProjectDisplayNames() || {};
+  return (rows || []).map((t) => {
+    const cached = t.sessionId ? getCachedSession(t.sessionId) : null;
+    const sessionName = cached
+      ? (cached.name || cached.aiTitle || cached.summary || t.sessionId)
+      : (t.sessionId || null);
+    const projectDisplayName = t.projectPath
+      ? (displayNames[t.projectPath] || t.projectPath)
+      : null;
+    return { ...t, sessionName, projectDisplayName };
+  });
+}
+
+ipcMain.handle('task-create', (_event, payload) => {
+  const task = createTask(payload || {});
+  if (!task) return { error: 'Invalid task (title required)' };
+  return { task: enrichTasks([task])[0] };
+});
+ipcMain.handle('task-list', (_event, filter) => {
+  return { tasks: enrichTasks(listTasks(filter || {})) };
+});
+ipcMain.handle('task-update', (_event, payload) => {
+  const { id, ...fields } = payload || {};
+  if (id == null) return { error: 'Missing task id' };
+  const task = updateTask(id, fields);
+  if (!task) return { error: 'Task not found' };
+  return { task: enrichTasks([task])[0] };
+});
+ipcMain.handle('task-remove', (_event, id) => {
+  removeTask(id);
+  return { ok: true };
 });
 
 // --- IPC: project handoffs (Handoff library) ---

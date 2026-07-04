@@ -147,18 +147,61 @@
     return 'Bookmark';
   }
 
-  function decorateJsonlEntry(el, entry, sessionId, entryIndex) {
+  const ICON_BOOKMARK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
+  const ICON_COPY = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  const ICON_TASK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>';
+
+  // Raw text of a transcript entry, for copy + task quote. Prefers the JSONL
+  // getEntryText (raw markdown); falls back to the rendered text nodes.
+  function entryText(entry, el) {
+    let t = '';
+    if (entry && typeof getEntryText === 'function') {
+      try { t = getEntryText(entry) || ''; } catch { /* fall through */ }
+    }
+    if (!t && el) t = entryElText(el);
+    return t;
+  }
+
+  // Rendered text of an entry element, excluding the gutter buttons (SVG-only).
+  function entryElText(el) {
+    const parts = el.querySelectorAll('.jsonl-text');
+    if (parts.length) return Array.from(parts).map(n => n.textContent).join('\n').trim();
+    return (el.textContent || '').trim();
+  }
+
+  async function copyEntry(entry, el) {
+    const text = entryText(entry, el);
+    if (!text) return;
+    try { await window.api.writeClipboard(text); toast('Copied.'); } catch { /* ignore */ }
+  }
+
+  function createTaskFromEntry(sessionId, entryIndex, entry, el) {
+    if (!window.tasksView || typeof window.tasksView.createFromSource !== 'function') return;
+    window.tasksView.createFromSource({ sessionId, entryIndex, quote: entryText(entry, el) });
+  }
+
+  function gutterButton(cls, title, icon, onClick) {
     const btn = document.createElement('button');
-    btn.className = 'jsonl-bookmark-toggle';
-    btn.title = 'Bookmark this message';
-    btn.setAttribute('aria-label', btn.title);
-    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleEntry(sessionId, entryIndex, entry, el);
-    });
+    btn.className = 'jsonl-gutter-btn ' + cls;
+    btn.title = title;
+    btn.setAttribute('aria-label', title);
+    btn.innerHTML = icon;
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    return btn;
+  }
+
+  // A hover-revealed gutter at the front of each message: bookmark · copy · task.
+  function decorateJsonlEntry(el, entry, sessionId, entryIndex) {
+    const gutter = document.createElement('div');
+    gutter.className = 'jsonl-entry-gutter';
+    gutter.appendChild(gutterButton('jsonl-bookmark-toggle', 'Bookmark this message', ICON_BOOKMARK,
+      () => toggleEntry(sessionId, entryIndex, entry, el)));
+    gutter.appendChild(gutterButton('jsonl-copy-btn', 'Copy message text', ICON_COPY,
+      () => copyEntry(entry, el)));
+    gutter.appendChild(gutterButton('jsonl-task-btn', 'Create task from this message', ICON_TASK,
+      () => createTaskFromEntry(sessionId, entryIndex, entry, el)));
     el.classList.add('jsonl-entry-bookmarkable');
-    el.appendChild(btn);
+    el.insertBefore(gutter, el.firstChild);
   }
 
   async function afterRender(sessionId) {
@@ -204,23 +247,112 @@
     toast(res && res.bookmarked ? 'Bookmarked.' : 'Bookmark removed.');
   }
 
-  // Session-level bookmark from the live terminal (no message index).
-  async function bookmarkSession(sessionId) {
-    if (!sessionId) return;
-    let res;
-    try {
-      res = await window.api.bookmarkToggle({
-        sessionId,
-        entryIndex: SESSION_ANCHOR,
-        timestamp: new Date().toISOString(),
-        label: 'Session bookmark',
-      });
-    } catch { return; }
-    toast(res && res.bookmarked ? 'Session bookmarked.' : 'Session bookmark removed.');
+  // --- Transcript text selection → task ---
+
+  // The non-collapsed selection inside the transcript, resolved to its message
+  // anchor. Returns null when there's no usable selection in the viewer.
+  function selectionInTranscript() {
+    const body = document.getElementById('jsonl-viewer-body');
+    if (!body) return null;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return null;
+    const text = sel.toString().trim();
+    if (!text) return null;
+    const node = sel.anchorNode;
+    const start = node && (node.nodeType === 1 ? node : node.parentElement);
+    const entryEl = start && start.closest ? start.closest('[data-entry-index]') : null;
+    if (!entryEl || !body.contains(entryEl)) return null;
+    return { sessionId: currentJsonlSessionId(), entryIndex: Number(entryEl.dataset.entryIndex), text, range: sel.getRangeAt(0) };
+  }
+
+  function createTaskFromSelection() {
+    const s = selectionInTranscript();
+    if (!s || !window.tasksView) return;
+    window.tasksView.createFromSource({ sessionId: s.sessionId, entryIndex: s.entryIndex, quote: s.text });
+    hideSelectionButton();
+  }
+
+  // Floating "+ Task" affordance shown just below a fresh selection.
+  let selectionBtn = null;
+  function hideSelectionButton() {
+    if (selectionBtn) { selectionBtn.remove(); selectionBtn = null; }
+  }
+  function showSelectionButton() {
+    const s = selectionInTranscript();
+    if (!s) { hideSelectionButton(); return; }
+    const rect = s.range.getBoundingClientRect();
+    if (!rect || (!rect.width && !rect.height)) { hideSelectionButton(); return; }
+    hideSelectionButton();
+    selectionBtn = document.createElement('button');
+    selectionBtn.className = 'jsonl-selection-task-btn';
+    selectionBtn.innerHTML = ICON_TASK + '<span>Task</span>';
+    selectionBtn.style.top = (rect.bottom + 6) + 'px';
+    selectionBtn.style.left = rect.left + 'px';
+    // Keep the selection alive when pressing the button.
+    selectionBtn.addEventListener('mousedown', (e) => e.preventDefault());
+    selectionBtn.addEventListener('click', (e) => { e.stopPropagation(); createTaskFromSelection(); });
+    document.body.appendChild(selectionBtn);
+  }
+
+  // --- Transcript right-click menu: copy · task · bookmark ---
+
+  let transcriptMenu = null;
+  function closeTranscriptMenu() {
+    if (transcriptMenu) { transcriptMenu.remove(); transcriptMenu = null; }
+  }
+  function showTranscriptMenu(e) {
+    const entryEl = e.target.closest && e.target.closest('[data-entry-index]');
+    if (!entryEl) return; // outside a message → native menu
+    e.preventDefault();
+    closeTranscriptMenu();
+    const sessionId = currentJsonlSessionId();
+    const entryIndex = Number(entryEl.dataset.entryIndex);
+    const sel = selectionInTranscript();
+    const menu = document.createElement('div');
+    menu.className = 'popover jsonl-context-menu';
+    const add = (label, fn) => {
+      const b = document.createElement('button');
+      b.className = 'popover-option';
+      b.textContent = label;
+      b.addEventListener('click', () => { closeTranscriptMenu(); fn(); });
+      menu.appendChild(b);
+    };
+    add('Copy message', async () => {
+      const text = entryElText(entryEl);
+      if (text) { try { await window.api.writeClipboard(text); toast('Copied.'); } catch {} }
+    });
+    if (sel) add('Create task from selection', () => createTaskFromSelection());
+    add('Create task from message', () =>
+      window.tasksView?.createFromSource({ sessionId, entryIndex, quote: entryElText(entryEl) }));
+    const set = bookmarkCache.get(sessionId);
+    const isBm = set && set.has(entryIndex);
+    add(isBm ? 'Remove bookmark' : 'Bookmark message', () => toggleEntry(sessionId, entryIndex, null, entryEl));
+    document.body.appendChild(menu);
+    // Clamp to viewport.
+    const mw = menu.offsetWidth, mh = menu.offsetHeight;
+    menu.style.left = Math.min(e.clientX, window.innerWidth - mw - 8) + 'px';
+    menu.style.top = Math.min(e.clientY, window.innerHeight - mh - 8) + 'px';
+    transcriptMenu = menu;
+  }
+
+  // Wire the transcript interactions once (the body element is static in the DOM).
+  function initTranscriptInteractions() {
+    const body = document.getElementById('jsonl-viewer-body');
+    if (!body) return;
+    body.addEventListener('mouseup', () => setTimeout(showSelectionButton, 0));
+    body.addEventListener('contextmenu', showTranscriptMenu);
+    body.addEventListener('scroll', () => { hideSelectionButton(); closeTranscriptMenu(); });
+    document.addEventListener('mousedown', (e) => {
+      if (selectionBtn && !selectionBtn.contains(e.target)) hideSelectionButton();
+      if (transcriptMenu && !transcriptMenu.contains(e.target)) closeTranscriptMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { hideSelectionButton(); closeTranscriptMenu(); }
+    });
   }
 
   // --- Keyboard shortcut: bookmark the centered transcript message, else open
-  // the overlay. (The terminal path is handled separately via bookmarkSession.)
+  // the overlay.
 
   function jsonlViewerVisible() {
     const v = document.getElementById('jsonl-viewer');
@@ -355,6 +487,7 @@
     loadTagCache();
     const btn = document.getElementById('jsonl-bookmarks-btn');
     if (btn) btn.addEventListener('click', () => openOverlay());
+    initTranscriptInteractions();
   }
 
   if (document.readyState === 'loading') {
@@ -368,8 +501,9 @@
   window._decorateSessionItem = decorateSessionItem;
   window.bookmarksTags = {
     handleBookmarkShortcut,
-    bookmarkSession,
+    createTaskFromSelection,
     openOverlay,
+    openSessionAt,
     scrollToJsonlEntry,
     reloadTags: loadTagCache,
   };

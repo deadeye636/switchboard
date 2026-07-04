@@ -23,6 +23,8 @@ const DEFAULT_SHORTCUTS = {
   // Ctrl/Cmd+Shift+B — bookmark the current message (transcript viewer) or the
   // active session (terminal). Shift keeps the terminal's bare Ctrl+B free.
   toggleBookmark: { primary: true, alt: false, shift: true, key: 'b' },
+  // Ctrl/Cmd+Shift+T — create a task from the current transcript selection.
+  createTask: { primary: true, alt: false, shift: true, key: 't' },
 };
 
 // Metadata for rendering the settings UI and resolving each action's key family.
@@ -49,6 +51,12 @@ const SHORTCUT_DEFS = [
     id: 'toggleBookmark',
     label: 'Bookmark message',
     description: 'Bookmark the focused transcript message, or the active session from the terminal',
+    family: 'key',
+  },
+  {
+    id: 'createTask',
+    label: 'Create task from selection',
+    description: 'Create a task from the selected text in the message transcript',
     family: 'key',
   },
 ];

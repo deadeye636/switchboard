@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (14 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (17 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-04
 
@@ -14,9 +14,10 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 
 ## P2 — after that
 
-- [#35](https://github.com/deadeye636/switchboard/issues/35) Central bookmark view ("Bookmarks" tab) · _feature_
+- [#35](https://github.com/deadeye636/switchboard/issues/35) Local task/note system (scope-based) · _feature_
 - [#55](https://github.com/deadeye636/switchboard/issues/55) orphaned hidden projects · _bug_
 - [#64](https://github.com/deadeye636/switchboard/issues/64) Doubled working-status indicator (ghost line) only heals on resize · _bug_
+- [#68](https://github.com/deadeye636/switchboard/issues/68) Scope-filtered bookmark views (session / project / global) · _feature_
 
 ## P3 — someday
 
@@ -30,3 +31,5 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#45](https://github.com/deadeye636/switchboard/issues/45) Grid layout a11y + DOM tests · _feature_
 - [#49](https://github.com/deadeye636/switchboard/issues/49) HTML/MD preview panel (+ image preview) · _port, source:brianstanley_
 - [#50](https://github.com/deadeye636/switchboard/issues/50) Per-session API key override · _port, source:brianstanley_
+- [#66](https://github.com/deadeye636/switchboard/issues/66) Create tasks from the message transcript · _feature_
+- [#67](https://github.com/deadeye636/switchboard/issues/67) Remove session-level bookmarks · _chore_

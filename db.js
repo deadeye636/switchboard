@@ -148,6 +148,28 @@ db.exec(`
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_bookmarks_session ON bookmarks(sessionId)');
 
+// Tasks — a local task/note system. Every task is scoped: to a project only, to a
+// whole session, or to a specific transcript message (sessionId + entryIndex). No
+// UNIQUE anchor — several tasks may point at the same place. projectPath is
+// denormalized on insert so project-filtering stays reliable if the cache changes.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    projectPath TEXT,
+    sessionId TEXT,
+    entryIndex INTEGER,
+    scope TEXT NOT NULL,
+    title TEXT NOT NULL,
+    note TEXT,
+    quote TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(projectPath)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(sessionId)');
+
 // Session tags — colored labels, many per session, shown as sidebar chips.
 db.exec(`
   CREATE TABLE IF NOT EXISTS session_tags (
@@ -422,6 +444,16 @@ const stmts = {
   bookmarkDeleteById: db.prepare('DELETE FROM bookmarks WHERE id = ?'),
   bookmarkListAll: db.prepare('SELECT * FROM bookmarks ORDER BY createdAt DESC'),
   bookmarkListBySession: db.prepare('SELECT * FROM bookmarks WHERE sessionId = ? ORDER BY entryIndex ASC'),
+  // Tasks (scoped task/note system)
+  taskInsert: db.prepare(`INSERT INTO tasks (projectPath, sessionId, entryIndex, scope, title, note, quote, status, createdAt, updatedAt)
+    VALUES (@projectPath, @sessionId, @entryIndex, @scope, @title, @note, @quote, @status, @createdAt, @updatedAt)`),
+  taskGet: db.prepare('SELECT * FROM tasks WHERE id = ?'),
+  taskUpdateFields: db.prepare('UPDATE tasks SET title = ?, note = ?, status = ?, updatedAt = ? WHERE id = ?'),
+  taskUpdateStatus: db.prepare('UPDATE tasks SET status = ?, updatedAt = ? WHERE id = ?'),
+  taskDeleteById: db.prepare('DELETE FROM tasks WHERE id = ?'),
+  taskListAll: db.prepare('SELECT * FROM tasks ORDER BY createdAt DESC'),
+  taskListByProject: db.prepare('SELECT * FROM tasks WHERE projectPath = ? ORDER BY createdAt DESC'),
+  taskListBySession: db.prepare('SELECT * FROM tasks WHERE sessionId = ? ORDER BY createdAt DESC'),
   // Project handoffs (Handoff library)
   handoffInsert: db.prepare('INSERT INTO project_handoffs (projectPath, label, content, createdAt) VALUES (?, ?, ?, ?)'),
   handoffListByProject: db.prepare('SELECT id, label, content, createdAt FROM project_handoffs WHERE projectPath = ? ORDER BY createdAt DESC'),
@@ -672,6 +704,82 @@ function removeBookmark(id) {
 // All bookmarks (newest first) or just one session's (in transcript order).
 function listBookmarks(sessionId) {
   return sessionId ? stmts.bookmarkListBySession.all(sessionId) : stmts.bookmarkListAll.all();
+}
+
+// --- Tasks (scoped task/note system) ---
+
+const TASK_STATUSES = ['open', 'in_progress', 'done', 'dropped'];
+const TASK_SCOPES = ['project', 'session', 'message'];
+
+// Create a task. Scope is derived if not passed. projectPath is resolved from the
+// session cache when a sessionId is given but no projectPath — so project-scoped
+// filtering keeps working even if the session cache is later cleared.
+function createTask(input) {
+  const t = input || {};
+  const sessionId = t.sessionId || null;
+  const entryIndex = Number.isFinite(Number(t.entryIndex)) && Number(t.entryIndex) >= 0
+    ? Number(t.entryIndex) : null;
+  const scope = TASK_SCOPES.includes(t.scope)
+    ? t.scope
+    : (entryIndex != null ? 'message' : (sessionId ? 'session' : 'project'));
+  let projectPath = t.projectPath || null;
+  if (!projectPath && sessionId) {
+    const cached = getCachedSession(sessionId);
+    projectPath = (cached && cached.projectPath) || null;
+  }
+  const title = String(t.title || '').trim();
+  if (!title) return null;
+  const now = Date.now();
+  const status = TASK_STATUSES.includes(t.status) ? t.status : 'open';
+  const info = runWithBusyRetry(() => stmts.taskInsert.run({
+    projectPath,
+    sessionId,
+    entryIndex,
+    scope,
+    title,
+    note: t.note != null ? String(t.note) : null,
+    quote: t.quote != null ? String(t.quote) : null,
+    status,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  return stmts.taskGet.get(info.lastInsertRowid);
+}
+
+// Tasks filtered by project OR session, else all (newest first).
+function listTasks(filter) {
+  const f = filter || {};
+  if (f.projectPath) return stmts.taskListByProject.all(f.projectPath);
+  if (f.sessionId) return stmts.taskListBySession.all(f.sessionId);
+  return stmts.taskListAll.all();
+}
+
+function getTask(id) {
+  return stmts.taskGet.get(Number(id)) || null;
+}
+
+// Update a task. Accepts partial { title, note, status }; a status-only change
+// (from the quick badge toggle) skips the title/note write.
+function updateTask(id, fields) {
+  const f = fields || {};
+  const existing = stmts.taskGet.get(Number(id));
+  if (!existing) return null;
+  const now = Date.now();
+  const onlyStatus = f.title === undefined && f.note === undefined && f.status !== undefined;
+  if (onlyStatus) {
+    const status = TASK_STATUSES.includes(f.status) ? f.status : existing.status;
+    runWithBusyRetry(() => stmts.taskUpdateStatus.run(status, now, Number(id)));
+  } else {
+    const title = f.title !== undefined ? String(f.title).trim() || existing.title : existing.title;
+    const note = f.note !== undefined ? (f.note != null ? String(f.note) : null) : existing.note;
+    const status = f.status !== undefined && TASK_STATUSES.includes(f.status) ? f.status : existing.status;
+    runWithBusyRetry(() => stmts.taskUpdateFields.run(title, note, status, now, Number(id)));
+  }
+  return stmts.taskGet.get(Number(id));
+}
+
+function removeTask(id) {
+  runWithBusyRetry(() => stmts.taskDeleteById.run(Number(id)));
 }
 
 // --- Project handoffs (Handoff library) ---
@@ -1138,6 +1246,7 @@ module.exports = {
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   toggleBookmark, removeBookmark, listBookmarks,
+  createTask, listTasks, getTask, updateTask, removeTask,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,

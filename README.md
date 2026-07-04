@@ -42,7 +42,8 @@ here are ports of other community forks (brianstanley, kreaddis), noted where ap
 - **Projects tab** — A dedicated project-management view: add projects manually or automatically, hide/restore projects, rename them, and a per-project `.work-files/` browser (view, delete, JSON/JSONL export).
 - **Sidebar power tools** — Mark projects as favorites, sort projects, keep an own favorites list, and configure the collapse state on startup.
 - **Terminal comfort & fixes** — Configurable font, size and zoom (Ctrl+mouse-wheel plus status-bar buttons), paste images/files from the clipboard via Ctrl+V, a right-click behavior dropdown (Menu / Copy / Paste / Native), a mouse-reporting toggle, an external-terminal + file-explorer launcher, and a batch of Windows ConPTY rendering fixes.
-- **Bookmarks & session tags** — Persisted in SQLite for fast recall.
+- **Bookmarks & session tags** — Per-message transcript bookmarks (with a hover gutter to bookmark, copy or turn a message into a task) and colored session tags, persisted in SQLite for fast recall.
+- **Task / note system** — Scoped tasks (project, session, or a specific transcript message) with status (open / in progress / done / dropped), notes and a captured quote. Create one from a text selection or a whole message (right-click, the block gutter, or a configurable shortcut), then jump from a task back to its source. Open the list from the project header or per-session from the terminal toolbar.
 - **Saved Variables** — A reusable snippet/template panel with quick-pick, insert-template and a management tab (port of brianstanley's feature).
 - **Handoff library** — Save handoff packets, edit the prompt before sending, resume from a saved handoff, seed a fresh "New session" directly, and pick the target in the review dialog.
 - **Per-session AFK timeout** — Configurable idle handling per session.

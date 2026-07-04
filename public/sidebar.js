@@ -969,6 +969,12 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
       header.insertBefore(dragHandle, header.firstChild);
     }
 
+    const tasksBtn = document.createElement('button');
+    tasksBtn.className = 'project-tasks-btn';
+    tasksBtn.title = 'Tasks & notes';
+    tasksBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>';
+    header.appendChild(tasksBtn);
+
     const scheduleBtn = document.createElement('button');
     scheduleBtn.className = 'project-schedule-btn';
     scheduleBtn.title = 'Create scheduled task';
@@ -1381,6 +1387,17 @@ function rebindSidebarEvents(projects) {
     if (newBtn) {
       newBtn.onclick = (e) => { e.stopPropagation(); showNewSessionPopover(project, newBtn); };
     }
+    const tasksBtn = header.querySelector('.project-tasks-btn');
+    if (tasksBtn) {
+      tasksBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (typeof openTasksView === 'function') {
+          const shortName = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
+          openTasksView({ projectPath: project.projectPath },
+            'Project · ' + projectDisplayLabel(project.displayName, shortName));
+        }
+      };
+    }
     const scheduleBtn = header.querySelector('.project-schedule-btn');
     if (scheduleBtn) {
       scheduleBtn.onclick = (e) => { e.stopPropagation(); launchScheduleCreator(project); };
@@ -1475,7 +1492,7 @@ function rebindSidebarEvents(projects) {
       };
     }
     const toggleProject = (e) => {
-      if (e.target.closest('.project-new-btn') || e.target.closest('.project-archive-btn') || e.target.closest('.project-settings-btn') || e.target.closest('.project-schedule-btn') || e.target.closest('.project-remap-btn') || e.target.closest('.project-favorite-btn')) return;
+      if (e.target.closest('.project-new-btn') || e.target.closest('.project-archive-btn') || e.target.closest('.project-settings-btn') || e.target.closest('.project-tasks-btn') || e.target.closest('.project-schedule-btn') || e.target.closest('.project-remap-btn') || e.target.closest('.project-favorite-btn')) return;
       header.classList.toggle('collapsed');
       setProjectCollapsed(project.projectPath, header.classList.contains('collapsed'));
     };

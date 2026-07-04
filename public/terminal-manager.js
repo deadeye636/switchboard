@@ -32,10 +32,21 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
       return false;
     }
 
-    // Bookmark the active session (default Cmd/Ctrl+Shift+B) — session-level
-    // anchor, since the live terminal has no transcript message index.
+    // Bookmark shortcut (default Cmd/Ctrl+Shift+B). The live terminal has no
+    // transcript message index, so here it opens the bookmark list; message-level
+    // bookmarking happens in the transcript viewer.
     if (matchShortcut('toggleBookmark', e, isMac, appShortcuts)) {
-      if (e.type === 'keydown') { e._handled = true; window.bookmarksTags?.bookmarkSession(getSessionId()); }
+      if (e.type === 'keydown') { e._handled = true; window.bookmarksTags?.handleBookmarkShortcut(); }
+      return false;
+    }
+
+    // Create a task from the terminal selection (default Cmd/Ctrl+Shift+T).
+    if (matchShortcut('createTask', e, isMac, appShortcuts)) {
+      if (e.type === 'keydown') {
+        e._handled = true;
+        const sel = terminal.hasSelection() ? terminal.getSelection() : '';
+        window.tasksView?.createFromSource({ sessionId: getSessionId(), quote: sel || undefined });
+      }
       return false;
     }
 
