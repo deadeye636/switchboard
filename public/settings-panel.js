@@ -969,6 +969,24 @@
               </div>
 
               <div class="settings-section">
+                <div class="settings-section-title">License &amp; disclaimer</div>
+                <div class="settings-description">
+                  MIT License. Private downstream fork — <b>not an official product</b> and
+                  <b>not affiliated with, endorsed by, or supported by</b> Anthropic, Doctly, or any
+                  upstream author.
+                </div>
+                <div class="settings-description">
+                  Provided <b>"as is", with no warranty, no support and no liability</b>. Used
+                  <b>entirely at your own risk</b>. Builds are unsigned — prefer building from source.
+                </div>
+                <div class="settings-description">
+                  Nearly all of the work and credit belongs to the upstream authors
+                  (<code>haydng</code>, <code>jbr</code>, <code>doctly</code>); this fork only adds a
+                  thin layer on top.
+                </div>
+              </div>
+
+              <div class="settings-section">
                 <div class="settings-section-title">Runtime</div>
                 <div class="about-runtime">
                   <div class="about-kv"><span>Electron</span><code id="sv-about-electron">…</code></div>
