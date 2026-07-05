@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (15 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (16 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-05
 
@@ -31,3 +31,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#49](https://github.com/deadeye636/switchboard/issues/49) HTML/MD preview panel (+ image preview) · _port, source:brianstanley_
 - [#50](https://github.com/deadeye636/switchboard/issues/50) Per-session API key override · _port, source:brianstanley_
 - [#69](https://github.com/deadeye636/switchboard/issues/69) Open files in a configurable external editor · _feature_
+- [#72](https://github.com/deadeye636/switchboard/issues/72) Force availability re-check by clicking a project's unavailable warning icon · _feature_

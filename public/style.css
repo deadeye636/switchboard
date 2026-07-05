@@ -1301,6 +1301,12 @@ input:focus-visible {
   vertical-align: middle;
   margin-right: 2px;
   flex-shrink: 0;
+  display: inline-flex;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.project-missing-icon:hover {
+  background: rgba(232, 168, 56, 0.15);
 }
 .project-remap-btn {
   background: none;

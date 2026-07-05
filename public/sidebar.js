@@ -958,7 +958,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
     const shortName = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
     const display = projectDisplayLabel(project.displayName, shortName);
     header.title = project.projectPath;
-    const missingIcon = project.missing ? '<svg class="project-missing-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> ' : '';
+    const missingIcon = project.missing ? '<span class="project-missing-icon" role="button" tabindex="0" title="Unavailable — click to re-check (e.g. after mounting the drive)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span> ' : '';
     header.innerHTML = `<span class="arrow">&#9660;</span> ${missingIcon}<span class="project-name">${escapeHtml(display)}</span>`;
     if (sortable) {
       const dragHandle = document.createElement('span');
@@ -1420,6 +1420,17 @@ function rebindSidebarEvents(projects) {
         loadProjects();
       };
     }
+    const missingIcon = header.querySelector('.project-missing-icon');
+    if (missingIcon) {
+      // Force an availability re-check: the project-list rebuild re-evaluates path
+      // existence, so a drive mounted after startup (e.g. an encrypted volume) flips
+      // from missing to available without waiting for an unrelated refresh.
+      const recheck = (e) => { e.stopPropagation(); loadProjects(); };
+      missingIcon.onclick = recheck;
+      missingIcon.onkeydown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); recheck(e); }
+      };
+    }
     const remapBtn = header.querySelector('.project-remap-btn');
     if (remapBtn) {
       remapBtn.onclick = async (e) => {
@@ -1497,7 +1508,7 @@ function rebindSidebarEvents(projects) {
       };
     }
     const toggleProject = (e) => {
-      if (e.target.closest('.project-new-btn') || e.target.closest('.project-archive-btn') || e.target.closest('.project-settings-btn') || e.target.closest('.project-tasks-btn') || e.target.closest('.project-schedule-btn') || e.target.closest('.project-remap-btn') || e.target.closest('.project-favorite-btn')) return;
+      if (e.target.closest('.project-new-btn') || e.target.closest('.project-archive-btn') || e.target.closest('.project-settings-btn') || e.target.closest('.project-tasks-btn') || e.target.closest('.project-schedule-btn') || e.target.closest('.project-remap-btn') || e.target.closest('.project-favorite-btn') || e.target.closest('.project-missing-icon')) return;
       header.classList.toggle('collapsed');
       setProjectCollapsed(project.projectPath, header.classList.contains('collapsed'));
     };
