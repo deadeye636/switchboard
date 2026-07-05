@@ -277,9 +277,11 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 - **Bookmarks & session tags** (SQLite) — per-message transcript bookmarks with a hover gutter
   (bookmark / copy / create task); session-level bookmarking removed in favor of the pin.
 - **Task / note system** (SQLite) — scoped tasks (project / session / message) with status
-  (open / in progress / done / dropped), notes and a captured quote. Created from a text
-  selection or a whole message (right-click, block gutter, or a configurable shortcut), with
-  jump-to-source. Opened from the project header or per-session from the terminal toolbar.
+  (open / in progress / done / dropped), notes and a captured quote. Created from a transcript
+  selection or whole message (block gutter, right-click, or a configurable shortcut) or from the
+  terminal (right-click / shortcut). Jump to the transcript source, or open/start the live
+  session from a task. Opened from the project header or per-session from the terminal toolbar;
+  session cards show an open-task count badge and the project task icon highlights on open tasks.
 - **Saved Variables** — reusable snippet/template panel with quick-pick, insert-template and
   a management tab (port of **brianstanley**).
 
