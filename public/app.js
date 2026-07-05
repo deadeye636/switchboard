@@ -1730,6 +1730,16 @@ async function loadProjects({ resort = false } = {}) {
   // and membership changes; keep the grid view in sync too — otherwise grid cards
   // stay stale until the layout is reset or the grid is toggled off and on.
   if (gridViewActive) refreshGridView();
+  // Open tabs and the active session header read the in-memory session object, which
+  // dedup() just refreshed with any newly generated AI title. Re-render them so the
+  // tab label and header primary name don't stay stuck on "New session" while the
+  // sidebar already shows the title (issue #73).
+  if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
+  if (activeSessionId && typeof cleanDisplayName === 'function') {
+    const active = sessionMap.get(activeSessionId);
+    const name = active && cleanDisplayName(active.name || active.aiTitle || active.summary);
+    if (name) terminalHeaderName.textContent = name;
+  }
   renderDefaultStatus();
 }
 
