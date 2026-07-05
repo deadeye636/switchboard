@@ -194,12 +194,12 @@
   function decorateJsonlEntry(el, entry, sessionId, entryIndex) {
     const gutter = document.createElement('div');
     gutter.className = 'jsonl-entry-gutter';
-    gutter.appendChild(gutterButton('jsonl-bookmark-toggle', 'Bookmark this message', ICON_BOOKMARK,
-      () => toggleEntry(sessionId, entryIndex, entry, el)));
     gutter.appendChild(gutterButton('jsonl-copy-btn', 'Copy message text', ICON_COPY,
       () => copyEntry(entry, el)));
     gutter.appendChild(gutterButton('jsonl-task-btn', 'Create task from this message', ICON_TASK,
       () => createTaskFromEntry(sessionId, entryIndex, entry, el)));
+    gutter.appendChild(gutterButton('jsonl-bookmark-toggle', 'Bookmark this message', ICON_BOOKMARK,
+      () => toggleEntry(sessionId, entryIndex, entry, el)));
     el.classList.add('jsonl-entry-bookmarkable');
     el.insertBefore(gutter, el.firstChild);
   }

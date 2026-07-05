@@ -21,6 +21,23 @@
   let textFilter = '';
   let sortMode = 'newest';
 
+  // Open task counts (open + in_progress) for the sidebar: per session (card
+  // badge) and per project (project-header icon highlight).
+  const taskCounts = new Map();          // sessionId -> count
+  const projectTaskCounts = new Map();   // projectPath -> count
+  async function loadTaskCounts() {
+    try {
+      const res = await window.api.taskOpenCounts();
+      const sessions = (res && res.sessions) || {};
+      const projects = (res && res.projects) || {};
+      taskCounts.clear();
+      for (const sid of Object.keys(sessions)) taskCounts.set(sid, sessions[sid]);
+      projectTaskCounts.clear();
+      for (const p of Object.keys(projects)) projectTaskCounts.set(p, projects[p]);
+    } catch { /* keep stale counts on failure */ }
+    if (typeof refreshSidebar === 'function') refreshSidebar();
+  }
+
   function toast(msg) {
     if (typeof showControlToast === 'function') showControlToast({ message: msg, timeoutMs: 3000 });
   }
@@ -59,7 +76,7 @@
         if (s === task.status) return;
         try {
           const res = await window.api.taskUpdate({ id: task.id, status: s });
-          if (res && res.task) applyUpdated(res.task);
+          if (res && res.task) { applyUpdated(res.task); loadTaskCounts(); }
         } catch (err) { toast('Error: ' + err.message); }
       });
       menu.appendChild(b);
@@ -179,7 +196,8 @@
           ${t.quote && t.quote.trim() !== (t.title || '').trim() ? `<blockquote class="tv-quote">${escapeHtml(t.quote)}</blockquote>` : ''}
         </div>
         <div class="tv-actions">
-          ${canJump ? '<button data-action="jump" title="Jump to source">↗</button>' : ''}
+          ${canJump ? '<button data-action="open-session" title="Open session (starts it if stopped)">▶</button>' : ''}
+          ${canJump ? '<button data-action="jump" title="Jump to transcript">↗</button>' : ''}
           <button data-action="edit" title="Edit">✎</button>
           <button data-action="delete" class="tv-danger" title="Delete">×</button>
         </div>
@@ -293,7 +311,7 @@
           note: input.note,
         });
         if (res && res.error) { toast(res.error); return; }
-        if (res && res.task) { data.unshift(res.task); refreshBody(); }
+        if (res && res.task) { data.unshift(res.task); refreshBody(); loadTaskCounts(); }
         return;
       }
       if (action === 'refresh') { load(); return; }
@@ -307,14 +325,25 @@
         const input = await taskDialog({ heading: 'Edit task', title: task.title, note: task.note, quote: task.quote, status: task.status });
         if (!input) return;
         const res = await window.api.taskUpdate({ id: task.id, title: input.title, note: input.note, status: input.status });
-        if (res && res.task) applyUpdated(res.task);
+        if (res && res.task) { applyUpdated(res.task); loadTaskCounts(); }
         return;
       }
       if (action === 'delete') {
         await window.api.taskRemove(task.id);
         data = data.filter((t) => t.id !== task.id);
         refreshBody();
+        loadTaskCounts();
         toast('Task removed.');
+        return;
+      }
+      if (action === 'open-session') {
+        if (task.sessionId && typeof openSession === 'function') {
+          // Resume/start the live terminal (same path as clicking the session in
+          // the sidebar). hideAllViewers first so this overlay is dismissed.
+          if (typeof hideAllViewers === 'function') hideAllViewers();
+          try { await openSession({ sessionId: task.sessionId, projectPath: task.projectPath }); }
+          catch (err) { toast('Could not open session: ' + err.message); }
+        }
         return;
       }
       if (action === 'jump') {
@@ -381,6 +410,7 @@
         quote: quote || null,
       });
       if (res && res.error) { toast(res.error); return; }
+      loadTaskCounts();
       toast('Task created.');
     } catch (err) {
       toast('Error: ' + err.message);
@@ -388,5 +418,19 @@
   }
 
   window.openTasksView = openTasksView;
-  window.tasksView = { openTasksView, createFromSource, reload: load };
+  window.tasksView = {
+    openTasksView,
+    createFromSource,
+    reload: load,
+    reloadCounts: loadTaskCounts,
+    openTaskCount: (sessionId) => taskCounts.get(sessionId) || 0,
+    projectTaskCount: (projectPath) => projectTaskCounts.get(projectPath) || 0,
+  };
+
+  // Prime the session-card task badge counts once the page is ready.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadTaskCounts);
+  } else {
+    loadTaskCounts();
+  }
 })();

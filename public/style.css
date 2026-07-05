@@ -1764,6 +1764,21 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.session-task-chip {
+  flex-shrink: 0;
+  border: 1px solid rgba(152,195,121,0.16);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font: inherit;
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 800;
+  cursor: pointer;
+  color: #98c379;
+  background: rgba(152,195,121,0.08);
+}
+.session-task-chip:hover { background: rgba(152,195,121,0.16); }
+
 .session-health-chip.health-growing,
 .grid-card-health-chip.health-growing {
   color: #b8aae8;
@@ -4410,6 +4425,12 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
 .project-tasks-btn:hover {
   background: rgba(152,195,121,0.12);
   color: #98c379;
+}
+
+/* Highlight the project task icon when the project has open/in-progress tasks */
+.project-tasks-btn.has-tasks {
+  color: #98c379;
+  opacity: 1;
 }
 
 /* Project header gear button */

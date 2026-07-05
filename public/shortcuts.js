@@ -55,8 +55,8 @@ const SHORTCUT_DEFS = [
   },
   {
     id: 'createTask',
-    label: 'Create task from selection',
-    description: 'Create a task from the selected text in the message transcript',
+    label: 'Create task',
+    description: 'Create a task from the selection (transcript or terminal); no selection in the terminal makes a session task',
     family: 'key',
   },
 ];

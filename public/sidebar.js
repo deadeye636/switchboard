@@ -973,6 +973,11 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
     tasksBtn.className = 'project-tasks-btn';
     tasksBtn.title = 'Tasks & notes';
     tasksBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>';
+    if (window.tasksView && typeof window.tasksView.projectTaskCount === 'function'
+        && window.tasksView.projectTaskCount(project.projectPath) > 0) {
+      tasksBtn.classList.add('has-tasks');
+      tasksBtn.title = 'Tasks & notes — open tasks';
+    }
     header.appendChild(tasksBtn);
 
     const scheduleBtn = document.createElement('button');
@@ -1955,6 +1960,24 @@ function buildSessionItem(session) {
     healthChip.title = 'Create handoff';
     healthChip.setAttribute('aria-label', `Create handoff for ${displayName}`);
     detailEl.appendChild(healthChip);
+  }
+  // Open-task badge — count of open/in-progress tasks anchored to this session.
+  const openTaskCount = (window.tasksView && typeof window.tasksView.openTaskCount === 'function')
+    ? window.tasksView.openTaskCount(session.sessionId) : 0;
+  if (openTaskCount > 0) {
+    const taskChip = document.createElement('button');
+    taskChip.type = 'button';
+    taskChip.className = 'session-detail-pill session-task-chip';
+    taskChip.textContent = `${openTaskCount} ${openTaskCount === 1 ? 'Task' : 'Tasks'}`;
+    taskChip.title = 'Open tasks for this session';
+    taskChip.setAttribute('aria-label', `${openTaskCount} open tasks for ${displayName || session.sessionId}`);
+    taskChip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (typeof openTasksView === 'function') {
+        openTasksView({ sessionId: session.sessionId }, 'Session · ' + (displayName || session.sessionId));
+      }
+    });
+    detailEl.appendChild(taskChip);
   }
 
   const quietParts = getQuietDetailParts({

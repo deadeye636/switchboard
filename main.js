@@ -57,7 +57,7 @@ const {
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   toggleBookmark, removeBookmark, listBookmarks,
-  createTask, listTasks, getTask, updateTask, removeTask,
+  createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
@@ -2375,6 +2375,9 @@ ipcMain.handle('task-update', (_event, payload) => {
 ipcMain.handle('task-remove', (_event, id) => {
   removeTask(id);
   return { ok: true };
+});
+ipcMain.handle('task-open-counts', () => {
+  return { sessions: openTaskCountsBySession(), projects: openTaskCountsByProject() };
 });
 
 // --- IPC: project handoffs (Handoff library) ---

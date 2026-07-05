@@ -69,10 +69,8 @@ function buildTerminalMenuItems({ linkUri, hasSelection, variableGroups = null }
   if (hasSelection) items.push({ id: 'copy', label: 'Copy' });
   items.push({ id: 'paste', label: 'Paste' });
   items.push({ id: 'select-all', label: 'Select all' });
-  if (hasSelection) {
-    items.push(null);
-    items.push({ id: 'create-task', label: 'Create task from selection' });
-  }
+  items.push(null);
+  items.push({ id: 'create-task', label: 'Create task' });
   if (Array.isArray(variableGroups)) {
     const children = [];
     for (const group of variableGroups) {
@@ -184,8 +182,9 @@ async function runTerminalMenuAction(id, ctx) {
       terminal.selectAll();
       break;
     case 'create-task':
-      if (terminal.hasSelection() && window.tasksView) {
-        window.tasksView.createFromSource({ sessionId, quote: terminal.getSelection() });
+      if (window.tasksView) {
+        // No selection → a plain session task; with a selection → include the quote.
+        window.tasksView.createFromSource({ sessionId, quote: terminal.hasSelection() ? terminal.getSelection() : undefined });
       }
       break;
   }

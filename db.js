@@ -454,6 +454,8 @@ const stmts = {
   taskListAll: db.prepare('SELECT * FROM tasks ORDER BY createdAt DESC'),
   taskListByProject: db.prepare('SELECT * FROM tasks WHERE projectPath = ? ORDER BY createdAt DESC'),
   taskListBySession: db.prepare('SELECT * FROM tasks WHERE sessionId = ? ORDER BY createdAt DESC'),
+  taskOpenCountsBySession: db.prepare("SELECT sessionId, COUNT(*) AS n FROM tasks WHERE sessionId IS NOT NULL AND status IN ('open','in_progress') GROUP BY sessionId"),
+  taskOpenCountsByProject: db.prepare("SELECT projectPath, COUNT(*) AS n FROM tasks WHERE projectPath IS NOT NULL AND status IN ('open','in_progress') GROUP BY projectPath"),
   // Project handoffs (Handoff library)
   handoffInsert: db.prepare('INSERT INTO project_handoffs (projectPath, label, content, createdAt) VALUES (?, ?, ?, ?)'),
   handoffListByProject: db.prepare('SELECT id, label, content, createdAt FROM project_handoffs WHERE projectPath = ? ORDER BY createdAt DESC'),
@@ -780,6 +782,21 @@ function updateTask(id, fields) {
 
 function removeTask(id) {
   runWithBusyRetry(() => stmts.taskDeleteById.run(Number(id)));
+}
+
+// { sessionId: openCount } for tasks that are still open or in progress — drives
+// the sidebar session-card task badge.
+function openTaskCountsBySession() {
+  const out = {};
+  for (const r of stmts.taskOpenCountsBySession.all()) out[r.sessionId] = r.n;
+  return out;
+}
+
+// { projectPath: openCount } — drives the project-header task-icon highlight.
+function openTaskCountsByProject() {
+  const out = {};
+  for (const r of stmts.taskOpenCountsByProject.all()) out[r.projectPath] = r.n;
+  return out;
 }
 
 // --- Project handoffs (Handoff library) ---
@@ -1246,7 +1263,7 @@ module.exports = {
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   toggleBookmark, removeBookmark, listBookmarks,
-  createTask, listTasks, getTask, updateTask, removeTask,
+  createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,

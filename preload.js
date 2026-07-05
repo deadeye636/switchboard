@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
   taskList: (filter) => ipcRenderer.invoke('task-list', filter),
   taskUpdate: (payload) => ipcRenderer.invoke('task-update', payload),
   taskRemove: (id) => ipcRenderer.invoke('task-remove', id),
+  taskOpenCounts: () => ipcRenderer.invoke('task-open-counts'),
   saveHandoff: (payload) => ipcRenderer.invoke('save-handoff', payload),
   listHandoffs: (projectPath) => ipcRenderer.invoke('list-handoffs', projectPath),
   deleteHandoff: (id) => ipcRenderer.invoke('delete-handoff', id),
