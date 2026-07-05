@@ -51,7 +51,8 @@ The task board is **GitHub Issues** on `deadeye636/switchboard`, not a file. Mig
 the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, contiguous #1–#62.
 
 - **Read the backlog:** `gh issue list` (open) / `gh issue view <n>`. For in-context grepping use the
-  generated mirror **`docs/BACKLOG.md`** (open issues only, read-only — never hand-edit).
+  generated mirror **`docs/BACKLOG.md`**; for machine consumption **`docs/BACKLOG.jsonl`** (one issue
+  per line: number, title, prio, labels, url, refs, body). Both open-issues-only, read-only — never hand-edit.
 - **Regenerate the mirror:** `node scripts/build-backlog.js` after any issue change.
 - **Issue shape (keep it):** body = **the requirement only**. Plan/design and implementation go in
   **comments** (normal issue timeline). Done → an "Umsetzung" comment (with `git log main` commit refs)

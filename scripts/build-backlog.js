@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// Generates docs/BACKLOG.md from the OPEN GitHub issues (deadeye636/switchboard).
-// The issues are the single source of truth — BACKLOG.md is a read-only mirror for
-// fast in-context grepping. Do NOT hand-edit.
+// Generates docs/BACKLOG.md and docs/BACKLOG.jsonl from the OPEN GitHub issues
+// (deadeye636/switchboard). The issues are the single source of truth — both files
+// are read-only mirrors: BACKLOG.md for fast in-context grepping, BACKLOG.jsonl for
+// machine consumption by agents (one issue per line: number, title, prio, labels,
+// url, refs, body). Do NOT hand-edit either file.
 //
 //   node scripts/build-backlog.js
 //
@@ -12,6 +14,7 @@ const path = require('path');
 
 const REPO = 'deadeye636/switchboard';
 const OUT = path.join(__dirname, '..', 'docs', 'BACKLOG.md');
+const OUT_JSONL = path.join(__dirname, '..', 'docs', 'BACKLOG.jsonl');
 
 function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 1 << 24 });
@@ -19,7 +22,7 @@ function gh(args) {
 
 const issues = JSON.parse(gh([
   'issue', 'list', '-R', REPO, '--state', 'open', '--limit', '200',
-  '--json', 'number,title,labels',
+  '--json', 'number,title,labels,body',
 ]));
 
 const prioOf = i => (i.labels.find(l => /^P[123]$/.test(l.name)) || {}).name || 'P?';
@@ -53,4 +56,18 @@ for (const p of ['P1', 'P2', 'P3', 'P?']) {
 out.push('');
 
 fs.writeFileSync(OUT, out.join('\n'));
-console.log(`docs/BACKLOG.md written — ${issues.length} open issues.`);
+
+// Machine-readable mirror: one JSON object per line, sorted like the MD (prio, then
+// number). `refs` = other issue numbers mentioned in the body (cross-links).
+const jsonl = issues.map(i => JSON.stringify({
+  number: i.number,
+  title: i.title,
+  prio: prioOf(i),
+  labels: i.labels.map(l => l.name).filter(n => !/^P[123]$/.test(n)),
+  url: url(i.number),
+  refs: [...new Set([...(i.body || '').matchAll(/#(\d+)\b/g)].map(m => Number(m[1])))]
+    .filter(n => n !== i.number),
+  body: i.body || '',
+})).join('\n');
+fs.writeFileSync(OUT_JSONL, jsonl + '\n');
+console.log(`docs/BACKLOG.md + BACKLOG.jsonl written — ${issues.length} open issues.`);
