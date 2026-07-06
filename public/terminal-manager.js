@@ -249,7 +249,13 @@ function safeFit(entry) {
     const clampedRows = clampRowsToContentBox(dims.rows, el.clientHeight, padV, cellH);
     entry.terminal.resize(dims.cols, clampedRows);
   } else {
+    // proposeDimensions() returns undefined while the render service has no
+    // cell metrics yet (fresh terminal, esp. during WebGL init) — fit() is a
+    // no-op then too. Mark the fit unmeasured so the retry loop below runs;
+    // caching this state would freeze a brand-new session at the 80x24
+    // default (torn TUI layout) until a manual window resize.
     entry.fitAddon.fit();
+    measured = false;
   }
   if (el && measured) {
     // Cache the container size this fit was computed for, so showSession can skip
