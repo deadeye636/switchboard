@@ -110,7 +110,8 @@
     const terminalFontSelectValue = terminalFontIsPreset ? terminalFontFamilyValue : 'custom';
     const terminalFontCustomValue = terminalFontIsPreset ? '' : terminalFontFamilyValue;
     const rightClickValue = fieldValue('terminalRightClick', 'menu');
-    const mouseReportingValue = fieldValue('terminalMouseReporting', 'on');
+    const mouseReportingRaw = fieldValue('terminalMouseReporting', 'select');
+    const mouseModeValue = mouseReportingRaw === 'on' ? 'native' : mouseReportingRaw; // legacy 'on' → native
     const terminalWebglValue = fieldValue('terminalWebgl', true); // default on (#81)
     const terminalCloseValue = fieldValue('terminalCloseBehavior', 'kill');
     const displayModeValue = fieldValue('sessionDisplayMode', 'grid');
@@ -550,12 +551,16 @@
                 </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Mouse reporting</span>${help}</div>
-                    <div class="settings-description">On: apps like Claude's TUI get mouse events — select text with Shift+drag. Off: plain drag always selects text.</div>
-                    <div class="settings-more">When off, Switchboard strips the mouse-tracking escape sequences so a plain left-click+drag always selects text — but the TUI no longer receives mouse events. Takes full effect on the next output; open terminals reset immediately.</div>
+                    <div class="settings-field-header"><span class="settings-label">Mouse mode</span>${help}</div>
+                    <div class="settings-description">Native: apps like Claude's TUI get mouse events — select text with Shift+drag. Select: left-drag selects text locally while the wheel still scrolls the TUI (PowerShell/conhost feel). Off: strip mouse tracking entirely — plain drag selects, the TUI gets no mouse events.</div>
+                    <div class="settings-more"><b>Native</b>: xterm default; the program receives clicks, drags and wheel. <b>Select</b>: mouse tracking stays on so the wheel scrolls the TUI content natively, but a left-drag forces a local text selection and the program stops seeing left-clicks — links stay clickable. <b>Off</b>: Switchboard strips the mouse-tracking escape sequences, so left-drag always selects but the TUI receives no mouse events (the wheel won't scroll an alt-screen TUI). Open terminals update immediately.</div>
                   </div>
                   <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-mouse-reporting" ${mouseReportingValue !== 'off' ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                    <select class="settings-select" id="sv-mouse-reporting">
+                      <option value="native" ${mouseModeValue === 'native' ? 'selected' : ''}>Native</option>
+                      <option value="select" ${mouseModeValue === 'select' ? 'selected' : ''}>Select (PowerShell-style)</option>
+                      <option value="off" ${mouseModeValue === 'off' ? 'selected' : ''}>Off</option>
+                    </select>
                   </div>
                 </div>
                 <div class="settings-field">
@@ -1209,7 +1214,7 @@
           settings.terminalFontSize = Math.max(8, Math.min(28, Number.isFinite(size) ? size : 12));
         }
         settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').value || 'menu';
-        settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').checked ? 'on' : 'off';
+        settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').value || 'native';
         settings.terminalWebgl = settingsViewerBody.querySelector('#sv-terminal-webgl').checked;
         settings.terminalCloseBehavior = settingsViewerBody.querySelector('#sv-terminal-close-behavior').value || 'kill';
         settings.settingsOpenMode = settingsViewerBody.querySelector('#sv-settings-open-mode').value || 'overlay';

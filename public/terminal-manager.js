@@ -493,7 +493,19 @@ const lastFlushAt = new Map(); // sessionId → performance.now() of last flush
 // plain left-click+drag does local text selection again (the program loses mouse
 // events — scroll/click in a TUI like Claude Code stop working). Default true
 // (native behavior; select with Shift+drag while a program captures the mouse).
-let terminalMouseReportingEnabled = true;
+// Mouse mode (deadeye): 'native' (program gets mouse; select with Shift+drag),
+// 'select' (mouse tracking stays ON so the wheel scrolls the TUI natively, but a
+// left-button drag forces a LOCAL text selection — conhost/PowerShell feel; the
+// program stops seeing left-clicks, links stay clickable), or 'off' (strip all
+// mouse-tracking so a plain drag selects and the program gets no mouse events).
+// Default 'select' (deadeye: PowerShell/conhost feel out of the box — left-drag
+// selects, wheel still scrolls the TUI, links stay clickable).
+let terminalMouseMode = 'select';
+function normalizeMouseMode(mode) {
+  if (mode === 'select' || mode === 'off') return mode;
+  // Back-compat: legacy 'on' / true → native; anything else → native.
+  return 'native';
+}
 // Mouse-tracking private modes only. Deliberately NOT 1004 (focus), 1049 (alt
 // screen), 2004 (bracketed paste) or 25 (cursor) — those must pass through.
 const MOUSE_TRACKING_MODES = new Set([1000, 1001, 1002, 1003, 1005, 1006, 1015, 1016]);
@@ -506,16 +518,42 @@ function stripMouseReporting(data) {
     return nums.length && nums.every(n => MOUSE_TRACKING_MODES.has(n)) ? '' : m;
   });
 }
-// Apply the toggle. When disabling, immediately reset mouse modes on every open
-// terminal so a program that already enabled tracking stops capturing the mouse
-// without waiting for it to re-emit or restart.
-function setTerminalMouseReporting(enabled) {
-  terminalMouseReportingEnabled = !!enabled;
-  if (!terminalMouseReportingEnabled) {
+// 'select' mode: force a LOCAL selection on a left-button (button 0) drag by
+// wrapping the internal SelectionService.shouldForceSelection. _core is internal
+// xterm API — feature-detect everything and fall back silently (behaves like
+// 'native') if the shape changes on upgrade. Re-check on the xterm-upgrade
+// checklist. Wheel is untouched (separate CoreMouseService path) so it keeps
+// flowing to the TUI natively — exactly like 'native'.
+function applyTerminalSelectionOverride(terminal, enable) {
+  try {
+    const svc = terminal && terminal._core && terminal._core._selectionService;
+    if (!svc || typeof svc.shouldForceSelection !== 'function') return;
+    if (enable) {
+      if (!svc.__deadeyeOrigForceSelection) {
+        svc.__deadeyeOrigForceSelection = svc.shouldForceSelection.bind(svc);
+      }
+      const orig = svc.__deadeyeOrigForceSelection;
+      svc.shouldForceSelection = (e) => (e && e.button === 0) || orig(e);
+    } else if (svc.__deadeyeOrigForceSelection) {
+      svc.shouldForceSelection = svc.__deadeyeOrigForceSelection;
+    }
+  } catch {}
+}
+// Apply a mouse mode. 'off' strips tracking and resets open terminals so a
+// program that already enabled tracking stops capturing immediately. 'select'
+// keeps tracking but installs the local-selection override on every open
+// terminal; 'native' removes it.
+function setTerminalMouseReporting(mode) {
+  terminalMouseMode = normalizeMouseMode(mode);
+  if (terminalMouseMode === 'off') {
     const reset = '\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l';
     for (const [, entry] of openSessions) {
       try { entry.terminal.write(reset); } catch {}
     }
+  }
+  const forceSelect = terminalMouseMode === 'select';
+  for (const [, entry] of openSessions) {
+    applyTerminalSelectionOverride(entry.terminal, forceSelect);
   }
 }
 
@@ -695,7 +733,7 @@ function flushTerminalBuffer(sessionId) {
 
   let data = buf.chunks.join('');
   const rawLen = data.length; // flow accounting uses the pre-strip length
-  if (!terminalMouseReportingEnabled) data = stripMouseReporting(data);
+  if (terminalMouseMode === 'off') data = stripMouseReporting(data);
   lastFlushAt.set(sessionId, performance.now());
 
   // Live-render mode (tabs, default on): write output to background tabs too, so
@@ -887,6 +925,9 @@ function createTerminalEntry(session, opts = {}) {
   terminal.unicode.activeVersion = '15';
   terminal.open(container);
   container.style.backgroundColor = TERMINAL_THEME.background;
+  // Pick up the current mouse mode for this fresh terminal (SelectionService
+  // exists only after open()). No-op unless mode is 'select'.
+  applyTerminalSelectionOverride(terminal, terminalMouseMode === 'select');
 
   // WebGL is loaded after the entry is assembled via loadTerminalWebgl(entry)
   // so its lifecycle (suspend off-screen / restore on show) can own the addon.

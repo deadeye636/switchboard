@@ -272,8 +272,10 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 ### Terminal
 - Configurable **font / size / zoom** (Ctrl+mouse-wheel + status-bar buttons), **clipboard
   image & file paste** via Ctrl+V, a right-click **behavior dropdown** (Menu / Copy / Paste /
-  Native), a **mouse-reporting** toggle, an **external-terminal + file-explorer** launcher,
-  and a batch of **Windows ConPTY** rendering fixes.
+  Native), a **mouse-mode dropdown** (Native / Select PowerShell-style / Off — `select`
+  keeps native wheel scroll in a TUI while a left-drag selects text locally), an
+  **external-terminal + file-explorer** launcher, and a batch of **Windows ConPTY**
+  rendering fixes.
 - **Bookmarks & session tags** (SQLite) — per-message transcript bookmarks with a hover gutter
   (bookmark / copy / create task); session-level bookmarking removed in favor of the pin.
 - **Task / note system** (SQLite) — scoped tasks (project / session / message) with status

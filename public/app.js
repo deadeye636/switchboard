@@ -317,10 +317,10 @@ function getNextAttentionBinding() {
 // Live-apply the terminal right-click behavior (terminalRightClickMode lives in
 // terminal-context-menu.js); takes effect on the next right-click, no relaunch.
 window._applyTerminalRightClick = (mode) => { terminalRightClickMode = mode || 'menu'; };
-// Live-apply terminal mouse reporting (setTerminalMouseReporting lives in
-// terminal-manager.js). 'off' strips mouse-tracking sequences so left-drag
-// selects; resets open terminals immediately.
-window._applyTerminalMouseReporting = (mode) => { if (typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(mode !== 'off'); };
+// Live-apply terminal mouse mode (setTerminalMouseReporting lives in
+// terminal-manager.js). 'native' | 'select' (local left-drag select + native
+// wheel) | 'off' (strip all mouse-tracking). Resets open terminals immediately.
+window._applyTerminalMouseReporting = (mode) => { if (typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(mode); };
 let searchMatchIds = null; // null = no search active; Set<string> = matched session IDs
 let searchMatchProjectPaths = null; // Set<string> of project paths matched by name
 
@@ -2304,7 +2304,7 @@ async function reapplyGlobalSettings() {
   if (g.terminalFontFamily) window._setTerminalFontFamily?.(g.terminalFontFamily);
   if (g.terminalFontSize) window._setTerminalFontSize?.(g.terminalFontSize);
   if (g.terminalRightClick) window._applyTerminalRightClick?.(g.terminalRightClick);
-  if (g.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(g.terminalMouseReporting !== 'off');
+  if (g.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(g.terminalMouseReporting);
   window._setTerminalWebgl?.(g.terminalWebgl !== false); // default on (#81)
   window._setUsageThresholds?.({ fiveHWarn: g.usage5hWarn, fiveHCrit: g.usage5hCrit, sevenDWarn: g.usage7dWarn, sevenDCrit: g.usage7dCrit });
   if (g.visibleSessionCount) window._setVisibleSessionCount?.(g.visibleSessionCount);
@@ -2456,7 +2456,7 @@ setTimeout(() => {
     }
     if (global.terminalRightClick) terminalRightClickMode = global.terminalRightClick;
     if (global.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') {
-      setTerminalMouseReporting(global.terminalMouseReporting !== 'off');
+      setTerminalMouseReporting(global.terminalMouseReporting);
     }
     window._setTerminalWebgl?.(global.terminalWebgl !== false); // default on (#81)
     window._setUsageThresholds?.({ fiveHWarn: global.usage5hWarn, fiveHCrit: global.usage5hCrit, sevenDWarn: global.usage7dWarn, sevenDCrit: global.usage7dCrit });
