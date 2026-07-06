@@ -111,6 +111,21 @@ Just describe the task you have in mind, or try one of these:
 - **"Create a task that runs the test suite every morning at 8am"** — create a new one
 - **"Disable schedule-repo-health"** — toggle a schedule off`;
 
+// Validate a run-schedule-now path: a schedule-*.md inside a `.claude/commands/`
+// dir. Pure, so it can be unit-tested. Requiring the `.claude` parent blocks a
+// compromised renderer from running any X/commands/schedule-*.md with
+// attacker-chosen frontmatter (issue #77). Returns { ok, resolved, projectPath }
+// or { ok:false, error }.
+function validateScheduleFilePath(filePath) {
+  const resolved = path.resolve(filePath);
+  const commandsDir = path.dirname(resolved);
+  const dotClaudeDir = path.dirname(commandsDir);
+  if (!/^schedule-.*\.md$/i.test(path.basename(resolved))) return { ok: false, error: 'invalid schedule file path' };
+  if (path.basename(commandsDir) !== 'commands') return { ok: false, error: 'invalid schedule file path' };
+  if (path.basename(dotClaudeDir) !== '.claude') return { ok: false, error: 'invalid schedule file path' };
+  return { ok: true, resolved, projectPath: path.dirname(dotClaudeDir) };
+}
+
 // Bump whenever SCHEDULE_CREATOR_TEMPLATE changes so the shipped update
 // propagates to existing installs (keep in sync with the frontmatter marker).
 const CURRENT_TEMPLATE_VERSION = 1;
@@ -202,22 +217,15 @@ function init(log, runCommand) {
   });
   ipcMain.handle('run-schedule-now', (_event, filePath) => {
     try {
-      // Defense-in-depth: only run schedule files from a `.../commands/` dir named
-      // schedule-*.md. Without this, a filePath from a compromised renderer could
-      // point run-schedule-now at any .md and execute claude with attacker-chosen
-      // frontmatter (model, allowed-tools, permission-mode) and prompt.
-      const resolved = path.resolve(filePath);
-      if (!/^schedule-.*\.md$/i.test(path.basename(resolved)) ||
-          path.basename(path.dirname(resolved)) !== 'commands') {
-        return { ok: false, error: 'invalid schedule file path' };
-      }
+      // Defense-in-depth: only run a schedule-*.md inside a `.claude/commands/` dir,
+      // else a filePath from a compromised renderer could execute claude with
+      // attacker-chosen frontmatter (model, allowed-tools, permission-mode) (issue #77).
+      const check = validateScheduleFilePath(filePath);
+      if (!check.ok) return { ok: false, error: check.error };
+      const { resolved, projectPath } = check;
       const content = fs.readFileSync(resolved, 'utf8');
       const { meta, body } = parseFrontmatter(content);
       if (!body) return { ok: false, error: 'No prompt in schedule file' };
-
-      const commandsDir = path.dirname(resolved);
-      const dotClaudeDir = path.dirname(commandsDir);
-      const projectPath = path.dirname(dotClaudeDir);
 
       const folder = encodeProjectPath(projectPath);
       const schedule = {
@@ -244,4 +252,4 @@ function init(log, runCommand) {
   });
 }
 
-module.exports = { ensureScheduleCreatorCommand, init };
+module.exports = { ensureScheduleCreatorCommand, init, validateScheduleFilePath };

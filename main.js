@@ -1261,7 +1261,7 @@ ipcMain.handle('read-plan', (_event, filename) => {
 ipcMain.handle('save-plan', (_event, filePath, content) => {
   try {
     const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(PLANS_DIR)) {
+    if (!resolved.startsWith(PLANS_DIR + path.sep)) {
       return { ok: false, error: 'path outside plans directory' };
     }
     fs.writeFileSync(resolved, content, 'utf8');
@@ -1725,14 +1725,23 @@ ipcMain.handle('get-work-files', () => {
   return { projects };
 });
 
+// A work-file path is only allowed if it sits inside the `.work-files` dir of a
+// project Claude actually knows about — otherwise a compromised renderer could
+// read/delete arbitrary `.work-files` dirs anywhere on disk (issue #77).
+function isAllowedWorkFilePath(resolved) {
+  const m = resolved.match(/[\\/]\.work-files[\\/]/);
+  if (!m) return false;
+  const projectRoot = resolved.slice(0, m.index);
+  try {
+    return fs.existsSync(path.join(PROJECTS_DIR, encodeProjectPath(projectRoot)));
+  } catch { return false; }
+}
+
 // --- IPC: read-work-file ---
 ipcMain.handle('read-work-file', (_event, filePath) => {
   try {
     const resolved = path.resolve(filePath);
-    // Security: path must contain /.work-files/ segment
-    if (!resolved.includes('/.work-files/') && !resolved.includes('\\.work-files\\')) {
-      return '[access denied]';
-    }
+    if (!isAllowedWorkFilePath(resolved)) return '[access denied]';
     if (!fs.existsSync(resolved)) return '';
     const stat = fs.statSync(resolved);
     if (stat.size > 2 * 1024 * 1024) return '[file too large to display]';
@@ -1750,9 +1759,7 @@ ipcMain.handle('read-work-file', (_event, filePath) => {
 ipcMain.handle('delete-work-file', (_event, filePath) => {
   try {
     const resolved = path.resolve(filePath);
-    if (!resolved.includes('/.work-files/') && !resolved.includes('\\.work-files\\')) {
-      return { ok: false, error: 'access denied' };
-    }
+    if (!isAllowedWorkFilePath(resolved)) return { ok: false, error: 'access denied' };
     if (!fs.existsSync(resolved)) return { ok: false, error: 'not found' };
     fs.unlinkSync(resolved);
     // Invalidate the FTS signature so the next get-work-files call reindexes.
@@ -2116,6 +2123,7 @@ const ATTENTION_HOOK_MARK = '/switchboard-attention-hook';
 
 let attentionHookServer = null;
 let attentionHookPort = null;
+let attentionHookToken = null; // random token embedded in the hook URL, verified on POST (issue #77)
 
 function attentionHooksEnabled() {
   const global = getSetting('global') || {};
@@ -2124,9 +2132,19 @@ function attentionHooksEnabled() {
 
 function startAttentionHookServer() {
   if (attentionHookServer) return;
+  attentionHookToken = require('crypto').randomUUID();
   const server = http.createServer((req, res) => {
     if (req.method !== 'POST') {
       res.writeHead(405);
+      res.end();
+      return;
+    }
+    // Verify the per-run token from the hook URL so an unrelated local process
+    // can't forge attention signals or force undebounced reads (issue #77).
+    let reqToken = null;
+    try { reqToken = new URL(req.url, 'http://127.0.0.1').searchParams.get('t'); } catch {}
+    if (!attentionHookToken || reqToken !== attentionHookToken) {
+      res.writeHead(403);
       res.end();
       return;
     }
@@ -2225,7 +2243,7 @@ function stripSwitchboardHooks(settings) {
 
 function writeClaudeAttentionHook(port) {
   if (!port) return;
-  const url = `http://127.0.0.1:${port}${ATTENTION_HOOK_MARK}`;
+  const url = `http://127.0.0.1:${port}${ATTENTION_HOOK_MARK}?t=${attentionHookToken}`;
   const settings = stripSwitchboardHooks(readClaudeSettings());
   if (!settings.hooks) settings.hooks = {};
   const addHook = (event, matcher) => {

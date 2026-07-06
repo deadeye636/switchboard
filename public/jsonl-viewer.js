@@ -645,14 +645,24 @@ function renderJsonlEntry(entry, toolResultMap) {
         div.appendChild(renderLocalCommand(block._localCmd));
         continue;
       }
-      // Render [Image: source: /path] as an inline image if the entire block is just that
+      // Render [Image: source: /path] as an inline image if the entire block is just
+      // that. The transcript is agent-processed third-party content, so only load a
+      // path that looks like a real image file (absolute, image extension, no
+      // traversal); anything else falls through to plain text rather than pointing a
+      // file:// <img> at an arbitrary local file (issue #77).
       const imgMatch = block.text.trim().match(/^\[Image:\s*source:\s*([^\]]+)\]$/);
       if (imgMatch) {
-        const imgEl = document.createElement('img');
-        imgEl.className = 'jsonl-tool-screenshot jsonl-clickable-img';
-        imgEl.src = 'file://' + imgMatch[1].trim();
-        div.appendChild(imgEl);
-        continue;
+        const rawPath = imgMatch[1].trim();
+        const isSafeImagePath = /\.(png|jpe?g|gif|webp|bmp)$/i.test(rawPath)
+          && !rawPath.includes('..')
+          && (rawPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(rawPath));
+        if (isSafeImagePath) {
+          const imgEl = document.createElement('img');
+          imgEl.className = 'jsonl-tool-screenshot jsonl-clickable-img';
+          imgEl.src = 'file://' + rawPath;
+          div.appendChild(imgEl);
+          continue;
+        }
       }
       const textEl = document.createElement('div');
       textEl.className = 'jsonl-text';
