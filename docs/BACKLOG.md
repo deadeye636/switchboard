@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (20 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-06
 
@@ -11,7 +11,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 ## P1 — next up
 
 - [#2](https://github.com/deadeye636/switchboard/issues/2) Session display Phase 3 — Detach (detachable windows) · _feature_
-- [#77](https://github.com/deadeye636/switchboard/issues/77) Review 2026-07: security hardening of local attack surface · _bug_
 
 ## P2 — after that
 
