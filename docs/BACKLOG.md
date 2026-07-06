@@ -18,10 +18,10 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 ## P2 — after that
 
 - [#55](https://github.com/deadeye636/switchboard/issues/55) orphaned hidden projects · _bug_
-- [#64](https://github.com/deadeye636/switchboard/issues/64) Doubled working-status indicator (ghost line) only heals on resize · _bug_
 - [#68](https://github.com/deadeye636/switchboard/issues/68) Scope-filtered bookmark views (session / project / global) · _feature_
 - [#78](https://github.com/deadeye636/switchboard/issues/78) Review 2026-07: UX consistency — confirmations, error feedback, dialog patterns · _bug_
 - [#83](https://github.com/deadeye636/switchboard/issues/83) Terminal mouse mode: direct left-click selection with working TUI wheel scroll (PowerShell-style) · _feature_
+- [#85](https://github.com/deadeye636/switchboard/issues/85) Terminal: TUI line renders doubled (ghost line), heals on resize — status + prompt line · _bug_
 
 ## P3 — someday
 
