@@ -2961,6 +2961,17 @@ ipcMain.on('terminal-resize', (_event, sessionId, cols, rows, settle) => {
   if (!RESIZE_SETTLE_ENABLED) settle = false;
   const session = activeSessions.get(sessionId);
   if (session && !session.exited) {
+    // Track the newest requested size and cancel any in-flight redraw nudge.
+    // The nudge timers below otherwise restore the cols/rows FROZEN at their
+    // scheduling time — during startup restore the layout keeps settling for
+    // ~100 ms after the first size push, so a stale nudge re-applied an
+    // outdated size and the TUI prompt landed rows off (over- or under-shot)
+    // until a manual window resize delivered a fresh, nudge-free resize.
+    session._lastCols = cols;
+    session._lastRows = rows;
+    clearTimeout(session._nudgeTimer);
+    clearTimeout(session._nudgeTimer2);
+
     // For plain terminals, suppress buffering during resize to avoid
     // accumulating prompt redraws that pollute reattach replay
     if (session.isPlainTerminal) session._suppressBuffer = true;
@@ -2983,11 +2994,11 @@ ipcMain.on('terminal-resize', (_event, sessionId, cols, rows, settle) => {
     // First resize: nudge to force TUI redraw on reattach (skip for plain terminals — causes duplicate prompts)
     if (session.firstResize && !session.isPlainTerminal) {
       session.firstResize = false;
-      setTimeout(() => {
+      session._nudgeTimer = setTimeout(() => {
         try {
-          session.pty.resize(cols + 1, rows);
-          setTimeout(() => {
-            try { session.pty.resize(cols, rows); } catch {}
+          session.pty.resize(session._lastCols + 1, session._lastRows);
+          session._nudgeTimer2 = setTimeout(() => {
+            try { session.pty.resize(session._lastCols, session._lastRows); } catch {}
           }, 50);
         } catch {}
       }, 50);
@@ -3003,8 +3014,8 @@ ipcMain.on('terminal-resize', (_event, sessionId, cols, rows, settle) => {
       clearTimeout(session._resizeSettleTimer);
       session._resizeSettleTimer = setTimeout(() => {
         try {
-          session.pty.resize(cols + 1, rows);
-          setTimeout(() => { try { session.pty.resize(cols, rows); } catch {} }, 50);
+          session.pty.resize(session._lastCols + 1, session._lastRows);
+          session._nudgeTimer2 = setTimeout(() => { try { session.pty.resize(session._lastCols, session._lastRows); } catch {} }, 50);
         } catch {}
       }, 150);
     }
