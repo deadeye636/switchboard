@@ -264,6 +264,44 @@ function safeFit(entry) {
   }
 }
 
+// --- Late-settle refit guard (#59 follow-up: bottom row clipped after startup restore) ---
+// A fit computed against transient metrics (window/layout still settling after
+// auto-restore, statusbar appearing, DPI change) stays cached and clips the
+// bottom row until an unrelated resize. Two gaps in the existing self-heal:
+//   1. showSession's isBottomRowClipped check runs only on a switch — a box that
+//      settles AFTER the last showSession is never re-checked. → Observe every
+//      container's real box changes and refit (trailing debounce, no-op guarded).
+//   2. Font metrics can settle after the first fit (font fallback resolves)
+//      without any box change, so the observer can't see it. → One safeFit per
+//      terminal once document.fonts.ready resolves (see createTerminalEntry).
+const observedEntries = new WeakMap(); // container element → entry
+const containerResizeObserver = (typeof ResizeObserver !== 'undefined')
+  ? new ResizeObserver((entries) => {
+      for (const en of entries) {
+        const entry = observedEntries.get(en.target);
+        if (entry) scheduleObservedRefit(entry);
+      }
+    })
+  : null;
+
+function scheduleObservedRefit(entry) {
+  clearTimeout(entry._roTimer);
+  // 100 ms trailing debounce: swallows the per-frame storm of an interactive
+  // window drag (the resize handler covers live fitting) and fires once after
+  // the box settles.
+  entry._roTimer = setTimeout(() => {
+    entry._roTimer = 0;
+    if (!openSessions.has(entry.session.sessionId)) return;
+    const el = entry.element;
+    if (el.clientWidth === 0 || el.clientHeight === 0) return; // hidden — a real show refits anyway
+    // No-op guard: box already matches the cached fit and nothing is clipped.
+    if (Math.abs(el.clientWidth - (entry._fitW || 0)) < 1 &&
+        Math.abs(el.clientHeight - (entry._fitH || 0)) < 1 &&
+        !isBottomRowClipped(entry)) return;
+    fitAndScroll(entry);
+  }, 100);
+}
+
 // Fit a terminal that just became visible (from display:none or reparent).
 // Flush the WebGL glyph atlas and force a full-row redraw. xterm's WebGL renderer
 // caches a glyph texture atlas; on a hidden->visible transition WITHOUT a dimension
@@ -842,6 +880,20 @@ function createTerminalEntry(session, opts = {}) {
   lruTouch(sessionId);
   loadTerminalWebgl(entry);
 
+  // Late-settle guards (see containerResizeObserver above): refit on real box
+  // changes, and once after fonts are ready (already-resolved promise → an
+  // immediate microtask for terminals created later).
+  if (containerResizeObserver) {
+    observedEntries.set(container, entry);
+    containerResizeObserver.observe(container);
+  }
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => {
+      if (openSessions.get(entry.session.sessionId) !== entry) return; // destroyed/re-keyed
+      if (container.clientWidth > 0 && container.clientHeight > 0) safeFit(entry);
+    });
+  }
+
   // Wire up IPC (use entry.session.sessionId so fork re-keying works)
   terminal.onData(data => {
     if (data === '\x1b[I' || data === '\x1b[O') return;
@@ -954,6 +1006,8 @@ function destroySession(sessionId) {
   }
   lastFlushAt.delete(sessionId);
   flowState.delete(sessionId); // PTY is closed with the session — no resume needed
+  clearTimeout(entry._roTimer);
+  if (containerResizeObserver) containerResizeObserver.unobserve(entry.element);
   // Drop any accumulated replay data — the terminal is being torn down so
   // there is no point draining it on a future showSession.
   rawReplayBuffers.delete(sessionId);
