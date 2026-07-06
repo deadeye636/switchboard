@@ -45,7 +45,7 @@ const cleanPtyEnv = Object.fromEntries(
 );
 
 // Shell profiles → shell-profiles.js
-const { discoverShellProfiles, getShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, quoteArgvForShell } = require('./shell-profiles');
+const { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, quoteArgvForShell } = require('./shell-profiles');
 const { startScheduler } = require('./schedule-runner');
 const { encodeProjectPath } = require('./encode-project-path');
 const { afkTimeoutToEnvMs, resolveAfkTimeoutSec } = require('./afk-timeout');
@@ -210,8 +210,14 @@ function openSettingsWindow() {
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 ipcMain.on('open-settings-window', () => openSettingsWindow());
-ipcMain.on('settings-changed', () => {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('settings-changed');
+ipcMain.on('settings-changed', (event) => {
+  // Broadcast to every window except the sender, so a change made in the main
+  // window also reaches the settings popout (and vice-versa) (issue #76).
+  for (const w of [mainWindow, settingsWindow]) {
+    if (w && !w.isDestroyed() && w.webContents !== event.sender) {
+      w.webContents.send('settings-changed');
+    }
+  }
 });
 
 // Subagent live-tail watchers (watchId → { filePath, parentSessionId, agentId })
@@ -371,7 +377,7 @@ function createWindow() {
     }
     // Release all subagent file watchers
     for (const [, entry] of subagentWatchers) {
-      try { fs.unwatchFile(entry.filePath); } catch {}
+      try { fs.unwatchFile(entry.filePath, entry.listener); } catch {}
     }
     subagentWatchers.clear();
     mainWindow = null;
@@ -744,7 +750,7 @@ ipcMain.handle('remap-project', (_event, oldPath, newPath) => {
     if (!stat.isDirectory()) return { error: 'Path is not a directory' };
 
     // Find the folder key for the old project path
-    const folder = oldPath.replace(/[/_]/g, '-').replace(/^-/, '-');
+    const folder = encodeProjectPath(oldPath);
     const folderPath = path.join(PROJECTS_DIR, folder);
     if (!fs.existsSync(folderPath)) return { error: 'No session data found for this project' };
 
@@ -1108,7 +1114,7 @@ ipcMain.handle('save-file-for-panel', async (_event, filePath, content) => {
     // belongs to a type that the FTS index tracks, invalidate its signature so
     // the next get-work-files / get-memories call triggers a full reindex
     // (matching the explicit invalidation in save-memory / delete-work-file).
-    if (resolved.includes('/.work-files/')) invalidateFtsSignature('work-file');
+    if (resolved.includes('/.work-files/') || resolved.includes('\\.work-files\\')) invalidateFtsSignature('work-file');
     if (resolved.endsWith('.md')) invalidateFtsSignature('memory');
     return { ok: true };
   } catch (err) {
@@ -2167,10 +2173,12 @@ function startAttentionHookServer() {
       res.end('{}');
     });
   });
+  // Set the guard immediately (not inside the listen callback) so a second call
+  // while the socket is still binding cannot create a second server (issue #76).
+  attentionHookServer = server;
   server.on('error', (err) => log.error(`[attention-hook] server error: ${err.message}`));
   server.listen(0, '127.0.0.1', () => {
     attentionHookPort = server.address().port;
-    attentionHookServer = server;
     log.info(`[attention-hook] listening on 127.0.0.1:${attentionHookPort}`);
     // Re-stamp the live port into settings.json if the feature is already on.
     try {
@@ -2274,7 +2282,7 @@ const SETTING_DEFAULTS = {
 };
 
 ipcMain.handle('get-shell-profiles', () => {
-  _shellProfiles = null; // refresh on each request
+  invalidateShellProfiles(); // drop the module-private cache so newly installed shells appear without a restart
   return getShellProfiles();
 });
 
@@ -2535,7 +2543,10 @@ ipcMain.handle('start-subagent-watch', (_event, parentSessionId, agentId) => {
   // fs.watchFile gives reliable polling on Linux where inotify can be unreliable for JSONL appends
   fs.watchFile(filePath, { interval: 1000, persistent: false }, readNewEntries);
 
-  subagentWatchers.set(watchId, { filePath, parentSessionId, agentId });
+  // Store the listener fn so stop-subagent-watch / window-close can pass it to
+  // fs.unwatchFile — without the reference Node removes ALL watchers for the
+  // path, so two watches on the same file would kill each other (issue #76).
+  subagentWatchers.set(watchId, { filePath, parentSessionId, agentId, listener: readNewEntries });
   log.info(`[subagent-watch] start watchId=${watchId} parent=${parentSessionId} agentId=${agentId}`);
   return { watchId };
 });
@@ -2543,7 +2554,7 @@ ipcMain.handle('start-subagent-watch', (_event, parentSessionId, agentId) => {
 ipcMain.handle('stop-subagent-watch', (_event, watchId) => {
   const entry = subagentWatchers.get(watchId);
   if (!entry) return { ok: false };
-  fs.unwatchFile(entry.filePath);
+  fs.unwatchFile(entry.filePath, entry.listener);
   subagentWatchers.delete(watchId);
   log.info(`[subagent-watch] stop watchId=${watchId}`);
   return { ok: true };
@@ -3319,6 +3330,9 @@ app.on('will-quit', () => {
   // Flush any debounced per-file re-index so the last transcript edits inside a
   // debounce window are persisted before we close the DB (perf review item H).
   try { sessionCache.flushPendingReindex(); } catch {}
+  // Terminate an in-flight project scan so a late worker message can't write to
+  // the DB after closeDb() ("connection is not open" at shutdown) (issue #76).
+  try { sessionCache.terminateScanWorker(); } catch {}
   // Terminate the search worker gracefully before closing the DB, so the
   // worker's read-only connection is released before the WAL checkpoint.
   // shutdown() suppresses the restart logic before calling terminate().

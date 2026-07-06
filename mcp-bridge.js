@@ -11,7 +11,6 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const net = require('net');
 
 const IDE_DIR = path.join(os.homedir(), '.claude', 'ide');
 
@@ -24,17 +23,10 @@ function ensureIdeDir() {
   fs.mkdirSync(IDE_DIR, { recursive: true });
 }
 
-/** Get a random free port from the OS. */
-function findFreePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address();
-      srv.close(() => resolve(port));
-    });
-    srv.on('error', reject);
-  });
-}
+// How long a pending openDiff waits for the renderer before the CLI's tools/call
+// is released with a rejection — guards against a renderer reload/crash that would
+// otherwise leave the call hanging until session end (issue #76).
+const DIFF_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** Build the JSON-RPC 2.0 response envelope. */
 function rpcResult(id, result) {
@@ -191,9 +183,18 @@ async function handleOpenDiff(entry, rpcId, args, log) {
 
   const diffId = crypto.randomUUID();
 
-  // Create a promise that will be resolved when the user acts on the diff
+  // Create a promise that resolves when the user acts on the diff — or, if the
+  // renderer never answers (reload/crash), when a timeout fires so the CLI's
+  // tools/call doesn't hang until session end (issue #76).
   const diffPromise = new Promise((resolve) => {
-    entry.pendingDiffs.set(diffId, { resolve, rpcId, tabName: tab_name });
+    const timer = setTimeout(() => {
+      if (!entry.pendingDiffs.has(diffId)) return;
+      entry.pendingDiffs.delete(diffId);
+      log.warn(`[mcp] session=${entry.sessionId} diff ${diffId} timed out — rejecting`);
+      resolve({ action: 'reject', reason: 'timeout' });
+    }, DIFF_TIMEOUT_MS);
+    if (timer.unref) timer.unref();
+    entry.pendingDiffs.set(diffId, { resolve, rpcId, tabName: tab_name, timer });
   });
 
   // Send to renderer
@@ -264,6 +265,7 @@ async function handleCloseTab(entry, rpcId, args, log) {
   for (const [diffId, pending] of entry.pendingDiffs) {
     if (pending.tabName === tab_name) {
       entry.pendingDiffs.delete(diffId);
+      if (pending.timer) clearTimeout(pending.timer);
       pending.resolve({ action: 'accept' });
 
       // Notify renderer to close the tab
@@ -312,11 +314,13 @@ async function handleGetDiagnostics(entry, rpcId) {
 async function startMcpServer(sessionId, workspaceFolders, mainWindow, log) {
   ensureIdeDir();
 
-  const port = await findFreePort();
   const authToken = crypto.randomUUID();
 
+  // Bind to an OS-assigned port (port: 0) and wait for 'listening' before reading
+  // the actual port — this removes the old findFreePort probe/release/rebind TOCTOU
+  // race and ensures we never advertise a port that isn't accepting yet (issue #76).
   const wss = new WebSocketServer({
-    port,
+    port: 0,
     host: '127.0.0.1',
     // Cap frame size: ws defaults to 100 MiB and every frame is JSON.parsed on
     // the broker (main) process. 8 MiB comfortably covers large diffs while a
@@ -327,6 +331,13 @@ async function startMcpServer(sessionId, workspaceFolders, mainWindow, log) {
       return false;
     },
   });
+  await new Promise((resolve, reject) => {
+    const onListening = () => { wss.off('error', onError); resolve(); };
+    const onError = (err) => { wss.off('listening', onListening); reject(err); };
+    wss.once('listening', onListening);
+    wss.once('error', onError);
+  });
+  const port = wss.address().port;
 
   const lockFilePath = path.join(IDE_DIR, `${port}.lock`);
   const lockData = JSON.stringify({
@@ -406,6 +417,7 @@ function shutdownMcpServer(sessionId) {
 
   // Resolve all pending diffs
   for (const [, pending] of entry.pendingDiffs) {
+    if (pending.timer) clearTimeout(pending.timer);
     pending.resolve({ action: 'accept' });
   }
   entry.pendingDiffs.clear();
@@ -446,6 +458,7 @@ function resolvePendingDiff(sessionId, diffId, action, editedContent) {
   if (!pending) return;
 
   entry.pendingDiffs.delete(diffId);
+  if (pending.timer) clearTimeout(pending.timer);
   pending.resolve({ action, content: editedContent });
 }
 

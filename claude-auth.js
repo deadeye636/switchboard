@@ -7,6 +7,11 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// Keep in sync with the installed Claude CLI. The usage endpoint gates on a
+// plausible claude-code User-Agent; bump this when the CLI version drifts, or
+// wire up detection of the installed CLI version later (issue #76).
+const CLAUDE_CLI_USER_AGENT = 'claude-code/2.1.74';
+
 function getConfigDir() {
   return (process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'));
 }
@@ -44,7 +49,9 @@ function readFromFile() {
     const credPath = path.join(getConfigDir(), '.credentials.json');
     return JSON.parse(fs.readFileSync(credPath, 'utf8'));
   } catch (err) {
-    console.error('[claude-auth] Credentials file read error:', err.message);
+    // A missing credentials file is the normal "not logged in" state on
+    // Win/Linux — don't spam electron-log; only surface real read/parse errors (issue #76).
+    if (err.code !== 'ENOENT') console.error('[claude-auth] Credentials file read error:', err.message);
     return null;
   }
 }
@@ -125,7 +132,7 @@ async function fetchUsage() {
     headers: {
       'Authorization': `Bearer ${oauth.accessToken}`,
       'Content-Type': 'application/json',
-      'User-Agent': 'claude-code/2.1.74',
+      'User-Agent': CLAUDE_CLI_USER_AGENT,
       'anthropic-beta': 'oauth-2025-04-20',
     },
     signal: AbortSignal.timeout(10000),

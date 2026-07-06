@@ -138,7 +138,11 @@ function readNewSessionSignals(filePath) {
     let hasSnapshots = false;
     let clearOrigin = false;
     for (const line of lines) {
-      const entry = JSON.parse(line);
+      // Per-line try/catch: the fixed 512 KB read almost always truncates the
+      // last line, and one bad JSON.parse must not discard the signals already
+      // found before it (matches readSessionFile) (issue #76).
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
       // Skip snapshot lines — they carry no fork/session signals
       if (entry.type === 'file-history-snapshot') { hasSnapshots = true; continue; }
       if (entry.forkedFrom) forkedFrom = entry.forkedFrom.sessionId;
@@ -337,4 +341,4 @@ function detectSessionTransitions(folder) {
 }
 
 
-module.exports = { init, detectSessionTransitions, detectSubagentTransitions };
+module.exports = { init, detectSessionTransitions, detectSubagentTransitions, readNewSessionSignals };

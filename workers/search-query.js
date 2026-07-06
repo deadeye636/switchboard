@@ -46,13 +46,14 @@ try {
   // A readonly connection in WAL mode never blocks writers and vice-versa.
   // Setting journal_mode on a SQLITE_OPEN_READONLY connection is a no-op, so we
   // rely on the DB-level mode rather than issuing a redundant pragma here.
-} catch {
-  // DB not yet created or native module unavailable — respond to every incoming
-  // query with [] so the renderer gets a result rather than hanging.
-  parentPort.on('message', (msg) => {
-    parentPort.postMessage({ id: msg.id, results: [] });
-  });
-  return;
+} catch (err) {
+  // DB not yet created or native module unavailable (e.g. ABI mismatch). Exit
+  // non-zero so the client's circuit-breaker (backoff, then permanent sync
+  // fallback after maxRestarts) engages, instead of staying "online" and
+  // answering every query with [] forever — which masks the failure and never
+  // lets main fall back to the working synchronous search (issue #76).
+  console.error('[search-worker] DB unavailable, exiting so the client falls back to sync search:', err && err.message);
+  process.exit(1);
 }
 
 // FTS_QUERY_MAX_CHARS: must match the value in db.js.

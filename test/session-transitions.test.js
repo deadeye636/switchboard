@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const sessionTransitions = require('../session-transitions');
-const { detectSubagentTransitions, detectSessionTransitions, init } = sessionTransitions;
+const { detectSubagentTransitions, detectSessionTransitions, init, readNewSessionSignals } = sessionTransitions;
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-st-'));
@@ -55,6 +55,29 @@ function seedAgents(folder, sessionId, agents) {
   }
   return subDir;
 }
+
+test('readNewSessionSignals keeps earlier signals when the last line is truncated (issue #76)', () => {
+  const dir = mkTmp();
+  try {
+    const file = path.join(dir, 's.jsonl');
+    // Valid fork signal + a snapshot, then a truncated (invalid JSON) last line —
+    // the fixed 512 KB read almost always truncates the tail. The old code threw
+    // on the bad line and discarded forkedFrom; per-line try/catch must keep it.
+    const lines = [
+      JSON.stringify({ forkedFrom: { sessionId: 'parent-123' }, slug: 'my-slug' }),
+      JSON.stringify({ type: 'file-history-snapshot' }),
+      '{"type":"user","message":{"role":"user","content":"hel',  // truncated
+    ];
+    fs.writeFileSync(file, lines.join('\n'), 'utf8');
+
+    const sig = readNewSessionSignals(file);
+    assert.equal(sig.forkedFrom, 'parent-123');
+    assert.equal(sig.slug, 'my-slug');
+    assert.equal(sig.hasSnapshots, true);
+  } finally {
+    cleanup(dir);
+  }
+});
 
 test('bootstrap call with 5 pre-existing subagents emits zero events and populates the map', () => {
   const events = setupModule();

@@ -654,6 +654,7 @@ function sendStatus(text, type) {
 // callers share the same Promise so the first get-projects after a migration
 // can await it instead of seeing an empty list.
 let populatePromise = null;
+let activeScanWorker = null; // handle to the in-flight scan Worker, terminated on quit (issue #76)
 
 function populateCacheViaWorker() {
   if (populatePromise) return populatePromise;
@@ -665,12 +666,14 @@ function populateCacheViaWorker() {
       if (settled) return;
       settled = true;
       populatePromise = null;
+      activeScanWorker = null;
       resolve();
     };
 
   const worker = new Worker(path.join(__dirname, 'workers', 'scan-projects.js'), {
     workerData: { projectsDir: PROJECTS_DIR },
   });
+  activeScanWorker = worker;
 
   worker.on('message', (msg) => {
     // Progress updates from worker
@@ -746,8 +749,18 @@ function populateCacheViaWorker() {
   return populatePromise;
 }
 
+// Terminate an in-flight project-scan worker (called from will-quit before
+// closeDb, so a late worker message can't write to a closed DB) (issue #76).
+function terminateScanWorker() {
+  if (activeScanWorker) {
+    try { activeScanWorker.terminate(); } catch {}
+    activeScanWorker = null;
+  }
+}
+
 module.exports = {
   init,
+  terminateScanWorker,
   readSessionFile,
   readFolderFromFilesystem,
   refreshFolder,

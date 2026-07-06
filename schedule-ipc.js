@@ -13,6 +13,7 @@ const SCHEDULE_COMMANDS_DIR = path.join(CLAUDE_DIR, 'commands');
 const SCHEDULE_CREATOR_TEMPLATE = `---
 name: create-switchboard-schedule
 description: Create a new Switchboard scheduled task for this project
+switchboard-template-version: 1
 ---
 
 You are helping the user create a scheduled task in Switchboard. This task will run automatically on a cron schedule using Claude Code CLI in headless mode (-p flag).
@@ -110,10 +111,27 @@ Just describe the task you have in mind, or try one of these:
 - **"Create a task that runs the test suite every morning at 8am"** — create a new one
 - **"Disable schedule-repo-health"** — toggle a schedule off`;
 
+// Bump whenever SCHEDULE_CREATOR_TEMPLATE changes so the shipped update
+// propagates to existing installs (keep in sync with the frontmatter marker).
+const CURRENT_TEMPLATE_VERSION = 1;
+
+function parseTemplateVersion(text) {
+  const m = /^switchboard-template-version:\s*(\d+)/m.exec(text);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
 function ensureScheduleCreatorCommand() {
   try {
     const commandPath = path.join(SCHEDULE_COMMANDS_DIR, 'create-switchboard-schedule.md');
-    if (!fs.existsSync(commandPath)) {
+    let write = !fs.existsSync(commandPath);
+    if (!write) {
+      // Refresh a stale shipped template after an app update. A user who wants
+      // to freeze their edits can bump the marker to a version >= ours, which
+      // stops the overwrite (issue #76).
+      const existing = fs.readFileSync(commandPath, 'utf8');
+      write = parseTemplateVersion(existing) < CURRENT_TEMPLATE_VERSION;
+    }
+    if (write) {
       fs.mkdirSync(SCHEDULE_COMMANDS_DIR, { recursive: true });
       fs.writeFileSync(commandPath, SCHEDULE_CREATOR_TEMPLATE);
     }

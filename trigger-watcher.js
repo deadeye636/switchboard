@@ -892,6 +892,21 @@ function start(ctx) {
     return { close() {} };
   }
 
+  // Initial scan: process trigger files dropped while the app was closed —
+  // fs.watch only reports events for files created AFTER it starts (issue #76).
+  try {
+    for (const filename of fs.readdirSync(triggersDir)) {
+      if (!filename.endsWith('.json')) continue;
+      if (inFlight.has(filename)) continue;
+      const filePath = path.join(triggersDir, filename);
+      try { fs.accessSync(filePath, fs.constants.R_OK); } catch { continue; }
+      if (inFlight.size >= MAX_INFLIGHT) { waitQueue.push(filename); continue; }
+      dispatch(filename);
+    }
+  } catch (err) {
+    ctx.log.error('[trigger-watcher] Initial scan failed:', err.message);
+  }
+
   return {
     close() {
       try { watcher.close(); } catch {}

@@ -126,6 +126,13 @@ function getShellProfiles() {
   return _shellProfiles;
 }
 
+// Drop the cached profiles so the next getShellProfiles() rediscovers — call
+// after a shell may have been installed/removed. The cache is module-private,
+// so an assignment from another module can't reach it (issue #76).
+function invalidateShellProfiles() {
+  _shellProfiles = null;
+}
+
 // Warm up the WSL cache at module load so the distros are usually known by the
 // time the first profile consumer asks (no-op off Windows).
 startWslProbe();
@@ -171,8 +178,12 @@ function resolveShell(profileId) {
 // Convert a Windows path to a WSL /mnt/ path
 function windowsToWslPath(winPath) {
   if (!winPath) return winPath;
-  // C:\Users\foo → /mnt/c/Users/foo
   const normalized = winPath.replace(/\\/g, '/');
+  // UNC paths (\\server\share) have no /mnt drive-letter mapping — WSL reaches
+  // them via the same //server/share form, so pass them through unchanged rather
+  // than mangling them into a bogus /mnt path (issue #76).
+  if (normalized.startsWith('//')) return normalized;
+  // C:\Users\foo → /mnt/c/Users/foo
   const match = normalized.match(/^([A-Za-z]):(\/.*)/);
   if (match) return '/mnt/' + match[1].toLowerCase() + match[2];
   return normalized;
@@ -198,8 +209,15 @@ function quoteArgForShell(shellPath, value) {
     // PowerShell: single-quoted string, escape ' as ''
     return "'" + s.replace(/'/g, "''") + "'";
   }
-  // cmd.exe: double-quote, escape " as \" and ^-escape shell metachars
-  const escaped = s.replace(/"/g, '\\"').replace(/([&|<>^%])/g, '^$1');
+  // cmd.exe: wrap in double quotes and double any embedded quote ("" is cmd's
+  // in-quote escape; \" is NOT). Inside quotes cmd already treats & | < > ^ ( )
+  // literally, so do NOT ^-escape them — the old code injected a stray caret
+  // (a&b arrived as a^&b). NOTE: cmd still expands %VAR% even inside quotes and
+  // there is no reliable command-line escape for %, so a value containing %NAME%
+  // for a defined env var can expand — callers must avoid feeding untrusted %
+  // to a cmd.exe shell (this path is only hit when the resolved shell is cmd.exe,
+  // i.e. the COMSPEC fallback or an explicit cmd config) (issue #76).
+  const escaped = s.replace(/"/g, '""');
   return '"' + escaped + '"';
 }
 
@@ -235,4 +253,4 @@ function shellArgs(shellPath, cmd, extraArgs) {
   return [];
 }
 
-module.exports = { discoverShellProfiles, getShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, quoteArgForShell, quoteArgvForShell };
+module.exports = { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, quoteArgForShell, quoteArgvForShell };

