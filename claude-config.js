@@ -38,9 +38,11 @@ function readClaudeConfig(configPath = CLAUDE_CONFIG_PATH) {
 }
 
 // Map normalizedPath -> boolean (hasTrustDialogAccepted) for every project entry.
-function getProjectTrustMap(configPath = CLAUDE_CONFIG_PATH) {
+// `preloadedCfg` (optional) lets callers that need several derived views pass an
+// already-parsed config instead of re-reading the ~160 KB file per helper.
+function getProjectTrustMap(configPath = CLAUDE_CONFIG_PATH, preloadedCfg = undefined) {
   const map = new Map();
-  const cfg = readClaudeConfig(configPath);
+  const cfg = preloadedCfg !== undefined ? preloadedCfg : readClaudeConfig(configPath);
   if (!cfg || !cfg.projects || typeof cfg.projects !== 'object') return map;
   for (const [key, val] of Object.entries(cfg.projects)) {
     map.set(normalizeClaudePath(key), !!(val && val.hasTrustDialogAccepted));
@@ -50,9 +52,9 @@ function getProjectTrustMap(configPath = CLAUDE_CONFIG_PATH) {
 
 // Extra read-only per-project meta (MCP count, allowedTools count, last cost, tokens),
 // keyed by normalizedPath. Never includes secrets — only the aggregated counts/values.
-function getProjectClaudeMeta(configPath = CLAUDE_CONFIG_PATH) {
+function getProjectClaudeMeta(configPath = CLAUDE_CONFIG_PATH, preloadedCfg = undefined) {
   const map = new Map();
-  const cfg = readClaudeConfig(configPath);
+  const cfg = preloadedCfg !== undefined ? preloadedCfg : readClaudeConfig(configPath);
   if (!cfg || !cfg.projects || typeof cfg.projects !== 'object') return map;
   for (const [key, val] of Object.entries(cfg.projects)) {
     if (!val || typeof val !== 'object') continue;

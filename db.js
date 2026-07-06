@@ -542,6 +542,7 @@ const stmts = {
   searchInsertFts: db.prepare('INSERT OR REPLACE INTO search_fts(rowid, title, body) VALUES (?, ?, ?)'),
   searchInsertMap: db.prepare('INSERT OR REPLACE INTO search_map(id, type, folder) VALUES (?, ?, ?)'),
   searchMapLookup: db.prepare('SELECT rowid FROM search_map WHERE id = ? AND type = ?'),
+  searchMapCountByType: db.prepare('SELECT COUNT(*) as cnt FROM search_map WHERE type = ?'),
   // Title update: patches search_content (the authoritative column store) and
   // immediately removes the old fts5 shadow row via the 'delete' command then
   // reinserts it with the new title. See updateSearchTitle() for the full
@@ -1052,7 +1053,7 @@ function searchByType(type, query, limit = 50, titleOnly = false) {
 }
 
 function isSearchIndexPopulated() {
-  const row = db.prepare('SELECT COUNT(*) as cnt FROM search_map WHERE type = ?').get('session');
+  const row = stmts.searchMapCountByType.get('session');
   return row.cnt > 0;
 }
 

@@ -799,16 +799,18 @@ ipcMain.handle('get-projects-admin', () => {
     const autoAdd = global.projectAutoAdd !== false;
     const allowed = Array.isArray(global.addedProjects) ? new Set(global.addedProjects) : null;
 
-    const trustMap = claudeConfig.getProjectTrustMap();      // normalized -> bool
-    const metaMap = claudeConfig.getProjectClaudeMeta();     // normalized -> {counts...}
+    // Parse ~/.claude.json once (~160 KB) and derive all three views from it,
+    // instead of each helper re-reading + re-parsing the file.
+    const cfg = claudeConfig.readClaudeConfig();
+    const trustMap = claudeConfig.getProjectTrustMap(undefined, cfg);   // normalized -> bool
+    const metaMap = claudeConfig.getProjectClaudeMeta(undefined, cfg);  // normalized -> {counts...}
 
     const rows = buildProjectsAdmin();
     const byNorm = new Map();
     for (const r of rows) byNorm.set(claudeConfig.normalizeClaudePath(r.projectPath), r);
 
     // Fold in ~/.claude.json-only projects (have trust/meta but no Switchboard cache).
-    const cfgForKeys = claudeConfig.readClaudeConfig();
-    const cfgKeys = cfgForKeys && cfgForKeys.projects ? Object.keys(cfgForKeys.projects) : [];
+    const cfgKeys = cfg && cfg.projects ? Object.keys(cfg.projects) : [];
     for (const norm of trustMap.keys()) {
       if (byNorm.has(norm)) continue;
       const key = cfgKeys.find(k => claudeConfig.normalizeClaudePath(k) === norm) || null;
@@ -1198,6 +1200,8 @@ ipcMain.handle('get-plans', () => {
     if (!fs.existsSync(PLANS_DIR)) return [];
     const files = fs.readdirSync(PLANS_DIR).filter(f => f.endsWith('.md'));
     const plans = [];
+    const sigFiles = [];
+    const bodies = new Map(); // filename → content (single read: title + FTS body)
     for (const file of files) {
       const filePath = path.join(PLANS_DIR, file);
       try {
@@ -1208,18 +1212,24 @@ ipcMain.handle('get-plans', () => {
           ? firstLine.slice(2).trim()
           : file.replace(/\.md$/, '');
         plans.push({ filename: file, title, modified: stat.mtime.toISOString() });
+        bodies.set(file, content);
+        sigFiles.push({ filePath, mtimeMs: stat.mtimeMs, size: stat.size });
       } catch {}
     }
     plans.sort((a, b) => new Date(b.modified) - new Date(a.modified));
 
-    // Index plans for FTS
+    // Index plans for FTS — skipped when the file set is unchanged (dirty-flag,
+    // same shouldReindex gate as get-memories / get-work-files).
     try {
-      deleteSearchType('plan');
-      upsertSearchEntries(plans.map(p => ({
-        id: p.filename, type: 'plan', folder: null,
-        title: p.title,
-        body: fs.readFileSync(path.join(PLANS_DIR, p.filename), 'utf8'),
-      })));
+      const sig = computeIndexSignature(sigFiles);
+      if (shouldReindex('plan', sig)) {
+        deleteSearchType('plan');
+        upsertSearchEntries(plans.map(p => ({
+          id: p.filename, type: 'plan', folder: null,
+          title: p.title,
+          body: bodies.get(p.filename) || '',
+        })));
+      }
     } catch {}
 
     return plans;
@@ -1249,6 +1259,9 @@ ipcMain.handle('save-plan', (_event, filePath, content) => {
       return { ok: false, error: 'path outside plans directory' };
     }
     fs.writeFileSync(resolved, content, 'utf8');
+    // Invalidate the FTS signature so the next get-plans call reindexes
+    // (guards against sub-second writes where the mtime might not advance).
+    invalidateFtsSignature('plan');
     return { ok: true };
   } catch (err) {
     console.error('Error saving plan:', err);
@@ -1414,7 +1427,11 @@ function folderToShortPath(folder) {
   return meaningful.slice(-2).join('/');
 }
 
-/** Scan a directory for .md files (non-recursive). Returns array of { filename, filePath, modified }. */
+/** Scan a directory for .md files (non-recursive). Returns array of { filename, filePath, modified, size }.
+ *  Emptiness is judged by stat.size instead of reading every file's content —
+ *  get-memories runs this over dozens of directories per call, and the FTS
+ *  block below reads the bodies anyway when a reindex is actually due.
+ *  (Whitespace-only files now count as non-empty; harmless.) */
 function scanMdFiles(dir) {
   const results = [];
   try {
@@ -1423,11 +1440,12 @@ function scanMdFiles(dir) {
     for (const e of entries) {
       if (e.isFile() && e.name.endsWith('.md')) {
         const fp = path.join(dir, e.name);
-        const content = fs.readFileSync(fp, 'utf8').trim();
-        if (content) {
+        try {
           const stat = fs.statSync(fp);
-          results.push({ filename: e.name, filePath: fp, modified: stat.mtime.toISOString() });
-        }
+          if (stat.size > 0) {
+            results.push({ filename: e.name, filePath: fp, modified: stat.mtime.toISOString(), size: stat.size });
+          }
+        } catch {}
       }
     }
   } catch {}
@@ -1482,10 +1500,10 @@ ipcMain.handle('get-memories', () => {
             const fp = path.join(projectPath, name);
             try {
               if (fs.existsSync(fp)) {
-                const content = fs.readFileSync(fp, 'utf8').trim();
-                if (content && !seenPaths.has(fp)) {
-                  const stat = fs.statSync(fp);
-                  files.push({ filename: name, filePath: fp, modified: stat.mtime.toISOString(), displayPath: shortName + '/', source: 'project' });
+                // Same stat-only emptiness check as scanMdFiles — no content read here.
+                const stat = fs.statSync(fp);
+                if (stat.size > 0 && !seenPaths.has(fp)) {
+                  files.push({ filename: name, filePath: fp, modified: stat.mtime.toISOString(), size: stat.size, displayPath: shortName + '/', source: 'project' });
                   seenPaths.add(fp);
                 }
               }
@@ -1540,9 +1558,11 @@ ipcMain.handle('get-memories', () => {
     const sig = computeIndexSignature(allFiles.map(f => ({
       filePath: f.filePath,
       mtimeMs: new Date(f.modified).getTime(),
-      size: 0, // .md files don't carry size in scanMdFiles; mtime + path is sufficient
+      size: f.size || 0,
     })));
     if (shouldReindex('memory', sig)) {
+      // Only a due reindex reads file contents at all — the list above is
+      // built from stats alone.
       deleteSearchType('memory');
       upsertSearchEntries(allFiles.map(f => ({
         id: f.filePath, type: 'memory', folder: null,
@@ -2420,12 +2440,13 @@ ipcMain.handle('rename-session', (_event, sessionId, name) => {
 });
 
 // --- IPC: archive-session ---
-ipcMain.handle('read-session-jsonl', (_event, sessionId) => {
+ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
   const folder = getCachedFolder(sessionId);
   if (!folder) return { error: 'Session not found in cache' };
   const jsonlPath = path.join(PROJECTS_DIR, folder, sessionId + '.jsonl');
   try {
-    const content = fs.readFileSync(jsonlPath, 'utf-8');
+    // Async read — a large transcript must not block the main process.
+    const content = await fs.promises.readFile(jsonlPath, 'utf-8');
     const entries = [];
     for (const line of content.split('\n')) {
       if (!line.trim()) continue;
@@ -2437,12 +2458,13 @@ ipcMain.handle('read-session-jsonl', (_event, sessionId) => {
   }
 });
 
-ipcMain.handle('read-subagent-jsonl', (_event, parentSessionId, agentId) => {
+ipcMain.handle('read-subagent-jsonl', async (_event, parentSessionId, agentId) => {
   const row = getCachedSession('sub:' + parentSessionId + ':' + agentId);
   if (!row) return { error: 'Subagent session not found in cache' };
   const jsonlPath = resolveJsonlPath(PROJECTS_DIR, row);
   try {
-    const content = fs.readFileSync(jsonlPath, 'utf-8');
+    // Async read — a large transcript must not block the main process.
+    const content = await fs.promises.readFile(jsonlPath, 'utf-8');
     const entries = [];
     for (const line of content.split('\n')) {
       if (!line.trim()) continue;
@@ -2904,6 +2926,25 @@ ipcMain.on('terminal-input', (_event, sessionId, data) => {
   if (session && !session.exited) {
     session.pty.write(data);
   }
+});
+
+// --- IPC: pause/resume-session-output (PTY flow control, #74) ---
+// The renderer pauses the PTY while xterm's write buffer is saturated so an
+// output firehose backs up in the OS pipe instead of flooding IPC; resume is
+// called once xterm has drained. Guarded: pause/resume are optional in the
+// node-pty API surface.
+ipcMain.handle('pause-session-output', (_event, sessionId) => {
+  const session = activeSessions.get(sessionId);
+  if (!session || session.exited || typeof session.pty.pause !== 'function') return { ok: false };
+  try { session.pty.pause(); } catch { return { ok: false }; }
+  return { ok: true };
+});
+
+ipcMain.handle('resume-session-output', (_event, sessionId) => {
+  const session = activeSessions.get(sessionId);
+  if (!session || session.exited || typeof session.pty.resume !== 'function') return { ok: false };
+  try { session.pty.resume(); } catch { return { ok: false }; }
+  return { ok: true };
 });
 
 // --- IPC: terminal-resize (fire-and-forget) ---

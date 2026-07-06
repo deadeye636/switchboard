@@ -3,7 +3,7 @@ const fs = require('fs');
 const { Worker } = require('worker_threads');
 const { getFolderIndexMtimeMs } = require('./folder-index-state');
 const { deriveProjectPath } = require('./derive-project-path');
-const { readSessionFile, enumerateSessionFiles, resolveJsonlPath, subagentSessionId } = require('./read-session-file');
+const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId } = require('./read-session-file');
 const { encodeProjectPath } = require('./encode-project-path');
 
 /**
@@ -90,12 +90,19 @@ function buildSearchEntry(s) {
   };
 }
 
-function refreshFolder(folder) {
+// opts.indexMtimeMs — pre-computed getFolderIndexMtimeMs result. The reconcile
+// sweep already scans every folder once for its change gate; passing that value
+// in avoids a second readdir+stat pass per refreshed folder. Stamping the
+// pre-refresh value is the safe direction: a file that changes mid-refresh just
+// triggers one extra sweep next pass.
+function refreshFolder(folder, opts = {}) {
   const folderPath = path.join(PROJECTS_DIR, folder);
   if (!fs.existsSync(folderPath)) {
     deleteCachedFolder(folder);
     return;
   }
+  const stampMtimeMs = () =>
+    (opts.indexMtimeMs != null ? opts.indexMtimeMs : getFolderIndexMtimeMs(folderPath));
 
   // Reuse the previously-derived projectPath when its directory still exists.
   // deriveProjectPath reads session JSONL heads, and refreshFolder runs on
@@ -104,7 +111,7 @@ function refreshFolder(folder) {
   // project remap detection keeps working.
   const projectPath = folderProjectPath(folder, folderPath);
   if (!projectPath) {
-    setFolderMeta(folder, null, getFolderIndexMtimeMs(folderPath));
+    setFolderMeta(folder, null, stampMtimeMs());
     return;
   }
 
@@ -114,7 +121,7 @@ function refreshFolder(folder) {
   // current mtime so the sweep treats the folder as up-to-date and skips it until
   // it is un-hidden (unhideProject forces a fresh refresh).
   if (isHiddenProject(projectPath)) {
-    setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+    setFolderMeta(folder, projectPath, stampMtimeMs());
     return;
   }
 
@@ -123,11 +130,14 @@ function refreshFolder(folder) {
   // even for subagents whose DB sessionId differs from the on-disk filename.
   const cachedSessions = getCachedByFolder(folder);
   const cachedMap = new Map(); // DB sessionId → { modified, filePath }
+  const cachedByFilePath = new Map(); // filePath → { dbId, entry } (reverse map for the per-file loop)
   for (const row of cachedSessions) {
-    cachedMap.set(row.sessionId, {
+    const entry = {
       modified: row.modified,
       filePath: resolveJsonlPath(PROJECTS_DIR, row),
-    });
+    };
+    cachedMap.set(row.sessionId, entry);
+    cachedByFilePath.set(entry.filePath, { dbId: row.sessionId, entry });
   }
 
   const currentIds = new Set();
@@ -148,15 +158,9 @@ function refreshFolder(folder) {
     try { fileMtime = fs.statSync(filePath).mtime.toISOString(); } catch { continue; }
 
     // Find cached entry by file path (handles both top-level and subagent IDs)
-    let cachedEntry = null;
-    let cachedDbId = null;
-    for (const [dbId, entry] of cachedMap) {
-      if (entry.filePath === filePath) {
-        cachedEntry = entry;
-        cachedDbId = dbId;
-        break;
-      }
-    }
+    const cachedHit = cachedByFilePath.get(filePath) || null;
+    const cachedEntry = cachedHit ? cachedHit.entry : null;
+    const cachedDbId = cachedHit ? cachedHit.dbId : null;
 
     if (cachedDbId !== null) currentIds.add(cachedDbId);
 
@@ -164,7 +168,10 @@ function refreshFolder(folder) {
       continue; // unchanged, skip
     }
 
-    // File is new or modified — re-read it
+    // File is new or modified — re-read it. Drop any incremental per-file
+    // state so the next watcher-driven refreshFile starts from this full read
+    // (guards against rewritten files whose retained offset is now wrong).
+    _fileReadState.delete(filePath);
     const s = readSessionFile(filePath, folder, projectPath, { parentSessionId });
     if (s) {
       currentIds.add(s.sessionId); // ensure we don't delete a newly-read subagent row
@@ -207,7 +214,7 @@ function refreshFolder(folder) {
   }
 
   // Update folder mtime
-  setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+  setFolderMeta(folder, projectPath, stampMtimeMs());
 }
 
 // Debounced per-file re-index (perf #1 + #4 + review item B). Re-reading and
@@ -248,6 +255,15 @@ function flushPendingReindex() {
   }
 }
 
+// Per-file incremental read state (perf #74): filePath → { offset, state,
+// metrics } as returned by readSessionFileIncremental. Lets a watcher flush on
+// a large live transcript read only the newly-appended bytes instead of the
+// whole file. In-memory only — the first refresh after startup does one full
+// read to seed it. Bounded so weeks of touched files can't grow unchecked;
+// an evicted entry just costs one full re-read.
+const _fileReadState = new Map();
+const FILE_READ_STATE_MAX = 512;
+
 // Incremental single-file refresh (perf #1). The projects watcher fires per
 // changed .jsonl; re-indexing just that one file avoids re-enumerating +
 // re-stating the whole folder and rebuilding its cached-row map on every append
@@ -282,6 +298,7 @@ function refreshFile(folder, relFilename, opts = {}) {
     // sessionId the same way readSessionFile does (top-level = filename; subagent
     // = sub:<parent>:<agentId>).
     cancelReindex(filePath);
+    _fileReadState.delete(filePath);
     const base = path.basename(filePath, '.jsonl');
     let sessionId = base;
     if (parentSessionId) {
@@ -299,10 +316,24 @@ function refreshFile(folder, relFilename, opts = {}) {
   setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
 
   const run = () => {
-    const s = readSessionFile(filePath, folder, projectPath, { parentSessionId });
+    // Incremental hot-path read (perf #74): reuse the retained parse state so
+    // only the bytes appended since the last refresh are read. First touch (or
+    // a rewritten/truncated file) falls back to a full read inside
+    // readSessionFileIncremental.
+    const prev = _fileReadState.get(filePath) || null;
+    const res = readSessionFileIncremental(filePath, folder, projectPath, { parentSessionId }, prev);
     // null = file not yet a valid session (no first user turn) or became invalid.
     // Leave any existing row as-is; the reconcile sweep reconciles genuine losses.
-    if (!s) return;
+    if (!res) {
+      _fileReadState.delete(filePath);
+      return;
+    }
+    _fileReadState.set(filePath, res.next);
+    if (_fileReadState.size > FILE_READ_STATE_MAX) {
+      // Evict the oldest-inserted entry; it just falls back to a full read.
+      _fileReadState.delete(_fileReadState.keys().next().value);
+    }
+    const s = res.session;
     // Capture the effective name before writing so we can tell the renderer when a
     // rename (Claude /rename → JSONL custom-title, promoted via setName) actually
     // changed it. Without this notify, the deferred reindex writes the new name to
@@ -358,8 +389,11 @@ function reconcileCacheFromFilesystem() {
     for (const folder of folders) {
       const meta = metaMap.get(folder);
       const folderPath = path.join(PROJECTS_DIR, folder);
-      if (!meta || getFolderIndexMtimeMs(folderPath) > (meta.indexMtimeMs || 0)) {
-        refreshFolder(folder);
+      // One readdir+stat pass per folder per sweep: the gate value is handed to
+      // refreshFolder for its final stamp instead of being recomputed there.
+      const indexMtimeMs = getFolderIndexMtimeMs(folderPath);
+      if (!meta || indexMtimeMs > (meta.indexMtimeMs || 0)) {
+        refreshFolder(folder, { indexMtimeMs });
       }
     }
   } catch (err) {

@@ -50,6 +50,8 @@ contextBridge.exposeInMainWorld('api', {
   listSubagents: (parentSessionId) => ipcRenderer.invoke('list-subagents', parentSessionId),
   startSubagentWatch: (parentSessionId, agentId) => ipcRenderer.invoke('start-subagent-watch', parentSessionId, agentId),
   stopSubagentWatch: (watchId) => ipcRenderer.invoke('stop-subagent-watch', watchId),
+  pauseSessionOutput: (sessionId) => ipcRenderer.invoke('pause-session-output', sessionId),
+  resumeSessionOutput: (sessionId) => ipcRenderer.invoke('resume-session-output', sessionId),
 
   // Settings
   getSetting: (key) => ipcRenderer.invoke('get-setting', key),

@@ -4,14 +4,33 @@ const fs = require('fs');
 // --- Cross-platform shell resolution ---
 const isWindows = process.platform === 'win32';
 
+// WSL distro discovery must never block: `wsl.exe --list --quiet` can take
+// seconds (VM cold start) and used to stall the first discoverShellProfiles()
+// call for up to its 5 s timeout. Instead, an async warm-up probe (execFile)
+// fills this cache; until it lands, discovery simply omits WSL profiles —
+// they appear on the next getShellProfiles() call after the probe completes.
+let _wslDistros = null; // null = probe not finished; [] = none / WSL unavailable
+let _wslProbeStarted = false;
+function startWslProbe() {
+  if (_wslProbeStarted || !isWindows) return;
+  _wslProbeStarted = true;
+  const { execFile } = require('child_process');
+  execFile('wsl.exe', ['--list', '--quiet'], { timeout: 5000, encoding: 'utf8', windowsHide: true }, (err, stdout) => {
+    _wslDistros = err
+      ? []
+      : String(stdout || '').replace(/\0/g, '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    // Drop the memoized profile list so the next getShellProfiles() re-discovers
+    // and picks up the WSL entries.
+    if (_wslDistros.length > 0) _shellProfiles = null;
+  });
+}
+
 // Discover available shell profiles on this system.
 // Returns an array of { id, name, path, args? } objects.
 function discoverShellProfiles() {
   const profiles = [];
 
   if (isWindows) {
-    const { execSync } = require('child_process');
-
     // CMD
     const comspec = process.env.COMSPEC || 'C:\\WINDOWS\\system32\\cmd.exe';
     if (fs.existsSync(comspec)) {
@@ -54,14 +73,14 @@ function discoverShellProfiles() {
       profiles.push({ id: 'msys2', name: 'MSYS2', path: 'C:\\msys64\\usr\\bin\\bash.exe' });
     }
 
-    // WSL distributions
-    try {
-      const raw = execSync('wsl.exe --list --quiet', { timeout: 5000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-      const distros = raw.replace(/\0/g, '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-      for (const distro of distros) {
+    // WSL distributions — served from the async probe's cache; never blocks.
+    if (_wslDistros === null) {
+      startWslProbe();
+    } else {
+      for (const distro of _wslDistros) {
         profiles.push({ id: 'wsl:' + distro, name: 'WSL — ' + distro, path: 'wsl.exe', args: ['-d', distro] });
       }
-    } catch {}
+    }
   } else {
     // macOS / Linux: read /etc/shells for the canonical list
     const seen = new Set();
@@ -106,6 +125,10 @@ function getShellProfiles() {
   if (!_shellProfiles) _shellProfiles = discoverShellProfiles();
   return _shellProfiles;
 }
+
+// Warm up the WSL cache at module load so the distros are usually known by the
+// time the first profile consumer asks (no-op off Windows).
+startWslProbe();
 
 function resolveShell(profileId) {
   // If a profile is selected, use it
