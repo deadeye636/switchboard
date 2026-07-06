@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('api', {
   // Settings
   getSetting: (key) => ipcRenderer.invoke('get-setting', key),
   setSetting: (key, value) => ipcRenderer.invoke('set-setting', key, value),
+  mergeSetting: (key, partial) => ipcRenderer.invoke('merge-setting', key, partial),
   deleteSetting: (key) => ipcRenderer.invoke('delete-setting', key),
   getEffectiveSettings: (projectPath) => ipcRenderer.invoke('get-effective-settings', projectPath),
   getScheduleCreatorCommand: () => ipcRenderer.invoke('get-schedule-creator-command'),
@@ -181,6 +182,10 @@ contextBridge.exposeInMainWorld('api', {
   watchFile: (filePath) => ipcRenderer.invoke('watch-file', filePath),
   unwatchFile: (filePath) => ipcRenderer.invoke('unwatch-file', filePath),
   onFileChanged: (callback) => {
-    ipcRenderer.on('file-changed', (_event, filePath) => callback(filePath));
+    const listener = (_event, filePath) => callback(filePath);
+    ipcRenderer.on('file-changed', listener);
+    // Return an unsubscribe so callers can remove the listener on teardown
+    // (issue #75) — otherwise repeated instantiation leaks listeners.
+    return () => ipcRenderer.removeListener('file-changed', listener);
   },
 });

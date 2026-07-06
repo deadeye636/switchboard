@@ -1241,8 +1241,11 @@
         const svSecretSweep = settingsViewerBody.querySelector('#sv-secret-ref-sweep');
         if (svSecretSweep) settings.secretRefSweepMinutes = Math.max(0, parseInt(svSecretSweep.value, 10) || 0);
         settings.shellProfile = settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto';
+        // Build only the form-managed keys here; these sub-objects are re-based on
+        // the freshly-read global below so a second settings window's changes since
+        // this dialog opened aren't clobbered (issue #75) — hence no stale `current`
+        // spread as a base.
         settings.notifications = {
-          ...(current.notifications || {}),
           enabled: settingsViewerBody.querySelector('#sv-notify-enabled').checked,
           notifyOnReady: settingsViewerBody.querySelector('#sv-notify-ready').checked,
           sound: settingsViewerBody.querySelector('#sv-attention-sound').checked,
@@ -1251,15 +1254,21 @@
           mode: settingsViewerBody.querySelector('#sv-running-inbox-mode')?.value || 'until-read',
           minutes: Math.max(1, Math.min(120, parseInt(settingsViewerBody.querySelector('#sv-running-inbox-minutes')?.value, 10) || 5)),
         };
-        // Merge over existing shortcuts so non-managed keys (e.g. deadeye's
-        // nextAttention) survive — scShortcuts carries only the session-nav/grid bindings.
-        settings.shortcuts = { ...(current.shortcuts || {}), ...scShortcuts };
+        // scShortcuts carries only the session-nav/grid bindings; non-managed keys
+        // (e.g. deadeye's nextAttention) are preserved by the re-base below.
+        settings.shortcuts = scShortcuts;
       }
       stopShortcutCapture();
 
       // Merge form values into existing settings to preserve keys not managed by the form
       if (!isProject) {
         const existing = (await window.api.getSetting('global')) || {};
+        // Re-base the hand-merged sub-objects on the freshly-read global so keys another
+        // settings window changed since this dialog opened aren't clobbered — a rebind of
+        // the non-managed nextAttention shortcut, or any future notifications key. The
+        // form's own toggles/bindings still win for the keys it manages (issue #75).
+        settings.notifications = { ...(existing.notifications || {}), ...settings.notifications };
+        settings.shortcuts = { ...(existing.shortcuts || {}), ...settings.shortcuts };
         settings = { ...existing, ...settings };
       }
 

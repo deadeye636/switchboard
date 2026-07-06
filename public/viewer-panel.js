@@ -105,7 +105,7 @@ class ViewerPanel {
       }
     };
     if (window.api.onFileChanged) {
-      window.api.onFileChanged(this._onFileChanged);
+      this._offFileChanged = window.api.onFileChanged(this._onFileChanged);
     }
   }
 
@@ -350,6 +350,7 @@ class ViewerPanel {
 
   destroy() {
     this._openGen = (this._openGen || 0) + 1;  // invalidate in-flight open() closure
+    if (this._offFileChanged) { this._offFileChanged(); this._offFileChanged = null; }
     this._unwatchFile();
     if (this.editorView) {
       this.editorView.destroy();

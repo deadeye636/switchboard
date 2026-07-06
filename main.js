@@ -1778,6 +1778,17 @@ ipcMain.handle('set-setting', (_event, key, value) => {
   return { ok: true };
 });
 
+// Atomic partial update of an object-valued setting: read-merge-write happens
+// synchronously inside this single handler, so concurrent callers (tab drag,
+// sidebar resize, a second window) can't clobber each other's unrelated keys
+// the way a renderer-side read-modify-write of the whole blob does (issue #75).
+ipcMain.handle('merge-setting', (_event, key, partial) => {
+  const cur = getSetting(key);
+  const base = (cur && typeof cur === 'object' && !Array.isArray(cur)) ? cur : {};
+  setSetting(key, { ...base, ...(partial || {}) });
+  return { ok: true };
+});
+
 ipcMain.handle('delete-setting', (_event, key) => {
   deleteSetting(key);
   return { ok: true };

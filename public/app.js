@@ -275,6 +275,7 @@ let showTodayOnly = false;
 let showFavoritedProjectsOnly = false;
 let cachedProjects = [];
 let cachedAllProjects = [];
+let loadProjectsGen = 0; // bumped per loadProjects() call; stale responses bail (issue #75)
 let activePtyIds = new Set();
 let sortedOrder = []; // [{ projectPath, itemIds: [itemId, ...] }, ...] — single source of truth for sidebar order
 let activeTab = 'sessions';
@@ -964,7 +965,9 @@ window.api.onSessionForked((oldId, newId) => {
   const pendingEntry = pendingSessions.get(oldId);
   pendingSessions.delete(oldId);
   if (pendingEntry) {
-    pendingEntry.sessionId = newId;
+    // Re-key only: the pending shape is { session, projectPath, folder } with no
+    // own sessionId field (the Map key carries it); entry.session.sessionId was
+    // already updated above (issue #75 — removed a dead write to a phantom field).
     pendingSessions.set(newId, pendingEntry);
   }
   sessionMap.delete(oldId);
@@ -1669,6 +1672,7 @@ function dedup(projects) {
 }
 
 async function loadProjects({ resort = false } = {}) {
+  const myGen = ++loadProjectsGen;
   const wasEmpty = cachedProjects.length === 0;
   if (wasEmpty) {
     loadingStatus.textContent = 'Loading\u2026';
@@ -1679,6 +1683,9 @@ async function loadProjects({ resort = false } = {}) {
     window.api.getProjects(false),
     window.api.getProjects(true),
   ]);
+  // A newer loadProjects() started while we awaited — drop this stale response
+  // so it can't overwrite fresher cachedProjects with older data.
+  if (myGen !== loadProjectsGen) return;
   cachedProjects = defaultProjects;
   cachedAllProjects = allProjects;
   loadingStatus.style.display = 'none';
@@ -1732,6 +1739,9 @@ async function loadProjects({ resort = false } = {}) {
     }
   } catch {}
 
+  // Another loadProjects() may have superseded us during the awaits above — bail
+  // before rendering so the newer call owns the final sidebar/grid state.
+  if (myGen !== loadProjectsGen) return;
   await pollActiveSessions();
   refreshSidebar({ resort });
   // Reloaded project data can carry new titles (user renames, AI titles, /title)
@@ -2249,11 +2259,9 @@ initGridObservers();
     // Save sidebar width to settings
     const width = parseInt(sidebar.style.width);
     if (width) {
-      window.api.getSetting('global').then(g => {
-        const global = g || {};
-        global.sidebarWidth = width;
-        window.api.setSetting('global', global);
-      });
+      // Atomic key-scoped merge (see session-tabs persistOrder) — avoids clobbering
+      // unrelated settings on a concurrent save / second window (issue #75).
+      window.api.mergeSetting('global', { sidebarWidth: width });
     }
   });
 }

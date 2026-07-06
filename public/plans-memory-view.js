@@ -80,13 +80,12 @@ async function openPlan(plan) {
   currentPlanFilePath = result.filePath;
   currentPlanFilename = plan.filename;
 
-  // Hide terminal area and placeholder, show plan viewer
+  // Hide every other viewer (draining JSONL file-watches) before showing this
+  // one — matches the jsonl-viewer opener, so views can't overlap and leftover
+  // fs.watchFile polls don't leak (issue #75).
+  hideAllViewers();
   placeholder.style.display = 'none';
   terminalArea.style.display = 'none';
-  statsViewer.style.display = 'none';
-  memoryViewer.style.display = 'none';
-  settingsViewer.style.display = 'none';
-  timelineViewer.style.display = 'none';
   planViewer.style.display = 'flex';
 
   planPanel.open(plan.title, currentPlanFilePath, currentPlanContent);
@@ -277,12 +276,10 @@ async function openMemory(file) {
   currentMemoryFilePath = file.filePath;
   currentMemoryContent = content;
 
-  // Show memory viewer in main area
+  // Hide every other viewer (draining JSONL file-watches) before showing this one (issue #75).
+  hideAllViewers();
   placeholder.style.display = 'none';
   terminalArea.style.display = 'none';
-  planViewer.style.display = 'none';
-  statsViewer.style.display = 'none';
-  settingsViewer.style.display = 'none';
   memoryViewer.style.display = 'flex';
 
   memoryPanel.open(file.filename, file.filePath, content);
@@ -430,12 +427,10 @@ async function openWorkFile(file) {
   currentWorkFilePath = file.filePath;
   currentWorkFileContent = content;
 
+  // Hide every other viewer (draining JSONL file-watches) before showing this one (issue #75).
+  hideAllViewers();
   placeholder.style.display = 'none';
   terminalArea.style.display = 'none';
-  planViewer.style.display = 'none';
-  statsViewer.style.display = 'none';
-  settingsViewer.style.display = 'none';
-  memoryViewer.style.display = 'none';
   workFilesViewer.style.display = 'flex';
 
   workFilesPanel.open(file.filename, file.filePath, content);

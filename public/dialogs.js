@@ -330,6 +330,7 @@ async function showNewSessionDialog(project, groupId) {
 
   function close() {
     overlay.remove();
+    document.removeEventListener('keydown', onKey);
   }
 
   function start() {
@@ -366,9 +367,12 @@ async function showNewSessionDialog(project, groupId) {
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 
   // Keyboard support
+  // close() removes this listener for every dismissal path (cancel, overlay,
+  // start, Esc, Enter) — never leak it, or a later stray Enter fires start()
+  // on the detached dialog and launches a ghost session (issue #75).
   function onKey(e) {
-    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
-    if (e.key === 'Enter' && !e.target.matches('input')) { start(); document.removeEventListener('keydown', onKey); }
+    if (e.key === 'Escape') close();
+    if (e.key === 'Enter' && !e.target.matches('input')) start();
   }
   document.addEventListener('keydown', onKey);
 }
@@ -464,6 +468,7 @@ async function showResumeSessionDialog(session) {
 
   function close() {
     overlay.remove();
+    document.removeEventListener('keydown', onKey);
   }
 
   function resume() {
@@ -488,9 +493,10 @@ async function showResumeSessionDialog(session) {
   dialog.querySelector('.new-session-start-btn').onclick = resume;
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 
+  // See showNewSessionDialog: close() owns listener removal for all paths.
   function onKey(e) {
-    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
-    if (e.key === 'Enter' && !e.target.matches('input')) { resume(); document.removeEventListener('keydown', onKey); }
+    if (e.key === 'Escape') close();
+    if (e.key === 'Enter' && !e.target.matches('input')) resume();
   }
   document.addEventListener('keydown', onKey);
 }

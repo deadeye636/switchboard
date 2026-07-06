@@ -2,8 +2,20 @@
 // Depends on globals: escapeHtml (utils.js), statsViewerBody (app.js)
 
 let cachedUsage = null;
+let loadStatsGen = 0;
+
+// Local YYYY-MM-DD. NOT toISOString().slice(0,10): that formats a local-midnight
+// Date as UTC, so in TZ+n the day axis lands one calendar day off from where the
+// bulk of that day's activity is bucketed (issue #75).
+function localDateKey(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 async function loadStats() {
+  const myGen = ++loadStatsGen;
   statsViewerBody.innerHTML = '';
 
   // Show spinner while fetching usage via PTY
@@ -26,6 +38,9 @@ async function loadStats() {
     usage = cachedUsage || {};
   }
 
+  // A newer loadStats() started while we awaited — drop this stale result so the
+  // slower, older response can't overwrite the fresher render.
+  if (myGen !== loadStatsGen) return;
   statsViewerBody.innerHTML = '';
 
   if (!stats && !Object.keys(usage).length) {
@@ -198,7 +213,7 @@ function buildDailyBarChart(stats) {
   for (let i = 29; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    days.push(d.toISOString().slice(0, 10));
+    days.push(localDateKey(d));
   }
 
   const tokenValues = days.map(d => tokenMap[d] || 0);
@@ -333,7 +348,7 @@ function buildHeatmap(counts) {
 
   const cursor = new Date(startDate);
   while (cursor <= endDate) {
-    const dateStr = cursor.toISOString().slice(0, 10);
+    const dateStr = localDateKey(cursor);
     const count = counts[dateStr] || 0;
     let level = 0;
     if (count > 0) {
@@ -387,7 +402,7 @@ function calculateStreak(counts) {
   const d = new Date(today);
   let started = false;
   for (let i = 0; i < 365; i++) {
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = localDateKey(d);
     const count = counts[dateStr] || 0;
     if (count > 0) {
       streak++;

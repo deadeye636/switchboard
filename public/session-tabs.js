@@ -72,10 +72,9 @@ if (typeof module !== 'undefined' && module.exports) {
   function stripEl() { return document.getElementById('session-tabs'); }
 
   function persistOrder() {
-    try { window.api.getSetting('global').then(g => {
-      const next = { ...(g || {}), tabOrder };
-      window.api.setSetting('global', next);
-    }); } catch { /* best effort */ }
+    // Atomic key-scoped merge in main — a full read-modify-write of the whole
+    // `global` blob here races with settings saves / a second window (issue #75).
+    try { window.api.mergeSetting('global', { tabOrder }); } catch { /* best effort */ }
   }
 
   // Collect the current open sessions into buildTabModel's plain input shape.
