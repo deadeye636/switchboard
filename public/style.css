@@ -2414,6 +2414,12 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
 
 /* Prevent terminal content from rendering under xterm's scrollbar */
 .terminal-container .xterm-viewport {
+  /* xterm.css defaults this to #000. In xterm 6 the theme background is applied
+     to the scrollable element (content area) only, while the viewport spans the
+     .xterm PADDING box — so with the inset padding on .xterm the default black
+     showed through as a border around the terminal. Let the inherited theme
+     background of .xterm shine through instead. */
+  background-color: transparent;
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.1) transparent;
   /* Always reserve the scrollbar gutter so the viewport width stays constant
