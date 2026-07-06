@@ -3,15 +3,14 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (25 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-05
+**As of:** 2026-07-06
 
 
 ## P1 — next up
 
 - [#2](https://github.com/deadeye636/switchboard/issues/2) Session display Phase 3 — Detach (detachable windows) · _feature_
-- [#74](https://github.com/deadeye636/switchboard/issues/74) Review 2026-07: main-process sync IO and redundant reads on hot paths · _bug_
 - [#75](https://github.com/deadeye636/switchboard/issues/75) Review 2026-07: renderer correctness — listener leaks, races, state bugs · _bug_
 - [#76](https://github.com/deadeye636/switchboard/issues/76) Review 2026-07: main-process robustness — lifecycle races, broken invalidation, platform bugs · _bug_
 - [#77](https://github.com/deadeye636/switchboard/issues/77) Review 2026-07: security hardening of local attack surface · _bug_
@@ -22,8 +21,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#64](https://github.com/deadeye636/switchboard/issues/64) Doubled working-status indicator (ghost line) only heals on resize · _bug_
 - [#68](https://github.com/deadeye636/switchboard/issues/68) Scope-filtered bookmark views (session / project / global) · _feature_
 - [#78](https://github.com/deadeye636/switchboard/issues/78) Review 2026-07: UX consistency — confirmations, error feedback, dialog patterns · _bug_
-- [#80](https://github.com/deadeye636/switchboard/issues/80) Review 2026-07: renderer performance — full rebuilds, O(N²) loops, per-keystroke waste · _chore_
-- [#81](https://github.com/deadeye636/switchboard/issues/81) Review 2026-07: terminal (xterm) polish — debug leftovers, stale-tail flush, cleanups · _chore_
 - [#83](https://github.com/deadeye636/switchboard/issues/83) Terminal mouse mode: direct left-click selection with working TUI wheel scroll (PowerShell-style) · _feature_
 
 ## P3 — someday
