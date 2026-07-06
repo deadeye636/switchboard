@@ -2383,6 +2383,10 @@ input:focus-visible {
 }
 .terminal-container .xterm {
   padding: 8px 0 8px 8px;
+  /* xterm paints the theme background only inside the content area (viewport/
+     canvas) — the padding zone is transparent. Inherit the container's inline
+     theme background so the inset never shows through as a dark border. */
+  background-color: inherit;
 }
 .terminal-container.grid-mode .xterm {
   padding: 6px 0 6px 6px;
