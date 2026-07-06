@@ -111,7 +111,7 @@
     const terminalFontCustomValue = terminalFontIsPreset ? '' : terminalFontFamilyValue;
     const rightClickValue = fieldValue('terminalRightClick', 'menu');
     const mouseReportingValue = fieldValue('terminalMouseReporting', 'on');
-    const terminalWebglValue = fieldValue('terminalWebgl', false);
+    const terminalWebglValue = fieldValue('terminalWebgl', true); // default on (#81)
     const terminalCloseValue = fieldValue('terminalCloseBehavior', 'kill');
     const displayModeValue = fieldValue('sessionDisplayMode', 'grid');
     const settingsOpenModeValue = fieldValue('settingsOpenMode', 'overlay');
@@ -579,8 +579,8 @@
                   <div class="settings-field">
                     <div class="settings-field-info">
                       <div class="settings-field-header"><span class="settings-label">GPU rendering (WebGL)</span>${help}</div>
-                      <div class="settings-description">Render terminals via the GPU. Faster for heavy output, but may flicker on tab switch.</div>
-                      <div class="settings-more">Uses WebGL instead of the default DOM renderer. Text may briefly flicker or "staircase" when switching tabs or resizing, and only about 16 terminals can hold a GPU context at once. Leave off unless you have very output-heavy sessions.</div>
+                      <div class="settings-description">Render terminals via the GPU (default). Substantially lower CPU load for heavy output.</div>
+                      <div class="settings-more">Uses WebGL instead of the DOM renderer. Only about 16 terminals can hold a GPU context at once — extra terminals automatically fall back to the DOM renderer. Turn off if you see rendering glitches on your GPU/driver.</div>
                     </div>
                     <div class="settings-field-control">
                       <label class="settings-toggle"><input type="checkbox" id="sv-terminal-webgl" ${terminalWebglValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
@@ -1307,7 +1307,7 @@
           window._applyTerminalMouseReporting(settings.terminalMouseReporting);
         }
         if (typeof window._setTerminalWebgl === 'function') {
-          window._setTerminalWebgl(settings.terminalWebgl === true);
+          window._setTerminalWebgl(settings.terminalWebgl !== false); // default on (#81)
         }
         if (typeof window._setUsageThresholds === 'function') {
           window._setUsageThresholds({ fiveHWarn: settings.usage5hWarn, fiveHCrit: settings.usage5hCrit, sevenDWarn: settings.usage7dWarn, sevenDCrit: settings.usage7dCrit });

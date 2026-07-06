@@ -723,9 +723,7 @@ function _gcExpandedSubagentsOnce() {
 
 function getExpandedSubagents() {
   _gcExpandedSubagentsOnce();
-  try {
-    return new Set(JSON.parse(localStorage.getItem('expandedSubagents') || '[]'));
-  } catch (e) { return new Set(); }
+  return new Set(readLsJson('expandedSubagents', '[]'));
 }
 
 function saveExpandedSubagents(set) {
@@ -1361,6 +1359,78 @@ function buildFolderProjectSubsection(scopePrefix, projectPath, sessions, missin
   sub.appendChild(header);
   sub.appendChild(list);
   return sub;
+}
+
+// --- In-place status patching (#80) ---
+// Busy/idle/attention edges fire refreshSessionStatusViews for every session's
+// activity; rebuilding the whole sidebar (buildSessionItem for every session +
+// morphdom + rebind) per edge is constant load with many sessions. Patch the
+// status-driven bits of the already-rendered DOM instead. Structural changes
+// (sessions added/removed, renames, sort, filters) still use refreshSidebar().
+// Returns false when a full rebuild is required (caller falls back).
+const SESSION_STATUS_CLASSES = ['status-needs-attention', 'status-response-ready',
+  'status-busy', 'status-running', 'status-exited', 'status-idle'];
+
+function patchSidebarStatuses() {
+  if (!sidebarContent || !sidebarContent.querySelector('.session-item')) return false;
+  // The running filter changes list membership on status edges — needs a rebuild.
+  if (showRunningOnly) return false;
+  const runtime = getSessionRuntimeState();
+  for (const item of sidebarContent.querySelectorAll('.session-item[data-session-id]')) {
+    const sid = item.dataset.sessionId;
+    item.classList.toggle('has-running-pty', activePtyIds.has(sid));
+    item.classList.toggle('needs-attention', attentionSessions.has(sid));
+    item.classList.toggle('response-ready', responseReadySessions.has(sid));
+    item.classList.toggle('cli-busy', !!sessionBusyState.get(sid));
+    const dot = item.querySelector('.session-status-dot');
+    if (dot) dot.classList.toggle('running', activePtyIds.has(sid));
+    const session = sessionMap.get(sid);
+    if (!session || item.dataset.subagent) continue; // subagent rows carry no status chip
+    const status = getSessionStatus(session, runtime);
+    if (!item.classList.contains(status.className)) {
+      item.classList.remove(...SESSION_STATUS_CLASSES);
+      item.classList.add(status.className);
+      const chip = item.querySelector('.session-status-chip');
+      if (chip) {
+        chip.className = `session-detail-pill session-status-chip ${status.className}`;
+        chip.textContent = status.label;
+      }
+    }
+  }
+  // Group aggregates: running dot + attention/ready count chips.
+  for (const group of sidebarContent.querySelectorAll('.user-group')) {
+    const dot = group.querySelector('.user-group-status-dot');
+    if (dot) dot.classList.toggle('running', !!group.querySelector('.session-item.has-running-pty'));
+    const chips = group.querySelector('.user-group-chips');
+    if (chips) {
+      const att = group.querySelectorAll('.session-item.needs-attention').length;
+      const ready = group.querySelectorAll('.session-item.response-ready').length;
+      syncGroupStatusChip(chips, 'status-needs-attention', att, n => `${n} need${n === 1 ? 's' : ''} attention`);
+      syncGroupStatusChip(chips, 'status-response-ready', ready, n => `${n} ready`);
+    }
+  }
+  for (const group of sidebarContent.querySelectorAll('.slug-group')) {
+    const dot = group.querySelector('.slug-group-dot');
+    if (dot) dot.classList.toggle('running', !!group.querySelector('.session-item.has-running-pty'));
+  }
+  return true;
+}
+
+// Create/update/remove a user-group count chip to match `count` (markup mirrors
+// buildUserGroup's initial render).
+function syncGroupStatusChip(chipsEl, cls, count, titleFn) {
+  let chip = chipsEl.querySelector('.user-group-chip.' + cls);
+  if (count > 0) {
+    if (!chip) {
+      chip = document.createElement('span');
+      chip.className = 'user-group-chip ' + cls;
+      chipsEl.appendChild(chip);
+    }
+    chip.textContent = String(count);
+    chip.title = titleFn(count);
+  } else if (chip) {
+    chip.remove();
+  }
 }
 
 function rebindSidebarEvents(projects) {

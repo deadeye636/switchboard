@@ -122,7 +122,7 @@ function setActiveSession(id) {
 // Persist slug group expand state across reloads AND restarts (localStorage, so
 // the "letzter Stand" collapse-default actually survives an app restart).
 function getExpandedSlugs() {
-  try { return new Set(JSON.parse(localStorage.getItem('expandedSlugs') || '[]')); } catch { return new Set(); }
+  return new Set(readLsJson('expandedSlugs', '[]'));
 }
 function saveExpandedSlugs() {
   const expanded = [];
@@ -133,7 +133,7 @@ function saveExpandedSlugs() {
 // startup default also remembers top-level project headers — which otherwise only
 // follow a render-time age heuristic and aren't persisted. { path: true|false }.
 function getProjectCollapseState() {
-  try { return JSON.parse(localStorage.getItem('projectCollapseState') || '{}'); } catch { return {}; }
+  return readLsJson('projectCollapseState', '{}');
 }
 function setProjectCollapsed(projectPath, collapsed) {
   if (!projectPath) return;
@@ -147,7 +147,7 @@ let groupsState = createGroupsState();
 // Collapse state for user groups persists across restarts via localStorage
 // (keyed by the stable group DOM id), tracking which groups are collapsed.
 function getCollapsedGroups() {
-  try { return new Set(JSON.parse(localStorage.getItem('collapsedGroups') || '[]')); } catch { return new Set(); }
+  return new Set(readLsJson('collapsedGroups', '[]'));
 }
 function saveCollapsedGroups() {
   const collapsed = [];
@@ -379,7 +379,12 @@ function announceAttentionSummary() {
 }
 
 function refreshSessionStatusViews() {
-  if (activeTab === 'sessions') refreshSidebar();
+  if (activeTab === 'sessions') {
+    // Status edges fire per session activity — patch the rendered DOM in place
+    // (#80) and fall back to the full rebuild when the patcher can't (running
+    // filter active, sidebar not rendered yet).
+    if (typeof patchSidebarStatuses !== 'function' || !patchSidebarStatuses()) refreshSidebar();
+  }
   if (gridViewActive) refreshGridView();
   announceAttentionSummary();
   syncNativeNotifications();
@@ -857,6 +862,9 @@ function renderAwaySummary(sessionId, summary) {
 window.api.onTerminalData((sessionId, data) => {
   const entry = openSessions.get(sessionId);
   if (entry) {
+    // PTY flow control: count received bytes; terminal-manager pauses the PTY
+    // when too much output is in flight and resumes once xterm caught up (#81).
+    if (typeof flowTrackReceived === 'function') flowTrackReceived(sessionId, data.length);
     let buf = terminalWriteBuffers.get(sessionId);
     if (!buf) {
       buf = { chunks: [], syncDepth: 0, rafId: 0, timerId: 0 };
@@ -2286,7 +2294,7 @@ async function reapplyGlobalSettings() {
   if (g.terminalFontSize) window._setTerminalFontSize?.(g.terminalFontSize);
   if (g.terminalRightClick) window._applyTerminalRightClick?.(g.terminalRightClick);
   if (g.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(g.terminalMouseReporting !== 'off');
-  window._setTerminalWebgl?.(g.terminalWebgl === true);
+  window._setTerminalWebgl?.(g.terminalWebgl !== false); // default on (#81)
   window._setUsageThresholds?.({ fiveHWarn: g.usage5hWarn, fiveHCrit: g.usage5hCrit, sevenDWarn: g.usage7dWarn, sevenDCrit: g.usage7dCrit });
   if (g.visibleSessionCount) window._setVisibleSessionCount?.(g.visibleSessionCount);
   if (g.sessionMaxAgeDays) window._setSessionMaxAge?.(g.sessionMaxAgeDays);
@@ -2439,7 +2447,7 @@ setTimeout(() => {
     if (global.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') {
       setTerminalMouseReporting(global.terminalMouseReporting !== 'off');
     }
-    window._setTerminalWebgl?.(global.terminalWebgl === true);
+    window._setTerminalWebgl?.(global.terminalWebgl !== false); // default on (#81)
     window._setUsageThresholds?.({ fiveHWarn: global.usage5hWarn, fiveHCrit: global.usage5hCrit, sevenDWarn: global.usage7dWarn, sevenDCrit: global.usage7dCrit });
     if (global.shortcuts) setAppShortcuts(global.shortcuts);
     if (typeof window._applySessionDisplaySettings === 'function') window._applySessionDisplaySettings(global);

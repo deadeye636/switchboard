@@ -37,10 +37,28 @@ function formatDate(date) {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+const ESCAPE_HTML_RE = /[&<>"']/g;
+const ESCAPE_HTML_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  // Regex replace instead of a throwaway <div> per call — this runs ~10× per
+  // table row in the admin views (#80).
+  return String(str ?? '').replace(ESCAPE_HTML_RE, (ch) => ESCAPE_HTML_MAP[ch]);
+}
+
+// Memoized localStorage JSON parse: re-parses only when the raw string changed.
+// The sidebar getters (collapse/expand state) run per group/project per render
+// pass — parsing the same blob dozens of times per render is pure waste (#80).
+const _lsJsonCache = new Map(); // key -> { raw, value }
+function readLsJson(key, fallbackJson) {
+  let raw;
+  try { raw = localStorage.getItem(key); } catch { raw = null; }
+  if (raw == null) raw = fallbackJson;
+  const hit = _lsJsonCache.get(key);
+  if (hit && hit.raw === raw) return hit.value;
+  let value;
+  try { value = JSON.parse(raw); } catch { value = JSON.parse(fallbackJson); }
+  _lsJsonCache.set(key, { raw, value });
+  return value;
 }
 
 function shellEscape(path) {

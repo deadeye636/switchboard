@@ -371,6 +371,20 @@ const terminalWriteBuffers = new Map(); // sessionId → { chunks, syncDepth, ra
 // minimum interval doubles parse-batch size and is imperceptible for streaming
 // text (worst-case added latency: one frame ~33 ms).
 const MIN_FLUSH_INTERVAL_MS = 33; // ~30 fps
+// Under load (many visible terminals streaming at once — grid thumbnails), drop
+// to ~15 fps: imperceptible on cards, halves parse+paint again (#81).
+const MIN_FLUSH_INTERVAL_BUSY_MS = 66;
+const ADAPTIVE_FLUSH_THRESHOLD = 4; // >N visible sessions with pending output
+
+// Current minimum flush interval for a visible session, scaled by how many
+// visible sessions have output pending right now.
+function visibleFlushInterval() {
+  let busy = 0;
+  for (const sid of terminalWriteBuffers.keys()) {
+    if (isSessionVisible(sid) && ++busy > ADAPTIVE_FLUSH_THRESHOLD) return MIN_FLUSH_INTERVAL_BUSY_MS;
+  }
+  return MIN_FLUSH_INTERVAL_MS;
+}
 
 // Background sessions (non-visible) flush much less often — no point parsing VT
 // at 30 fps when the terminal is hidden (display:none or in a non-visible grid card).
@@ -425,6 +439,38 @@ function setTerminalMouseReporting(enabled) {
 // - OSC 52 (clipboard) sequences in skipped background data won't dispatch —
 //   acceptable because clipboard writes only matter when the user is viewing a session.
 
+// --- PTY flow control (#81) ---
+// At extreme throughput (`cat` on a huge file) the PTY produces faster than
+// xterm parses; unparsed data piles up in terminalWriteBuffers and xterm's own
+// write queue, so latency and memory grow unbounded for VISIBLE sessions (the
+// replay cap only guards hidden ones). Track bytes received but not yet parsed
+// by xterm (write-callback acked); pause the PTY above the high-water mark and
+// resume below the low one. No-ops gracefully when the main process doesn't
+// expose pause/resume.
+const FLOW_HIGH_WATER_BYTES = 1024 * 1024; // pause above ~1 MB in flight
+const FLOW_LOW_WATER_BYTES = 256 * 1024;   // resume below ~256 KB
+const flowState = new Map(); // sessionId -> { inFlight, paused }
+
+function flowTrackReceived(sessionId, bytes) {
+  let s = flowState.get(sessionId);
+  if (!s) { s = { inFlight: 0, paused: false }; flowState.set(sessionId, s); }
+  s.inFlight += bytes;
+  if (!s.paused && s.inFlight > FLOW_HIGH_WATER_BYTES && typeof window.api.pauseSessionOutput === 'function') {
+    s.paused = true;
+    window.api.pauseSessionOutput(sessionId);
+  }
+}
+
+function flowTrackParsed(sessionId, bytes) {
+  const s = flowState.get(sessionId);
+  if (!s) return;
+  s.inFlight = Math.max(0, s.inFlight - bytes);
+  if (s.paused && s.inFlight < FLOW_LOW_WATER_BYTES) {
+    s.paused = false;
+    if (typeof window.api.resumeSessionOutput === 'function') window.api.resumeSessionOutput(sessionId);
+  }
+}
+
 // Per-session raw data accumulated while the terminal is not visible.
 // Map<sessionId, string[]> — one entry per chunk coalesced from flushTerminalBuffer.
 const rawReplayBuffers = new Map();
@@ -447,16 +493,17 @@ function enforceReplayBufferCap(sessionId) {
 
 // True when the session's terminal container is visible to the user:
 // - Single view: entry.element has the 'visible' CSS class.
-// - Grid view: entry.element has BOTH 'visible' and 'grid-mode' classes.
+// - Grid view: entry.element has BOTH 'visible' and 'grid-mode' classes, AND the
+//   card is on screen — off-screen cards (tracked by grid-view's
+//   IntersectionObserver in gridOffscreenSessions) skip writes too; their data
+//   accumulates in the replay buffer and drains when scrolled back in (#81).
 // Using the .visible class as the canonical visibility signal avoids gating on
 // activeSessionId, which would incorrectly treat every grid card except the
 // focused one as "background" and freeze them in mosaic mode.
-// Off-screen grid cards (IntersectionObserver-suspended WebGL) are still treated
-// as "visible" in this first cut — they have .visible.grid-mode and skipping their
-// writes is not worth adding a parallel off-screen Map given they already lose WebGL.
 function isSessionVisible(sessionId) {
   const entry = openSessions.get(sessionId);
   if (!entry) return false;
+  if (typeof gridOffscreenSessions !== 'undefined' && gridOffscreenSessions.has(sessionId)) return false;
   return entry.element.classList.contains('visible');
 }
 
@@ -553,6 +600,7 @@ function flushTerminalBuffer(sessionId) {
   if (!entry) return;
 
   let data = buf.chunks.join('');
+  const rawLen = data.length; // flow accounting uses the pre-strip length
   if (!terminalMouseReportingEnabled) data = stripMouseReporting(data);
   lastFlushAt.set(sessionId, performance.now());
 
@@ -567,12 +615,16 @@ function flushTerminalBuffer(sessionId) {
     if (!arr) { arr = []; rawReplayBuffers.set(sessionId, arr); }
     arr.push(data);
     enforceReplayBufferCap(sessionId);
+    // Counts as handled for flow control — the replay cap bounds memory here,
+    // and a hidden session must not keep its PTY paused (#81).
+    flowTrackParsed(sessionId, rawLen);
     return;
   }
 
   const wasAtBottom = isAtBottom(entry.terminal);
   const savedViewportY = entry.terminal.buffer.active.viewportY;
   entry.terminal.write(data, () => {
+    flowTrackParsed(sessionId, rawLen);
     if (wasAtBottom) {
       // Follow the output even for a live-rendered background tab (invisible now),
       // so switching to it later lands on the latest line without a scroll snap.
@@ -592,8 +644,8 @@ function scheduleFlush(sessionId, buf) {
   const elapsed = last === undefined ? Infinity : performance.now() - last;
 
   // Stage B: use a longer flush interval for non-visible sessions to reduce VT
-  // parse frequency. Visible sessions keep the 33 ms / ~30 fps budget unchanged.
-  const effectiveMin = isSessionVisible(sessionId) ? MIN_FLUSH_INTERVAL_MS : BACKGROUND_FLUSH_INTERVAL_MS;
+  // parse frequency. Visible sessions get the adaptive 33/66 ms budget (#81).
+  const effectiveMin = isSessionVisible(sessionId) ? visibleFlushInterval() : BACKGROUND_FLUSH_INTERVAL_MS;
 
   if (elapsed >= effectiveMin) {
     // Enough time has passed — flush on the next animation frame (current behavior).
@@ -839,11 +891,14 @@ function createTerminalEntry(session, opts = {}) {
 // in grid-view.js) and restores it when they scroll back in; showSession
 // restores it for single view. Loading must happen after terminal.open()
 // (needs attached DOM); failure falls back to xterm's DOM renderer.
-// Renderer selection. Default is xterm's DOM renderer (no GPU texture atlas → no
-// stale-atlas "staircase" on show, no ~16 WebGL-context-per-process cap). WebGL is
-// an opt-in setting (`terminalWebgl`) for users who want GPU acceleration and accept
-// the tab-switch repaint cost. Toggled live via window._setTerminalWebgl.
-let webglEnabled = false;
+// Renderer selection. Default is WebGL (`terminalWebgl`, opt-OUT): measured 50-70%
+// renderer+compositor CPU drop vs. the DOM renderer. The two historical reasons for
+// a DOM default are both mitigated: the stale-atlas "staircase" is fixed by
+// forceRepaint()'s clearTextureAtlas() on show, and the ~16-GL-contexts-per-process
+// cap is managed (tabs mode binds GL to the active terminal only; the grid suspends
+// off-screen cards via IntersectionObserver, and a lost context auto-falls back to
+// the DOM renderer via onContextLoss). Toggled live via window._setTerminalWebgl.
+let webglEnabled = true;
 window._setTerminalWebgl = (on) => {
   webglEnabled = !!on;
   for (const [sessionId, entry] of openSessions) {
@@ -898,6 +953,7 @@ function destroySession(sessionId) {
     terminalWriteBuffers.delete(sessionId);
   }
   lastFlushAt.delete(sessionId);
+  flowState.delete(sessionId); // PTY is closed with the session — no resume needed
   // Drop any accumulated replay data — the terminal is being torn down so
   // there is no point draining it on a future showSession.
   rawReplayBuffers.delete(sessionId);
@@ -980,6 +1036,10 @@ function showSession(sessionId) {
         if (w > 0 && h > 0 && (Math.abs(w - (entry._fitW || 0)) > REFIT_TOL || Math.abs(h - (entry._fitH || 0)) > REFIT_TOL)) {
           safeFit(entry); // records _fitW/_fitH
         }
+        // Flush a pending coalesced chunk first — background sessions flush at
+        // BACKGROUND_FLUSH_INTERVAL_MS (2 s), so without this the output tail
+        // could stay stale for up to 2 s after the switch (#81).
+        flushTerminalBuffer(sessionId);
         drainReplayBuffer(sessionId);
         // Promote this terminal on top; demote the others. Inactive containers get
         // pointer-events:none via CSS and only the active terminal is focused, so
@@ -1008,6 +1068,10 @@ function showSession(sessionId) {
         // Grid mode, single view: inactive containers are display:none (not painted),
         // so reveal first (to gain layout), then drain + fit.
         restoreTerminalWebgl(sessionId);
+        // Flush the pending coalesced chunk while still non-visible so it lands
+        // BEHIND the accumulated replay data (order preserved), then reveal and
+        // drain everything in one go (#81).
+        flushTerminalBuffer(sessionId);
         document.querySelectorAll('.terminal-container.visible').forEach(c => c.classList.remove('visible'));
         el.classList.add('visible');
         drainReplayBuffer(sessionId);
@@ -1048,20 +1112,3 @@ function setupDragAndDrop(container, getSessionId) {
   });
 }
 
-// TEMP DEBUG (#59-ghost): F5 = pure xterm renderer refresh on the focused session.
-// Diagnoses the doubled status-indicator: does a render-only refresh clear the ghost
-// (render-atlas / not-repainted) or does it survive (real stale buffer line → needs a
-// ConPTY full-frame). F5's default reload is suppressed. REMOVE after diagnosis.
-window.addEventListener('keydown', (e) => {
-  if (e.key !== 'F5') return;
-  e.preventDefault();
-  e.stopPropagation();
-  const sid = (typeof gridViewActive !== 'undefined' && gridViewActive)
-    ? (typeof gridFocusedSessionId !== 'undefined' ? gridFocusedSessionId : null)
-    : activeSessionId;
-  const entry = sid && openSessions.get(sid);
-  if (!entry || !entry.terminal) { console.log('[ghost-test] no focused terminal'); return; }
-  const t = entry.terminal;
-  t.refresh(0, t.rows - 1);
-  console.log('[ghost-test] refresh fired on', sid, 'rows', t.rows);
-}, true);

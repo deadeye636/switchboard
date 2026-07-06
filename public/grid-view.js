@@ -607,8 +607,9 @@ function wrapInGridCard(sessionId, parent, layout) {
   syncTitleToAriaLabel(card);
   syncTitleToTooltip(card);
   if (gridCardObserver) gridCardObserver.observe(card);
-  // Set initial status from the single source of truth
-  updateRunningIndicators();
+  // Initial status is applied by the caller via one updateRunningIndicators()
+  // after the whole render loop — calling it per card here made every grid
+  // rebuild O(N²) (it iterates all cards each time) (#80).
 }
 
 // ===== Flexible layout: resize, drag-reorder, group drop (spec 08) =====
@@ -1216,6 +1217,9 @@ function unwrapGridCards() {
     card.remove();
   }
   gridCards.clear();
+  // No cards → nothing is off-screen; a stale entry would silently freeze the
+  // session's writes in single/tabs view.
+  gridOffscreenSessions.clear();
   // Remove any group region containers and reset grouped layout
   terminalsEl.querySelectorAll('.grid-region').forEach(el => el.remove());
   terminalsEl.classList.remove('grid-grouped');
@@ -1502,6 +1506,9 @@ function showGridView() {
     renderBucket(orderedSids, terminalsEl);
   }
 
+  // Set initial card statuses once for the whole render (see wrapInGridCard).
+  updateRunningIndicators();
+
   // Show grid header bar with session count
   gridViewer.style.display = 'block';
   gridViewerCount.textContent = sessionIds.length + ' session' + (sessionIds.length !== 1 ? 's' : '');
@@ -1571,6 +1578,12 @@ function updateGridColumns() {
 // large grids.
 let gridCardObserver = null;
 
+// Sessions whose grid card is currently scrolled out of view. terminal-manager's
+// isSessionVisible() treats these as non-visible, so their PTY output skips the
+// xterm write/VT-parse entirely and lands in the replay buffer instead — the
+// IntersectionObserver drains it when the card scrolls back in (#81).
+const gridOffscreenSessions = new Set();
+
 // Remove a session's grid card and release its observer registration. Called
 // from destroySession (terminal-manager.js) — without the unobserve, the
 // IntersectionObserver keeps a strong ref to the detached card node, leaking
@@ -1579,6 +1592,7 @@ function destroyGridCard(sessionId) {
   const card = gridCards.get(sessionId);
   if (!card) return false;
   if (gridCardObserver) gridCardObserver.unobserve(card);
+  gridOffscreenSessions.delete(sessionId);
   card.remove();
   gridCards.delete(sessionId);
   return true;
@@ -1602,7 +1616,14 @@ function initGridObservers() {
         if (!sid) continue;
         if (e.isIntersecting) {
           restoreTerminalWebgl(sid);
+          // Back on screen: flush the pending chunk while still marked
+          // off-screen (keeps it behind the replay data), then drain what
+          // accumulated while the card was scrolled out (#81).
+          if (typeof flushTerminalBuffer === 'function') flushTerminalBuffer(sid);
+          gridOffscreenSessions.delete(sid);
+          if (typeof drainReplayBuffer === 'function') drainReplayBuffer(sid);
         } else {
+          gridOffscreenSessions.add(sid);
           suspendTerminalWebgl(sid);
         }
       }

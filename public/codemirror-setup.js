@@ -57,10 +57,12 @@ const searchHighlighter = ViewPlugin.fromClass(class {
     const q = view.state.field(searchQueryField);
     if (!q) return Decoration.none;
     const decs = [];
-    const doc = view.state.doc.toString();
+    // Lowercase once — doing it inside the loop condition re-lowercased the
+    // whole document per match, on every keystroke (#80).
+    const doc = view.state.doc.toString().toLowerCase();
     const term = q.toLowerCase();
     let pos = 0;
-    while ((pos = doc.toLowerCase().indexOf(term, pos)) !== -1) {
+    while ((pos = doc.indexOf(term, pos)) !== -1) {
       decs.push(Decoration.mark({ class: 'cm-find-match' }).range(pos, pos + term.length));
       pos += term.length;
     }
@@ -106,10 +108,11 @@ function createCMSearchBar(parent, view) {
       return;
     }
     view.dispatch({ effects: setSearchQuery.of(q) });
-    const doc = view.state.doc.toString();
+    // Lowercase once (see searchHighlighter._build) (#80).
+    const doc = view.state.doc.toString().toLowerCase();
     const term = q.toLowerCase();
     let pos = 0;
-    while ((pos = doc.toLowerCase().indexOf(term, pos)) !== -1) {
+    while ((pos = doc.indexOf(term, pos)) !== -1) {
       matches.push(pos);
       pos += term.length;
     }
