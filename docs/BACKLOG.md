@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (23 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (24 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-06
 
@@ -22,6 +22,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#78](https://github.com/deadeye636/switchboard/issues/78) Review 2026-07: UX consistency — confirmations, error feedback, dialog patterns · _bug_
 - [#83](https://github.com/deadeye636/switchboard/issues/83) Terminal mouse mode: direct left-click selection with working TUI wheel scroll (PowerShell-style) · _feature_
 - [#85](https://github.com/deadeye636/switchboard/issues/85) Terminal: TUI line renders doubled (ghost line), heals on resize — status + prompt line · _bug_
+- [#86](https://github.com/deadeye636/switchboard/issues/86) Transcript: in-viewer message search — match list, click-to-jump, term highlight, message-type filter · _feature_
 
 ## P3 — someday
 
