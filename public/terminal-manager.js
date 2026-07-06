@@ -333,6 +333,45 @@ function forceRepaint(entry) {
   } catch { /* ignore */ }
 }
 
+// --- WebGL ghost-line heal (#85) ---
+// xterm's WebGL renderer occasionally leaves a stale duplicate of the prompt line
+// on screen: the TUI rewrites the input row in place, but only parser-marked-dirty
+// rows get repainted and the ghost row isn't flagged, so the old glyphs linger. A
+// full-viewport refresh(0, rows-1) forces every row to repaint from the buffer —
+// which holds the line only once — so the ghost clears. A manual resize heals it
+// today for the same reason. Foreground session only (the ghost is user-visible
+// there); throttled on the hot write path, plus an idle atlas flush for the case
+// where output stops with the ghost still on screen. WebGL-only: the DOM renderer
+// repaints correctly on its own (same rationale as forceRepaint).
+const GHOST_REFRESH_THROTTLE_MS = 120;
+const GHOST_IDLE_HEAL_MS = 180;
+
+function scheduleGhostHeal(entry) {
+  if (!entry.webglAddon) return; // DOM renderer needs no heal
+  const term = entry.terminal;
+  const doRefresh = () => {
+    entry._ghostRefreshAt = performance.now();
+    try { term.refresh(0, term.rows - 1); } catch { /* ignore */ }
+  };
+  // Option 1: throttled full-viewport refresh during active streaming.
+  const now = performance.now();
+  if (!entry._ghostRefreshAt || now - entry._ghostRefreshAt >= GHOST_REFRESH_THROTTLE_MS) {
+    doRefresh();
+  } else if (!entry._ghostRefreshPending) {
+    // Coalesce a trailing refresh so the last frame of a burst isn't skipped.
+    entry._ghostRefreshPending = true;
+    setTimeout(() => { entry._ghostRefreshPending = false; doRefresh(); }, GHOST_REFRESH_THROTTLE_MS);
+  }
+  // Option 2: idle safety net — output stopped with a ghost still on screen. A
+  // heavier atlas flush + refresh, debounced so it fires once after the stream settles.
+  clearTimeout(entry._ghostIdleTimer);
+  entry._ghostIdleTimer = setTimeout(() => {
+    entry._ghostIdleTimer = 0;
+    if (activeSessionId !== entry.session.sessionId) return;
+    forceRepaint(entry);
+  }, GHOST_IDLE_HEAL_MS);
+}
+
 // Defers to requestAnimationFrame so the container has dimensions.
 function fitAndScroll(entry) {
   const wasAtBottom = isAtBottom(entry.terminal);
@@ -688,6 +727,8 @@ function flushTerminalBuffer(sessionId) {
       // Restore scroll position so redraws don't yank the user away.
       entry.terminal.scrollLines(savedViewportY - entry.terminal.buffer.active.viewportY);
     }
+    // Clear any WebGL ghost of the in-place-rewritten prompt line (#85). Foreground only.
+    if (sessionId === activeSessionId) scheduleGhostHeal(entry);
   });
 }
 
