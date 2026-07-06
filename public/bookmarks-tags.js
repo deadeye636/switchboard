@@ -456,9 +456,10 @@
   async function openSessionAt(sessionId, entryIndex) {
     closeOverlay();
     if (typeof showJsonlViewer !== 'function') return;
-    // Minimal session object — showJsonlViewer reads sessionId for the API call
-    // and falls back to it for the display name.
-    await showJsonlViewer({ sessionId });
+    // Prefer the full session object so the viewer title shows the session name,
+    // not a raw UUID; fall back to a minimal object if it isn't known (issue #78).
+    const session = (typeof sessionMap !== 'undefined' && sessionMap.get(sessionId)) || { sessionId };
+    await showJsonlViewer(session);
     if (entryIndex >= 0) {
       scrollToJsonlEntry(entryIndex);
     } else {

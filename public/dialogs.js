@@ -76,6 +76,7 @@ async function launchScheduleCreator(project) {
   if (!openResult.ok) {
     entry.terminal.write(`\r\nError: ${openResult.error}\r\n`);
     entry.closed = true;
+    showSession(result.sessionId); // surface the failure instead of leaving it in an invisible terminal (issue #78)
     return;
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(result.sessionId, !!openResult.mcpActive);
@@ -214,6 +215,7 @@ async function launchTerminalSession(project, groupId) {
   if (!result.ok) {
     entry.terminal.write(`\r\nError: ${result.error}\r\n`);
     entry.closed = true;
+    showSession(sessionId); // surface the failure instead of leaving it in an invisible terminal (issue #78)
     return;
   }
 

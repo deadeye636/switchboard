@@ -329,6 +329,15 @@
         return;
       }
       if (action === 'delete') {
+        // Destructive with no restore API → confirm first, matching the stop
+        // pattern (archive elsewhere uses undo; task delete has neither) (issue #78).
+        const ok = await showControlDialog({
+          title: 'Delete task?',
+          message: `"${task.title || 'Untitled task'}" will be permanently removed.`,
+          confirmLabel: 'Delete',
+          tone: 'danger',
+        });
+        if (!ok) return;
         await window.api.taskRemove(task.id);
         data = data.filter((t) => t.id !== task.id);
         refreshBody();

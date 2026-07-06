@@ -45,7 +45,7 @@
 
     function modeCompare(a, b) {
       if (mode === 'alpha') {
-        return labelOf(a).localeCompare(labelOf(b), 'de');
+        return labelOf(a).localeCompare(labelOf(b), undefined);
       }
       if (mode === 'manual') {
         const ai = orderIndex.has(a.projectPath) ? orderIndex.get(a.projectPath) : Infinity;

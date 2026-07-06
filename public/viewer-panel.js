@@ -187,19 +187,25 @@ class ViewerPanel {
 
   async _delete() {
     if (!this.opts.onDelete || !this.filePath) return;
-    // Confirm via native-ish browser confirm
     const name = this.filePath.split('/').pop();
-    if (!window.confirm(`Delete "${name}"?\n\nThis cannot be undone.`)) return;
+    // App control dialog instead of native confirm/alert (issue #78).
+    const ok = await showControlDialog({
+      title: `Delete "${name}"?`,
+      message: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       const result = await this.opts.onDelete(this.filePath);
       if (result && result.ok !== false) {
         // Close panel and trigger refresh through onClose
         if (this.opts.onClose) this.opts.onClose();
       } else {
-        window.alert(`Delete failed: ${result?.error || 'unknown error'}`);
+        showControlMessage({ title: 'Delete failed', message: result?.error || 'unknown error', tone: 'danger' });
       }
     } catch (err) {
-      window.alert(`Delete failed: ${err.message}`);
+      showControlMessage({ title: 'Delete failed', message: err.message, tone: 'danger' });
     }
   }
 
@@ -338,7 +344,12 @@ class ViewerPanel {
       const result = await this.opts.onSave(this.filePath, content);
       if (result && result.ok !== false) {
         this.toolbar.flashSave();
+      } else {
+        showControlMessage({ title: 'Save failed', message: result?.error || 'unknown error', tone: 'danger' });
       }
+    } catch (err) {
+      // Without this the user got no feedback when onSave threw (issue #78).
+      showControlMessage({ title: 'Save failed', message: err.message, tone: 'danger' });
     } finally {
       setTimeout(() => { this._saving = false; }, 500);
     }

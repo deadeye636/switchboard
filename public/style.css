@@ -247,11 +247,22 @@ input:focus-visible {
   border-color: rgba(240,160,80,0.42) !important;
 }
 
-.control-toast {
+/* Toasts stack in a bottom-right flex column instead of overlapping at the same
+   fixed coordinates (issue #78). Newest is appended last → nearest the corner. */
+#control-toast-stack {
   position: fixed;
   right: 12px;
   bottom: 58px;
   z-index: 10001;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.control-toast {
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 10px;

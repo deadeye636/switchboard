@@ -243,18 +243,28 @@ function buildMemoryItem(file) {
       playBtn.classList.add('running');
       playBtn.innerHTML = spinnerIcon;
       playBtn.title = 'Running...';
-      const result = await window.api.runScheduleNow(file.filePath);
+      let result;
+      try {
+        result = await window.api.runScheduleNow(file.filePath);
+      } catch (err) {
+        result = { ok: false, error: err.message };
+      }
       playBtn.classList.remove('running');
-      playBtn.classList.add('done');
-      playBtn.innerHTML = checkIcon;
-      playBtn.title = 'Launched!';
-      setTimeout(() => {
-        playBtn.classList.remove('done');
+      // Check result BEFORE showing success, and surface failures instead of
+      // flashing a checkmark or leaving the button stuck in the spinner (issue #78).
+      if (result && result.ok) {
+        playBtn.classList.add('done');
+        playBtn.innerHTML = checkIcon;
+        playBtn.title = 'Launched!';
+        setTimeout(() => {
+          playBtn.classList.remove('done');
+          playBtn.innerHTML = playIcon;
+          playBtn.title = 'Run now';
+        }, 2000);
+      } else {
         playBtn.innerHTML = playIcon;
         playBtn.title = 'Run now';
-      }, 2000);
-      if (result && !result.ok) {
-        console.error('Schedule run failed:', result.error);
+        showControlToast({ message: 'Schedule run failed: ' + (result?.error || 'unknown error') });
       }
     });
     row.appendChild(playBtn);

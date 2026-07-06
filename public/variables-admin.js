@@ -320,7 +320,13 @@
       return;
     }
     if (action === 'delete') {
-      if (!confirm(`Delete ${row.name}?`)) return;
+      // App control dialog instead of native confirm (issue #78).
+      const ok = await showControlDialog({
+        title: `Delete ${row.name}?`,
+        confirmLabel: 'Delete',
+        tone: 'danger',
+      });
+      if (!ok) return;
       const res = await window.api.deleteSavedVariable(id);
       if (!res || !res.ok) { toast('Delete: ' + (res?.error || 'failed')); return; }
       load();

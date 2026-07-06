@@ -189,9 +189,12 @@ function showHandoffCaptureBar() {
   `;
   document.body.appendChild(bar);
   return new Promise(resolve => {
-    function close(result) { bar.remove(); resolve(result); }
+    function onKey(e) { if (e.key === 'Escape') close('cancel'); }
+    function close(result) { bar.remove(); document.removeEventListener('keydown', onKey); resolve(result); }
     bar.querySelector('.handoff-capture-confirm').onclick = () => close('capture');
     bar.querySelector('.handoff-capture-cancel').onclick = () => close('cancel');
+    // Escape dismisses (as cancel) so the bar/promise can't linger forever (issue #78).
+    document.addEventListener('keydown', onKey);
   });
 }
 
@@ -319,7 +322,25 @@ async function showHandoffResumePicker(project, groupId) {
           await launchNewSession(project, options, h.content, groupId);
         };
         row.querySelector('.handoff-del').onclick = async () => {
-          try { await window.api.deleteHandoff(h.id); } catch {}
+          // Confirm first, and keep the entry if the delete actually fails —
+          // previously the failure was swallowed and the row removed anyway (issue #78).
+          const ok = await showControlDialog({
+            title: 'Delete handoff?',
+            message: `"${h.label || h.id}" will be permanently removed.`,
+            confirmLabel: 'Delete',
+            tone: 'danger',
+          });
+          if (!ok) return;
+          try {
+            const res = await window.api.deleteHandoff(h.id);
+            if (res && res.ok === false) {
+              showControlMessage({ title: 'Delete failed', message: res.error || 'unknown error', tone: 'danger' });
+              return;
+            }
+          } catch (err) {
+            showControlMessage({ title: 'Delete failed', message: err.message, tone: 'danger' });
+            return;
+          }
           handoffs = handoffs.filter(x => x.id !== h.id);
           render();
         };

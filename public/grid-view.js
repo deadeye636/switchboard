@@ -235,6 +235,9 @@ async function stopAllRunning(runningToStop) {
   if (!confirmed) return;
 
   for (const sid of ids) {
+    // Mark user-stopped like the single-session stop, so these don't get the
+    // "re-click to relaunch" banner or a timed tab auto-close (issue #78).
+    if (typeof window._markUserStopped === 'function') window._markUserStopped(sid);
     await window.api.stopSession(sid);
     recordTimelineEvent(sid, 'stopped', 'Session stopped', 'Stopped via grid bulk action.');
     activePtyIds.delete(sid);

@@ -129,7 +129,13 @@
       toast.appendChild(button);
     }
 
-    document.body.appendChild(toast);
+    let stack = document.getElementById('control-toast-stack');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.id = 'control-toast-stack';
+      document.body.appendChild(stack);
+    }
+    stack.appendChild(toast);
     timeoutId = setTimeout(() => toast.remove(), timeoutMs);
     return toast;
   }

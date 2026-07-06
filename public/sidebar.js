@@ -1175,7 +1175,11 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder, folderMode) {
   // interacting with an input/textarea (search box, rename input, dialogs, etc.)
   const ae = document.activeElement;
   const isUserTyping = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable || ae.closest('.modal-overlay'));
-  if (activeSessionId && openSessions.has(activeSessionId) && !isUserTyping) {
+  // Don't steal focus from a control the user tabbed to inside the sidebar
+  // (buttons, headers via makeButtonLike) — re-focusing the terminal on every
+  // status-tick re-render breaks keyboard navigation / a11y (issue #78).
+  const sidebarFocused = ae && ae.closest && ae.closest('#sidebar');
+  if (activeSessionId && openSessions.has(activeSessionId) && !isUserTyping && !sidebarFocused) {
     openSessions.get(activeSessionId).terminal.focus();
   }
 }
@@ -1486,8 +1490,15 @@ function rebindSidebarEvents(projects) {
       favoriteBtn.onclick = async (e) => {
         e.stopPropagation();
         const { favorited } = await window.api.toggleProjectFavorite(project.projectPath);
-        project.favorited = !!favorited;
-        loadProjects();
+        const fav = !!favorited;
+        // Update the flag in both cached lists so either view re-sorts correctly,
+        // then a light re-render — not a full loadProjects() (2× getProjects IPC),
+        // matching the session-pin path (issue #78).
+        for (const list of [cachedProjects, cachedAllProjects]) {
+          const p = list && list.find(x => x.projectPath === project.projectPath);
+          if (p) p.favorited = fav;
+        }
+        refreshSidebar({ resort: true });
       };
     }
     const missingIcon = header.querySelector('.project-missing-icon');
@@ -1628,7 +1639,7 @@ function rebindSidebarEvents(projects) {
           loadProjects();
         } else {
           const msg = (result && result.error) ? result.error : 'Unknown error';
-          alert(`Failed to delete worktree: ${msg}`);
+          showControlMessage({ title: 'Delete worktree failed', message: msg, tone: 'danger' });
         }
       };
     }
