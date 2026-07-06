@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (23 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-06
 
@@ -38,3 +38,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#69](https://github.com/deadeye636/switchboard/issues/69) Open files in a configurable external editor · _feature_
 - [#79](https://github.com/deadeye636/switchboard/issues/79) Review 2026-07: code consolidation — duplicated logic and dead code · _chore_
 - [#82](https://github.com/deadeye636/switchboard/issues/82) Review 2026-07: test gaps and build-script hardening · _chore_
+- [#84](https://github.com/deadeye636/switchboard/issues/84) Make the terminal LRU cap configurable · _feature_
