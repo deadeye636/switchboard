@@ -79,6 +79,7 @@ async function launchScheduleCreator(project) {
     return;
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(result.sessionId, !!openResult.mcpActive);
+  syncPtySize(result.sessionId); // PTY spawned at 120x30 — push the real dimensions (#81)
   showSession(result.sessionId);
   pollActiveSessions();
 }
@@ -216,6 +217,7 @@ async function launchTerminalSession(project, groupId) {
     return;
   }
 
+  syncPtySize(sessionId); // PTY spawned at 120x30 — push the real dimensions (#81)
   showSession(sessionId);
   pollActiveSessions();
 }

@@ -1806,6 +1806,7 @@ async function launchNewSession(project, sessionOptions, seedText, groupId) {
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
+  syncPtySize(sessionId); // PTY spawned at 120x30 — push the real dimensions (#81)
   showSession(sessionId);
   pollActiveSessions();
 
@@ -2020,6 +2021,7 @@ async function openSession(session, customOptions) {
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
+  syncPtySize(sessionId); // push real dimensions to the (re)spawned/reattached PTY (#81)
   showSession(sessionId);
   pollActiveSessions();
 }
@@ -2074,6 +2076,7 @@ async function attachRunningSession(session) {
     return false;
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
+  syncPtySize(sessionId); // see openSession (#81)
   return true;
 }
 

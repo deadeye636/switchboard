@@ -1004,6 +1004,19 @@ function restoreTerminalWebgl(sessionId) {
   if (entry) loadTerminalWebgl(entry);
 }
 
+// Push the terminal's CURRENT dimensions to the PTY. The PTY spawns at a fixed
+// 120x30 while xterm fits asynchronously; a resize event fired before the spawn
+// finished is dropped in main (no session entry yet), and once xterm already
+// holds its final size no further onResize fires — so the PTY would keep the
+// spawn default and the TUI stays rendered for 120 cols until a manual window
+// resize. Called after every successful openTerminal (also makes the reattach
+// firstResize redraw-nudge deterministic).
+function syncPtySize(sessionId) {
+  const entry = openSessions.get(sessionId);
+  if (!entry || !entry.terminal) return;
+  window.api.resizeTerminal(entry.session.sessionId, entry.terminal.cols, entry.terminal.rows, false);
+}
+
 // Clean up a closed session entry (dispose terminal, remove DOM, remove from maps).
 function destroySession(sessionId) {
   const entry = openSessions.get(sessionId);
