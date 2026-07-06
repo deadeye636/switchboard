@@ -2373,8 +2373,19 @@ input:focus-visible {
   position: absolute;
   inset: -5px 20px 0 0;
   display: none;
-  padding: 8px 0 8px 8px;
+  /* Padding lives on .xterm (below), NOT here: FitAddon subtracts the .xterm
+     element's own padding from the container height, while the container's
+     padding is ambiguously included/excluded from getComputedStyle().height
+     depending on the layout path — which made fits alternate between one row
+     too many (bottom clipped) and one row too few (#59/#81). */
+  padding: 0;
   overflow: hidden;
+}
+.terminal-container .xterm {
+  padding: 8px 0 8px 8px;
+}
+.terminal-container.grid-mode .xterm {
+  padding: 6px 0 6px 6px;
 }
 
 
@@ -2846,7 +2857,7 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
      sibling, so clipping here doesn't affect its stickiness. */
   min-width: 0;
   overflow: hidden;
-  padding: 6px 0 6px 6px;
+  padding: 0; /* padding lives on .xterm — see .terminal-container */
 }
 
 .grid-card-footer {

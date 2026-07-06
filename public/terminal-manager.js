@@ -201,14 +201,26 @@ function isAtBottom(terminal) {
 // box (bottom row clipped by overflow:hidden)? Reads the post-paint cell height from
 // the render service — returns false while unmeasured so a fresh terminal never
 // raises a false alarm. Callers re-fit when this is true (#59).
+// Vertical padding that reduces the container's drawable height: the container's
+// own padding (0 by default — see style.css) PLUS the .xterm element's padding,
+// which is where the visual inset now lives (FitAddon subtracts exactly that).
+function terminalVerticalPadding(el) {
+  const cs = getComputedStyle(el);
+  let pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  const xt = el.querySelector('.xterm');
+  if (xt) {
+    const xs = getComputedStyle(xt);
+    pad += (parseFloat(xs.paddingTop) || 0) + (parseFloat(xs.paddingBottom) || 0);
+  }
+  return pad;
+}
+
 function isBottomRowClipped(entry) {
   const el = entry && entry.element;
   if (!el || !entry.terminal) return false;
   const rsCellH = entry.terminal._core?._renderService?.dimensions?.css?.cell?.height || 0;
   if (rsCellH <= 0) return false;
-  const cs = getComputedStyle(el);
-  const padV = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-  return bottomRowClipped(entry.terminal.rows, rsCellH, el.clientHeight, padV);
+  return bottomRowClipped(entry.terminal.rows, rsCellH, el.clientHeight, terminalVerticalPadding(el));
 }
 
 // Fit terminal to container, clamping rows to the container's true content-box
@@ -221,8 +233,7 @@ function safeFit(entry) {
   // proposed row count can overshoot by 1-2 rows.
   let measured = true;
   if (dims && dims.rows > 1) {
-    const cs = getComputedStyle(el);
-    const padV = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const padV = terminalVerticalPadding(el);
     // The render-service metric is the accurate, post-paint cell height (the same
     // source FitAddon uses). The DOM fallback can return a PROVISIONAL row height
     // right after open() — before font metrics settle — which under-measures the
@@ -1103,14 +1114,23 @@ function showSession(sessionId) {
           if (c !== el) c.classList.remove('visible');
         });
         el.classList.add('visible');
-        if (webglEnabled) {
-          // Bound GL contexts to the active terminal only (others fall back to DOM,
-          // still painted). Restoring WebGL on the active one may repaint it once.
-          for (const [sid, e] of openSessions) {
-            if (sid !== sessionId && e.webglAddon) suspendTerminalWebgl(sid);
-          }
+        // NOTE: no per-switch WebGL suspend/restore of OTHER tabs here. Swapping
+        // the renderer DOM↔WebGL on every tab click changes the effective cell
+        // height by a device-pixel rounding step (fractional display scaling),
+        // invalidating the cached fit right after the clip self-heal ran with
+        // stale metrics — the "half a row offscreen after a tab switch" bug.
+        // All open tabs keep their GL context instead: the LRU cap (12) stays
+        // under Chromium's ~16 context limit, and a lost context auto-falls
+        // back to the DOM renderer. Only restore THIS terminal's GL if it lost
+        // it earlier (grid off-screen suspend) — a one-time renderer switch,
+        // followed by a deferred re-fit because the cell metrics may have
+        // shifted and the render service reports them only after a frame.
+        if (webglEnabled && !entry.webglAddon) {
           restoreTerminalWebgl(sessionId);
           forceRepaint(entry);
+          requestAnimationFrame(() => {
+            if (openSessions.get(entry.session.sessionId) === entry) safeFit(entry);
+          });
         }
         entry.terminal.focus();
         // Self-heal for the sub-REFIT_TOL case: a switch that skipped the re-fit
