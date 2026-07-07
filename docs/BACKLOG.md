@@ -3,9 +3,9 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (20 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-06
+**As of:** 2026-07-07
 
 
 ## P1 — next up
@@ -15,8 +15,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 ## P2 — after that
 
 - [#55](https://github.com/deadeye636/switchboard/issues/55) orphaned hidden projects · _bug_
-- [#68](https://github.com/deadeye636/switchboard/issues/68) Scope-filtered bookmark views (session / project / global) · _feature_
-- [#85](https://github.com/deadeye636/switchboard/issues/85) Terminal: TUI line renders doubled (ghost line), heals on resize — status + prompt line · _bug_
+- [#85](https://github.com/deadeye636/switchboard/issues/85) Terminal: prompt/status line renders wrong (doubled or blank), heals on resize · _bug_
 - [#86](https://github.com/deadeye636/switchboard/issues/86) Transcript: in-viewer message search — match list, click-to-jump, term highlight, message-type filter · _feature_
 - [#87](https://github.com/deadeye636/switchboard/issues/87) Terminal WebGL: garbled/corrupted glyphs on some GPUs — align renderer handling with VSCode (auto-fallback) · _bug_
 - [#88](https://github.com/deadeye636/switchboard/issues/88) Terminal selection action bar (Office-style) as a new right-click mode · _feature_
