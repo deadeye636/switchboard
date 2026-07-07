@@ -78,6 +78,8 @@ function initFilePanel() {
     language: 'auto',
     onSave: (filePath, content) => window.api.saveFileForPanel(filePath, content),
     onClose: handleClose,
+    // Open the current file in the external editor, then close the panel (#69).
+    onExternalOpen: (filePath) => { window.api.openInEditor(filePath); handleClose(); },
   });
 
   // ── Diff-specific UI ──

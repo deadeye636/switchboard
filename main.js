@@ -1018,6 +1018,26 @@ ipcMain.handle('open-path', (_event, filePath) => {
   return shell.openPath(resolved);
 });
 
+// --- IPC: open a local file in the user's configured external editor (#69) ---
+// execFile (no shell string interpolation — security convention). Falls back to
+// the OS default app when no editor is configured, or if the launch fails.
+ipcMain.handle('open-in-editor', (_event, filePath) => {
+  if (typeof filePath !== 'string' || !filePath) return { ok: false, error: 'no path' };
+  const resolved = path.resolve(filePath);
+  if (isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
+  const cmd = (((getSetting('global') || {}).externalEditorCommand) || '').trim();
+  if (!cmd) { shell.openPath(resolved); return { ok: true, fallback: true }; }
+  try {
+    execFile(cmd, [resolved], { windowsHide: true }, (err) => {
+      if (err) { log.warn('[open-in-editor] launch failed, using OS default:', err.message); shell.openPath(resolved); }
+    });
+    return { ok: true };
+  } catch (err) {
+    shell.openPath(resolved);
+    return { ok: true, fallback: true, error: err.message };
+  }
+});
+
 // --- IPC: open the OS terminal in a directory (launch-and-forget, no monitoring) ---
 ipcMain.handle('open-external-terminal', (_event, cwdPath) => {
   if (typeof cwdPath !== 'string' || !cwdPath) return { ok: false, error: 'no path' };

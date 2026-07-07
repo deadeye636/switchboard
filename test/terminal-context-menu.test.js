@@ -35,6 +35,12 @@ test('fileUriToPath returns null for non-file URIs', () => {
   assert.strictEqual(fileUriToPath(null), null);
 });
 
+test('fileUriToPath strips the leading slash before a Windows drive letter (#69)', () => {
+  // Without the strip this returned "/D:/Projekte/a.js" → shell.openPath fails.
+  assert.strictEqual(fileUriToPath('file:///D:/Projekte/a.js'), 'D:/Projekte/a.js');
+  assert.strictEqual(fileUriToPath('file:///C:/Users/x/My%20Repo/b.ts'), 'C:/Users/x/My Repo/b.ts');
+});
+
 test('classifyLinkUri distinguishes file, url, and neither', () => {
   assert.deepStrictEqual(classifyLinkUri('file:///etc/hosts'), { kind: 'file', path: '/etc/hosts' });
   assert.deepStrictEqual(classifyLinkUri('https://x.dev/p'), { kind: 'url', url: 'https://x.dev/p' });
@@ -47,6 +53,17 @@ test('menu over a file link offers file actions then a separator then generic', 
   const items = buildTerminalMenuItems({ linkUri: 'file:///a/b.ts', hasSelection: true });
   const ids = items.map((i) => (i === null ? '---' : i.id));
   assert.deepStrictEqual(ids, ['open-panel', 'open-system', 'copy-path', '---', 'copy', 'paste', 'select-all', '---', 'create-task']);
+});
+
+test('menu adds "Open in external editor" only when an editor is configured (#69)', () => {
+  const withEditor = buildTerminalMenuItems({ linkUri: 'file:///a/b.ts', hasSelection: false, externalEditor: true })
+    .filter(Boolean).map((i) => i.id);
+  assert.ok(withEditor.includes('open-editor'));
+  // Sits between the system-editor and copy-path items.
+  assert.strictEqual(withEditor.indexOf('open-editor'), withEditor.indexOf('open-system') + 1);
+  const withoutEditor = buildTerminalMenuItems({ linkUri: 'file:///a/b.ts', hasSelection: false })
+    .filter(Boolean).map((i) => i.id);
+  assert.ok(!withoutEditor.includes('open-editor'));
 });
 
 test('menu over a url link offers browser/copy-link', () => {

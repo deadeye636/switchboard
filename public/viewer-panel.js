@@ -75,6 +75,7 @@ class ViewerPanel {
       delete: !!opts.onDelete,
       save: !!opts.onSave,
       close: !!opts.onClose,
+      externalEditor: !!opts.onExternalOpen,
     });
     container.insertBefore(this.toolbar.el, container.firstChild);
 
@@ -134,6 +135,12 @@ class ViewerPanel {
 
     if (toolbar.closeBtn && opts.onClose) {
       toolbar.closeBtn.addEventListener('click', () => opts.onClose());
+    }
+
+    if (toolbar.externalEditorBtn && opts.onExternalOpen) {
+      toolbar.externalEditorBtn.addEventListener('click', () => {
+        if (this.filePath) opts.onExternalOpen(this.filePath);
+      });
     }
 
     if (toolbar.copyPathBtn) {

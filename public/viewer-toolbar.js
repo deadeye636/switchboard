@@ -21,6 +21,8 @@ const FORMAT_ICON = '<svg stroke="currentColor" fill="none" stroke-width="2" vie
 
 const DELETE_ICON = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
 
+const EXTERNAL_ICON = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" xmlns="http://www.w3.org/2000/svg"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
+
 /**
  * Flash a button with a brief color change to indicate success.
  * For icon buttons: flashes green. For text buttons: replaces text temporarily.
@@ -157,6 +159,15 @@ function createViewerToolbar(opts = {}) {
     controlsEl.appendChild(wrapBtn);
   }
 
+  let externalEditorBtn = null;
+  if (opts.externalEditor) {
+    externalEditorBtn = document.createElement('button');
+    externalEditorBtn.className = 'fp-toolbar-btn fp-icon-btn';
+    externalEditorBtn.title = 'Open in external editor';
+    externalEditorBtn.innerHTML = EXTERNAL_ICON;
+    controlsEl.appendChild(externalEditorBtn);
+  }
+
   let gotoLineBtn = null;
   if (opts.gotoLine) {
     gotoLineBtn = document.createElement('button');
@@ -220,6 +231,7 @@ function createViewerToolbar(opts = {}) {
     gotoLineBtn,
     formatBtn,
     deleteBtn,
+    externalEditorBtn,
 
     setTitle(text) { titleEl.textContent = text; },
     setPath(text) { pathEl.textContent = text; },

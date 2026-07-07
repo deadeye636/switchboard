@@ -29,7 +29,13 @@ let terminalRightClickMode = 'menu';
 function fileUriToPath(uri) {
   if (typeof uri !== 'string' || !uri.startsWith('file://')) return null;
   try {
-    return decodeURIComponent(new URL(uri).pathname);
+    let p = decodeURIComponent(new URL(uri).pathname);
+    // Windows: URL().pathname keeps a leading slash before the drive letter
+    // ("/D:/x"); strip it so shell.openPath/execFile get a valid path. Mirrors
+    // openTerminalFileUri in terminal-manager.js — without it "Open in system
+    // editor" / "Copy path" silently failed on Windows (#69).
+    if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1);
+    return p;
   } catch {
     return null;
   }
@@ -54,12 +60,13 @@ function classifyLinkUri(uri) {
 // `isBookmarked` toggles the bookmark label add↔remove. `variableGroups` (when
 // provided as an array of { key, label, vars:[{id,name,secret}] }) appends the
 // Variables submenu; omit it (null) to leave the menu unchanged (e.g. tests).
-function buildTerminalMenuItems({ linkUri, hasSelection, variableGroups = null }) {
+function buildTerminalMenuItems({ linkUri, hasSelection, variableGroups = null, externalEditor = false }) {
   const items = [];
   const link = classifyLinkUri(linkUri);
   if (link.kind === 'file') {
     items.push({ id: 'open-panel', label: 'Open in panel' });
     items.push({ id: 'open-system', label: 'Open in system editor' });
+    if (externalEditor) items.push({ id: 'open-editor', label: 'Open in external editor' });
     items.push({ id: 'copy-path', label: 'Copy path' });
   } else if (link.kind === 'url') {
     items.push({ id: 'open-browser', label: 'Open in browser' });
@@ -159,6 +166,9 @@ async function runTerminalMenuAction(id, ctx) {
       break;
     case 'open-system':
       if (link.kind === 'file') window.api.openPath(link.path);
+      break;
+    case 'open-editor':
+      if (link.kind === 'file') window.api.openInEditor(link.path);
       break;
     case 'copy-path':
       if (link.kind === 'file') window.api.writeClipboard(link.path);
@@ -313,12 +323,15 @@ function showTerminalContextMenu(event, ctx) {
   const projectPath = ctx.projectPath
     || (typeof sessionMap !== 'undefined' && sessionId ? (sessionMap.get(sessionId)?.projectPath || null) : null);
   const fullCtx = { ...ctx, projectPath };
+  // Offer "Open in external editor" only when the user has configured one (#69).
+  const externalEditor = typeof appGlobalSettings !== 'undefined'
+    && !!(appGlobalSettings.externalEditorCommand && String(appGlobalSettings.externalEditorCommand).trim());
 
   // Synchronous base render; the bookmark toggle label and Variables submenu are
   // filled in a tick later once their DB lookups resolve (enhanceTerminalMenu).
   const menu = document.createElement('div');
   menu.className = 'popover terminal-context-menu';
-  renderMenuItems(menu, buildTerminalMenuItems({ linkUri: ctx.linkUri, hasSelection }), fullCtx);
+  renderMenuItems(menu, buildTerminalMenuItems({ linkUri: ctx.linkUri, hasSelection, externalEditor }), fullCtx);
   document.body.appendChild(menu);
   positionTerminalMenu(menu, event.clientX, event.clientY);
 
@@ -330,7 +343,7 @@ function showTerminalContextMenu(event, ctx) {
     document.addEventListener('keydown', onTerminalMenuKey, true);
   }, 0);
 
-  enhanceTerminalMenu(menu, fullCtx, { hasSelection, linkUri: ctx.linkUri, x: event.clientX, y: event.clientY });
+  enhanceTerminalMenu(menu, fullCtx, { hasSelection, linkUri: ctx.linkUri, externalEditor, x: event.clientX, y: event.clientY });
 }
 
 // Fill in the Variables submenu once the async DB lookup resolves, if the same
@@ -346,7 +359,7 @@ async function enhanceTerminalMenu(menu, ctx, base) {
   if (!hasVars) return;
   menu.replaceChildren();
   renderMenuItems(menu, buildTerminalMenuItems({
-    linkUri: base.linkUri, hasSelection: base.hasSelection, variableGroups,
+    linkUri: base.linkUri, hasSelection: base.hasSelection, externalEditor: base.externalEditor, variableGroups,
   }), ctx);
   positionTerminalMenu(menu, base.x, base.y);
 }

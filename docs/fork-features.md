@@ -276,8 +276,9 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
   text selection, Office-style, with right-click paste), a **mouse-mode dropdown**
   (Native / Select PowerShell-style / Off — `select`
   keeps native wheel scroll in a TUI while a left-drag selects text locally), an
-  **external-terminal + file-explorer** launcher, and a batch of **Windows ConPTY**
-  rendering fixes.
+  **external-terminal + file-explorer** launcher, a **configurable external editor** (open
+  files via Ctrl/Cmd+click a file link, the right-click menu, or the file-panel button;
+  OS-default fallback), and a batch of **Windows ConPTY** rendering fixes.
 - **Bookmarks & session tags** (SQLite) — per-message transcript bookmarks with a hover gutter
   (bookmark / copy / create task); session-level bookmarking removed in favor of the pin.
 - **Task / note system** (SQLite) — scoped tasks (project / session / message) with status

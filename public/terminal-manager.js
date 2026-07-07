@@ -681,17 +681,21 @@ function drainReplayBuffer(sessionId) {
 
 const TERMINAL_LOCAL_FILE_RE = /(^|[\s(["'])((?:~\/|\/|[A-Za-z]:[\\/])(?:[^\s"'<>`|)]+?\.(?:html?|mdx?|markdown|json|txt|log|csv|xml|svg|css|jsx?|tsx?|py|ya?ml)))/gi;
 
-function openTerminalFilePath(sessionId, filePath) {
-  if (!filePath || typeof openFileInPanel !== 'function') return;
+// external=true (Ctrl/Cmd+click, #69) → open in the configured external editor;
+// otherwise open in the integrated file panel.
+function openTerminalFilePath(sessionId, filePath, external = false) {
+  if (!filePath) return;
+  if (external) { window.api.openInEditor(filePath); return; }
+  if (typeof openFileInPanel !== 'function') return;
   openFileInPanel(sessionId, filePath);
 }
 
-function openTerminalFileUri(sessionId, uri) {
+function openTerminalFileUri(sessionId, uri, external = false) {
   try {
     const url = new URL(uri);
     let filePath = decodeURIComponent(url.pathname);
     if (/^\/[A-Za-z]:\//.test(filePath)) filePath = filePath.slice(1);
-    openTerminalFilePath(sessionId, filePath);
+    openTerminalFilePath(sessionId, filePath, external);
   } catch {
     // Ignore malformed terminal hyperlinks.
   }
@@ -713,7 +717,7 @@ function findTerminalLocalFileLinks(lineText, bufferLineNumber, sessionId) {
         end: { x: endIndex, y: bufferLineNumber },
       },
       text: filePath,
-      activate: () => openTerminalFilePath(sessionId, filePath),
+      activate: (event) => openTerminalFilePath(sessionId, filePath, !!(event && (event.ctrlKey || event.metaKey))),
     });
   }
 
@@ -894,7 +898,7 @@ function createTerminalEntry(session, opts = {}) {
         // re-opening the link.
         if (event && typeof event.button === 'number' && event.button !== 0) return;
         if (uri.startsWith('file://') && typeof openFileInPanel === 'function') {
-          openTerminalFileUri(sessionId, uri);
+          openTerminalFileUri(sessionId, uri, !!(event && (event.ctrlKey || event.metaKey)));
         } else {
           window.api.openExternal(uri);
         }
@@ -928,7 +932,7 @@ function createTerminalEntry(session, opts = {}) {
   terminal.loadAddon(new WebLinksAddon.WebLinksAddon((event, url) => {
     if (event && typeof event.button === 'number' && event.button !== 0) return;
     if (url.startsWith('file://') && typeof openFileInPanel === 'function') {
-      openTerminalFileUri(sessionId, url);
+      openTerminalFileUri(sessionId, url, !!(event && (event.ctrlKey || event.metaKey)));
     } else {
       window.api.openExternal(url);
     }

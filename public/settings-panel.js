@@ -112,6 +112,7 @@
     const rightClickValue = fieldValue('terminalRightClick', 'menu');
     const mouseReportingRaw = fieldValue('terminalMouseReporting', 'select');
     const mouseModeValue = mouseReportingRaw === 'on' ? 'native' : mouseReportingRaw; // legacy 'on' → native
+    const externalEditorValue = fieldValue('externalEditorCommand', '');
     const terminalWebglValue = fieldValue('terminalWebgl', true); // default on (#81)
     const terminalCloseValue = fieldValue('terminalCloseBehavior', 'kill');
     const displayModeValue = fieldValue('sessionDisplayMode', 'grid');
@@ -562,6 +563,16 @@
                       <option value="select" ${mouseModeValue === 'select' ? 'selected' : ''}>Select (PowerShell-style)</option>
                       <option value="off" ${mouseModeValue === 'off' ? 'selected' : ''}>Off</option>
                     </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">External editor</span>${help}</div>
+                    <div class="settings-description">Command or path used to open files externally (Ctrl/Cmd+click a terminal file link, the right-click menu, or the file panel's open-external button). Empty = your OS default app.</div>
+                    <div class="settings-more">Examples: <code>code</code>, <code>subl</code>, <code>notepad++</code>, or a full path. The file path is passed as the first argument (no shell). Falls back to the OS default when empty or if the command fails.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-external-editor" placeholder="OS default" value="${escapeHtml(externalEditorValue)}">
                   </div>
                 </div>
                 <div class="settings-field">
@@ -1217,6 +1228,7 @@
         }
         settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').value || 'menu';
         settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').value || 'native';
+        settings.externalEditorCommand = (settingsViewerBody.querySelector('#sv-external-editor')?.value || '').trim();
         settings.terminalWebgl = settingsViewerBody.querySelector('#sv-terminal-webgl').checked;
         settings.terminalCloseBehavior = settingsViewerBody.querySelector('#sv-terminal-close-behavior').value || 'kill';
         settings.settingsOpenMode = settingsViewerBody.querySelector('#sv-settings-open-mode').value || 'overlay';
