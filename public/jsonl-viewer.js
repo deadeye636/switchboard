@@ -778,6 +778,9 @@ async function showJsonlViewer(session) {
 
   // Scroll to the bottom so the most recent messages are visible
   jsonlViewerBody.scrollTop = jsonlViewerBody.scrollHeight;
+
+  // Reset the in-viewer search bar for the freshly rendered transcript (#86).
+  if (typeof window._jsonlSearchReset === 'function') window._jsonlSearchReset();
 }
 
 // --- Subagent transcript view ---
@@ -839,12 +842,16 @@ async function showSubagentTranscript(session) {
   }
 
   let rendered = 0;
+  let entryIndex = 0;
   for (const entry of entries) {
     const el = renderJsonlEntry(entry, toolResultMap);
     if (el) {
+      // Stable anchor for the in-viewer search jump (#86), same as the main viewer.
+      el.dataset.entryIndex = entryIndex;
       jsonlViewerBody.appendChild(el);
       rendered++;
     }
+    entryIndex++;
   }
 
   if (rendered === 0) {
@@ -868,4 +875,7 @@ async function showSubagentTranscript(session) {
   });
 
   jsonlViewerBody.scrollTop = jsonlViewerBody.scrollHeight;
+
+  // Reset the in-viewer search bar for the freshly rendered transcript (#86).
+  if (typeof window._jsonlSearchReset === 'function') window._jsonlSearchReset();
 }

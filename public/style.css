@@ -3536,6 +3536,128 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
 #jsonl-viewer-body::-webkit-scrollbar-track { background: transparent; }
 #jsonl-viewer-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
 
+/* In-viewer transcript search (#86) */
+#jsonl-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: #15151c;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+#jsonl-search-input {
+  flex: 1;
+  height: 26px;
+  background: #23232c;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 5px;
+  color: #d8d8e4;
+  padding: 0 8px;
+  font-size: 12px;
+}
+#jsonl-search-input:focus { outline: none; border-color: #61afef; }
+#jsonl-search-type {
+  height: 26px;
+  background: #23232c;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 5px;
+  color: #d8d8e4;
+  font-size: 12px;
+  padding: 0 4px;
+}
+#jsonl-search-count {
+  font-size: 11px;
+  color: #8a8aa0;
+  min-width: 34px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+#jsonl-search-prev,
+#jsonl-search-next,
+#jsonl-search-toggle-list {
+  height: 26px;
+  min-width: 26px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 5px;
+  color: #b0b0c4;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+#jsonl-search-prev:hover,
+#jsonl-search-next:hover,
+#jsonl-search-toggle-list:hover { border-color: #61afef; color: #61afef; }
+
+#jsonl-search-list {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 16px;
+  right: 16px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: #1c1c26;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  z-index: 30;
+  padding: 4px;
+}
+.jsonl-search-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: #c8c8d6;
+  cursor: pointer;
+  font-size: 12px;
+}
+.jsonl-search-item:hover { background: rgba(97,175,239,0.12); }
+.jsonl-search-item-role {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+.jsonl-search-role-assistant { background: rgba(152,195,121,0.18); color: #98c379; }
+.jsonl-search-role-user { background: rgba(97,175,239,0.18); color: #61afef; }
+.jsonl-search-item-snippet {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #a8a8bc;
+}
+.jsonl-search-item-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #8a8aa0;
+  background: rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+.jsonl-search-empty { padding: 10px; color: #7a7a90; font-size: 12px; text-align: center; }
+
+mark.jsonl-search-hit {
+  background: #e5c07b;
+  color: #1a1a1a;
+  border-radius: 2px;
+}
+mark.jsonl-search-hit-active {
+  background: #e06c40;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(224,108,64,0.4);
+}
+
 /* ========== AGENT TIMELINE VIEWER ========== */
 #timeline-viewer {
   position: absolute;

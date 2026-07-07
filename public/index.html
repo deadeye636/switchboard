@@ -83,6 +83,19 @@
         </button>
         <button class="viewer-header-close" data-close-viewer title="Close (Esc)" aria-label="Close">&times;</button>
       </div>
+      <div id="jsonl-search">
+        <input type="text" id="jsonl-search-input" placeholder="Search transcript…" spellcheck="false">
+        <select id="jsonl-search-type" title="Message type">
+          <option value="all">All</option>
+          <option value="assistant">LLM</option>
+          <option value="user">Prompt</option>
+        </select>
+        <span id="jsonl-search-count"></span>
+        <button id="jsonl-search-prev" title="Previous match (Shift+Enter)">&#8593;</button>
+        <button id="jsonl-search-next" title="Next match (Enter)">&#8595;</button>
+        <button id="jsonl-search-toggle-list" title="Show match list">&#9776;</button>
+        <div id="jsonl-search-list" style="display:none;"></div>
+      </div>
       <div id="jsonl-viewer-body"></div>
     </div>
     <div id="tasks-viewer" style="display:none;"></div>
@@ -199,6 +212,10 @@
        window.bookmarksTags for jumps (bookmarks-tags.js loads earlier). -->
   <script src="bookmarks-logic.js"></script>
   <script src="bookmarks-view.js"></script>
+  <!-- jsonl-search-logic.js (pure match helpers) before jsonl-search.js;
+       the search wires the #jsonl-search bar and uses window.bookmarksTags. -->
+  <script src="jsonl-search-logic.js"></script>
+  <script src="jsonl-search.js"></script>
   <script src="statusbar-zoom.js"></script>
   <script src="app.js"></script>
 </body>
