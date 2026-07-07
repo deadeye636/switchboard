@@ -162,14 +162,16 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
   }
   popover.style.left = rect.left + 'px';
 
-  // Close on click outside
+  // Close on click outside. Capture phase (true): xterm stops propagation on
+  // terminal mousedowns, so a bubble-phase listener never fires when the user
+  // clicks into the terminal and the popover would stay open (#93).
   function onClickOutside(e) {
     if (!popover.contains(e.target) && e.target !== anchorEl) {
       popover.remove();
-      document.removeEventListener('mousedown', onClickOutside);
+      document.removeEventListener('mousedown', onClickOutside, true);
     }
   }
-  setTimeout(() => document.addEventListener('mousedown', onClickOutside), 0);
+  setTimeout(() => document.addEventListener('mousedown', onClickOutside, true), 0);
 }
 
 async function launchTerminalSession(project, groupId) {
