@@ -80,6 +80,9 @@ jobs:
       - name: Bundle CodeMirror
         run: npm run bundle:codemirror
 
+      - name: Stamp build info
+        run: node scripts/gen-build-info.js
+
       - name: Build
         run: npx electron-builder --${{ matrix.platform }} --publish never
         env:

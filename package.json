@@ -6,19 +6,19 @@
   "author": "Doctly <support@doctly.ai>",
   "main": "main.js",
   "scripts": {
-    "start": "npm run bundle:codemirror && electron .",
+    "start": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron .",
     "test": "node --test",
     "electron": "electron .",
     "bundle:codemirror": "esbuild public/codemirror-setup.js --bundle --outfile=public/codemirror-bundle.js --format=iife --platform=browser --minify",
     "generate-icons": "node scripts/generate-icons.js && node scripts/generate-dmg-background.js",
     "upstream:check": "node scripts/upstream-check.js",
     "upstream:seen": "node scripts/upstream-check.js --seen",
-    "build": "npm run bundle:codemirror && electron-builder",
-    "build:mac": "npm run bundle:codemirror && electron-builder --mac && node scripts/postinstall.js && codesign --sign - --force --deep dist/mac-arm64/Switchboard.app 2>/dev/null; true",
+    "build": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder",
+    "build:mac": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --mac && node scripts/postinstall.js && codesign --sign - --force --deep dist/mac-arm64/Switchboard.app 2>/dev/null; true",
     "build:mac:arm64": "electron-builder --mac --arm64 2>/dev/null; true",
-    "build:win": "npm run bundle:codemirror && electron-builder --win",
-    "build:linux": "npm run bundle:codemirror && electron-builder --linux",
-    "release": "npm run bundle:codemirror && electron-builder --publish always",
+    "build:win": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --win",
+    "build:linux": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --linux",
+    "release": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --publish always",
     "postinstall": "patch-package && node scripts/postinstall.js"
   },
   "dependencies": {
@@ -63,6 +63,7 @@
     "productName": "Switchboard",
     "files": [
       "*.js",
+      "build-info.json",
       "workers/**/*",
       "public/**/*",
       "build/icon.*",

@@ -957,7 +957,7 @@
               <div class="settings-section">
                 <div class="about-app">
                   <div class="about-name">Switchboard</div>
-                  <div class="about-version">Version <span id="sv-about-version">…</span> · <code>deadeye</code></div>
+                  <div class="about-version">Version <span id="sv-about-version">…</span> · <code>deadeye</code> · <code id="sv-about-build">…</code></div>
                   <div class="about-tagline">Browse, search, launch and monitor Claude Code sessions across projects.</div>
                 </div>
               </div>
@@ -1019,6 +1019,7 @@
         window.api.getAboutInfo().then(info => {
           const set = (id, v) => { const el = settingsViewerBody.querySelector(id); if (el) el.textContent = v; };
           set('#sv-about-version', info.version);
+          if (info.build) set('#sv-about-build', `${info.build.branch} @ ${info.build.commit}${info.build.dirty ? ' (dirty)' : ''}`);
           set('#sv-about-electron', info.electron);
           set('#sv-about-chrome', info.chrome);
           set('#sv-about-node', info.node);

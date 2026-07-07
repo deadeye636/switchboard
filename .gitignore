@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-fix/
+build-info.json
 *.db
 *.db-wal
 *.db-shm

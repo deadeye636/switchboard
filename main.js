@@ -3213,9 +3213,35 @@ function startProjectsWatcher() {
 // --- IPC: app version ---
 ipcMain.handle('get-app-version', () => app.getVersion());
 
+// Build provenance (branch @ short-hash), stamped at build time by
+// scripts/gen-build-info.js into build-info.json (bundled). Falls back to a live
+// git read in dev, then to "unknown". Cached — read once.
+let _buildInfo;
+function readBuildInfo() {
+  if (_buildInfo) return _buildInfo;
+  try {
+    _buildInfo = require('./build-info.json');
+  } catch {
+    try {
+      const { execFileSync } = require('child_process');
+      const g = (a) => execFileSync('git', a, { encoding: 'utf8', cwd: __dirname }).trim();
+      _buildInfo = {
+        branch: g(['rev-parse', '--abbrev-ref', 'HEAD']) || 'unknown',
+        commit: g(['rev-parse', '--short', 'HEAD']) || 'unknown',
+        dirty: g(['status', '--porcelain']).length > 0,
+        builtAt: null,
+      };
+    } catch {
+      _buildInfo = { branch: 'unknown', commit: 'unknown', dirty: false, builtAt: null };
+    }
+  }
+  return _buildInfo;
+}
+
 // Version + runtime info for the settings "About" pane.
 ipcMain.handle('get-about-info', () => ({
   version: app.getVersion(),
+  build: readBuildInfo(),
   electron: process.versions.electron,
   chrome: process.versions.chrome,
   node: process.versions.node,

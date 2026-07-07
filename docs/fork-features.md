@@ -300,6 +300,7 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 - **Search** — 3-char minimum + explicit reindex (Enter / refresh button).
 
 ### Infra / hardening / tooling
+- **Build provenance in About** — every build is stamped (`scripts/gen-build-info.js` → bundled `build-info.json`) with its git branch @ short-commit and a `dirty` flag, shown in the About pane so an installation is traceable to its source commit.
 - Ported **security hardening** (kreaddis #46) + dependency audit fixes.
 - **`upstream:check`** tooling to detect portable upstream changes across all fork branches.
 - **German-based workflow** — Conventional-Commits in German, backlog migrated to GitHub Issues.
