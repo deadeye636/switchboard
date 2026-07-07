@@ -5580,6 +5580,34 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   min-width: 150px;
 }
 
+/* Selection action bar (#88) — floating icon hotbar above a text selection. */
+.terminal-selection-bar {
+  position: fixed;
+  z-index: 1001;
+  display: flex;
+  gap: 2px;
+  background: #1e1e2a;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 3px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+}
+.terminal-selection-bar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: #c8c8d6;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.terminal-selection-bar-btn:hover { background: rgba(97,175,239,0.16); color: #61afef; }
+.terminal-selection-bar-btn svg { display: block; }
+
 /* Nested flyout submenus (Variables ▸ scope ▸ items) in the terminal menu. */
 .terminal-context-menu .has-submenu {
   position: relative;

@@ -537,14 +537,15 @@
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Right-click action</span>${help}</div>
-                    <div class="settings-description">Menu, copy/paste (Windows style), copy only, or the native xterm default.</div>
-                    <div class="settings-more"><b>Menu</b>: context menu with file-link actions, copy &amp; paste. <b>Copy or paste</b>: copy the selection, or paste when nothing is selected. <b>Copy only</b>: copy the selection. <b>Native</b>: xterm default. Takes effect on the next right-click.</div>
+                    <div class="settings-description">Menu, copy/paste (Windows style), copy only, a selection action bar, or the native xterm default.</div>
+                    <div class="settings-more"><b>Menu</b>: context menu with file-link actions, copy &amp; paste. <b>Copy or paste</b>: copy the selection, or paste when nothing is selected. <b>Copy only</b>: copy the selection. <b>Selection bar + paste</b>: selecting text pops a floating action bar (Copy / Create task); right-click pastes, or opens the menu over a link. <b>Native</b>: xterm default. Takes effect on the next right-click.</div>
                   </div>
                   <div class="settings-field-control">
                     <select class="settings-select" id="sv-right-click">
                       <option value="menu" ${rightClickValue === 'menu' ? 'selected' : ''}>Menu</option>
                       <option value="copy-paste" ${rightClickValue === 'copy-paste' ? 'selected' : ''}>Copy or paste</option>
                       <option value="copy" ${rightClickValue === 'copy' ? 'selected' : ''}>Copy only</option>
+                      <option value="action-bar" ${rightClickValue === 'action-bar' ? 'selected' : ''}>Selection bar + paste</option>
                       <option value="default" ${rightClickValue === 'default' ? 'selected' : ''}>Native</option>
                     </select>
                   </div>

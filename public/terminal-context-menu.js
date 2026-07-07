@@ -351,6 +351,65 @@ async function enhanceTerminalMenu(menu, ctx, base) {
   positionTerminalMenu(menu, base.x, base.y);
 }
 
+// --- Selection action bar (mode 'action-bar', #88) ---
+// A small floating toolbar that appears above a fresh text selection (Office-
+// style), offering the selection actions. Reuses runTerminalMenuAction, so no
+// duplicated effect logic. Right-click still pastes (over a link → the menu),
+// wired in setupTerminalContextMenu.
+let activeSelectionBar = null;
+let activeSelectionBarSessionId = null;
+
+function closeSelectionBar() {
+  if (activeSelectionBar) {
+    activeSelectionBar.remove();
+    activeSelectionBar = null;
+    activeSelectionBarSessionId = null;
+  }
+}
+// Called from destroySession so a torn-down terminal's bar can't act on a
+// disposed xterm instance.
+function closeSelectionBarForSession(sessionId) {
+  if (activeSelectionBar && activeSelectionBarSessionId === sessionId) closeSelectionBar();
+}
+
+// Icon-only buttons; labels are tooltips. Actions dispatch through
+// runTerminalMenuAction with the same ctx shape the context menu uses.
+const SELECTION_BAR_ACTIONS = [
+  { id: 'copy', label: 'Copy', svg: '<path d="M9 9h9v9H9z"/><path d="M6 15H4V4h11v2"/>' },
+  { id: 'create-task', label: 'Create task', svg: '<path d="M9 11l3 3L20 6"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>' },
+];
+
+function showSelectionBar(px, py, ctx) {
+  closeSelectionBar();
+  const bar = document.createElement('div');
+  bar.className = 'terminal-selection-bar';
+  for (const a of SELECTION_BAR_ACTIONS) {
+    const btn = document.createElement('button');
+    btn.className = 'terminal-selection-bar-btn';
+    btn.title = a.label;
+    btn.setAttribute('aria-label', a.label);
+    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${a.svg}</svg>`;
+    // mousedown default would blur the terminal and drop the selection before
+    // the action reads it — prevent it so getSelection() still works on click.
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('click', () => { runTerminalMenuAction(a.id, ctx); closeSelectionBar(); });
+    bar.appendChild(btn);
+  }
+  document.body.appendChild(bar);
+  // Position centered above the selection end, clamped; flip below if no room.
+  const bw = bar.offsetWidth;
+  const bh = bar.offsetHeight;
+  let x = px - bw / 2;
+  let y = py - bh - 8;
+  if (x < 4) x = 4;
+  if (x + bw > window.innerWidth - 4) x = window.innerWidth - bw - 4;
+  if (y < 4) y = py + 16;
+  bar.style.left = x + 'px';
+  bar.style.top = y + 'px';
+  activeSelectionBar = bar;
+  activeSelectionBarSessionId = ctx.sessionId;
+}
+
 // Wire a terminal container's right-click to the configured behavior. Called
 // from createTerminalEntry. getHoveredLinkUri returns the URI of the link the
 // cursor is currently over (tracked via the link hover/leave callbacks), or
@@ -400,6 +459,19 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
       terminal.focus();
       return;
     }
+    // 'action-bar' (#88): right-click over a link → the context menu (so file/URL
+    // actions stay reachable); otherwise paste. Selection actions live in the
+    // floating bar wired below.
+    if (terminalRightClickMode === 'action-bar') {
+      const linkUri = getHoveredLinkUri();
+      if (linkUri) {
+        showTerminalContextMenu(e, { terminal, sessionId: getSessionId(), linkUri });
+        return;
+      }
+      window.api.readClipboard().then((t) => { if (t) pasteIntoTerminal(terminal, getSessionId(), t); }).catch(() => {});
+      terminal.focus();
+      return;
+    }
     // 'menu' (default)
     showTerminalContextMenu(e, {
       terminal,
@@ -407,6 +479,28 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
       linkUri: getHoveredLinkUri(),
     });
   }, { capture: true });
+
+  // Selection action bar (#88): on a left-button mouseup that leaves a selection,
+  // pop the bar above the release point. Only in 'action-bar' mode.
+  container.addEventListener('mouseup', (e) => {
+    if (e.button !== 0 || terminalRightClickMode !== 'action-bar') return;
+    const px = e.clientX;
+    const py = e.clientY;
+    // Defer so xterm has finalized the selection for this mouseup.
+    setTimeout(() => {
+      if (terminal.hasSelection && terminal.hasSelection() && terminal.getSelection().trim()) {
+        showSelectionBar(px, py, { terminal, sessionId: getSessionId() });
+      }
+    }, 0);
+  });
+  // Hide the bar when the selection is cleared (new click, deselect, program clear).
+  if (typeof terminal.onSelectionChange === 'function') {
+    terminal.onSelectionChange(() => {
+      if (activeSelectionBar && (!terminal.hasSelection || !terminal.hasSelection())) closeSelectionBar();
+    });
+  }
+  // Hide on scroll — the anchor point would otherwise drift off the selection.
+  if (typeof terminal.onScroll === 'function') terminal.onScroll(() => closeSelectionBar());
 }
 
 if (typeof module !== 'undefined' && module.exports) {

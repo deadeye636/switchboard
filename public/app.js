@@ -317,7 +317,11 @@ function getNextAttentionBinding() {
 
 // Live-apply the terminal right-click behavior (terminalRightClickMode lives in
 // terminal-context-menu.js); takes effect on the next right-click, no relaunch.
-window._applyTerminalRightClick = (mode) => { terminalRightClickMode = mode || 'menu'; };
+window._applyTerminalRightClick = (mode) => {
+  terminalRightClickMode = mode || 'menu';
+  // Leaving 'action-bar' mode: drop any open selection bar (#88).
+  if (typeof closeSelectionBar === 'function') closeSelectionBar();
+};
 // Live-apply terminal mouse mode (setTerminalMouseReporting lives in
 // terminal-manager.js). 'native' | 'select' (local left-drag select + native
 // wheel) | 'off' (strip all mouse-tracking). Resets open terminals immediately.

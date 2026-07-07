@@ -1106,6 +1106,7 @@ function destroySession(sessionId) {
   // Tear down any open right-click menu for this session before disposing the
   // terminal — its action closures hold the (about-to-be-disposed) xterm.
   if (typeof closeTerminalContextMenuForSession === 'function') closeTerminalContextMenuForSession(sessionId);
+  if (typeof closeSelectionBarForSession === 'function') closeSelectionBarForSession(sessionId);
   window.api.closeTerminal(sessionId);
   // Drop any pending write buffer before disposing — a scheduled rAF/timeout
   // flush would otherwise call terminal.write() on a disposed instance if

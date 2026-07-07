@@ -272,7 +272,9 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 ### Terminal
 - Configurable **font / size / zoom** (Ctrl+mouse-wheel + status-bar buttons), **clipboard
   image & file paste** via Ctrl+V, a right-click **behavior dropdown** (Menu / Copy / Paste /
-  Native), a **mouse-mode dropdown** (Native / Select PowerShell-style / Off — `select`
+  Selection action bar / Native — the action bar pops a floating Copy/Task toolbar above a
+  text selection, Office-style, with right-click paste), a **mouse-mode dropdown**
+  (Native / Select PowerShell-style / Off — `select`
   keeps native wheel scroll in a TUI while a left-drag selects text locally), an
   **external-terminal + file-explorer** launcher, and a batch of **Windows ConPTY**
   rendering fixes.
