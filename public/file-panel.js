@@ -325,6 +325,16 @@ function destroyCurrentTab(state) {
 }
 
 async function openFileInPanel(sessionId, filePath) {
+  // Images are binary — read them as a data URL instead of UTF-8 text (#49).
+  if (typeof previewKindForExt === 'function' && previewKindForExt(extOf(filePath)) === 'image') {
+    const res = await window.api.readFileDataUrl(filePath);
+    if (!res || !res.ok) {
+      window.showControlToast?.({ message: (res && res.error) || 'Cannot preview image', timeoutMs: 3000 });
+      return;
+    }
+    openFileTab(sessionId, { filePath, content: res.dataUrl });
+    return;
+  }
   const result = await window.api.readFileForPanel(filePath);
   if (!result.ok) return;
   openFileTab(sessionId, { filePath, content: result.content });

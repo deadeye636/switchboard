@@ -3432,6 +3432,23 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
   scrollbar-color: rgba(255,255,255,0.08) transparent;
 }
 
+/* HTML preview (sandboxed iframe) + image preview in the file panel (#49) */
+.markdown-preview .html-preview-frame {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+  border: 0;
+  border-radius: 4px;
+  background: #ffffff;
+}
+.fp-image-preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
 .markdown-preview h1, .markdown-preview h2, .markdown-preview h3,
 .markdown-preview h4, .markdown-preview h5, .markdown-preview h6 {
   color: #bd93f9;

@@ -1124,6 +1124,28 @@ ipcMain.handle('read-file-for-panel', async (_event, filePath) => {
   }
 });
 
+// Read a file as a base64 data URL for the panel image preview (#49). Guarded by
+// the same sensitive-path check as the text read, with a size cap so a huge file
+// can't blow up the renderer.
+const { mimeForExt: previewMimeForExt } = require('./public/preview-kind.js');
+const PREVIEW_DATAURL_MAX = 15 * 1024 * 1024; // 15 MB
+ipcMain.handle('read-file-dataurl', async (_event, filePath) => {
+  try {
+    const resolved = resolvePanelFilePath(filePath);
+    if (isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
+    const stat = fs.statSync(resolved);
+    if (stat.size > PREVIEW_DATAURL_MAX) {
+      return { ok: false, error: `File too large to preview (${Math.round(stat.size / 1048576)} MB, max 15 MB)` };
+    }
+    const ext = path.extname(resolved).slice(1).toLowerCase();
+    const mime = previewMimeForExt(ext) || 'application/octet-stream';
+    const buf = await fs.promises.readFile(resolved);
+    return { ok: true, dataUrl: `data:${mime};base64,${buf.toString('base64')}` };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 ipcMain.handle('save-file-for-panel', async (_event, filePath, content) => {
   try {
     const resolved = resolvePanelFilePath(filePath);

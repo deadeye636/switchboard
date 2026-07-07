@@ -290,6 +290,10 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 - **Saved Variables** — reusable snippet/template panel with quick-pick, insert-template and
   a management tab (port of **brianstanley**). Insert into the terminal via the right-click
   menu or a **configurable hotkey** (default Ctrl/Cmd+Shift+V) — works in every right-click mode.
+- **File preview** — the integrated file panel renders **Markdown**, a **sandboxed HTML preview**
+  (`allow-same-origin`, no scripts), and **images** (PNG/JPG/GIF/WebP/SVG/… via a size-capped
+  base64 data-URL IPC) inline (port of **brianstanley**). Pure kind/MIME helpers in
+  `public/preview-kind.js` (unit-tested).
 
 ### Supervision extensions
 - **Handoff library** — save packets, editable prompt, resume, direct "New session" seed,

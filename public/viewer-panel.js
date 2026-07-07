@@ -231,12 +231,28 @@ class ViewerPanel {
     this.toolbar.setTitle(title);
     this.toolbar.setPath(filePath);
 
+    this._previewKind = (typeof previewKindForExt === 'function')
+      ? previewKindForExt(typeof extOf === 'function' ? extOf(filePath) : (filePath.split('.').pop() || '').toLowerCase())
+      : 'text';
+
+    // Image preview: render the data URL as an <img>, no CodeMirror editor (#49).
+    if (this._previewKind === 'image') {
+      this._openImage(title, filePath, content);
+      return;
+    }
+    this._imageMode = false;
+    // Restore editor + editor-only buttons (a prior image open may have hidden them).
+    this.editorEl.style.display = '';
+    for (const b of [this.toolbar.wrapBtn, this.toolbar.saveBtn, this.toolbar.gotoLineBtn]) {
+      if (b) b.style.display = '';
+    }
+
     const isMd = this._isMarkdown(filePath);
     const isJsonish = this._isJsonish(filePath);
 
-    // Show/hide preview button based on file type
+    // Show/hide preview button based on file type (markdown or HTML).
     if (this.toolbar.previewBtn) {
-      this.toolbar.previewBtn.style.display = isMd ? '' : 'none';
+      this.toolbar.previewBtn.style.display = (isMd || this._previewKind === 'html') ? '' : 'none';
     }
     // Format button: only for .json / .jsonl
     if (this.toolbar.formatBtn) {
@@ -301,6 +317,27 @@ class ViewerPanel {
     });
   }
 
+  // Render an image file (content is a data URL) as an <img>; view-only, so the
+  // editor and editor-only toolbar buttons are hidden (#49).
+  _openImage(title, filePath, dataUrl) {
+    this._imageMode = true;
+    this._watchFile(filePath);
+    if (this.editorView) { this.editorView.destroy(); this.editorView = null; }
+    this.editorEl.style.display = 'none';
+    for (const b of [this.toolbar.previewBtn, this.toolbar.formatBtn, this.toolbar.wrapBtn,
+                     this.toolbar.saveBtn, this.toolbar.gotoLineBtn]) {
+      if (b) b.style.display = 'none';
+    }
+    this.previewMode = false;
+    this.previewEl.innerHTML = '';
+    const img = document.createElement('img');
+    img.className = 'fp-image-preview';
+    img.alt = title || '';
+    img.src = dataUrl;
+    this.previewEl.appendChild(img);
+    this.previewEl.style.display = 'block';
+  }
+
   _createEditor(content, filePath) {
     if (this.opts.language === 'auto') {
       this.editorView = window.createEditableViewer(
@@ -317,14 +354,40 @@ class ViewerPanel {
   }
 
   _togglePreview() {
-    this.previewMode = toggleMarkdownPreview({
-      editorEl: this.editorEl,
-      previewEl: this.previewEl,
-      toggleBtn: this.toolbar.previewBtn,
-      editorView: this.editorView,
-      isPreview: this.previewMode,
-      storageKey: this.opts.storageKey,
-    });
+    if (!this.previewMode) {
+      this._renderPreview();
+      this.editorEl.style.display = 'none';
+      this.previewEl.style.display = 'block';
+      this.toolbar.setPreviewMode(true);
+      this.previewMode = true;
+      if (this.opts.storageKey) localStorage.setItem(this.opts.storageKey, 'true');
+    } else {
+      this.previewEl.style.display = 'none';
+      this.previewEl.innerHTML = ''; // drop the rendered content / iframe
+      this.editorEl.style.display = '';
+      this.toolbar.setPreviewMode(false);
+      this.previewMode = false;
+      if (this.opts.storageKey) localStorage.setItem(this.opts.storageKey, 'false');
+    }
+  }
+
+  // Fill the preview element for the current file kind: a sandboxed iframe for
+  // HTML (display-only, no scripts — #49 security), DOMPurify-sanitized marked
+  // output for Markdown (never regress the #46 wrap).
+  _renderPreview() {
+    const content = this.getContent();
+    if (this._previewKind === 'html') {
+      this.previewEl.innerHTML = '';
+      const frame = document.createElement('iframe');
+      frame.className = 'html-preview-frame';
+      frame.setAttribute('sandbox', 'allow-same-origin'); // NO allow-scripts
+      frame.srcdoc = (typeof htmlWithBase === 'function')
+        ? htmlWithBase(content, typeof fileDirUrl === 'function' ? fileDirUrl(this.filePath) : '')
+        : content;
+      this.previewEl.appendChild(frame);
+    } else {
+      this.previewEl.innerHTML = DOMPurify.sanitize(window.marked.parse(content));
+    }
   }
 
   _setPreview(show) {
@@ -380,6 +443,7 @@ class ViewerPanel {
     this.editorEl.innerHTML = '';
     this.previewEl.innerHTML = '';
     this.previewEl.style.display = 'none';
+    this._imageMode = false;
   }
 
   // ── File Watching ──────────────────────────────────────────────────
@@ -398,7 +462,19 @@ class ViewerPanel {
   }
 
   async _reloadFromDisk() {
-    if (!this.filePath || !window.api.readFileForPanel) return;
+    if (!this.filePath) return;
+
+    // Image: re-fetch the data URL and swap the <img> src (#49).
+    if (this._imageMode) {
+      const res = window.api.readFileDataUrl ? await window.api.readFileDataUrl(this.filePath) : null;
+      if (res && res.ok) {
+        const img = this.previewEl.querySelector('img');
+        if (img) img.src = res.dataUrl;
+      }
+      return;
+    }
+
+    if (!window.api.readFileForPanel) return;
     const result = await window.api.readFileForPanel(this.filePath);
     if (!result.ok) return;
 
@@ -412,9 +488,7 @@ class ViewerPanel {
       });
     }
 
-    if (this.previewMode) {
-      this.previewEl.innerHTML = DOMPurify.sanitize(window.marked.parse(newContent));
-    }
+    if (this.previewMode) this._renderPreview();
   }
 
   _isMarkdown(filePath) {
