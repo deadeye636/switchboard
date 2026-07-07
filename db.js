@@ -928,6 +928,9 @@ function deleteCachedFolder(folder) {
 }
 
 function getFolderMeta(folder) {
+  // A late cache refresh can fire during shutdown after the DB is closed —
+  // return null instead of throwing "connection is not open" (#90).
+  if (!db.open) return null;
   return stmts.metaGet.get(folder) || null;
 }
 

@@ -3116,6 +3116,10 @@ const { detectSessionTransitions } = sessionTransitions;
 
 // --- fs.watch on projects directory ---
 let projectsWatcher = null;
+// Set once quit begins so a still-pending debounced flush (or a late worker
+// message) doesn't touch the DB after closeDb() — "The database connection is
+// not open" on quit (#90).
+let appQuitting = false;
 
 function startProjectsWatcher() {
   if (!fs.existsSync(PROJECTS_DIR)) return;
@@ -3133,6 +3137,7 @@ function startProjectsWatcher() {
 
   function flushChanges() {
     debounceTimer = null;
+    if (appQuitting) return; // DB may already be closed (#90)
     const folders = new Set(pendingFolders);
     pendingFolders.clear();
     const files = new Map(pendingFiles);
@@ -3353,6 +3358,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  // Stop any pending debounced cache flush from running after the DB closes (#90).
+  appQuitting = true;
+
   // Shut down all MCP servers
   shutdownAllMcp();
 
