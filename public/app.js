@@ -11,6 +11,7 @@ const searchInput = document.getElementById('search-input');
 const terminalHeader = document.getElementById('terminal-header');
 const terminalHeaderName = document.getElementById('terminal-header-name');
 const terminalHeaderId = document.getElementById('terminal-header-id');
+let headerRenaming = false; // true while the header title is being inline-renamed (issue #95)
 const terminalHeaderStatus = document.getElementById('terminal-header-status');
 const terminalHeaderShell = document.getElementById('terminal-header-shell');
 const terminalVariablesBtn = document.getElementById('terminal-variables-btn');
@@ -1756,7 +1757,7 @@ async function loadProjects({ resort = false } = {}) {
   if (activeSessionId && typeof cleanDisplayName === 'function') {
     const active = sessionMap.get(activeSessionId);
     const name = active && cleanDisplayName(active.name || active.aiTitle || active.summary);
-    if (name) terminalHeaderName.textContent = name;
+    if (name && !headerRenaming) terminalHeaderName.textContent = name;
   }
   renderDefaultStatus();
 }
@@ -1869,9 +1870,61 @@ function openNewSession(project) {
   return launchNewSession(project);
 }
 
+// Inline-rename the active session from the header title (top-left), mirroring the
+// sidebar's startRename: double-click → edit in place → save on Enter/blur, cancel
+// on Escape, then sync the sidebar. Same backend as the sidebar (issue #95).
+function startHeaderRename() {
+  if (headerRenaming || !activeSessionId) return;
+  const entry = openSessions.get(activeSessionId);
+  const session = (entry && entry.session) || sessionMap.get(activeSessionId);
+  if (!session) return;
+  headerRenaming = true;
+  const el = terminalHeaderName;
+  const original = el.textContent;
+  el.contentEditable = 'plaintext-only';
+  el.spellcheck = false;
+  el.classList.add('editing');
+  el.focus();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+
+  const finish = async (commit) => {
+    if (!headerRenaming) return;
+    headerRenaming = false;
+    el.removeEventListener('keydown', onKey);
+    el.removeEventListener('blur', onBlur);
+    el.contentEditable = 'false';
+    el.classList.remove('editing');
+    if (commit) {
+      const newName = el.textContent.trim();
+      const fallback = cleanDisplayName(session.aiTitle || session.summary);
+      const nameToSave = (newName && newName !== fallback) ? newName : null;
+      try { await window.api.renameSession(session.sessionId, nameToSave); } catch {}
+      session.name = nameToSave;
+      el.textContent = nameToSave || fallback || session.sessionId;
+      if (typeof refreshSidebar === 'function') refreshSidebar();
+    } else {
+      el.textContent = original;
+    }
+  };
+  function onKey(e) {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  }
+  function onBlur() { finish(true); }
+  el.addEventListener('keydown', onKey);
+  el.addEventListener('blur', onBlur);
+}
+terminalHeaderName.addEventListener('dblclick', (e) => { e.stopPropagation(); startHeaderRename(); });
+terminalHeaderName.title = 'Double-click to rename';
+
 async function showTerminalHeader(session) {
   const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary);
-  terminalHeaderName.textContent = displayName;
+  if (!headerRenaming) terminalHeaderName.textContent = displayName;
   terminalHeaderId.textContent = session.sessionId;
   terminalHeader.style.display = '';
   updateTerminalHeader();

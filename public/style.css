@@ -2265,6 +2265,19 @@ input:focus-visible {
   max-width: 30%;
 }
 
+/* Inline header rename (issue #95): expand + outline while editing in place. */
+#terminal-header-name.editing {
+  outline: 1px solid rgba(128,136,255,0.55);
+  background: rgba(128,136,255,0.10);
+  border-radius: 3px;
+  padding: 0 4px;
+  color: #d8d8ec;
+  overflow: visible;
+  text-overflow: clip;
+  cursor: text;
+  max-width: 60%;
+}
+
 #terminal-header-pty-title {
   font-size: 11px;
   color: #9090a8;
