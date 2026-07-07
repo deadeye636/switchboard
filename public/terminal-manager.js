@@ -337,6 +337,55 @@ function scheduleObservedRefit(entry) {
   }, 100);
 }
 
+// --- devicePixelRatio-change re-fit (#85) ---
+// xterm's DOM renderer derives the device cell width from charWidth × devicePixelRatio
+// (unfloored — xterm.js#6015, which upstream won't fix). On a DPR change (monitor switch,
+// display-scaling change, Electron zoom, dock/undock) the cached cell geometry goes stale
+// and text drifts ~1px/cell, accumulating across each row into scattered/garbled glyphs,
+// until an unrelated resize re-measures. No container-box or font event fires for a pure
+// DPR change, so none of the existing self-heals (ResizeObserver, fonts.ready, window
+// resize) catch it — we had no DPR trigger at all. Watch DPR and re-fit every open
+// terminal when it flips. matchMedia's resolution query is DPR-specific, so re-arm after
+// each change.
+function refitAllForDprChange() {
+  for (const [, entry] of openSessions) {
+    const t = entry && entry.terminal;
+    if (!t) continue;
+    const beforeCols = t.cols, beforeRows = t.rows;
+    safeFit(entry);
+    // safeFit no-ops when the CSS-px grid is unchanged (a pure DPR change with the same
+    // box keeps cols/rows), so xterm's resize() early-returns and the device geometry is
+    // never recomputed. Force it with a one-row resize dance so the DOM renderer re-derives
+    // the cell width for the new devicePixelRatio.
+    if (t.cols === beforeCols && t.rows === beforeRows && t.rows > 1) {
+      try {
+        t.resize(t.cols, t.rows - 1);
+        t.resize(beforeCols, beforeRows);
+      } catch { /* ignore */ }
+    }
+  }
+}
+
+function watchDevicePixelRatio() {
+  if (typeof window.matchMedia !== 'function') return;
+  const arm = () => {
+    let mq;
+    try {
+      mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    } catch {
+      return; // resolution media query unsupported — nothing to watch
+    }
+    const onChange = () => {
+      mq.removeEventListener('change', onChange);
+      refitAllForDprChange();
+      arm(); // re-arm for the new devicePixelRatio
+    };
+    mq.addEventListener('change', onChange);
+  };
+  arm();
+}
+watchDevicePixelRatio();
+
 // Fit a terminal that just became visible (from display:none or reparent).
 // Flush the WebGL glyph atlas and force a full-row redraw. xterm's WebGL renderer
 // caches a glyph texture atlas; on a hidden->visible transition WITHOUT a dimension
