@@ -458,7 +458,12 @@ function statusRuntime() {
 // Open/focus a single attention inbox item. Shared so the sidebar "Focus next"
 // button and the keyboard shortcut stay in sync.
 function focusAttentionItem(item) {
-  if (item && item.session) openSession(item.session);
+  if (!item || !item.session) return;
+  openSession(item.session);
+  // Mirror the native-notification path (onFocusSession): openSession doesn't
+  // clear the inbox state synchronously for a session not yet open in this
+  // renderer, so clear it here too or the item lingers after being opened (#92).
+  clearNotifications(item.session.sessionId);
 }
 
 // Focus the next session needing attention (wrap-around handled by the helper).

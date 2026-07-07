@@ -1391,6 +1391,17 @@ function patchSidebarStatuses() {
   // The running filter changes list membership on status edges — needs a rebuild.
   if (showRunningOnly) return false;
   const runtime = getSessionRuntimeState();
+  // The attention inbox isn't patched here (only session-item chips are). If its
+  // membership changed on this status edge, bail to the full refreshSidebar so the
+  // inbox is rebuilt AND re-wired — otherwise items linger after being opened or
+  // never appear in the timed modes (#92).
+  if (typeof getAttentionInboxItems === 'function' && typeof cachedProjects !== 'undefined') {
+    const want = getAttentionInboxItems(getAllRenderableSessions(cachedProjects), runtime)
+      .slice(0, 8).map(i => i.session.sessionId).join(',');
+    const have = Array.from(sidebarContent.querySelectorAll('.attention-inbox-item'))
+      .map(el => el.dataset.sessionId).join(',');
+    if (want !== have) return false;
+  }
   for (const item of sidebarContent.querySelectorAll('.session-item[data-session-id]')) {
     const sid = item.dataset.sessionId;
     item.classList.toggle('has-running-pty', activePtyIds.has(sid));
@@ -1462,7 +1473,7 @@ function rebindSidebarEvents(projects) {
     const sessionId = item.dataset.sessionId;
     const session = sessionMap.get(sessionId);
     if (!session) return;
-    item.onclick = () => openSession(session);
+    item.onclick = () => focusAttentionItem({ session });
   });
 
   for (const project of projects) {
