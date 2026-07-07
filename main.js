@@ -2396,6 +2396,42 @@ ipcMain.handle('bookmark-list', (_event, sessionId) => {
   return listBookmarks(sessionId || null);
 });
 
+// Enrich raw bookmark rows with display names (project + session), resolved from
+// the session cache. Bookmarks store no projectPath (unlike tasks), so it's
+// derived here at query time — kept out of the DB layer, mirroring enrichTasks.
+function enrichBookmarks(rows) {
+  const displayNames = getProjectDisplayNames() || {};
+  return (rows || []).map((b) => {
+    const cached = b.sessionId ? getCachedSession(b.sessionId) : null;
+    const projectPath = (cached && cached.projectPath) || null;
+    const sessionName = cached
+      ? (cached.name || cached.aiTitle || cached.summary || b.sessionId)
+      : (b.sessionId || null);
+    const projectDisplayName = projectPath ? (displayNames[projectPath] || projectPath) : null;
+    return { ...b, projectPath, sessionName, projectDisplayName };
+  });
+}
+
+// Scope-filtered bookmark list for the scope switcher + large project view (#68).
+// filter: { sessionId } | { projectPath } | {}. Session uses the indexed DB query;
+// project filters the enriched set in JS (no projectPath column to query on).
+ipcMain.handle('bookmark-list-admin', (_event, filter) => {
+  const f = filter || {};
+  if (f.sessionId) return enrichBookmarks(listBookmarks(f.sessionId));
+  const all = enrichBookmarks(listBookmarks(null));
+  if (f.projectPath) return all.filter((b) => b.projectPath === f.projectPath);
+  return all;
+});
+
+// { projectPath: bookmarkCount } — drives the project-header bookmark-icon highlight.
+ipcMain.handle('bookmark-counts-by-project', () => {
+  const out = {};
+  for (const b of enrichBookmarks(listBookmarks(null))) {
+    if (b.projectPath) out[b.projectPath] = (out[b.projectPath] || 0) + 1;
+  }
+  return out;
+});
+
 // --- IPC: tasks (scoped task/note system) ---
 
 // Enrich raw task rows with display names (project + session), resolved from the

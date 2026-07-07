@@ -4427,7 +4427,8 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
 
 /* Project header schedule + tasks buttons */
 .project-schedule-btn,
-.project-tasks-btn {
+.project-tasks-btn,
+.project-bookmarks-btn {
   background: transparent;
   border: none;
   color: #7a7a90;
@@ -4446,13 +4447,57 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
 }
 
 .project-schedule-btn svg,
-.project-tasks-btn svg {
+.project-tasks-btn svg,
+.project-bookmarks-btn svg {
   display: block;
 }
 
 .project-header:hover .project-schedule-btn,
-.project-header:hover .project-tasks-btn {
+.project-header:hover .project-tasks-btn,
+.project-header:hover .project-bookmarks-btn {
   opacity: 1;
+}
+
+.project-bookmarks-btn:hover {
+  background: rgba(97,175,239,0.12);
+  color: #61afef;
+}
+
+/* Highlight the project bookmark icon when the project has bookmarks */
+.project-bookmarks-btn.has-bookmarks {
+  color: #61afef;
+  opacity: 1;
+}
+
+/* Bookmark overlay scope switcher (Session / Project / Global) */
+.bm-scope-switch {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.bm-scope-btn {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid #3a3a48;
+  background: transparent;
+  color: #b8b8c8;
+  border-radius: 5px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.bm-scope-btn:hover:not(:disabled) {
+  border-color: #61afef;
+  color: #61afef;
+}
+.bm-scope-btn.bm-scope-active {
+  background: rgba(97,175,239,0.15);
+  border-color: #61afef;
+  color: #61afef;
+}
+.bm-scope-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .project-schedule-btn:hover {
@@ -8131,7 +8176,8 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .va-secondary:hover { border-color: rgba(255,255,255,0.2); }
 
 /* ========== TASKS VIEWER (task/note system) ========== */
-#tasks-viewer {
+#tasks-viewer,
+#bookmarks-viewer {
   position: absolute;
   inset: 0;
   display: flex;

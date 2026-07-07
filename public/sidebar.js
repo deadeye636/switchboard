@@ -978,6 +978,17 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
     }
     header.appendChild(tasksBtn);
 
+    const bookmarksBtn = document.createElement('button');
+    bookmarksBtn.className = 'project-bookmarks-btn';
+    bookmarksBtn.title = 'Bookmarks';
+    bookmarksBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
+    if (window.bookmarksView && typeof window.bookmarksView.projectBookmarkCount === 'function'
+        && window.bookmarksView.projectBookmarkCount(project.projectPath) > 0) {
+      bookmarksBtn.classList.add('has-bookmarks');
+      bookmarksBtn.title = 'Bookmarks — this project has bookmarks';
+    }
+    header.appendChild(bookmarksBtn);
+
     const scheduleBtn = document.createElement('button');
     scheduleBtn.className = 'project-schedule-btn';
     scheduleBtn.title = 'Create scheduled task';
@@ -1477,6 +1488,17 @@ function rebindSidebarEvents(projects) {
         }
       };
     }
+    const bookmarksBtn = header.querySelector('.project-bookmarks-btn');
+    if (bookmarksBtn) {
+      bookmarksBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (typeof openBookmarksView === 'function') {
+          const shortName = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
+          openBookmarksView({ projectPath: project.projectPath },
+            'Project · ' + projectDisplayLabel(project.displayName, shortName));
+        }
+      };
+    }
     const scheduleBtn = header.querySelector('.project-schedule-btn');
     if (scheduleBtn) {
       scheduleBtn.onclick = (e) => { e.stopPropagation(); launchScheduleCreator(project); };
@@ -1589,7 +1611,7 @@ function rebindSidebarEvents(projects) {
       };
     }
     const toggleProject = (e) => {
-      if (e.target.closest('.project-new-btn') || e.target.closest('.project-archive-btn') || e.target.closest('.project-settings-btn') || e.target.closest('.project-tasks-btn') || e.target.closest('.project-schedule-btn') || e.target.closest('.project-remap-btn') || e.target.closest('.project-favorite-btn') || e.target.closest('.project-missing-icon')) return;
+      if (e.target.closest('.project-new-btn') || e.target.closest('.project-archive-btn') || e.target.closest('.project-settings-btn') || e.target.closest('.project-tasks-btn') || e.target.closest('.project-bookmarks-btn') || e.target.closest('.project-schedule-btn') || e.target.closest('.project-remap-btn') || e.target.closest('.project-favorite-btn') || e.target.closest('.project-missing-icon')) return;
       header.classList.toggle('collapsed');
       setProjectCollapsed(project.projectPath, header.classList.contains('collapsed'));
     };

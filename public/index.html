@@ -86,6 +86,7 @@
       <div id="jsonl-viewer-body"></div>
     </div>
     <div id="tasks-viewer" style="display:none;"></div>
+    <div id="bookmarks-viewer" style="display:none;"></div>
     <div id="timeline-viewer" style="display:none;">
       <div id="timeline-viewer-header">
         <span id="timeline-viewer-title">Agent Timeline</span>
@@ -194,6 +195,10 @@
        tasks-view.js uses window.bookmarksTags for jumps (load after it). -->
   <script src="tasks-logic.js"></script>
   <script src="tasks-view.js"></script>
+  <!-- bookmarks-logic.js (pure helpers) before bookmarks-view.js; the view uses
+       window.bookmarksTags for jumps (bookmarks-tags.js loads earlier). -->
+  <script src="bookmarks-logic.js"></script>
+  <script src="bookmarks-view.js"></script>
   <script src="statusbar-zoom.js"></script>
   <script src="app.js"></script>
 </body>

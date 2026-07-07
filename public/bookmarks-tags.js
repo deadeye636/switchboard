@@ -397,8 +397,12 @@
 
   async function openOverlay() {
     closeOverlay();
-    let rows = [];
-    try { rows = await window.api.bookmarkList(null); } catch { /* ignore */ }
+
+    // Context for the scope switcher (#68): the transcript currently open, if any.
+    const sid = (typeof currentViewerSessionId !== 'undefined' && currentViewerSessionId) || null;
+    const ppath = (sid && typeof sessionMap !== 'undefined' && sessionMap.get(sid))
+      ? (sessionMap.get(sid).projectPath || null) : null;
+    let scope = sid ? 'session' : 'global'; // default to the current session's bookmarks
 
     const overlay = document.createElement('div');
     overlay.className = 'bm-dialog-overlay';
@@ -406,15 +410,50 @@
     box.className = 'bm-overlay popover';
     const title = document.createElement('div');
     title.className = 'bm-dialog-title';
-    title.textContent = `Bookmarks (${rows.length})`;
     box.appendChild(title);
 
-    if (!rows.length) {
-      const empty = document.createElement('div');
-      empty.className = 'bm-dialog-hint';
-      empty.textContent = 'No bookmarks yet.';
-      box.appendChild(empty);
-    } else {
+    // Scope switcher: Session / Project / Global. A scope with no context
+    // (no open transcript, or that session has no project) is disabled.
+    const switcher = document.createElement('div');
+    switcher.className = 'bm-scope-switch';
+    const scopeDefs = [
+      { key: 'session', label: 'Session', enabled: !!sid },
+      { key: 'project', label: 'Project', enabled: !!ppath },
+      { key: 'global', label: 'Global', enabled: true },
+    ];
+    const scopeButtons = {};
+    for (const s of scopeDefs) {
+      const b = document.createElement('button');
+      b.className = 'bm-scope-btn';
+      b.textContent = s.label;
+      b.disabled = !s.enabled;
+      b.addEventListener('click', () => { if (scope !== s.key) { scope = s.key; renderList(); } });
+      scopeButtons[s.key] = b;
+      switcher.appendChild(b);
+    }
+    box.appendChild(switcher);
+
+    const listWrap = document.createElement('div');
+    box.appendChild(listWrap);
+
+    async function renderList() {
+      for (const k of Object.keys(scopeButtons)) {
+        scopeButtons[k].classList.toggle('bm-scope-active', k === scope);
+      }
+      let rows = [];
+      try {
+        rows = await window.api.bookmarkListAdmin(bookmarkScopeFilter(scope, { sessionId: sid, projectPath: ppath }));
+      } catch { /* ignore */ }
+      rows = Array.isArray(rows) ? rows : [];
+      title.textContent = `Bookmarks (${rows.length})`;
+      listWrap.innerHTML = '';
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'bm-dialog-hint';
+        empty.textContent = 'No bookmarks in this scope.';
+        listWrap.appendChild(empty);
+        return;
+      }
       const list = document.createElement('div');
       list.className = 'bm-overlay-list';
       for (const r of rows) {
@@ -422,11 +461,12 @@
         item.className = 'bm-overlay-item';
         const main = document.createElement('button');
         main.className = 'bm-overlay-jump';
-        const label = r.label || (r.entryIndex === SESSION_ANCHOR ? 'Session bookmark' : `Message #${r.entryIndex}`);
         const when = r.timestamp ? new Date(r.timestamp).toLocaleString() : '';
+        // In wider scopes show which session the bookmark belongs to.
+        const ctx = scope === 'session' ? '' : (r.sessionName || (r.sessionId || '').slice(0, 8));
         main.innerHTML = `<span class="bm-overlay-label"></span><span class="bm-overlay-meta"></span>`;
-        main.querySelector('.bm-overlay-label').textContent = label;
-        main.querySelector('.bm-overlay-meta').textContent = `${r.sessionId.slice(0, 8)}${when ? ' · ' + when : ''}`;
+        main.querySelector('.bm-overlay-label').textContent = bookmarkLabel(r);
+        main.querySelector('.bm-overlay-meta').textContent = [ctx, when].filter(Boolean).join(' · ');
         main.addEventListener('click', () => openSessionAt(r.sessionId, r.entryIndex));
         const del = document.createElement('button');
         del.className = 'bm-overlay-del';
@@ -435,13 +475,13 @@
         del.addEventListener('click', async (e) => {
           e.stopPropagation();
           try { await window.api.bookmarkRemove(r.id); } catch { return; }
-          openOverlay();
+          renderList();
         });
         item.appendChild(main);
         item.appendChild(del);
         list.appendChild(item);
       }
-      box.appendChild(list);
+      listWrap.appendChild(list);
     }
 
     overlay.appendChild(box);
@@ -451,6 +491,8 @@
     document.addEventListener('keydown', function esc(e) {
       if (e.key === 'Escape') { closeOverlay(); document.removeEventListener('keydown', esc, true); }
     }, true);
+
+    renderList();
   }
 
   async function openSessionAt(sessionId, entryIndex) {

@@ -44,6 +44,7 @@ const workFilesContent = document.getElementById('work-files-content');
 const workFilesViewer = document.getElementById('work-files-viewer');
 const projectsViewer = document.getElementById('projects-viewer');
 const tasksViewer = document.getElementById('tasks-viewer');
+const bookmarksViewer = document.getElementById('bookmarks-viewer');
 const variablesAdminContent = document.getElementById('variables-admin-content');
 const workFilesPanel = new ViewerPanel(workFilesViewer, {
   copyPath: true, copyContent: true,
@@ -1995,6 +1996,7 @@ async function openSession(session, customOptions) {
   // Opening a terminal session is a fresh navigation — drop any pending
   // "return to tasks" target so a later viewer-close doesn't jump back to tasks.
   window.__tasksReturnTarget = null;
+  window.__bookmarksReturnTarget = null;
   const { sessionId, projectPath } = session;
 
   // If already open, handle closed-session cleanup or just show it
@@ -2277,6 +2279,13 @@ function returnToTerminal() {
     openTasksView(t.filter, t.label);
     return;
   }
+  // Same idea for a jump from the bookmark view — return to that list (#68).
+  if (window.__bookmarksReturnTarget && typeof openBookmarksView === 'function') {
+    const b = window.__bookmarksReturnTarget;
+    window.__bookmarksReturnTarget = null;
+    openBookmarksView(b.filter, b.label);
+    return;
+  }
   hideAllViewers();
   if (gridViewActive) {
     placeholder.style.display = 'none';
@@ -2369,7 +2378,8 @@ async function reapplyGlobalSettings() {
     if (e._handled) return;
     // Esc closes an open Message History / Timeline viewer → back to terminal.
     if (e.key === 'Escape' && (jsonlViewer.style.display !== 'none' || timelineViewer.style.display !== 'none'
-        || (tasksViewer && tasksViewer.style.display !== 'none'))) {
+        || (tasksViewer && tasksViewer.style.display !== 'none')
+        || (bookmarksViewer && bookmarksViewer.style.display !== 'none'))) {
       e.preventDefault();
       returnToTerminal();
       return;

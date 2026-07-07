@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('api', {
   bookmarkToggle: (anchor) => ipcRenderer.invoke('bookmark-toggle', anchor),
   bookmarkRemove: (id) => ipcRenderer.invoke('bookmark-remove', id),
   bookmarkList: (sessionId) => ipcRenderer.invoke('bookmark-list', sessionId),
+  bookmarkListAdmin: (filter) => ipcRenderer.invoke('bookmark-list-admin', filter),
+  bookmarkCountsByProject: () => ipcRenderer.invoke('bookmark-counts-by-project'),
   taskCreate: (payload) => ipcRenderer.invoke('task-create', payload),
   taskList: (filter) => ipcRenderer.invoke('task-list', filter),
   taskUpdate: (payload) => ipcRenderer.invoke('task-update', payload),
