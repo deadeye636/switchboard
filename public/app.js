@@ -873,28 +873,18 @@ window.api.onTerminalData((sessionId, data) => {
     if (typeof flowTrackReceived === 'function') flowTrackReceived(sessionId, data.length);
     let buf = terminalWriteBuffers.get(sessionId);
     if (!buf) {
-      buf = { chunks: [], syncDepth: 0, rafId: 0, timerId: 0 };
+      buf = { chunks: [], rafId: 0, timerId: 0 };
       terminalWriteBuffers.set(sessionId, buf);
     }
     buf.chunks.push(data);
 
-    // Track sync start/end nesting
-    if (data.includes(ESC_SYNC_START)) buf.syncDepth++;
-    if (data.includes(ESC_SYNC_END)) buf.syncDepth = Math.max(0, buf.syncDepth - 1);
-
-    if (buf.syncDepth > 0) {
-      // Inside a synchronized update — keep buffering.
-      // Set a safety timeout so we never hold data forever.
-      cancelAnimationFrame(buf.rafId);
-      if (!buf.timerId) {
-        buf.timerId = setTimeout(() => flushTerminalBuffer(sessionId), SYNC_BUFFER_TIMEOUT);
-      }
-    } else {
-      // Not in a sync block (or sync just ended) — flush on next frame.
-      clearTimeout(buf.timerId);
-      buf.timerId = 0;
-      scheduleFlush(sessionId, buf);
-    }
+    // DEC-2026 synchronized output is handled natively by xterm 6 (it defers painting
+    // while ?2026h is active and flushes atomically on ?2026l). No app-level sync
+    // buffering needed: the old syncDepth guard was redundant and mis-counted mixed
+    // ?2026h/l markers landing in one coalesced IPC chunk, sticking syncDepth > 0 and
+    // holding data until a 500 ms timeout — which left the prompt/status blank (#85).
+    // Just coalesce writes on the next frame; xterm keeps redraws atomic.
+    scheduleFlush(sessionId, buf);
   }
   // Update last activity time (noise-filtered)
   trackActivity(sessionId, data);

@@ -473,10 +473,7 @@ window._nudgeTerminalFontSize = (delta) => {
 
 // --- Terminal write buffering ---
 // Batch incoming terminal data to coalesce IPC chunks into fewer write() calls.
-const ESC_SYNC_START = '\x1b[?2026h';
-const ESC_SYNC_END = '\x1b[?2026l';
-const SYNC_BUFFER_TIMEOUT = 500; // max ms to hold data waiting for sync end
-const terminalWriteBuffers = new Map(); // sessionId → { chunks, syncDepth, rafId, timerId }
+const terminalWriteBuffers = new Map(); // sessionId → { chunks, rafId, timerId }
 
 // ~30 fps flush cap — halves paint/compositor work vs. 60 fps during streaming.
 // Measured (JBR #64): compositor burns 40-60% of a core at 60 fps; a 33 ms
@@ -584,8 +581,8 @@ function setTerminalMouseReporting(mode) {
 // Safety notes:
 // - OSC 0/9 (busy/attention badges) are parsed in main.js on raw PTY data before
 //   the renderer, so skipping renderer writes does NOT break any badge or notification.
-// - The sync-block guard (ESC[?2026h/l) runs in handleTerminalData (before
-//   flushTerminalBuffer), so syncDepth stays correct even when writes are deferred.
+// - DEC-2026 synchronized output is handled natively by xterm; there is no app-level
+//   sync buffering, so deferring background writes cannot desync rendering (#85).
 // - OSC 52 (clipboard) sequences in skipped background data won't dispatch —
 //   acceptable because clipboard writes only matter when the user is viewing a session.
 

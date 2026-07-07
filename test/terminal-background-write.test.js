@@ -179,7 +179,7 @@ test('Stage B: flushTerminalBuffer uses background interval for non-visible sess
 
     // Stamp lastFlushAt as just-now so scheduleFlush sees elapsed < MIN_FLUSH_INTERVAL_MS
     inCtx(`lastFlushAt.set('s1', performance.now())`);
-    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['x'], syncDepth: 0, rafId: 0, timerId: 0 })`);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['x'], rafId: 0, timerId: 0 })`);
     inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
 
     const buf = inCtx(`terminalWriteBuffers.get('s1')`);
@@ -204,7 +204,7 @@ test('Stage B: visible session uses the fast 33ms cadence (no regression)', () =
     entry.element.classList.add('visible'); // mark as visible
 
     // No prior flush → elapsed is infinite → must take rAF path immediately
-    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['y'], syncDepth: 0, rafId: 0, timerId: 0 })`);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['y'], rafId: 0, timerId: 0 })`);
     inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
 
     const buf = inCtx(`terminalWriteBuffers.get('s1')`);
@@ -225,7 +225,7 @@ test('Stage A: flushTerminalBuffer does NOT call write() for a non-visible sessi
     window.createTerminalEntry({ sessionId: 's1' });
     // No 'visible' class → non-visible
 
-    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['data'], syncDepth: 0, rafId: 0, timerId: 0 })`);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['data'], rafId: 0, timerId: 0 })`);
     window.flushTerminalBuffer('s1');
 
     assert.strictEqual(spies.write, 0, 'write() must not be called for a non-visible session');
@@ -239,10 +239,10 @@ test('Stage A: flushTerminalBuffer accumulates raw chunks in rawReplayBuffers fo
   try {
     window.createTerminalEntry({ sessionId: 's1' });
 
-    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['hello'], syncDepth: 0, rafId: 0, timerId: 0 })`);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['hello'], rafId: 0, timerId: 0 })`);
     window.flushTerminalBuffer('s1');
 
-    inCtx(`terminalWriteBuffers.set('s1', { chunks: [' world'], syncDepth: 0, rafId: 0, timerId: 0 })`);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: [' world'], rafId: 0, timerId: 0 })`);
     window.flushTerminalBuffer('s1');
 
     const replayArr = inCtx(`rawReplayBuffers.get('s1')`);
@@ -264,7 +264,7 @@ test('Stage A: flushTerminalBuffer calls write() for a visible session (no regre
     const entry = window.openSessions.get('s1');
     entry.element.classList.add('visible');
 
-    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['data'], syncDepth: 0, rafId: 0, timerId: 0 })`);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['data'], rafId: 0, timerId: 0 })`);
     window.flushTerminalBuffer('s1');
 
     assert.strictEqual(spies.write, 1, 'write() called for visible session');
@@ -279,9 +279,9 @@ test('Stage A: showSession drains rawReplayBuffer via a single write() and clear
     window.createTerminalEntry({ sessionId: 's1' });
 
     // Simulate two background flushes accumulating data in replay buffer
-    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['first'], syncDepth: 0, rafId: 0, timerId: 0 })`);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['first'], rafId: 0, timerId: 0 })`);
     window.flushTerminalBuffer('s1');
-    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['second'], syncDepth: 0, rafId: 0, timerId: 0 })`);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['second'], rafId: 0, timerId: 0 })`);
     window.flushTerminalBuffer('s1');
 
     assert.strictEqual(spies.write, 0, 'no writes during background');
@@ -350,7 +350,7 @@ test('Stage A: grid card (visible + grid-mode) still receives writes — activeS
     // Even though it is NOT the activeSessionId, it should receive writes.
     window.activeSessionId = 'some-other-session';
 
-    inCtx(`terminalWriteBuffers.set('grid-card-session', { chunks: ['grid data'], syncDepth: 0, rafId: 0, timerId: 0 })`);
+    inCtx(`terminalWriteBuffers.set('grid-card-session', { chunks: ['grid data'], rafId: 0, timerId: 0 })`);
     window.flushTerminalBuffer('grid-card-session');
 
     assert.strictEqual(spies.write, 1,
@@ -368,7 +368,7 @@ test('Stage A: destroySession clears rawReplayBuffers entry', () => {
     window.createTerminalEntry({ sessionId: 's1' });
 
     // Accumulate some data
-    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['data'], syncDepth: 0, rafId: 0, timerId: 0 })`);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['data'], rafId: 0, timerId: 0 })`);
     window.flushTerminalBuffer('s1');
 
     assert.ok(inCtx(`(rawReplayBuffers.get('s1') || []).length > 0`), 'replay buffer has data before destroy');
@@ -381,8 +381,8 @@ test('Stage A: destroySession clears rawReplayBuffers entry', () => {
   }
 });
 
-// NOTE: jbr's upstream had a sync-block test calling handleTerminalData() here.
-// deadeye keeps the sync-block guard (ESC[?2026h/l → syncDepth) inline in app.js's
-// onTerminalData IPC callback, not as a callable in this module, so that test does
-// not map to our architecture. The B1 skip lives in flushTerminalBuffer and is
-// covered by the Stage A/B tests above; the sync-block path in app.js is untouched.
+// NOTE: the app-level DEC-2026 sync-block guard (ESC[?2026h/l → syncDepth) was removed
+// (#85) — it was redundant with xterm 6's native synchronized-output handling and
+// mis-counted mixed markers in one coalesced chunk. onTerminalData now always coalesces
+// via scheduleFlush; there is no app-level sync buffering left to test. The B1 skip
+// lives in flushTerminalBuffer and is covered by the Stage A/B tests above.
