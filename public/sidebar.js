@@ -2427,7 +2427,11 @@ function startRename(summaryEl, session) {
   };
 
   input.addEventListener('blur', save);
+  // Stop key events from bubbling to the row's makeButtonLike handler / global
+  // shortcuts — otherwise Space (which activates a button-like element on keyUP)
+  // ends the rename instead of inserting a space (issue #94).
   input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
     if (e.key === 'Enter') input.blur();
     if (e.key === 'Escape') {
       input.removeEventListener('blur', save);
@@ -2441,6 +2445,7 @@ function startRename(summaryEl, session) {
       input.replaceWith(restored);
     }
   });
+  input.addEventListener('keyup', (e) => e.stopPropagation());
 }
 
 // Inline rename for a user group, mirroring session startRename: swap the name
@@ -2490,6 +2495,8 @@ function startGroupRename(nameEl, group) {
       rebuildName(group.name);
     }
   });
+  // Space activates a button-like element on keyUP, so stop that too (issue #94).
+  input.addEventListener('keyup', (e) => e.stopPropagation());
 }
 
 // Drag a sidebar session row onto a user group to assign it. A lightweight ghost
