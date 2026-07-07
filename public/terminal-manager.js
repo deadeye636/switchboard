@@ -15,6 +15,9 @@
 //   2. preventDefault on capture-phase keydown — prevents browser inserting \n into textarea
 const isMac = window.api.platform === 'darwin';
 function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } = {}) {
+  // Set when the Insert-variable shortcut (default Ctrl/Cmd+Shift+V) fires, so the
+  // paste event that same keystroke also generates is swallowed once (#89).
+  let suppressPasteOnce = false;
   terminal.attachCustomKeyEventHandler((e) => {
     // Note: Ctrl/Cmd +/-/0 are deliberately NOT handled here — they fall through
     // to Electron's whole-UI zoom. Terminal-only font zoom is via Ctrl+wheel
@@ -46,6 +49,19 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
         e._handled = true;
         const sel = terminal.hasSelection() ? terminal.getSelection() : '';
         window.tasksView?.createFromSource({ sessionId: getSessionId(), quote: sel || undefined });
+      }
+      return false;
+    }
+
+    // Insert a saved variable at the cursor (default Cmd/Ctrl+Shift+V) — a picker
+    // that works in every right-click mode (#89). Ctrl/Cmd+Shift+V also fires a
+    // native paste; suppress that one paste so it doesn't dump the clipboard too.
+    if (matchShortcut('insertVariable', e, isMac, appShortcuts)) {
+      if (e.type === 'keydown') {
+        e._handled = true;
+        suppressPasteOnce = true;
+        setTimeout(() => { suppressPasteOnce = false; }, 0); // clear if no paste follows
+        if (typeof openTerminalVariablePicker === 'function') openTerminalVariablePicker(terminal, getSessionId());
       }
       return false;
     }
@@ -128,6 +144,8 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
   container.addEventListener('paste', (e) => {
     e.preventDefault();
     e.stopPropagation();
+    // Swallow the paste that the Insert-variable shortcut (Ctrl/Cmd+Shift+V) emits.
+    if (suppressPasteOnce) { suppressPasteOnce = false; return; }
     const cd = e.clipboardData;
     if (!cd) return;
     const text = cd.getData('text');

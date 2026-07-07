@@ -64,6 +64,16 @@ test('defaults: grid toggle is Ctrl+Shift+G (G case-insensitive)', () => {
   assert.equal(matchShortcut('gridToggle', ev('g', 'ctrl', 'KeyG'), false, D), false);
 });
 
+test('defaults: insert-variable is Ctrl+Shift+V (V case-insensitive, Shift required)', () => {
+  assert.equal(matchShortcut('insertVariable', ev('V', 'ctrl+shift', 'KeyV'), false, D), true);
+  assert.equal(matchShortcut('insertVariable', ev('v', 'ctrl+shift', 'KeyV'), false, D), true);
+  // Bare Ctrl+V stays the paste key (Shift is required for the picker).
+  assert.equal(matchShortcut('insertVariable', ev('v', 'ctrl', 'KeyV'), false, D), false);
+  // macOS uses Cmd as primary.
+  assert.equal(matchShortcut('insertVariable', ev('v', 'meta+shift', 'KeyV'), true, D), true);
+  assert.equal(formatBinding('insertVariable', false, D), 'Ctrl+Shift+V');
+});
+
 test('defaults: bookmark toggle is Ctrl+Shift+B (B case-insensitive, Shift required)', () => {
   assert.equal(matchShortcut('toggleBookmark', ev('B', 'ctrl+shift', 'KeyB'), false, D), true);
   assert.equal(matchShortcut('toggleBookmark', ev('b', 'ctrl+shift', 'KeyB'), false, D), true);

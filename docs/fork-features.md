@@ -287,7 +287,8 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
   session from a task. Opened from the project header or per-session from the terminal toolbar;
   session cards show an open-task count badge and the project task icon highlights on open tasks.
 - **Saved Variables** — reusable snippet/template panel with quick-pick, insert-template and
-  a management tab (port of **brianstanley**).
+  a management tab (port of **brianstanley**). Insert into the terminal via the right-click
+  menu or a **configurable hotkey** (default Ctrl/Cmd+Shift+V) — works in every right-click mode.
 
 ### Supervision extensions
 - **Handoff library** — save packets, editable prompt, resume, direct "New session" seed,

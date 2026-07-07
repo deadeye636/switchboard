@@ -25,6 +25,10 @@ const DEFAULT_SHORTCUTS = {
   toggleBookmark: { primary: true, alt: false, shift: true, key: 'b' },
   // Ctrl/Cmd+Shift+T — create a task from the current transcript selection.
   createTask: { primary: true, alt: false, shift: true, key: 't' },
+  // Ctrl/Cmd+Shift+V — open the saved-variable picker in the focused terminal.
+  // (The Ctrl/Cmd+Shift+V paste event is suppressed for this press in
+  // setupTerminalKeyBindings so it doesn't also paste.)
+  insertVariable: { primary: true, alt: false, shift: true, key: 'v' },
 };
 
 // Metadata for rendering the settings UI and resolving each action's key family.
@@ -57,6 +61,12 @@ const SHORTCUT_DEFS = [
     id: 'createTask',
     label: 'Create task',
     description: 'Create a task from the selection (transcript or terminal); no selection in the terminal makes a session task',
+    family: 'key',
+  },
+  {
+    id: 'insertVariable',
+    label: 'Insert variable',
+    description: 'Open the saved-variable picker in the focused terminal and insert one at the cursor',
     family: 'key',
   },
 ];
