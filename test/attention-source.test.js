@@ -84,6 +84,16 @@ test('hook PermissionRequest maps to needs-attention', () => {
   assert.equal(result.kind, 'needs-attention');
 });
 
+test('hook UserPromptSubmit maps to busy (Working)', () => {
+  const result = classifyAttentionSignal({
+    source: 'hook',
+    payload: { hook_event_name: 'UserPromptSubmit' },
+  });
+  assert.equal(result.kind, 'busy');
+  assert.equal(result.source, 'hook');
+  assert.equal(result.reason, 'Agent working');
+});
+
 test('unknown hook events return null', () => {
   assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PreToolUse' } }), null);
   assert.equal(classifyAttentionSignal({ source: 'hook', payload: {} }), null);

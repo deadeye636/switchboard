@@ -55,6 +55,10 @@
       case 'Stop':
       case 'SubagentStop':
         return { kind: 'ready', reason: message || 'Agent finished responding' };
+      case 'UserPromptSubmit':
+        // Turn start = the agent begins working. Drives the "Working" status for
+        // full-screen TUI sessions that don't emit the OSC-0 spinner title.
+        return { kind: 'busy', reason: message || 'Agent working' };
       default:
         return null;
     }

@@ -587,6 +587,14 @@ function applyAttention(sessionId, signal) {
     // Agent finished / went idle → response-ready when unfocused (handled by setActivity).
     setActivity(sessionId, false);
   } else if (kind === 'busy') {
+    // A new turn started → clear any stale "ready" so the session flips to Working
+    // even if it was left ready-but-unfocused (setActivity ignores busy while
+    // response-ready is set).
+    if (responseReadySessions.has(sessionId)) {
+      responseReadySessions.delete(sessionId);
+      const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+      if (item) item.classList.remove('response-ready');
+    }
     setActivity(sessionId, true);
   }
 }
