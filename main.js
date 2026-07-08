@@ -60,6 +60,7 @@ const {
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
+  getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
@@ -2543,6 +2544,21 @@ ipcMain.handle('tags-list-all', () => {
 });
 ipcMain.handle('session-tags-all', () => {
   return getAllSessionTags();
+});
+
+// --- IPC: project tags (#98) ---
+ipcMain.handle('project-tags-get', (_event, projectPath) => {
+  return getProjectTags(projectPath);
+});
+ipcMain.handle('project-tags-set', (_event, payload) => {
+  const { projectPath, tags } = payload || {};
+  return setProjectTags(projectPath, tags);
+});
+ipcMain.handle('project-tags-list-all', () => {
+  return listAllProjectTags();
+});
+ipcMain.handle('project-tags-all', () => {
+  return getAllProjectTags();
 });
 
 // --- IPC: rename-session ---

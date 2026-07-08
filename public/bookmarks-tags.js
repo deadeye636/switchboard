@@ -549,5 +549,10 @@
     openSessionAt,
     scrollToJsonlEntry,
     reloadTags: loadTagCache,
+    // Deterministic tag hue — shared with project tags (#98) so both chip sets
+    // give the same tag the same color.
+    pickColor,
+    // The fixed chip palette — reused by the project-tag color picker (#98).
+    palette: TAG_PALETTE.slice(),
   };
 })();

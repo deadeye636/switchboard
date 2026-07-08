@@ -31,6 +31,30 @@
     const settingsKey = isProject ? 'project:' + projectPath : 'global';
     const current = (await window.api.getSetting(settingsKey)) || {};
     const globalSettings = isProject ? ((await window.api.getSetting('global')) || {}) : {};
+    // Project tags (#98) live in their own store, not the settings blob. Load the
+    // current chips so the editor can seed itself; saved back via projectTagsSet.
+    // Existing chips carry their stored color (may differ from the deterministic
+    // default when the user recolored them via the picker, #98).
+    const projectTagsData = isProject
+      ? ((await window.api.projectTagsGet(projectPath).catch(() => [])) || [])
+      : [];
+    // All tags used across projects — feeds the datalist so the input suggests
+    // existing tags for reuse (#98 follow-up).
+    const allProjectTags = isProject
+      ? [...new Set((((await window.api.projectTagsListAll().catch(() => [])) || []).map(t => t.tag)).filter(Boolean))].sort()
+      : [];
+    // Deterministic tag hue, shared with session-tag chips (bookmarks-tags.js).
+    const tagColor = (tag) => (window.bookmarksTags && typeof window.bookmarksTags.pickColor === 'function')
+      ? window.bookmarksTags.pickColor(tag)
+      : '#61afef';
+    // The fixed chip palette for the recolor picker.
+    const tagPalette = (window.bookmarksTags && Array.isArray(window.bookmarksTags.palette) && window.bookmarksTags.palette.length)
+      ? window.bookmarksTags.palette
+      : ['#e06c75', '#e5c07b', '#98c379', '#56b6c2', '#61afef', '#c678dd', '#d19a66'];
+    const renderTagChip = (tag, color) => {
+      const c = color || tagColor(tag);
+      return `<span class="settings-tag-chip" data-tag="${escapeHtml(tag)}" data-color="${escapeHtml(c)}" style="background:${c}1a;border-color:${c};color:${c}" title="Click to change color"><span class="settings-tag-label">${escapeHtml(tag)}</span><button type="button" class="settings-tag-remove" aria-label="Remove tag ${escapeHtml(tag)}">&times;</button></span>`;
+    };
 
     const shortName = isProject
       ? projectPath.split('/').filter(Boolean).slice(-2).join('/')
@@ -196,6 +220,19 @@
             </div>
             <div class="settings-field-control">
               <input type="text" class="settings-input" id="sv-display-name" placeholder="${escapeHtml(shortName)}" value="${escapeHtml(displayNameValue)}">
+            </div>
+          </div>
+          <div class="settings-field settings-field-wide">
+            <div class="settings-field-info">
+              <span class="settings-label">Tags</span>
+              <div class="settings-description">Colored labels for this project. Filter the sidebar by tag using the chips above the project list. Type a tag and press Enter to add; click × to remove.</div>
+            </div>
+            <div class="settings-field-control">
+              <div id="sv-project-tags" class="settings-tag-editor">
+                <span id="sv-project-tags-chips" class="settings-tag-chips">${projectTagsData.map(t => renderTagChip(t.tag, t.color)).join('')}</span>
+                <input type="text" id="sv-project-tags-input" class="settings-tag-input" placeholder="Add a tag…" autocomplete="off" list="sv-project-tags-list">
+                <datalist id="sv-project-tags-list">${allProjectTags.map(t => `<option value="${escapeHtml(t)}"></option>`).join('')}</datalist>
+              </div>
             </div>
           </div>
         </div>
@@ -1177,6 +1214,76 @@
       });
     });
 
+    // Project tag chip editor (#98): add on Enter, remove on ×, de-dupe.
+    if (isProject) {
+      const tagsInput = settingsViewerBody.querySelector('#sv-project-tags-input');
+      const chipsBox = settingsViewerBody.querySelector('#sv-project-tags-chips');
+      const currentTags = () => Array.from(chipsBox.querySelectorAll('.settings-tag-chip')).map(c => c.dataset.tag);
+      const addTag = (raw) => {
+        const tag = String(raw || '').trim();
+        if (!tag || currentTags().includes(tag)) return;
+        chipsBox.insertAdjacentHTML('beforeend', renderTagChip(tag));
+      };
+      if (tagsInput) {
+        tagsInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            addTag(tagsInput.value);
+            tagsInput.value = '';
+          } else if (e.key === 'Backspace' && tagsInput.value === '') {
+            const chips = chipsBox.querySelectorAll('.settings-tag-chip');
+            if (chips.length) chips[chips.length - 1].remove();
+          }
+        });
+        tagsInput.addEventListener('blur', () => { addTag(tagsInput.value); tagsInput.value = ''; });
+      }
+      if (chipsBox) {
+        let paletteEl = null;
+        const closePalette = () => { if (paletteEl) { paletteEl.remove(); paletteEl = null; } };
+        chipsBox.addEventListener('click', (e) => {
+          const rm = e.target.closest('.settings-tag-remove');
+          if (rm) { rm.closest('.settings-tag-chip').remove(); closePalette(); return; }
+          const chip = e.target.closest('.settings-tag-chip');
+          if (!chip) return;
+          // Toggle a small palette popover to recolor this chip (#98).
+          const reopenSame = paletteEl && paletteEl._chip === chip;
+          closePalette();
+          if (reopenSame) return;
+          const applyColor = (col) => {
+            chip.dataset.color = col;
+            chip.style.background = col + '1a';
+            chip.style.borderColor = col;
+            chip.style.color = col;
+          };
+          const initColor = /^#[0-9a-fA-F]{6}$/.test(chip.dataset.color) ? chip.dataset.color : '#61afef';
+          paletteEl = document.createElement('div');
+          paletteEl.className = 'settings-tag-palette';
+          paletteEl._chip = chip;
+          paletteEl.innerHTML = tagPalette.map(col =>
+            `<button type="button" class="settings-tag-swatch${chip.dataset.color === col ? ' active' : ''}" data-col="${col}" style="background:${col}" aria-label="Set color ${col}"></button>`
+          ).join('') + `<label class="settings-tag-custom" title="Custom color"><input type="color" class="settings-tag-color-input" value="${initColor}" aria-label="Custom color"></label>`;
+          paletteEl.addEventListener('click', (ev) => {
+            const sw = ev.target.closest('.settings-tag-swatch');
+            if (!sw) return;
+            applyColor(sw.dataset.col);
+            closePalette();
+          });
+          // Live-apply the custom color while dragging the native picker; keep the
+          // popover open so the user can fine-tune, close on commit (change).
+          const colorInput = paletteEl.querySelector('.settings-tag-color-input');
+          if (colorInput) {
+            colorInput.addEventListener('input', (ev) => applyColor(ev.target.value));
+            colorInput.addEventListener('change', () => closePalette());
+          }
+          chip.appendChild(paletteEl);
+        });
+        // Dismiss the palette on an outside click.
+        document.addEventListener('click', (e) => {
+          if (paletteEl && !e.target.closest('.settings-tag-chip')) closePalette();
+        });
+      }
+    }
+
     // Save button
     settingsViewerBody.querySelector('#sv-save-btn').addEventListener('click', async () => {
       let settings = {};
@@ -1202,6 +1309,14 @@
         // Project-only field (no "use global"): custom display name, '' = use directory.
         const dnInput = settingsViewerBody.querySelector('#sv-display-name');
         if (dnInput) settings.displayName = dnInput.value.trim();
+        // Project tags (#98) persist to their own store, not the settings blob.
+        const chipsBox = settingsViewerBody.querySelector('#sv-project-tags-chips');
+        if (chipsBox) {
+          const tags = Array.from(chipsBox.querySelectorAll('.settings-tag-chip'))
+            .filter(c => c.dataset.tag)
+            .map(c => ({ tag: c.dataset.tag, color: c.dataset.color || tagColor(c.dataset.tag) }));
+          try { await window.api.projectTagsSet(projectPath, tags); } catch {}
+        }
       } else {
         settings.permissionMode = settingsViewerBody.querySelector('#sv-perm-mode').value || null;
         settings.dangerouslySkipPermissions = settingsViewerBody.querySelector('#sv-dangerous-skip').checked;
@@ -1370,6 +1485,10 @@
       // Project scope: reload projects so a changed display name is re-derived
       // (buildProjectsFromCache reads the per-project settings blob main-side).
       if (isProject && typeof loadProjects === 'function') loadProjects();
+      // Rebuild the sidebar tag-filter chips so newly added/removed tags show up.
+      if (isProject && typeof window._refreshProjectTagFilter === 'function') {
+        window._refreshProjectTagFilter();
+      }
 
       // Write/remove the reversible ~/.claude hook when the toggle changes
       if (!isProject && settings.attentionHooks !== attentionHooksValue) {

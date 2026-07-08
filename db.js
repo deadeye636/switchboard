@@ -180,6 +180,17 @@ db.exec(`
   )
 `);
 
+// Project tags — colored labels, many per project, shown as sidebar filter chips.
+// Mirrors session_tags (same shape) but keyed by projectPath (#98).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS project_tags (
+    projectPath TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    color TEXT,
+    PRIMARY KEY (projectPath, tag)
+  )
+`);
+
 // Project handoffs — saved handoff packets (markdown) per project, for the
 // Handoff library: created from a running session, later seeded into a fresh one.
 db.exec(`
@@ -466,6 +477,12 @@ const stmts = {
   tagDeleteAll: db.prepare('DELETE FROM session_tags WHERE sessionId = ?'),
   tagListAll: db.prepare('SELECT DISTINCT tag, color FROM session_tags ORDER BY tag'),
   tagAllRows: db.prepare('SELECT sessionId, tag, color FROM session_tags ORDER BY tag'),
+  // Project tags (#98) — mirror of the session-tag statements, keyed by projectPath.
+  projectTagsGet: db.prepare('SELECT tag, color FROM project_tags WHERE projectPath = ? ORDER BY tag'),
+  projectTagInsert: db.prepare('INSERT OR REPLACE INTO project_tags (projectPath, tag, color) VALUES (?, ?, ?)'),
+  projectTagDeleteAll: db.prepare('DELETE FROM project_tags WHERE projectPath = ?'),
+  projectTagListAll: db.prepare('SELECT DISTINCT tag, color FROM project_tags ORDER BY tag'),
+  projectTagAllRows: db.prepare('SELECT projectPath, tag, color FROM project_tags ORDER BY tag'),
   // Session cache statements
   cacheCount: db.prepare('SELECT COUNT(*) as cnt FROM session_cache'),
   cacheGetAll: db.prepare('SELECT * FROM session_cache'),
@@ -842,6 +859,37 @@ function listAllTags() {
 // sidebar chips render synchronously during morphdom reconciliation.
 function getAllSessionTags() {
   return stmts.tagAllRows.all();
+}
+
+// --- Project tags (#98) — mirror of the session-tag functions, keyed by projectPath ---
+
+function getProjectTags(projectPath) {
+  return projectPath ? stmts.projectTagsGet.all(projectPath) : [];
+}
+
+// Replace a project's full tag set in one transaction. tags: [{ tag, color }].
+const setProjectTagsTx = db.transaction((projectPath, tags) => {
+  stmts.projectTagDeleteAll.run(projectPath);
+  for (const t of tags) {
+    if (t && t.tag) stmts.projectTagInsert.run(projectPath, String(t.tag), t.color || null);
+  }
+});
+
+function setProjectTags(projectPath, tags) {
+  if (!projectPath) return [];
+  runWithBusyRetry(() => setProjectTagsTx(projectPath, Array.isArray(tags) ? tags : []));
+  return stmts.projectTagsGet.all(projectPath);
+}
+
+// Distinct tags across all projects — for the sidebar tag filter chip list.
+function listAllProjectTags() {
+  return stmts.projectTagListAll.all();
+}
+
+// Every (projectPath, tag, color) row — the renderer builds a per-project map so
+// the sidebar tag filter can match projects synchronously during a refresh.
+function getAllProjectTags() {
+  return stmts.projectTagAllRows.all();
 }
 
 // --- Session cache functions ---
@@ -1270,6 +1318,7 @@ module.exports = {
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
+  getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder,
   replaceSessionMetrics,

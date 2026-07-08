@@ -19,6 +19,7 @@ const terminalStopBtn = document.getElementById('terminal-stop-btn');
 const runningToggle = document.getElementById('running-toggle');
 const todayToggle = document.getElementById('today-toggle');
 const favoriteToggle = document.getElementById('favorite-toggle');
+const projectTagFilters = document.getElementById('project-tag-filters');
 const springCleaningBtn = document.getElementById('spring-cleaning-btn');
 const planViewer = document.getElementById('plan-viewer');
 const planPanel = new ViewerPanel(planViewer, {
@@ -275,6 +276,10 @@ let showStarredOnly = false;
 let showRunningOnly = false;
 let showTodayOnly = false;
 let showFavoritedProjectsOnly = false;
+// Project tag filter (#98): AND multi-select of colored chips. activeProjectTagFilter
+// holds the selected tags; projectTagMap is projectPath -> Set<tag> for matching.
+let activeProjectTagFilter = new Set();
+let projectTagMap = new Map();
 let cachedProjects = [];
 let cachedAllProjects = [];
 let loadProjectsGen = 0; // bumped per loadProjects() call; stale responses bail (issue #75)
@@ -1130,8 +1135,65 @@ function refreshSidebar({ resort = false } = {}) {
     }).filter(Boolean);
   }
 
+  // Project tag filter (#98): AND match — keep only projects carrying every
+  // selected tag. No-op when nothing is selected. Pure logic in project-tags-filter.js.
+  if (activeProjectTagFilter.size > 0 && typeof filterProjectsByTags === 'function') {
+    projects = filterProjectsByTags(projects, projectTagMap, activeProjectTagFilter);
+  }
+
   renderProjects(projects, resort);
   if (typeof updateCollapseAllToggle === 'function') updateCollapseAllToggle();
+}
+
+// --- Project tag filter chip bar (#98) ---
+// Loads all project tags, builds the projectPath->tags map used by refreshSidebar,
+// and renders the colored filter chips. Called on init and whenever tags change.
+async function _refreshProjectTagFilter() {
+  let rows = [];
+  try { rows = await window.api.projectTagsAll(); } catch { rows = []; }
+  projectTagMap = (typeof buildProjectTagMap === 'function') ? buildProjectTagMap(rows) : new Map();
+  const allTags = [...new Set((rows || []).map(r => r && r.tag).filter(Boolean))].sort();
+  // Drop selections whose tag no longer exists (last chip removed from every project).
+  for (const t of [...activeProjectTagFilter]) {
+    if (!allTags.includes(t)) activeProjectTagFilter.delete(t);
+  }
+  if (!projectTagFilters) return;
+  if (allTags.length === 0) {
+    projectTagFilters.style.display = 'none';
+    projectTagFilters.innerHTML = '';
+    return;
+  }
+  const pickColor = (window.bookmarksTags && typeof window.bookmarksTags.pickColor === 'function')
+    ? window.bookmarksTags.pickColor
+    : () => '#61afef';
+  // Prefer each tag's stored color (user may have recolored it); fall back to the
+  // deterministic hue. First non-empty color wins if it varies across projects.
+  const colorByTag = new Map();
+  for (const r of rows || []) {
+    if (r && r.tag && r.color && !colorByTag.has(r.tag)) colorByTag.set(r.tag, r.color);
+  }
+  projectTagFilters.innerHTML = allTags.map(tag => {
+    const color = colorByTag.get(tag) || pickColor(tag);
+    const active = activeProjectTagFilter.has(tag);
+    const style = active
+      ? `background:${color};border-color:${color};color:#1a1a1a`
+      : `background:${color}1a;border-color:${color};color:${color}`;
+    return `<button type="button" class="project-tag-chip${active ? ' active' : ''}" data-tag="${escapeHtml(tag)}" style="${style}" aria-pressed="${active}">${escapeHtml(tag)}</button>`;
+  }).join('');
+  projectTagFilters.style.display = 'flex';
+}
+window._refreshProjectTagFilter = _refreshProjectTagFilter;
+
+if (projectTagFilters) {
+  projectTagFilters.addEventListener('click', (e) => {
+    const chip = e.target.closest('.project-tag-chip');
+    if (!chip) return;
+    const tag = chip.dataset.tag;
+    if (activeProjectTagFilter.has(tag)) activeProjectTagFilter.delete(tag);
+    else activeProjectTagFilter.add(tag);
+    _refreshProjectTagFilter();
+    refreshSidebar({ resort: true });
+  });
 }
 
 // --- Archive toggle ---
@@ -2555,6 +2617,8 @@ setTimeout(() => {
 window._applyShortcuts = (stored) => setAppShortcuts(stored);
 
 loadProjects().then(async () => {
+  // Build the project tag-filter chip bar once projects are loaded (#98).
+  _refreshProjectTagFilter();
   // Apply the configured startup collapse default once the sidebar (incl. project
   // sections) is built. 'remember' is a no-op (persisted state already applied).
   try {

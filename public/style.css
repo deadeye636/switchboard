@@ -7254,6 +7254,117 @@ body.grid-dragging .grid-card-header {
 }
 .session-tag-chip:hover { filter: brightness(1.2); }
 
+/* Project tags (#98): chip editor in project settings */
+.settings-tag-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid #3a3a4a;
+  border-radius: 8px;
+  background: #1e1e28;
+}
+.settings-tag-editor:focus-within { border-color: #61afef; }
+.settings-tag-chips { display: contents; }
+.settings-tag-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 1px 4px 1px 8px;
+  border-radius: 10px;
+  border: 1px solid #4a4a5a;
+  white-space: nowrap;
+}
+.settings-tag-label { cursor: pointer; }
+.settings-tag-palette {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 100;
+  display: flex;
+  gap: 5px;
+  padding: 6px;
+  border: 1px solid #3a3a4a;
+  border-radius: 8px;
+  background: #242432;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+}
+.settings-tag-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.settings-tag-swatch:hover { filter: brightness(1.2); }
+.settings-tag-swatch.active { border-color: #fff; }
+.settings-tag-custom {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  overflow: hidden;
+  background: conic-gradient(#e06c75, #e5c07b, #98c379, #56b6c2, #61afef, #c678dd, #e06c75);
+}
+.settings-tag-custom:hover { filter: brightness(1.15); }
+.settings-tag-color-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  opacity: 0;
+  cursor: pointer;
+}
+.settings-tag-remove {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 3px;
+  opacity: 0.7;
+}
+.settings-tag-remove:hover { opacity: 1; }
+.settings-tag-input {
+  flex: 1;
+  min-width: 100px;
+  border: none;
+  background: transparent;
+  color: #e0e0ea;
+  font-size: 12px;
+  outline: none;
+}
+
+/* Project tags (#98): sidebar filter chip bar */
+#project-tag-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px 2px;
+}
+.project-tag-chip {
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 1px 9px;
+  border-radius: 10px;
+  border: 1px solid #4a4a5a;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.project-tag-chip:hover { filter: brightness(1.15); }
+.project-tag-chip.active { font-weight: 600; }
+
 /* Bookmark overlay + tag dialog */
 .bm-dialog-overlay {
   position: fixed;

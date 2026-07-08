@@ -39,6 +39,10 @@ contextBridge.exposeInMainWorld('api', {
   sessionTagsSet: (sessionId, tags) => ipcRenderer.invoke('session-tags-set', { sessionId, tags }),
   tagsListAll: () => ipcRenderer.invoke('tags-list-all'),
   sessionTagsAll: () => ipcRenderer.invoke('session-tags-all'),
+  projectTagsGet: (projectPath) => ipcRenderer.invoke('project-tags-get', projectPath),
+  projectTagsSet: (projectPath, tags) => ipcRenderer.invoke('project-tags-set', { projectPath, tags }),
+  projectTagsListAll: () => ipcRenderer.invoke('project-tags-list-all'),
+  projectTagsAll: () => ipcRenderer.invoke('project-tags-all'),
   // Settings pop-out window (Phase 2)
   openSettingsWindow: () => ipcRenderer.send('open-settings-window'),
   notifySettingsChanged: () => ipcRenderer.send('settings-changed'),
