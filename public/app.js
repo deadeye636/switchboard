@@ -2189,7 +2189,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     if (tabName === 'sessions') {
       sessionFilters.style.display = '';
       searchBar.style.display = '';
-      searchInput.placeholder = 'Search sessions...';
+      searchInput.placeholder = 'Search...';
       sidebarContent.style.display = '';
       // Restore terminal area
       returnToTerminal();
