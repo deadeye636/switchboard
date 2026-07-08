@@ -20,10 +20,14 @@ function gh(args) {
   return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 1 << 24 });
 }
 
+const ISSUE_LIMIT = 200;
 const issues = JSON.parse(gh([
-  'issue', 'list', '-R', REPO, '--state', 'open', '--limit', '200',
+  'issue', 'list', '-R', REPO, '--state', 'open', '--limit', String(ISSUE_LIMIT),
   '--json', 'number,title,labels,body',
 ]));
+if (issues.length >= ISSUE_LIMIT) {
+  console.warn(`WARNING: hit the gh --limit ${ISSUE_LIMIT} cap — the backlog mirror may be truncated. Raise the limit or paginate (#82).`);
+}
 
 const prioOf = i => (i.labels.find(l => /^P[123]$/.test(l.name)) || {}).name || 'P?';
 const tags = i => i.labels.map(l => l.name).filter(n => !/^P[123]$/.test(n)).join(', ');

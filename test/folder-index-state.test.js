@@ -6,7 +6,7 @@ const path = require('path');
 
 const { getFolderIndexMtimeMs } = require('../folder-index-state');
 
-test('folder index timestamp advances when an existing session file is appended', async () => {
+test('folder index timestamp advances when an existing session file is appended', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-folder-index-'));
 
   try {
@@ -15,9 +15,13 @@ test('folder index timestamp advances when an existing session file is appended'
 
     const before = getFolderIndexMtimeMs(tmpDir);
 
-    await new Promise(resolve => setTimeout(resolve, 1100));
-
     fs.appendFileSync(sessionPath, '{"type":"assistant","message":"second"}\n', 'utf8');
+    // Bump the file mtime well past the folder's own mtime instead of sleeping
+    // ~1.1 s for the wall clock to advance — instant and deterministic. The index
+    // takes MAX(dir mtime, jsonl file mtimes), so the new mtime must exceed the
+    // folder mtime (which equals the creation time here) (#82).
+    const future = new Date(Date.now() + 60000);
+    fs.utimesSync(sessionPath, future, future);
 
     const after = getFolderIndexMtimeMs(tmpDir);
 

@@ -128,4 +128,9 @@ if (icoBuffer) {
   }
   console.log(`Created ${linuxDir} (Linux hicolor sizes)`);
   console.log('Icon generation complete.');
-})();
+})().catch((err) => {
+  // Without this, a loadImage failure is an unhandled rejection and the build
+  // "succeeds" with no Linux icons. Fail loudly instead (#82).
+  console.error(err);
+  process.exit(1);
+});
