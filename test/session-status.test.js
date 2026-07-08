@@ -69,6 +69,22 @@ test('session status distinguishes busy, running, exited, and idle', () => {
   assert.equal(getSessionStatus(idle, runtime).key, 'idle');
 });
 
+test('delegating wins over busy while a Task tool is in flight (#112)', () => {
+  const s = { sessionId: 'd', modified: '2026-06-12T10:00:00.000Z' };
+  // A delegating session is also busy (turn active) + has a live PTY.
+  const runtime = state({
+    activePtyIds: new Set(['d']),
+    sessionBusyState: new Map([['d', true]]),
+    delegatingSessions: new Set(['d']),
+  });
+  assert.equal(getSessionStatus(s, runtime).key, 'delegating');
+  assert.equal(getSessionStatus(s, runtime).label, 'Delegating');
+
+  // Without the delegating flag, the same session is plain busy.
+  const busyRuntime = state({ activePtyIds: new Set(['d']), sessionBusyState: new Map([['d', true]]) });
+  assert.equal(getSessionStatus(s, busyRuntime).key, 'busy');
+});
+
 test('attention inbox orders human-critical sessions first then recent activity', () => {
   const sessions = [
     { sessionId: 'running-old', modified: '2026-06-12T09:00:00.000Z', summary: 'old run' },

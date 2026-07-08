@@ -59,6 +59,16 @@
         // Turn start = the agent begins working. Drives the "Working" status for
         // full-screen TUI sessions that don't emit the OSC-0 spinner title.
         return { kind: 'busy', reason: message || 'Agent working' };
+      case 'PreToolUse':
+        // A Task tool call = the main agent delegates to a subagent and waits.
+        // Scoped by the hook matcher to Task, but guard on tool_name too (#112).
+        return hook.tool_name === 'Task'
+          ? { kind: 'delegating-start', reason: 'Delegating to subagent' }
+          : null;
+      case 'PostToolUse':
+        return hook.tool_name === 'Task'
+          ? { kind: 'delegating-end', reason: '' }
+          : null;
       default:
         return null;
     }

@@ -27,6 +27,7 @@ function getSessionRuntimeState() {
     attentionSessions,
     responseReadySessions,
     sessionBusyState,
+    delegatingSessions,
     openSessions,
     lastActivityTime,
     activeSessionId,
@@ -1435,7 +1436,7 @@ function buildFolderProjectSubsection(scopePrefix, projectPath, sessions, missin
 // (sessions added/removed, renames, sort, filters) still use refreshSidebar().
 // Returns false when a full rebuild is required (caller falls back).
 const SESSION_STATUS_CLASSES = ['status-needs-attention', 'status-response-ready',
-  'status-busy', 'status-running', 'status-exited', 'status-idle'];
+  'status-busy', 'status-delegating', 'status-running', 'status-exited', 'status-idle'];
 
 function patchSidebarStatuses() {
   if (!sidebarContent || !sidebarContent.querySelector('.session-item')) return false;

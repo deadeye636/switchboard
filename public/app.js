@@ -350,6 +350,12 @@ const attentionSessions = new Set(); // sessions needing user action (OSC 9 or h
 const attentionReason = new Map(); // sessionId → { reason, source } — for hook>osc9 precedence
 const responseReadySessions = new Set(); // Claude finished, user hasn't looked (terminal state)
 const sessionBusyState = new Map(); // sessionId → boolean (currently active)
+// Delegating state (#112): sessionId → count of in-flight Task tool calls. A
+// count > 0 means the main agent is waiting on a subagent (status "Delegating"
+// instead of "Working"). delegatingSessions is the derived membership set read
+// by getSessionStatus.
+const delegatingCounts = new Map();
+const delegatingSessions = new Set();
 const finishedAt = new Map(); // sessionId → ms timestamp of the last busy→idle edge (drives running-in-inbox)
 const lastActivityTime = new Map(); // sessionId → Date of last terminal output
 const lastViewedTime = new Map(); // sessionId → Date the session last became focused
@@ -524,7 +530,31 @@ function recordTimelineEvent(sessionId, kind, label, detail) {
 }
 
 // Central activity dispatcher
+// Delegating ref-count (#112): PreToolUse(Task) increments, PostToolUse(Task)
+// decrements; count > 0 → the main agent waits on a subagent. Gated by the
+// subagent live-status setting so turning it off collapses back to "Working".
+function setDelegating(sessionId, delta) {
+  if (typeof appGlobalSettings !== 'undefined' && appGlobalSettings.subagentLiveStatus === false) {
+    if (delegatingSessions.size) { delegatingCounts.clear(); delegatingSessions.clear(); refreshSessionStatusViews(); }
+    return;
+  }
+  const next = Math.max(0, (delegatingCounts.get(sessionId) || 0) + delta);
+  const had = delegatingSessions.has(sessionId);
+  if (next > 0) { delegatingCounts.set(sessionId, next); delegatingSessions.add(sessionId); }
+  else { delegatingCounts.delete(sessionId); delegatingSessions.delete(sessionId); }
+  if (had !== delegatingSessions.has(sessionId)) refreshSessionStatusViews();
+}
+
+// Drop any delegating state for a session (turn ended / went idle).
+function clearDelegating(sessionId) {
+  if (delegatingSessions.delete(sessionId)) { delegatingCounts.delete(sessionId); return true; }
+  delegatingCounts.delete(sessionId);
+  return false;
+}
+
 function setActivity(sessionId, active) {
+  // Turn ended → a stale Task delegation can't still be in flight.
+  if (!active) clearDelegating(sessionId);
   if (responseReadySessions.has(sessionId)) {
     return;
   }
@@ -601,6 +631,11 @@ function applyAttention(sessionId, signal) {
       if (item) item.classList.remove('response-ready');
     }
     setActivity(sessionId, true);
+  } else if (kind === 'delegating-start') {
+    // Task tool in flight → the main agent waits on a subagent (#112).
+    setDelegating(sessionId, 1);
+  } else if (kind === 'delegating-end') {
+    setDelegating(sessionId, -1);
   }
 }
 

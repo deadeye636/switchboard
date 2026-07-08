@@ -30,6 +30,16 @@
       // app.js), so the attention inbox stays "your turn" only.
       inInbox: false,
     },
+    delegating: {
+      key: 'delegating',
+      label: 'Delegating',
+      className: 'status-delegating',
+      priority: 75,
+      // "Delegating" = the main agent is waiting on a subagent (Task tool in
+      // flight), not generating itself. Ranked between busy and running; not an
+      // inbox item (still the agent's turn, nothing for the user to do).
+      inInbox: false,
+    },
     running: {
       key: 'running',
       label: 'Running',
@@ -65,6 +75,9 @@
     const sessionId = session.sessionId;
     if (hasSetValue(runtime.attentionSessions, sessionId)) return STATUS.needsAttention;
     if (hasSetValue(runtime.responseReadySessions, sessionId)) return STATUS.responseReady;
+    // Delegating wins over busy: while a Task tool is in flight the main agent
+    // waits on its subagent rather than generating (#112).
+    if (hasSetValue(runtime.delegatingSessions, sessionId)) return STATUS.delegating;
     if (getMapValue(runtime.sessionBusyState, sessionId)) return STATUS.busy;
     if (hasSetValue(runtime.activePtyIds, sessionId)) return STATUS.running;
 

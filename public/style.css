@@ -1663,6 +1663,21 @@ input:focus-visible {
   box-shadow: none !important;
 }
 
+/* Delegating (#112): two-color dot — green core (subagent working) inside a
+   teal ring (main agent waiting). Overrides the cli-busy spinner via higher
+   specificity so a delegating turn reads distinctly from a generating one. */
+.session-item.status-delegating .session-status-dot,
+.session-item.status-delegating.cli-busy:not(.needs-attention) .session-status-dot,
+.session-item.status-delegating.cli-busy:not(.needs-attention) .session-status-dot.running {
+  background: #3ecf5a !important;
+  border: 1.5px solid #40c8b4 !important;
+  border-top-color: #40c8b4 !important;
+  width: 8px !important;
+  height: 8px !important;
+  animation: pulse-dot 1.4s ease-in-out infinite !important;
+  box-shadow: none !important;
+}
+
 @keyframes spin-dot {
   to { transform: rotate(360deg); }
 }
@@ -1847,6 +1862,14 @@ input:focus-visible {
 .attention-inbox-item.status-running .attention-inbox-status {
   color: #9ef0ac;
   background: rgba(62,207,90,0.14);
+}
+
+/* Delegating (#112): main agent waiting on a subagent. Teal chip, distinct from
+   busy (blue) and running (green). */
+.status-delegating .session-status-chip,
+.attention-inbox-item.status-delegating .attention-inbox-status {
+  color: #7ee8d6;
+  background: rgba(64,200,180,0.14);
 }
 
 .status-exited .session-status-chip {

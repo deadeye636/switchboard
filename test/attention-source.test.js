@@ -94,6 +94,29 @@ test('hook UserPromptSubmit maps to busy (Working)', () => {
   assert.equal(result.reason, 'Agent working');
 });
 
+test('hook PreToolUse(Task) maps to delegating-start (#112)', () => {
+  const result = classifyAttentionSignal({
+    source: 'hook',
+    payload: { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+  });
+  assert.equal(result.kind, 'delegating-start');
+  assert.equal(result.source, 'hook');
+});
+
+test('hook PostToolUse(Task) maps to delegating-end (#112)', () => {
+  const result = classifyAttentionSignal({
+    source: 'hook',
+    payload: { hook_event_name: 'PostToolUse', tool_name: 'Task' },
+  });
+  assert.equal(result.kind, 'delegating-end');
+});
+
+test('hook Pre/PostToolUse for non-Task tools is ignored', () => {
+  assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PreToolUse', tool_name: 'Bash' } }), null);
+  assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PostToolUse', tool_name: 'Read' } }), null);
+  assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PreToolUse' } }), null);
+});
+
 test('unknown hook events return null', () => {
   assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PreToolUse' } }), null);
   assert.equal(classifyAttentionSignal({ source: 'hook', payload: {} }), null);
