@@ -113,7 +113,12 @@
     const mouseReportingRaw = fieldValue('terminalMouseReporting', 'select');
     const mouseModeValue = mouseReportingRaw === 'on' ? 'native' : mouseReportingRaw; // legacy 'on' → native
     const externalEditorValue = fieldValue('externalEditorCommand', '');
-    const terminalWebglValue = fieldValue('terminalWebgl', true); // default on (#81)
+    // gpuAcceleration ports VSCode's auto|on|off model (#87); migrate the old boolean
+    // terminalWebgl (false → off, else auto).
+    const gpuAccelRaw = fieldValue('gpuAcceleration', undefined);
+    const gpuAccelValue = (gpuAccelRaw === 'on' || gpuAccelRaw === 'off' || gpuAccelRaw === 'auto')
+      ? gpuAccelRaw
+      : (fieldValue('terminalWebgl', true) === false ? 'off' : 'auto');
     const terminalCloseValue = fieldValue('terminalCloseBehavior', 'kill');
     const displayModeValue = fieldValue('sessionDisplayMode', 'grid');
     const settingsOpenModeValue = fieldValue('settingsOpenMode', 'overlay');
@@ -596,11 +601,15 @@
                   <div class="settings-field">
                     <div class="settings-field-info">
                       <div class="settings-field-header"><span class="settings-label">GPU rendering (WebGL)</span>${help}</div>
-                      <div class="settings-description">Render terminals via the GPU (default). Substantially lower CPU load for heavy output.</div>
-                      <div class="settings-more">Uses WebGL instead of the DOM renderer. Only about 16 terminals can hold a GPU context at once — extra terminals automatically fall back to the DOM renderer. Turn off if you see rendering glitches on your GPU/driver.</div>
+                      <div class="settings-description">Render terminals via the GPU. Substantially lower CPU load for heavy output.</div>
+                      <div class="settings-more">Auto uses WebGL and automatically falls back to the DOM renderer for all terminals once the GPU/driver drops or corrupts a WebGL context. On forces WebGL; Off always uses the DOM renderer. Pick Off if you still see rendering glitches (silent atlas corruption emits no event, so Auto can't catch that case).</div>
                     </div>
                     <div class="settings-field-control">
-                      <label class="settings-toggle"><input type="checkbox" id="sv-terminal-webgl" ${terminalWebglValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                      <select class="settings-select" id="sv-gpu-acceleration">
+                        <option value="auto" ${gpuAccelValue === 'auto' ? 'selected' : ''}>Auto (WebGL, fall back to DOM)</option>
+                        <option value="on" ${gpuAccelValue === 'on' ? 'selected' : ''}>On (force WebGL)</option>
+                        <option value="off" ${gpuAccelValue === 'off' ? 'selected' : ''}>Off (DOM renderer)</option>
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -1229,7 +1238,7 @@
         settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').value || 'menu';
         settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').value || 'native';
         settings.externalEditorCommand = (settingsViewerBody.querySelector('#sv-external-editor')?.value || '').trim();
-        settings.terminalWebgl = settingsViewerBody.querySelector('#sv-terminal-webgl').checked;
+        settings.gpuAcceleration = settingsViewerBody.querySelector('#sv-gpu-acceleration').value || 'auto';
         settings.terminalCloseBehavior = settingsViewerBody.querySelector('#sv-terminal-close-behavior').value || 'kill';
         settings.settingsOpenMode = settingsViewerBody.querySelector('#sv-settings-open-mode').value || 'overlay';
         settings.sidebarCollapseDefault = settingsViewerBody.querySelector('#sv-collapse-default').value || 'remember';
@@ -1334,8 +1343,8 @@
         if (settings.terminalMouseReporting && typeof window._applyTerminalMouseReporting === 'function') {
           window._applyTerminalMouseReporting(settings.terminalMouseReporting);
         }
-        if (typeof window._setTerminalWebgl === 'function') {
-          window._setTerminalWebgl(settings.terminalWebgl !== false); // default on (#81)
+        if (typeof window._setGpuAcceleration === 'function') {
+          window._setGpuAcceleration(settings.gpuAcceleration || 'auto');
         }
         if (typeof window._setUsageThresholds === 'function') {
           window._setUsageThresholds({ fiveHWarn: settings.usage5hWarn, fiveHCrit: settings.usage5hCrit, sevenDWarn: settings.usage7dWarn, sevenDCrit: settings.usage7dCrit });

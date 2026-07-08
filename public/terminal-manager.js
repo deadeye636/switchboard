@@ -1110,35 +1110,69 @@ function createTerminalEntry(session, opts = {}) {
 // in grid-view.js) and restores it when they scroll back in; showSession
 // restores it for single view. Loading must happen after terminal.open()
 // (needs attached DOM); failure falls back to xterm's DOM renderer.
-// Renderer selection. Default is WebGL (`terminalWebgl`, opt-OUT): measured 50-70%
-// renderer+compositor CPU drop vs. the DOM renderer. The two historical reasons for
-// a DOM default are both mitigated: the stale-atlas "staircase" is fixed by
-// forceRepaint()'s clearTextureAtlas() on show, and the ~16-GL-contexts-per-process
-// cap is managed (tabs mode binds GL to the active terminal only; the grid suspends
-// off-screen cards via IntersectionObserver, and a lost context auto-falls back to
-// the DOM renderer via onContextLoss). Toggled live via window._setTerminalWebgl.
-let webglEnabled = true;
-window._setTerminalWebgl = (on) => {
-  webglEnabled = !!on;
+// Renderer selection — ports VSCode's `gpuAcceleration` model (auto | on | off):
+//  - 'on'   : always try WebGL (measured 50-70% renderer+compositor CPU drop).
+//  - 'off'  : always the DOM renderer.
+//  - 'auto' : try WebGL until a context loss or init failure on ANY terminal, then fall
+//             back to DOM for every subsequent terminal (VSCode's static
+//             `_suggestedRendererType`). Stops a flaky GPU/driver (#87) from making each
+//             new terminal re-attempt and re-corrupt WebGL. The suggestion resets on a
+//             config change so switching the setting retries WebGL.
+// Silent texture-atlas corruption emits no event, so 'auto' cannot auto-catch that case
+// (same limitation as VSCode) — the user picks 'off' for it. GL-context budget (~16 per
+// process) is still managed by tabs binding GL to the active terminal and the grid
+// suspending off-screen cards; the stale-atlas "staircase" is handled by forceRepaint().
+let gpuAcceleration = 'auto';   // 'auto' | 'on' | 'off'
+let suggestedRenderer;          // undefined until a WebGL failure suggests 'dom' (VSCode parity)
+
+function shouldLoadWebgl() {
+  return (gpuAcceleration === 'auto' && suggestedRenderer === undefined) || gpuAcceleration === 'on';
+}
+
+// One WebGL failure (context loss or init throw) disables WebGL for all future terminals
+// in 'auto' mode until the setting changes (VSCode parity).
+function suggestDomRenderer(reason) {
+  if (suggestedRenderer === 'dom') return;
+  suggestedRenderer = 'dom';
+  console.warn('[terminal] WebGL fell back to the DOM renderer for new terminals:', reason);
+}
+
+// Live renderer switch (auto | on | off). A config change resets the fallback suggestion
+// so 'auto'/'on' retries WebGL.
+window._setGpuAcceleration = (mode) => {
+  gpuAcceleration = (mode === 'on' || mode === 'off' || mode === 'auto') ? mode : 'auto';
+  suggestedRenderer = undefined;
   for (const [sessionId, entry] of openSessions) {
-    if (webglEnabled) loadTerminalWebgl(entry);
+    if (shouldLoadWebgl()) loadTerminalWebgl(entry);
     else suspendTerminalWebgl(sessionId);
   }
 };
+window._getGpuAcceleration = () => gpuAcceleration;
+// Back-compat with the old boolean toggle: on → 'on', off → 'off'.
+window._setTerminalWebgl = (on) => window._setGpuAcceleration(on ? 'on' : 'off');
 
 function loadTerminalWebgl(entry) {
-  if (!webglEnabled) return; // DOM renderer unless WebGL is opted in
-  if (entry.webglAddon || !entry.terminal) return;
+  if (!shouldLoadWebgl() || !entry.terminal) return; // DOM renderer
+  // Dispose an existing addon before recreating to avoid leaking a GL context (VSCode parity).
+  if (entry.webglAddon) {
+    try { entry.webglAddon.dispose(); } catch { /* ignore */ }
+    entry.webglAddon = null;
+  }
   try {
     const webglAddon = new WebglAddon.WebglAddon();
     webglAddon.onContextLoss(() => {
-      webglAddon.dispose();
+      try { webglAddon.dispose(); } catch { /* ignore */ }
       if (entry.webglAddon === webglAddon) entry.webglAddon = null;
+      suggestDomRenderer('context loss'); // future terminals go DOM in 'auto'
     });
     entry.terminal.loadAddon(webglAddon);
     entry.webglAddon = webglAddon;
+    // WebGL cell dimensions differ from the DOM renderer (xterm.js#6015), so re-fit after
+    // loading to avoid a grid reflow/drift on the new renderer — VSCode fires a dimension
+    // refresh here for the same reason.
+    safeFit(entry);
   } catch (e) {
-    console.warn('[terminal] WebGL addon failed, falling back to DOM renderer', e);
+    suggestDomRenderer((e && e.message) || 'init failure');
   }
 }
 
@@ -1295,7 +1329,7 @@ function showSession(sessionId) {
         // it earlier (grid off-screen suspend) — a one-time renderer switch,
         // followed by a deferred re-fit because the cell metrics may have
         // shifted and the render service reports them only after a frame.
-        if (webglEnabled && !entry.webglAddon) {
+        if (shouldLoadWebgl() && !entry.webglAddon) {
           restoreTerminalWebgl(sessionId);
           forceRepaint(entry);
           requestAnimationFrame(() => {

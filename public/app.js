@@ -2368,7 +2368,10 @@ async function reapplyGlobalSettings() {
   if (g.terminalFontSize) window._setTerminalFontSize?.(g.terminalFontSize);
   if (g.terminalRightClick) window._applyTerminalRightClick?.(g.terminalRightClick);
   if (g.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(g.terminalMouseReporting);
-  window._setTerminalWebgl?.(g.terminalWebgl !== false); // default on (#81)
+  window._setGpuAcceleration?.(
+    (g.gpuAcceleration === 'on' || g.gpuAcceleration === 'off' || g.gpuAcceleration === 'auto')
+      ? g.gpuAcceleration
+      : (g.terminalWebgl === false ? 'off' : 'auto')); // migrate old boolean (#87); default auto
   window._setUsageThresholds?.({ fiveHWarn: g.usage5hWarn, fiveHCrit: g.usage5hCrit, sevenDWarn: g.usage7dWarn, sevenDCrit: g.usage7dCrit });
   if (g.visibleSessionCount) window._setVisibleSessionCount?.(g.visibleSessionCount);
   if (g.sessionMaxAgeDays) window._setSessionMaxAge?.(g.sessionMaxAgeDays);
@@ -2522,7 +2525,10 @@ setTimeout(() => {
     if (global.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') {
       setTerminalMouseReporting(global.terminalMouseReporting);
     }
-    window._setTerminalWebgl?.(global.terminalWebgl !== false); // default on (#81)
+    window._setGpuAcceleration?.(
+      (global.gpuAcceleration === 'on' || global.gpuAcceleration === 'off' || global.gpuAcceleration === 'auto')
+        ? global.gpuAcceleration
+        : (global.terminalWebgl === false ? 'off' : 'auto')); // migrate old boolean (#87); default auto
     window._setUsageThresholds?.({ fiveHWarn: global.usage5hWarn, fiveHCrit: global.usage5hCrit, sevenDWarn: global.usage7dWarn, sevenDCrit: global.usage7dCrit });
     if (global.shortcuts) setAppShortcuts(global.shortcuts);
     if (typeof window._applySessionDisplaySettings === 'function') window._applySessionDisplaySettings(global);

@@ -279,6 +279,11 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
   **external-terminal + file-explorer** launcher, a **configurable external editor** (open
   files via Ctrl/Cmd+click a file link, the right-click menu, or the file-panel button;
   OS-default fallback), and a batch of **Windows ConPTY** rendering fixes.
+- **Terminal renderer robustness** — a VSCode-style **`gpuAcceleration` mode (Auto / On / Off)**:
+  Auto tries WebGL and auto-falls back to the DOM renderer for all terminals once the GPU/driver
+  drops or corrupts a WebGL context (ports VSCode's suggested-renderer fallback). Plus a
+  **devicePixelRatio re-fit** — on a DPR change (monitor switch, display scaling, zoom) every open
+  terminal is re-fit so xterm's DOM cell grid can't drift into garbled/misaligned text (xterm.js#6015).
 - **Bookmarks & session tags** (SQLite) — per-message transcript bookmarks with a hover gutter
   (bookmark / copy / create task); session-level bookmarking removed in favor of the pin.
 - **Task / note system** (SQLite) — scoped tasks (project / session / message) with status
