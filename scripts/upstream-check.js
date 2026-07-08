@@ -11,7 +11,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const REMOTES = ['haydng', 'jbr'];
+const REMOTES = ['haydng', 'jbr', 'brianstanley', 'kreaddis', 'aaaron', 'ivandobsky', 'upstream'];
 const OURS = 'main'; // unsere Linie
 const SEEN_FILE = path.join(__dirname, '..', '.git', 'upstream-seen.json');
 const APPLY = process.argv.includes('--seen');
@@ -44,7 +44,7 @@ function commitsBetween(oldSha, newSha) {
   } catch { return []; }
 }
 
-console.log('Fetch haydng + jbr …');
+console.log('Fetch ' + REMOTES.join(' + ') + ' …');
 for (const r of REMOTES) {
   try { execFileSync('git', ['fetch', r, '--prune'], { stdio: 'ignore' }); }
   catch (e) { console.error(`  ! fetch ${r} fehlgeschlagen: ${e.message}`); }
