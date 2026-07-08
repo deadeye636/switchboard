@@ -302,7 +302,8 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 - **Attention inbox** made configurable — "Running" mode ("timed"), "Working" removed.
 - **Token/usage stats** — per-(session, date, model) token/tool/message metrics into the DB.
 - **Usage** as status-bar color-threshold progress bars.
-- **Search** — 3-char minimum + explicit reindex (Enter / refresh button).
+- **Search** — 3-char minimum + explicit reindex (Enter / refresh button); the sidebar search
+  also matches **project names** (display name + path short-name), not just session content.
 
 ### Infra / hardening / tooling
 - **Build provenance in About** — every build is stamped (`scripts/gen-build-info.js` → bundled `build-info.json`) with its git branch @ short-commit and a `dirty` flag, shown in the About pane so an installation is traceable to its source commit.

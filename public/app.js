@@ -1410,14 +1410,16 @@ async function runSearchQuery() {
       const results = await window.api.search('session', query, searchTitlesOnly);
       searchMatchIds = new Set(results.map(r => r.id));
       searchMatchProjectPaths = null;
-      if (searchTitlesOnly) {
-        const lowerQ = query.toLowerCase();
-        for (const p of cachedAllProjects) {
-          const shortName = p.projectPath.split('/').filter(Boolean).slice(-2).join('/');
-          if (shortName.toLowerCase().includes(lowerQ)) {
-            if (!searchMatchProjectPaths) searchMatchProjectPaths = new Set();
-            searchMatchProjectPaths.add(p.projectPath);
-          }
+      // Also match projects by name — the custom display name or the path
+      // short-name (case-insensitive) — so typing a project name surfaces it,
+      // not just sessions with matching content. Runs in every search mode (#96).
+      const lowerQ = query.toLowerCase();
+      for (const p of cachedAllProjects) {
+        const shortName = p.projectPath.split('/').filter(Boolean).slice(-2).join('/');
+        const displayName = p.displayName || '';
+        if (shortName.toLowerCase().includes(lowerQ) || displayName.toLowerCase().includes(lowerQ)) {
+          if (!searchMatchProjectPaths) searchMatchProjectPaths = new Set();
+          searchMatchProjectPaths.add(p.projectPath);
         }
       }
       refreshSidebar({ resort: true });
