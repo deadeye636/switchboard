@@ -7392,8 +7392,17 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .session-tab.active { background: #2a2a36; color: #fff; border-color: #3a3a4a; }
 .session-tab.dragging { opacity: 0.5; }
 .session-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #4a4a5a; flex-shrink: 0; }
-.session-tab.running .session-tab-dot { background: #3fb950; }
-.session-tab.needs-attention .session-tab-dot { background: #e5c07b; }
+/* Tab status dot — saturated hues aligned to the sidebar/grid status palette (#97). */
+.session-tab.status-idle .session-tab-dot            { background: #8a8aa0; }
+.session-tab.status-exited .session-tab-dot          { background: #a082ff; }
+.session-tab.status-running .session-tab-dot         { background: #3fb950; }
+.session-tab.status-response-ready .session-tab-dot  { background: #4fc3f7; }
+.session-tab.status-needs-attention .session-tab-dot { background: #f0a050; }
+.session-tab.status-busy .session-tab-dot            { background: #4fc3f7; animation: tab-dot-pulse 1.2s ease-in-out infinite; }
+@keyframes tab-dot-pulse {
+  0%, 100% { opacity: 1;    box-shadow: 0 0 0 0 rgba(79,195,247,0.5); }
+  50%      { opacity: 0.55; box-shadow: 0 0 0 3px rgba(79,195,247,0); }
+}
 .session-tab-label { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .session-tab-close {
   background: none; border: none; color: #7a7a90; cursor: pointer;

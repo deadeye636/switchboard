@@ -175,12 +175,17 @@ if (typeof module !== 'undefined' && module.exports) {
     const list = document.createElement('div');
     list.className = 'session-tabs-list';
 
+    // Classify each tab's status the same way the sidebar/grid do, so the tab
+    // dot colors always match the status badge palette (#97).
+    const tabRuntime = (typeof getSessionRuntimeState === 'function') ? getSessionRuntimeState() : {};
     let activeEl = null;
     for (const t of model) {
       const tab = document.createElement('div');
       tab.className = 'session-tab' + (t.active ? ' active' : '');
-      if (isRunning(t.sessionId)) tab.classList.add('running');
-      if (needsAttention(t.sessionId)) tab.classList.add('needs-attention');
+      const tabSession = (typeof sessionMap !== 'undefined') ? sessionMap.get(t.sessionId) : null;
+      const tabStatus = (typeof getSessionStatus === 'function' && tabSession)
+        ? getSessionStatus(tabSession, tabRuntime) : null;
+      if (tabStatus) tab.classList.add(tabStatus.className); // status-busy / status-running / …
       tab.dataset.sessionId = t.sessionId;
       tab.title = t.name;
       if (dragReorder) tab.draggable = true;
