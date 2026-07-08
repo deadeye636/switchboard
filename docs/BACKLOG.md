@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (28 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-08
 
@@ -32,7 +32,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#45](https://github.com/deadeye636/switchboard/issues/45) Grid layout a11y + DOM tests · _feature_
 - [#50](https://github.com/deadeye636/switchboard/issues/50) Per-session API key override · _port, source:brianstanley_
 - [#79](https://github.com/deadeye636/switchboard/issues/79) Review 2026-07: code consolidation — duplicated logic and dead code · _chore_
-- [#82](https://github.com/deadeye636/switchboard/issues/82) Review 2026-07: test gaps and build-script hardening · _chore_
 - [#84](https://github.com/deadeye636/switchboard/issues/84) Make the terminal LRU cap configurable · _feature_
 - [#99](https://github.com/deadeye636/switchboard/issues/99) Session tags: add a discoverable entry point (can't add the first tag) · _bug_
 - [#101](https://github.com/deadeye636/switchboard/issues/101) Port haydng: timeline time format 24h for CI locales · _port, chore_
