@@ -991,6 +991,9 @@ input:focus-visible {
 }
 #search-refresh-btn:hover { color: #b0b0c4; }
 #search-refresh-btn.spinning svg { animation: spin-dot 0.8s linear infinite; }
+/* Clear (×) and refresh share the same slot — swap refresh out when a query is
+   present so the clear button isn't overlapped (Enter still triggers a reindex). */
+#search-bar.has-query #search-refresh-btn { display: none; }
 
 
 /* ---- Scrollable content ---- */
