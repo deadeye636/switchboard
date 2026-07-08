@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (18 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (20 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-08
 
@@ -16,8 +16,8 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 
 - [#55](https://github.com/deadeye636/switchboard/issues/55) orphaned hidden projects · _bug_
 - [#85](https://github.com/deadeye636/switchboard/issues/85) Terminal: prompt/status line renders wrong (doubled or blank), heals on resize · _bug_
-- [#87](https://github.com/deadeye636/switchboard/issues/87) Terminal WebGL: garbled/corrupted glyphs on some GPUs — align renderer handling with VSCode (auto-fallback) · _bug_
 - [#98](https://github.com/deadeye636/switchboard/issues/98) Project tags + sidebar tag filter · _feature_
+- [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
 
 ## P3 — someday
 
@@ -34,3 +34,5 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#82](https://github.com/deadeye636/switchboard/issues/82) Review 2026-07: test gaps and build-script hardening · _chore_
 - [#84](https://github.com/deadeye636/switchboard/issues/84) Make the terminal LRU cap configurable · _feature_
 - [#99](https://github.com/deadeye636/switchboard/issues/99) Session tags: add a discoverable entry point (can't add the first tag) · _bug_
+- [#101](https://github.com/deadeye636/switchboard/issues/101) Port haydng: timeline time format 24h for CI locales · _port, chore_
+- [#102](https://github.com/deadeye636/switchboard/issues/102) Port haydng: keep groups visible in running-only mode · _bug, port_
