@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (20 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (28 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-08
 
@@ -18,6 +18,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#85](https://github.com/deadeye636/switchboard/issues/85) Terminal: prompt/status line renders wrong (doubled or blank), heals on resize · _bug_
 - [#98](https://github.com/deadeye636/switchboard/issues/98) Project tags + sidebar tag filter · _feature_
 - [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
+- [#108](https://github.com/deadeye636/switchboard/issues/108) Port doctly: fix duplicate projects (encoding) · _bug, port_
 
 ## P3 — someday
 
@@ -36,3 +37,10 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#99](https://github.com/deadeye636/switchboard/issues/99) Session tags: add a discoverable entry point (can't add the first tag) · _bug_
 - [#101](https://github.com/deadeye636/switchboard/issues/101) Port haydng: timeline time format 24h for CI locales · _port, chore_
 - [#102](https://github.com/deadeye636/switchboard/issues/102) Port haydng: keep groups visible in running-only mode · _bug, port_
+- [#103](https://github.com/deadeye636/switchboard/issues/103) Evaluate: agent teams (multi-agent orchestration) · _feature, port, source:kreaddis_
+- [#104](https://github.com/deadeye636/switchboard/issues/104) Evaluate: multi-sidebar panes · _feature, port_
+- [#105](https://github.com/deadeye636/switchboard/issues/105) Evaluate: local Whisper voice input · _feature, port_
+- [#106](https://github.com/deadeye636/switchboard/issues/106) Evaluate: rich analytics · _feature, port_
+- [#107](https://github.com/deadeye636/switchboard/issues/107) Evaluate: brianstanley cursor-ui-refresh · _feature, port, source:brianstanley_
+- [#109](https://github.com/deadeye636/switchboard/issues/109) Port doctly: fix ai-title session name · _bug, port_
+- [#110](https://github.com/deadeye636/switchboard/issues/110) Port doctly: fix linux multi-arch build · _port, chore_
