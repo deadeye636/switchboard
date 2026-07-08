@@ -12,6 +12,9 @@ let agentMatchCounters = {};
 // Set of agentIds that are currently live (spawned but not yet completed).
 // Keyed as "<parentSessionId>:<agentId>" so it's globally unique.
 const liveSubagents = new Set();
+// Exposed so the sidebar can seed the running-subagent indicator on (re)render (#111).
+window._isSubagentLive = (parentSessionId, agentId) =>
+  liveSubagents.has(parentSessionId + ':' + agentId);
 
 // Active subagent file watches for the currently-rendered viewer. Each entry
 // is a stopWatch closure created when an Agent block expands and starts a
@@ -34,10 +37,17 @@ function drainViewerWatches() {
   window.api.onSubagentSpawned((payload) => {
     const key = payload.parentSessionId + ':' + payload.agentId;
     liveSubagents.add(key);
+    // Live-update the sidebar's running-subagent indicator (#111).
+    if (typeof window._updateSubagentLive === 'function') {
+      window._updateSubagentLive(payload.parentSessionId, payload.agentId, true);
+    }
   });
   window.api.onSubagentCompleted((payload) => {
     const key = payload.parentSessionId + ':' + payload.agentId;
     liveSubagents.delete(key);
+    if (typeof window._updateSubagentLive === 'function') {
+      window._updateSubagentLive(payload.parentSessionId, payload.agentId, false);
+    }
     // Notify any active watch container so it can stop the watch and hide the indicator
     document.querySelectorAll('[data-subagent-watch-key="' + key + '"]').forEach(el => {
       el.dispatchEvent(new CustomEvent('subagent-completed-internal'));

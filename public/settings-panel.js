@@ -163,6 +163,7 @@
     // #17 project list (global only): sort mode + favorites presentation.
     const projectSortValue = !isProject ? (current.projectSortMode || 'activity') : 'activity';
     const favoritesOwnListValue = !isProject ? !!current.favoritesOwnList : false;
+    const subagentLiveStatusValue = !isProject ? current.subagentLiveStatus !== false : true;
     const projectAutoAddValue = !isProject ? (current.projectAutoAdd !== false) : true;
     // Handoff library (global only): toggle + editable request prompt.
     const defaultHandoffPrompt = (typeof window !== 'undefined' && window.DEFAULT_HANDOFF_PROMPT) || '';
@@ -369,7 +370,7 @@
           <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">11</span></button>
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
-          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">6</span></button>
+          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">7</span></button>
           <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
           <div class="settings-nav-sep"></div>
           <button class="settings-nav-item" data-cat="shortcuts">Keyboard Shortcuts <span class="settings-nav-count">${SHORTCUT_DEFS.length}</span></button>
@@ -834,6 +835,16 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-favorites-own-list" ${favoritesOwnListValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Subagent live status</span>${help}</div>
+                    <div class="settings-description">Show a running indicator on a subagent's nested item while it works.</div>
+                    <div class="settings-more">Driven by the subagent spawn/complete signals. Completion is detected by a stable-file heuristic, so the indicator can linger a few seconds after a subagent actually finishes.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-subagent-live-status" ${subagentLiveStatusValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">
@@ -1360,6 +1371,7 @@
         settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'grid';
         settings.projectSortMode = settingsViewerBody.querySelector('#sv-project-sort')?.value || 'activity';
         settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
+        settings.subagentLiveStatus = !!settingsViewerBody.querySelector('#sv-subagent-live-status')?.checked;
         settings.handoffLibrary = !!settingsViewerBody.querySelector('#sv-handoff-library')?.checked;
         {
           const hp = settingsViewerBody.querySelector('#sv-handoff-prompt')?.value || '';

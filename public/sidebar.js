@@ -757,6 +757,18 @@ function buildSubagentItem(session) {
   item.dataset.sessionId = session.sessionId;
   item.dataset.subagent = '1';
 
+  // Running-subagent indicator (#111): flag the item while the agent is live,
+  // gated by the subagentLiveStatus setting (default on). data-sub-live-key lets
+  // the live spawn/complete events find and update this item in place.
+  if (session.parentSessionId && session.agentId) {
+    const liveKey = session.parentSessionId + ':' + session.agentId;
+    item.dataset.subLiveKey = liveKey;
+    if (subagentLiveStatusOn() && typeof window._isSubagentLive === 'function'
+        && window._isSubagentLive(session.parentSessionId, session.agentId)) {
+      item.classList.add('subagent-live');
+    }
+  }
+
   const { bg, border } = subagentTypeColor(session.subagentType);
   item.style.borderLeftColor = border;
 
@@ -770,7 +782,10 @@ function buildSubagentItem(session) {
   typePill.style.borderColor = border;
 
   const dot = document.createElement('span');
-  dot.className = 'session-status-dot' + (activePtyIds.has(session.sessionId) ? ' running' : '');
+  const subLive = subagentLiveStatusOn() && typeof window._isSubagentLive === 'function'
+    && session.parentSessionId && session.agentId
+    && window._isSubagentLive(session.parentSessionId, session.agentId);
+  dot.className = 'session-status-dot' + (activePtyIds.has(session.sessionId) || subLive ? ' running' : '');
 
   const info = document.createElement('div');
   info.className = 'session-info';
@@ -795,6 +810,40 @@ function buildSubagentItem(session) {
   // rebindSidebarEvents via session.parentSessionId, so no per-item handler here.
   return item;
 }
+
+// Whether the running-subagent indicator is enabled (default on, #111).
+function subagentLiveStatusOn() {
+  return typeof appGlobalSettings === 'undefined' || appGlobalSettings.subagentLiveStatus !== false;
+}
+
+// Recompute a parent caret's "N running" badge from its live children (#111).
+function updateSubagentCaret(parentSessionId) {
+  const caret = document.getElementById('sub-caret-' + parentSessionId.replace(/[^a-zA-Z0-9_-]/g, '_'));
+  if (!caret) return;
+  const container = document.getElementById('subc-' + parentSessionId.replace(/[^a-zA-Z0-9_-]/g, '_'));
+  const total = container ? container.querySelectorAll('.sidebar-subagent').length : 0;
+  const running = (container && subagentLiveStatusOn())
+    ? container.querySelectorAll('.sidebar-subagent.subagent-live').length : 0;
+  const arrow = '<span class="caret-arrow">&#9654;</span>';
+  const label = `${total} subagent${total !== 1 ? 's' : ''}`;
+  const badge = running > 0 ? ` <span class="caret-running">${running} running</span>` : '';
+  caret.innerHTML = `${arrow} ${label}${badge}`;
+  caret.classList.toggle('has-running', running > 0);
+}
+
+// Live spawn/complete hook (called from jsonl-viewer.js): flip a subagent item's
+// running indicator in place without a full sidebar rebuild (#111).
+window._updateSubagentLive = function (parentSessionId, agentId, isLive) {
+  if (!parentSessionId || !agentId) return;
+  const on = subagentLiveStatusOn();
+  const key = parentSessionId + ':' + agentId;
+  document.querySelectorAll(`.sidebar-subagent[data-sub-live-key="${CSS.escape(key)}"]`).forEach(item => {
+    item.classList.toggle('subagent-live', on && isLive);
+    const dot = item.querySelector('.session-status-dot');
+    if (dot && !activePtyIds.has(item.dataset.sessionId)) dot.classList.toggle('running', on && isLive);
+  });
+  updateSubagentCaret(parentSessionId);
+};
 
 // Build Map<parentSessionId, subagentSession[]> from a project's session list.
 function buildSubagentIndex(sessions) {
@@ -838,6 +887,8 @@ function appendSubagentChildren(parentEl, parentSessionId, subagentIndex) {
 
   parentEl.after(caret);
   caret.after(childrenContainer);
+  // Seed the "N running" badge from the children's live state (#111).
+  updateSubagentCaret(parentSessionId);
 }
 
 // Build the sessions list DOM (shared between projects and worktrees).

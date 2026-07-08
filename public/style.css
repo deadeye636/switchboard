@@ -7051,6 +7051,19 @@ body.grid-dragging .grid-card-header {
   gap: 6px !important;
 }
 
+/* Running-subagent indicator (#111) */
+.sidebar-subagent.subagent-live {
+  border-left-color: #2ea043;
+}
+.sidebar-children-caret .caret-running {
+  color: #2ea043;
+  font-size: 10px;
+  font-weight: 600;
+}
+.sidebar-children-caret.has-running .caret-arrow {
+  color: #2ea043;
+}
+
 .sidebar-subagent .session-summary {
   font-size: 11.5px;
   color: #c0c0d4;
