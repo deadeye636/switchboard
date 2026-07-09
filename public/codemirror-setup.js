@@ -46,6 +46,21 @@ const searchQueryField = StateField.define({
   },
 });
 
+// Case-insensitive match scan shared by searchHighlighter and the search bar
+// (#79). Lowercase once — doing it inside the loop re-lowercased the whole
+// document per match, on every keystroke (#80).
+function findMatchPositions(docText, rawTerm) {
+  const doc = docText.toLowerCase();
+  const term = rawTerm.toLowerCase();
+  const positions = [];
+  let pos = 0;
+  while ((pos = doc.indexOf(term, pos)) !== -1) {
+    positions.push(pos);
+    pos += term.length;
+  }
+  return { positions, termLength: term.length };
+}
+
 const searchHighlighter = ViewPlugin.fromClass(class {
   constructor(view) { this.decorations = this._build(view); }
   update(update) {
@@ -56,17 +71,8 @@ const searchHighlighter = ViewPlugin.fromClass(class {
   _build(view) {
     const q = view.state.field(searchQueryField);
     if (!q) return Decoration.none;
-    const decs = [];
-    // Lowercase once — doing it inside the loop condition re-lowercased the
-    // whole document per match, on every keystroke (#80).
-    const doc = view.state.doc.toString().toLowerCase();
-    const term = q.toLowerCase();
-    let pos = 0;
-    while ((pos = doc.indexOf(term, pos)) !== -1) {
-      decs.push(Decoration.mark({ class: 'cm-find-match' }).range(pos, pos + term.length));
-      pos += term.length;
-    }
-    return Decoration.set(decs);
+    const { positions, termLength } = findMatchPositions(view.state.doc.toString(), q);
+    return Decoration.set(positions.map(pos => Decoration.mark({ class: 'cm-find-match' }).range(pos, pos + termLength)));
   }
 }, { decorations: v => v.decorations });
 
@@ -108,14 +114,7 @@ function createCMSearchBar(parent, view) {
       return;
     }
     view.dispatch({ effects: setSearchQuery.of(q) });
-    // Lowercase once (see searchHighlighter._build) (#80).
-    const doc = view.state.doc.toString().toLowerCase();
-    const term = q.toLowerCase();
-    let pos = 0;
-    while ((pos = doc.indexOf(term, pos)) !== -1) {
-      matches.push(pos);
-      pos += term.length;
-    }
+    matches = findMatchPositions(view.state.doc.toString(), q).positions;
     countEl.textContent = matches.length > 0 ? `${matches.length} found` : 'No results';
   }
 
