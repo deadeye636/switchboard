@@ -367,18 +367,9 @@ if (migrations.length > currentDbVersion) {
 // enough text for useful snippet() previews.
 const FTS_BODY_MAX_CHARS = 32768; // 32 768 JS characters (UTF-16 code units); surrogate-pair split at the boundary is negligible for ASCII transcripts
 
-// FTS_QUERY_MAX_CHARS caps the length of the query string passed to FTS5.
-// A trigram-tokenized FTS5 table with tokenize='trigram' builds one trigram per
-// 3-char sliding window. When the query is wrapped in double-quotes (phrase query),
-// FTS5 intersects ALL trigram doclists in order — a 60-char URL produces ~58
-// overlapping trigrams. Common trigrams like "://" or "git" can appear in tens of
-// thousands of rows; intersecting all doclists as a contiguous phrase forces FTS5
-// to scan enormous intermediate sets and blocks the SQLite main thread for ~60 s.
-// Capping the query at 48 chars limits the phrase to ≤46 trigrams (safe upper bound
-// for a synchronous main-thread query on a 4000+ session index) while covering any
-// plausible hand-typed search string. Longer inputs (pasted URLs, long stack traces)
-// are silently truncated — the first 48 chars remain actionable search terms.
-const FTS_QUERY_MAX_CHARS = 48;
+// Query length cap + MATCH building shared with the search worker — rationale
+// lives in search-query-util.js (#79).
+const { buildFtsMatch } = require('./search-query-util');
 
 // search_content holds the plaintext the fts5 index reads columns from.
 // It is the single authoritative copy: title is full-length; body is
@@ -1084,20 +1075,9 @@ function updateSearchTitle(id, type, title) {
 
 function searchByType(type, query, limit = 50, titleOnly = false) {
   try {
-    // Cap query length before building the FTS MATCH expression.
-    // A trigram phrase query over a long input (e.g. a 60-char GitLab URL) generates
-    // ~58 overlapping trigrams that FTS5 must intersect as a contiguous phrase.
-    // Common trigrams ("://", "git", "/-/") have enormous doclists on a large index,
-    // and the phrase-intersect blocks the SQLite main thread for up to ~60 s.
-    // Truncating to FTS_QUERY_MAX_CHARS (48) limits phrase queries to ≤46 trigrams —
-    // safe for a synchronous main-thread query — while preserving normal short searches.
-    const bounded = query.slice(0, FTS_QUERY_MAX_CHARS);
-    // Wrap in double quotes for exact substring matching with trigram tokenizer.
-    // This prevents FTS5 from splitting on punctuation (e.g. "spec.md" → "spec" + "md")
-    const escaped = '"' + bounded.replace(/"/g, '""') + '"';
-    // FTS5 column filter: prefix with "title:" to restrict match to title column
-    const match = titleOnly ? 'title:' + escaped : escaped;
-    return stmts.searchQuery.all(type, match, limit);
+    // Truncation + quoting + title: filter — see search-query-util.js for the
+    // trigram-phrase rationale behind the length cap.
+    return stmts.searchQuery.all(type, buildFtsMatch(query, titleOnly), limit);
   } catch {
     return [];
   }

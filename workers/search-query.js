@@ -56,13 +56,10 @@ try {
   process.exit(1);
 }
 
-// FTS_QUERY_MAX_CHARS: must match the value in db.js.
-// A trigram phrase query over a long input (e.g. a 60-char GitLab URL) generates
-// ~58 overlapping trigrams. FTS5 must intersect all doclists as a contiguous phrase,
-// which can block the thread for ~60 s on a 4000+ session index. This cap limits
-// phrase queries to ≤46 trigrams — safe even for a dedicated worker, as a belt-and-
-// braces defence in case Fix B (main-thread truncation) is bypassed by future callers.
-const FTS_QUERY_MAX_CHARS = 48;
+// Query length cap + MATCH building shared with db.js searchByType — the cap
+// stays applied here too as a belt-and-braces defence in case the main-thread
+// truncation is bypassed by future callers (#79 rationale in search-query-util.js).
+const { buildFtsMatch } = require('../search-query-util');
 
 const searchQuery = db.prepare(`
   SELECT search_map.id, snippet(search_fts, 1, '<mark>', '</mark>', '...', 40) as snippet
@@ -76,10 +73,7 @@ const searchQuery = db.prepare(`
 parentPort.on('message', (msg) => {
   const { id, type, query, limit, titleOnly } = msg;
   try {
-    const bounded = (query || '').slice(0, FTS_QUERY_MAX_CHARS);
-    const escaped = '"' + bounded.replace(/"/g, '""') + '"';
-    const match = titleOnly ? 'title:' + escaped : escaped;
-    const results = searchQuery.all(type, match, limit || 50);
+    const results = searchQuery.all(type, buildFtsMatch(query, titleOnly), limit || 50);
     parentPort.postMessage({ id, results });
   } catch (e) {
     parentPort.postMessage({ id, error: e.message });

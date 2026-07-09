@@ -1,17 +1,16 @@
 'use strict';
 
-// Static-analysis tests (native-module-free) for the query-length cap in
-// db.js searchByType.
-//
-// better-sqlite3 is compiled against Electron's Node ABI and cannot be
-// required from plain node:test (same constraint as db-fts-contentless.test.js).
-// We verify the bounding logic by inspecting db.js source text.
+// Tests for the FTS query-length cap. The logic lives in search-query-util.js
+// (shared by db.js searchByType and workers/search-query.js, #79) and is
+// Electron-free, so the real implementation is tested directly — no
+// better-sqlite3 required.
 //
 // Tests assert:
 //   (a) Normal short queries still produce the double-quoted phrase form
 //       (FTS5 substring matching preserved for e.g. "spec.md").
 //   (b) Over-long queries are truncated via FTS_QUERY_MAX_CHARS so the phrase
 //       cannot exceed ~46 trigrams (≤48-char input → ≤46 trigrams).
+//   (c) Both consumers actually route through the shared module.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -19,109 +18,23 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const dbSrc = fs.readFileSync(path.join(root, 'db.js'), 'utf8');
+const { FTS_QUERY_MAX_CHARS, buildFtsMatch } = require(path.join(root, 'search-query-util'));
 
 // ---------------------------------------------------------------------------
-// 1. FTS_QUERY_MAX_CHARS constant is defined and is a number ≤ 48
+// 1. The cap itself
 // ---------------------------------------------------------------------------
-
-test('db.js defines FTS_QUERY_MAX_CHARS constant', () => {
-  assert.match(
-    dbSrc,
-    /const FTS_QUERY_MAX_CHARS\s*=\s*\d+/,
-    'db.js must define FTS_QUERY_MAX_CHARS'
-  );
-});
 
 test('FTS_QUERY_MAX_CHARS is 48 or fewer (keeps phrase query safe on main thread)', () => {
-  const m = dbSrc.match(/const FTS_QUERY_MAX_CHARS\s*=\s*(\d+)/);
-  assert.ok(m, 'FTS_QUERY_MAX_CHARS definition not found');
-  const cap = parseInt(m[1], 10);
+  assert.equal(typeof FTS_QUERY_MAX_CHARS, 'number');
   assert.ok(
-    cap <= 48,
-    `FTS_QUERY_MAX_CHARS must be ≤48 to keep the trigram phrase safe; got ${cap}`
+    FTS_QUERY_MAX_CHARS <= 48,
+    `FTS_QUERY_MAX_CHARS must be ≤48 to keep the trigram phrase safe; got ${FTS_QUERY_MAX_CHARS}`
   );
 });
 
 // ---------------------------------------------------------------------------
-// 2. searchByType truncates the query to FTS_QUERY_MAX_CHARS before escaping
+// 2. buildFtsMatch behavior (the real implementation, not a replica)
 // ---------------------------------------------------------------------------
-
-test('searchByType applies .slice(0, FTS_QUERY_MAX_CHARS) to the query before building the FTS MATCH expression', () => {
-  // Extract the searchByType function source.
-  const fnStart = dbSrc.indexOf('function searchByType(');
-  assert.ok(fnStart !== -1, 'searchByType function not found in db.js');
-  // Find the closing brace (depth-tracked).
-  let depth = 0, fnEnd = -1;
-  for (let i = fnStart; i < dbSrc.length; i++) {
-    if (dbSrc[i] === '{') depth++;
-    else if (dbSrc[i] === '}') { depth--; if (depth === 0) { fnEnd = i; break; } }
-  }
-  assert.ok(fnEnd !== -1, 'searchByType closing brace not found');
-  const fnSrc = dbSrc.slice(fnStart, fnEnd + 1);
-
-  assert.match(
-    fnSrc,
-    /\.slice\s*\(\s*0\s*,\s*FTS_QUERY_MAX_CHARS\s*\)/,
-    'searchByType must call .slice(0, FTS_QUERY_MAX_CHARS) on the raw query'
-  );
-});
-
-test('searchByType still wraps the (bounded) query in double-quotes (phrase matching preserved)', () => {
-  const fnStart = dbSrc.indexOf('function searchByType(');
-  assert.ok(fnStart !== -1, 'searchByType not found');
-  let depth = 0, fnEnd = -1;
-  for (let i = fnStart; i < dbSrc.length; i++) {
-    if (dbSrc[i] === '{') depth++;
-    else if (dbSrc[i] === '}') { depth--; if (depth === 0) { fnEnd = i; break; } }
-  }
-  const fnSrc = dbSrc.slice(fnStart, fnEnd + 1);
-
-  // The double-quote wrapping: '"' + bounded + '"' or equivalent.
-  // Accept any form that places literal '"' before and after the bounded var.
-  assert.match(
-    fnSrc,
-    /'"'\s*\+\s*\w+|`".*\$\{.*\}.*"/,
-    'searchByType must still wrap the query in double-quotes for FTS5 phrase matching'
-  );
-});
-
-// ---------------------------------------------------------------------------
-// 3. The truncation happens BEFORE the double-quote escaping (not after)
-//    — ensures a 48-char slice cannot be extended by " escaping within the cap
-// ---------------------------------------------------------------------------
-
-test('searchByType: slice call appears before the quote-escape in function source', () => {
-  const fnStart = dbSrc.indexOf('function searchByType(');
-  assert.ok(fnStart !== -1);
-  let depth = 0, fnEnd = -1;
-  for (let i = fnStart; i < dbSrc.length; i++) {
-    if (dbSrc[i] === '{') depth++;
-    else if (dbSrc[i] === '}') { depth--; if (depth === 0) { fnEnd = i; break; } }
-  }
-  const fnSrc = dbSrc.slice(fnStart, fnEnd + 1);
-  const slicePos = fnSrc.search(/\.slice\s*\(\s*0\s*,\s*FTS_QUERY_MAX_CHARS\s*\)/);
-  const escapePos = fnSrc.search(/\.replace\s*\(\s*\/"/);
-  assert.ok(slicePos !== -1, '.slice(0, FTS_QUERY_MAX_CHARS) not found');
-  assert.ok(escapePos !== -1, '.replace(/"/…) not found');
-  assert.ok(
-    slicePos < escapePos,
-    'Truncation (.slice) must occur before quote-escaping (.replace) in searchByType'
-  );
-});
-
-// ---------------------------------------------------------------------------
-// 4. Inline replica to validate the logic numerically
-//    (mirrors what the real searchByType does, without requiring better-sqlite3)
-// ---------------------------------------------------------------------------
-
-const FTS_QUERY_MAX_CHARS = 48; // Must match the constant in db.js
-
-function buildMatchExpression(query, titleOnly) {
-  const bounded = query.slice(0, FTS_QUERY_MAX_CHARS);
-  const escaped = '"' + bounded.replace(/"/g, '""') + '"';
-  return titleOnly ? 'title:' + escaped : escaped;
-}
 
 function trigramCount(phrase) {
   // Number of trigrams FTS5 must match for a phrase of this length.
@@ -129,32 +42,44 @@ function trigramCount(phrase) {
   return Math.max(0, phrase.length - 2);
 }
 
-test('replica: normal short query produces quoted-phrase expression unchanged', () => {
-  const expr = buildMatchExpression('spec.md');
-  assert.equal(expr, '"spec.md"', 'Short query must be double-quoted as-is');
+test('normal short query produces quoted-phrase expression unchanged', () => {
+  assert.equal(buildFtsMatch('spec.md'), '"spec.md"', 'Short query must be double-quoted as-is');
 });
 
-test('replica: query containing a double-quote is escaped', () => {
-  const expr = buildMatchExpression('say "hello"');
-  assert.equal(expr, '"say ""hello"""', 'Double-quotes inside query must be doubled');
+test('query containing a double-quote is escaped', () => {
+  assert.equal(buildFtsMatch('say "hello"'), '"say ""hello"""', 'Double-quotes inside query must be doubled');
 });
 
-test('replica: 60-char URL is truncated to ≤ FTS_QUERY_MAX_CHARS before quoting', () => {
+test('null/undefined query yields the empty phrase instead of throwing', () => {
+  assert.equal(buildFtsMatch(null), '""');
+  assert.equal(buildFtsMatch(undefined), '""');
+});
+
+test('60-char URL is truncated to ≤ FTS_QUERY_MAX_CHARS before quoting', () => {
   const url = 'https://gitlab.com/skaleet/product/tagpay/-/merge_requests/25629';
   assert.ok(url.length > FTS_QUERY_MAX_CHARS, 'test URL must be longer than the cap');
-  const expr = buildMatchExpression(url);
-  // The phrase content (without surrounding quotes) must be ≤ cap
-  const inner = expr.replace(/^"|"$/g, '');
+  const inner = buildFtsMatch(url).replace(/^"|"$/g, '');
   assert.ok(
     inner.length <= FTS_QUERY_MAX_CHARS,
     `Phrase length ${inner.length} must be ≤ FTS_QUERY_MAX_CHARS (${FTS_QUERY_MAX_CHARS})`
   );
 });
 
-test('replica: trigram count for bounded URL is ≤ 46 (phrase-intersect safe for main thread)', () => {
+test('truncation happens before quote-escaping (escaping cannot extend the phrase past the cap)', () => {
+  // 48 quotes: sliced to 48 first, then each doubled — inner length 96 would
+  // only be possible if the slice ran first (escape-then-slice would cap at 48).
+  const quotes = '"'.repeat(FTS_QUERY_MAX_CHARS + 10);
+  const inner = buildFtsMatch(quotes).replace(/^"|"$/, '').replace(/"$/, '');
+  assert.equal(
+    inner.length,
+    FTS_QUERY_MAX_CHARS * 2,
+    'Each of the 48 sliced quotes must be doubled — slice must run before escape'
+  );
+});
+
+test('trigram count for bounded URL is ≤ 46 (phrase-intersect safe for main thread)', () => {
   const url = 'https://gitlab.com/skaleet/product/tagpay/-/merge_requests/25629';
-  const expr = buildMatchExpression(url);
-  const inner = expr.replace(/^"|"$/g, '');
+  const inner = buildFtsMatch(url).replace(/^"|"$/g, '');
   const ngrams = trigramCount(inner);
   assert.ok(
     ngrams <= 46,
@@ -162,7 +87,22 @@ test('replica: trigram count for bounded URL is ≤ 46 (phrase-intersect safe fo
   );
 });
 
-test('replica: titleOnly mode prefixes "title:" before the quoted phrase', () => {
-  const expr = buildMatchExpression('spec', true);
-  assert.match(expr, /^title:"spec"$/, 'titleOnly must prefix title:');
+test('titleOnly mode prefixes "title:" before the quoted phrase', () => {
+  assert.match(buildFtsMatch('spec', true), /^title:"spec"$/, 'titleOnly must prefix title:');
+});
+
+// ---------------------------------------------------------------------------
+// 3. Both consumers route through the shared module (source check)
+// ---------------------------------------------------------------------------
+
+test('db.js searchByType uses the shared buildFtsMatch', () => {
+  const dbSrc = fs.readFileSync(path.join(root, 'db.js'), 'utf8');
+  assert.match(dbSrc, /require\(['"]\.\/search-query-util['"]\)/, 'db.js must import search-query-util');
+  assert.match(dbSrc, /buildFtsMatch\s*\(/, 'db.js must call buildFtsMatch');
+});
+
+test('search worker uses the shared buildFtsMatch', () => {
+  const workerSrc = fs.readFileSync(path.join(root, 'workers', 'search-query.js'), 'utf8');
+  assert.match(workerSrc, /require\(['"]\.\.\/search-query-util['"]\)/, 'worker must import search-query-util');
+  assert.match(workerSrc, /buildFtsMatch\s*\(/, 'worker must call buildFtsMatch');
 });
