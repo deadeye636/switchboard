@@ -29,7 +29,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#43](https://github.com/deadeye636/switchboard/issues/43) Detect subagent spawn via .meta.json (not only .jsonl) · _feature_
 - [#45](https://github.com/deadeye636/switchboard/issues/45) Grid layout a11y + DOM tests · _feature_
 - [#50](https://github.com/deadeye636/switchboard/issues/50) Per-session API key override · _port, source:brianstanley_
-- [#79](https://github.com/deadeye636/switchboard/issues/79) Review 2026-07: code consolidation — duplicated logic and dead code · _chore_
 - [#84](https://github.com/deadeye636/switchboard/issues/84) Make the terminal LRU cap configurable · _feature_
 - [#99](https://github.com/deadeye636/switchboard/issues/99) Session tags: add a discoverable entry point (can't add the first tag) · _bug_
 - [#101](https://github.com/deadeye636/switchboard/issues/101) Port haydng: timeline time format 24h for CI locales · _port, chore_
@@ -43,3 +42,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#110](https://github.com/deadeye636/switchboard/issues/110) Port doctly: fix linux multi-arch build · _port, chore_
 - [#113](https://github.com/deadeye636/switchboard/issues/113) Optional second tray icon showing Claude usage (live percentage) · _feature_
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
+- [#127](https://github.com/deadeye636/switchboard/issues/127) Persist incremental parse state so cold-start scans read only the delta · _feature_
