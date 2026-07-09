@@ -2311,9 +2311,13 @@ function writeClaudeAttentionHook(port) {
   const url = `http://127.0.0.1:${port}${ATTENTION_HOOK_MARK}?t=${attentionHookToken}`;
   const settings = stripSwitchboardHooks(readClaudeSettings());
   if (!settings.hooks) settings.hooks = {};
+  // Claude Code blocks on the hook response. The server is on 127.0.0.1 and answers
+  // in milliseconds, so a long timeout only ever buys latency once nothing is
+  // listening — which is exactly the case a crash leaves behind (#125).
+  const HOOK_TIMEOUT_SEC = 1;
   const addHook = (event, matcher) => {
     if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = [];
-    settings.hooks[event].push({ matcher: matcher || '', hooks: [{ type: 'http', url, timeout: 5 }] });
+    settings.hooks[event].push({ matcher: matcher || '', hooks: [{ type: 'http', url, timeout: HOOK_TIMEOUT_SEC }] });
   };
   addHook('Notification', ''); // permission_prompt / idle_prompt / elicitation / …
   addHook('Stop', ''); // agent finished responding (matcher ignored for Stop)
@@ -3510,6 +3514,11 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   // Stop any pending debounced cache flush from running after the DB closes (#90).
   appQuitting = true;
+
+  // Leave no hook pointing at a port nobody listens on: Claude Code blocks on every
+  // UserPromptSubmit until it times out, in every project, not just ours (#125). The
+  // next boot rewrites the hook, so removing it here costs nothing.
+  try { if (attentionHooksEnabled()) removeClaudeAttentionHook(); } catch { /* best effort */ }
 
   // Shut down all MCP servers
   shutdownAllMcp();
