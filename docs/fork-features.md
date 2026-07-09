@@ -292,11 +292,16 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
   fires at the subagent's real end, so both edges land with ~no lag. `SubagentStop` is
   explicitly *not* treated as `ready`: its session is the parent's, and doing so would end the
   parent's turn while it is still generating.
-- **Filesystem fallback** — the JSONL spawn→complete scan writes into the same live set, so
-  the indicators still work with hooks disabled. Completion there is decided by a stable-mtime
-  timer, but the check only ran on file-watcher events and a finished subagent stops writing
-  (producing none). A self-stopping sweep re-checks open subagents every few seconds, bounding
-  the latency instead of leaving it to the next unrelated file change.
+- **Filesystem fallback, kept in its place** — the JSONL spawn→complete scan writes into the
+  same live set, so the indicators still work with hooks disabled. Completion there is a guess
+  (stable mtime), and a subagent that goes quiet inside a long tool call would otherwise be
+  declared finished mid-run. Entries are therefore tagged with their source: the scan may only
+  retract what the scan set, never a hook-tracked agent. If a "completed" agent writes again,
+  the scan reopens it. A self-stopping sweep re-checks open subagents every few seconds, since
+  a finished subagent produces no further watcher events to trigger the check.
+- **Adjustable log level** — packaged builds log at `info` (transitions and lifecycle). A
+  global setting raises it to `debug` or `silly` live, without a dev build; the raw per-event
+  terminal lines sit at `silly` because the CLI retitles on every spinner frame.
 - **No stuck "Working"** — an OSC 9;4 progress sequence used to latch the busy flag with no
   way to release it (`4;0` was ignored, TUI sessions emit no OSC-0 idle glyph, and a dialog
   runs no turn so no `Stop` hook fires). Opening `/mcp` and pressing ESC left the session on

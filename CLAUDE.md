@@ -102,6 +102,22 @@ Two of the three historical workarounds are now durable in-repo; only one is per
 
 The win target is **x64-only** (arm64 toolchain not available here).
 
+## Logging
+
+Three tiers (electron-log). Packaged builds default to `info`; the level is a global
+setting (**Sessions & CLI → Log level**) and applies live, so a live session can be
+diagnosed without a dev build. Log file: `%APPDATA%/switchboard/logs/main.log`.
+
+| Level | Use it for | Rule of thumb |
+|---|---|---|
+| `log.info` | **transitions & lifecycle** — busy edges (`→ BUSY` / `→ IDLE`), subagent spawn/complete/reopen, hook signals, server start | a handful of lines per turn |
+| `log.debug` | **per-decision detail** while diagnosing | readable at a few lines per second |
+| `log.silly` | **firehose** — one line per raw event (OSC title changes fire on every spinner frame, ~10/s per busy session) | only while reproducing a bug |
+
+When you add a log line, put the **state change** at `info` and the **raw event that
+led to it** at `silly`. Never log a per-frame event at `info` or `debug`. Landing a
+diagnostic at `debug` that the packaged default hides is what made #120 invisible.
+
 ## Conventions
 
 - **Git commits: Conventional Commits in English** (this is a public repo). The `git-commit`
