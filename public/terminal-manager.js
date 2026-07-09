@@ -601,7 +601,10 @@ function applyTerminalSelectionOverride(terminal, enable) {
     } else if (svc.__deadeyeOrigForceSelection) {
       svc.shouldForceSelection = svc.__deadeyeOrigForceSelection;
     }
-  } catch {}
+  } catch {
+    // Reaches into xterm internals (_core._selectionService) — shape may change
+    // across xterm versions; losing the override is acceptable, crashing is not.
+  }
 }
 // Apply a mouse mode. 'off' strips tracking and resets open terminals so a
 // program that already enabled tracking stops capturing immediately. 'select'
@@ -721,6 +724,8 @@ function drainReplayBuffer(sessionId) {
   const data = arr.join('');
   rawReplayBuffers.delete(sessionId);
   entry.terminal.write(data, () => {
+    // Destroyed between write() and callback → terminal is disposed, don't touch it.
+    if (openSessions.get(sessionId) !== entry) return;
     entry.terminal.scrollToBottom();
     // Self-heal: a flush that painted the grid may reveal a cached row overshoot
     // (bottom row clipped). Re-fit if so — cheap measurement at an existing hook (#59).
@@ -752,7 +757,10 @@ function openTerminalFileUri(sessionId, uri, external = false) {
 
 function findTerminalLocalFileLinks(lineText, bufferLineNumber, sessionId) {
   const links = [];
-  const regex = new RegExp(TERMINAL_LOCAL_FILE_RE.source, TERMINAL_LOCAL_FILE_RE.flags);
+  // Reuse the module-level regex (compiling per scanned line is wasteful); reset
+  // the g-flag cursor so a previous scan can't skew this one.
+  const regex = TERMINAL_LOCAL_FILE_RE;
+  regex.lastIndex = 0;
   let match;
 
   while ((match = regex.exec(lineText)) !== null) {
@@ -797,7 +805,13 @@ function flushTerminalBuffer(sessionId) {
   terminalWriteBuffers.delete(sessionId);
 
   const entry = openSessions.get(sessionId);
-  if (!entry) return;
+  if (!entry) {
+    // Session closed with a flush still queued — drop the bytes but ack them so
+    // flow control can't hold the PTY paused (this flush can race ahead of the
+    // flowState cleanup in destroySession).
+    flowTrackParsed(sessionId, buf.chunks.reduce((s, c) => s + c.length, 0));
+    return;
+  }
 
   let data = buf.chunks.join('');
   const rawLen = data.length; // flow accounting uses the pre-strip length
@@ -825,6 +839,9 @@ function flushTerminalBuffer(sessionId) {
   const savedViewportY = entry.terminal.buffer.active.viewportY;
   entry.terminal.write(data, () => {
     flowTrackParsed(sessionId, rawLen);
+    // The session may have been destroyed between write() and this callback —
+    // don't touch a disposed terminal.
+    if (openSessions.get(sessionId) !== entry) return;
     if (wasAtBottom) {
       // Follow the output even for a live-rendered background tab (invisible now),
       // so switching to it later lands on the latest line without a scroll snap.
@@ -1179,7 +1196,7 @@ function loadTerminalWebgl(entry) {
 function suspendTerminalWebgl(sessionId) {
   const entry = openSessions.get(sessionId);
   if (!entry || !entry.webglAddon) return;
-  try { entry.webglAddon.dispose(); } catch {}
+  try { entry.webglAddon.dispose(); } catch { /* dispose on a lost GL context can throw */ }
   entry.webglAddon = null; // xterm falls back to its DOM renderer
 }
 
