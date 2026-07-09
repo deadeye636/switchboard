@@ -130,6 +130,25 @@ function detectSubagentTransitions(sessionId, session, folderPath) {
           description: meta.description || null,
         });
       }
+    } else if (known.completed && mtimeMs !== known.mtimeMs) {
+      // The stable-mtime guess was wrong: the agent went quiet inside a long tool
+      // call and has now written again. Reopen it instead of staying wrong forever
+      // (#121). Renderer-side the re-spawn is idempotent.
+      known.completed = false;
+      known._completedAt = null;
+      known.mtimeMs = mtimeMs;
+      known._stableStart = null;
+      startSubagentSweep();
+      log.info(`[subagent-reopen] parent=${sessionId} agentId=${agentId} (wrote again after completion)`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const meta = readSubagentMeta(filePath) || {};
+        mainWindow.webContents.send('subagent-spawned', {
+          parentSessionId: sessionId,
+          agentId,
+          subagentType: meta.agentType || null,
+          description: meta.description || null,
+        });
+      }
     } else if (!known.completed) {
       if (mtimeMs !== known.mtimeMs) {
         // File is still being written — update mtime, reset stability clock

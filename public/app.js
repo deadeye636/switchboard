@@ -633,7 +633,7 @@ function applyAttention(sessionId, signal) {
     // Exact subagent edges from the SubagentStart/SubagentStop hooks (#119). The
     // JSONL scan writes to the same set, so a subagent seen twice counts once.
     if (signal.agentId && typeof window._setSubagentLive === 'function') {
-      window._setSubagentLive(sessionId, signal.agentId, kind === 'subagent-live-start');
+      window._setSubagentLive(sessionId, signal.agentId, kind === 'subagent-live-start', 'hook');
     }
   }
 }

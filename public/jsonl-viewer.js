@@ -9,45 +9,30 @@ let currentViewerSessionId = null;
 let agentMatchCounters = {};
 
 // --- Live subagent tracking ---
-// Set of agentIds that are currently live (spawned but not yet completed).
-// Keyed as "<parentSessionId>:<agentId>" so it's globally unique.
-const liveSubagents = new Set();
+// Map<"<parentSessionId>:<agentId>", 'hook' | 'scan'> — which source vouches for
+// this agent still running. Edge rules live in subagent-live.js (#121).
+const liveSubagents = new Map();
 // Exposed so the sidebar can seed the running-subagent indicator on (re)render (#111).
-window._isSubagentLive = (parentSessionId, agentId) =>
-  liveSubagents.has(parentSessionId + ':' + agentId);
-// How many subagents are live under a parent — feeds the parent's two-color
-// overlay (#112). Derived from the set, so repeated events can't skew a counter.
-window._liveSubagentCount = (parentSessionId) => {
-  if (!parentSessionId) return 0;
-  const prefix = parentSessionId + ':';
-  let n = 0;
-  for (const key of liveSubagents) if (key.startsWith(prefix)) n++;
-  return n;
-};
-// Parents that currently have at least one live subagent — lets the overlay be
-// rebuilt when the setting is toggled back on (#112).
-window._liveSubagentParents = () => {
-  const parents = new Set();
-  for (const key of liveSubagents) parents.add(key.slice(0, key.indexOf(':')));
-  return parents;
-};
+window._isSubagentLive = (parentSessionId, agentId) => isSubagentLive(liveSubagents, parentSessionId, agentId);
+// How many subagents are live under a parent — feeds the parent's two-color overlay (#112).
+window._liveSubagentCount = (parentSessionId) => liveSubagentCount(liveSubagents, parentSessionId);
+// Parents with at least one live subagent — lets the overlay be rebuilt when the
+// setting is toggled back on (#112).
+window._liveSubagentParents = () => liveSubagentParents(liveSubagents);
 
 // Single mutation point for the live set, fed by two sources (#119):
-//   1. the SubagentStart/SubagentStop hooks — exact, both edges, no lag
-//   2. the JSONL spawn/complete scan — the fallback when hooks are off
-// Idempotent, so a subagent seen by both sources is counted once.
-function setSubagentLive(parentSessionId, agentId, isLive) {
-  if (!parentSessionId || !agentId) return;
-  const key = parentSessionId + ':' + agentId;
-  const had = liveSubagents.has(key);
-  if (isLive) liveSubagents.add(key);
-  else liveSubagents.delete(key);
-  if (had === isLive) return; // no state change — nothing to repaint
+//   'hook' — SubagentStart/SubagentStop, exact on both edges
+//   'scan' — the JSONL spawn/complete heuristic, the fallback when hooks are off
+// The scan may not retract a hook-tracked agent: a subagent inside a long tool call
+// writes nothing, so the stable-mtime heuristic would call it finished mid-run (#121).
+function setSubagentLive(parentSessionId, agentId, isLive, source = 'scan') {
+  if (!applySubagentEdge(liveSubagents, parentSessionId, agentId, isLive, source)) return;
   if (typeof window._updateSubagentLive === 'function') {
     window._updateSubagentLive(parentSessionId, agentId, isLive);
   }
   if (!isLive) {
     // Let an open watch container stop its watch and hide its indicator.
+    const key = parentSessionId + ':' + agentId;
     document.querySelectorAll('[data-subagent-watch-key="' + key + '"]').forEach(el => {
       el.dispatchEvent(new CustomEvent('subagent-completed-internal'));
     });
@@ -73,8 +58,8 @@ function drainViewerWatches() {
 // Register IPC listeners for subagent lifecycle events (called once at module load).
 (function initSubagentListeners() {
   if (!window.api) return; // guard for non-Electron contexts
-  window.api.onSubagentSpawned((payload) => setSubagentLive(payload.parentSessionId, payload.agentId, true));
-  window.api.onSubagentCompleted((payload) => setSubagentLive(payload.parentSessionId, payload.agentId, false));
+  window.api.onSubagentSpawned((payload) => setSubagentLive(payload.parentSessionId, payload.agentId, true, 'scan'));
+  window.api.onSubagentCompleted((payload) => setSubagentLive(payload.parentSessionId, payload.agentId, false, 'scan'));
   window.api.onSubagentWatchEvent((payload) => {
     const key = payload.parentSessionId + ':' + payload.agentId;
     document.querySelectorAll('[data-subagent-watch-key="' + key + '"]').forEach(el => {
