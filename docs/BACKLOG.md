@@ -3,14 +3,15 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (31 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-08
+**As of:** 2026-07-09
 
 
 ## P1 — next up
 
 - [#2](https://github.com/deadeye636/switchboard/issues/2) Session display Phase 3 — Detach (detachable windows) · _feature_
+- [#114](https://github.com/deadeye636/switchboard/issues/114) Windows: use bundled conpty.dll (useConptyDll) to fix stale/duplicated terminal rows · _bug_
 
 ## P2 — after that
 
@@ -43,3 +44,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#109](https://github.com/deadeye636/switchboard/issues/109) Port doctly: fix ai-title session name · _bug, port_
 - [#110](https://github.com/deadeye636/switchboard/issues/110) Port doctly: fix linux multi-arch build · _port, chore_
 - [#113](https://github.com/deadeye636/switchboard/issues/113) Optional second tray icon showing Claude usage (live percentage) · _feature_
+- [#115](https://github.com/deadeye636/switchboard/issues/115) Terminal: report bundled-ConPTY capabilities to xterm (windowsPty.buildNumber) · _chore_
+- [#116](https://github.com/deadeye636/switchboard/issues/116) Terminal: evaluate conptyInheritCursor for PTY spawns · _chore_
+- [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
