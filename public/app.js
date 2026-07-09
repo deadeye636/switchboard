@@ -2322,13 +2322,12 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       loadPlans();
     } else if (tabName === 'stats') {
       statsContent.style.display = '';
-      // Immediately show stats viewer in main area
+      // Immediately show stats viewer in main area. hideAllViewers() (in
+      // plans-memory-view.js) replaces the previously hand-maintained hide
+      // lists, which had already diverged between branches (#79).
+      hideAllViewers();
       placeholder.style.display = 'none';
       terminalArea.style.display = 'none';
-      planViewer.style.display = 'none';
-      memoryViewer.style.display = 'none';
-      settingsViewer.style.display = 'none';
-      timelineViewer.style.display = 'none';
       statsViewer.style.display = 'flex';
       loadStats();
     } else if (tabName === 'memory') {
@@ -2343,27 +2342,18 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       loadWorkFiles();
     } else if (tabName === 'projects') {
       // Big-viewport admin list in the main area (its own filter, no sidebar content).
+      hideAllViewers();
       placeholder.style.display = 'none';
       terminalArea.style.display = 'none';
-      planViewer.style.display = 'none';
-      statsViewer.style.display = 'none';
-      memoryViewer.style.display = 'none';
-      workFilesViewer.style.display = 'none';
-      settingsViewer.style.display = 'none';
-      timelineViewer.style.display = 'none';
       projectsViewer.style.display = 'flex';
       loadProjectsAdmin();
     } else if (tabName === 'variables') {
       // Session-independent variable management in the main area (own filter).
+      // hideAllViewers doesn't know variablesAdminContent — the tab prologue
+      // above hides it on every switch, so showing it here is enough.
+      hideAllViewers();
       placeholder.style.display = 'none';
       terminalArea.style.display = 'none';
-      planViewer.style.display = 'none';
-      statsViewer.style.display = 'none';
-      memoryViewer.style.display = 'none';
-      workFilesViewer.style.display = 'none';
-      settingsViewer.style.display = 'none';
-      timelineViewer.style.display = 'none';
-      projectsViewer.style.display = 'none';
       variablesAdminContent.style.display = 'flex';
       loadVariablesAdmin();
     }
