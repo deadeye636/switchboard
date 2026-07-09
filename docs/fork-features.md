@@ -285,15 +285,24 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 - **Subagent activity overlay** — while a subagent works, the parent keeps its own status
   (*Working* / *Running*) and its dot goes two-color: a green core (subagent working) inside
   the parent's own ring. Subagent work is deliberately **not** a status of its own — with
-  async subagents the parent keeps generating rather than waiting. Two chained sources make
-  the accent continuous: a matcher-scoped `PreToolUse` hook lights it the instant a subagent
-  is launched, and the live spawn→complete window from the JSONL scan carries it for the real
-  duration. `PostToolUse` is deliberately *not* used — it fires when the async tool call
-  returns, seconds after launch and long before the subagent ends.
-- **Timed subagent sweep** — completion is decided by a stable-mtime timer, but the detection
-  only ran on file-watcher events, and a finished subagent stops writing (so it produces no
-  further events). A self-stopping sweep re-checks open subagents every few seconds, which
-  bounds completion latency instead of leaving it to the next unrelated file change.
+  async subagents the parent keeps generating rather than waiting, because the Agent tool call
+  returns seconds after launch while the subagent runs on.
+- **Exact subagent edges from hooks** — `SubagentStart` / `SubagentStop` drive the live set.
+  Both carry the *parent* `session_id` plus the subagent's `agent_id`, and `SubagentStop`
+  fires at the subagent's real end, so both edges land with ~no lag. `SubagentStop` is
+  explicitly *not* treated as `ready`: its session is the parent's, and doing so would end the
+  parent's turn while it is still generating.
+- **Filesystem fallback** — the JSONL spawn→complete scan writes into the same live set, so
+  the indicators still work with hooks disabled. Completion there is decided by a stable-mtime
+  timer, but the check only ran on file-watcher events and a finished subagent stops writing
+  (producing none). A self-stopping sweep re-checks open subagents every few seconds, bounding
+  the latency instead of leaving it to the next unrelated file change.
+- **No stuck "Working"** — an OSC 9;4 progress sequence used to latch the busy flag with no
+  way to release it (`4;0` was ignored, TUI sessions emit no OSC-0 idle glyph, and a dialog
+  runs no turn so no `Stop` hook fires). Opening `/mcp` and pressing ESC left the session on
+  *Working* forever. The latch now releases on `4;0`, and with hooks enabled the progress
+  sequence no longer sets busy at all — the turn boundaries are authoritative
+  (`osc-busy.js`, unit-tested).
 - Gated by a **Subagent live status** setting (default on).
 
 ### Terminal
