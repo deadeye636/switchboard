@@ -139,6 +139,30 @@ test('bootstrap marks a fresh-mtime agent as completed: false (lifecycle continu
   }
 });
 
+test('post-bootstrap: a stale agent file is not a spawn — GC must not resurrect it (#122)', () => {
+  const events = setupModule();
+  const tmp = mkTmp();
+  try {
+    const sessionId = 'parent';
+    fs.mkdirSync(path.join(tmp, sessionId, 'subagents'), { recursive: true });
+    const session = {};
+    detectSubagentTransitions(sessionId, session, tmp);
+    assert.equal(session.knownSubagents.size, 0);
+
+    // The GC drops completed entries after 5 minutes, but the file stays on disk.
+    // Rediscovering it must not be reported as a fresh spawn.
+    seedAgents(tmp, sessionId, [{ id: 'longgone', ageMs: 20 * 60 * 1000 }]);
+    detectSubagentTransitions(sessionId, session, tmp);
+
+    assert.equal(events.length, 0, 'a file untouched for 20 minutes is not a new spawn');
+    const entry = session.knownSubagents.get('longgone');
+    assert.ok(entry, 'it is still recorded, silently');
+    assert.equal(entry.completed, true);
+  } finally {
+    cleanup(tmp);
+  }
+});
+
 test('post-bootstrap: a brand-new agent file emits exactly one subagent-spawned event', () => {
   const events = setupModule();
   const tmp = mkTmp();

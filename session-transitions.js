@@ -103,19 +103,23 @@ function detectSubagentTransitions(sessionId, session, folderPath) {
     const known = session.knownSubagents.get(agentId);
 
     if (!known) {
-      if (isBootstrap) {
-        // Cold-start initialization — record silently without firing IPC.
-        // Treat recently-modified files as still-active so they can complete
-        // through the normal lifecycle; treat older ones as already done.
-        const looksAlive = (now - mtimeMs) < BOOTSTRAP_LIVE_MS;
+      // A file we have never seen is only a spawn when it was written recently.
+      // On a cold start that keeps finished agents quiet; afterwards it stops the
+      // 5-minute GC from resurrecting them: the entry is dropped from memory but
+      // the agent-<id>.jsonl stays on disk, so the next walk rediscovers it (#122).
+      const looksAlive = (now - mtimeMs) < BOOTSTRAP_LIVE_MS;
+      if (isBootstrap || !looksAlive) {
         session.knownSubagents.set(agentId, {
           mtimeMs,
           completed: !looksAlive,
           _completedAt: looksAlive ? null : now,
         });
+        // An agent still running at cold start would otherwise wait for a watcher
+        // event that never comes once it stops writing.
+        if (looksAlive) startSubagentSweep();
         continue;
       }
-      // First sighting post-bootstrap — real spawn event
+      // First sighting post-bootstrap of a freshly written file — a real spawn.
       const meta = readSubagentMeta(filePath) || {};
       session.knownSubagents.set(agentId, { mtimeMs, completed: false });
       // A live subagent stops producing watcher events once it finishes writing —

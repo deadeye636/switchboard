@@ -298,7 +298,10 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
   declared finished mid-run. Entries are therefore tagged with their source: the scan may only
   retract what the scan set, never a hook-tracked agent. If a "completed" agent writes again,
   the scan reopens it. A self-stopping sweep re-checks open subagents every few seconds, since
-  a finished subagent produces no further watcher events to trigger the check.
+  a finished subagent produces no further watcher events to trigger the check. A file the scan
+  has never seen only counts as a spawn when it was written recently — otherwise the five-minute
+  GC, which forgets finished agents while their transcripts stay on disk, would rediscover them
+  and resurrect long-dead subagents on the next walk.
 - **Adjustable log level** — packaged builds log at `info` (transitions and lifecycle). A
   global setting raises it to `debug` or `silly` live, without a dev build; the raw per-event
   terminal lines sit at `silly` because the CLI retitles on every spinner frame.
