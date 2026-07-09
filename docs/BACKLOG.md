@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (30 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (29 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-09
 
@@ -45,4 +45,3 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#115](https://github.com/deadeye636/switchboard/issues/115) Terminal: report bundled-ConPTY capabilities to xterm (windowsPty.buildNumber) · _chore_
 - [#116](https://github.com/deadeye636/switchboard/issues/116) Terminal: evaluate conptyInheritCursor for PTY spawns · _chore_
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
-- [#123](https://github.com/deadeye636/switchboard/issues/123) Show the subagent-activity indicator on session tabs and grid cards · _feature_
