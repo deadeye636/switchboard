@@ -69,12 +69,13 @@ function getProjectClaudeMeta(configPath = CLAUDE_CONFIG_PATH, preloadedCfg = un
   return map;
 }
 
-// Atomically set `hasTrustDialogAccepted` for one project. Reads the config fresh
-// immediately before writing (last-writer-wins vs. a concurrently running Claude is
-// accepted), changes ONLY the one field, writes temp + rename, keeps a `.bak` copy.
-// Returns { ok } or { error }.
-function setProjectTrust(projectPath, trusted, configPath = CLAUDE_CONFIG_PATH) {
-  if (!projectPath) return { error: 'No project path' };
+// Shared read→parse→mutate→(.bak)→tmp→rename core of the three write helpers
+// below (#79). Reads the config fresh immediately before writing (last-writer-
+// wins vs. a concurrently running Claude is accepted). `mutate(cfg)` edits the
+// parsed config in place and returns { result }; returning { skipWrite: true,
+// result } short-circuits without touching the file (no-op cases keep today's
+// behavior of not writing a backup either).
+function mutateClaudeConfig(configPath, mutate) {
   let raw;
   try {
     raw = fs.readFileSync(configPath, 'utf8');
@@ -87,17 +88,9 @@ function setProjectTrust(projectPath, trusted, configPath = CLAUDE_CONFIG_PATH) 
   } catch (err) {
     return { error: 'Cannot parse ~/.claude.json: ' + err.message };
   }
-  if (!cfg.projects || typeof cfg.projects !== 'object') cfg.projects = {};
 
-  // Find the existing key that normalizes to our target (preserve its exact form).
-  const target = normalizeClaudePath(projectPath);
-  let key = Object.keys(cfg.projects).find(k => normalizeClaudePath(k) === target);
-  if (!key) {
-    // No entry yet: create a minimal one under the forward-slash form Claude uses.
-    key = String(projectPath).replace(/\\/g, '/');
-    cfg.projects[key] = {};
-  }
-  cfg.projects[key].hasTrustDialogAccepted = !!trusted;
+  const outcome = mutate(cfg);
+  if (outcome.skipWrite) return outcome.result;
 
   try {
     // One-time-ish backup of the last good state before overwriting.
@@ -105,10 +98,29 @@ function setProjectTrust(projectPath, trusted, configPath = CLAUDE_CONFIG_PATH) 
     const tmp = configPath + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
     fs.renameSync(tmp, configPath);
-    return { ok: true, trusted: !!trusted };
+    return outcome.result;
   } catch (err) {
     return { error: 'Cannot write ~/.claude.json: ' + err.message };
   }
+}
+
+// Atomically set `hasTrustDialogAccepted` for one project. Changes ONLY the one
+// field, writes temp + rename, keeps a `.bak` copy. Returns { ok } or { error }.
+function setProjectTrust(projectPath, trusted, configPath = CLAUDE_CONFIG_PATH) {
+  if (!projectPath) return { error: 'No project path' };
+  return mutateClaudeConfig(configPath, (cfg) => {
+    if (!cfg.projects || typeof cfg.projects !== 'object') cfg.projects = {};
+    // Find the existing key that normalizes to our target (preserve its exact form).
+    const target = normalizeClaudePath(projectPath);
+    let key = Object.keys(cfg.projects).find(k => normalizeClaudePath(k) === target);
+    if (!key) {
+      // No entry yet: create a minimal one under the forward-slash form Claude uses.
+      key = String(projectPath).replace(/\\/g, '/');
+      cfg.projects[key] = {};
+    }
+    cfg.projects[key].hasTrustDialogAccepted = !!trusted;
+    return { result: { ok: true, trusted: !!trusted } };
+  });
 }
 
 // Atomically delete a project's entry from `~/.claude.json` `projects` (trust, MCP,
@@ -117,34 +129,14 @@ function setProjectTrust(projectPath, trusted, configPath = CLAUDE_CONFIG_PATH) 
 // with a `.bak` copy; leaves all other keys/secrets untouched. Returns { ok, removed }.
 function removeProjectEntry(projectPath, configPath = CLAUDE_CONFIG_PATH) {
   if (!projectPath) return { error: 'No project path' };
-  let raw;
-  try {
-    raw = fs.readFileSync(configPath, 'utf8');
-  } catch (err) {
-    return { error: 'Cannot read ~/.claude.json: ' + err.message };
-  }
-  let cfg;
-  try {
-    cfg = JSON.parse(raw);
-  } catch (err) {
-    return { error: 'Cannot parse ~/.claude.json: ' + err.message };
-  }
-  if (!cfg.projects || typeof cfg.projects !== 'object') return { ok: true, removed: 0 };
-
-  const target = normalizeClaudePath(projectPath);
-  const keys = Object.keys(cfg.projects).filter(k => normalizeClaudePath(k) === target);
-  if (!keys.length) return { ok: true, removed: 0 };
-  for (const k of keys) delete cfg.projects[k];
-
-  try {
-    fs.copyFileSync(configPath, configPath + '.bak');
-    const tmp = configPath + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
-    fs.renameSync(tmp, configPath);
-    return { ok: true, removed: keys.length };
-  } catch (err) {
-    return { error: 'Cannot write ~/.claude.json: ' + err.message };
-  }
+  return mutateClaudeConfig(configPath, (cfg) => {
+    if (!cfg.projects || typeof cfg.projects !== 'object') return { skipWrite: true, result: { ok: true, removed: 0 } };
+    const target = normalizeClaudePath(projectPath);
+    const keys = Object.keys(cfg.projects).filter(k => normalizeClaudePath(k) === target);
+    if (!keys.length) return { skipWrite: true, result: { ok: true, removed: 0 } };
+    for (const k of keys) delete cfg.projects[k];
+    return { result: { ok: true, removed: keys.length } };
+  });
 }
 
 // Atomically move a project's `~/.claude.json` entry from oldPath to newPath, so its
@@ -154,40 +146,21 @@ function removeProjectEntry(projectPath, configPath = CLAUDE_CONFIG_PATH) {
 // temp + rename with a `.bak`. Returns { ok, moved }.
 function renameProjectEntry(oldPath, newPath, configPath = CLAUDE_CONFIG_PATH) {
   if (!oldPath || !newPath) return { error: 'Missing path' };
-  let raw;
-  try {
-    raw = fs.readFileSync(configPath, 'utf8');
-  } catch (err) {
-    return { error: 'Cannot read ~/.claude.json: ' + err.message };
-  }
-  let cfg;
-  try {
-    cfg = JSON.parse(raw);
-  } catch (err) {
-    return { error: 'Cannot parse ~/.claude.json: ' + err.message };
-  }
-  if (!cfg.projects || typeof cfg.projects !== 'object') return { ok: true, moved: false };
+  return mutateClaudeConfig(configPath, (cfg) => {
+    if (!cfg.projects || typeof cfg.projects !== 'object') return { skipWrite: true, result: { ok: true, moved: false } };
 
-  const srcNorm = normalizeClaudePath(oldPath);
-  const srcKey = Object.keys(cfg.projects).find(k => normalizeClaudePath(k) === srcNorm);
-  if (!srcKey) return { ok: true, moved: false };
+    const srcNorm = normalizeClaudePath(oldPath);
+    const srcKey = Object.keys(cfg.projects).find(k => normalizeClaudePath(k) === srcNorm);
+    if (!srcKey) return { skipWrite: true, result: { ok: true, moved: false } };
 
-  const srcVal = cfg.projects[srcKey];
-  const dstNorm = normalizeClaudePath(newPath);
-  const existingDstKey = Object.keys(cfg.projects).find(k => normalizeClaudePath(k) === dstNorm);
-  const dstKey = existingDstKey || String(newPath).replace(/\\/g, '/');
-  cfg.projects[dstKey] = existingDstKey ? { ...cfg.projects[existingDstKey], ...srcVal } : srcVal;
-  if (dstKey !== srcKey) delete cfg.projects[srcKey];
-
-  try {
-    fs.copyFileSync(configPath, configPath + '.bak');
-    const tmp = configPath + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
-    fs.renameSync(tmp, configPath);
-    return { ok: true, moved: true };
-  } catch (err) {
-    return { error: 'Cannot write ~/.claude.json: ' + err.message };
-  }
+    const srcVal = cfg.projects[srcKey];
+    const dstNorm = normalizeClaudePath(newPath);
+    const existingDstKey = Object.keys(cfg.projects).find(k => normalizeClaudePath(k) === dstNorm);
+    const dstKey = existingDstKey || String(newPath).replace(/\\/g, '/');
+    cfg.projects[dstKey] = existingDstKey ? { ...cfg.projects[existingDstKey], ...srcVal } : srcVal;
+    if (dstKey !== srcKey) delete cfg.projects[srcKey];
+    return { result: { ok: true, moved: true } };
+  });
 }
 
 module.exports = {
