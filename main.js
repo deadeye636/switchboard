@@ -381,6 +381,7 @@ function createWindow() {
       try { fs.unwatchFile(entry.filePath, entry.listener); } catch {}
     }
     subagentWatchers.clear();
+    try { sessionTransitions.stopSubagentSweep(); } catch {}
     mainWindow = null;
   });
 }

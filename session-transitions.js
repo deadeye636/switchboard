@@ -18,6 +18,50 @@ function init(ctx) {
 
 // --- Subagent spawn / completion detection ---
 
+// Completion is decided by a stable-mtime timer, but detectSubagentTransitions only
+// runs on file-watcher events. A finished subagent stops writing, so it produces no
+// further events and its completion could be declared arbitrarily late (only when
+// some unrelated file in the folder happens to change). This sweep re-checks the
+// open subagents on a timer instead. It starts on the first spawn and stops itself
+// once none are open, so an idle app pays nothing.
+const SUBAGENT_SWEEP_MS = 5000;
+let subagentSweepTimer = null;
+
+function hasOpenSubagents() {
+  for (const [, session] of activeSessions) {
+    if (session.exited || !session.knownSubagents) continue;
+    for (const [, state] of session.knownSubagents) if (!state.completed) return true;
+  }
+  return false;
+}
+
+function sweepOpenSubagents() {
+  for (const [sessionId, session] of [...activeSessions]) {
+    if (session.exited || session.isPlainTerminal || !session.knownSubagents || !session.projectFolder) continue;
+    let open = false;
+    for (const [, state] of session.knownSubagents) if (!state.completed) { open = true; break; }
+    if (!open) continue;
+    detectSubagentTransitions(
+      session.realSessionId || sessionId,
+      session,
+      path.join(PROJECTS_DIR, session.projectFolder),
+    );
+  }
+  if (!hasOpenSubagents()) stopSubagentSweep();
+}
+
+function startSubagentSweep() {
+  if (subagentSweepTimer) return;
+  subagentSweepTimer = setInterval(sweepOpenSubagents, SUBAGENT_SWEEP_MS);
+  if (typeof subagentSweepTimer.unref === 'function') subagentSweepTimer.unref();
+}
+
+function stopSubagentSweep() {
+  if (!subagentSweepTimer) return;
+  clearInterval(subagentSweepTimer);
+  subagentSweepTimer = null;
+}
+
 /** Walk <folder>/<sessionId>/subagents/ and detect new or completed subagent files.
  *  Mutates session.knownSubagents (Map<agentId, { mtimeMs, completed }>).
  *  Emits IPC 'subagent-spawned' and 'subagent-completed' via mainWindow. */
@@ -74,6 +118,9 @@ function detectSubagentTransitions(sessionId, session, folderPath) {
       // First sighting post-bootstrap — real spawn event
       const meta = readSubagentMeta(filePath) || {};
       session.knownSubagents.set(agentId, { mtimeMs, completed: false });
+      // A live subagent stops producing watcher events once it finishes writing —
+      // the sweep keeps re-checking it so completion isn't declared arbitrarily late.
+      startSubagentSweep();
       log.info(`[subagent-spawn] parent=${sessionId} agentId=${agentId} type=${meta.agentType || 'unknown'}`);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('subagent-spawned', {
@@ -341,4 +388,7 @@ function detectSessionTransitions(folder) {
 }
 
 
-module.exports = { init, detectSessionTransitions, detectSubagentTransitions, readNewSessionSignals };
+module.exports = {
+  init, detectSessionTransitions, detectSubagentTransitions, readNewSessionSignals,
+  startSubagentSweep, stopSubagentSweep, hasOpenSubagents,
+};
