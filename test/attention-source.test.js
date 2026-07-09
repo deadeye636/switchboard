@@ -5,6 +5,9 @@ const {
   classifyAttentionSignal,
   classifyHookEvent,
   reduceAttention,
+  isSubagentTool,
+  SUBAGENT_TOOL_NAMES,
+  SUBAGENT_TOOL_MATCHER,
 } = require('../public/attention-source');
 
 // --- OSC-9 path: parity with the old inline regex from app.js:409 ---
@@ -94,27 +97,39 @@ test('hook UserPromptSubmit maps to busy (Working)', () => {
   assert.equal(result.reason, 'Agent working');
 });
 
-test('hook PreToolUse(Task) maps to delegating-start (#112)', () => {
-  const result = classifyAttentionSignal({
-    source: 'hook',
-    payload: { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+// Newer Claude Code names the subagent tool `Agent`; older builds used `Task`.
+for (const toolName of ['Task', 'Agent']) {
+  test(`hook PreToolUse(${toolName}) maps to delegating-start (#112)`, () => {
+    const result = classifyAttentionSignal({
+      source: 'hook',
+      payload: { hook_event_name: 'PreToolUse', tool_name: toolName },
+    });
+    assert.equal(result.kind, 'delegating-start');
+    assert.equal(result.source, 'hook');
   });
-  assert.equal(result.kind, 'delegating-start');
-  assert.equal(result.source, 'hook');
-});
 
-test('hook PostToolUse(Task) maps to delegating-end (#112)', () => {
-  const result = classifyAttentionSignal({
-    source: 'hook',
-    payload: { hook_event_name: 'PostToolUse', tool_name: 'Task' },
+  test(`hook PostToolUse(${toolName}) maps to delegating-end (#112)`, () => {
+    const result = classifyAttentionSignal({
+      source: 'hook',
+      payload: { hook_event_name: 'PostToolUse', tool_name: toolName },
+    });
+    assert.equal(result.kind, 'delegating-end');
   });
-  assert.equal(result.kind, 'delegating-end');
-});
+}
 
-test('hook Pre/PostToolUse for non-Task tools is ignored', () => {
+test('hook Pre/PostToolUse for non-subagent tools is ignored', () => {
   assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PreToolUse', tool_name: 'Bash' } }), null);
   assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PostToolUse', tool_name: 'Read' } }), null);
   assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PreToolUse' } }), null);
+});
+
+test('the registered hook matcher covers every subagent tool name', () => {
+  // The matcher main.js writes into settings.json must accept exactly the names
+  // isSubagentTool() guards on, otherwise delegating never fires (#112 regression).
+  const alternatives = SUBAGENT_TOOL_MATCHER.split('|');
+  assert.deepEqual(alternatives, SUBAGENT_TOOL_NAMES);
+  for (const name of alternatives) assert.equal(isSubagentTool(name), true);
+  assert.equal(isSubagentTool('Bash'), false);
 });
 
 test('unknown hook events return null', () => {

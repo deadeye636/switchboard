@@ -2296,8 +2296,10 @@ function writeClaudeAttentionHook(port) {
   addHook('Notification', ''); // permission_prompt / idle_prompt / elicitation / …
   addHook('Stop', ''); // agent finished responding (matcher ignored for Stop)
   addHook('UserPromptSubmit', ''); // turn start → "Working" (TUI sessions emit no OSC-0 spinner)
-  addHook('PreToolUse', 'Task'); // subagent delegation start → "Delegating" (#112)
-  addHook('PostToolUse', 'Task'); // subagent delegation end (matcher-scoped to Task, low traffic)
+  // Subagent delegation start/end → "Delegating" (#112). Matcher covers both the
+  // current `Agent` tool and the legacy `Task` name; scoping keeps the traffic low.
+  addHook('PreToolUse', attentionSource.SUBAGENT_TOOL_MATCHER);
+  addHook('PostToolUse', attentionSource.SUBAGENT_TOOL_MATCHER);
   fs.mkdirSync(path.dirname(CLAUDE_SETTINGS_JSON), { recursive: true });
   fs.writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(settings, null, 2) + '\n');
   log.info(`[attention-hook] wrote hooks to ${CLAUDE_SETTINGS_JSON} (${url})`);

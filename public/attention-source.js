@@ -17,6 +17,16 @@
   const OSC9_ATTENTION_REGEX = /attention|approval|permission|needs your|wants to enter/i;
   const OSC9_WAITING_REGEX = /waiting for your input/i;
 
+  // The tool that spawns a subagent. Newer Claude Code calls it `Agent`, older
+  // versions `Task` — cover both (#112). SUBAGENT_TOOL_MATCHER is the hook
+  // matcher main.js registers, so the matcher and the guard stay in sync.
+  const SUBAGENT_TOOL_NAMES = ['Task', 'Agent'];
+  const SUBAGENT_TOOL_MATCHER = SUBAGENT_TOOL_NAMES.join('|');
+
+  function isSubagentTool(toolName) {
+    return SUBAGENT_TOOL_NAMES.includes(String(toolName || ''));
+  }
+
   // Human-readable reason for a Notification matcher when the hook omits a message.
   function describeNotification(matcher) {
     switch (String(matcher || '').toLowerCase()) {
@@ -60,13 +70,13 @@
         // full-screen TUI sessions that don't emit the OSC-0 spinner title.
         return { kind: 'busy', reason: message || 'Agent working' };
       case 'PreToolUse':
-        // A Task tool call = the main agent delegates to a subagent and waits.
-        // Scoped by the hook matcher to Task, but guard on tool_name too (#112).
-        return hook.tool_name === 'Task'
+        // A subagent tool call = the main agent delegates and waits. Scoped by the
+        // hook matcher, but guard on tool_name too (#112).
+        return isSubagentTool(hook.tool_name)
           ? { kind: 'delegating-start', reason: 'Delegating to subagent' }
           : null;
       case 'PostToolUse':
-        return hook.tool_name === 'Task'
+        return isSubagentTool(hook.tool_name)
           ? { kind: 'delegating-end', reason: '' }
           : null;
       default:
@@ -115,6 +125,9 @@
   return {
     OSC9_ATTENTION_REGEX,
     OSC9_WAITING_REGEX,
+    SUBAGENT_TOOL_NAMES,
+    SUBAGENT_TOOL_MATCHER,
+    isSubagentTool,
     describeNotification,
     classifyHookEvent,
     classifyAttentionSignal,
