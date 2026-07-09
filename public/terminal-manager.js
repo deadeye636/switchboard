@@ -737,6 +737,20 @@ const TERMINAL_LOCAL_FILE_RE = /(^|[\s(["'])((?:~\/|\/|[A-Za-z]:[\\/])(?:[^\s"'<
 
 // external=true (Ctrl/Cmd+click, #69) → open in the configured external editor;
 // otherwise open in the integrated file panel.
+// Shared activate logic for xterm's linkHandler and the WebLinksAddon (#79).
+// xterm fires link activate on any mouseup button (no guard); only act on a
+// left-click so a right-click goes to the context menu instead of re-opening
+// the link. file:// links open in the integrated panel (external editor with
+// Ctrl/Cmd), everything else via the OS.
+function activateTerminalLink(sessionId, event, uri) {
+  if (event && typeof event.button === 'number' && event.button !== 0) return;
+  if (uri.startsWith('file://') && typeof openFileInPanel === 'function') {
+    openTerminalFileUri(sessionId, uri, !!(event && (event.ctrlKey || event.metaKey)));
+  } else {
+    window.api.openExternal(uri);
+  }
+}
+
 function openTerminalFilePath(sessionId, filePath, external = false) {
   if (!filePath) return;
   if (external) { window.api.openInEditor(filePath); return; }
@@ -958,17 +972,7 @@ function createTerminalEntry(session, opts = {}) {
       ? { windowsPty: { backend: 'conpty', buildNumber: window.api.windowsBuildNumber || undefined } }
       : {}),
     linkHandler: {
-      activate: (event, uri) => {
-        // xterm fires link activate on any mouseup button (no guard); only act
-        // on a left-click so a right-click goes to the context menu instead of
-        // re-opening the link.
-        if (event && typeof event.button === 'number' && event.button !== 0) return;
-        if (uri.startsWith('file://') && typeof openFileInPanel === 'function') {
-          openTerminalFileUri(sessionId, uri, !!(event && (event.ctrlKey || event.metaKey)));
-        } else {
-          window.api.openExternal(uri);
-        }
-      },
+      activate: (event, uri) => activateTerminalLink(sessionId, event, uri),
       hover: (_event, uri) => { hoveredLinkUri = uri; },
       leave: () => { hoveredLinkUri = null; },
       allowNonHttpProtocols: true,
@@ -995,14 +999,9 @@ function createTerminalEntry(session, opts = {}) {
 
   const fitAddon = new FitAddon.FitAddon();
   terminal.loadAddon(fitAddon);
-  terminal.loadAddon(new WebLinksAddon.WebLinksAddon((event, url) => {
-    if (event && typeof event.button === 'number' && event.button !== 0) return;
-    if (url.startsWith('file://') && typeof openFileInPanel === 'function') {
-      openTerminalFileUri(sessionId, url, !!(event && (event.ctrlKey || event.metaKey)));
-    } else {
-      window.api.openExternal(url);
-    }
-  }, { hover: (_event, url) => { hoveredLinkUri = url; }, leave: () => { hoveredLinkUri = null; } }));
+  terminal.loadAddon(new WebLinksAddon.WebLinksAddon(
+    (event, url) => activateTerminalLink(sessionId, event, url),
+    { hover: (_event, url) => { hoveredLinkUri = url; }, leave: () => { hoveredLinkUri = null; } }));
   registerLocalFileLinkProvider(terminal, sessionId);
   const searchAddon = new SearchAddon.SearchAddon();
   terminal.loadAddon(searchAddon);
