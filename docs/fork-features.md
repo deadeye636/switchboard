@@ -325,7 +325,11 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
   OS-default fallback), and a batch of **Windows ConPTY** rendering fixes.
 - **Terminal renderer robustness** — a VSCode-style **`gpuAcceleration` mode (Auto / On / Off)**:
   Auto tries WebGL and auto-falls back to the DOM renderer for all terminals once the GPU/driver
-  drops or corrupts a WebGL context (ports VSCode's suggested-renderer fallback). Plus a
+  drops or corrupts a WebGL context (ports VSCode's suggested-renderer fallback). Every open terminal
+  holds its GL context for its whole lifetime, so Chromium's per-renderer budget is **raised from 16
+  to 32** (`--max-active-webgl-contexts`) — well above the terminal LRU cap, so a normal session never
+  overflows it. A context that is lost anyway now **re-fits and repaints** instead of silently keeping
+  a stale WebGL fit on the DOM renderer. Plus a
   **devicePixelRatio re-fit** — on a DPR change (monitor switch, display scaling, zoom) every open
   terminal is re-fit so xterm's DOM cell grid can't drift into garbled/misaligned text (xterm.js#6015).
   On Windows, PTYs run on **node-pty's bundled conpty.dll** (Windows Terminal codebase) instead of

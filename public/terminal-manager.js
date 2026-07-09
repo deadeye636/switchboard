@@ -1135,9 +1135,10 @@ function createTerminalEntry(session, opts = {}) {
 //             new terminal re-attempt and re-corrupt WebGL. The suggestion resets on a
 //             config change so switching the setting retries WebGL.
 // Silent texture-atlas corruption emits no event, so 'auto' cannot auto-catch that case
-// (same limitation as VSCode) — the user picks 'off' for it. GL-context budget (~16 per
-// process) is still managed by tabs binding GL to the active terminal and the grid
-// suspending off-screen cards; the stale-atlas "staircase" is handled by forceRepaint().
+// (same limitation as VSCode) — the user picks 'off' for it. The GL-context budget is
+// raised to 32 per renderer process (main.js) and bounded from below by the LRU cap and
+// the grid suspending off-screen cards; the stale-atlas "staircase" is handled by
+// forceRepaint(), and a lost context re-fits (see onContextLoss).
 let gpuAcceleration = 'auto';   // 'auto' | 'on' | 'off'
 let suggestedRenderer;          // undefined until a WebGL failure suggests 'dom' (VSCode parity)
 
@@ -1180,6 +1181,17 @@ function loadTerminalWebgl(entry) {
       try { webglAddon.dispose(); } catch { /* ignore */ }
       if (entry.webglAddon === webglAddon) entry.webglAddon = null;
       suggestDomRenderer('context loss'); // future terminals go DOM in 'auto'
+      // xterm keeps running on its DOM renderer, whose cell metrics differ from
+      // WebGL's (xterm.js#6015). Every other renderer switch re-fits — load below,
+      // and the grid-suspend restore in showSession — but this path did not, so a
+      // terminal that lost its context kept a stale fit until the next tab switch
+      // (bottom-row clipping, same root cause as #81). Metrics settle only after a
+      // frame, so defer exactly like the restore path does.
+      requestAnimationFrame(() => {
+        if (openSessions.get(entry.session.sessionId) !== entry) return;
+        safeFit(entry);
+        try { entry.terminal.refresh(0, entry.terminal.rows - 1); } catch { /* ignore */ }
+      });
     });
     entry.terminal.loadAddon(webglAddon);
     entry.webglAddon = webglAddon;
@@ -1340,8 +1352,8 @@ function showSession(sessionId) {
         // invalidating the cached fit right after the clip self-heal ran with
         // stale metrics — the "half a row offscreen after a tab switch" bug.
         // All open tabs keep their GL context instead: the LRU cap (12) stays
-        // under Chromium's ~16 context limit, and a lost context auto-falls
-        // back to the DOM renderer. Only restore THIS terminal's GL if it lost
+        // under Chromium's context limit (raised to 32 in main.js), and a lost
+        // context auto-falls back to the DOM renderer. Only restore THIS terminal's GL if it lost
         // it earlier (grid off-screen suspend) — a one-time renderer switch,
         // followed by a deferred re-fit because the cell metrics may have
         // shifted and the render service reports them only after a frame.

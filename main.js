@@ -31,6 +31,18 @@ function applyLogLevel(level) {
 }
 applyLogLevel(DEFAULT_LOG_LEVEL);
 
+// Raise Chromium's per-renderer WebGL context budget (default 16). Every open
+// terminal holds a GL context for as long as it lives — since #81 removed the
+// per-tab suspend/restore, the renderer's LRU cap (12) was the only thing keeping
+// us under the default. Overflow is not fatal (Chromium kills the oldest context
+// and xterm falls back to its DOM renderer), but the swap shifts cell metrics, so
+// it must not happen during normal use. Chromium's own guidance is to stay under
+// the limit rather than raise it — a driver that runs out of GPU memory tends to
+// crash instead of reporting the error — so keep this modest and well above the
+// LRU cap, not unbounded. Must run before app ready.
+const MAX_ACTIVE_WEBGL_CONTEXTS = 32;
+app.commandLine.appendSwitch('max-active-webgl-contexts', String(MAX_ACTIVE_WEBGL_CONTEXTS));
+
 // Dev builds default to a separate SQLite DB so they don't race on
 // session_cache with a running installed app. Honors an explicit
 // SWITCHBOARD_DATA_DIR env var if set (test sandboxes, agent runs). This MUST
