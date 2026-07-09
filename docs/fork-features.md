@@ -268,6 +268,33 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
   restore, rename, and a per-project `.work-files/` browser (view, delete, JSON/JSONL export).
 - **Sidebar** — favorite projects, project sorting, an own favorites list, and a
   startup-collapse setting.
+- **Project tags + tag filter** — tag projects in the project settings via a chip editor
+  (type + Enter adds, `×` removes) with a datalist of existing tags for reuse and a per-chip
+  palette picker, including a custom color. Colored chips below the search bar filter the
+  sidebar with an **AND** match (a project must carry every selected tag). Tags live in their
+  own `project_tags` table; the filter itself is a pure, unit-tested module
+  (`public/project-tags-filter.js`).
+
+### Agent status signals
+- **Working detection for full-screen TUI sessions** — the CLI renders its busy spinner
+  inside the alternate screen buffer instead of emitting the OSC-0 title spinner the busy
+  detection relied on, so such sessions showed *Running* and never *Working*. A
+  `UserPromptSubmit` hook now marks the turn start; the existing `Stop` hook clears it.
+- **Live subagent status** — a running indicator on a subagent's nested sidebar item plus an
+  "N running" badge on the parent caret, driven by the `subagent-spawned`/`-completed` signals.
+- **Subagent activity overlay** — while a subagent works, the parent keeps its own status
+  (*Working* / *Running*) and its dot goes two-color: a green core (subagent working) inside
+  the parent's own ring. Subagent work is deliberately **not** a status of its own — with
+  async subagents the parent keeps generating rather than waiting. Two chained sources make
+  the accent continuous: a matcher-scoped `PreToolUse` hook lights it the instant a subagent
+  is launched, and the live spawn→complete window from the JSONL scan carries it for the real
+  duration. `PostToolUse` is deliberately *not* used — it fires when the async tool call
+  returns, seconds after launch and long before the subagent ends.
+- **Timed subagent sweep** — completion is decided by a stable-mtime timer, but the detection
+  only ran on file-watcher events, and a finished subagent stops writing (so it produces no
+  further events). A self-stopping sweep re-checks open subagents every few seconds, which
+  bounds completion latency instead of leaving it to the next unrelated file change.
+- Gated by a **Subagent live status** setting (default on).
 
 ### Terminal
 - Configurable **font / size / zoom** (Ctrl+mouse-wheel + status-bar buttons), **clipboard
