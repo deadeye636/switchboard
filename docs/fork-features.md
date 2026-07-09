@@ -97,7 +97,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   including retry-timing hints and high-usage (≥80%) emphasis.
 
 ### Spring cleaning (bulk session cleanup)
-`public/session-cleanup.js`, `public/spring-cleaning-effects.js`
+`public/session-cleanup.js`
 
 - Finds stale sessions safe to clear out:
   - **Age-based candidates** (inactive ≥ 3/7/30 days), excluding starred,
@@ -105,7 +105,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   - **"Abandoned short"** sessions — started, barely used, then left untouched
     (conservative bounds on messages, user turns, and cache-read tokens; unknown
     metrics are never flagged).
-- Selection summary (count + project span) and a celebratory cleanup effect.
+- Selection summary (count + project span).
 
 ### Accessibility hardening
 `public/a11y-utils.js`

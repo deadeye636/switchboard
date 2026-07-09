@@ -257,9 +257,6 @@ function showSpringCleaningDialog() {
     }
     close();
     loadProjects();
-    if (typeof playSpringCleaningParticles === 'function') {
-      playSpringCleaningParticles('confetti', document.body);
-    }
     showControlToast({
       message: `Archived ${ids.length} old session${ids.length === 1 ? '' : 's'}.`,
       actionLabel: 'Undo',
@@ -282,9 +279,6 @@ function showSpringCleaningDialog() {
 
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
-  if (typeof playSpringCleaningParticles === 'function') {
-    playSpringCleaningParticles('leaves', overlay);
-  }
   renderAgeOptions();
   refreshCandidates();
   dialog.querySelector('.spring-cleaning-close-btn').focus();
