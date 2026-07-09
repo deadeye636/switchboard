@@ -10,6 +10,7 @@ const log = require('electron-log');
 const attentionSource = require('./public/attention-source');
 // getFolderIndexMtimeMs moved to session-cache.js
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
+const { decideOsc94 } = require('./osc-busy');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rekeyMcpServer, cleanStaleLockFiles } = require('./mcp-bridge');
 const { fetchAndTransformUsage } = require('./claude-auth');
 const { withMainProcessUsageCache } = require('./usage-cache');
@@ -2973,6 +2974,8 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
           if (isBusy && !session._cliBusy) {
             session._cliBusy = true;
             session._oscIdle = false;
+            // Marks the flag as OSC-0-owned so a stray `9;4;0` can't clear it (#120).
+            session._busySource = 'osc0';
             log.debug(`[OSC 0] session=${currentId} → BUSY`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, true);
@@ -2980,6 +2983,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
           } else if (isIdle && session._cliBusy) {
             session._cliBusy = false;
             session._oscIdle = true;
+            session._busySource = null;
             log.debug(`[OSC 0] session=${currentId} → IDLE`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, false);
@@ -2994,14 +2998,27 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         // OSC 9;4 progress: 4;0; = clear/done, 4;1;N = running at N%, 4;2;N = error, 4;3; = indeterminate
         if (payload.startsWith('4;')) {
           const level = payload.split(';')[1];
-          if (level === '0') continue; // 4;0 is also used for clearing, making it unreliable as an idle signal
-          log.debug(`[OSC 9;4] session=${currentId} level=${level} payload="${payload}" wasBusy=${!!session._cliBusy}`);
-          if ((level === '1' || level === '2' || level === '3') && !session._cliBusy) {
+          const decision = decideOsc94(level, {
+            cliBusy: !!session._cliBusy,
+            busySource: session._busySource || null,
+            hooksEnabled: attentionHooksEnabled(),
+          });
+          log.debug(`[OSC 9;4] session=${currentId} level=${level} payload="${payload}" wasBusy=${!!session._cliBusy} → ${decision}`);
+          if (decision === 'set') {
             session._cliBusy = true;
             session._oscIdle = false;
-            log.debug(`[OSC 9;4] session=${currentId} → BUSY`);
+            session._busySource = 'osc94';
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, true);
+            }
+          } else if (decision === 'clear') {
+            // Release the latch this path set — otherwise a TUI dialog leaves the
+            // session on "Working" forever (#120).
+            session._cliBusy = false;
+            session._oscIdle = true;
+            session._busySource = null;
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('cli-busy-state', currentId, false);
             }
           }
         } else {
