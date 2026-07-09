@@ -423,7 +423,39 @@ if (typeof module !== 'undefined' && module.exports) {
     initialized = true;
   }
 
+  // Does a subagent work inside this session? Owned by app.js (#119/#121).
+  function isSubagentActive(sessionId) {
+    return typeof subagentActiveSessions !== 'undefined' && subagentActiveSessions.has(sessionId);
+  }
+
+  // Repaint the tab dots from the live status, without rebuilding the strip (#124).
+  // A rebuild on every busy edge would churn the DOM and cancel a tab drag, so the
+  // status classes are patched in place — the same trade-off patchSidebarStatuses
+  // makes. Returns false when there is nothing to patch, so the caller can fall
+  // back to a full render.
+  function patchTabStatuses() {
+    const strip = stripEl();
+    if (!strip) return false;
+    const tabs = strip.querySelectorAll('.session-tab');
+    if (!tabs.length) return false;
+    const runtime = (typeof getSessionRuntimeState === 'function') ? getSessionRuntimeState() : {};
+    const statusClasses = (typeof SESSION_STATUS_CLASSES !== 'undefined') ? SESSION_STATUS_CLASSES : [];
+    for (const tab of tabs) {
+      const sid = tab.dataset.sessionId;
+      const session = (typeof sessionMap !== 'undefined') ? sessionMap.get(sid) : null;
+      const status = (session && typeof getSessionStatus === 'function') ? getSessionStatus(session, runtime) : null;
+      if (status && !tab.classList.contains(status.className)) {
+        if (statusClasses.length) tab.classList.remove(...statusClasses);
+        tab.classList.add(status.className);
+      }
+      // Subagent activity is an overlay on the dot, not a status of its own (#123).
+      tab.classList.toggle('subagent-active', isSubagentActive(sid));
+    }
+    return true;
+  }
+
   window.refreshSessionTabs = refreshSessionTabs;
+  window.patchTabStatuses = patchTabStatuses;
   window.scheduleTabAutoClose = scheduleTabAutoClose;
   window.cancelTabAutoClose = cancelTabAutoClose;
   // Close a tab immediately (deliberate stop/archive) — switches to a neighbour or

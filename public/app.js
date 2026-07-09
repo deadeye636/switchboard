@@ -411,6 +411,11 @@ function refreshSessionStatusViews() {
     if (typeof patchSidebarStatuses !== 'function' || !patchSidebarStatuses()) refreshSidebar();
   }
   if (gridViewActive) refreshGridView();
+  // Tabs read their status at render time, and were only repainted when something
+  // else happened to call loadProjects(). Patch them on the edge itself (#124).
+  if (typeof window.patchTabStatuses === 'function' && !window.patchTabStatuses()) {
+    if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
+  }
   announceAttentionSummary();
   syncNativeNotifications();
 }
