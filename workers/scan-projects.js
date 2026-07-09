@@ -2,23 +2,16 @@ const { parentPort, workerData } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
 const { getFolderIndexMtimeMs } = require('../folder-index-state');
-const { deriveProjectPath } = require('../derive-project-path');
-const { readSessionFile, enumerateSessionFiles } = require('../read-session-file');
+const { readFolderSessions } = require('../read-folder-sessions');
 
 const PROJECTS_DIR = workerData.projectsDir;
 
 function readFolderFromFilesystem(folder) {
-  const folderPath = path.join(PROJECTS_DIR, folder);
-  const projectPath = deriveProjectPath(folderPath, folder);
+  // Capture the index mtime before reading sessions so a concurrent index
+  // write during the read still triggers the next refresh.
+  const indexMtimeMs = getFolderIndexMtimeMs(path.join(PROJECTS_DIR, folder));
+  const { projectPath, sessions } = readFolderSessions(PROJECTS_DIR, folder);
   if (!projectPath) return null;
-  const sessions = [];
-  const indexMtimeMs = getFolderIndexMtimeMs(folderPath);
-
-  for (const { filePath, parentSessionId } of enumerateSessionFiles(folderPath)) {
-    const s = readSessionFile(filePath, folder, projectPath, { parentSessionId });
-    if (s) sessions.push(s);
-  }
-
   return { folder, projectPath, sessions, indexMtimeMs };
 }
 

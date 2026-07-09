@@ -4,6 +4,7 @@ const { Worker } = require('worker_threads');
 const { getFolderIndexMtimeMs } = require('./folder-index-state');
 const { deriveProjectPath } = require('./derive-project-path');
 const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId } = require('./read-session-file');
+const { readFolderSessions } = require('./read-folder-sessions');
 const { encodeProjectPath } = require('./encode-project-path');
 
 /**
@@ -47,16 +48,7 @@ function init(ctx) {
 
 /** Read one folder from filesystem by scanning .jsonl files directly */
 function readFolderFromFilesystem(folder) {
-  const folderPath = path.join(PROJECTS_DIR, folder);
-  const projectPath = deriveProjectPath(folderPath, folder);
-  if (!projectPath) return { projectPath: null, sessions: [] };
-  const sessions = [];
-
-  for (const { filePath, parentSessionId } of enumerateSessionFiles(folderPath)) {
-    const s = readSessionFile(filePath, folder, projectPath, { parentSessionId });
-    if (s) sessions.push(s);
-  }
-
+  const { projectPath, sessions } = readFolderSessions(PROJECTS_DIR, folder);
   return { projectPath, sessions };
 }
 
@@ -67,7 +59,7 @@ function readFolderFromFilesystem(folder) {
 function folderProjectPath(folder, folderPath) {
   const knownMeta = getFolderMeta ? getFolderMeta(folder) : null;
   if (knownMeta && knownMeta.projectPath && fs.existsSync(knownMeta.projectPath)) return knownMeta.projectPath;
-  return deriveProjectPath(folderPath, folder);
+  return deriveProjectPath(folderPath);
 }
 
 function isHiddenProject(projectPath) {
@@ -480,7 +472,7 @@ function buildProjectsFromCache(showArchived) {
     for (const d of dirs) {
       let projectPath = folderMeta.get(d.name)?.projectPath;
       if (!projectPath) {
-        projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name), d.name);
+        projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name));
         if (projectPath) setFolderMeta(d.name, projectPath, 0);
       }
       if (!projectPath) continue;
@@ -600,7 +592,7 @@ function buildProjectsAdmin() {
     for (const d of dirs) {
       let projectPath = folderMeta.get(d.name)?.projectPath;
       if (!projectPath) {
-        projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name), d.name);
+        projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name));
         if (projectPath) setFolderMeta(d.name, projectPath, 0);
       }
       if (projectPath) ensure(projectPath);

@@ -897,7 +897,7 @@ ipcMain.handle('delete-project-sessions', (_event, projectPath) => {
       .filter(d => d.isDirectory() && d.name !== '.git');
     for (const d of dirs) {
       const folderPath = path.join(PROJECTS_DIR, d.name);
-      const pp = deriveProjectPath(folderPath, d.name);
+      const pp = deriveProjectPath(folderPath);
       if (pp !== projectPath && d.name !== encoded) continue;
       // Safety: never remove anything outside PROJECTS_DIR.
       const resolved = path.resolve(folderPath);
@@ -1537,7 +1537,7 @@ ipcMain.handle('get-memories', () => {
 
       for (const folder of folders) {
         const folderPath = path.join(PROJECTS_DIR, folder);
-        const projectPath = deriveProjectPath(folderPath, folder);
+        const projectPath = deriveProjectPath(folderPath);
         if (projectPath && hiddenProjects.has(projectPath)) continue;
 
         // Use same 2-deep short path as Sessions tab (e.g. "dev/MyClaude")
@@ -1722,7 +1722,7 @@ ipcMain.handle('get-work-files', () => {
 
       for (const folder of folders) {
         const folderPath = path.join(PROJECTS_DIR, folder);
-        const projectPath = deriveProjectPath(folderPath, folder);
+        const projectPath = deriveProjectPath(folderPath);
         if (!projectPath) continue;
         if (hiddenProjects.has(projectPath)) continue;
 
