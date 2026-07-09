@@ -4723,9 +4723,8 @@ mark.jsonl-search-hit-active {
 /* Hover reveal lives in the grouped archive/new/settings rule near the
    project-header styles. */
 .project-settings-btn:hover {
-  background: rgba(255,255,255,0.04);
-  border-color: rgba(255,255,255,0.12);
-  color: #888;
+  background: rgba(255,255,255,0.08);
+  color: #c0c0d0;
 }
 
 /* Project favorite (star) button — mirrors the settings button base style. */
