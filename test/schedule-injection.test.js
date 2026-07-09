@@ -130,3 +130,19 @@ test('quoteArgForShell produces cmd.exe-safe quoting (issue #76)', () => {
   // quotes is a documented limitation of this fallback path, not our mangling.
   assert.equal(quoteArgForShell('cmd.exe', '%PATH%'), '"%PATH%"');
 });
+
+test('quoteArgForShell leaves bare-safe cmd.exe tokens unquoted', () => {
+  // node-pty's argsToCommandLine escapes embedded `"` as `\"`, which cmd.exe
+  // does not understand — needless quotes around plain tokens reach the child
+  // argv as literal quote chars (the Claude CLI then eats "--session-id" as a
+  // positional prompt). Flags, UUIDs and plain paths must stay bare.
+  assert.equal(quoteArgForShell('cmd.exe', '--session-id'), '--session-id');
+  assert.equal(quoteArgForShell('cmd.exe', '0197c1a2-1111-2222-3333-444455556666'),
+    '0197c1a2-1111-2222-3333-444455556666');
+  assert.equal(quoteArgForShell('cmd.exe', '--ide'), '--ide');
+  assert.equal(quoteArgForShell('cmd.exe', 'C:\\Projects\\demo'), 'C:\\Projects\\demo');
+  // Anything with whitespace still gets quoted.
+  assert.equal(quoteArgForShell('cmd.exe', 'two words'), '"two words"');
+  // Empty stays a quoted empty token, not a vanished argument.
+  assert.equal(quoteArgForShell('cmd.exe', ''), '""');
+});

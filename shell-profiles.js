@@ -209,14 +209,23 @@ function quoteArgForShell(shellPath, value) {
     // PowerShell: single-quoted string, escape ' as ''
     return "'" + s.replace(/'/g, "''") + "'";
   }
-  // cmd.exe: wrap in double quotes and double any embedded quote ("" is cmd's
+  // cmd.exe: quote only when the token needs it. The built command string is
+  // passed to pty.spawn as an argv element and node-pty's argsToCommandLine
+  // escapes any embedded `"` as `\"` — an escape cmd.exe does NOT understand —
+  // so unnecessary quotes around plain tokens (--flags, UUIDs) arrive in the
+  // child argv as literal quote characters; the Claude CLI then treats them as
+  // a positional prompt instead of flags. Bare-safe tokens skip quoting.
+  if (s !== '' && /^[A-Za-z0-9_\-.:\\/+@#~=]+$/.test(s)) return s;
+  // Otherwise wrap in double quotes and double any embedded quote ("" is cmd's
   // in-quote escape; \" is NOT). Inside quotes cmd already treats & | < > ^ ( )
   // literally, so do NOT ^-escape them — the old code injected a stray caret
   // (a&b arrived as a^&b). NOTE: cmd still expands %VAR% even inside quotes and
   // there is no reliable command-line escape for %, so a value containing %NAME%
   // for a defined env var can expand — callers must avoid feeding untrusted %
   // to a cmd.exe shell (this path is only hit when the resolved shell is cmd.exe,
-  // i.e. the COMSPEC fallback or an explicit cmd config) (issue #76).
+  // i.e. the COMSPEC fallback or an explicit cmd config) (issue #76). Values
+  // that DO need quotes (embedded spaces) still collide with node-pty's \"
+  // escaping — a known residual limitation of the cmd fallback path.
   const escaped = s.replace(/"/g, '""');
   return '"' + escaped + '"';
 }
