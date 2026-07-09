@@ -2037,6 +2037,8 @@ input:focus-visible {
 
 .session-stop-btn {
   color: #9b4058;
+  /* Hidden by default — .has-running-pty reveals it below. */
+  display: none;
 }
 
 .session-launch-config-btn {
@@ -2097,10 +2099,6 @@ input:focus-visible {
 .session-archive-btn:hover {
   color: #8088ff;
   background: rgba(120,130,255,0.1);
-}
-
-.session-stop-btn {
-  display: none;
 }
 
 .session-item.has-running-pty .session-stop-btn {
@@ -2681,6 +2679,8 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
   top: -14px;
   z-index: 4;
   border-radius: 8px 8px 0 0;
+  /* Header doubles as the drag handle — no touch scrolling from it. */
+  touch-action: none;
 }
 
 /* Inside a group region the region header is itself sticky at top:0, so tuck the
@@ -2837,6 +2837,8 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
 
 /* Grid card wrapper */
 .grid-card {
+  /* Anchors the corner resize handle and hosts drag/drop affordances. */
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -4718,10 +4720,8 @@ mark.jsonl-search-hit-active {
   display: block;
 }
 
-.project-header:hover .project-settings-btn {
-  opacity: 1;
-}
-
+/* Hover reveal lives in the grouped archive/new/settings rule near the
+   project-header styles. */
 .project-settings-btn:hover {
   background: rgba(255,255,255,0.04);
   border-color: rgba(255,255,255,0.12);
@@ -6692,6 +6692,9 @@ body.sidebar-session-dragging * {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* Collapsible (mirrors the sidebar user-group caret) — header is a click target. */
+  cursor: pointer;
+  user-select: none;
   /* Full-bleed sticky bar: negative margins span #terminals' horizontal padding
      (10px left / 16px right) so the solid background covers the entire strip and
      nothing behind shows through above or beside the header while scrolling. */
@@ -6748,10 +6751,6 @@ body.sidebar-session-dragging * {
 }
 
 /* Collapsible grid group regions (mirror the sidebar user-group caret) */
-.grid-region-header {
-  cursor: pointer;
-  user-select: none;
-}
 .grid-region-expand {
   flex-shrink: 0;
   width: 16px;
@@ -6867,11 +6866,6 @@ body.sidebar-session-dragging * {
   background: rgba(128,136,255,0.1);
 }
 
-/* Cards anchor the corner resize handle and host drag/drop affordances. */
-.grid-card {
-  position: relative;
-}
-
 .grid-card-resize-handle {
   position: absolute;
   right: 2px;
@@ -6894,10 +6888,6 @@ body.sidebar-session-dragging * {
 }
 .grid-card-resize-handle:hover {
   opacity: 1;
-}
-
-.grid-card-header {
-  touch-action: none;
 }
 
 /* Drag affordances */
