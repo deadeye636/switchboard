@@ -262,4 +262,22 @@ function shellArgs(shellPath, cmd, extraArgs) {
   return [];
 }
 
-module.exports = { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, quoteArgForShell, quoteArgvForShell };
+// Spawn args for node-pty specifically. Identical to shellArgs() except for the
+// cmd.exe fallback branch: node-pty's argsToCommandLine joins an argv ARRAY by
+// escaping embedded `"` as `\"` — an escape cmd.exe does not understand — so
+// quoted values (spaces in --append-system-prompt, --add-dir paths) reach the
+// child argv mangled. A STRING is appended to the command line verbatim, which
+// keeps our cmd quoting byte-exact. String args are Windows-only in node-pty
+// (unix throws), but the cmd.exe branch can only resolve on Windows (COMSPEC
+// fallback or explicit cmd profile) — every other shell keeps the array form,
+// so macOS/Linux behaviour is unchanged. Do NOT use this for child_process
+// spawns (those need an array; see runScheduleCommand's verbatim flag instead).
+function ptyShellArgs(shellPath, cmd, extraArgs) {
+  const args = shellArgs(shellPath, cmd, extraArgs);
+  if (Array.isArray(args) && args.length === 2 && args[0] === '/C') {
+    return '/C ' + args[1];
+  }
+  return args;
+}
+
+module.exports = { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, ptyShellArgs, quoteArgForShell, quoteArgvForShell };

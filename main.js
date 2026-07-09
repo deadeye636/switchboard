@@ -59,7 +59,7 @@ const cleanPtyEnv = Object.fromEntries(
 );
 
 // Shell profiles → shell-profiles.js
-const { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, quoteArgvForShell } = require('./shell-profiles');
+const { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, ptyShellArgs, quoteArgvForShell } = require('./shell-profiles');
 const { startScheduler } = require('./schedule-runner');
 const { encodeProjectPath } = require('./encode-project-path');
 const { afkTimeoutToEnvMs, resolveAfkTimeoutSec } = require('./afk-timeout');
@@ -2847,7 +2847,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       // for PowerShell/cmd, so don't set them there.
       if (isBashLike) { env.ENV = bashShim; env.BASH_ENV = bashShim; }
 
-      ptyProcess = pty.spawn(shell, shellArgs(shell, undefined, shellExtraArgs), {
+      ptyProcess = pty.spawn(shell, ptyShellArgs(shell, undefined, shellExtraArgs), {
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
@@ -2956,7 +2956,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         }
       }
 
-      ptyProcess = pty.spawn(shell, shellArgs(shell, claudeCmd, shellExtraArgs), {
+      ptyProcess = pty.spawn(shell, ptyShellArgs(shell, claudeCmd, shellExtraArgs), {
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
@@ -3446,11 +3446,17 @@ if (!gotSingleInstanceLock) {
       const cmd = 'claude ' + quoteArgvForShell(shell, claudeArgv);
       const args = shellArgs(shell, cmd, profile.args || []);
 
+      // cmd.exe: Node's default arg joining escapes embedded `"` as `\"`, which
+      // cmd does not understand — pass the pre-quoted line verbatim instead
+      // (same failure class as the node-pty launch path, see ptyShellArgs).
+      const isCmdShell = path.basename(shell).toLowerCase().startsWith('cmd');
+
       log.info(`[schedule] Running: ${shell} ${args.join(' ')}`);
       const child = cpSpawn(shell, args, {
         cwd,
         stdio: ['ignore', 'ignore', 'pipe'],
         env: { ...cleanPtyEnv, FORCE_COLOR: '0' },
+        windowsVerbatimArguments: isCmdShell,
       });
 
       let stderr = '';

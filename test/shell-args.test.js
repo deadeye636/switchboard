@@ -5,7 +5,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { shellArgs } = require('../shell-profiles');
+const { shellArgs, ptyShellArgs } = require('../shell-profiles');
 
 test('shellArgs: bash-like with a command → login+interactive -c', () => {
   assert.deepEqual(shellArgs('/bin/bash', 'ls', null), ['-l', '-i', '-c', 'ls']);
@@ -36,6 +36,26 @@ test('shellArgs: PowerShell / pwsh', () => {
 test('shellArgs: cmd.exe (else branch)', () => {
   assert.deepEqual(shellArgs('C:/Windows/System32/cmd.exe', 'dir', null), ['/C', 'dir']);
   assert.deepEqual(shellArgs('C:/Windows/System32/cmd.exe', null, null), []);
+});
+
+test('ptyShellArgs: cmd.exe gets the command line as a verbatim string', () => {
+  // node-pty appends string args verbatim (Windows only) — array joining would
+  // escape embedded `"` as `\"`, which cmd.exe does not understand, mangling
+  // quoted values (spaces in --append-system-prompt, --add-dir paths).
+  assert.equal(ptyShellArgs('C:/Windows/System32/cmd.exe', 'claude --ide "a b"', null),
+    '/C claude --ide "a b"');
+  // Without a command (plain terminal) cmd keeps the empty array.
+  assert.deepEqual(ptyShellArgs('C:/Windows/System32/cmd.exe', null, null), []);
+});
+
+test('ptyShellArgs: every non-cmd shell keeps the array form (macOS/Linux unchanged)', () => {
+  assert.deepEqual(ptyShellArgs('/bin/bash', 'ls', null), ['-l', '-i', '-c', 'ls']);
+  assert.deepEqual(ptyShellArgs('/usr/bin/zsh', null, null), ['-l', '-i']);
+  assert.deepEqual(ptyShellArgs('/usr/bin/fish', 'ls', null), ['-l', '-c', 'ls']);
+  assert.deepEqual(ptyShellArgs('C:/Program Files/PowerShell/7/pwsh.exe', 'gci', null),
+    ['-NoLogo', '-Command', 'gci']);
+  assert.deepEqual(ptyShellArgs('wsl.exe', 'ls', ['-d', 'Ubuntu']),
+    ['-d', 'Ubuntu', '--', 'bash', '-l', '-i', '-c', 'ls']);
 });
 
 test('shellArgs: WSL passes the command through -- to the distro bash', () => {
