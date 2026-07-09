@@ -1348,11 +1348,16 @@ function showSession(sessionId) {
         // shifted and the render service reports them only after a frame.
         if (shouldLoadWebgl() && !entry.webglAddon) {
           restoreTerminalWebgl(sessionId);
-          forceRepaint(entry);
           requestAnimationFrame(() => {
             if (openSessions.get(entry.session.sessionId) === entry) safeFit(entry);
           });
         }
+        // WebGL: the texture atlas may have been grown/recycled by another terminal
+        // while this tab was covered — its last painted frame then shows scrambled
+        // glyphs until the first write re-renders the cells (#118). Clear the atlas
+        // and repaint the full frame on every switch (no-op on the DOM renderer;
+        // also covers the context-restore path above).
+        forceRepaint(entry);
         entry.terminal.focus();
         // Self-heal for the sub-REFIT_TOL case: a switch that skipped the re-fit
         // above (height delta ≤ 8px) can still leave the bottom row clipped. Catch
@@ -1370,6 +1375,7 @@ function showSession(sessionId) {
         document.querySelectorAll('.terminal-container.visible').forEach(c => c.classList.remove('visible'));
         el.classList.add('visible');
         drainReplayBuffer(sessionId);
+        forceRepaint(entry); // stale WebGL atlas heal on reveal (#118); no-op on DOM renderer
         entry.terminal.focus();
         fitAndScroll(entry);
       }
