@@ -284,6 +284,10 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
   drops or corrupts a WebGL context (ports VSCode's suggested-renderer fallback). Plus a
   **devicePixelRatio re-fit** — on a DPR change (monitor switch, display scaling, zoom) every open
   terminal is re-fit so xterm's DOM cell grid can't drift into garbled/misaligned text (xterm.js#6015).
+  On Windows, PTYs run on **node-pty's bundled conpty.dll** (Windows Terminal codebase) instead of
+  the in-box conhost ConPTY, which leaves stale/duplicated rows (e.g. a doubled status line) during
+  rapid in-place redraws — the same escape hatch as VSCode's `windowsUseConptyDll`. An advanced
+  **Windows ConPTY setting (Bundled / System)** falls back to the OS pseudo-console without a rebuild.
 - **Bookmarks & session tags** (SQLite) — per-message transcript bookmarks with a hover gutter
   (bookmark / copy / create task); session-level bookmarking removed in favor of the pin.
 - **Task / note system** (SQLite) — scoped tasks (project / session / message) with status

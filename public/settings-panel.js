@@ -174,7 +174,10 @@
     // Notifications (global only) — alert sound on attention + read-only hotkey hint.
     const attentionSoundValue = !!((current.notifications || {}).sound);
     const isMacPlatform = !!(window.api && window.api.platform === 'darwin');
+    const isWinPlatform = !!(window.api && window.api.platform === 'win32');
     const nextAttentionShortcutLabel = isMacPlatform ? '⌘⇧A' : 'Ctrl+Shift+A';
+    // ConPTY backend (#114, Windows only): bundled conpty.dll vs OS pseudo-console.
+    const conptyBackendValue = fieldValue('conptyBackend', 'bundled') === 'system' ? 'system' : 'bundled';
 
     // Notifications live in the global blob under `notifications`.
     const notificationsValue = (!isProject && current.notifications) || {};
@@ -651,6 +654,21 @@
                     </div>
                   </div>
                 </div>
+                ${isWinPlatform ? `<div class="settings-section">
+                  <div class="settings-field">
+                    <div class="settings-field-info">
+                      <div class="settings-field-header"><span class="settings-label">Windows ConPTY</span>${help}</div>
+                      <div class="settings-description">Pseudo-console backend for terminals. Applies to newly started terminals.</div>
+                      <div class="settings-more">Bundled uses the conpty.dll shipped with the app (Windows Terminal codebase) instead of the in-box Windows ConPTY. The system one mis-handles rapid in-place redraws, leaving stale or duplicated rows (e.g. a doubled status line) that only a resize clears. Pick System to fall back to the OS pseudo-console if terminals misbehave.</div>
+                    </div>
+                    <div class="settings-field-control">
+                      <select class="settings-select" id="sv-conpty-backend">
+                        <option value="bundled" ${conptyBackendValue === 'bundled' ? 'selected' : ''}>Bundled (recommended)</option>
+                        <option value="system" ${conptyBackendValue === 'system' ? 'selected' : ''}>System</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>` : ''}
                 <div class="settings-section">
                   <div class="settings-section-title">Saved variables</div>
                   <div class="settings-field">
@@ -1365,6 +1383,11 @@
         settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').value || 'native';
         settings.externalEditorCommand = (settingsViewerBody.querySelector('#sv-external-editor')?.value || '').trim();
         settings.gpuAcceleration = settingsViewerBody.querySelector('#sv-gpu-acceleration').value || 'auto';
+        // Select only rendered on Windows — keep the stored value elsewhere.
+        {
+          const conptyEl = settingsViewerBody.querySelector('#sv-conpty-backend');
+          if (conptyEl) settings.conptyBackend = conptyEl.value === 'system' ? 'system' : 'bundled';
+        }
         settings.terminalCloseBehavior = settingsViewerBody.querySelector('#sv-terminal-close-behavior').value || 'kill';
         settings.settingsOpenMode = settingsViewerBody.querySelector('#sv-settings-open-mode').value || 'overlay';
         settings.sidebarCollapseDefault = settingsViewerBody.querySelector('#sv-collapse-default').value || 'remember';

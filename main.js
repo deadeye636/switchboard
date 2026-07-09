@@ -2345,6 +2345,7 @@ const SETTING_DEFAULTS = {
   terminalTheme: 'switchboard',
   mcpEmulation: false,
   shellProfile: 'auto',
+  conptyBackend: 'bundled',
 };
 
 ipcMain.handle('get-shell-profiles', () => {
@@ -2780,6 +2781,13 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     }
   }
 
+  // #114: prefer node-pty's bundled conpty.dll (Windows Terminal codebase) over the
+  // in-box conhost ConPTY. The OS one mis-handles rapid cursor-up + erase-line redraw
+  // cycles (Claude CLI's spinner), leaving stale/duplicated rows that only a resize
+  // repaint clears. 'system' falls back to the OS ConPTY (the node-pty flag is
+  // experimental). No effect on non-Windows platforms.
+  const useConptyDll = isWindows && (getSetting('global') || {}).conptyBackend !== 'system';
+
   let ptyProcess;
   let mcpServer = null;
   try {
@@ -2810,6 +2818,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         rows: 30,
         cwd: isWsl ? os.homedir() : projectPath,
         env,
+        useConptyDll,
       });
 
       // ENV/BASH_ENV don't apply to zsh/pwsh/cmd — write the shell-appropriate
@@ -2921,6 +2930,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         // OSC 9 notifications (e.g. "needs your attention"). Without it, the packaged
         // app's minimal Electron environment won't trigger those sequences.
         env: ptyEnv,
+        useConptyDll,
       });
 
     }

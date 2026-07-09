@@ -19,7 +19,7 @@
     "build:win": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --win",
     "build:linux": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --linux",
     "release": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --publish always",
-    "postinstall": "patch-package && node scripts/postinstall.js"
+    "postinstall": "patch-package && node scripts/postinstall.js && node scripts/ensure-conpty-dll.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -61,6 +61,7 @@
   "build": {
     "appId": "ai.doctly.switchboard",
     "productName": "Switchboard",
+    "beforePack": "scripts/ensure-conpty-dll.js",
     "files": [
       "*.js",
       "build-info.json",
