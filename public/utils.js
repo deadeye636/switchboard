@@ -23,6 +23,18 @@ function cleanDisplayName(name) {
   return name;
 }
 
+// Clamp a usage warn/crit threshold pair (%): warn 1..99, crit warn+1..100,
+// non-numeric inputs fall back to the given defaults. Shared by the status-bar
+// usage colouring (app.js) and the settings-panel save path (#79).
+function clampUsageThreshold(warn, crit, defWarn, defCrit) {
+  let w = Number(warn), c = Number(crit);
+  if (!Number.isFinite(w)) w = defWarn;
+  if (!Number.isFinite(c)) c = defCrit;
+  w = Math.max(1, Math.min(99, w));
+  c = Math.max(w + 1, Math.min(100, c));
+  return { warn: w, crit: c };
+}
+
 function formatDate(date) {
   const now = new Date();
   const diff = now - date;

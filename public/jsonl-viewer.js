@@ -345,17 +345,7 @@ const toolRenderers = {
       const rawNested = result.entries;
       const nestedEntries = mergeLocalCommandEntries(rawNested);
 
-      // Build tool result map for nested entries
-      const nestedResultMap = new Map();
-      for (const entry of nestedEntries) {
-        const blocks = entry.message?.content || entry.content;
-        if (!Array.isArray(blocks)) continue;
-        for (const b of blocks) {
-          if (b.type === 'tool_result' && b.tool_use_id) {
-            nestedResultMap.set(b.tool_use_id, b.content || b.output || '');
-          }
-        }
-      }
+      const nestedResultMap = buildToolResultMap(nestedEntries);
 
       const prevSessionId = currentViewerSessionId;
       currentViewerSessionId = subSessionId;
@@ -495,6 +485,35 @@ function mergeLocalCommandBlocks(blocks) {
   return result;
 }
 
+// Build tool_use_id → result content map so results render under their tool
+// call. Shared by the main viewer, the subagent transcript, and nested Agent
+// block expansion (#79).
+function buildToolResultMap(entries) {
+  const toolResultMap = new Map();
+  for (const entry of entries) {
+    const blocks = entry.message?.content || entry.content;
+    if (!Array.isArray(blocks)) continue;
+    for (const block of blocks) {
+      if (block.type === 'tool_result' && block.tool_use_id) {
+        toolResultMap.set(block.tool_use_id, block.content || block.output || '');
+      }
+    }
+  }
+  return toolResultMap;
+}
+
+// Fullscreen image overlay (click anywhere to dismiss) — shared by inline tool
+// screenshots and the post-render clickable-image wiring (#79).
+function openImageFullscreen(src) {
+  const overlay = document.createElement('div');
+  overlay.className = 'jsonl-screenshot-fullscreen';
+  const fullImg = document.createElement('img');
+  fullImg.src = src;
+  overlay.appendChild(fullImg);
+  overlay.onclick = () => overlay.remove();
+  document.body.appendChild(overlay);
+}
+
 // Render a tool result into a container, handling images, text, and mixed content
 function renderToolResult(resultData, container) {
   // Try to extract image data from the result
@@ -509,15 +528,7 @@ function renderToolResult(resultData, container) {
     imgEl.className = 'jsonl-tool-screenshot';
     imgEl.src = img.src;
     if (img.alt) imgEl.alt = img.alt;
-    imgEl.onclick = () => {
-      const overlay = document.createElement('div');
-      overlay.className = 'jsonl-screenshot-fullscreen';
-      const fullImg = document.createElement('img');
-      fullImg.src = img.src;
-      overlay.appendChild(fullImg);
-      overlay.onclick = () => overlay.remove();
-      document.body.appendChild(overlay);
-    };
+    imgEl.onclick = () => openImageFullscreen(img.src);
     container.appendChild(imgEl);
   }
 }
@@ -747,17 +758,7 @@ async function showJsonlViewer(session) {
   // Merge consecutive local command entries (caveat + bash-input + stdout/stderr)
   const entries = mergeLocalCommandEntries(rawEntries);
 
-  // Build tool_use_id → result content map so results render under their tool call
-  const toolResultMap = new Map();
-  for (const entry of entries) {
-    const blocks = entry.message?.content || entry.content;
-    if (!Array.isArray(blocks)) continue;
-    for (const block of blocks) {
-      if (block.type === 'tool_result' && block.tool_use_id) {
-        toolResultMap.set(block.tool_use_id, block.content || block.output || '');
-      }
-    }
-  }
+  const toolResultMap = buildToolResultMap(entries);
 
   let rendered = 0;
   let entryIndex = 0;
@@ -782,15 +783,7 @@ async function showJsonlViewer(session) {
 
   // Click-to-fullscreen for inline images
   jsonlViewerBody.querySelectorAll('.jsonl-clickable-img').forEach(img => {
-    img.onclick = () => {
-      const overlay = document.createElement('div');
-      overlay.className = 'jsonl-screenshot-fullscreen';
-      const fullImg = document.createElement('img');
-      fullImg.src = img.src;
-      overlay.appendChild(fullImg);
-      overlay.onclick = () => overlay.remove();
-      document.body.appendChild(overlay);
-    };
+    img.onclick = () => openImageFullscreen(img.src);
   });
 
   // Scroll to the bottom so the most recent messages are visible
@@ -846,17 +839,7 @@ async function showSubagentTranscript(session) {
   const rawEntries = result.entries || [];
   const entries = mergeLocalCommandEntries(rawEntries);
 
-  // Build tool_use_id → result content map
-  const toolResultMap = new Map();
-  for (const entry of entries) {
-    const blocks = entry.message?.content || entry.content;
-    if (!Array.isArray(blocks)) continue;
-    for (const block of blocks) {
-      if (block.type === 'tool_result' && block.tool_use_id) {
-        toolResultMap.set(block.tool_use_id, block.content || block.output || '');
-      }
-    }
-  }
+  const toolResultMap = buildToolResultMap(entries);
 
   let rendered = 0;
   let entryIndex = 0;
@@ -880,15 +863,7 @@ async function showSubagentTranscript(session) {
 
   // Click-to-fullscreen for inline images
   jsonlViewerBody.querySelectorAll('.jsonl-clickable-img').forEach(img => {
-    img.onclick = () => {
-      const overlay = document.createElement('div');
-      overlay.className = 'jsonl-screenshot-fullscreen';
-      const fullImg = document.createElement('img');
-      fullImg.src = img.src;
-      overlay.appendChild(fullImg);
-      overlay.onclick = () => overlay.remove();
-      document.body.appendChild(overlay);
-    };
+    img.onclick = () => openImageFullscreen(img.src);
   });
 
   jsonlViewerBody.scrollTop = jsonlViewerBody.scrollHeight;

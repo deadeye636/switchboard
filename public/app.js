@@ -291,6 +291,27 @@ let visibleSessionCount = 10;
 let sessionMaxAgeDays = 3;
 const pendingSessions = new Map(); // sessionId → { session, projectPath, folder }
 
+// Inject a pending (not-yet-on-disk) session into the cached project lists so
+// the sidebar shows it immediately. Shared by the new-session/new-terminal
+// dialogs and the refresh reconcile loop (#79). The default list mirrors the
+// backend's archive exclusion: don't inject an archived pending session there,
+// or an otherwise-empty project looks non-empty and the sidebar's "all filtered
+// out" guard drops the whole project (kept in the archived list so undo still
+// works). Re-injection on refresh is deduped by sessionId.
+function injectPendingSession(session, projectPath, folder) {
+  for (const projList of [cachedProjects, cachedAllProjects]) {
+    if (projList === cachedProjects && session && session.archived) continue;
+    let proj = projList.find(p => p.projectPath === projectPath);
+    if (!proj) {
+      proj = { folder, projectPath, sessions: [] };
+      projList.unshift(proj);
+    }
+    if (!proj.sessions.some(s => s.sessionId === session.sessionId)) {
+      proj.sessions.unshift(session);
+    }
+  }
+}
+
 // Bridge functions for settings-panel.js
 window._setVisibleSessionCount = (v) => { visibleSessionCount = v; };
 window._setSessionMaxAge = (v) => { sessionMaxAgeDays = v; };
@@ -1816,22 +1837,7 @@ async function loadProjects({ resort = false } = {}) {
     } else {
       hasReinjected = true;
       // Still pending — re-inject into cached data
-      for (const projList of [cachedProjects, cachedAllProjects]) {
-        // The default list mirrors the backend's archive exclusion: don't
-        // re-inject an archived pending session there, or an otherwise-empty
-        // project looks non-empty and the sidebar's "all filtered out" guard
-        // drops the whole project (kept in the archived list so undo still works).
-        if (projList === cachedProjects && pending.session && pending.session.archived) continue;
-        let proj = projList.find(p => p.projectPath === pending.projectPath);
-        if (!proj) {
-          // Project not in list (no other sessions) — create a synthetic entry
-          proj = { folder: pending.folder, projectPath: pending.projectPath, sessions: [] };
-          projList.unshift(proj);
-        }
-        if (!proj.sessions.some(s => s.sessionId === sid)) {
-          proj.sessions.unshift(pending.session);
-        }
-      }
+      injectPendingSession(pending.session, pending.projectPath, pending.folder);
     }
   }
 
@@ -2711,14 +2717,7 @@ let cachedStatusBarUsage = null;
 // Usage colour thresholds (%): < warn = green, warn..crit = orange, >= crit = red.
 // Configurable per window (5h vs 7d) so 7d can be coloured differently; the Quota
 // bar reuses the 7d thresholds. Defaults mirror Claude's rough 60/80 guidance.
-function clampUsageThreshold(warn, crit, defWarn, defCrit) {
-  let w = Number(warn), c = Number(crit);
-  if (!Number.isFinite(w)) w = defWarn;
-  if (!Number.isFinite(c)) c = defCrit;
-  w = Math.max(1, Math.min(99, w));
-  c = Math.max(w + 1, Math.min(100, c));
-  return { warn: w, crit: c };
-}
+// clampUsageThreshold lives in utils.js (shared with the settings panel, #79).
 let usageThresholds = {
   session: { warn: 60, crit: 80 },   // 5h
   weekAll: { warn: 75, crit: 90 },   // 7d

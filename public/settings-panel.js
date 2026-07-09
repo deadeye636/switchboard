@@ -1374,11 +1374,11 @@
         settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
         settings.autoHideDays = parseInt(settingsViewerBody.querySelector('#sv-auto-hide-days').value) || 0;
         {
-          const clampPair = (warnSel, critSel, dWarn, dCrit) => {
-            const warn = Math.max(1, Math.min(99, parseInt(settingsViewerBody.querySelector(warnSel).value, 10) || dWarn));
-            const crit = Math.max(warn + 1, Math.min(100, parseInt(settingsViewerBody.querySelector(critSel).value, 10) || dCrit));
-            return { warn, crit };
-          };
+          // Clamp semantics shared with the status bar via utils.js (#79).
+          const clampPair = (warnSel, critSel, dWarn, dCrit) => clampUsageThreshold(
+            parseInt(settingsViewerBody.querySelector(warnSel).value, 10) || dWarn,
+            parseInt(settingsViewerBody.querySelector(critSel).value, 10) || dCrit,
+            dWarn, dCrit);
           const five = clampPair('#sv-usage-5h-warn', '#sv-usage-5h-crit', 60, 80);
           const seven = clampPair('#sv-usage-7d-warn', '#sv-usage-7d-crit', 75, 90);
           settings.usage5hWarn = five.warn;

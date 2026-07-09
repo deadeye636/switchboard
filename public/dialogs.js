@@ -59,14 +59,7 @@ async function launchScheduleCreator(project) {
   const folder = encodeProjectPath(project.projectPath);
   pendingSessions.set(result.sessionId, { session, projectPath: project.projectPath, folder });
   sessionMap.set(result.sessionId, session);
-  for (const projList of [cachedProjects, cachedAllProjects]) {
-    let proj = projList.find(p => p.projectPath === project.projectPath);
-    if (!proj) {
-      proj = { folder, projectPath: project.projectPath, sessions: [] };
-      projList.unshift(proj);
-    }
-    proj.sessions.unshift(session);
-  }
+  injectPendingSession(session, project.projectPath, folder);
   refreshSidebar();
 
   const entry = createTerminalEntry(session);
@@ -197,14 +190,7 @@ async function launchTerminalSession(project, groupId) {
 
   // Inject into cached project data
   sessionMap.set(sessionId, session);
-  for (const projList of [cachedProjects, cachedAllProjects]) {
-    let proj = projList.find(p => p.projectPath === projectPath);
-    if (!proj) {
-      proj = { folder, projectPath, sessions: [] };
-      projList.unshift(proj);
-    }
-    proj.sessions.unshift(session);
-  }
+  injectPendingSession(session, projectPath, folder);
   if (groupId && typeof assignSessionToGroup === 'function') {
     assignSessionToGroup(sessionId, groupId);
   } else {
@@ -226,6 +212,57 @@ async function launchTerminalSession(project, groupId) {
   pollActiveSessions();
 }
 
+// Shared permission-mode picker for the New-session and Resume dialogs (#79).
+// Owns the mode list, grid HTML, selection state, and click handling; callers
+// embed html() in their dialog markup, bind() the mounted grid element, and
+// applyTo() the launch options on confirm.
+const PERMISSION_MODES = [
+  { value: null, label: 'Default', desc: 'Prompt for all actions' },
+  { value: 'acceptEdits', label: 'Accept Edits', desc: 'Auto-accept file edits & common fs commands' },
+  { value: 'plan', label: 'Plan Mode', desc: 'Read-only exploration, no writes' },
+  { value: 'auto', label: 'Auto', desc: 'Auto-approve tool calls, background safety checks (preview)' },
+  { value: 'dontAsk', label: "Don't Ask", desc: 'Auto-deny tools unless pre-approved' },
+  { value: 'bypassPermissions', label: 'Bypass', desc: 'Skip all prompts except ask-rules & root/home removals' },
+];
+
+function createPermissionModePicker(effective) {
+  let selectedMode = effective.permissionMode || null;
+  let dangerousSkip = effective.dangerouslySkipPermissions || false;
+
+  const html = () =>
+    PERMISSION_MODES.map(m => {
+      const isSelected = !dangerousSkip && selectedMode === m.value;
+      return `<button class="permission-option${isSelected ? ' selected' : ''}" data-mode="${m.value}"><span class="perm-name">${m.label}</span><span class="perm-desc">${m.desc}</span></button>`;
+    }).join('') +
+    `<button class="permission-option dangerous${dangerousSkip ? ' selected' : ''}" data-mode="dangerous-skip"><span class="perm-name">Dangerous Skip</span><span class="perm-desc">Skip all safety prompts (use with caution)</span></button>`;
+
+  return {
+    html,
+    bind(gridEl) {
+      gridEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('.permission-option');
+        if (!btn) return;
+        const mode = btn.dataset.mode;
+        if (mode === 'dangerous-skip') {
+          dangerousSkip = !dangerousSkip;
+          if (dangerousSkip) selectedMode = null;
+        } else {
+          dangerousSkip = false;
+          selectedMode = mode === 'null' ? null : mode;
+        }
+        gridEl.innerHTML = html();
+      });
+    },
+    applyTo(options) {
+      if (dangerousSkip) {
+        options.dangerouslySkipPermissions = true;
+      } else if (selectedMode) {
+        options.permissionMode = selectedMode;
+      }
+    },
+  };
+}
+
 async function showNewSessionDialog(project, groupId) {
   const effective = await window.api.getEffectiveSettings(project.projectPath);
 
@@ -235,31 +272,13 @@ async function showNewSessionDialog(project, groupId) {
   const dialog = document.createElement('div');
   dialog.className = 'new-session-dialog';
 
-  let selectedMode = effective.permissionMode || null;
-  let dangerousSkip = effective.dangerouslySkipPermissions || false;
-
-  const modes = [
-    { value: null, label: 'Default', desc: 'Prompt for all actions' },
-    { value: 'acceptEdits', label: 'Accept Edits', desc: 'Auto-accept file edits & common fs commands' },
-    { value: 'plan', label: 'Plan Mode', desc: 'Read-only exploration, no writes' },
-    { value: 'auto', label: 'Auto', desc: 'Auto-approve tool calls, background safety checks (preview)' },
-    { value: 'dontAsk', label: "Don't Ask", desc: 'Auto-deny tools unless pre-approved' },
-    { value: 'bypassPermissions', label: 'Bypass', desc: 'Skip all prompts except ask-rules & root/home removals' },
-  ];
-
-  function renderModeGrid() {
-    return modes.map(m => {
-      const isSelected = !dangerousSkip && selectedMode === m.value;
-      return `<button class="permission-option${isSelected ? ' selected' : ''}" data-mode="${m.value}"><span class="perm-name">${m.label}</span><span class="perm-desc">${m.desc}</span></button>`;
-    }).join('') +
-    `<button class="permission-option dangerous${dangerousSkip ? ' selected' : ''}" data-mode="dangerous-skip"><span class="perm-name">Dangerous Skip</span><span class="perm-desc">Skip all safety prompts (use with caution)</span></button>`;
-  }
+  const modePicker = createPermissionModePicker(effective);
 
   dialog.innerHTML = `
     <h3>New Session — ${escapeHtml(project.projectPath.split('/').filter(Boolean).slice(-2).join('/'))}</h3>
     <div class="settings-field">
       <div class="settings-label">Permission Mode</div>
-      <div class="permission-grid" id="nsd-mode-grid">${renderModeGrid()}</div>
+      <div class="permission-grid" id="nsd-mode-grid">${modePicker.html()}</div>
     </div>
     <div class="settings-field">
       <div class="settings-field-info">
@@ -316,21 +335,7 @@ async function showNewSessionDialog(project, groupId) {
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
 
-  // Bind mode grid clicks
-  const modeGrid = dialog.querySelector('#nsd-mode-grid');
-  modeGrid.addEventListener('click', (e) => {
-    const btn = e.target.closest('.permission-option');
-    if (!btn) return;
-    const mode = btn.dataset.mode;
-    if (mode === 'dangerous-skip') {
-      dangerousSkip = !dangerousSkip;
-      if (dangerousSkip) selectedMode = null;
-    } else {
-      dangerousSkip = false;
-      selectedMode = mode === 'null' ? null : mode;
-    }
-    modeGrid.innerHTML = renderModeGrid();
-  });
+  modePicker.bind(dialog.querySelector('#nsd-mode-grid'));
 
   function close() {
     overlay.remove();
@@ -339,11 +344,7 @@ async function showNewSessionDialog(project, groupId) {
 
   function start() {
     const options = {};
-    if (dangerousSkip) {
-      options.dangerouslySkipPermissions = true;
-    } else if (selectedMode) {
-      options.permissionMode = selectedMode;
-    }
+    modePicker.applyTo(options);
     if (dialog.querySelector('#nsd-worktree').checked) {
       options.worktree = true;
       options.worktreeName = dialog.querySelector('#nsd-worktree-name').value.trim();
@@ -390,25 +391,7 @@ async function showResumeSessionDialog(session) {
   const dialog = document.createElement('div');
   dialog.className = 'new-session-dialog';
 
-  let selectedMode = effective.permissionMode || null;
-  let dangerousSkip = effective.dangerouslySkipPermissions || false;
-
-  const modes = [
-    { value: null, label: 'Default', desc: 'Prompt for all actions' },
-    { value: 'acceptEdits', label: 'Accept Edits', desc: 'Auto-accept file edits & common fs commands' },
-    { value: 'plan', label: 'Plan Mode', desc: 'Read-only exploration, no writes' },
-    { value: 'auto', label: 'Auto', desc: 'Auto-approve tool calls, background safety checks (preview)' },
-    { value: 'dontAsk', label: "Don't Ask", desc: 'Auto-deny tools unless pre-approved' },
-    { value: 'bypassPermissions', label: 'Bypass', desc: 'Skip all prompts except ask-rules & root/home removals' },
-  ];
-
-  function renderModeGrid() {
-    return modes.map(m => {
-      const isSelected = !dangerousSkip && selectedMode === m.value;
-      return `<button class="permission-option${isSelected ? ' selected' : ''}" data-mode="${m.value}"><span class="perm-name">${m.label}</span><span class="perm-desc">${m.desc}</span></button>`;
-    }).join('') +
-    `<button class="permission-option dangerous${dangerousSkip ? ' selected' : ''}" data-mode="dangerous-skip"><span class="perm-name">Dangerous Skip</span><span class="perm-desc">Skip all safety prompts (use with caution)</span></button>`;
-  }
+  const modePicker = createPermissionModePicker(effective);
 
   const sessionName = session.name || session.aiTitle || session.summary || session.sessionId.slice(0, 8);
 
@@ -416,7 +399,7 @@ async function showResumeSessionDialog(session) {
     <h3>Resume Session — ${escapeHtml(sessionName)}</h3>
     <div class="settings-field">
       <div class="settings-label">Permission Mode</div>
-      <div class="permission-grid" id="rsd-mode-grid">${renderModeGrid()}</div>
+      <div class="permission-grid" id="rsd-mode-grid">${modePicker.html()}</div>
     </div>
     <div class="settings-field">
       <div class="settings-field-info">
@@ -454,21 +437,7 @@ async function showResumeSessionDialog(session) {
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
 
-  // Bind mode grid clicks
-  const modeGrid = dialog.querySelector('#rsd-mode-grid');
-  modeGrid.addEventListener('click', (e) => {
-    const btn = e.target.closest('.permission-option');
-    if (!btn) return;
-    const mode = btn.dataset.mode;
-    if (mode === 'dangerous-skip') {
-      dangerousSkip = !dangerousSkip;
-      if (dangerousSkip) selectedMode = null;
-    } else {
-      dangerousSkip = false;
-      selectedMode = mode === 'null' ? null : mode;
-    }
-    modeGrid.innerHTML = renderModeGrid();
-  });
+  modePicker.bind(dialog.querySelector('#rsd-mode-grid'));
 
   function close() {
     overlay.remove();
@@ -477,11 +446,7 @@ async function showResumeSessionDialog(session) {
 
   function resume() {
     const options = {};
-    if (dangerousSkip) {
-      options.dangerouslySkipPermissions = true;
-    } else if (selectedMode) {
-      options.permissionMode = selectedMode;
-    }
+    modePicker.applyTo(options);
     if (dialog.querySelector('#rsd-chrome').checked) {
       options.chrome = true;
     }

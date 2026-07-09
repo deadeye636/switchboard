@@ -36,6 +36,9 @@ function renderPlans(plans) {
 function buildPlanItem(plan) {
   const item = document.createElement('div');
   item.className = 'session-item plan-item';
+  // Selection key for openPlan's active marking (same data-attribute technique
+  // as the memory list — text comparison broke with same-named files, #79).
+  item.dataset.filename = plan.filename;
 
   const row = document.createElement('div');
   row.className = 'session-row';
@@ -66,14 +69,10 @@ function buildPlanItem(plan) {
 }
 
 async function openPlan(plan) {
-  // Mark active in sidebar
+  // Mark active in sidebar (data attribute, matching openMemory)
   plansContent.querySelectorAll('.plan-item.active').forEach(el => el.classList.remove('active'));
-  const items = plansContent.querySelectorAll('.plan-item');
-  items.forEach(el => {
-    if (el.querySelector('.session-id')?.textContent === plan.filename) {
-      el.classList.add('active');
-    }
-  });
+  const target = plansContent.querySelector(`.plan-item[data-filename="${CSS.escape(plan.filename)}"]`);
+  if (target) target.classList.add('active');
 
   const result = await window.api.readPlan(plan.filename);
   currentPlanContent = result.content;
