@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (28 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (29 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-09
 
@@ -15,6 +15,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 ## P2 — after that
 
 - [#55](https://github.com/deadeye636/switchboard/issues/55) orphaned hidden projects · _bug_
+- [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
 - [#108](https://github.com/deadeye636/switchboard/issues/108) Port doctly: fix duplicate projects (encoding) · _bug, port_
 
 ## P3 — someday
