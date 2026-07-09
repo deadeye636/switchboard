@@ -2080,12 +2080,7 @@ function classifyShellType(shellPath) {
 // Resolve the effective shell family for a project (mirrors createTerminalSession's
 // profile precedence: project override → global → default → auto detection).
 function resolveShellTypeForProject(projectPath) {
-  const global = getSetting('global') || {};
-  const project = projectPath ? (getSetting('project:' + projectPath) || {}) : {};
-  let profileId = SETTING_DEFAULTS.shellProfile;
-  if (global.shellProfile !== undefined && global.shellProfile !== null) profileId = global.shellProfile;
-  if (project.shellProfile !== undefined && project.shellProfile !== null) profileId = project.shellProfile;
-  return classifyShellType(resolveShell(profileId).path);
+  return classifyShellType(resolveShell(effectiveSettings(projectPath).shellProfile).path);
 }
 
 // Delete secret-ref temp files older than maxAgeMs (best-effort, tolerant).
@@ -2383,24 +2378,27 @@ const SETTING_DEFAULTS = {
   conptyBackend: 'bundled',
 };
 
+// Cascade all settings: default → global → project; null/undefined mean
+// "inherit". Single implementation for the get-effective-settings IPC, the
+// shell-profile resolution and createTerminalSession (#79).
+function effectiveSettings(projectPath) {
+  const global = getSetting('global') || {};
+  const project = projectPath ? (getSetting('project:' + projectPath) || {}) : {};
+  const effective = { ...SETTING_DEFAULTS };
+  for (const key of Object.keys(SETTING_DEFAULTS)) {
+    if (global[key] !== undefined && global[key] !== null) effective[key] = global[key];
+    if (project[key] !== undefined && project[key] !== null) effective[key] = project[key];
+  }
+  return effective;
+}
+
 ipcMain.handle('get-shell-profiles', () => {
   invalidateShellProfiles(); // drop the module-private cache so newly installed shells appear without a restart
   return getShellProfiles();
 });
 
 ipcMain.handle('get-effective-settings', (_event, projectPath) => {
-  const global = getSetting('global') || {};
-  const project = projectPath ? (getSetting('project:' + projectPath) || {}) : {};
-  const effective = { ...SETTING_DEFAULTS };
-  for (const key of Object.keys(SETTING_DEFAULTS)) {
-    if (global[key] !== undefined && global[key] !== null) {
-      effective[key] = global[key];
-    }
-    if (project[key] !== undefined && project[key] !== null) {
-      effective[key] = project[key];
-    }
-  }
-  return effective;
+  return effectiveSettings(projectPath);
 });
 
 // --- IPC: get-active-sessions ---
@@ -2627,12 +2625,11 @@ ipcMain.handle('rename-session', (_event, sessionId, name) => {
 });
 
 // --- IPC: archive-session ---
-ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
-  const folder = getCachedFolder(sessionId);
-  if (!folder) return { error: 'Session not found in cache' };
-  const jsonlPath = path.join(PROJECTS_DIR, folder, sessionId + '.jsonl');
+// Read a transcript jsonl into { entries } for the viewer IPCs below (#79).
+// Async read — a large transcript must not block the main process. Unparsable
+// lines are skipped.
+async function readJsonlEntries(jsonlPath) {
   try {
-    // Async read — a large transcript must not block the main process.
     const content = await fs.promises.readFile(jsonlPath, 'utf-8');
     const entries = [];
     for (const line of content.split('\n')) {
@@ -2643,24 +2640,18 @@ ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
   } catch (err) {
     return { error: err.message };
   }
+}
+
+ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
+  const folder = getCachedFolder(sessionId);
+  if (!folder) return { error: 'Session not found in cache' };
+  return readJsonlEntries(path.join(PROJECTS_DIR, folder, sessionId + '.jsonl'));
 });
 
 ipcMain.handle('read-subagent-jsonl', async (_event, parentSessionId, agentId) => {
   const row = getCachedSession('sub:' + parentSessionId + ':' + agentId);
   if (!row) return { error: 'Subagent session not found in cache' };
-  const jsonlPath = resolveJsonlPath(PROJECTS_DIR, row);
-  try {
-    // Async read — a large transcript must not block the main process.
-    const content = await fs.promises.readFile(jsonlPath, 'utf-8');
-    const entries = [];
-    for (const line of content.split('\n')) {
-      if (!line.trim()) continue;
-      try { entries.push(JSON.parse(line)); } catch {}
-    }
-    return { entries };
-  } catch (err) {
-    return { error: err.message };
-  }
+  return readJsonlEntries(resolveJsonlPath(PROJECTS_DIR, row));
 });
 
 ipcMain.handle('list-subagents', (_event, parentSessionId) => {
@@ -2775,14 +2766,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
   const isPlainTerminal = sessionOptions?.type === 'terminal';
 
   // Resolve shell profile from effective settings
-  const effectiveProfileId = (() => {
-    const global = getSetting('global') || {};
-    const project = projectPath ? (getSetting('project:' + projectPath) || {}) : {};
-    let profileId = SETTING_DEFAULTS.shellProfile;
-    if (global.shellProfile !== undefined && global.shellProfile !== null) profileId = global.shellProfile;
-    if (project.shellProfile !== undefined && project.shellProfile !== null) profileId = project.shellProfile;
-    return profileId;
-  })();
+  const effectiveProfileId = effectiveSettings(projectPath).shellProfile;
   // WSL profiles only work for plain terminals — Claude CLI sessions need the
   // Windows shell because session data lives on the Windows filesystem.
   const requestedProfile = resolveShell(effectiveProfileId);
