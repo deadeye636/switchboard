@@ -27,6 +27,18 @@ function startWslProbe() {
 
 // Discover available shell profiles on this system.
 // Returns an array of { id, name, path, args? } objects.
+// Git-Bash install locations — probed by both discoverShellProfiles() and
+// resolveShell()'s auto detection (kept as a function so env vars are read at
+// call time, matching the previous inline lists).
+function gitBashCandidates() {
+  return [
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'bash.exe'),
+    path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Git', 'bin', 'bash.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'bin', 'bash.exe'),
+  ];
+}
+const MSYS2_BASH = 'C:\\msys64\\usr\\bin\\bash.exe';
+
 function discoverShellProfiles() {
   const profiles = [];
 
@@ -56,12 +68,7 @@ function discoverShellProfiles() {
     }
 
     // Git Bash
-    const gitBashCandidates = [
-      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'bash.exe'),
-      path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Git', 'bin', 'bash.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'bin', 'bash.exe'),
-    ];
-    for (const p of gitBashCandidates) {
+    for (const p of gitBashCandidates()) {
       if (p && fs.existsSync(p)) {
         profiles.push({ id: 'git-bash', name: 'Git Bash', path: p });
         break;
@@ -69,8 +76,8 @@ function discoverShellProfiles() {
     }
 
     // MSYS2
-    if (fs.existsSync('C:\\msys64\\usr\\bin\\bash.exe')) {
-      profiles.push({ id: 'msys2', name: 'MSYS2', path: 'C:\\msys64\\usr\\bin\\bash.exe' });
+    if (fs.existsSync(MSYS2_BASH)) {
+      profiles.push({ id: 'msys2', name: 'MSYS2', path: MSYS2_BASH });
     }
 
     // WSL distributions — served from the async probe's cache; never blocks.
@@ -155,12 +162,7 @@ function resolveShell(profileId) {
 
   if (isWindows) {
     // 2. Look for Git Bash in common locations
-    const candidates = [
-      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'bash.exe'),
-      path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Git', 'bin', 'bash.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'bin', 'bash.exe'),
-      'C:\\msys64\\usr\\bin\\bash.exe',
-    ];
+    const candidates = [...gitBashCandidates(), MSYS2_BASH];
     for (const c of candidates) {
       if (c && fs.existsSync(c)) return { id: 'auto', name: 'Auto', path: c };
     }
