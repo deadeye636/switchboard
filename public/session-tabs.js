@@ -186,6 +186,7 @@ if (typeof module !== 'undefined' && module.exports) {
       const tabStatus = (typeof getSessionStatus === 'function' && tabSession)
         ? getSessionStatus(tabSession, tabRuntime) : null;
       if (tabStatus) tab.classList.add(tabStatus.className); // status-busy / status-running / …
+      if (isSubagentActive(t.sessionId)) tab.classList.add('subagent-active'); // #123
       tab.dataset.sessionId = t.sessionId;
       tab.title = t.name;
       if (dragReorder) tab.draggable = true;

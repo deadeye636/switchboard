@@ -1329,6 +1329,8 @@ function updateGridCardStatuses() {
     if (dot) dot.className = 'grid-card-dot ' + (status.key === 'busy' ? 'busy' : (running ? 'running' : 'stopped'));
     card.classList.remove('status-needs-attention', 'status-response-ready', 'status-busy', 'status-running', 'status-exited', 'status-idle', 'health-healthy', 'health-growing', 'health-marathon-risk', 'health-handoff-recommended');
     card.classList.add(status.className, health.className);
+    // Subagent activity is an overlay on the dot, not a status of its own (#123).
+    card.classList.toggle('subagent-active', typeof subagentActiveSessions !== 'undefined' && subagentActiveSessions.has(sid));
     const chip = card.querySelector('.grid-card-status-chip');
     if (chip) {
       chip.className = `grid-card-status-chip ${status.className}`;

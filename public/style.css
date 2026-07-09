@@ -2708,6 +2708,13 @@ body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events:
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
+/* Subagent activity overlay (#123). The grid dot already encodes the parent's own
+   state, so the subagent adds a teal ring rather than recolouring the core. */
+.grid-card.subagent-active .grid-card-dot {
+  box-shadow: 0 0 0 2px rgba(64,200,180,0.85);
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -7543,6 +7550,22 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .session-tab.status-response-ready .session-tab-dot  { background: #4fc3f7; }
 .session-tab.status-needs-attention .session-tab-dot { background: #f0a050; }
 .session-tab.status-busy .session-tab-dot            { background: #4fc3f7; animation: tab-dot-pulse 1.2s ease-in-out infinite; }
+
+/* Subagent activity overlay (#123): green core = a subagent is working; the halo
+   keeps the parent's own meaning — blue while it generates, teal while it waits.
+   Listed after the status rules so equal specificity resolves in its favour. */
+.session-tab.subagent-active .session-tab-dot {
+  background: #3ecf5a;
+  animation: tab-dot-pulse-sub 1.4s ease-in-out infinite;
+}
+.session-tab.subagent-active.status-busy .session-tab-dot {
+  background: #3ecf5a;
+  animation: tab-dot-pulse 1.2s ease-in-out infinite;
+}
+@keyframes tab-dot-pulse-sub {
+  0%, 100% { opacity: 1;    box-shadow: 0 0 0 0 rgba(64,200,180,0.55); }
+  50%      { opacity: 0.55; box-shadow: 0 0 0 3px rgba(64,200,180,0); }
+}
 @keyframes tab-dot-pulse {
   0%, 100% { opacity: 1;    box-shadow: 0 0 0 0 rgba(79,195,247,0.5); }
   50%      { opacity: 0.55; box-shadow: 0 0 0 3px rgba(79,195,247,0); }
