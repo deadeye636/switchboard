@@ -2224,8 +2224,12 @@ function startAttentionHookServer() {
             kind: signal.kind,
             reason: signal.reason,
             source: 'hook',
+            // Subagent lifecycle events carry the subagent's identity (#119).
+            agentId: signal.agentId || null,
+            agentType: signal.agentType || null,
           });
-          log.info(`[attention-hook] session=${sessionId} kind=${signal.kind} reason="${signal.reason}"`);
+          const agentSuffix = signal.agentId ? ` agentId=${signal.agentId}` : '';
+          log.info(`[attention-hook] session=${sessionId} kind=${signal.kind}${agentSuffix} reason="${signal.reason}"`);
         }
       } catch (err) {
         log.warn(`[attention-hook] bad payload: ${err.message}`);
@@ -2297,11 +2301,12 @@ function writeClaudeAttentionHook(port) {
   addHook('Notification', ''); // permission_prompt / idle_prompt / elicitation / …
   addHook('Stop', ''); // agent finished responding (matcher ignored for Stop)
   addHook('UserPromptSubmit', ''); // turn start → "Working" (TUI sessions emit no OSC-0 spinner)
-  // Subagent work started → the two-color overlay turns on instantly (#112). Only
-  // the start edge: PostToolUse would fire on the async tool return, not on the
-  // subagent's end, so the end is taken from the live spawn→complete window.
-  // Matcher covers the current `Agent` tool and the legacy `Task` name.
-  addHook('PreToolUse', attentionSource.SUBAGENT_TOOL_MATCHER);
+  // Subagent lifecycle → the two-color overlay + the nested running indicator (#119).
+  // Both events carry the parent session_id and the subagent's agent_id, and
+  // SubagentStop fires at the subagent's real end. An empty matcher (which these
+  // events match against the agent *type*) catches every agent type.
+  addHook('SubagentStart', '');
+  addHook('SubagentStop', '');
   fs.mkdirSync(path.dirname(CLAUDE_SETTINGS_JSON), { recursive: true });
   fs.writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(settings, null, 2) + '\n');
   log.info(`[attention-hook] wrote hooks to ${CLAUDE_SETTINGS_JSON} (${url})`);

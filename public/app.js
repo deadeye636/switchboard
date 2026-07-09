@@ -319,11 +319,9 @@ window._applyNotificationSettings = (settings) => {
   if (appGlobalSettings.subagentLiveStatus === false) {
     if (subagentActiveSessions.size) { subagentActiveSessions.clear(); refreshSessionStatusViews(); }
   } else {
-    const parents = new Set(subagentPending.keys());
     if (typeof window._liveSubagentParents === 'function') {
-      for (const p of window._liveSubagentParents()) parents.add(p);
+      for (const p of window._liveSubagentParents()) recomputeSubagentActive(p);
     }
-    for (const p of parents) recomputeSubagentActive(p);
   }
 };
 
@@ -362,17 +360,9 @@ const responseReadySessions = new Set(); // Claude finished, user hasn't looked 
 const sessionBusyState = new Map(); // sessionId → boolean (currently active)
 // Subagent activity overlay (#112). Not a status of its own: with async subagents
 // the parent keeps generating, so it stays Working/Running and merely gains a
-// two-color dot. Two sources, chained so the accent is continuous:
-//   subagentPending — set by the PreToolUse(Agent) hook the instant a subagent is
-//     launched. The JSONL scan needs a couple of seconds to notice the new agent
-//     file, and without this bridge the dot would blink off in between.
-//   live subagents  — the spawn→complete window from the JSONL scan; the real
-//     duration, and the only signal that knows when a subagent actually ended.
-const subagentPending = new Map(); // sessionId → grace timer id
+// two-color dot. Membership follows the live-subagent set, which the
+// SubagentStart/SubagentStop hooks drive exactly and the JSONL scan backs up (#119).
 const subagentActiveSessions = new Set();
-// How long the hook-side bridge holds if no subagent file ever shows up (a Task
-// call that failed outright). A turn end clears it earlier.
-const SUBAGENT_PENDING_GRACE_MS = 30000;
 const finishedAt = new Map(); // sessionId → ms timestamp of the last busy→idle edge (drives running-in-inbox)
 const lastActivityTime = new Map(); // sessionId → Date of last terminal output
 const lastViewedTime = new Map(); // sessionId → Date the session last became focused
@@ -547,46 +537,22 @@ function recordTimelineEvent(sessionId, kind, label, detail) {
 }
 
 // Central activity dispatcher
-// Drop the hook-side bridge for a session (its grace timer included).
-function clearSubagentPending(sessionId) {
-  const timer = subagentPending.get(sessionId);
-  if (timer === undefined) return false;
-  clearTimeout(timer);
-  subagentPending.delete(sessionId);
-  return true;
-}
-
 // Recompute the subagent-activity overlay for one session. Gated by the subagent
 // live-status setting (default on).
 function recomputeSubagentActive(sessionId) {
   if (!sessionId) return;
   const enabled = !(typeof appGlobalSettings !== 'undefined' && appGlobalSettings.subagentLiveStatus === false);
   const liveCount = (typeof window._liveSubagentCount === 'function') ? window._liveSubagentCount(sessionId) : 0;
-  // Once the JSONL scan sees the agent the bridge has done its job — drop it so
-  // the overlay ends with the subagent rather than with the grace timer.
-  if (liveCount > 0) clearSubagentPending(sessionId);
-  const active = enabled && (liveCount > 0 || subagentPending.has(sessionId));
+  const active = enabled && liveCount > 0;
   const had = subagentActiveSessions.has(sessionId);
   if (active) subagentActiveSessions.add(sessionId);
   else subagentActiveSessions.delete(sessionId);
   if (had !== active) refreshSessionStatusViews();
 }
-// Called by sidebar.js when a subagent spawns/completes (the JSONL source).
+// Called by sidebar.js whenever the live-subagent set changes.
 window._recomputeSubagentActive = recomputeSubagentActive;
 
-// PreToolUse(Agent) fired: bridge the gap until the JSONL scan sees the agent file.
-function markSubagentPending(sessionId) {
-  clearSubagentPending(sessionId);
-  subagentPending.set(sessionId, setTimeout(() => {
-    subagentPending.delete(sessionId);
-    recomputeSubagentActive(sessionId);
-  }, SUBAGENT_PENDING_GRACE_MS));
-  recomputeSubagentActive(sessionId);
-}
-
 function setActivity(sessionId, active) {
-  // Turn ended → no subagent launch can still be pending.
-  if (!active && clearSubagentPending(sessionId)) recomputeSubagentActive(sessionId);
   if (responseReadySessions.has(sessionId)) {
     return;
   }
@@ -663,9 +629,12 @@ function applyAttention(sessionId, signal) {
       if (item) item.classList.remove('response-ready');
     }
     setActivity(sessionId, true);
-  } else if (kind === 'subagent-start') {
-    // An Agent/Task tool call went out → light the overlay immediately (#112).
-    markSubagentPending(sessionId);
+  } else if (kind === 'subagent-live-start' || kind === 'subagent-live-stop') {
+    // Exact subagent edges from the SubagentStart/SubagentStop hooks (#119). The
+    // JSONL scan writes to the same set, so a subagent seen twice counts once.
+    if (signal.agentId && typeof window._setSubagentLive === 'function') {
+      window._setSubagentLive(sessionId, signal.agentId, kind === 'subagent-live-start');
+    }
   }
 }
 
@@ -1170,6 +1139,8 @@ window.api.onAttentionSignal((signal) => {
     kind: signal.kind,
     reason: signal.reason,
     source: signal.source || 'hook',
+    agentId: signal.agentId || null,
+    agentType: signal.agentType || null,
   });
 });
 

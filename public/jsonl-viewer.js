@@ -32,6 +32,29 @@ window._liveSubagentParents = () => {
   return parents;
 };
 
+// Single mutation point for the live set, fed by two sources (#119):
+//   1. the SubagentStart/SubagentStop hooks — exact, both edges, no lag
+//   2. the JSONL spawn/complete scan — the fallback when hooks are off
+// Idempotent, so a subagent seen by both sources is counted once.
+function setSubagentLive(parentSessionId, agentId, isLive) {
+  if (!parentSessionId || !agentId) return;
+  const key = parentSessionId + ':' + agentId;
+  const had = liveSubagents.has(key);
+  if (isLive) liveSubagents.add(key);
+  else liveSubagents.delete(key);
+  if (had === isLive) return; // no state change — nothing to repaint
+  if (typeof window._updateSubagentLive === 'function') {
+    window._updateSubagentLive(parentSessionId, agentId, isLive);
+  }
+  if (!isLive) {
+    // Let an open watch container stop its watch and hide its indicator.
+    document.querySelectorAll('[data-subagent-watch-key="' + key + '"]').forEach(el => {
+      el.dispatchEvent(new CustomEvent('subagent-completed-internal'));
+    });
+  }
+}
+window._setSubagentLive = setSubagentLive;
+
 // Active subagent file watches for the currently-rendered viewer. Each entry
 // is a stopWatch closure created when an Agent block expands and starts a
 // live tail. Drained on viewer dismissal so we don't leak fs.watchFile polls.
@@ -50,25 +73,8 @@ function drainViewerWatches() {
 // Register IPC listeners for subagent lifecycle events (called once at module load).
 (function initSubagentListeners() {
   if (!window.api) return; // guard for non-Electron contexts
-  window.api.onSubagentSpawned((payload) => {
-    const key = payload.parentSessionId + ':' + payload.agentId;
-    liveSubagents.add(key);
-    // Live-update the sidebar's running-subagent indicator (#111).
-    if (typeof window._updateSubagentLive === 'function') {
-      window._updateSubagentLive(payload.parentSessionId, payload.agentId, true);
-    }
-  });
-  window.api.onSubagentCompleted((payload) => {
-    const key = payload.parentSessionId + ':' + payload.agentId;
-    liveSubagents.delete(key);
-    if (typeof window._updateSubagentLive === 'function') {
-      window._updateSubagentLive(payload.parentSessionId, payload.agentId, false);
-    }
-    // Notify any active watch container so it can stop the watch and hide the indicator
-    document.querySelectorAll('[data-subagent-watch-key="' + key + '"]').forEach(el => {
-      el.dispatchEvent(new CustomEvent('subagent-completed-internal'));
-    });
-  });
+  window.api.onSubagentSpawned((payload) => setSubagentLive(payload.parentSessionId, payload.agentId, true));
+  window.api.onSubagentCompleted((payload) => setSubagentLive(payload.parentSessionId, payload.agentId, false));
   window.api.onSubagentWatchEvent((payload) => {
     const key = payload.parentSessionId + ':' + payload.agentId;
     document.querySelectorAll('[data-subagent-watch-key="' + key + '"]').forEach(el => {

@@ -5,9 +5,6 @@ const {
   classifyAttentionSignal,
   classifyHookEvent,
   reduceAttention,
-  isSubagentTool,
-  SUBAGENT_TOOL_NAMES,
-  SUBAGENT_TOOL_MATCHER,
 } = require('../public/attention-source');
 
 // --- OSC-9 path: parity with the old inline regex from app.js:409 ---
@@ -97,37 +94,43 @@ test('hook UserPromptSubmit maps to busy (Working)', () => {
   assert.equal(result.reason, 'Agent working');
 });
 
-// Newer Claude Code names the subagent tool `Agent`; older builds used `Task`.
-for (const toolName of ['Task', 'Agent']) {
-  test(`hook PreToolUse(${toolName}) maps to subagent-start (#112)`, () => {
-    const result = classifyAttentionSignal({
-      source: 'hook',
-      payload: { hook_event_name: 'PreToolUse', tool_name: toolName },
-    });
-    assert.equal(result.kind, 'subagent-start');
-    assert.equal(result.source, 'hook');
+// Subagent lifecycle (#119). Payloads verified against the installed CLI: both
+// events carry the PARENT session_id plus the subagent's agent_id.
+test('hook SubagentStart maps to subagent-live-start and keeps the agent identity', () => {
+  const result = classifyAttentionSignal({
+    source: 'hook',
+    payload: { hook_event_name: 'SubagentStart', agent_id: 'a123', agent_type: 'general-purpose' },
   });
-}
-
-test('hook PreToolUse for non-subagent tools is ignored', () => {
-  assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PreToolUse', tool_name: 'Bash' } }), null);
-  assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PreToolUse' } }), null);
+  assert.equal(result.kind, 'subagent-live-start');
+  assert.equal(result.agentId, 'a123');
+  assert.equal(result.agentType, 'general-purpose');
+  assert.equal(result.source, 'hook');
 });
 
-test('PostToolUse is not an end signal — it fires on the async tool return (#112)', () => {
-  // Registering it would end the overlay seconds after launch, long before the
-  // subagent finishes. The end comes from the live spawn->complete window.
-  assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PostToolUse', tool_name: 'Agent' } }), null);
-  assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PostToolUse', tool_name: 'Task' } }), null);
+test('hook SubagentStop maps to subagent-live-stop and keeps the agent id', () => {
+  const result = classifyAttentionSignal({
+    source: 'hook',
+    payload: { hook_event_name: 'SubagentStop', agent_id: 'a123' },
+  });
+  assert.equal(result.kind, 'subagent-live-stop');
+  assert.equal(result.agentId, 'a123');
 });
 
-test('the registered hook matcher covers every subagent tool name', () => {
-  // The matcher main.js writes into settings.json must accept exactly the names
-  // isSubagentTool() guards on, otherwise delegating never fires (#112 regression).
-  const alternatives = SUBAGENT_TOOL_MATCHER.split('|');
-  assert.deepEqual(alternatives, SUBAGENT_TOOL_NAMES);
-  for (const name of alternatives) assert.equal(isSubagentTool(name), true);
-  assert.equal(isSubagentTool('Bash'), false);
+test('SubagentStop must not map to ready — it would end the parent turn (#119)', () => {
+  // The payload's session_id is the PARENT's, so treating a finished subagent as
+  // "agent finished responding" would flip the parent to Ready while it still works.
+  const result = classifyHookEvent({ hook_event_name: 'SubagentStop', agent_id: 'a1' });
+  assert.notEqual(result.kind, 'ready');
+});
+
+test('PreToolUse and PostToolUse are no longer subagent signals (#119)', () => {
+  // SubagentStart/Stop replaced them: PostToolUse fires on the async tool return,
+  // and PreToolUse carries no agent id.
+  for (const ev of ['PreToolUse', 'PostToolUse']) {
+    for (const tool of ['Agent', 'Task', 'Bash']) {
+      assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: ev, tool_name: tool } }), null);
+    }
+  }
 });
 
 test('unknown hook events return null', () => {

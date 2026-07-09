@@ -17,16 +17,6 @@
   const OSC9_ATTENTION_REGEX = /attention|approval|permission|needs your|wants to enter/i;
   const OSC9_WAITING_REGEX = /waiting for your input/i;
 
-  // The tool that spawns a subagent. Newer Claude Code calls it `Agent`, older
-  // versions `Task` — cover both (#112). SUBAGENT_TOOL_MATCHER is the hook
-  // matcher main.js registers, so the matcher and the guard stay in sync.
-  const SUBAGENT_TOOL_NAMES = ['Task', 'Agent'];
-  const SUBAGENT_TOOL_MATCHER = SUBAGENT_TOOL_NAMES.join('|');
-
-  function isSubagentTool(toolName) {
-    return SUBAGENT_TOOL_NAMES.includes(String(toolName || ''));
-  }
-
   // Human-readable reason for a Notification matcher when the hook omits a message.
   function describeNotification(matcher) {
     switch (String(matcher || '').toLowerCase()) {
@@ -63,21 +53,19 @@
       case 'PermissionRequest':
         return { kind: 'needs-attention', reason: message || 'Claude needs permission' };
       case 'Stop':
-      case 'SubagentStop':
         return { kind: 'ready', reason: message || 'Agent finished responding' };
       case 'UserPromptSubmit':
         // Turn start = the agent begins working. Drives the "Working" status for
         // full-screen TUI sessions that don't emit the OSC-0 spinner title.
         return { kind: 'busy', reason: message || 'Agent working' };
-      case 'PreToolUse':
-        // A subagent tool call went out → subagent work starts (#112). Only the
-        // start edge is taken from a hook: PostToolUse fires when the *tool call*
-        // returns, which for async subagents is seconds after launch and long
-        // before the subagent finishes — useless as an end signal. The end comes
-        // from the live spawn→complete window instead.
-        return isSubagentTool(hook.tool_name)
-          ? { kind: 'subagent-start', reason: 'Subagent started' }
-          : null;
+      // Subagent lifecycle (#119). Both events carry the PARENT `session_id` plus the
+      // subagent's `agent_id`, and SubagentStop fires at the subagent's real end.
+      // SubagentStop must NOT map to `ready` — that would flip the parent to
+      // "finished" mid-turn, while it is still generating.
+      case 'SubagentStart':
+        return { kind: 'subagent-live-start', reason: 'Subagent started', agentId: hook.agent_id || null, agentType: hook.agent_type || null };
+      case 'SubagentStop':
+        return { kind: 'subagent-live-stop', reason: 'Subagent finished', agentId: hook.agent_id || null };
       default:
         return null;
     }
@@ -105,7 +93,8 @@
     if (source === 'hook') {
       const sig = classifyHookEvent(input.payload);
       if (!sig) return null;
-      return { kind: sig.kind, reason: sig.reason, source: 'hook' };
+      // Spread so event-specific fields (agentId, agentType) survive (#119).
+      return { ...sig, source: 'hook' };
     }
 
     return null;
@@ -124,9 +113,6 @@
   return {
     OSC9_ATTENTION_REGEX,
     OSC9_WAITING_REGEX,
-    SUBAGENT_TOOL_NAMES,
-    SUBAGENT_TOOL_MATCHER,
-    isSubagentTool,
     describeNotification,
     classifyHookEvent,
     classifyAttentionSignal,
