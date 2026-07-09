@@ -2444,13 +2444,28 @@ ipcMain.handle('toggle-project-favorite', (_event, projectPath) => {
 });
 
 // --- IPC: Windows build number (synchronous) ---
-// xterm's windowsPty option needs the real OS build to track ConPTY wrapping.
-// The sandboxed preload can't read it (its os.release() is a polyfill), so it
-// asks here. sendSync keeps the value available before the first terminal opens.
+// xterm's windowsPty option needs the build to track ConPTY wrapping: it enables
+// its legacy wrapping heuristics only when backend === 'conpty' && buildNumber
+// < 21376. The sandboxed preload can't read the OS build (its os.release() is a
+// polyfill), so it asks here. sendSync keeps the value available before the
+// first terminal opens.
+//
+// #115: report the capability level of the ConPTY the PTYs actually run on, not
+// necessarily the OS. With the bundled conpty.dll (#114, Windows Terminal
+// codebase — proper wrapped-line handling) an old-Win10 OS build would wrongly
+// keep xterm's legacy heuristics on, so floor the reported build at xterm's
+// threshold. 'system' keeps the raw OS build. Preload caches this at window
+// load — toggling the Windows ConPTY setting needs an app restart to re-hint.
+const XTERM_CONPTY_MODERN_BUILD = 21376;
+function effectiveConptyBuildNumber(conptyBackend, osBuild) {
+  return conptyBackend === 'system' ? osBuild : Math.max(osBuild, XTERM_CONPTY_MODERN_BUILD);
+}
 ipcMain.on('get-windows-build', (event) => {
   let build = 0;
   if (process.platform === 'win32') {
     try { build = parseInt(os.release().split('.')[2], 10) || 0; } catch { build = 0; }
+    const backend = (getSetting('global') || {}).conptyBackend === 'system' ? 'system' : 'bundled';
+    build = effectiveConptyBuildNumber(backend, build);
   }
   event.returnValue = build;
 });
