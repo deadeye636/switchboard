@@ -164,6 +164,7 @@
     const projectSortValue = !isProject ? (current.projectSortMode || 'activity') : 'activity';
     const favoritesOwnListValue = !isProject ? !!current.favoritesOwnList : false;
     const subagentLiveStatusValue = !isProject ? current.subagentLiveStatus !== false : true;
+    const logLevelValue = !isProject ? (current.logLevel || 'info') : 'info';
     const projectAutoAddValue = !isProject ? (current.projectAutoAdd !== false) : true;
     // Handoff library (global only): toggle + editable request prompt.
     const defaultHandoffPrompt = (typeof window !== 'undefined' && window.DEFAULT_HANDOFF_PROMPT) || '';
@@ -370,7 +371,7 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7a7a90" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
             <input id="sv-search" type="text" placeholder="Search settings…" autocomplete="off">
           </div>
-          <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">11</span></button>
+          <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">12</span></button>
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">7</span></button>
@@ -448,6 +449,20 @@
                       ${shellProfiles.map(p =>
                         `<option value="${escapeHtml(p.id)}" ${shellProfileValue === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
                       ).join('')}
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Log level</span>${help}</div>
+                    <div class="settings-description">Detail written to the app log. Applies immediately, no restart.</div>
+                    <div class="settings-more"><b>Normal</b> records status transitions and session lifecycle. <b>Debug</b> adds per-decision detail. <b>Trace</b> also logs every terminal escape sequence — the CLI retitles on each spinner frame, so this writes roughly ten lines per second per busy session. Use Trace only while reproducing a problem.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-log-level">
+                      <option value="info" ${logLevelValue === 'info' ? 'selected' : ''}>Normal</option>
+                      <option value="debug" ${logLevelValue === 'debug' ? 'selected' : ''}>Debug</option>
+                      <option value="silly" ${logLevelValue === 'silly' ? 'selected' : ''}>Trace (very verbose)</option>
                     </select>
                   </div>
                 </div>
@@ -1419,6 +1434,7 @@
         const svSecretSweep = settingsViewerBody.querySelector('#sv-secret-ref-sweep');
         if (svSecretSweep) settings.secretRefSweepMinutes = Math.max(0, parseInt(svSecretSweep.value, 10) || 0);
         settings.shellProfile = settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto';
+        settings.logLevel = settingsViewerBody.querySelector('#sv-log-level')?.value || 'info';
         // Build only the form-managed keys here; these sub-objects are re-based on
         // the freshly-read global below so a second settings window's changes since
         // this dialog opened aren't clobbered (issue #75) — hence no stale `current`
@@ -1528,6 +1544,11 @@
       // Write/remove the reversible ~/.claude hook when the toggle changes
       if (!isProject && settings.attentionHooks !== attentionHooksValue) {
         try { await window.api.configureAttentionHook(settings.attentionHooks); } catch {}
+      }
+
+      // Log level applies live — no restart (#121).
+      if (!isProject && settings.logLevel !== logLevelValue) {
+        try { await window.api.setLogLevel(settings.logLevel); } catch {}
       }
 
       // Notify if IDE Emulation changed

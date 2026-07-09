@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('api', {
   projectTagsSet: (projectPath, tags) => ipcRenderer.invoke('project-tags-set', { projectPath, tags }),
   projectTagsListAll: () => ipcRenderer.invoke('project-tags-list-all'),
   projectTagsAll: () => ipcRenderer.invoke('project-tags-all'),
+  setLogLevel: (level) => ipcRenderer.invoke('set-log-level', level),
   // Settings pop-out window (Phase 2)
   openSettingsWindow: () => ipcRenderer.send('open-settings-window'),
   notifySettingsChanged: () => ipcRenderer.send('settings-changed'),

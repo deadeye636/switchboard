@@ -15,8 +15,21 @@ const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolveP
 const { fetchAndTransformUsage } = require('./claude-auth');
 const { withMainProcessUsageCache } = require('./usage-cache');
 const { shouldUseSingleInstanceLock } = require('./main-lifecycle');
-log.transports.file.level = app.isPackaged ? 'info' : 'debug';
-log.transports.console.level = app.isPackaged ? 'info' : 'debug';
+// Log levels (#121). Raising this from the settings avoids needing a dev build to
+// diagnose a live session. Three tiers, matching electron-log's own ladder:
+//   info  — default. Transitions and lifecycle: busy edges, subagent spawn/complete.
+//   debug — diagnostics: per-decision detail, still readable.
+//   silly — firehose: one line per OSC event (the CLI retitles on every spinner
+//           frame, so this is ~10 lines/s per busy session). Short sessions only.
+const LOG_LEVELS = ['info', 'debug', 'silly'];
+const DEFAULT_LOG_LEVEL = app.isPackaged ? 'info' : 'debug';
+function applyLogLevel(level) {
+  const resolved = LOG_LEVELS.includes(level) ? level : DEFAULT_LOG_LEVEL;
+  log.transports.file.level = resolved;
+  log.transports.console.level = resolved;
+  return resolved;
+}
+applyLogLevel(DEFAULT_LOG_LEVEL);
 
 // Dev builds default to a separate SQLite DB so they don't race on
 // session_cache with a running installed app. Honors an explicit
@@ -73,6 +86,9 @@ const {
   closeDb,
   DB_PATH,
 } = require('./db');
+
+// Re-apply the saved log level now that settings are readable (#121).
+try { applyLogLevel(getSetting('global')?.logLevel); } catch { /* first run: defaults stand */ }
 
 // Pure insert-template helpers (no Electron deps — unit-tested separately).
 const { defaultInsertTemplate, shellRefFor, substituteInsertTemplate } = require('./variable-insert');
@@ -2320,6 +2336,13 @@ function removeClaudeAttentionHook() {
   log.info(`[attention-hook] removed Switchboard hooks from ${CLAUDE_SETTINGS_JSON}`);
 }
 
+// Renderer saved a new log level — apply it live, no restart (#121).
+ipcMain.handle('set-log-level', (_event, level) => {
+  const resolved = applyLogLevel(level);
+  log.info(`[log] level set to ${resolved}`);
+  return { ok: true, level: resolved };
+});
+
 // Renderer toggles the setting then calls this to write/remove the ~/.claude hook.
 ipcMain.handle('configure-attention-hook', (_event, enabled) => {
   try {
@@ -2970,13 +2993,14 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
           const firstChar = payload.charAt(0);
           const isBusy = firstChar.charCodeAt(0) >= 0x2800 && firstChar.charCodeAt(0) <= 0x28FF;
           const isIdle = firstChar === '\u2733'; // ✳
-          log.debug(`[OSC 0] session=${currentId} char=U+${firstChar.charCodeAt(0).toString(16).toUpperCase()} busy=${isBusy} idle=${isIdle} wasBusy=${!!session._cliBusy}`);
+          // One line per title change — the CLI retitles on every spinner frame.
+          log.silly(`[OSC 0] session=${currentId} char=U+${firstChar.charCodeAt(0).toString(16).toUpperCase()} busy=${isBusy} idle=${isIdle} wasBusy=${!!session._cliBusy}`);
           if (isBusy && !session._cliBusy) {
             session._cliBusy = true;
             session._oscIdle = false;
             // Marks the flag as OSC-0-owned so a stray `9;4;0` can't clear it (#120).
             session._busySource = 'osc0';
-            log.debug(`[OSC 0] session=${currentId} → BUSY`);
+            log.info(`[OSC 0] session=${currentId} → BUSY`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, true);
             }
@@ -2984,7 +3008,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
             session._cliBusy = false;
             session._oscIdle = true;
             session._busySource = null;
-            log.debug(`[OSC 0] session=${currentId} → IDLE`);
+            log.info(`[OSC 0] session=${currentId} → IDLE`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, false);
             }
@@ -3003,11 +3027,13 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
             busySource: session._busySource || null,
             hooksEnabled: attentionHooksEnabled(),
           });
-          log.debug(`[OSC 9;4] session=${currentId} level=${level} payload="${payload}" wasBusy=${!!session._cliBusy} → ${decision}`);
+          // Progress sequences repeat while a task runs — raw line stays at silly.
+          log.silly(`[OSC 9;4] session=${currentId} level=${level} payload="${payload}" wasBusy=${!!session._cliBusy} → ${decision}`);
           if (decision === 'set') {
             session._cliBusy = true;
             session._oscIdle = false;
             session._busySource = 'osc94';
+            log.info(`[OSC 9;4] session=${currentId} → BUSY`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, true);
             }
@@ -3017,6 +3043,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
             session._cliBusy = false;
             session._oscIdle = true;
             session._busySource = null;
+            log.info(`[OSC 9;4] session=${currentId} → IDLE (latch released)`);
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('cli-busy-state', currentId, false);
             }
