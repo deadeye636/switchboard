@@ -2556,6 +2556,74 @@ function startGroupRename(nameEl, group) {
   input.addEventListener('keyup', (e) => e.stopPropagation());
 }
 
+// Generic pointer-drag scaffold shared by the session→group drag and the manual
+// project reorder (#79): threshold-gated begin, cursor ghost, elementFromPoint
+// drop-target tracking with a highlight class, listener cleanup. Variant
+// behavior comes from opts:
+//   dragEl                  — element that gets .dragging while a drag is live
+//   ghostLabel              — text for the cursor ghost
+//   findDropTarget(el,x,y)  — hit-test the element under the pointer; return
+//                             { el, cls } to highlight or null
+//   onDrop(targetEl, targetCls, ev) — called after a real drag ended (targetEl
+//                             may be null when released outside any target;
+//                             targetCls is the highlight class it carried,
+//                             already removed by cleanup at this point)
+function startPointerDrag(e, opts) {
+  const startX = e.clientX, startY = e.clientY;
+  let dragging = false, ghost = null, dropEl = null, dropCls = null;
+
+  const clearDropTarget = () => {
+    if (dropEl) { dropEl.classList.remove(dropCls); dropEl = null; dropCls = null; }
+  };
+  const beginDrag = () => {
+    dragging = true;
+    document.body.classList.add('sidebar-session-dragging');
+    opts.dragEl.classList.add('dragging');
+    ghost = document.createElement('div');
+    ghost.className = 'sidebar-drag-ghost';
+    ghost.textContent = opts.ghostLabel;
+    document.body.appendChild(ghost);
+  };
+  const moveGhost = (x, y) => {
+    if (ghost) {
+      ghost.style.left = (x + 12) + 'px';
+      ghost.style.top = (y + 12) + 'px';
+    }
+  };
+  const updateDropTarget = (x, y) => {
+    const hit = opts.findDropTarget(document.elementFromPoint(x, y), x, y);
+    if (hit && hit.el === dropEl && hit.cls === dropCls) return;
+    clearDropTarget();
+    if (hit) { dropEl = hit.el; dropCls = hit.cls; dropEl.classList.add(dropCls); }
+  };
+  const onMove = (ev) => {
+    if (!dragging) {
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+      beginDrag();
+    }
+    moveGhost(ev.clientX, ev.clientY);
+    updateDropTarget(ev.clientX, ev.clientY);
+  };
+  const cleanup = () => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.body.classList.remove('sidebar-session-dragging');
+    opts.dragEl.classList.remove('dragging');
+    if (ghost) { ghost.remove(); ghost = null; }
+    clearDropTarget();
+  };
+  const onUp = (ev) => {
+    const didDrag = dragging;
+    const target = dropEl;
+    const targetCls = dropCls;
+    cleanup();
+    if (didDrag) opts.onDrop(target, targetCls, ev);
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
+
 // Drag a sidebar session row onto a user group to assign it. A lightweight ghost
 // follows the cursor and the `.user-group` under the pointer is highlighted;
 // dropping on it calls assignSessionToGroup. Drag only begins after a small move
@@ -2567,71 +2635,15 @@ function startSidebarSessionDrag(session, item, e) {
   if (e.target.closest('button, input, .session-actions, .session-pin, .session-health-chip')) return;
   if (item.classList.contains('disabled')) return;
 
-  const startX = e.clientX;
-  const startY = e.clientY;
-  let dragging = false;
-  let ghost = null;
-  let dropTarget = null;
-
-  const clearDropTarget = () => {
-    if (dropTarget) {
-      dropTarget.classList.remove('drop-target');
-      dropTarget = null;
-    }
-  };
-
-  const beginDrag = () => {
-    dragging = true;
-    document.body.classList.add('sidebar-session-dragging');
-    item.classList.add('dragging');
-    const label = cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId;
-    ghost = document.createElement('div');
-    ghost.className = 'sidebar-drag-ghost';
-    ghost.textContent = label;
-    document.body.appendChild(ghost);
-  };
-
-  const moveGhost = (x, y) => {
-    if (ghost) {
-      ghost.style.left = (x + 12) + 'px';
-      ghost.style.top = (y + 12) + 'px';
-    }
-  };
-
-  const updateDropTarget = (x, y) => {
-    const el = document.elementFromPoint(x, y);
-    const group = el && el.closest ? el.closest('.user-group') : null;
-    if (group === dropTarget) return;
-    clearDropTarget();
-    if (group) {
-      dropTarget = group;
-      dropTarget.classList.add('drop-target');
-    }
-  };
-
-  const onMove = (ev) => {
-    if (!dragging) {
-      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
-      beginDrag();
-    }
-    moveGhost(ev.clientX, ev.clientY);
-    updateDropTarget(ev.clientX, ev.clientY);
-  };
-
-  const cleanup = () => {
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    document.body.classList.remove('sidebar-session-dragging');
-    item.classList.remove('dragging');
-    if (ghost) { ghost.remove(); ghost = null; }
-    clearDropTarget();
-  };
-
-  const onUp = (ev) => {
-    if (dragging) {
-      const target = dropTarget;
+  startPointerDrag(e, {
+    dragEl: item,
+    ghostLabel: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
+    findDropTarget: (el) => {
+      const group = el && el.closest ? el.closest('.user-group') : null;
+      return group ? { el: group, cls: 'drop-target' } : null;
+    },
+    onDrop: (target) => {
       const groupId = target ? target.dataset.groupId : null;
-      cleanup();
       if (groupId && typeof assignSessionToGroup === 'function') {
         const current = (typeof getGroupForSession === 'function' && typeof groupsState !== 'undefined')
           ? getGroupForSession(groupsState, session.sessionId)
@@ -2647,13 +2659,8 @@ function startSidebarSessionDrag(session, item, e) {
       };
       document.addEventListener('click', swallow, { capture: true, once: true });
       setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 0);
-    } else {
-      cleanup();
-    }
-  };
-
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup', onUp);
+    },
+  });
 }
 
 // #17: manual reorder of project headers (drag from the grip handle). Only active
@@ -2667,67 +2674,28 @@ function startProjectDrag(project, header, e) {
   const container = group.parentElement;
   if (!container) return;
 
-  const startX = e.clientX, startY = e.clientY;
-  let dragging = false, ghost = null, dropTarget = null, dropAfter = false;
-
-  const clearDropTarget = () => {
-    if (dropTarget) { dropTarget.classList.remove('drop-target-before', 'drop-target-after'); dropTarget = null; }
-  };
-  const beginDrag = () => {
-    dragging = true;
-    document.body.classList.add('sidebar-session-dragging');
-    group.classList.add('dragging');
-    ghost = document.createElement('div');
-    ghost.className = 'sidebar-drag-ghost';
-    ghost.textContent = header.querySelector('.project-name')?.textContent || 'Project';
-    document.body.appendChild(ghost);
-  };
-  const moveGhost = (x, y) => { if (ghost) { ghost.style.left = (x + 12) + 'px'; ghost.style.top = (y + 12) + 'px'; } };
-  const updateDropTarget = (x, y) => {
-    const el = document.elementFromPoint(x, y);
-    const g = el && el.closest ? el.closest('.project-group') : null;
-    clearDropTarget();
-    if (g && g !== group && g.parentElement === container) {
+  startPointerDrag(e, {
+    dragEl: group,
+    ghostLabel: header.querySelector('.project-name')?.textContent || 'Project',
+    findDropTarget: (el, _x, y) => {
+      const g = el && el.closest ? el.closest('.project-group') : null;
+      if (!g || g === group || g.parentElement !== container) return null;
       const r = g.getBoundingClientRect();
-      dropAfter = (y - r.top) > r.height / 2;
-      dropTarget = g;
-      dropTarget.classList.add(dropAfter ? 'drop-target-after' : 'drop-target-before');
-    }
-  };
-  const onMove = (ev) => {
-    if (!dragging) {
-      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
-      beginDrag();
-    }
-    moveGhost(ev.clientX, ev.clientY);
-    updateDropTarget(ev.clientX, ev.clientY);
-  };
-  const cleanup = () => {
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    document.body.classList.remove('sidebar-session-dragging');
-    group.classList.remove('dragging');
-    if (ghost) { ghost.remove(); ghost = null; }
-    clearDropTarget();
-  };
-  const onUp = () => {
-    if (dragging && dropTarget) {
-      const target = dropTarget;
-      const after = dropAfter;
-      cleanup();
+      const dropAfter = (y - r.top) > r.height / 2;
+      return { el: g, cls: dropAfter ? 'drop-target-after' : 'drop-target-before' };
+    },
+    onDrop: (target, targetCls) => {
+      if (!target) return;
+      // The highlight class encodes the drop half (recomputed on every move).
+      const after = targetCls === 'drop-target-after';
       if (after) target.after(group); else target.before(group);
       const order = Array.from(container.querySelectorAll('.project-group'))
         .map(g => g.dataset.projectPath)
         .filter(Boolean);
       if (typeof window._persistProjectOrder === 'function') window._persistProjectOrder(order);
       if (typeof refreshSidebar === 'function') refreshSidebar({ resort: true });
-    } else {
-      cleanup();
-    }
-  };
-
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup', onUp);
+    },
+  });
 }
 
 // --- Delete worktree confirmation dialog ---
