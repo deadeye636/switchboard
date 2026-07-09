@@ -2984,6 +2984,11 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
   activeSessions.set(sessionId, session);
 
   ptyProcess.onData(data => {
+    // ConPTY flushes buffered output asynchronously after pty.kill(), so a last
+    // chunk can arrive after will-quit closed the DB — the OSC 9;4 path below
+    // calls getSetting() and would throw "The database connection is not open"
+    // in an uncaught-exception dialog (#90 class, PTY edition).
+    if (appQuitting) return;
     const currentId = session.realSessionId || sessionId;
 
     // Parse OSC sequences (title changes, progress, notifications, etc.)
@@ -3091,6 +3096,9 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
 
   ptyProcess.onExit(({ exitCode }) => {
     session.exited = true;
+    // During quit the DB is already closed (getSetting below would throw) and
+    // before-quit has shut down MCP + killed the PTYs — skip the cleanup.
+    if (appQuitting) return;
     // Clean up MCP server
     const mcpId = session.realSessionId || sessionId;
     shutdownMcpServer(mcpId);
