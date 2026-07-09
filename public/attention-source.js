@@ -70,14 +70,13 @@
         // full-screen TUI sessions that don't emit the OSC-0 spinner title.
         return { kind: 'busy', reason: message || 'Agent working' };
       case 'PreToolUse':
-        // A subagent tool call = the main agent delegates and waits. Scoped by the
-        // hook matcher, but guard on tool_name too (#112).
+        // A subagent tool call went out → subagent work starts (#112). Only the
+        // start edge is taken from a hook: PostToolUse fires when the *tool call*
+        // returns, which for async subagents is seconds after launch and long
+        // before the subagent finishes — useless as an end signal. The end comes
+        // from the live spawn→complete window instead.
         return isSubagentTool(hook.tool_name)
-          ? { kind: 'delegating-start', reason: 'Delegating to subagent' }
-          : null;
-      case 'PostToolUse':
-        return isSubagentTool(hook.tool_name)
-          ? { kind: 'delegating-end', reason: '' }
+          ? { kind: 'subagent-start', reason: 'Subagent started' }
           : null;
       default:
         return null;

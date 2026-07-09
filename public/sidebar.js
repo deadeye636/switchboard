@@ -27,7 +27,6 @@ function getSessionRuntimeState() {
     attentionSessions,
     responseReadySessions,
     sessionBusyState,
-    delegatingSessions,
     openSessions,
     lastActivityTime,
     activeSessionId,
@@ -844,6 +843,8 @@ window._updateSubagentLive = function (parentSessionId, agentId, isLive) {
     if (dot && !activePtyIds.has(item.dataset.sessionId)) dot.classList.toggle('running', on && isLive);
   });
   updateSubagentCaret(parentSessionId);
+  // The parent's two-color overlay follows the live-subagent set (#112).
+  if (typeof window._recomputeSubagentActive === 'function') window._recomputeSubagentActive(parentSessionId);
 };
 
 // Build Map<parentSessionId, subagentSession[]> from a project's session list.
@@ -1436,7 +1437,7 @@ function buildFolderProjectSubsection(scopePrefix, projectPath, sessions, missin
 // (sessions added/removed, renames, sort, filters) still use refreshSidebar().
 // Returns false when a full rebuild is required (caller falls back).
 const SESSION_STATUS_CLASSES = ['status-needs-attention', 'status-response-ready',
-  'status-busy', 'status-delegating', 'status-running', 'status-exited', 'status-idle'];
+  'status-busy', 'status-running', 'status-exited', 'status-idle'];
 
 function patchSidebarStatuses() {
   if (!sidebarContent || !sidebarContent.querySelector('.session-item')) return false;
@@ -1460,6 +1461,8 @@ function patchSidebarStatuses() {
     item.classList.toggle('needs-attention', attentionSessions.has(sid));
     item.classList.toggle('response-ready', responseReadySessions.has(sid));
     item.classList.toggle('cli-busy', !!sessionBusyState.get(sid));
+    // Subagent-activity overlay (#112): parent keeps its status, dot goes two-color.
+    item.classList.toggle('subagent-active', subagentActiveSessions.has(sid));
     const dot = item.querySelector('.session-status-dot');
     if (dot) dot.classList.toggle('running', activePtyIds.has(sid));
     const session = sessionMap.get(sid);
@@ -2083,6 +2086,8 @@ function buildSessionItem(session) {
   if (attentionSessions.has(session.sessionId)) item.classList.add('needs-attention');
   if (responseReadySessions.has(session.sessionId)) item.classList.add('response-ready');
   if (sessionBusyState.get(session.sessionId)) item.classList.add('cli-busy');
+  // Subagent-activity overlay (#112): two-color dot while a subagent works here.
+  if (subagentActiveSessions.has(session.sessionId)) item.classList.add('subagent-active');
   item.dataset.sessionId = session.sessionId;
 
   const modified = lastActivityTime.get(session.sessionId) || new Date(session.modified);

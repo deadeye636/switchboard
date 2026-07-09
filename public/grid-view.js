@@ -1327,7 +1327,7 @@ function updateGridCardStatuses() {
     }
     const dot = card.querySelector('.grid-card-dot');
     if (dot) dot.className = 'grid-card-dot ' + (status.key === 'busy' ? 'busy' : (running ? 'running' : 'stopped'));
-    card.classList.remove('status-needs-attention', 'status-response-ready', 'status-busy', 'status-delegating', 'status-running', 'status-exited', 'status-idle', 'health-healthy', 'health-growing', 'health-marathon-risk', 'health-handoff-recommended');
+    card.classList.remove('status-needs-attention', 'status-response-ready', 'status-busy', 'status-running', 'status-exited', 'status-idle', 'health-healthy', 'health-growing', 'health-marathon-risk', 'health-handoff-recommended');
     card.classList.add(status.className, health.className);
     const chip = card.querySelector('.grid-card-status-chip');
     if (chip) {

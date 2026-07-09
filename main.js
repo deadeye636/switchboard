@@ -2297,10 +2297,11 @@ function writeClaudeAttentionHook(port) {
   addHook('Notification', ''); // permission_prompt / idle_prompt / elicitation / …
   addHook('Stop', ''); // agent finished responding (matcher ignored for Stop)
   addHook('UserPromptSubmit', ''); // turn start → "Working" (TUI sessions emit no OSC-0 spinner)
-  // Subagent delegation start/end → "Delegating" (#112). Matcher covers both the
-  // current `Agent` tool and the legacy `Task` name; scoping keeps the traffic low.
+  // Subagent work started → the two-color overlay turns on instantly (#112). Only
+  // the start edge: PostToolUse would fire on the async tool return, not on the
+  // subagent's end, so the end is taken from the live spawn→complete window.
+  // Matcher covers the current `Agent` tool and the legacy `Task` name.
   addHook('PreToolUse', attentionSource.SUBAGENT_TOOL_MATCHER);
-  addHook('PostToolUse', attentionSource.SUBAGENT_TOOL_MATCHER);
   fs.mkdirSync(path.dirname(CLAUDE_SETTINGS_JSON), { recursive: true });
   fs.writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(settings, null, 2) + '\n');
   log.info(`[attention-hook] wrote hooks to ${CLAUDE_SETTINGS_JSON} (${url})`);

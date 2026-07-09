@@ -1663,19 +1663,20 @@ input:focus-visible {
   box-shadow: none !important;
 }
 
-/* Delegating (#112): two-color dot — green core (subagent working) inside a
-   teal ring (main agent waiting). Overrides the cli-busy spinner via higher
-   specificity so a delegating turn reads distinctly from a generating one. */
-.session-item.status-delegating .session-status-dot,
-.session-item.status-delegating.cli-busy:not(.needs-attention) .session-status-dot,
-.session-item.status-delegating.cli-busy:not(.needs-attention) .session-status-dot.running {
+/* Subagent-activity overlay (#112): the parent keeps its own status; the dot goes
+   two-color while a subagent works inside the session. Busy parent → the blue
+   cli-busy ring keeps spinning (main agent generating) around a green core
+   (subagent working). Higher specificity beats the cli-busy background rule. */
+.session-item.subagent-active.cli-busy:not(.needs-attention) .session-status-dot,
+.session-item.subagent-active.cli-busy:not(.needs-attention) .session-status-dot.running {
   background: #3ecf5a !important;
-  border: 1.5px solid #40c8b4 !important;
-  border-top-color: #40c8b4 !important;
-  width: 8px !important;
-  height: 8px !important;
-  animation: pulse-dot 1.4s ease-in-out infinite !important;
-  box-shadow: none !important;
+}
+
+/* Idle/running parent with a live subagent: green core, teal halo. */
+.session-item.subagent-active:not(.cli-busy):not(.needs-attention) .session-status-dot {
+  background: #3ecf5a;
+  box-shadow: 0 0 0 2px rgba(64,200,180,0.75);
+  animation: pulse-dot 1.4s ease-in-out infinite;
 }
 
 @keyframes spin-dot {
@@ -1864,13 +1865,6 @@ input:focus-visible {
   background: rgba(62,207,90,0.14);
 }
 
-/* Delegating (#112): main agent waiting on a subagent. Teal chip, distinct from
-   busy (blue) and running (green). */
-.status-delegating .session-status-chip,
-.attention-inbox-item.status-delegating .attention-inbox-status {
-  color: #7ee8d6;
-  background: rgba(64,200,180,0.14);
-}
 
 .status-exited .session-status-chip {
   color: #c0a0ff;

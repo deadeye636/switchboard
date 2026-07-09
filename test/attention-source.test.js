@@ -99,28 +99,26 @@ test('hook UserPromptSubmit maps to busy (Working)', () => {
 
 // Newer Claude Code names the subagent tool `Agent`; older builds used `Task`.
 for (const toolName of ['Task', 'Agent']) {
-  test(`hook PreToolUse(${toolName}) maps to delegating-start (#112)`, () => {
+  test(`hook PreToolUse(${toolName}) maps to subagent-start (#112)`, () => {
     const result = classifyAttentionSignal({
       source: 'hook',
       payload: { hook_event_name: 'PreToolUse', tool_name: toolName },
     });
-    assert.equal(result.kind, 'delegating-start');
+    assert.equal(result.kind, 'subagent-start');
     assert.equal(result.source, 'hook');
-  });
-
-  test(`hook PostToolUse(${toolName}) maps to delegating-end (#112)`, () => {
-    const result = classifyAttentionSignal({
-      source: 'hook',
-      payload: { hook_event_name: 'PostToolUse', tool_name: toolName },
-    });
-    assert.equal(result.kind, 'delegating-end');
   });
 }
 
-test('hook Pre/PostToolUse for non-subagent tools is ignored', () => {
+test('hook PreToolUse for non-subagent tools is ignored', () => {
   assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PreToolUse', tool_name: 'Bash' } }), null);
-  assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PostToolUse', tool_name: 'Read' } }), null);
   assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PreToolUse' } }), null);
+});
+
+test('PostToolUse is not an end signal — it fires on the async tool return (#112)', () => {
+  // Registering it would end the overlay seconds after launch, long before the
+  // subagent finishes. The end comes from the live spawn->complete window.
+  assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PostToolUse', tool_name: 'Agent' } }), null);
+  assert.equal(classifyAttentionSignal({ source: 'hook', payload: { hook_event_name: 'PostToolUse', tool_name: 'Task' } }), null);
 });
 
 test('the registered hook matcher covers every subagent tool name', () => {

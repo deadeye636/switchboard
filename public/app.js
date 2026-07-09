@@ -315,6 +315,16 @@ window._applyNotificationSettings = (settings) => {
   appGlobalSettings = settings || {};
   const override = appGlobalSettings.shortcuts && appGlobalSettings.shortcuts.nextAttention;
   if (override) nextAttentionBinding = override;
+  // #112: apply the subagent live-status toggle to the overlay right away.
+  if (appGlobalSettings.subagentLiveStatus === false) {
+    if (subagentActiveSessions.size) { subagentActiveSessions.clear(); refreshSessionStatusViews(); }
+  } else {
+    const parents = new Set(subagentPending.keys());
+    if (typeof window._liveSubagentParents === 'function') {
+      for (const p of window._liveSubagentParents()) parents.add(p);
+    }
+    for (const p of parents) recomputeSubagentActive(p);
+  }
 };
 
 function getNextAttentionBinding() {
@@ -350,12 +360,19 @@ const attentionSessions = new Set(); // sessions needing user action (OSC 9 or h
 const attentionReason = new Map(); // sessionId → { reason, source } — for hook>osc9 precedence
 const responseReadySessions = new Set(); // Claude finished, user hasn't looked (terminal state)
 const sessionBusyState = new Map(); // sessionId → boolean (currently active)
-// Delegating state (#112): sessionId → count of in-flight Task tool calls. A
-// count > 0 means the main agent is waiting on a subagent (status "Delegating"
-// instead of "Working"). delegatingSessions is the derived membership set read
-// by getSessionStatus.
-const delegatingCounts = new Map();
-const delegatingSessions = new Set();
+// Subagent activity overlay (#112). Not a status of its own: with async subagents
+// the parent keeps generating, so it stays Working/Running and merely gains a
+// two-color dot. Two sources, chained so the accent is continuous:
+//   subagentPending — set by the PreToolUse(Agent) hook the instant a subagent is
+//     launched. The JSONL scan needs a couple of seconds to notice the new agent
+//     file, and without this bridge the dot would blink off in between.
+//   live subagents  — the spawn→complete window from the JSONL scan; the real
+//     duration, and the only signal that knows when a subagent actually ended.
+const subagentPending = new Map(); // sessionId → grace timer id
+const subagentActiveSessions = new Set();
+// How long the hook-side bridge holds if no subagent file ever shows up (a Task
+// call that failed outright). A turn end clears it earlier.
+const SUBAGENT_PENDING_GRACE_MS = 30000;
 const finishedAt = new Map(); // sessionId → ms timestamp of the last busy→idle edge (drives running-in-inbox)
 const lastActivityTime = new Map(); // sessionId → Date of last terminal output
 const lastViewedTime = new Map(); // sessionId → Date the session last became focused
@@ -530,31 +547,46 @@ function recordTimelineEvent(sessionId, kind, label, detail) {
 }
 
 // Central activity dispatcher
-// Delegating ref-count (#112): PreToolUse(Task) increments, PostToolUse(Task)
-// decrements; count > 0 → the main agent waits on a subagent. Gated by the
-// subagent live-status setting so turning it off collapses back to "Working".
-function setDelegating(sessionId, delta) {
-  if (typeof appGlobalSettings !== 'undefined' && appGlobalSettings.subagentLiveStatus === false) {
-    if (delegatingSessions.size) { delegatingCounts.clear(); delegatingSessions.clear(); refreshSessionStatusViews(); }
-    return;
-  }
-  const next = Math.max(0, (delegatingCounts.get(sessionId) || 0) + delta);
-  const had = delegatingSessions.has(sessionId);
-  if (next > 0) { delegatingCounts.set(sessionId, next); delegatingSessions.add(sessionId); }
-  else { delegatingCounts.delete(sessionId); delegatingSessions.delete(sessionId); }
-  if (had !== delegatingSessions.has(sessionId)) refreshSessionStatusViews();
+// Drop the hook-side bridge for a session (its grace timer included).
+function clearSubagentPending(sessionId) {
+  const timer = subagentPending.get(sessionId);
+  if (timer === undefined) return false;
+  clearTimeout(timer);
+  subagentPending.delete(sessionId);
+  return true;
 }
 
-// Drop any delegating state for a session (turn ended / went idle).
-function clearDelegating(sessionId) {
-  if (delegatingSessions.delete(sessionId)) { delegatingCounts.delete(sessionId); return true; }
-  delegatingCounts.delete(sessionId);
-  return false;
+// Recompute the subagent-activity overlay for one session. Gated by the subagent
+// live-status setting (default on).
+function recomputeSubagentActive(sessionId) {
+  if (!sessionId) return;
+  const enabled = !(typeof appGlobalSettings !== 'undefined' && appGlobalSettings.subagentLiveStatus === false);
+  const liveCount = (typeof window._liveSubagentCount === 'function') ? window._liveSubagentCount(sessionId) : 0;
+  // Once the JSONL scan sees the agent the bridge has done its job — drop it so
+  // the overlay ends with the subagent rather than with the grace timer.
+  if (liveCount > 0) clearSubagentPending(sessionId);
+  const active = enabled && (liveCount > 0 || subagentPending.has(sessionId));
+  const had = subagentActiveSessions.has(sessionId);
+  if (active) subagentActiveSessions.add(sessionId);
+  else subagentActiveSessions.delete(sessionId);
+  if (had !== active) refreshSessionStatusViews();
+}
+// Called by sidebar.js when a subagent spawns/completes (the JSONL source).
+window._recomputeSubagentActive = recomputeSubagentActive;
+
+// PreToolUse(Agent) fired: bridge the gap until the JSONL scan sees the agent file.
+function markSubagentPending(sessionId) {
+  clearSubagentPending(sessionId);
+  subagentPending.set(sessionId, setTimeout(() => {
+    subagentPending.delete(sessionId);
+    recomputeSubagentActive(sessionId);
+  }, SUBAGENT_PENDING_GRACE_MS));
+  recomputeSubagentActive(sessionId);
 }
 
 function setActivity(sessionId, active) {
-  // Turn ended → a stale Task delegation can't still be in flight.
-  if (!active) clearDelegating(sessionId);
+  // Turn ended → no subagent launch can still be pending.
+  if (!active && clearSubagentPending(sessionId)) recomputeSubagentActive(sessionId);
   if (responseReadySessions.has(sessionId)) {
     return;
   }
@@ -631,11 +663,9 @@ function applyAttention(sessionId, signal) {
       if (item) item.classList.remove('response-ready');
     }
     setActivity(sessionId, true);
-  } else if (kind === 'delegating-start') {
-    // Task tool in flight → the main agent waits on a subagent (#112).
-    setDelegating(sessionId, 1);
-  } else if (kind === 'delegating-end') {
-    setDelegating(sessionId, -1);
+  } else if (kind === 'subagent-start') {
+    // An Agent/Task tool call went out → light the overlay immediately (#112).
+    markSubagentPending(sessionId);
   }
 }
 

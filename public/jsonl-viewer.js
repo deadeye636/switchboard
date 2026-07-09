@@ -15,6 +15,22 @@ const liveSubagents = new Set();
 // Exposed so the sidebar can seed the running-subagent indicator on (re)render (#111).
 window._isSubagentLive = (parentSessionId, agentId) =>
   liveSubagents.has(parentSessionId + ':' + agentId);
+// How many subagents are live under a parent — feeds the parent's two-color
+// overlay (#112). Derived from the set, so repeated events can't skew a counter.
+window._liveSubagentCount = (parentSessionId) => {
+  if (!parentSessionId) return 0;
+  const prefix = parentSessionId + ':';
+  let n = 0;
+  for (const key of liveSubagents) if (key.startsWith(prefix)) n++;
+  return n;
+};
+// Parents that currently have at least one live subagent — lets the overlay be
+// rebuilt when the setting is toggled back on (#112).
+window._liveSubagentParents = () => {
+  const parents = new Set();
+  for (const key of liveSubagents) parents.add(key.slice(0, key.indexOf(':')));
+  return parents;
+};
 
 // Active subagent file watches for the currently-rendered viewer. Each entry
 // is a stopWatch closure created when an Agent block expands and starts a

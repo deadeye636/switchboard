@@ -69,20 +69,16 @@ test('session status distinguishes busy, running, exited, and idle', () => {
   assert.equal(getSessionStatus(idle, runtime).key, 'idle');
 });
 
-test('delegating wins over busy while a Task tool is in flight (#112)', () => {
-  const s = { sessionId: 'd', modified: '2026-06-12T10:00:00.000Z' };
-  // A delegating session is also busy (turn active) + has a live PTY.
+test('subagent activity does not change the parent status (#112 overlay)', () => {
+  // Subagent work is an overlay (a two-color dot), never a status of its own:
+  // with async subagents the parent keeps generating, so it stays "busy".
+  const s = { sessionId: 'p', modified: '2026-06-12T10:00:00.000Z' };
   const runtime = state({
-    activePtyIds: new Set(['d']),
-    sessionBusyState: new Map([['d', true]]),
-    delegatingSessions: new Set(['d']),
+    activePtyIds: new Set(['p']),
+    sessionBusyState: new Map([['p', true]]),
+    subagentActiveSessions: new Set(['p']),
   });
-  assert.equal(getSessionStatus(s, runtime).key, 'delegating');
-  assert.equal(getSessionStatus(s, runtime).label, 'Delegating');
-
-  // Without the delegating flag, the same session is plain busy.
-  const busyRuntime = state({ activePtyIds: new Set(['d']), sessionBusyState: new Map([['d', true]]) });
-  assert.equal(getSessionStatus(s, busyRuntime).key, 'busy');
+  assert.equal(getSessionStatus(s, runtime).key, 'busy');
 });
 
 test('attention inbox orders human-critical sessions first then recent activity', () => {
