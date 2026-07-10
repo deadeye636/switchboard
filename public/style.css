@@ -2408,6 +2408,13 @@ input:focus-visible {
 body.display-mode-tabs .terminal-container { display: block; z-index: 0; pointer-events: none; }
 body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events: auto; }
 
+/* While the launch restore mounts the saved sessions, none of them is `.visible`
+   yet, so in tabs mode each newly mounted terminal would paint over the previous
+   one. Hide the whole stack and let the placeholder show the progress text until
+   the focus target is picked. `visibility` keeps the boxes laid out — with
+   `display: none` a container measures 0x0 and safeFit would fit to garbage. */
+body.restoring-sessions .terminal-container { visibility: hidden; }
+
 .terminal-container.drag-over {
   outline: 2px solid rgba(128, 136, 255, 0.6);
   outline-offset: -2px;

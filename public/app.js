@@ -2930,6 +2930,14 @@ function saveOpenSessionsState() {
   } catch {}
 }
 
+// The placeholder doubles as the restore progress text — it already sits behind
+// the terminal stack and is styled for both themes, so no extra overlay is needed.
+const PLACEHOLDER_DEFAULT_TEXT = 'Select a session from the sidebar to begin.';
+function setPlaceholderText(text) {
+  const p = placeholder && placeholder.querySelector('p');
+  if (p) p.textContent = text;
+}
+
 async function restoreOpenSessionsOnLaunch() {
   if (typeof hasRestorableUpdateSessions !== 'function') return false;
   // Read the live setting (the cached copy may not be populated yet at boot).
@@ -2963,12 +2971,21 @@ async function restoreOpenSessionsOnLaunch() {
   // tab strip that the set of open sessions is still incomplete, so it doesn't
   // prune the persisted tab order down to the tabs mounted so far.
   window.__restoringOpenSessions = true;
+  // Tabs mode paints every mounted terminal (only `.visible` is lifted on top),
+  // so each session mounted below would flash over the previous one. Hide the
+  // stack behind the placeholder until the focus target is picked. `visibility`,
+  // never `display` — a container without layout measures 0×0 and safeFit would
+  // fit the terminal to garbage dimensions.
+  document.body.classList.add('restoring-sessions');
+  setPlaceholderText(`Restoring ${uniqueSessions.length} session${uniqueSessions.length === 1 ? '' : 's'}…`);
   try {
     for (const session of uniqueSessions) {
       await openSession(session, null, { show: false });
     }
   } finally {
     window.__restoringOpenSessions = false;
+    document.body.classList.remove('restoring-sessions');
+    setPlaceholderText(PLACEHOLDER_DEFAULT_TEXT);
   }
 
   const focusId = resolveRestoreFocusId(state, uniqueSessions, (id) => openSessions.has(id));
