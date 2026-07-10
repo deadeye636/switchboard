@@ -449,6 +449,12 @@ function buildProjectsFromCache(showArchived) {
       archived: meta?.archived || 0,
     };
     if (!showArchived && s.archived) continue;
+    // #129: a subagent follows its parent into the archive. `setArchived` only ever
+    // stamps the row it was given, so a subagent keeps `archived = 0` and would
+    // otherwise outlive its archived parent as an orphan in the sidebar. Deriving it
+    // here (rather than cascading the write) also covers subagents indexed after the
+    // parent was archived.
+    if (!showArchived && s.parentSessionId && metaMap.get(s.parentSessionId)?.archived) continue;
     if (!projectMap.has(row.projectPath)) {
       projectMap.set(row.projectPath, {
         folder: encodeProjectPath(row.projectPath),
