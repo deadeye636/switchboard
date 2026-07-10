@@ -2,7 +2,7 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Ready to build · **Roadmap:** Opportunity #6 (Phase 4) · **Independent:** Yes (coordinate `grid-view.js` regions with Spec 07 if concurrent)
+**Status:** Implemented · **Roadmap:** Opportunity #6 (Phase 4) · **Independent:** Yes (coordinate `grid-view.js` regions with Spec 07 if concurrent)
 
 ## Problem & goal
 

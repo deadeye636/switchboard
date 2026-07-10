@@ -2,7 +2,9 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Ready to build · **Roadmap:** Opportunity #2 (Phase 1) · **Independent:** Mostly — shares `public/settings-panel.js` and the `global.notifications` settings blob with Spec 01. If 01 isn't merged yet, create the settings section; otherwise extend it.
+**Status:** Implemented · **Roadmap:** Opportunity #2 (Phase 1) · **Independent:** Mostly — shares `public/settings-panel.js` and the `global.notifications` settings blob with Spec 01. If 01 isn't merged yet, create the settings section; otherwise extend it.
+
+> **As built:** the hotkey lives outside the central `shortcuts.js` registry — a dedicated `nextAttentionBinding` in `public/app.js` reads the override from `global.shortcuts.nextAttention`, with the key predicate in `public/alert-sound.js`. The alert sound uses the WebAudio oscillator variant (no bundled audio file).
 
 ## Problem & goal
 

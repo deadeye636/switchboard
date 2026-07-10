@@ -50,8 +50,10 @@ relevantes Spectre-Angriffsmodell).
 
 Der Patch wird durch den **`postinstall`-Hook** automatisch reappliziert:
 ```json
-"scripts": { "postinstall": "patch-package && node scripts/postinstall.js" }
+"scripts": { "postinstall": "patch-package && node scripts/postinstall.js && node scripts/ensure-conpty-dll.js" }
 ```
+(`ensure-conpty-dll.js` kopiert node-ptys gebündelte `conpty.dll` an ihren Platz —
+läuft zusätzlich als electron-builder-`beforePack`-Hook, siehe unten.)
 → überlebt jedes `npm install`. **Patch und postinstall-Hook nicht entfernen.**
 
 Verifizieren, dass node_modules aktuell gepatcht ist:
@@ -85,10 +87,15 @@ nicht zuverlässig portabel. Manuelles Voranstellen ist robuster.)
 ## Build-Schritte im Detail
 
 `npm run build:win` =
-1. `npm run bundle:codemirror` — esbuild bündelt `public/codemirror-setup.js` →
+1. `node scripts/gen-build-info.js` — stempelt `build-info.json` (Branch/Commit/
+   dirty/Datum) für die About-Anzeige (gitignored).
+2. `npm run bundle:codemirror` — esbuild bündelt `public/codemirror-setup.js` →
    `public/codemirror-bundle.js` (gitignored).
-2. `electron-builder --win` — native Module gegen Electron-ABI rebuilden
-   (node-gyp 13 + gepatchte node-pty-gyps), dann NSIS-Installer packen.
+3. `electron-builder --win` — native Module gegen Electron-ABI rebuilden
+   (node-gyp 13 + gepatchte node-pty-gyps), dann NSIS-Installer packen. Der
+   `beforePack`-Hook `scripts/ensure-conpty-dll.js` kopiert node-ptys gebündelte
+   `conpty.dll` neben den lokalen node-pty-Build (der Rebuild beim Packen wischt
+   `build/Release`, darum reicht der postinstall-Lauf allein nicht — #114).
 
 ## Troubleshooting
 

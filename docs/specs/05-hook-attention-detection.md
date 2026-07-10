@@ -2,7 +2,9 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Spike then build · **Roadmap:** Opportunity #5 (Phase 4) · **Independent:** Yes
+**Status:** Implemented · **Roadmap:** Opportunity #5 (Phase 4) · **Independent:** Yes
+
+> **As built:** in addition to the `Notification` and `Stop` hooks below, a `SubagentStop` hook is also registered. The HTTP ingest server lives at `main.js` ~2287 (not near the OSC parsing region).
 
 ## Problem & goal
 

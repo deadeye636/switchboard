@@ -2,7 +2,7 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Ready to build · **Roadmap:** Opportunity #3 (Phase 2) · **Independent:** Yes
+**Status:** Implemented · **Roadmap:** Opportunity #3 (Phase 2) · **Independent:** Yes
 
 ## Problem & goal
 

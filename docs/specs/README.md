@@ -2,6 +2,8 @@
 
 Each file in this folder is a **self-contained spec for one feature**, written so a single agent can pick it up and implement it without needing the original planning conversation. They derive from the productivity roadmap (since migrated to GitHub Issues — see `docs/BACKLOG.md`).
 
+**All eight specs are implemented.** They remain as design records; each spec's `Status:` line and an "As built" note (where the implementation diverged) reflect the final state. Line-number references below describe the codebase at spec-writing time and have drifted.
+
 **Every agent must read this README first**, then their assigned spec.
 
 ## Specs
@@ -63,7 +65,7 @@ Coordinate or sequence when two in-flight specs touch the same file.
 |------|---------------------|------|
 | `public/app.js` | 01, 02, 03, 05, 07 | Highest-contention file. Each spec edits a *different region* (see per-spec "Files to touch"). Land small, rebase often. |
 | `preload.js` | 01, 03, 05, 06 | Additive only — append new bridge methods; conflicts are trivial. |
-| `main.js` | 01, 05 | 01 adds notification/badge/tray near `mainWindow`; 05 adds detection near OSC parsing (~1256–1310). Different regions. |
+| `main.js` | 01, 05 | 01 adds notification/badge/tray near `mainWindow` (landed at ~468); 05 adds a local HTTP ingest server (landed at ~2287, not the OSC parsing region). Different regions. |
 | `public/index.html` | 02, 03, 07, 08 | Additive `<script>` tags only. |
 | `public/grid-view.js` | 06, 07, 08 | **Real contention.** Prefer sequencing 07 → 08, and 06 alongside 07. |
 | `public/sidebar.js` | 03, 07 | 07 adds group rendering; 03 adds a small "while away" affordance. Different regions. |

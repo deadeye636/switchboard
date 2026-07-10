@@ -2,7 +2,9 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Ready after Spec 07 · **Roadmap:** Opportunity #7b (Phase 5B) · **Depends on:** Spec 07 (groups) for grouped layout; can ship standalone for ungrouped if 07 isn't ready.
+**Status:** Implemented · **Roadmap:** Opportunity #7b (Phase 5B) · **Depends on:** Spec 07 (groups) for grouped layout; can ship standalone for ungrouped if 07 isn't ready.
+
+> **As built:** on top of the mouse interactions below, a keyboard move mode (Ctrl+Shift+M, `gridMoveMode` in `public/shortcuts.js`) allows resizing/reordering cards without the mouse; spans go up to 3 rows (`MAX_GRID_ROWS` in `public/grid-layout.js`).
 
 ## Problem & goal
 

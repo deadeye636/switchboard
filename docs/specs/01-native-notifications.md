@@ -2,7 +2,7 @@
 
 > Read `docs/specs/README.md` (shared architecture, IPC, conventions, validation gate) before starting.
 
-**Status:** Ready to build · **Roadmap:** Opportunity #1 (Phase 1) · **Independent:** Yes
+**Status:** Implemented · **Roadmap:** Opportunity #1 (Phase 1) · **Independent:** Yes
 
 ## Problem & goal
 

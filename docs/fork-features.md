@@ -14,7 +14,7 @@ adding two major feature waves plus a set of reliability/packaging fixes.
 At a glance:
 
 - **19 new renderer modules** in `public/` (pure, `node --test`-covered logic)
-- **27 test files** (upstream had none of these)
+- **47 new test files** (72 total under `test/`; the base fork had 29)
 - **Two feature waves**: an *Agent Supervision* layer and a *Productivity* layer
 - **A reliability/infra wave**: crash-resistance, packaging, caching, hardening
 
@@ -215,7 +215,8 @@ context switch. Each feature has a full design doc under `docs/specs/`.
 ### 08 — Flexible grid layout (resize / drag)
 `public/grid-layout.js`, `public/grid-view.js`
 
-- **Resize** grid cards to span columns/rows (snap-to-grid 1×1 / 2×1 / 2×2) and
+- **Resize** grid cards to span columns/rows (snap presets 1×1 / 2×1 / 1×2 / 2×2 /
+  full width; up to 3 rows via the keyboard move mode) and
   **drag to reorder** them (and into/out of groups), with a live FLIP reflow
   preview and snap-layout popover.
 - Per-session span + order persist across restarts; a "reset layout" affordance
@@ -333,8 +334,8 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 
 ### Terminal
 - Configurable **font / size / zoom** (Ctrl+mouse-wheel + status-bar buttons), **clipboard
-  image & file paste** via Ctrl+V, a right-click **behavior dropdown** (Menu / Copy / Paste /
-  Selection action bar / Native — the action bar pops a floating Copy/Task toolbar above a
+  image & file paste** via Ctrl+V, a right-click **behavior dropdown** (Menu / Copy or paste /
+  Copy only / Selection bar + paste / Native — the selection bar pops a floating Copy/Task toolbar above a
   text selection, Office-style, with right-click paste), a **mouse-mode dropdown**
   (Native / Select PowerShell-style / Off — `select`
   keeps native wheel scroll in a TUI while a left-drag selects text locally), an
@@ -391,7 +392,7 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 
 ## Testing
 
-The fork adds **27 test files** under `test/` (`node --test`), covering all the
+The fork adds **47 test files** under `test/` (72 total, `node --test`), covering all the
 pure modules above — attention/status, health, timeline, usage, cleanup,
 notifications, hotkey/sound, away-summary, handoff, bulk actions, groups, grid
 layout, accessibility, update-restart, cache reconcile, schedule injection,

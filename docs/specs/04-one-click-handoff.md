@@ -2,7 +2,9 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Ready to build · **Roadmap:** Opportunity #4 (Phase 3) · **Independent:** Yes
+**Status:** Implemented · **Roadmap:** Opportunity #4 (Phase 3) · **Independent:** Yes
+
+> **As built:** the flow lives in `public/handoff.js` (`runHandoff`) plus `public/handoff-actions.js` and `public/handoff-extract.js` — not in `dialogs.js`, and the `handoff-flow.js` state machine proposed below was built and later replaced by this split.
 
 ## Problem & goal
 
