@@ -33,7 +33,7 @@ jobs:
           # targets (AppImage + deb) are built for multiple arches in one
           # invocation, the native module rebuild only runs between arch switches
           # for the first target type — the second target type reuses whatever
-          # was last compiled, which can be the wrong arch. See #18.
+          # was last compiled, which can be the wrong arch. See doctly/switchboard#18.
           all='[
             {"os":"macos-14","platform":"mac"},
             {"os":"windows-2022","platform":"win"},
