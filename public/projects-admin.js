@@ -60,6 +60,14 @@
     return `<button class="pa-toggle ${cls}" data-action="${action}" title="${escapeHtml(title)}">${on ? onLabel : offLabel}</button>`;
   }
 
+  // The same warning triangle the sidebar shows for an unavailable project (#135),
+  // and it re-checks on click like that one does — this is where the user decides
+  // between remap and delete, so "the drive was merely unmounted" has to be one
+  // click away, not a dead text badge.
+  function missingIcon() {
+    return '<button type="button" class="pa-missing-icon" data-action="recheck" title="Unavailable — click to re-check (e.g. after mounting the drive)" aria-label="Unavailable — re-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>';
+  }
+
   function rowHtml(row) {
     const name = row.displayName || shortName(row.projectPath);
     const allowCol = autoAdd
@@ -73,10 +81,12 @@
     return `
       <tr data-path="${escapeHtml(row.projectPath)}" class="${row.missing ? 'pa-missing' : ''}">
         <td class="pa-name">
-          <span class="pa-name-text" title="${escapeHtml(row.projectPath)}">${escapeHtml(name)}</span>
-          ${row.missing ? '<span class="pa-badge pa-badge-missing" title="Directory not found on disk">missing</span>' : ''}
-          ${row.configOnly ? '<span class="pa-badge" title="Only in ~/.claude.json, no Switchboard sessions">config-only</span>' : ''}
-          <div class="pa-path">${escapeHtml(row.projectPath)}</div>
+          ${row.missing ? missingIcon() : ''}
+          <div class="pa-name-main">
+            <span class="pa-name-text" title="${escapeHtml(row.projectPath)}">${escapeHtml(name)}</span>
+            ${row.configOnly ? '<span class="pa-badge" title="Only in ~/.claude.json, no Switchboard sessions">config-only</span>' : ''}
+            <div class="pa-path">${escapeHtml(row.projectPath)}</div>
+          </div>
         </td>
         <td class="pa-center">${row.sessionCount || 0}</td>
         <td class="pa-nowrap">${escapeHtml(fmtDate(row.lastActivity))}</td>
@@ -155,6 +165,29 @@
     }
   }
 
+  // Re-read the project list and swap just this row (#135). A full load() would
+  // replace the table with a "Loading…" placeholder and scroll the manager back to
+  // the top — heavy-handed for the availability re-check, which only ever changes
+  // one row. Falls back to load() when the row is gone or the table isn't built.
+  async function refreshRow(path, tr) {
+    if (!tr || !tr.parentNode) { await load(); return; }
+    let res;
+    try {
+      res = await window.api.getProjectsAdmin();
+    } catch (err) {
+      toast('Re-check: ' + err.message);
+      return;
+    }
+    if (!res || res.error) { toast('Re-check: ' + ((res && res.error) || 'unknown')); return; }
+
+    data = res.projects || [];
+    autoAdd = res.autoAdd !== false;
+
+    const fresh = findRow(path);
+    if (!fresh) { await load(); return; } // project vanished — the table is stale
+    tr.outerHTML = rowHtml(fresh);
+  }
+
   function toast(msg) {
     if (typeof showControlToast === 'function') showControlToast({ message: msg });
   }
@@ -214,6 +247,10 @@
   async function handleAction(action, path, tr) {
     const row = findRow(path);
     try {
+      if (action === 'recheck') {
+        await refreshRow(path, tr);
+        return;
+      }
       if (action === 'trust') {
         if (!row) return;
         const next = !row.trusted;

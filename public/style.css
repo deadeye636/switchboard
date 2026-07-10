@@ -7863,7 +7863,15 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
   vertical-align: middle;
 }
 .pa-nowrap { white-space: nowrap; color: #9a9aac; }
-.pa-name { min-width: 220px; }
+/* Name cell is two stacked lines (name + path). Flex so the missing-project icon
+   centres against the pair rather than sitting on the first line (#135). */
+.pa-name {
+  min-width: 220px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.pa-name-main { min-width: 0; }
 .pa-name-text { font-weight: 500; color: #e8e8f0; }
 .pa-path { font-size: 11px; color: #6a6a80; margin-top: 2px; word-break: break-all; }
 .pa-missing .pa-name-text { color: #b06a6a; }
@@ -7876,7 +7884,26 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
   background: #2a2a34;
   color: #9a9aac;
 }
-.pa-badge-missing { background: #3a2020; color: #d08a8a; }
+/* Unavailable project (#135): the same amber warning triangle the sidebar uses,
+   and clickable to re-check — the manager is where remap-or-delete is decided. */
+.pa-missing-icon {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  margin-right: 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: #e8a838;
+  cursor: pointer;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.pa-missing-icon:hover,
+.pa-missing-icon:focus-visible {
+  background: rgba(232, 168, 56, 0.15);
+  outline: none;
+}
 .pa-info { font-size: 12px; color: #9a9aac; white-space: nowrap; }
 .pa-toggle {
   padding: 3px 9px;
