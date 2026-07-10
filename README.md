@@ -4,9 +4,9 @@ Your command center for Claude Code sessions.
 
 Switchboard is a desktop app that gives you a unified view of all your Claude Code sessions across every project. Launch, resume, fork, and monitor sessions from a single window — no more juggling terminal tabs or digging through `~/.claude/projects` to find that one conversation from last week.
 
-> ## ⚠️ Read this first — private fork, no warranty, no liability
+> ## ⚠️ Read this first — personal fork, no warranty, no liability
 >
-> This repository (codename **deadeye**) is a **private downstream fork**, maintained for our own use.
+> This repository (codename **deadeye**) is a **personal, unofficial downstream fork**, maintained for our own use.
 >
 > - **Almost all of the software — and all of the credit — belongs to the upstream authors** ([Doctly](https://github.com/doctly/switchboard), [HaydnG](https://github.com/HaydnG/switchboard), and [JeanBaptisteRenard](https://github.com/JeanBaptisteRenard/switchboard)). This fork only adds a thin layer of our own features on top. See [Credits](#license--credits).
 > - **This is not an official product.** It is **not affiliated with, endorsed by, or supported by** Anthropic, Doctly, or any upstream author.
@@ -53,6 +53,7 @@ here are ports of other community forks (brianstanley, kreaddis), noted where ap
 - **Token/usage stats** — Per-(session, date, model) token, tool and message metrics collected into the DB.
 - **Settings overhaul** — Two-column layout, sticky Save/Cancel bar, an optional pop-out settings window, and permission modes aligned to the Claude CLI.
 - **Usage & search tweaks** — Status-bar usage as color-threshold progress bars; search with a 3-char minimum and an explicit reindex (Enter / refresh button); the sidebar search also matches project names (display name + path).
+- **Adjustable log level** — A *Sessions & CLI → Log level* setting switches the main-process log verbosity live (error → silly), so a packaged build can be diagnosed without a dev build.
 - **About tab** (with build provenance — the branch and short commit a build was made from, plus a `dirty` marker) and a **GitHub-Issues backlog** (issues are the task board, mirrored to `docs/BACKLOG.md`; an `upstream:check` tool detects portable upstream changes).
 - **Extra security hardening** — Ported hardening (kreaddis #46) plus dependency audit fixes, on top of the upstream hardening wave.
 
@@ -61,7 +62,7 @@ A per-module breakdown of both the inherited and the fork-specific features live
 
 ## Session Grid Overview
 
-Toggle the grid overview from the sidebar for a bird's-eye view of all your open sessions at once, grouped by project.
+Open the grid overview via the overview button (or `Cmd/Ctrl+Shift+G`) for a bird's-eye view of all your open sessions at once, grouped by project. In the default tabbed layout the grid is a legacy mode you can switch to at any time.
 
 ![Session Grid Overview](build/screenshot-grid.png)
 
@@ -184,7 +185,7 @@ If it still won't open, clear the quarantine attribute from a terminal:
 xattr -dr com.apple.quarantine /Applications/Switchboard.app
 ```
 
-> **Auto-updates are disabled on macOS for these builds.** Because the app is unsigned, `electron-updater` can't verify update signatures, so it won't auto-install new versions on macOS. Download newer releases manually and re-run the approval step above. (Signed Windows/Linux builds update normally.)
+> **This fork has no auto-updates** (the updater was removed — see [Auto-Updates](#auto-updates)). Download newer releases manually and re-run the approval step above.
 
 ## Prerequisites
 
@@ -193,7 +194,7 @@ xattr -dr com.apple.quarantine /Applications/Switchboard.app
 - Platform build tools for native modules:
   - **macOS**: Xcode Command Line Tools (`xcode-select --install`)
   - **Linux**: `build-essential`, `python3` (`sudo apt install build-essential python3`)
-  - **Windows**: Visual Studio Build Tools or `npm install -g windows-build-tools`
+  - **Windows**: Visual Studio Build Tools — see [`docs/build-windows.md`](docs/build-windows.md) for the current toolchain notes (node-gyp override, node-pty patch)
 
 ## Development Setup
 
@@ -221,8 +222,8 @@ npm run build
 
 # Platform-specific
 npm run build:mac     # DMG + zip (arm64 + x64)
-npm run build:win     # NSIS installer (x64 + arm64)
-npm run build:linux   # AppImage + deb + pacman (x64 + arm64)
+npm run build:win     # NSIS installer (x64)
+npm run build:linux   # AppImage + deb + pacman (host arch; arm64 is built in CI)
 ```
 
 Output goes to `dist/`.
@@ -255,7 +256,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The GitHub Actions workflow builds for all platforms and publishes to GitHub Releases. You can also release locally:
+The GitHub Actions workflow builds for all platforms and publishes a **draft** release to GitHub Releases (publish it manually). You can also release locally:
 
 ```bash
 npm run release   # builds + publishes to GitHub Releases
@@ -265,13 +266,7 @@ Set `GH_TOKEN` in your environment (a GitHub personal access token with `repo` s
 
 ## Auto-Updates
 
-The app uses `electron-updater` to check for updates from GitHub Releases on launch and every 4 hours. Updates are only checked in packaged builds (not during development). The flow:
-
-1. App auto-downloads updates in the background
-2. A toast notification appears when the update is ready
-3. User can restart immediately or dismiss (installs on next quit)
-
-> **macOS limitation:** auto-updates require a signed app. Since these fork builds are unsigned, `electron-updater` cannot verify the downloaded update and will not install it on macOS — update manually by downloading the latest `.dmg`. Windows and Linux builds auto-update normally.
+This fork has **no auto-update mechanism** — the upstream `electron-updater` integration was removed on purpose (unsigned builds can't verify update signatures, and we prefer explicit, user-initiated updates). To update, download the latest release manually and install it over the existing version.
 
 ## Code Signing
 

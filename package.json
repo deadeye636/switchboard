@@ -2,6 +2,7 @@
   "name": "switchboard",
   "version": "0.7.2",
   "private": true,
+  "license": "MIT",
   "description": "A desktop app for browsing, searching, and managing CLI coding sessions",
   "author": "Doctly <support@doctly.ai>",
   "main": "main.js",

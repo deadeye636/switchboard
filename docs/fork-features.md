@@ -232,9 +232,9 @@ Smaller but important changes (mostly in main/Node-side files).
   AppImage doesn't orphan PTYs.
 - **Exit banner**: when a session's process dies, the terminal stays mounted with
   a banner instead of silently closing.
-- **Restore open sessions** across a normal quit/relaunch, and a one-shot restore
-  across auto-update relaunches (`public/update-restart.js`).
-- Auto-update **restart toast** flow.
+- **Restore open sessions** across a normal quit/relaunch, with a one-shot restore
+  on app restart (`public/update-restart.js`; originally built for auto-update
+  relaunches — the auto-updater itself has since been removed from this fork).
 
 ### Session/cache correctness
 - **Reconcile the cache with the filesystem** on `get-projects` so sessions stop
@@ -384,7 +384,7 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 - **Build provenance in About** — every build is stamped (`scripts/gen-build-info.js` → bundled `build-info.json`) with its git branch @ short-commit and a `dirty` flag, shown in the About pane so an installation is traceable to its source commit.
 - Ported **security hardening** (kreaddis #46) + dependency audit fixes.
 - **`upstream:check`** tooling to detect portable upstream changes across all fork branches.
-- **German-based workflow** — Conventional-Commits in German, backlog migrated to GitHub Issues.
+- **Issue-based workflow** — Conventional-Commits (English), backlog migrated to GitHub Issues (mirrored to `docs/BACKLOG.md`).
 - Windows build path for **VS 2026** (node-gyp 13 override, node-pty Spectre-off patch).
 
 ---

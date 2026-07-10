@@ -1,4 +1,9 @@
-# macOS unsigned auto-update fix
+# macOS unsigned auto-update fix (historical)
+
+> **Status: obsolete.** The auto-update feature (`electron-updater`) was later
+> **removed from this fork entirely**, so the fix below no longer exists in the
+> code. This document is kept as a historical record of why unsigned macOS
+> auto-updates failed and how they were patched while the updater still existed.
 
 ## Problem
 
