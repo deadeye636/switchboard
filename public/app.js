@@ -5,6 +5,7 @@ const terminalsEl = document.getElementById('terminals');
 const sidebarContent = document.getElementById('sidebar-content');
 const plansContent = document.getElementById('plans-content');
 const placeholder = document.getElementById('placeholder');
+const restoreProgressEl = document.getElementById('restore-progress');
 const archiveToggle = document.getElementById('archive-toggle');
 const starToggle = document.getElementById('star-toggle');
 const searchInput = document.getElementById('search-input');
@@ -462,6 +463,9 @@ function announceAttentionSummary() {
 }
 
 function refreshSessionStatusViews() {
+  // During the launch restore the whole view settles once at the end; skip the
+  // per-session churn that pollActiveSessions would otherwise trigger N times.
+  if (typeof window !== 'undefined' && window.__restoringOpenSessions) return;
   if (activeTab === 'sessions') {
     // Status edges fire per session activity — patch the rendered DOM in place
     // (#80) and fall back to the full rebuild when the patcher can't (running
@@ -2728,13 +2732,21 @@ loadProjects().then(async () => {
   _refreshProjectTagFilter();
   // Apply the configured startup collapse default once the sidebar (incl. project
   // sections) is built. 'remember' is a no-op (persisted state already applied).
+  let tabsMode = false;
   try {
     const g = await window.api.getSetting('global');
     applyCollapseDefault(g?.sidebarCollapseDefault || 'remember');
+    tabsMode = g?.sessionDisplayMode === 'tabs';
   } catch { /* ignore */ }
 
-  // Restore grid view preference before opening sessions so they enter grid mode
-  if (localStorage.getItem('gridViewActive') === '1') {
+  // Restore grid view preference before opening sessions so they enter grid mode.
+  // Tabs mode is single-view only: never open grid there, and heal a stale grid
+  // flag (a desync from a lost startup race) back to 0 so it can't fire next boot.
+  // Read the mode from settings, not the <body> class — the class is set by a
+  // separate async chain that can still be pending here.
+  if (tabsMode) {
+    if (localStorage.getItem('gridViewActive') === '1') localStorage.setItem('gridViewActive', '0');
+  } else if (localStorage.getItem('gridViewActive') === '1') {
     showGridView();
     // Auto-fill the grid with already-running sessions on launch. A fresh poll
     // refreshes activePtyIds (the idle cadence may not have run yet); its
@@ -2937,20 +2949,31 @@ function saveOpenSessionsState() {
   } catch {}
 }
 
-// The placeholder doubles as the restore progress text — it already sits behind
-// the terminal stack and is styled for both themes, so no extra overlay is needed.
-const PLACEHOLDER_DEFAULT_TEXT = 'Select a session from the sidebar to begin.';
-function setPlaceholderText(text) {
-  const p = placeholder && placeholder.querySelector('p');
-  if (p) p.textContent = text;
+// Determinate restore progress shown inside the placeholder. The restore knows
+// the total up front and mounts sequentially, so this is a real "done of total"
+// bar, not a spinner pretending. A single session gets just the spinner + label
+// (a bar that jumps 0→100 once and vanishes reads as noise).
+function setRestoreProgress(done, total) {
+  if (!restoreProgressEl) return;
+  const multi = total > 1;
+  const title = restoreProgressEl.querySelector('.restore-title');
+  const count = restoreProgressEl.querySelector('.restore-count');
+  const track = restoreProgressEl.querySelector('.restore-track');
+  const fill = restoreProgressEl.querySelector('.restore-fill');
+  if (title) title.textContent = multi ? 'Restoring sessions' : 'Restoring session…';
+  if (count) { count.textContent = multi ? `${done} of ${total}` : ''; count.style.display = multi ? '' : 'none'; }
+  if (track) track.style.display = multi ? '' : 'none';
+  if (fill) fill.style.transform = `scaleX(${total > 0 ? done / total : 0})`;
 }
 
 async function restoreOpenSessionsOnLaunch() {
   if (typeof hasRestorableUpdateSessions !== 'function') return false;
   // Read the live setting (the cached copy may not be populated yet at boot).
+  let tabsMode = false;
   try {
     const global = await window.api.getSetting('global');
     if (global && global.restoreSessionsOnLaunch === false) return false;
+    tabsMode = global?.sessionDisplayMode === 'tabs';
   } catch {}
 
   let state = null;
@@ -2963,8 +2986,10 @@ async function restoreOpenSessionsOnLaunch() {
 
   // Don't restore the grid mosaic in tabs mode (single-view only) — a stale grid
   // flag would otherwise leave gridViewActive=true in tabs and desync the
-  // tab→grid restore. Mirrors the guard in toggleGridView.
-  if (state.gridViewActive && !document.body.classList.contains('display-mode-tabs')) {
+  // tab→grid restore. Read the mode from settings, not the <body> class: the
+  // class is set by a separate async chain (_applySessionDisplaySettings) that can
+  // lose the race against this one, which would let the flag leak into tabs mode.
+  if (state.gridViewActive && !tabsMode) {
     localStorage.setItem('gridViewActive', '1');
     if (!gridViewActive) showGridView();
   }
@@ -2974,9 +2999,10 @@ async function restoreOpenSessionsOnLaunch() {
     isOpen: (id) => openSessions.has(id),
   });
 
-  // Mount them all first, switch the view exactly once. The flag also tells the
-  // tab strip that the set of open sessions is still incomplete, so it doesn't
-  // prune the persisted tab order down to the tabs mounted so far.
+  // Mount them all first, switch the view exactly once. The flag suppresses the
+  // per-session status churn (refreshSessionStatusViews returns early) and keeps
+  // the tab strip empty, so tabs don't fill in one by one and the sidebar/grid
+  // don't re-render N times — everything settles once, at the end.
   window.__restoringOpenSessions = true;
   // Tabs mode paints every mounted terminal (only `.visible` is lifted on top),
   // so each session mounted below would flash over the previous one. Hide the
@@ -2984,20 +3010,24 @@ async function restoreOpenSessionsOnLaunch() {
   // never `display` — a container without layout measures 0×0 and safeFit would
   // fit the terminal to garbage dimensions.
   document.body.classList.add('restoring-sessions');
-  setPlaceholderText(`Restoring ${uniqueSessions.length} session${uniqueSessions.length === 1 ? '' : 's'}…`);
+  setRestoreProgress(0, uniqueSessions.length);
   try {
+    let done = 0;
     for (const session of uniqueSessions) {
       await openSession(session, null, { show: false });
+      setRestoreProgress(++done, uniqueSessions.length);
     }
   } finally {
     window.__restoringOpenSessions = false;
     document.body.classList.remove('restoring-sessions');
-    setPlaceholderText(PLACEHOLDER_DEFAULT_TEXT);
   }
 
   const focusId = resolveRestoreFocusId(state, uniqueSessions, (id) => openSessions.has(id));
   if (focusId) showSession(focusId);
   else if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
+  // Statuses were gated for the whole restore — bring the sidebar, tabs and grid
+  // up to date once now that the full set is open.
+  refreshSessionStatusViews();
   return uniqueSessions.length > 0;
 }
 

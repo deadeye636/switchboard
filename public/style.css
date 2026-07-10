@@ -2204,6 +2204,62 @@ input:focus-visible {
   font-size: 14px;
 }
 
+/* Launch restore progress — a centred overlay over the whole main area while the
+   saved sessions mount. It sits on top of both the (hidden) terminal stack in
+   tabs mode and the still-empty grid, so the progress shows in either mode. New
+   elements inherit no styling in this renderer, so every colour is set explicitly. */
+#restore-progress {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: #111118;
+  pointer-events: none;
+}
+body.restoring-sessions #placeholder { display: none; }
+body.restoring-sessions #restore-progress { display: flex; }
+.restore-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(128, 136, 255, 0.25);
+  border-top-color: #8088ff;
+  border-radius: 50%;
+  animation: stats-spin 0.8s linear infinite;
+}
+.restore-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e0e0ec;
+}
+.restore-count {
+  font-size: 13px;
+  color: #8a8a9c;
+}
+.restore-track {
+  width: 220px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.restore-fill {
+  height: 100%;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
+  background: #8088ff;
+  border-radius: 3px;
+  transition: transform 0.2s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .restore-spinner { animation: none; }
+  .restore-fill { transition: none; }
+}
+
 #terminal-area {
   position: absolute;
   inset: 0;

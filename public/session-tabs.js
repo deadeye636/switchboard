@@ -164,6 +164,9 @@ if (typeof module !== 'undefined' && module.exports) {
     const strip = stripEl();
     if (!strip) return;
     if (displayMode !== 'tabs') { strip.innerHTML = ''; return; }
+    // Keep the strip empty while the launch restore mounts the tabs — otherwise it
+    // fills in one by one. The restore rebuilds it once at the end (flag cleared).
+    if (typeof window !== 'undefined' && window.__restoringOpenSessions) { strip.innerHTML = ''; return; }
 
     const model = buildTabModel(collectSessions(), (typeof activeSessionId !== 'undefined' ? activeSessionId : null), tabOrder);
     // Keep tabOrder in sync with what's actually open (append new, drop gone).
