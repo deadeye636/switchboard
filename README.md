@@ -139,6 +139,7 @@ Switchboard treats your sessions like an agent control room — surfacing not ju
 | `Cmd+G` / `Ctrl+G` | Go to line |
 | `Cmd+Shift+A` / `Ctrl+Shift+A` | Focus next session needing attention |
 | `Cmd+Shift+G` / `Ctrl+Shift+G` | Toggle grid overview |
+| `Cmd+Shift+M` / `Ctrl+Shift+M` | Move mode on the focused grid card — arrows reorder, `Shift`+arrows resize, `Esc` leaves |
 
 ## Security & Trust
 

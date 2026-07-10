@@ -16,6 +16,12 @@ let gridGroupFilter = localStorage.getItem('gridGroupFilter') || 'all'; // 'all'
 // not tear down and rebuild the grid mid-gesture (it would detach the card the
 // user is holding), so refreshGridView() bails out while this is set.
 let gridInteracting = false;
+// Session id whose card is in keyboard "move mode" (null = mode off). While set,
+// bare arrows reorder the card, Shift+arrows resize it, and Esc/Enter leave. The
+// mode also gates keys away from the focused xterm (see isGridMoveModeKey), so
+// every exit path must run exitGridMoveMode() — a stuck mode would swallow the
+// terminal's arrow keys.
+let gridMoveModeSessionId = null;
 
 // Flexible grid layout (spec 08): per-session { order, colSpan, rowSpan } map,
 // persisted in localStorage like gridViewActive/gridStatusFilter.
@@ -1229,6 +1235,9 @@ function unwrapGridCards() {
 }
 
 function focusGridCard(sessionId, { reveal = true } = {}) {
+  // Focus moved off the card being moved (nav shortcut, click, inbox jump) —
+  // the mode belongs to that one card, so it ends here.
+  if (isGridMoveModeActive() && gridMoveModeSessionId !== sessionId) exitGridMoveMode();
   gridFocusedSessionId = sessionId;
   setActiveSession(sessionId);
   clearNotifications(sessionId);
@@ -1596,6 +1605,9 @@ const gridOffscreenSessions = new Set();
 function destroyGridCard(sessionId) {
   const card = gridCards.get(sessionId);
   if (!card) return false;
+  // The card being moved is going away — leave the mode, or its gate would keep
+  // swallowing arrow keys with nothing left to move.
+  if (gridMoveModeSessionId === sessionId) exitGridMoveMode();
   if (gridCardObserver) gridCardObserver.unobserve(card);
   gridOffscreenSessions.delete(sessionId);
   card.remove();
@@ -1607,6 +1619,12 @@ function destroyGridCard(sessionId) {
 function initGridObservers() {
   new ResizeObserver(updateGridColumns).observe(terminalsEl);
   new MutationObserver(updateGridColumns).observe(terminalsEl, { childList: true });
+  // Leaving the window ends move mode: nothing would deliver its keys anyway, and
+  // a mode surviving in the background is how the terminal's arrows go dead.
+  window.addEventListener('blur', () => exitGridMoveMode());
+  // So does any pointer interaction — including a click back into the same card's
+  // terminal, which focusGridCard() alone wouldn't catch (same session id).
+  document.addEventListener('pointerdown', () => exitGridMoveMode(), true);
   const resetBtn = document.getElementById('grid-reset-layout-btn');
   if (resetBtn) resetBtn.addEventListener('click', resetGridLayout);
   // The collapse-all-groups toggle now lives in the bulk-actions bar and is
@@ -1639,6 +1657,7 @@ function initGridObservers() {
 function hideGridView() {
   gridViewActive = false;
   localStorage.setItem('gridViewActive', '0');
+  exitGridMoveMode();
   closeSnapLayoutPopover();
   // Restore the full scrollback budget for every session, not just the one
   // about to be focused — background sessions keep producing output after the
@@ -1770,6 +1789,138 @@ function navigateGrid(direction) {
   }
 }
 
+// --- Keyboard move mode (a11y counterpart to pointer drag/resize) ---
+// The pointer path owns startCardDrag/startCardResize; this is the keyboard path
+// into the same primitives (DOM reorder + persistGridOrder, applyCardSnap).
+
+const gridLiveRegion = document.getElementById('grid-live-region');
+
+function announceGrid(message) {
+  if (gridLiveRegion) gridLiveRegion.textContent = message;
+}
+
+function isGridMoveModeActive() {
+  return gridMoveModeSessionId !== null;
+}
+
+// Where the card sits among the cards it can actually be reordered against —
+// its own container, which is the group region in grouped mode.
+function gridCardSiblings(card) {
+  const container = card.parentElement;
+  if (!container) return [];
+  return [...container.children].filter(n => n.classList && n.classList.contains('grid-card'));
+}
+
+function gridMoveModePosition(card) {
+  const sibs = gridCardSiblings(card);
+  return { index: sibs.indexOf(card), total: sibs.length };
+}
+
+function gridCardSpanLabel(card) {
+  const cols = Math.max(1, Number(card.dataset.colSpan) || 1);
+  const rows = Math.max(1, Number(card.dataset.rowSpan) || 1);
+  return `${cols} column${cols === 1 ? '' : 's'} by ${rows} row${rows === 1 ? '' : 's'}`;
+}
+
+function enterGridMoveMode(sessionId) {
+  const card = gridCards.get(sessionId);
+  if (!card) return false;
+  gridMoveModeSessionId = sessionId;
+  // Same guard the pointer gestures use: a status tick must not rebuild the grid
+  // and detach the card being moved.
+  gridInteracting = true;
+  card.classList.add('move-mode');
+  const { index, total } = gridMoveModePosition(card);
+  announceGrid(`Move mode. Card ${index + 1} of ${total}, ${gridCardSpanLabel(card)}. Arrows move, Shift plus arrows resize, Escape leaves.`);
+  return true;
+}
+
+function exitGridMoveMode({ announce = false } = {}) {
+  if (!isGridMoveModeActive()) return;
+  const card = gridCards.get(gridMoveModeSessionId);
+  if (card) card.classList.remove('move-mode');
+  gridMoveModeSessionId = null;
+  gridInteracting = false;
+  if (announce) announceGrid('Move mode off.');
+}
+
+// Reorder the card one slot within its container, then persist. moveIndex owns
+// the step + edge semantics (grid-layout.js); this only moves the node.
+function gridMoveModeReorder(card, direction) {
+  const sibs = gridCardSiblings(card);
+  const idx = sibs.indexOf(card);
+  if (idx === -1) return false;
+  const next = moveIndex(idx, sibs.length, direction);
+  if (next === null) return false;
+  const container = card.parentElement;
+  // Moving forward: insert after the neighbour we're passing. Backward: before it.
+  container.insertBefore(card, next > idx ? sibs[next].nextSibling : sibs[next]);
+  persistGridOrder();
+  return true;
+}
+
+// Grow/shrink the card by one track. applyCardSnap re-clamps to the container's
+// real column count, persists, and re-fits the terminal.
+function gridMoveModeResize(sessionId, card, direction) {
+  const maxCols = getContainerColumnCount(card.parentElement);
+  const span = resizeSpan(
+    { cols: Number(card.dataset.colSpan) || 1, rows: Number(card.dataset.rowSpan) || 1 },
+    direction,
+    maxCols,
+  );
+  applyCardSnap(sessionId, span.cols, span.rows);
+}
+
+// The gate xterm and the document listener both consult: true for the activation
+// shortcut, and for the mode's own keys while it runs. Returning true here keeps
+// the key away from the PTY.
+function isGridMoveModeKey(e) {
+  if (matchShortcut('gridMoveMode', e, isMac, appShortcuts)) return true;
+  return isGridMoveModeActive() && isMoveModeChord(e, isMac);
+}
+
+// Acts on the event. Returns true when consumed (caller should stop).
+function handleGridMoveModeKey(e) {
+  if (matchShortcut('gridMoveMode', e, isMac, appShortcuts)) {
+    e.preventDefault();
+    if (e.type !== 'keydown') return true;
+    if (isGridMoveModeActive()) { exitGridMoveMode({ announce: true }); return true; }
+    if (!gridViewActive) return true;
+    const sessionId = gridFocusedSessionId || activeSessionId;
+    if (sessionId) enterGridMoveMode(sessionId);
+    return true;
+  }
+
+  if (!isGridMoveModeActive() || !isMoveModeChord(e, isMac)) return false;
+  e.preventDefault();
+  if (e.type !== 'keydown') return true;
+
+  if (e.key === 'Escape' || e.key === 'Enter') {
+    exitGridMoveMode({ announce: true });
+    return true;
+  }
+
+  const sessionId = gridMoveModeSessionId;
+  const card = gridCards.get(sessionId);
+  if (!card) { exitGridMoveMode(); return true; }
+  const direction = MOVE_MODE_DIRECTIONS[e.key];
+
+  if (e.shiftKey) {
+    gridMoveModeResize(sessionId, card, direction);
+    announceGrid(gridCardSpanLabel(card));
+    return true;
+  }
+
+  if (!gridMoveModeReorder(card, direction)) {
+    const { index, total } = gridMoveModePosition(card);
+    announceGrid(`Edge of grid. Card ${index + 1} of ${total}.`);
+    return true;
+  }
+  const { index, total } = gridMoveModePosition(card);
+  announceGrid(`Card ${index + 1} of ${total}.`);
+  return true;
+}
+
 // Live session-navigation key bindings (re-bindable via global settings).
 // Defaults until the stored `global.shortcuts` setting is applied at startup.
 let appShortcuts = normalizeShortcuts(null);
@@ -1782,6 +1933,9 @@ function isSessionNavKey(e) {
   if (isSessionNavShortcut(e, isMac, appShortcuts)) return true;
   // Cmd/Ctrl+Shift+A — focus next attention (let it through while a terminal is focused)
   if (typeof isNextAttentionKey === 'function' && isNextAttentionKey(e, nextAttentionBindingForNav())) return true;
+  // Grid move mode: the activation chord, plus every key the mode consumes while
+  // it runs — otherwise bare arrows would reach the PTY.
+  if (isGridMoveModeKey(e)) return true;
   return false;
 }
 
@@ -1792,6 +1946,10 @@ function nextAttentionBindingForNav() {
 }
 
 function handleSessionNavKey(e) {
+  // Move mode first: while it runs it owns bare arrows / Esc / Enter, and its
+  // activation chord must not fall through to another action.
+  if (handleGridMoveModeKey(e)) return true;
+
   // Cmd/Ctrl+Shift+A — focus next session needing attention
   if (typeof isNextAttentionKey === 'function' && isNextAttentionKey(e, nextAttentionBindingForNav())) {
     e.preventDefault();

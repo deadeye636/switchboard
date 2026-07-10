@@ -5102,6 +5102,16 @@ mark.jsonl-search-hit-active {
 .settings-cat.active { display: block; }
 
 .settings-cat-head { margin-bottom: 18px; }
+/* Group heading inside a settings category (e.g. General / Grid shortcuts). */
+.settings-subhead {
+  margin: 4px 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #7a7a90;
+}
+.settings-section + .settings-subhead { margin-top: 18px; }
 .settings-cat-head h2 { font-size: 19px; font-weight: 600; margin: 0; letter-spacing: -0.02em; color: #e0e0f0; }
 .settings-cat-head p { margin: 4px 0 0; font-size: 12.5px; color: #7a7a90; }
 
@@ -6873,6 +6883,13 @@ body.grid-dragging .grid-card-header {
 .grid-card.resizing {
   outline: 1px solid rgba(128,136,255,0.5);
   outline-offset: -1px;
+}
+
+/* Keyboard move mode — the card the arrow keys act on. Dashed so it reads as a
+   transient mode, not the steady `focused` state. */
+.grid-card.move-mode {
+  outline: 2px dashed rgba(128,136,255,0.8);
+  outline-offset: -2px;
 }
 
 /* Reorder insertion indicators */

@@ -61,6 +61,11 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 - Attention-session card actions stay visible (not hover-only).
 - **Auto-open running sessions** in the grid (`getGridAutoOpenSessionIds`) —
   reattaches to live PTYs only, never spawns a new `claude`.
+- **Keyboard move mode** (`Ctrl/Cmd+Shift+M`, rebindable) — the a11y counterpart to
+  pointer drag/resize: arrows reorder the focused card, `Shift`+arrows resize it,
+  `Esc`/`Enter` leave. While the mode runs it gates its keys away from the focused
+  terminal; every exit path (blur, card destroyed, grid closed, focus moved) clears
+  it. Announcements go to a grid-owned live region, separate from the attention one.
 
 ### Session health + handoff packets
 `public/session-health.js`

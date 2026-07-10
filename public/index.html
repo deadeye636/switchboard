@@ -147,6 +147,9 @@
   </div>
   </div><!-- /app-container -->
   <div id="app-live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+  <!-- Separate from #app-live-region: announceAttentionSummary() rewrites that one on
+       every status tick, which would clobber grid move-mode announcements mid-gesture. -->
+  <div id="grid-live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
   <div id="status-bar"><span id="status-bar-info"></span><span id="status-bar-usage"></span><span id="status-bar-activity"></span><span id="status-bar-zoom"></span></div>
   <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>

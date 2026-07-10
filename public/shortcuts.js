@@ -29,7 +29,18 @@ const DEFAULT_SHORTCUTS = {
   // (The Ctrl/Cmd+Shift+V paste event is suppressed for this press in
   // setupTerminalKeyBindings so it doesn't also paste.)
   insertVariable: { primary: true, alt: false, shift: true, key: 'v' },
+  // Ctrl/Cmd+Shift+M — enter "move mode" on the focused grid card: bare arrows
+  // reorder it, Shift+arrows resize it, Esc/Enter leave. A mode (rather than a
+  // second arrow chord) keeps this off Ctrl+Alt+Arrow, which is the workspace
+  // switcher on most Linux desktops — see the sessionNavArrows note above.
+  gridMoveMode: { primary: true, alt: false, shift: true, key: 'm' },
 };
+
+// Settings groups, in render order. `SHORTCUT_DEFS[].group` points at one of these.
+const SHORTCUT_GROUPS = [
+  { id: 'general', label: 'General' },
+  { id: 'grid', label: 'Grid' },
+];
 
 // Metadata for rendering the settings UI and resolving each action's key family.
 const SHORTCUT_DEFS = [
@@ -38,38 +49,59 @@ const SHORTCUT_DEFS = [
     label: 'Navigate sessions / grid',
     description: 'Move between sessions (single view) or between cells (grid view)',
     family: 'arrows',
+    group: 'general',
   },
   {
     id: 'sessionNavBrackets',
     label: 'Previous / next session',
     description: 'Cycle to the previous or next session',
     family: 'brackets',
-  },
-  {
-    id: 'gridToggle',
-    label: 'Toggle grid view',
-    description: 'Show or hide the session grid overview',
-    family: 'key',
+    group: 'general',
   },
   {
     id: 'toggleBookmark',
     label: 'Bookmark message',
     description: 'Bookmark the focused transcript message, or the active session from the terminal',
     family: 'key',
+    group: 'general',
   },
   {
     id: 'createTask',
     label: 'Create task',
     description: 'Create a task from the selection (transcript or terminal); no selection in the terminal makes a session task',
     family: 'key',
+    group: 'general',
   },
   {
     id: 'insertVariable',
     label: 'Insert variable',
     description: 'Open the saved-variable picker in the focused terminal and insert one at the cursor',
     family: 'key',
+    group: 'general',
+  },
+  {
+    id: 'gridToggle',
+    label: 'Toggle grid view',
+    description: 'Show or hide the session grid overview',
+    family: 'key',
+    group: 'grid',
+  },
+  {
+    id: 'gridMoveMode',
+    label: 'Move / resize grid card',
+    description: 'Enter move mode on the focused grid card: arrows reorder it, Shift+arrows resize it, Esc or Enter leaves',
+    family: 'key',
+    group: 'grid',
   },
 ];
+
+// Defs of one group, in SHORTCUT_DEFS order. Unknown/missing `group` falls into
+// the first group so a new def can never vanish from the settings UI.
+function shortcutDefsByGroup(groupId) {
+  const known = new Set(SHORTCUT_GROUPS.map(g => g.id));
+  const fallback = SHORTCUT_GROUPS[0].id;
+  return SHORTCUT_DEFS.filter(d => (known.has(d.group) ? d.group : fallback) === groupId);
+}
 
 function getDef(id) {
   return SHORTCUT_DEFS.find((d) => d.id === id) || null;
@@ -179,6 +211,8 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DEFAULT_SHORTCUTS,
     SHORTCUT_DEFS,
+    SHORTCUT_GROUPS,
+    shortcutDefsByGroup,
     normalizeShortcuts,
     keyFamily,
     matchShortcut,

@@ -73,13 +73,65 @@
     return ids;
   }
 
+  // --- Keyboard move mode ---
+  // The arrow keys the mode acts on. Bare = reorder, Shift = resize.
+  const MOVE_MODE_DIRECTIONS = {
+    ArrowLeft: 'left',
+    ArrowRight: 'right',
+    ArrowUp: 'up',
+    ArrowDown: 'down',
+  };
+
+  // Does this keyboard event belong to move mode? Only bare (or Shift-only)
+  // arrows / Escape / Enter qualify: a chord carrying primary or alt stays with
+  // its normal shortcut, so session navigation still works inside the mode.
+  function isMoveModeChord(e, isMac) {
+    if (!e) return false;
+    const primary = isMac ? e.metaKey : e.ctrlKey;
+    const secondary = isMac ? e.ctrlKey : e.metaKey;
+    if (primary || secondary || e.altKey) return false;
+    if (MOVE_MODE_DIRECTIONS[e.key]) return true;
+    return e.key === 'Escape' || e.key === 'Enter';
+  }
+
+  // Target slot when moving a card one step. Movement is linear over the
+  // container's card order, not 2D: left/up step back, right/down step forward.
+  // Returns null at the edges (caller announces "edge of grid" and stays put).
+  function moveIndex(index, total, direction) {
+    const i = Math.floor(Number(index));
+    const n = Math.floor(Number(total));
+    if (!Number.isFinite(i) || !Number.isFinite(n) || i < 0 || i >= n) return null;
+    const back = direction === 'left' || direction === 'up';
+    const next = back ? i - 1 : i + 1;
+    if (next < 0 || next >= n) return null;
+    return next;
+  }
+
+  // Span after growing/shrinking by one track in `direction`, clamped to what the
+  // grid allows. right/down grow, left/up shrink.
+  function resizeSpan({ cols, rows } = {}, direction, maxCols = 1) {
+    const base = normalizeSpan({ cols, rows }, maxCols);
+    const delta = (direction === 'right' || direction === 'down') ? 1 : -1;
+    const horizontal = direction === 'left' || direction === 'right';
+    return normalizeSpan(
+      horizontal
+        ? { cols: base.cols + delta, rows: base.rows }
+        : { cols: base.cols, rows: base.rows + delta },
+      maxCols,
+    );
+  }
+
   return {
     MIN_GRID_CARD_WIDTH,
     GRID_GAP,
     MAX_GRID_ROWS,
+    MOVE_MODE_DIRECTIONS,
     calculateGridColumnCount,
     normalizeSpan,
     applyLayout,
     reorder,
+    isMoveModeChord,
+    moveIndex,
+    resizeSpan,
   };
 });

@@ -11,6 +11,8 @@ const assert = require('node:assert/strict');
 const {
   DEFAULT_SHORTCUTS,
   SHORTCUT_DEFS,
+  SHORTCUT_GROUPS,
+  shortcutDefsByGroup,
   normalizeShortcuts,
   matchShortcut,
   isSessionNavShortcut,
@@ -109,6 +111,31 @@ test('normalizeShortcuts: merges partial input over defaults and ignores garbage
   assert.equal(n.gridToggle.key, 'k');
   // every known def is present.
   for (const def of SHORTCUT_DEFS) assert.ok(n[def.id], def.id);
+});
+
+test('shortcutDefsByGroup: every def lands in exactly one rendered group', () => {
+  const grouped = SHORTCUT_GROUPS.flatMap(g => shortcutDefsByGroup(g.id));
+  assert.equal(grouped.length, SHORTCUT_DEFS.length);
+  assert.deepEqual(
+    [...new Set(grouped.map(d => d.id))].sort(),
+    SHORTCUT_DEFS.map(d => d.id).sort(),
+  );
+});
+
+test('shortcutDefsByGroup: a def with a missing/unknown group still renders, in the first group', () => {
+  // Guards the settings UI: a new def that forgets `group` must not vanish.
+  const spliced = { id: 'temp', label: 't', description: 'd', family: 'key' };
+  SHORTCUT_DEFS.push(spliced);
+  try {
+    assert.ok(shortcutDefsByGroup(SHORTCUT_GROUPS[0].id).some(d => d.id === 'temp'));
+  } finally {
+    SHORTCUT_DEFS.pop();
+  }
+});
+
+test('shortcutDefsByGroup: grid actions are grouped under grid', () => {
+  const gridIds = shortcutDefsByGroup('grid').map(d => d.id);
+  assert.deepEqual(gridIds, ['gridToggle', 'gridMoveMode']);
 });
 
 test('normalizeShortcuts: rejects non-single-char grid key, falls back to default', () => {

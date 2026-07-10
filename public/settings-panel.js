@@ -1022,8 +1022,13 @@
             <!-- ===== Keyboard Shortcuts ===== -->
             <section class="settings-cat" data-cat="shortcuts">
               <div class="settings-cat-head"><h2>Keyboard Shortcuts</h2><p>Click a shortcut, then press the new combination.</p></div>
+              ${SHORTCUT_GROUPS.map(group => {
+                const defs = shortcutDefsByGroup(group.id);
+                if (!defs.length) return '';
+                return `
+              <div class="settings-subhead">${escapeHtml(group.label)}</div>
               <div class="settings-section">
-                ${SHORTCUT_DEFS.map(def => `
+                ${defs.map(def => `
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">${escapeHtml(def.label)}</span>
@@ -1033,7 +1038,8 @@
                     <button class="settings-shortcut-btn" id="sv-sc-${def.id}" data-sc-id="${def.id}">${escapeHtml(formatBinding(def.id, scIsMac, scShortcuts))}</button>
                   </div>
                 </div>`).join('')}
-              </div>
+              </div>`;
+              }).join('')}
               <div class="settings-hint">At least one modifier (${scIsMac ? 'Cmd' : 'Ctrl'}, ${scIsMac ? 'Option' : 'Alt'} or Shift) is required. Press Esc to cancel, or click a shortcut again to reset it to defaults.</div>
             </section>
 

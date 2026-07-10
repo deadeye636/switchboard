@@ -2545,6 +2545,9 @@ async function reapplyGlobalSettings() {
   // e._handled to prevent the document listener from double-firing the same action.
   document.addEventListener('keydown', (e) => {
     if (e._handled) return;
+    // Grid move mode owns Esc/Enter/arrows while it runs — check before the
+    // Escape branch below, which would otherwise close a viewer instead.
+    if (typeof handleGridMoveModeKey === 'function' && handleGridMoveModeKey(e)) return;
     // Esc closes an open Message History / Timeline viewer → back to terminal.
     if (e.key === 'Escape' && (jsonlViewer.style.display !== 'none' || timelineViewer.style.display !== 'none'
         || (tasksViewer && tasksViewer.style.display !== 'none')
