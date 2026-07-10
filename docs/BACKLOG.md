@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (24 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (23 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-10
 
@@ -36,7 +36,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#105](https://github.com/deadeye636/switchboard/issues/105) Evaluate: local Whisper voice input · _feature, port_
 - [#106](https://github.com/deadeye636/switchboard/issues/106) Evaluate: rich analytics · _feature, port_
 - [#107](https://github.com/deadeye636/switchboard/issues/107) Evaluate: brianstanley cursor-ui-refresh · _feature, port, source:brianstanley_
-- [#109](https://github.com/deadeye636/switchboard/issues/109) Port doctly: fix ai-title session name · _bug, port_
 - [#113](https://github.com/deadeye636/switchboard/issues/113) Optional second tray icon showing Claude usage (live percentage) · _feature_
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#127](https://github.com/deadeye636/switchboard/issues/127) Persist incremental parse state so cold-start scans read only the delta · _feature_
