@@ -146,6 +146,72 @@ test('readSessionFile returns a top-level row when called without opts', () => {
   }
 });
 
+// Claude Code writes its auto-generated title as a type:"ai-title" entry, and a
+// user-set one as type:"custom-title". Both are kept as separate fields: the
+// renderer picks `name || aiTitle || summary`, so folding one into the other
+// (as the upstream fix does) would lose the distinction between a title the user
+// chose and one the model invented.
+test('readSessionFile picks up an ai-title entry', () => {
+  const tmp = mkTmp();
+  try {
+    const filePath = path.join(tmp, 'ai-titled.jsonl');
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ type: 'user', message: 'raw first prompt' }) + '\n' +
+      JSON.stringify({ type: 'ai-title', aiTitle: 'Refactor the parser' }) + '\n',
+      'utf8'
+    );
+
+    const row = readSessionFile(filePath, 'folder-x', '/p');
+    assert.equal(row.aiTitle, 'Refactor the parser');
+    assert.equal(row.customTitle, null, 'no user-set title was written');
+    assert.equal(row.summary, 'raw first prompt', 'the raw prompt stays available');
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+test('readSessionFile keeps custom-title and ai-title as separate fields', () => {
+  const tmp = mkTmp();
+  try {
+    const filePath = path.join(tmp, 'both-titles.jsonl');
+    // ai-title last, so a naive "last one wins" would clobber the user's title.
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ type: 'user', message: 'raw first prompt' }) + '\n' +
+      JSON.stringify({ type: 'custom-title', customTitle: 'My name for this' }) + '\n' +
+      JSON.stringify({ type: 'ai-title', aiTitle: 'Model name for this' }) + '\n',
+      'utf8'
+    );
+
+    const row = readSessionFile(filePath, 'folder-x', '/p');
+    assert.equal(row.customTitle, 'My name for this');
+    assert.equal(row.aiTitle, 'Model name for this');
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+test('readSessionFile ignores a title entry with an empty value', () => {
+  const tmp = mkTmp();
+  try {
+    const filePath = path.join(tmp, 'empty-titles.jsonl');
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ type: 'user', message: 'raw first prompt' }) + '\n' +
+      JSON.stringify({ type: 'ai-title', aiTitle: '' }) + '\n' +
+      JSON.stringify({ type: 'custom-title', customTitle: '' }) + '\n',
+      'utf8'
+    );
+
+    const row = readSessionFile(filePath, 'folder-x', '/p');
+    assert.equal(row.aiTitle, null);
+    assert.equal(row.customTitle, null);
+  } finally {
+    cleanup(tmp);
+  }
+});
+
 test('readSessionFile (subagent) returns synthetic id plus parent/agent metadata when sidechain present', () => {
   const tmp = mkTmp();
   try {
