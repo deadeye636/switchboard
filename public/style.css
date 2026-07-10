@@ -7269,7 +7269,72 @@ body.grid-dragging .grid-card-header {
   background: #1e1e28;
 }
 .settings-tag-editor:focus-within { border-color: #61afef; }
+/* Anchor for the suggestion combobox (#134). */
+.settings-tag-editor { position: relative; }
 .settings-tag-chips { display: contents; }
+
+/* --- Tag suggestion combobox (#134) --- */
+/* Replaces a native <datalist>, which the OS drew in its own style and which only
+   filled the input on pick, leaving the user to press Enter to get a chip. */
+.settings-tag-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 216px;
+  overflow-y: auto;
+  padding: 4px;
+  background: #232330;
+  border: 1px solid #3a3a4a;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+}
+.settings-tag-suggest[hidden] { display: none; }
+
+.settings-tag-suggest-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: #c0c0d0;
+  cursor: pointer;
+  user-select: none;
+}
+.settings-tag-suggest-row:hover,
+.settings-tag-suggest-row.active {
+  background: rgba(97,175,239,0.16);
+  color: #e6e6f0;
+}
+
+.settings-tag-suggest-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* The trailing "create" row is separated from the matches and reads quieter. */
+.settings-tag-suggest-create {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  color: #8a8a9e;
+}
+/* Nothing to separate it from when it is the only row. */
+.settings-tag-suggest-create:first-child {
+  margin-top: 0;
+  padding-top: 6px;
+  border-top: none;
+}
+.settings-tag-suggest-plus {
+  width: 8px;
+  text-align: center;
+  font-weight: 700;
+  color: #61afef;
+}
 .settings-tag-chip {
   position: relative;
   display: inline-flex;
@@ -7283,18 +7348,30 @@ body.grid-dragging .grid-card-header {
   white-space: nowrap;
 }
 .settings-tag-label { cursor: pointer; }
+/* --- Tag colour picker (#134) --- */
+/* In-app HSV picker. The former <input type="color"> opened Chromium's OS dialog,
+   which the app cannot position — it appeared in the window's top-left corner. */
 .settings-tag-palette {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   left: 0;
   z-index: 100;
+  width: 188px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #3a3a4a;
+  border-radius: 10px;
+  background: #242432;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.5);
+  cursor: default;
+}
+
+.settings-tag-swatches {
   display: flex;
   gap: 5px;
-  padding: 6px;
-  border: 1px solid #3a3a4a;
-  border-radius: 8px;
-  background: #242432;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+  justify-content: space-between;
 }
 .settings-tag-swatch {
   width: 18px;
@@ -7306,26 +7383,79 @@ body.grid-dragging .grid-card-header {
 }
 .settings-tag-swatch:hover { filter: brightness(1.2); }
 .settings-tag-swatch.active { border-color: #fff; }
-.settings-tag-custom {
+
+/* Saturation (x) × brightness (y) over the current hue. */
+.settings-tag-sv {
   position: relative;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  cursor: pointer;
-  overflow: hidden;
-  background: conic-gradient(#e06c75, #e5c07b, #98c379, #56b6c2, #61afef, #c678dd, #e06c75);
+  height: 96px;
+  border-radius: 6px;
+  cursor: crosshair;
+  touch-action: none;
+  background:
+    linear-gradient(to top, #000, transparent),
+    linear-gradient(to right, #fff, var(--hue-color, #61afef));
 }
-.settings-tag-custom:hover { filter: brightness(1.15); }
-.settings-tag-color-input {
+.settings-tag-sv:focus-visible {
+  outline: 2px solid #61afef;
+  outline-offset: 2px;
+}
+.settings-tag-sv-cursor {
   position: absolute;
-  inset: 0;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+
+.settings-tag-hue {
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
-  height: 100%;
-  padding: 0;
-  border: none;
-  opacity: 0;
+  height: 10px;
+  border-radius: 5px;
   cursor: pointer;
+  background: linear-gradient(to right,
+    #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
+}
+.settings-tag-hue::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,0.4);
+  cursor: pointer;
+}
+
+.settings-tag-hex-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-tag-preview {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.12);
+  flex-shrink: 0;
+}
+.settings-tag-hex {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 12px;
+  color: #c0c0d0;
+  background: #1e1e28;
+  border: 1px solid #3a3a4a;
+  border-radius: 6px;
+}
+.settings-tag-hex:focus {
+  outline: none;
+  border-color: #61afef;
 }
 .settings-tag-remove {
   border: none;

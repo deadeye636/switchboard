@@ -38,11 +38,18 @@
     const projectTagsData = isProject
       ? ((await window.api.projectTagsGet(projectPath).catch(() => [])) || [])
       : [];
-    // All tags used across projects — feeds the datalist so the input suggests
-    // existing tags for reuse (#98 follow-up).
-    const allProjectTags = isProject
-      ? [...new Set((((await window.api.projectTagsListAll().catch(() => [])) || []).map(t => t.tag)).filter(Boolean))].sort()
+    // All tags used across projects, with their stored colour — feeds the suggestion
+    // combobox so existing tags are reused rather than retyped (#98 follow-up, #134).
+    const allTagRows = isProject
+      ? ((await window.api.projectTagsListAll().catch(() => [])) || [])
       : [];
+    const allProjectTags = (() => {
+      const byTag = new Map(); // first colour seen wins, matching the sidebar chips
+      for (const row of allTagRows) {
+        if (row && row.tag && !byTag.has(row.tag)) byTag.set(row.tag, row.color || null);
+      }
+      return [...byTag].map(([tag, color]) => ({ tag, color })).sort((a, b) => a.tag.localeCompare(b.tag));
+    })();
     // Deterministic tag hue, shared with session-tag chips (bookmarks-tags.js).
     const tagColor = (tag) => (window.bookmarksTags && typeof window.bookmarksTags.pickColor === 'function')
       ? window.bookmarksTags.pickColor(tag)
@@ -233,13 +240,15 @@
           <div class="settings-field settings-field-wide">
             <div class="settings-field-info">
               <span class="settings-label">Tags</span>
-              <div class="settings-description">Colored labels for this project. Filter the sidebar by tag using the chips above the project list. Type a tag and press Enter to add; click × to remove.</div>
+              <div class="settings-description">Colored labels for this project. Filter the sidebar by tag using the chips above the project list. Start typing to reuse an existing tag or create a new one; click × to remove.</div>
             </div>
             <div class="settings-field-control">
               <div id="sv-project-tags" class="settings-tag-editor">
                 <span id="sv-project-tags-chips" class="settings-tag-chips">${projectTagsData.map(t => renderTagChip(t.tag, t.color)).join('')}</span>
-                <input type="text" id="sv-project-tags-input" class="settings-tag-input" placeholder="Add a tag…" autocomplete="off" list="sv-project-tags-list">
-                <datalist id="sv-project-tags-list">${allProjectTags.map(t => `<option value="${escapeHtml(t)}"></option>`).join('')}</datalist>
+                <input type="text" id="sv-project-tags-input" class="settings-tag-input" placeholder="Add a tag…"
+                       autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list"
+                       aria-controls="sv-project-tags-suggest">
+                <div id="sv-project-tags-suggest" class="settings-tag-suggest" role="listbox" hidden></div>
               </div>
             </div>
           </div>
@@ -1277,32 +1286,136 @@
     });
 
     // Project tag chip editor (#98): add on Enter, remove on ×, de-dupe.
+    // The suggestion list is an in-app combobox (#134) — a native <datalist> ignored
+    // the app's styling, and picking an entry only filled the input, leaving the user
+    // to guess that Enter was still needed to turn it into a chip.
     if (isProject) {
       const tagsInput = settingsViewerBody.querySelector('#sv-project-tags-input');
       const chipsBox = settingsViewerBody.querySelector('#sv-project-tags-chips');
+      const suggestBox = settingsViewerBody.querySelector('#sv-project-tags-suggest');
       const currentTags = () => Array.from(chipsBox.querySelectorAll('.settings-tag-chip')).map(c => c.dataset.tag);
-      const addTag = (raw) => {
+      const addTag = (raw, color) => {
         const tag = String(raw || '').trim();
         if (!tag || currentTags().includes(tag)) return;
-        chipsBox.insertAdjacentHTML('beforeend', renderTagChip(tag));
+        chipsBox.insertAdjacentHTML('beforeend', renderTagChip(tag, color));
       };
-      if (tagsInput) {
+
+      if (tagsInput && suggestBox) {
+        let matches = [];       // [{ tag, color }] currently listed
+        let activeIndex = -1;   // highlighted row, -1 = none
+        let createRow = false;  // is the trailing "create" row shown?
+
+        const closeSuggest = () => {
+          suggestBox.hidden = true;
+          suggestBox.innerHTML = '';
+          tagsInput.setAttribute('aria-expanded', 'false');
+          matches = [];
+          activeIndex = -1;
+          createRow = false;
+        };
+
+        // Total rows = matches + the optional create row, so the highlight can walk
+        // onto "create" as the last entry.
+        const rowCount = () => matches.length + (createRow ? 1 : 0);
+
+        const paintActive = () => {
+          const rows = suggestBox.querySelectorAll('.settings-tag-suggest-row');
+          rows.forEach((row, i) => {
+            const on = i === activeIndex;
+            row.classList.toggle('active', on);
+            row.setAttribute('aria-selected', on ? 'true' : 'false');
+          });
+          if (activeIndex >= 0 && rows[activeIndex]) rows[activeIndex].scrollIntoView({ block: 'nearest' });
+        };
+
+        const openSuggest = () => {
+          const query = tagsInput.value.trim().toLowerCase();
+          const taken = new Set(currentTags());
+          matches = allProjectTags
+            .filter(t => !taken.has(t.tag))
+            .filter(t => !query || t.tag.toLowerCase().includes(query))
+            .slice(0, 8);
+          // Offer creation only for a genuinely new tag.
+          const typed = tagsInput.value.trim();
+          createRow = !!typed && !taken.has(typed) && !allProjectTags.some(t => t.tag === typed);
+
+          if (rowCount() === 0) { closeSuggest(); return; }
+
+          const rows = matches.map((t, i) => {
+            const c = t.color || tagColor(t.tag);
+            return `<div class="settings-tag-suggest-row" role="option" aria-selected="false" data-index="${i}" data-tag="${escapeHtml(t.tag)}" data-color="${escapeHtml(c)}"><span class="settings-tag-suggest-dot" style="background:${c}"></span><span>${escapeHtml(t.tag)}</span></div>`;
+          });
+          if (createRow) {
+            rows.push(`<div class="settings-tag-suggest-row settings-tag-suggest-create" role="option" aria-selected="false" data-index="${matches.length}" data-create="1"><span class="settings-tag-suggest-plus">+</span><span>Create “${escapeHtml(typed)}”</span></div>`);
+          }
+          suggestBox.innerHTML = rows.join('');
+          suggestBox.hidden = false;
+          tagsInput.setAttribute('aria-expanded', 'true');
+          // Preselect the first row so Enter always has an obvious target.
+          activeIndex = 0;
+          paintActive();
+        };
+
+        const commitRow = (index) => {
+          if (index < 0 || index >= rowCount()) return false;
+          if (createRow && index === matches.length) addTag(tagsInput.value);
+          else addTag(matches[index].tag, matches[index].color);
+          tagsInput.value = '';
+          closeSuggest();
+          return true;
+        };
+
+        tagsInput.addEventListener('input', openSuggest);
+        tagsInput.addEventListener('focus', openSuggest);
+
         tagsInput.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ',') {
+          const open = !suggestBox.hidden;
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            if (!open) { openSuggest(); return; }
             e.preventDefault();
-            addTag(tagsInput.value);
-            tagsInput.value = '';
+            const step = e.key === 'ArrowDown' ? 1 : -1;
+            activeIndex = (activeIndex + step + rowCount()) % rowCount();
+            paintActive();
+          } else if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            // A highlighted row wins; otherwise take whatever was typed.
+            if (!(open && commitRow(activeIndex))) {
+              addTag(tagsInput.value);
+              tagsInput.value = '';
+              closeSuggest();
+            }
+          } else if (e.key === 'Escape' && open) {
+            e.preventDefault();
+            e.stopPropagation(); // don't let the settings viewer close too
+            closeSuggest();
           } else if (e.key === 'Backspace' && tagsInput.value === '') {
             const chips = chipsBox.querySelectorAll('.settings-tag-chip');
             if (chips.length) chips[chips.length - 1].remove();
+            closeSuggest();
           }
         });
-        tagsInput.addEventListener('blur', () => { addTag(tagsInput.value); tagsInput.value = ''; });
+
+        // mousedown, not click: the input's blur would tear the list down first.
+        suggestBox.addEventListener('mousedown', (e) => {
+          const row = e.target.closest('.settings-tag-suggest-row');
+          if (!row) return;
+          e.preventDefault(); // keep focus in the input for the next tag
+          commitRow(Number(row.dataset.index));
+        });
+
+        tagsInput.addEventListener('blur', () => {
+          addTag(tagsInput.value);
+          tagsInput.value = '';
+          closeSuggest();
+        });
       }
       if (chipsBox) {
         let paletteEl = null;
         const closePalette = () => { if (paletteEl) { paletteEl.remove(); paletteEl = null; } };
         chipsBox.addEventListener('click', (e) => {
+          // The palette lives inside the chip, so a click on the picker would
+          // otherwise be read as "chip clicked again" and close it (#134).
+          if (e.target.closest('.settings-tag-palette')) return;
           const rm = e.target.closest('.settings-tag-remove');
           if (rm) { rm.closest('.settings-tag-chip').remove(); closePalette(); return; }
           const chip = e.target.closest('.settings-tag-chip');
@@ -1317,27 +1430,103 @@
             chip.style.borderColor = col;
             chip.style.color = col;
           };
-          const initColor = /^#[0-9a-fA-F]{6}$/.test(chip.dataset.color) ? chip.dataset.color : '#61afef';
+          const initColor = normalizeHex(chip.dataset.color) || '#61afef';
+          // In-app HSV picker (#134). The former <input type="color"> handed off to
+          // Chromium's OS colour dialog, which the app cannot position — it opened in
+          // the window's top-left corner, detached from the chip being recoloured.
+          let hsv = hexToHsv(initColor);
+
           paletteEl = document.createElement('div');
           paletteEl.className = 'settings-tag-palette';
           paletteEl._chip = chip;
-          paletteEl.innerHTML = tagPalette.map(col =>
-            `<button type="button" class="settings-tag-swatch${chip.dataset.color === col ? ' active' : ''}" data-col="${col}" style="background:${col}" aria-label="Set color ${col}"></button>`
-          ).join('') + `<label class="settings-tag-custom" title="Custom color"><input type="color" class="settings-tag-color-input" value="${initColor}" aria-label="Custom color"></label>`;
+          paletteEl.innerHTML = `
+            <div class="settings-tag-swatches">
+              ${tagPalette.map(col =>
+                `<button type="button" class="settings-tag-swatch${chip.dataset.color === col ? ' active' : ''}" data-col="${col}" style="background:${col}" aria-label="Set color ${col}"></button>`
+              ).join('')}
+            </div>
+            <div class="settings-tag-sv" tabindex="0" role="slider" aria-label="Saturation and brightness">
+              <div class="settings-tag-sv-cursor"></div>
+            </div>
+            <input type="range" class="settings-tag-hue" min="0" max="359" step="1" aria-label="Hue">
+            <div class="settings-tag-hex-row">
+              <span class="settings-tag-preview"></span>
+              <input type="text" class="settings-tag-hex" spellcheck="false" maxlength="7" aria-label="Hex color">
+            </div>`;
+
+          const svField = paletteEl.querySelector('.settings-tag-sv');
+          const svCursor = paletteEl.querySelector('.settings-tag-sv-cursor');
+          const hueSlider = paletteEl.querySelector('.settings-tag-hue');
+          const hexInput = paletteEl.querySelector('.settings-tag-hex');
+          const preview = paletteEl.querySelector('.settings-tag-preview');
+
+          // Repaint the picker from `hsv`. `fromHex` skips writing the text field so
+          // typing isn't fought over by the caret.
+          const paintPicker = ({ skipHexField = false } = {}) => {
+            const hex = hsvToHex(hsv);
+            svField.style.setProperty('--hue-color', hsvToHex({ h: hsv.h, s: 1, v: 1 }));
+            svCursor.style.left = (hsv.s * 100) + '%';
+            svCursor.style.top = ((1 - hsv.v) * 100) + '%';
+            svCursor.style.background = hex;
+            hueSlider.value = String(Math.round(hsv.h));
+            preview.style.background = hex;
+            if (!skipHexField) hexInput.value = hex;
+            applyColor(hex);
+          };
+
+          const pickFromEvent = (ev) => {
+            const r = svField.getBoundingClientRect();
+            hsv.s = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+            hsv.v = 1 - Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height));
+            paintPicker();
+          };
+
+          svField.addEventListener('pointerdown', (ev) => {
+            ev.preventDefault();
+            svField.setPointerCapture(ev.pointerId);
+            pickFromEvent(ev);
+          });
+          svField.addEventListener('pointermove', (ev) => {
+            if (svField.hasPointerCapture(ev.pointerId)) pickFromEvent(ev);
+          });
+          svField.addEventListener('keydown', (ev) => {
+            const step = ev.shiftKey ? 0.1 : 0.02;
+            if (ev.key === 'ArrowRight') hsv.s = Math.min(1, hsv.s + step);
+            else if (ev.key === 'ArrowLeft') hsv.s = Math.max(0, hsv.s - step);
+            else if (ev.key === 'ArrowUp') hsv.v = Math.min(1, hsv.v + step);
+            else if (ev.key === 'ArrowDown') hsv.v = Math.max(0, hsv.v - step);
+            else return;
+            ev.preventDefault();
+            paintPicker();
+          });
+
+          hueSlider.addEventListener('input', () => {
+            hsv.h = Number(hueSlider.value);
+            paintPicker();
+          });
+
+          // Accept a typed hex only once it parses; leave partial input alone.
+          hexInput.addEventListener('input', () => {
+            const norm = normalizeHex(hexInput.value);
+            if (!norm) return;
+            hsv = hexToHsv(norm);
+            paintPicker({ skipHexField: true });
+          });
+          hexInput.addEventListener('blur', () => { hexInput.value = hsvToHex(hsv); });
+          hexInput.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') { ev.preventDefault(); closePalette(); }
+          });
+
           paletteEl.addEventListener('click', (ev) => {
             const sw = ev.target.closest('.settings-tag-swatch');
             if (!sw) return;
-            applyColor(sw.dataset.col);
+            hsv = hexToHsv(sw.dataset.col);
+            paintPicker();
             closePalette();
           });
-          // Live-apply the custom color while dragging the native picker; keep the
-          // popover open so the user can fine-tune, close on commit (change).
-          const colorInput = paletteEl.querySelector('.settings-tag-color-input');
-          if (colorInput) {
-            colorInput.addEventListener('input', (ev) => applyColor(ev.target.value));
-            colorInput.addEventListener('change', () => closePalette());
-          }
+
           chip.appendChild(paletteEl);
+          paintPicker();
         });
         // Dismiss the palette on an outside click.
         document.addEventListener('click', (e) => {
