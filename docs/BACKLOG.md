@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (23 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-10
 
@@ -22,7 +22,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 
 - [#36](https://github.com/deadeye636/switchboard/issues/36) Worktree/session history navigation · _feature, source:supacode_
 - [#37](https://github.com/deadeye636/switchboard/issues/37) Per-session/project color + custom title · _feature, source:supacode_
-- [#39](https://github.com/deadeye636/switchboard/issues/39) "Dismiss All" for notifications · _feature, source:supacode_
 - [#40](https://github.com/deadeye636/switchboard/issues/40) Remote repo over SSH (treat like local) · _feature, source:supacode_
 - [#41](https://github.com/deadeye636/switchboard/issues/41) Agent badges: which tool runs where (evaluate) · _feature, source:supacode_
 - [#42](https://github.com/deadeye636/switchboard/issues/42) Multi-LLM / multi-agent support (Codex, …) · _feature_
