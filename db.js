@@ -428,6 +428,9 @@ const stmts = {
   `),
   projectMetaGet: db.prepare('SELECT * FROM project_meta WHERE projectPath = ?'),
   projectMetaGetAll: db.prepare('SELECT projectPath FROM project_meta WHERE favorited = 1'),
+  // Project path lifecycle (#55): remap moves these rows, hard delete removes them.
+  projectMetaDelete: db.prepare('DELETE FROM project_meta WHERE projectPath = ?'),
+  projectMetaRename: db.prepare('UPDATE project_meta SET projectPath = ? WHERE projectPath = ?'),
   // Auto-hide (#57): mark/clear the automatic-hide flag and (re)start the grace timer.
   projectMetaSetAutoHidden: db.prepare(`
     INSERT INTO project_meta (projectPath, autoHidden) VALUES (?, ?)
@@ -462,6 +465,10 @@ const stmts = {
   handoffInsert: db.prepare('INSERT INTO project_handoffs (projectPath, label, content, createdAt) VALUES (?, ?, ?, ?)'),
   handoffListByProject: db.prepare('SELECT id, label, content, createdAt FROM project_handoffs WHERE projectPath = ? ORDER BY createdAt DESC'),
   handoffDeleteById: db.prepare('DELETE FROM project_handoffs WHERE id = ?'),
+  // Project path lifecycle (#55). Handoffs are a list, so a remap lets them accrue
+  // to the destination rather than conflicting.
+  projectHandoffsRename: db.prepare('UPDATE project_handoffs SET projectPath = ? WHERE projectPath = ?'),
+  projectHandoffsDeleteAll: db.prepare('DELETE FROM project_handoffs WHERE projectPath = ?'),
   // Session tags
   tagsGet: db.prepare('SELECT tag, color FROM session_tags WHERE sessionId = ? ORDER BY tag'),
   tagInsert: db.prepare('INSERT OR REPLACE INTO session_tags (sessionId, tag, color) VALUES (?, ?, ?)'),
@@ -472,6 +479,10 @@ const stmts = {
   projectTagsGet: db.prepare('SELECT tag, color FROM project_tags WHERE projectPath = ? ORDER BY tag'),
   projectTagInsert: db.prepare('INSERT OR REPLACE INTO project_tags (projectPath, tag, color) VALUES (?, ?, ?)'),
   projectTagDeleteAll: db.prepare('DELETE FROM project_tags WHERE projectPath = ?'),
+  // OR IGNORE: a tag the destination already carries keeps its own colour (#55).
+  projectTagsMerge: db.prepare(
+    'INSERT OR IGNORE INTO project_tags (projectPath, tag, color) SELECT ?, tag, color FROM project_tags WHERE projectPath = ?'
+  ),
   projectTagListAll: db.prepare('SELECT DISTINCT tag, color FROM project_tags ORDER BY tag'),
   projectTagAllRows: db.prepare('SELECT projectPath, tag, color FROM project_tags ORDER BY tag'),
   // Session cache statements
@@ -571,6 +582,8 @@ const stmts = {
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
   `),
   settingsDelete: db.prepare('DELETE FROM settings WHERE key = ?'),
+  // Remap moves the `project:<path>` blob to the new key (#55).
+  settingsRename: db.prepare('UPDATE settings SET key = ? WHERE key = ?'),
   // Saved variables (Saved Variables panel)
   // insertTemplate is NOT a secret (it only describes how to insert, not the
   // value) so it is safe to carry in the list statements; `value` stays excluded.
@@ -870,6 +883,54 @@ function setProjectTags(projectPath, tags) {
   if (!projectPath) return [];
   runWithBusyRetry(() => setProjectTagsTx(projectPath, Array.isArray(tags) ? tags : []));
   return stmts.projectTagsGet.all(projectPath);
+}
+
+// --- Project path lifecycle (#55) ---
+// Everything Switchboard keys by projectPath: project_meta (favorite, auto-hide),
+// project_tags, project_handoffs, and the `project:<path>` settings blob (display
+// name, permission mode, worktree prefs, AFK timeout).
+//
+// A remap moves the project to a new path; a hard delete removes it for good.
+// Neither used to touch any of this, so a remap silently dropped the project's
+// favorite/tags/settings and left the old path behind as a phantom.
+
+// Move every reference from oldPath to newPath. Where the destination already
+// carries data of its own, the destination wins and the source row is dropped —
+// remapping onto a folder that is already a known project must never clobber it.
+const renameProjectRefsTx = db.transaction((oldPath, newPath) => {
+  const destMeta = stmts.projectMetaGet.get(newPath);
+  if (destMeta) stmts.projectMetaDelete.run(oldPath);
+  else stmts.projectMetaRename.run(newPath, oldPath);
+
+  // Tags merge: a tag the destination already has keeps its own colour.
+  stmts.projectTagsMerge.run(newPath, oldPath);
+  stmts.projectTagDeleteAll.run(oldPath);
+
+  // Handoffs are a list, so they simply accrue to the destination.
+  stmts.projectHandoffsRename.run(newPath, oldPath);
+
+  const destSettings = stmts.settingsGet.get('project:' + newPath);
+  if (destSettings) stmts.settingsDelete.run('project:' + oldPath);
+  else stmts.settingsRename.run('project:' + newPath, 'project:' + oldPath);
+});
+
+function renameProjectRefs(oldPath, newPath) {
+  if (!oldPath || !newPath || oldPath === newPath) return;
+  runWithBusyRetry(() => renameProjectRefsTx(oldPath, newPath));
+}
+
+// Drop every trace of a project. Only for a hard delete — a plain "hide" must
+// keep this data so unhiding restores the project intact.
+const deleteProjectRefsTx = db.transaction((projectPath) => {
+  stmts.projectMetaDelete.run(projectPath);
+  stmts.projectTagDeleteAll.run(projectPath);
+  stmts.projectHandoffsDeleteAll.run(projectPath);
+  stmts.settingsDelete.run('project:' + projectPath);
+});
+
+function deleteProjectRefs(projectPath) {
+  if (!projectPath) return;
+  runWithBusyRetry(() => deleteProjectRefsTx(projectPath));
 }
 
 // Distinct tags across all projects — for the sidebar tag filter chip list.
@@ -1294,6 +1355,7 @@ module.exports = {
   getMeta, getAllMeta, setName, toggleStar, setArchived,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
+  renameProjectRefs, deleteProjectRefs,
   toggleBookmark, removeBookmark, listBookmarks,
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,

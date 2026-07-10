@@ -82,6 +82,7 @@ const {
   getMeta, getAllMeta, toggleStar, setName, setArchived,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
+  renameProjectRefs, deleteProjectRefs,
   toggleBookmark, removeBookmark, listBookmarks,
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
@@ -821,8 +822,37 @@ ipcMain.handle('remap-project', (_event, oldPath, newPath) => {
       fs.renameSync(tmp, filePath);
     }
 
+    // Re-point the folder→projectPath cache before refreshing. folderProjectPath()
+    // short-circuits derivation while the previously-derived directory still exists
+    // — and after a remap the OLD directory usually does. Without this the folder
+    // keeps resolving to oldPath, the rewritten cwd is ignored, and the project
+    // vanishes from the sidebar once the rest of its state has moved to newPath.
+    // A zero mtime marks the folder stale so the refresh below fully re-indexes it.
+    setFolderMeta(folder, newPath, 0);
+
     // Refresh the folder cache so the new path takes effect
     refreshFolder(folder);
+
+    // Carry Switchboard's own per-project state across (#55): favorite + auto-hide
+    // (project_meta), tags, handoffs, and the `project:<path>` blob that holds the
+    // display name, permission mode, worktree prefs and AFK timeout. Without this a
+    // remap silently dropped all of it and left the old path behind as a phantom.
+    try { renameProjectRefs(oldPath, newPath); } catch (err) {
+      log.warn('[remap] project refs move failed: ' + err.message);
+    }
+    try {
+      const global = getSetting('global') || {};
+      let touched = false;
+      for (const key of ['hiddenProjects', 'addedProjects']) {
+        if (!Array.isArray(global[key]) || !global[key].includes(oldPath)) continue;
+        // Rewrite in place, and never end up with the path listed twice.
+        global[key] = [...new Set(global[key].map(p => (p === oldPath ? newPath : p)))];
+        touched = true;
+      }
+      if (touched) setSetting('global', global);
+    } catch (err) {
+      log.warn('[remap] global project lists move failed: ' + err.message);
+    }
 
     // Move the project's ~/.claude.json entry (trust/MCP/cost) to the new path so it
     // survives the remap. Non-fatal: the session cwd rewrite above already succeeded.
@@ -911,6 +941,60 @@ ipcMain.handle('set-project-trust', (_event, projectPath, trusted) => {
 });
 
 // --- IPC: delete-project-sessions (#32) ---
+// Does any ~/.claude/projects/<folder> still resolve to this project? Legacy folder
+// encodings mean there can be several, so scan rather than test the encoded name.
+function projectHasSessionsOnDisk(projectPath) {
+  const encoded = encodeProjectPath(projectPath);
+  try {
+    return fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory() && d.name !== '.git')
+      .some(d => d.name === encoded || deriveProjectPath(path.join(PROJECTS_DIR, d.name)) === projectPath);
+  } catch {
+    return false;
+  }
+}
+
+function projectIsInClaudeConfig(projectPath) {
+  try {
+    const cfg = claudeConfig.readClaudeConfig();
+    if (!cfg || !cfg.projects) return false;
+    const norm = claudeConfig.normalizeClaudePath(projectPath);
+    return Object.keys(cfg.projects).some(k => claudeConfig.normalizeClaudePath(k) === norm);
+  } catch {
+    return false;
+  }
+}
+
+// After a hard delete, forget the project entirely (#55). Only when nothing is left
+// to restore — no sessions on disk and no ~/.claude.json entry. A plain "hide" keeps
+// all of this, because unhiding has to bring the project back intact.
+//
+// Called at the end of the two hard-delete handlers rather than from the renderer:
+// the "Remove" dialog runs them in sequence, so whichever finishes last finds the
+// project truly gone and does the pruning.
+function pruneProjectIfGone(projectPath) {
+  if (!projectPath) return false;
+  if (projectHasSessionsOnDisk(projectPath) || projectIsInClaudeConfig(projectPath)) return false;
+
+  try { deleteProjectRefs(projectPath); } catch (err) {
+    log.warn('[prune] project refs delete failed: ' + err.message);
+  }
+  try {
+    const global = getSetting('global') || {};
+    let touched = false;
+    for (const key of ['hiddenProjects', 'addedProjects']) {
+      if (!Array.isArray(global[key]) || !global[key].includes(projectPath)) continue;
+      global[key] = global[key].filter(p => p !== projectPath);
+      touched = true;
+    }
+    if (touched) setSetting('global', global);
+  } catch (err) {
+    log.warn('[prune] global project lists cleanup failed: ' + err.message);
+  }
+  log.info('[prune] forgot project (no sessions, no config entry): ' + projectPath);
+  return true;
+}
+
 // Hard-delete a project's on-disk session history: every ~/.claude/projects/<folder>
 // that resolves to this projectPath (legacy encodings can leave several), plus its DB
 // cache + search index. Session .jsonl files are gone afterwards. Guards each target to
@@ -934,6 +1018,7 @@ ipcMain.handle('delete-project-sessions', (_event, projectPath) => {
       try { deleteSearchFolder(d.name); } catch {}
       removed++;
     }
+    pruneProjectIfGone(projectPath);
     notifyRendererProjectsChanged();
     return { ok: true, removed };
   } catch (err) {
@@ -946,7 +1031,10 @@ ipcMain.handle('delete-project-sessions', (_event, projectPath) => {
 // Atomic RMW with .bak; all other keys/secrets preserved.
 ipcMain.handle('remove-project-config', (_event, projectPath) => {
   const result = claudeConfig.removeProjectEntry(projectPath);
-  if (result.ok) notifyRendererProjectsChanged();
+  if (result.ok) {
+    pruneProjectIfGone(projectPath);
+    notifyRendererProjectsChanged();
+  }
   return result;
 });
 
