@@ -2437,7 +2437,14 @@ ipcMain.handle('get-active-terminals', () => {
 ipcMain.handle('stop-session', (_event, sessionId) => {
   const session = activeSessions.get(sessionId);
   if (!session || session.exited) return { ok: false, error: 'not running' };
-  session.pty.kill();
+  // Mark it dead here, not only in ptyProcess.onExit: kill() is asynchronous (very
+  // visibly so under ConPTY), and until onExit lands, get-active-sessions would keep
+  // reporting the session as running. The renderer's 3s poll would then re-add it to
+  // activePtyIds and the grid's auto-mount would "reattach" it — resuming a fresh
+  // process for a session the user just stopped (#130). onExit still fires and does
+  // the real cleanup; setting this twice is harmless.
+  session.exited = true;
+  try { session.pty.kill(); } catch { /* already gone — the flag is what matters */ }
   return { ok: true };
 });
 
@@ -2745,9 +2752,13 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
   // actively using this project → add it to the allowlist so it shows.
   if (projectPath && getSetting('global')?.projectAutoAdd === false) ensureProjectAdded(projectPath);
 
-  // Reattach to existing session
-  if (activeSessions.has(sessionId)) {
-    const session = activeSessions.get(sessionId);
+  // Reattach to existing session. `exited` is set the moment stop-session issues
+  // the kill (#130), so between that and ptyProcess.onExit the entry still exists
+  // while its PTY is already dead — reattaching there would wire the renderer to a
+  // corpse. Fall through to the resume/spawn path instead.
+  const existingSession = activeSessions.get(sessionId);
+  if (existingSession && !existingSession.exited) {
+    const session = existingSession;
     session.rendererAttached = true;
     session.firstResize = !session.isPlainTerminal;
 

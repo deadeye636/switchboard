@@ -1130,6 +1130,15 @@ window.api.onProcessExited((sessionId, exitCode) => {
   // tidied up by the regular pending-reconciliation pass once it's clear no
   // real session file is coming.
 
+  // A deliberately stopped session leaves the grid with its process (#130). One
+  // that died on its own keeps its card, so the exit banner stays readable and the
+  // session can be relaunched from it. destroySession drops the card and fixes the
+  // header count; showGridView reflows the survivors into the freed slot.
+  if (gridViewActive && userStopped) {
+    destroySession(sessionId);
+    showGridView();
+  }
+
   if (gridViewActive) {
     gridViewerCount.textContent = gridCards.size + ' session' + (gridCards.size !== 1 ? 's' : '');
   }
