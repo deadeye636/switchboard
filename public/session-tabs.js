@@ -167,8 +167,15 @@ if (typeof module !== 'undefined' && module.exports) {
 
     const model = buildTabModel(collectSessions(), (typeof activeSessionId !== 'undefined' ? activeSessionId : null), tabOrder);
     // Keep tabOrder in sync with what's actually open (append new, drop gone).
+    // Never drop while nothing is open yet (boot: this renders before the launch
+    // restore reopens the tabs) or while that restore is still mounting them —
+    // pruning against an empty/partial set would throw away the dragged order the
+    // restore is about to need, and the next drag would persist the loss.
     const openIds = model.map(m => m.sessionId);
-    tabOrder = tabOrder.filter(id => openIds.includes(id));
+    const restoring = typeof window !== 'undefined' && window.__restoringOpenSessions;
+    if (openIds.length > 0 && !restoring) {
+      tabOrder = tabOrder.filter(id => openIds.includes(id));
+    }
     for (const id of openIds) if (!tabOrder.includes(id)) tabOrder.push(id);
 
     strip.innerHTML = '';

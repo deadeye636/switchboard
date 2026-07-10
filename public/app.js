@@ -2219,7 +2219,10 @@ if (timelineKindFilter) {
 
 // Terminal lifecycle (createTerminalEntry, destroySession, showSession, setupDragAndDrop) → terminal-manager.js
 
-async function openSession(session, customOptions) {
+// `show: false` mounts the session without switching the view to it — the launch
+// restore reopens several at once and would otherwise reveal, focus and re-fit
+// each terminal in turn before landing on the one that should have focus.
+async function openSession(session, customOptions, { show = true } = {}) {
   // Opening a terminal session is a fresh navigation — drop any pending
   // "return to tasks" target so a later viewer-close doesn't jump back to tasks.
   window.__tasksReturnTarget = null;
@@ -2236,7 +2239,7 @@ async function openSession(session, customOptions) {
         return;
       }
     } else {
-      showSession(sessionId);
+      if (show) showSession(sessionId);
       return;
     }
   }
@@ -2255,13 +2258,13 @@ async function openSession(session, customOptions) {
   if (!result.ok) {
     entry.terminal.write(`\r\nError: ${result.error}\r\n`);
     entry.closed = true;
-    showSession(sessionId);
+    if (show) showSession(sessionId);
     return;
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
   syncPtySize(sessionId); // push real dimensions to the (re)spawned/reattached PTY (#81)
-  showSession(sessionId);
+  if (show) showSession(sessionId);
   pollActiveSessions();
 }
 
@@ -2956,13 +2959,21 @@ async function restoreOpenSessionsOnLaunch() {
     isOpen: (id) => openSessions.has(id),
   });
 
-  for (const session of uniqueSessions) {
-    await openSession(session);
+  // Mount them all first, switch the view exactly once. The flag also tells the
+  // tab strip that the set of open sessions is still incomplete, so it doesn't
+  // prune the persisted tab order down to the tabs mounted so far.
+  window.__restoringOpenSessions = true;
+  try {
+    for (const session of uniqueSessions) {
+      await openSession(session, null, { show: false });
+    }
+  } finally {
+    window.__restoringOpenSessions = false;
   }
 
-  if (state.activeSessionId && openSessions.has(state.activeSessionId)) {
-    showSession(state.activeSessionId);
-  }
+  const focusId = resolveRestoreFocusId(state, uniqueSessions, (id) => openSessions.has(id));
+  if (focusId) showSession(focusId);
+  else if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
   return uniqueSessions.length > 0;
 }
 

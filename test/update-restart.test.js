@@ -7,6 +7,7 @@ const {
   collectUpdateRestartState,
   hasRestorableUpdateSessions,
   selectRestorableSessions,
+  resolveRestoreFocusId,
 } = require('../public/update-restart');
 
 test('collectUpdateRestartState stores resumable Claude sessions only', () => {
@@ -23,6 +24,44 @@ test('collectUpdateRestartState stores resumable Claude sessions only', () => {
   assert.equal(state.gridViewActive, true);
   assert.deepEqual(state.sessions, [{ sessionId: 's1', projectPath: '/repo/a' }]);
   assert.equal(hasRestorableUpdateSessions(state), true);
+});
+
+test('collectUpdateRestartState drops an activeSessionId that cannot be restored', () => {
+  const openSessions = new Map([
+    ['s1', { closed: false, session: { sessionId: 's1', projectPath: '/repo/a' } }],
+    ['term', { closed: false, session: { sessionId: 'term', projectPath: '/repo/c', type: 'terminal' } }],
+  ]);
+
+  // The focused tab is a plain terminal — never part of `sessions`, so keeping it
+  // as the focus target would leave the restore without one.
+  const onTerminal = collectUpdateRestartState(openSessions, { activeSessionId: 'term' });
+  assert.equal(onTerminal.activeSessionId, null);
+
+  const onSession = collectUpdateRestartState(openSessions, { activeSessionId: 's1' });
+  assert.equal(onSession.activeSessionId, 's1');
+});
+
+test('resolveRestoreFocusId prefers the previously focused session', () => {
+  const restored = [{ sessionId: 's1' }, { sessionId: 's2' }];
+  const open = new Set(['s1', 's2']);
+  assert.equal(resolveRestoreFocusId({ activeSessionId: 's2' }, restored, (id) => open.has(id)), 's2');
+});
+
+test('resolveRestoreFocusId falls back to the first restored session', () => {
+  const restored = [{ sessionId: 's1' }, { sessionId: 's2' }];
+  const open = new Set(['s1', 's2']);
+
+  // Previously focused session did not come back (deleted, or a plain terminal).
+  assert.equal(resolveRestoreFocusId({ activeSessionId: 'gone' }, restored, (id) => open.has(id)), 's1');
+  assert.equal(resolveRestoreFocusId({ activeSessionId: null }, restored, (id) => open.has(id)), 's1');
+
+  // Skips restored entries that failed to open.
+  assert.equal(resolveRestoreFocusId({}, restored, (id) => id === 's2'), 's2');
+});
+
+test('resolveRestoreFocusId returns null when nothing is open', () => {
+  assert.equal(resolveRestoreFocusId({ activeSessionId: 's1' }, [{ sessionId: 's1' }], () => false), null);
+  assert.equal(resolveRestoreFocusId(null, [], () => true), null);
 });
 
 test('hasRestorableUpdateSessions returns false for empty state', () => {

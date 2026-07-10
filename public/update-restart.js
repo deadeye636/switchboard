@@ -26,8 +26,12 @@
         });
       }
     }
+    // Only a session we actually store can be focused again on the next launch.
+    // A plain terminal (filtered out above) or a session whose file is gone would
+    // otherwise leave the restore without a focus target.
+    const restorable = new Set(sessions.map((s) => s.sessionId));
     return {
-      activeSessionId,
+      activeSessionId: restorable.has(activeSessionId) ? activeSessionId : null,
       gridViewActive: !!gridViewActive,
       sessions,
       savedAt: new Date().toISOString(),
@@ -57,11 +61,27 @@
     return result;
   }
 
+  // Which session gets the view after a restore. The one that had focus at quit,
+  // as long as it came back; otherwise the first restored session, so the view
+  // never lands on whatever the reopen loop happened to finish with. Pure:
+  // `isOpen` tells us which ids actually made it back.
+  function resolveRestoreFocusId(state, restored, isOpen) {
+    const open = typeof isOpen === 'function' ? isOpen : () => true;
+    const wanted = state && state.activeSessionId;
+    if (wanted && open(wanted)) return wanted;
+    for (const session of restored || []) {
+      const id = session && session.sessionId;
+      if (id && open(id)) return id;
+    }
+    return null;
+  }
+
   return {
     UPDATE_RESTART_STATE_KEY,
     OPEN_SESSIONS_STATE_KEY,
     collectUpdateRestartState,
     hasRestorableUpdateSessions,
     selectRestorableSessions,
+    resolveRestoreFocusId,
   };
 });
