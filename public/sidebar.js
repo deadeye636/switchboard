@@ -593,7 +593,6 @@ function processProjectSessions(project, resort) {
       filtered = filtered.filter(s => !s.parentSessionId);
     }
     const anyFilterActive = showStarredOnly || showRunningOnly || showTodayOnly || searchMatchIds !== null;
-    if (filtered.length === 0 && !project._projectMatchedOnly && (project.sessions.length > 0 || anyFilterActive)) return null;
 
     filtered = sortSidebarSessions(filtered);
 
@@ -601,10 +600,19 @@ function processProjectSessions(project, resort) {
     // group sections first; the remainder fall through to slug grouping. Groups
     // that span projects render in each project section filtered to that
     // project's members (cards stay under the project header for context).
-    const { grouped: userGroups, ungrouped: groupUngrouped } =
-      (typeof groupSessions === 'function' && typeof groupsState !== 'undefined')
-        ? groupSessions(groupsState, filtered)
-        : { grouped: [], ungrouped: filtered };
+    // Under "running only" a group with assigned (non-archived) members stays
+    // visible with an empty body, so a new session can still be started from its
+    // header even when nothing in it is running (#102).
+    const { sections: userGroups, ungrouped: groupUngrouped } =
+      (typeof userGroupSections === 'function' && typeof groupsState !== 'undefined')
+        ? userGroupSections({ groupSessions, groupsState, projectSessions: project.sessions, filteredSessions: filtered, showRunningOnly })
+        : { sections: [], ungrouped: filtered };
+
+    // Skip a project that has nothing to show — but keep it alive when a user
+    // group is being held visible under "running only" (#102).
+    if (filtered.length === 0 && !project._projectMatchedOnly
+        && (project.sessions.length > 0 || anyFilterActive)
+        && userGroups.length === 0) return null;
 
     // Slug grouping (over sessions not claimed by a user group)
     const slugMap = new Map();
@@ -632,9 +640,12 @@ function processProjectSessions(project, resort) {
     for (const { group, sessions } of userGroups) {
       // Don't render a group section with no sessions in the current filtered
       // view — an empty section would otherwise linger after its members are
-      // filtered out or unassigned.
-      if (!sessions || sessions.length === 0) continue;
-      const mostRecentTime = Math.max(...sessions.map(s => new Date(s.modified).getTime()));
+      // filtered out or unassigned. Exception: under "running only" a group kept
+      // visible with an empty body (assigned members exist but none running), so a
+      // new session can still be started from its header (#102).
+      const keptEmpty = showRunningOnly && sessions.length === 0;
+      if ((!sessions || sessions.length === 0) && !keptEmpty) continue;
+      const mostRecentTime = sessions.length ? Math.max(...sessions.map(s => new Date(s.modified).getTime())) : 0;
       const hasRunning = sessions.some(s => activePtyIds.has(s.sessionId) || pendingSessions.has(s.sessionId));
       const hasPinned = sessions.some(s => s.starred);
       allItems.push({ sortTime: mostRecentTime, pinned: hasPinned, running: hasRunning, element: buildUserGroup(group, sessions) });

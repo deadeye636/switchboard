@@ -23,5 +23,40 @@
     return projectMatchedOnly || visibleCount > 0 || olderCount > 0 || emptyPlaceholder;
   }
 
-  return { shouldRenderProjectGroup };
+  // Sessions that still count toward a user group's membership under an active
+  // filter — a stopped session still belongs to its group; archived and subagent
+  // sessions never form a top-level group. (#102)
+  function sessionsForGroupVisibility(sessions) {
+    return (sessions || []).filter((s) => s && !s.archived && !s.parentSessionId);
+  }
+
+  // The user-group sections to render for a project. Rows come from the already
+  // filtered sessions (so "running only" hides stopped rows), but under
+  // showRunningOnly a group with assigned, non-archived members stays visible
+  // with an empty body — so a new session can still be started from its header
+  // even when nothing in it is running (#102). `groupSessions` is injected (from
+  // groups-model) to keep this DOM-free and unit-testable.
+  function userGroupSections({
+    groupSessions,
+    groupsState,
+    projectSessions = [],
+    filteredSessions = [],
+    showRunningOnly = false,
+  } = {}) {
+    if (typeof groupSessions !== 'function' || !groupsState) {
+      return { sections: [], ungrouped: filteredSessions };
+    }
+    const gs = groupSessions(groupsState, filteredSessions);
+    const sections = gs.grouped.map((g) => ({ group: g.group, sessions: g.sessions }));
+    if (showRunningOnly) {
+      const shown = new Set(sections.map((s) => s.group.id));
+      const assignable = sessionsForGroupVisibility(projectSessions);
+      for (const g of groupSessions(groupsState, assignable).grouped) {
+        if (!shown.has(g.group.id)) sections.push({ group: g.group, sessions: [] });
+      }
+    }
+    return { sections, ungrouped: gs.ungrouped };
+  }
+
+  return { shouldRenderProjectGroup, sessionsForGroupVisibility, userGroupSections };
 });
