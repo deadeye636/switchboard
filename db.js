@@ -376,6 +376,13 @@ const migrations = [
       `);
     } catch {}
   },
+  // #138 follow-up: colour and state now live on tag_defs, so the per-assignment
+  // `color` column on project_tags / session_tags is dead weight. Drop it. Runs
+  // after the seed migration above, which is the last thing that reads it.
+  (db) => {
+    try { db.exec('ALTER TABLE project_tags DROP COLUMN color'); } catch {}
+    try { db.exec('ALTER TABLE session_tags DROP COLUMN color'); } catch {}
+  },
 ];
 
 const currentDbVersion = (() => {
@@ -502,14 +509,15 @@ const stmts = {
   projectHandoffsRename: db.prepare('UPDATE project_handoffs SET projectPath = ? WHERE projectPath = ?'),
   projectHandoffsDeleteAll: db.prepare('DELETE FROM project_handoffs WHERE projectPath = ?'),
   // Session tags
-  // Colour and state now live on the tag def (#138); the assignment tables keep a
-  // stale `color` column, used only as a fallback for a def that somehow went missing.
+  // Colour and state live on the tag def (#138). An assignment with no matching def
+  // is a stray — it should not happen, since assigning a tag creates its def — so it
+  // just reads as colourless rather than being special-cased.
   tagsGet: db.prepare(`
-    SELECT s.tag, COALESCE(d.color, s.color) AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
+    SELECT s.tag, d.color AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
     FROM session_tags s LEFT JOIN tag_defs d ON d.kind = 'session' AND d.name = s.tag
     WHERE s.sessionId = ? ORDER BY s.tag
   `),
-  tagInsert: db.prepare('INSERT OR REPLACE INTO session_tags (sessionId, tag, color) VALUES (?, ?, ?)'),
+  tagInsert: db.prepare('INSERT OR REPLACE INTO session_tags (sessionId, tag) VALUES (?, ?)'),
   tagDeleteAll: db.prepare('DELETE FROM session_tags WHERE sessionId = ?'),
   // Suggestions come from the defs, not from what happens to be assigned (#138).
   tagListAll: db.prepare(`
@@ -517,29 +525,31 @@ const stmts = {
     WHERE kind = 'session' ORDER BY name COLLATE NOCASE
   `),
   tagAllRows: db.prepare(`
-    SELECT s.sessionId, s.tag, COALESCE(d.color, s.color) AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
+    SELECT s.sessionId, s.tag, d.color AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
     FROM session_tags s LEFT JOIN tag_defs d ON d.kind = 'session' AND d.name = s.tag
     ORDER BY s.tag
   `),
   // A tag carries one colour across every project and session that uses it (#134).
   // Project tags (#98) — mirror of the session-tag statements, keyed by projectPath.
   projectTagsGet: db.prepare(`
-    SELECT p.tag, COALESCE(d.color, p.color) AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
+    SELECT p.tag, d.color AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
     FROM project_tags p LEFT JOIN tag_defs d ON d.kind = 'project' AND d.name = p.tag
     WHERE p.projectPath = ? ORDER BY p.tag
   `),
-  projectTagInsert: db.prepare('INSERT OR REPLACE INTO project_tags (projectPath, tag, color) VALUES (?, ?, ?)'),
+  projectTagInsert: db.prepare('INSERT OR REPLACE INTO project_tags (projectPath, tag) VALUES (?, ?)'),
   projectTagDeleteAll: db.prepare('DELETE FROM project_tags WHERE projectPath = ?'),
-  // OR IGNORE: a tag the destination already carries keeps its own colour (#55).
+  // Remap (#55) folds the source project's tag assignments into the destination;
+  // OR IGNORE drops a duplicate the destination already has. Colour is on the def
+  // now, shared by both, so nothing colour-related to carry.
   projectTagsMerge: db.prepare(
-    'INSERT OR IGNORE INTO project_tags (projectPath, tag, color) SELECT ?, tag, color FROM project_tags WHERE projectPath = ?'
+    'INSERT OR IGNORE INTO project_tags (projectPath, tag) SELECT ?, tag FROM project_tags WHERE projectPath = ?'
   ),
   projectTagListAll: db.prepare(`
     SELECT name AS tag, color, hidden, disabled FROM tag_defs
     WHERE kind = 'project' ORDER BY name COLLATE NOCASE
   `),
   projectTagAllRows: db.prepare(`
-    SELECT p.projectPath, p.tag, COALESCE(d.color, p.color) AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
+    SELECT p.projectPath, p.tag, d.color AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
     FROM project_tags p LEFT JOIN tag_defs d ON d.kind = 'project' AND d.name = p.tag
     ORDER BY p.tag
   `),
@@ -933,7 +943,7 @@ const setSessionTagsTx = db.transaction((sessionId, tags) => {
     // their colour; recolouring goes through setTagDefColor.
     stmts.tagDefInsert.run('session', name, t.color || null);
     if (t.color) stmts.tagDefSetColor.run(t.color, 'session', name);
-    stmts.tagInsert.run(sessionId, name, t.color || null);
+    stmts.tagInsert.run(sessionId, name);
   }
 });
 
@@ -969,7 +979,7 @@ const setProjectTagsTx = db.transaction((projectPath, tags) => {
     // See setSessionTagsTx: the quick editor creates defs as a side effect (#138).
     stmts.tagDefInsert.run('project', name, t.color || null);
     if (t.color) stmts.tagDefSetColor.run(t.color, 'project', name);
-    stmts.projectTagInsert.run(projectPath, name, t.color || null);
+    stmts.projectTagInsert.run(projectPath, name);
   }
 });
 
