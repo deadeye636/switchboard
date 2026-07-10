@@ -26,7 +26,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#50](https://github.com/deadeye636/switchboard/issues/50) Per-session API key override · _port, source:brianstanley_
 - [#84](https://github.com/deadeye636/switchboard/issues/84) Make the terminal LRU cap configurable · _feature_
 - [#99](https://github.com/deadeye636/switchboard/issues/99) Session tags: add a discoverable entry point (can't add the first tag) · _bug_
-- [#102](https://github.com/deadeye636/switchboard/issues/102) Port haydng: keep groups visible in running-only mode · _bug, port_
 - [#103](https://github.com/deadeye636/switchboard/issues/103) Evaluate: agent teams (multi-agent orchestration) · _feature, port, source:kreaddis_
 - [#104](https://github.com/deadeye636/switchboard/issues/104) Evaluate: multi-sidebar panes · _feature, port_
 - [#105](https://github.com/deadeye636/switchboard/issues/105) Evaluate: local Whisper voice input · _feature, port_
@@ -35,3 +34,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#113](https://github.com/deadeye636/switchboard/issues/113) Optional second tray icon showing Claude usage (live percentage) · _feature_
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#127](https://github.com/deadeye636/switchboard/issues/127) Persist incremental parse state so cold-start scans read only the delta · _feature_
+- [#141](https://github.com/deadeye636/switchboard/issues/141) LLM profiles: run Claude Code against alt endpoints (DeepSeek/GLM/OpenRouter) via per-session env · _feature, port, source:ivandobsky_
