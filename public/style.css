@@ -943,6 +943,34 @@ input:focus-visible {
   overflow: hidden;
 }
 
+/* Sticky mode (global setting `stickyAttentionInbox`, default on): pin the whole
+   section to the top of the scroll container. Margins/radius are dropped so no
+   scrolling row shows through the gap, and the opaque sidebar background is
+   layered under the amber tint. */
+#sidebar-content.sticky-inbox .attention-inbox {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 0 8px;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  background: linear-gradient(rgba(240,160,80,0.06), rgba(240,160,80,0.06)) #18181f;
+}
+
+/* The dropped top margin above would butt the pinned section against the tag-filter
+   bar. Put the gap on the scroll container instead: it scrolls away, so the pinned
+   edge still sits flush at top: 0 with no strip of rows showing through. */
+#sidebar-content.sticky-inbox:has(.attention-inbox) {
+  padding-top: 4px;
+}
+
+/* Cap the pinned block so a full inbox can't eat the whole sidebar. */
+#sidebar-content.sticky-inbox .attention-inbox-list {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
 .attention-inbox-header {
   display: flex;
   justify-content: space-between;
@@ -7304,11 +7332,13 @@ body.grid-dragging .grid-card-header {
 }
 
 /* Project tags (#98): sidebar filter chip bar */
+/* No top padding — #search-bar's own 10px bottom padding is the gap above. The 6px
+   below pairs with #sidebar-content's 4px sticky padding for a matching gap. */
 #project-tag-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 6px 10px 2px;
+  padding: 0 10px 6px;
 }
 .project-tag-chip {
   font-size: 11px;

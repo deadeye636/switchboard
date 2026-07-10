@@ -50,6 +50,8 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   (`getNextAttentionInboxItem`) that cycles through everything needing you.
 - Visible **status chips** on session rows so state is conveyed by text, not just
   a colored dot.
+- **Sticky inbox** (global setting `stickyAttentionInbox`, default on) — the section
+  pins to the top of `#sidebar-content` while the project list scrolls under it.
 
 ### Grid command center
 `public/grid-view.js`

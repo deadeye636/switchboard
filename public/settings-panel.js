@@ -185,6 +185,9 @@
     const notifyEnabledValue = notificationsValue.enabled !== false; // default on
     const notifyOnReadyValue = !!notificationsValue.notifyOnReady; // default off
 
+    // Sticky attention inbox (global only): pin the inbox to the top of the sidebar.
+    const stickyAttentionInboxValue = !isProject ? current.stickyAttentionInbox !== false : true;
+
     // Running-in-inbox (global only): how live-but-idle sessions appear in the attention inbox.
     const runningInboxValue = (!isProject && current.runningInbox) || {};
     const runningInboxModeValue = ['always', 'never', 'after-finish', 'until-read', 'timed'].includes(runningInboxValue.mode)
@@ -981,6 +984,15 @@
                 </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
+                    <span class="settings-label">Keep the attention inbox pinned</span>
+                    <div class="settings-description">Stick the Attention list to the top of the sidebar so it stays visible while you scroll the project list.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-sticky-attention-inbox" ${stickyAttentionInboxValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Idle running sessions in the inbox</span>${help}</div>
                     <div class="settings-description">When a live but idle session (not working, not awaiting you) shows in the attention list.</div>
                     <div class="settings-more"><b>Until opened</b>: stays until you open it. <b>Until opened, or after a few minutes</b>: whichever comes first. <b>For a few minutes (even after opening)</b>: stays the full time set below regardless. <b>Always</b> / <b>Never</b>: unconditional. Sessions that never ran are never shown.</div>
@@ -1410,6 +1422,7 @@
         settings.projectSortMode = settingsViewerBody.querySelector('#sv-project-sort')?.value || 'activity';
         settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
         settings.subagentLiveStatus = !!settingsViewerBody.querySelector('#sv-subagent-live-status')?.checked;
+        settings.stickyAttentionInbox = !!settingsViewerBody.querySelector('#sv-sticky-attention-inbox')?.checked;
         settings.handoffLibrary = !!settingsViewerBody.querySelector('#sv-handoff-library')?.checked;
         {
           const hp = settingsViewerBody.querySelector('#sv-handoff-prompt')?.value || '';

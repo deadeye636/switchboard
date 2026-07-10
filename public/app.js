@@ -336,6 +336,11 @@ window._applyNotificationSettings = (settings) => {
   appGlobalSettings = settings || {};
   const override = appGlobalSettings.shortcuts && appGlobalSettings.shortcuts.nextAttention;
   if (override) nextAttentionBinding = override;
+  // Sticky attention inbox (default on) — pure CSS, toggled on the scroll container.
+  const sidebarContentEl = document.getElementById('sidebar-content');
+  if (sidebarContentEl) {
+    sidebarContentEl.classList.toggle('sticky-inbox', appGlobalSettings.stickyAttentionInbox !== false);
+  }
   // #112: apply the subagent live-status toggle to the overlay right away.
   if (appGlobalSettings.subagentLiveStatus === false) {
     if (subagentActiveSessions.size) { subagentActiveSessions.clear(); refreshSessionStatusViews(); }

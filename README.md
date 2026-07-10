@@ -122,7 +122,7 @@ Toggle notifications, sound, and notify-on-Ready in **Global Settings**.
 
 Switchboard treats your sessions like an agent control room — surfacing not just *that* a session changed, but what it's doing and whether it's getting expensive.
 
-- **Attention inbox** — A prioritized list of every session needing you, with a "Focus next" button to cycle through them.
+- **Attention inbox** — A prioritized list of every session needing you, with a "Focus next" button to cycle through them. Pinned to the top of the sidebar by default, so it stays visible while you scroll (toggle in Notifications).
 - **Session health** — Each session is rated Healthy → Growing → Marathon Risk → Handoff Recommended based on turns, transcript size, active time, and cache-read tokens — showing exactly which thresholds it crossed.
 - **One-click handoff** — When a session gets long/expensive, a guided flow asks the agent for a handoff packet, starts a fresh lean session seeded with it, and switches to it. Every token-spending step is explicit.
 - **"While you were away"** — Returning to a session shows a dismissible summary of what happened and which files it touched since you last looked.
