@@ -1267,8 +1267,8 @@ async function _refreshProjectTagFilter() {
   }
   if (!projectTagFilters) return;
   if (allTags.length === 0) {
-    projectTagFilters.style.display = 'none';
     projectTagFilters.innerHTML = '';
+    applyProjectTagFilterVisibility();
     return;
   }
   const pickColor = (window.bookmarksTags && typeof window.bookmarksTags.pickColor === 'function')
@@ -1288,9 +1288,19 @@ async function _refreshProjectTagFilter() {
       : `background:${color}1a;border-color:${color};color:${color}`;
     return `<button type="button" class="project-tag-chip${active ? ' active' : ''}" data-tag="${escapeHtml(tag)}" style="${style}" aria-pressed="${active}">${escapeHtml(tag)}</button>`;
   }).join('');
-  projectTagFilters.style.display = 'flex';
+  applyProjectTagFilterVisibility();
 }
 window._refreshProjectTagFilter = _refreshProjectTagFilter;
+
+// The chips filter the project list, so they belong to the Sessions tab only —
+// they were left standing over Plans / Memory / Work files, where nothing they
+// filter is even on screen (#133). Sole owner of the bar's display state: the
+// renderer above and the tab switcher both defer to it.
+function applyProjectTagFilterVisibility() {
+  if (!projectTagFilters) return;
+  const hasChips = projectTagFilters.children.length > 0;
+  projectTagFilters.style.display = (hasChips && activeTab === 'sessions') ? 'flex' : 'none';
+}
 
 if (projectTagFilters) {
   projectTagFilters.addEventListener('click', (e) => {
@@ -2348,6 +2358,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     variablesAdminContent.style.display = 'none';
     sessionFilters.style.display = 'none';
     searchBar.style.display = 'none';
+    applyProjectTagFilterVisibility(); // #133 — chips belong to Sessions only
 
     if (tabName === 'sessions') {
       sessionFilters.style.display = '';
