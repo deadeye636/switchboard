@@ -351,19 +351,34 @@ function createWindow() {
     // the useful ones here. primary = Cmd on macOS, Ctrl elsewhere.
     const primary = process.platform === 'darwin' ? input.meta : input.control;
     const wc = mainWindow.webContents;
+
+    // Zoom accelerators, matched on the produced character (`key`) so they follow
+    // the keyboard layout. Modifiers beyond `primary` must be rejected explicitly:
+    //   - alt: Ctrl+Alt IS AltGr on Windows, so without this every AltGr chord on
+    //     one of these keys zoomed.
+    //   - the cross-modifier (Meta here / Ctrl on macOS), same reasoning.
+    //   - shift: it never belongs to a zoom chord... except on layouts where '+'
+    //     exists only as Shift+'=' (US). Allow it there and nowhere else, keyed on
+    //     the physical `code` — otherwise Ctrl+Shift+numpad-plus zooms, and on a
+    //     German layout Shift+'0' produces '=', so Ctrl+Shift+0 zoomed IN instead
+    //     of resetting.
+    const secondary = process.platform === 'darwin' ? input.control : input.meta;
+    const zoomChord = primary && !input.alt && !secondary;
+    const shiftAllowedForPlus = !input.shift || input.code === 'Equal';
+
     if (key === 'f12' || (primary && input.shift && key === 'i')) {
       wc.toggleDevTools();
       event.preventDefault();
     } else if (key === 'f11') {
       mainWindow.setFullScreen(!mainWindow.isFullScreen());
       event.preventDefault();
-    } else if (primary && (key === '+' || key === '=')) {
+    } else if (zoomChord && (key === '+' || key === '=') && shiftAllowedForPlus) {
       applyMainZoom(wc.getZoomLevel() + 0.5);
       event.preventDefault();
-    } else if (primary && key === '-') {
+    } else if (zoomChord && !input.shift && key === '-') {
       applyMainZoom(wc.getZoomLevel() - 0.5);
       event.preventDefault();
-    } else if (primary && key === '0') {
+    } else if (zoomChord && !input.shift && key === '0') {
       applyMainZoom(0);
       event.preventDefault();
     }
