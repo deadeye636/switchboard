@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (19 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (20 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-10
 
@@ -16,6 +16,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 
 - [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
+- [#138](https://github.com/deadeye636/switchboard/issues/138) Tag management in settings: create, rename, recolour, hide, disable, delete · _feature_
 
 ## P3 — someday
 
