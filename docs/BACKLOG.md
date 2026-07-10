@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (20 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-10
 
@@ -14,7 +14,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 
 ## P2 — after that
 
-- [#55](https://github.com/deadeye636/switchboard/issues/55) orphaned hidden projects · _bug_
 - [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
 
@@ -36,3 +35,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#113](https://github.com/deadeye636/switchboard/issues/113) Optional second tray icon showing Claude usage (live percentage) · _feature_
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#127](https://github.com/deadeye636/switchboard/issues/127) Persist incremental parse state so cold-start scans read only the delta · _feature_
+- [#133](https://github.com/deadeye636/switchboard/issues/133) Project tag filter bar is always visible once any project is tagged · _bug_
+- [#134](https://github.com/deadeye636/switchboard/issues/134) Project tag picker: native datalist, and the chosen tag stays plain text until Enter · _bug_
+- [#135](https://github.com/deadeye636/switchboard/issues/135) Project manager shows a missing project differently from the sidebar · _feature_
