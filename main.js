@@ -3256,6 +3256,33 @@ ipcMain.on('terminal-resize', (_event, sessionId, cols, rows, settle) => {
   }
 });
 
+// --- IPC: terminal-redraw (fire-and-forget) ---
+// Force one clean TUI frame by nudging the PTY (cols±1 and back), the same trick
+// the settle-repaint above uses. Shrinking a terminal leaves xterm's reflowed,
+// wrapped cells mis-drawn until the TUI repaints of its own accord — typing fixes
+// it, which is no way to leave the screen.
+//
+// This is deliberately NOT the `settle` path: that one is disabled globally
+// (RESIZE_SETTLE_ENABLED, #27) because it fired on every window resize and made
+// every visible grid card flash. This channel is only ever called for a single
+// card that the user just resized on purpose, so the one repaint is wanted.
+ipcMain.on('terminal-redraw', (_event, sessionId) => {
+  const session = activeSessions.get(sessionId);
+  if (!session || session.exited || session.isPlainTerminal) return;
+  // Nothing to nudge back to until terminal-resize has recorded a size.
+  if (!session._lastCols || !session._lastRows) return;
+  clearTimeout(session._redrawTimer);
+  clearTimeout(session._redrawTimer2);
+  session._redrawTimer = setTimeout(() => {
+    try {
+      session.pty.resize(session._lastCols + 1, session._lastRows);
+      session._redrawTimer2 = setTimeout(() => {
+        try { session.pty.resize(session._lastCols, session._lastRows); } catch {}
+      }, 50);
+    } catch { /* PTY died between the guard and here */ }
+  }, 50);
+});
+
 // --- IPC: close-terminal ---
 ipcMain.on('close-terminal', (_event, sessionId) => {
   const session = activeSessions.get(sessionId);

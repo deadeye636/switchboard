@@ -983,6 +983,9 @@ function startCardResize(sessionId, card, e) {
   const startRect = card.getBoundingClientRect();
   const startColSpan = Math.max(1, Number(card.dataset.colSpan) || 1);
   const startRowSpan = Math.max(1, Number(card.dataset.rowSpan) || 1);
+  // Captured before the first live span write, so the end-of-drag comparison sees
+  // the geometry the drag started from.
+  const boxesAtDragStart = snapshotGridCardBoxes();
   const colUnit = (startRect.width + GRID_GAP) / startColSpan;
   const rowUnit = (startRect.height + GRID_GAP) / startRowSpan;
   const maxCols = getContainerColumnCount(container);
@@ -1012,8 +1015,9 @@ function startCardResize(sessionId, card, e) {
     gridInteracting = false;
     persistGridOrder();
     updateGridColumns();
-    const entry = openSessions.get(sessionId);
-    if (entry) fitAndScroll(entry);
+    // The drag already moved the boxes, so measure against the span it started
+    // from rather than the (already current) live geometry.
+    refitResizedGridCards(boxesAtDragStart);
   };
 
   document.addEventListener('pointermove', onMove);
@@ -1042,11 +1046,51 @@ function applyCardSnap(sessionId, cols, rows) {
   if (!card) return;
   const maxCols = getContainerColumnCount(card.parentElement);
   const span = normalizeSpan({ cols, rows }, maxCols);
+  const before = snapshotGridCardBoxes();
   writeCardSpan(sessionId, card, span);
   saveGridLayout();
   updateGridColumns();
+  refitResizedGridCards(before);
+}
+
+// Box of every mounted, visible grid card. Cards inside a collapsed region have no
+// geometry and are skipped — a real show refits them anyway.
+function snapshotGridCardBoxes() {
+  const boxes = new Map();
+  for (const [sessionId] of gridCards) {
+    const entry = openSessions.get(sessionId);
+    const el = entry && !entry.closed && entry.element;
+    if (!el || el.offsetParent === null) continue;
+    boxes.set(sessionId, { w: el.clientWidth, h: el.clientHeight });
+  }
+  return boxes;
+}
+
+// Re-fit every card whose box actually changed — not just the one that was
+// resized. A rowSpan change re-flows the whole track, so a neighbour can shrink
+// without being touched. Nothing here is animated (only transform/border-color
+// are), so the post-updateGridColumns boxes are already final.
+//
+// Shrinking additionally needs a PTY nudge: xterm's reflow of wrapped lines leaves
+// mis-drawn cells behind and the TUI only repaints on its own once something is
+// typed. Growing reflows correctly, and nudging it would just flash the card.
+function refitResizedGridCards(before) {
+  for (const [sessionId, box] of snapshotGridCardBoxes()) {
+    const old = before.get(sessionId);
+    if (!old || (old.w === box.w && old.h === box.h)) continue;
+    const entry = openSessions.get(sessionId);
+    if (entry) fitAndScroll(entry);
+    if (box.w < old.w || box.h < old.h) requestCardRedraw(sessionId);
+  }
+}
+
+// Ask the PTY for one clean frame (see refitResizedGridCards).
+function requestCardRedraw(sessionId) {
   const entry = openSessions.get(sessionId);
-  if (entry) fitAndScroll(entry);
+  if (!entry || entry.closed) return;
+  if (window.api && typeof window.api.redrawTerminal === 'function') {
+    window.api.redrawTerminal(sessionId);
+  }
 }
 
 let snapPopoverEl = null;
