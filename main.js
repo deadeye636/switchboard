@@ -31,6 +31,27 @@ function applyLogLevel(level) {
 }
 applyLogLevel(DEFAULT_LOG_LEVEL);
 
+// Keep a stray async error in the main process from killing the whole app with
+// Electron's fatal dialog (#139). The trigger seen in the wild is a PTY write
+// completing with EAGAIN on a saturated Windows conpty pipe — it throws later, in
+// libuv's write-completion callback (WriteWrap.onWriteComplete), so no try/catch
+// at the .write() call can catch it. It shows up in grid mode, where many
+// terminals stream at once and stress the pipes; the write path itself is the
+// same in tabs mode, so this guard changes no tab behaviour. Transient IO errors
+// are logged and swallowed; anything else is logged at error level so real bugs
+// stay visible instead of silently vanishing.
+const TRANSIENT_IO_CODES = new Set(['EAGAIN', 'EPIPE', 'ECONNRESET', 'ERR_STREAM_WRITE_AFTER_END']);
+process.on('uncaughtException', (err) => {
+  if (err && TRANSIENT_IO_CODES.has(err.code)) {
+    log.warn(`[main] swallowed transient IO error: ${err.code} — ${err.message}`);
+    return;
+  }
+  log.error('[main] uncaughtException:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  log.error('[main] unhandledRejection:', reason);
+});
+
 // Raise Chromium's per-renderer WebGL context budget (default 16). Every open
 // terminal holds a GL context for as long as it lives — since #81 removed the
 // per-tab suspend/restore, the renderer's LRU cap (12) was the only thing keeping
@@ -3289,7 +3310,15 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
 ipcMain.on('terminal-input', (_event, sessionId, data) => {
   const session = activeSessions.get(sessionId);
   if (session && !session.exited) {
-    session.pty.write(data);
+    // Covers the synchronous failure path (e.g. the pty was disposed between the
+    // guard and the write). An async EAGAIN completes later and is caught by the
+    // process-level guard above. Either way the same bytes are delivered, so tabs
+    // mode is unaffected.
+    try {
+      session.pty.write(data);
+    } catch (err) {
+      log.warn(`[terminal-input] write failed for session=${sessionId}: ${err.code || err.message}`);
+    }
   }
 });
 
