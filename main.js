@@ -87,7 +87,8 @@ const {
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
-  getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags, setTagColors,
+  getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
+  listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
@@ -2727,18 +2728,40 @@ ipcMain.handle('project-tags-get', (_event, projectPath) => {
 });
 ipcMain.handle('project-tags-set', (_event, payload) => {
   const { projectPath, tags } = payload || {};
-  const saved = setProjectTags(projectPath, tags);
-  // A tag has one colour everywhere it appears (#134) — otherwise recolouring it
-  // here leaves other projects (and session tags) on the old hue, and the sidebar's
-  // per-tag chip picks whichever it finds first.
-  setTagColors(tags);
-  return saved;
+  // Colour now lives on the tag def (#138), and setProjectTags upserts it — so a
+  // recolour here reaches every project at once, without touching session tags of
+  // the same name, which are a separate vocabulary.
+  return setProjectTags(projectPath, tags);
 });
 ipcMain.handle('project-tags-list-all', () => {
   return listAllProjectTags();
 });
 ipcMain.handle('project-tags-all', () => {
   return getAllProjectTags();
+});
+
+// --- IPC: tag definitions (#138) ---
+// A tag is an entity: it can exist unassigned, be renamed, recoloured, hidden,
+// disabled and deleted. `kind` keeps project and session vocabularies apart.
+// Every handler returns { ok, error? } so the renderer can surface the reason —
+// notably "a tag with that name already exists" on rename.
+ipcMain.handle('tag-defs-list', (_event, kind) => {
+  try { return { ok: true, tags: listTagDefs(kind) }; } catch (err) { return { ok: false, error: err.message }; }
+});
+ipcMain.handle('tag-def-create', (_event, kind, name, color) => {
+  try { return createTagDef(kind, name, color); } catch (err) { return { ok: false, error: err.message }; }
+});
+ipcMain.handle('tag-def-rename', (_event, kind, oldName, newName) => {
+  try { return renameTagDef(kind, oldName, newName); } catch (err) { return { ok: false, error: err.message }; }
+});
+ipcMain.handle('tag-def-color', (_event, kind, name, color) => {
+  try { return setTagDefColor(kind, name, color); } catch (err) { return { ok: false, error: err.message }; }
+});
+ipcMain.handle('tag-def-flags', (_event, kind, name, flags) => {
+  try { return setTagDefFlags(kind, name, flags || {}); } catch (err) { return { ok: false, error: err.message }; }
+});
+ipcMain.handle('tag-def-delete', (_event, kind, name) => {
+  try { return deleteTagDef(kind, name); } catch (err) { return { ok: false, error: err.message }; }
 });
 
 // --- IPC: rename-session ---

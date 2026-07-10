@@ -1259,9 +1259,14 @@ function refreshSidebar({ resort = false } = {}) {
 async function _refreshProjectTagFilter() {
   let rows = [];
   try { rows = await window.api.projectTagsAll(); } catch { rows = []; }
-  projectTagMap = (typeof buildProjectTagMap === 'function') ? buildProjectTagMap(rows) : new Map();
-  const allTags = [...new Set((rows || []).map(r => r && r.tag).filter(Boolean))].sort();
-  // Drop selections whose tag no longer exists (last chip removed from every project).
+  // Tag state (#138): a *disabled* tag renders no chip anywhere, so it leaves the
+  // per-project map too. A *hidden* tag keeps its chips but drops out of the filter
+  // bar — it is still attached, just not something you filter by any more.
+  const assigned = (rows || []).filter(r => r && r.tag && !r.disabled);
+  projectTagMap = (typeof buildProjectTagMap === 'function') ? buildProjectTagMap(assigned) : new Map();
+  const allTags = [...new Set(assigned.filter(r => !r.hidden).map(r => r.tag))].sort();
+  // Drop selections whose tag is gone, hidden or disabled — otherwise a filter stays
+  // active with no chip to switch it off.
   for (const t of [...activeProjectTagFilter]) {
     if (!allTags.includes(t)) activeProjectTagFilter.delete(t);
   }
@@ -1276,9 +1281,11 @@ async function _refreshProjectTagFilter() {
     : () => '#61afef';
   // Prefer each tag's stored color (user may have recolored it); fall back to the
   // deterministic hue. First non-empty color wins if it varies across projects.
+  // Colour now comes from the tag def (#138), so every row for a tag carries the
+  // same value — no "first one wins" ambiguity left to resolve.
   const colorByTag = new Map();
-  for (const r of rows || []) {
-    if (r && r.tag && r.color && !colorByTag.has(r.tag)) colorByTag.set(r.tag, r.color);
+  for (const r of assigned) {
+    if (r.color && !colorByTag.has(r.tag)) colorByTag.set(r.tag, r.color);
   }
   projectTagFilters.innerHTML = allTags.map(tag => {
     const color = colorByTag.get(tag) || pickColor(tag);

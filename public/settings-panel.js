@@ -40,16 +40,16 @@
       : [];
     // All tags used across projects, with their stored colour — feeds the suggestion
     // combobox so existing tags are reused rather than retyped (#98 follow-up, #134).
+    // Suggestions come from the tag definitions (#138), not from what is currently
+    // assigned — a tag created in settings and never used must still be offered.
+    // Hidden and disabled tags are withheld: hidden means "keep it, stop showing it",
+    // disabled means "not assignable".
     const allTagRows = isProject
       ? ((await window.api.projectTagsListAll().catch(() => [])) || [])
       : [];
-    const allProjectTags = (() => {
-      const byTag = new Map(); // first colour seen wins, matching the sidebar chips
-      for (const row of allTagRows) {
-        if (row && row.tag && !byTag.has(row.tag)) byTag.set(row.tag, row.color || null);
-      }
-      return [...byTag].map(([tag, color]) => ({ tag, color })).sort((a, b) => a.tag.localeCompare(b.tag));
-    })();
+    const allProjectTags = allTagRows
+      .filter(r => r && r.tag && !r.hidden && !r.disabled)
+      .map(r => ({ tag: r.tag, color: r.color || null }));
     // Deterministic tag hue, shared with session-tag chips (bookmarks-tags.js).
     const tagColor = (tag) => (window.bookmarksTags && typeof window.bookmarksTags.pickColor === 'function')
       ? window.bookmarksTags.pickColor(tag)
@@ -62,6 +62,293 @@
       const c = color || tagColor(tag);
       return `<span class="settings-tag-chip" data-tag="${escapeHtml(tag)}" data-color="${escapeHtml(c)}" style="background:${c}1a;border-color:${c};color:${c}" title="Click to change color"><span class="settings-tag-label">${escapeHtml(tag)}</span><button type="button" class="settings-tag-remove" aria-label="Remove tag ${escapeHtml(tag)}">&times;</button></span>`;
     };
+
+    // --- Tag management lists (#138) ---
+    // One section per kind. Tags here are entities: they may exist with no
+    // assignment, and every action writes through immediately.
+    function initTagDefsSection(kind) {
+      const section = settingsViewerBody.querySelector('#sv-tagdefs-' + kind);
+      if (!section) return;
+      const listEl = section.querySelector('.settings-tagdef-list');
+      const newInput = section.querySelector('.settings-tagdef-new');
+      const addBtn = section.querySelector('.settings-tagdef-add-btn');
+      const noun = kind === 'project' ? 'project' : 'session';
+      let palette = null;
+
+      const closePalette = () => { if (palette) { palette.remove(); palette = null; } };
+
+      const fail = (res) => {
+        if (res && res.ok) return false;
+        const msg = (res && res.error) || 'Unknown error';
+        const err = section.querySelector('.settings-tagdef-error');
+        if (err) { err.textContent = msg; err.hidden = false; }
+        return true;
+      };
+      const clearError = () => {
+        const err = section.querySelector('.settings-tagdef-error');
+        if (err) err.hidden = true;
+      };
+
+      const usageLabel = (n) => (n === 0
+        ? 'unused'
+        : `${n} ${noun}${n === 1 ? '' : 's'}`);
+
+      async function refresh() {
+        const res = await window.api.tagDefsList(kind).catch(() => null);
+        if (!res || !res.ok) { listEl.innerHTML = '<div class="settings-tagdef-empty">Could not load tags.</div>'; return; }
+        if (res.tags.length === 0) {
+          listEl.innerHTML = `<div class="settings-tagdef-empty">No ${noun} tags yet.</div>`;
+          return;
+        }
+        listEl.innerHTML = res.tags.map(t => {
+          const c = t.color || tagColor(t.name);
+          const state = [t.hidden ? 'hidden' : '', t.disabled ? 'disabled' : ''].filter(Boolean).join(' ');
+          return `
+            <div class="settings-tagdef-row ${state}" data-name="${escapeHtml(t.name)}" data-color="${escapeHtml(c)}">
+              <button type="button" class="settings-tagdef-color" style="background:${c}" title="Change color" aria-label="Change color of ${escapeHtml(t.name)}"></button>
+              <span class="settings-tagdef-name">${escapeHtml(t.name)}</span>
+              <span class="settings-tagdef-usage">${usageLabel(t.usageCount)}</span>
+              <div class="settings-tagdef-actions">
+                <button type="button" class="settings-tagdef-btn" data-act="rename">Rename</button>
+                <button type="button" class="settings-tagdef-btn${t.hidden ? ' on' : ''}" data-act="hidden" aria-pressed="${!!t.hidden}">Hidden</button>
+                <button type="button" class="settings-tagdef-btn${t.disabled ? ' on' : ''}" data-act="disabled" aria-pressed="${!!t.disabled}">Disabled</button>
+                <button type="button" class="settings-tagdef-btn danger" data-act="delete">Delete</button>
+              </div>
+            </div>`;
+        }).join('');
+      }
+
+      async function addTagDef() {
+        const name = newInput.value.trim();
+        if (!name) return;
+        clearError();
+        const res = await window.api.tagDefCreate(kind, name, null).catch(e => ({ ok: false, error: e.message }));
+        if (fail(res)) return;
+        newInput.value = '';
+        await refresh();
+        notifyTagsChanged();
+      }
+
+      // Rename in place: an input over the name, Enter commits, Escape cancels.
+      function startRename(row, name) {
+        const nameEl = row.querySelector('.settings-tagdef-name');
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'settings-input settings-tagdef-rename';
+        input.value = name;
+        nameEl.replaceWith(input);
+        input.focus();
+        input.select();
+
+        let done = false;
+        const commit = async () => {
+          if (done) return;
+          done = true;
+          const next = input.value.trim();
+          clearError();
+          if (next && next !== name) {
+            const res = await window.api.tagDefRename(kind, name, next).catch(e => ({ ok: false, error: e.message }));
+            if (fail(res)) { await refresh(); return; }
+            notifyTagsChanged();
+          }
+          await refresh();
+        };
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+          else if (e.key === 'Escape') { e.preventDefault(); done = true; refresh(); }
+        });
+        input.addEventListener('blur', commit);
+      }
+
+      async function toggleFlag(name, act, row) {
+        clearError();
+        const flags = act === 'hidden'
+          ? { hidden: !row.classList.contains('hidden') }
+          : { disabled: !row.classList.contains('disabled') };
+        const res = await window.api.tagDefFlags(kind, name, flags).catch(e => ({ ok: false, error: e.message }));
+        if (fail(res)) return;
+        await refresh();
+        notifyTagsChanged();
+      }
+
+      async function removeTagDef(name, row) {
+        const usage = row.querySelector('.settings-tagdef-usage')?.textContent || '';
+        const confirmed = await showControlDialog({
+          title: `Delete tag “${name}”?`,
+          message: usage === 'unused'
+            ? 'This tag is not assigned to anything.'
+            : `It will also be removed from ${usage}. This cannot be undone.`,
+          confirmLabel: 'Delete',
+          cancelLabel: 'Cancel',
+          tone: 'danger',
+        });
+        if (!confirmed) return;
+        clearError();
+        const res = await window.api.tagDefDelete(kind, name).catch(e => ({ ok: false, error: e.message }));
+        if (fail(res)) return;
+        await refresh();
+        notifyTagsChanged();
+      }
+
+      // Colour: live preview on the swatch, persisted when the popover closes.
+      function openColor(row, name) {
+        closePalette();
+        const btn = row.querySelector('.settings-tagdef-color');
+        let picked = row.dataset.color;
+        palette = buildColorPopover(btn, picked, (hex) => {
+          picked = hex;
+          btn.style.background = hex;
+        });
+        palette._commit = async () => {
+          if (picked === row.dataset.color) return;
+          const res = await window.api.tagDefColor(kind, name, picked).catch(e => ({ ok: false, error: e.message }));
+          if (fail(res)) return;
+          await refresh();
+          notifyTagsChanged();
+        };
+      }
+
+      listEl.addEventListener('click', (e) => {
+        if (e.target.closest('.settings-tag-palette')) return; // clicks inside the picker
+        const row = e.target.closest('.settings-tagdef-row');
+        if (!row) return;
+        const name = row.dataset.name;
+
+        if (e.target.closest('.settings-tagdef-color')) {
+          const reopen = palette && palette.parentElement === row.querySelector('.settings-tagdef-color');
+          if (reopen) { const p = palette; closePalette(); p._commit?.(); return; }
+          openColor(row, name);
+          return;
+        }
+        const act = e.target.closest('[data-act]')?.dataset.act;
+        if (!act) return;
+        if (act === 'rename') startRename(row, name);
+        else if (act === 'hidden' || act === 'disabled') toggleFlag(name, act, row);
+        else if (act === 'delete') removeTagDef(name, row);
+      });
+
+      // Clicking away commits the colour — same gesture as the chip palette.
+      document.addEventListener('click', (e) => {
+        if (!palette) return;
+        if (e.target.closest('.settings-tag-palette') || e.target.closest('.settings-tagdef-color')) return;
+        const p = palette;
+        closePalette();
+        p._commit?.();
+      });
+
+      addBtn.addEventListener('click', addTagDef);
+      newInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); addTagDef(); }
+      });
+
+      refresh();
+    }
+
+    // The sidebar's filter chips and the project-tag map are built from the tag
+    // store, so any change here has to reach them without a restart.
+    function notifyTagsChanged() {
+      if (typeof window._refreshProjectTagFilter === 'function') window._refreshProjectTagFilter();
+      if (window.bookmarksTags && typeof window.bookmarksTags.reloadTags === 'function') {
+        window.bookmarksTags.reloadTags();
+      }
+      if (typeof refreshSidebar === 'function') refreshSidebar();
+    }
+
+    // In-app HSV colour picker (#134), shared by the project-tag chips and the tag
+    // management lists (#138). The former <input type="color"> handed off to
+    // Chromium's OS dialog, which the app cannot position — it opened in the
+    // window's top-left corner, detached from what was being recoloured.
+    //
+    // Appends itself to `anchor` (which must be positioned) and calls onPick(hex)
+    // on every change, live. Returns the element so the caller can remove it.
+    function buildColorPopover(anchor, initialColor, onPick) {
+      let hsv = hexToHsv(normalizeHex(initialColor) || '#61afef');
+
+      const el = document.createElement('div');
+      el.className = 'settings-tag-palette';
+      el.innerHTML = `
+        <div class="settings-tag-swatches">
+          ${tagPalette.map(col =>
+            `<button type="button" class="settings-tag-swatch" data-col="${col}" style="background:${col}" aria-label="Set color ${col}"></button>`
+          ).join('')}
+        </div>
+        <div class="settings-tag-sv" tabindex="0" role="slider" aria-label="Saturation and brightness">
+          <div class="settings-tag-sv-cursor"></div>
+        </div>
+        <input type="range" class="settings-tag-hue" min="0" max="359" step="1" aria-label="Hue">
+        <div class="settings-tag-hex-row">
+          <span class="settings-tag-preview"></span>
+          <input type="text" class="settings-tag-hex" spellcheck="false" maxlength="7" aria-label="Hex color">
+        </div>`;
+
+      const svField = el.querySelector('.settings-tag-sv');
+      const svCursor = el.querySelector('.settings-tag-sv-cursor');
+      const hueSlider = el.querySelector('.settings-tag-hue');
+      const hexInput = el.querySelector('.settings-tag-hex');
+      const preview = el.querySelector('.settings-tag-preview');
+
+      // `skipHexField` keeps the caret still while the user types into it.
+      const paint = ({ skipHexField = false } = {}) => {
+        const hex = hsvToHex(hsv);
+        svField.style.setProperty('--hue-color', hsvToHex({ h: hsv.h, s: 1, v: 1 }));
+        svCursor.style.left = (hsv.s * 100) + '%';
+        svCursor.style.top = ((1 - hsv.v) * 100) + '%';
+        svCursor.style.background = hex;
+        hueSlider.value = String(Math.round(hsv.h));
+        preview.style.background = hex;
+        if (!skipHexField) hexInput.value = hex;
+        onPick(hex);
+      };
+
+      const pickFromEvent = (ev) => {
+        const r = svField.getBoundingClientRect();
+        hsv.s = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+        hsv.v = 1 - Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height));
+        paint();
+      };
+
+      svField.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        svField.setPointerCapture(ev.pointerId);
+        pickFromEvent(ev);
+      });
+      svField.addEventListener('pointermove', (ev) => {
+        if (svField.hasPointerCapture(ev.pointerId)) pickFromEvent(ev);
+      });
+      svField.addEventListener('keydown', (ev) => {
+        const step = ev.shiftKey ? 0.1 : 0.02;
+        if (ev.key === 'ArrowRight') hsv.s = Math.min(1, hsv.s + step);
+        else if (ev.key === 'ArrowLeft') hsv.s = Math.max(0, hsv.s - step);
+        else if (ev.key === 'ArrowUp') hsv.v = Math.min(1, hsv.v + step);
+        else if (ev.key === 'ArrowDown') hsv.v = Math.max(0, hsv.v - step);
+        else return;
+        ev.preventDefault();
+        paint();
+      });
+
+      hueSlider.addEventListener('input', () => { hsv.h = Number(hueSlider.value); paint(); });
+
+      // Accept a typed hex only once it parses; leave partial input alone.
+      hexInput.addEventListener('input', () => {
+        const norm = normalizeHex(hexInput.value);
+        if (!norm) return;
+        hsv = hexToHsv(norm);
+        paint({ skipHexField: true });
+      });
+      hexInput.addEventListener('blur', () => { hexInput.value = hsvToHex(hsv); });
+
+      el.addEventListener('click', (ev) => {
+        const sw = ev.target.closest('.settings-tag-swatch');
+        if (!sw) return;
+        hsv = hexToHsv(sw.dataset.col);
+        paint();
+        el._pickedSwatch = true; // caller may close on swatch pick
+      });
+
+      anchor.appendChild(el);
+      paint();
+      return el;
+    }
 
     const shortName = isProject
       ? projectPath.split('/').filter(Boolean).slice(-2).join('/')
@@ -387,6 +674,7 @@
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">7</span></button>
+          <button class="settings-nav-item" data-cat="tags">Tags</button>
           <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
           <div class="settings-nav-sep"></div>
           <button class="settings-nav-item" data-cat="shortcuts">Keyboard Shortcuts <span class="settings-nav-count">${SHORTCUT_DEFS.length}</span></button>
@@ -936,6 +1224,33 @@
               </div>
             </section>
 
+            <!-- ===== Tags (#138) ===== -->
+            <section class="settings-cat" data-cat="tags">
+              <div class="settings-cat-head">
+                <h2>Tags</h2>
+                <p>Project tags and session tags are separate vocabularies — the same name in both is two independent tags.</p>
+              </div>
+              <div class="settings-subhead">Project tags</div>
+              <div class="settings-section" id="sv-tagdefs-project" data-kind="project">
+                <div class="settings-tagdef-list"></div>
+                <div class="settings-tagdef-add">
+                  <input type="text" class="settings-input settings-tagdef-new" placeholder="New project tag…" autocomplete="off">
+                  <button type="button" class="settings-tagdef-add-btn">Add</button>
+                </div>
+                <div class="settings-tagdef-error" hidden></div>
+              </div>
+              <div class="settings-subhead">Session tags</div>
+              <div class="settings-section" id="sv-tagdefs-session" data-kind="session">
+                <div class="settings-tagdef-list"></div>
+                <div class="settings-tagdef-add">
+                  <input type="text" class="settings-input settings-tagdef-new" placeholder="New session tag…" autocomplete="off">
+                  <button type="button" class="settings-tagdef-add-btn">Add</button>
+                </div>
+                <div class="settings-tagdef-error" hidden></div>
+              </div>
+              <div class="settings-hint"><b>Hidden</b> keeps the tag on its assignments but drops it from the filter bar and the suggestions. <b>Disabled</b> stops it being assigned and hides its chips everywhere; the assignments survive, so re-enabling restores them. Changes here apply immediately — Save and Cancel do not affect them.</div>
+            </section>
+
             <!-- ===== Usage & Notifications ===== -->
             <section class="settings-cat" data-cat="usage">
               <div class="settings-cat-head"><h2>Usage &amp; Notifications</h2><p>Usage-bar colours and when Switchboard alerts you.</p></div>
@@ -1138,6 +1453,13 @@
           </div>
         </div>
       </div>`;
+
+      // --- Tag management (#138) ---
+      // Writes straight through to the tag store rather than waiting for Save: tags
+      // live in their own tables, not in the settings blob, and a half-applied
+      // rename would be worse than an immediate one. The hint under the lists says so.
+      initTagDefsSection('project');
+      initTagDefsSection('session');
 
       // --- Global two-pane wiring: category nav, live search, "?" help toggles ---
       const navItems = Array.from(settingsViewerBody.querySelectorAll('.settings-nav-item'));
@@ -1430,103 +1752,13 @@
             chip.style.borderColor = col;
             chip.style.color = col;
           };
-          const initColor = normalizeHex(chip.dataset.color) || '#61afef';
-          // In-app HSV picker (#134). The former <input type="color"> handed off to
-          // Chromium's OS colour dialog, which the app cannot position — it opened in
-          // the window's top-left corner, detached from the chip being recoloured.
-          let hsv = hexToHsv(initColor);
-
-          paletteEl = document.createElement('div');
-          paletteEl.className = 'settings-tag-palette';
+          // Shared HSV picker (#134/#138). Live-applies to the chip; the value is
+          // persisted when the settings pane is saved.
+          paletteEl = buildColorPopover(chip, chip.dataset.color, applyColor);
           paletteEl._chip = chip;
-          paletteEl.innerHTML = `
-            <div class="settings-tag-swatches">
-              ${tagPalette.map(col =>
-                `<button type="button" class="settings-tag-swatch${chip.dataset.color === col ? ' active' : ''}" data-col="${col}" style="background:${col}" aria-label="Set color ${col}"></button>`
-              ).join('')}
-            </div>
-            <div class="settings-tag-sv" tabindex="0" role="slider" aria-label="Saturation and brightness">
-              <div class="settings-tag-sv-cursor"></div>
-            </div>
-            <input type="range" class="settings-tag-hue" min="0" max="359" step="1" aria-label="Hue">
-            <div class="settings-tag-hex-row">
-              <span class="settings-tag-preview"></span>
-              <input type="text" class="settings-tag-hex" spellcheck="false" maxlength="7" aria-label="Hex color">
-            </div>`;
-
-          const svField = paletteEl.querySelector('.settings-tag-sv');
-          const svCursor = paletteEl.querySelector('.settings-tag-sv-cursor');
-          const hueSlider = paletteEl.querySelector('.settings-tag-hue');
-          const hexInput = paletteEl.querySelector('.settings-tag-hex');
-          const preview = paletteEl.querySelector('.settings-tag-preview');
-
-          // Repaint the picker from `hsv`. `fromHex` skips writing the text field so
-          // typing isn't fought over by the caret.
-          const paintPicker = ({ skipHexField = false } = {}) => {
-            const hex = hsvToHex(hsv);
-            svField.style.setProperty('--hue-color', hsvToHex({ h: hsv.h, s: 1, v: 1 }));
-            svCursor.style.left = (hsv.s * 100) + '%';
-            svCursor.style.top = ((1 - hsv.v) * 100) + '%';
-            svCursor.style.background = hex;
-            hueSlider.value = String(Math.round(hsv.h));
-            preview.style.background = hex;
-            if (!skipHexField) hexInput.value = hex;
-            applyColor(hex);
-          };
-
-          const pickFromEvent = (ev) => {
-            const r = svField.getBoundingClientRect();
-            hsv.s = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
-            hsv.v = 1 - Math.min(1, Math.max(0, (ev.clientY - r.top) / r.height));
-            paintPicker();
-          };
-
-          svField.addEventListener('pointerdown', (ev) => {
-            ev.preventDefault();
-            svField.setPointerCapture(ev.pointerId);
-            pickFromEvent(ev);
-          });
-          svField.addEventListener('pointermove', (ev) => {
-            if (svField.hasPointerCapture(ev.pointerId)) pickFromEvent(ev);
-          });
-          svField.addEventListener('keydown', (ev) => {
-            const step = ev.shiftKey ? 0.1 : 0.02;
-            if (ev.key === 'ArrowRight') hsv.s = Math.min(1, hsv.s + step);
-            else if (ev.key === 'ArrowLeft') hsv.s = Math.max(0, hsv.s - step);
-            else if (ev.key === 'ArrowUp') hsv.v = Math.min(1, hsv.v + step);
-            else if (ev.key === 'ArrowDown') hsv.v = Math.max(0, hsv.v - step);
-            else return;
-            ev.preventDefault();
-            paintPicker();
-          });
-
-          hueSlider.addEventListener('input', () => {
-            hsv.h = Number(hueSlider.value);
-            paintPicker();
-          });
-
-          // Accept a typed hex only once it parses; leave partial input alone.
-          hexInput.addEventListener('input', () => {
-            const norm = normalizeHex(hexInput.value);
-            if (!norm) return;
-            hsv = hexToHsv(norm);
-            paintPicker({ skipHexField: true });
-          });
-          hexInput.addEventListener('blur', () => { hexInput.value = hsvToHex(hsv); });
-          hexInput.addEventListener('keydown', (ev) => {
-            if (ev.key === 'Enter') { ev.preventDefault(); closePalette(); }
-          });
-
           paletteEl.addEventListener('click', (ev) => {
-            const sw = ev.target.closest('.settings-tag-swatch');
-            if (!sw) return;
-            hsv = hexToHsv(sw.dataset.col);
-            paintPicker();
-            closePalette();
+            if (ev.target.closest('.settings-tag-swatch')) closePalette();
           });
-
-          chip.appendChild(paletteEl);
-          paintPicker();
         });
         // Dismiss the palette on an outside click.
         document.addEventListener('click', (e) => {

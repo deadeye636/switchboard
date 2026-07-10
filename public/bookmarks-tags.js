@@ -40,6 +40,9 @@
       const rows = await window.api.sessionTagsAll();
       tagCache.clear();
       for (const r of rows || []) {
+        // A disabled tag renders no chip anywhere (#138). Its assignment survives in
+        // the database, so re-enabling brings the chip straight back.
+        if (r.disabled) continue;
         if (!tagCache.has(r.sessionId)) tagCache.set(r.sessionId, []);
         tagCache.get(r.sessionId).push({ tag: r.tag, color: r.color });
       }
@@ -115,16 +118,30 @@
   }
 
   async function editTags(session) {
-    const current = getTags(session.sessionId).map(t => t.tag).join(', ');
-    const input = await showTagDialog(current);
+    // Read the real assignments, not the chip cache: that one drops disabled tags
+    // (#138), and saving from it would silently unassign them.
+    let assigned = [];
+    try { assigned = (await window.api.sessionTagsGet(session.sessionId)) || []; } catch { assigned = getTags(session.sessionId); }
+
+    // Colours belong to the tag definition now. Keep a known tag's colour; leave a
+    // brand-new one at null so the def picks up the deterministic hue on render.
+    const knownColors = new Map();
+    try {
+      for (const d of (await window.api.tagDefsList('session').then(r => (r && r.ok ? r.tags : []))) || []) {
+        knownColors.set(d.name, d.color || null);
+      }
+    } catch { /* fall back to no known colours */ }
+
+    const input = await showTagDialog(assigned.map(t => t.tag).join(', '));
     if (input === null) return;
+
     const seen = new Set();
     const tags = [];
     for (const raw of input.split(',')) {
       const tag = raw.trim();
       if (!tag || seen.has(tag)) continue;
       seen.add(tag);
-      tags.push({ tag, color: pickColor(tag) });
+      tags.push({ tag, color: knownColors.has(tag) ? knownColors.get(tag) : null });
     }
     try { await window.api.sessionTagsSet(session.sessionId, tags); } catch { return; }
     await loadTagCache();

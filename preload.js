@@ -43,6 +43,13 @@ contextBridge.exposeInMainWorld('api', {
   projectTagsSet: (projectPath, tags) => ipcRenderer.invoke('project-tags-set', { projectPath, tags }),
   projectTagsListAll: () => ipcRenderer.invoke('project-tags-list-all'),
   projectTagsAll: () => ipcRenderer.invoke('project-tags-all'),
+  // Tag definitions (#138). kind is 'project' | 'session'.
+  tagDefsList: (kind) => ipcRenderer.invoke('tag-defs-list', kind),
+  tagDefCreate: (kind, name, color) => ipcRenderer.invoke('tag-def-create', kind, name, color),
+  tagDefRename: (kind, oldName, newName) => ipcRenderer.invoke('tag-def-rename', kind, oldName, newName),
+  tagDefColor: (kind, name, color) => ipcRenderer.invoke('tag-def-color', kind, name, color),
+  tagDefFlags: (kind, name, flags) => ipcRenderer.invoke('tag-def-flags', kind, name, flags),
+  tagDefDelete: (kind, name) => ipcRenderer.invoke('tag-def-delete', kind, name),
   setLogLevel: (level) => ipcRenderer.invoke('set-log-level', level),
   // Settings pop-out window (Phase 2)
   openSettingsWindow: () => ipcRenderer.send('open-settings-window'),

@@ -344,6 +344,38 @@ const migrations = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_session_metrics_date ON session_metrics(date)');
     } catch {}
   },
+  // #138: tags become entities. Until now a tag was only a by-product of an
+  // assignment — its name and colour lived on the project_tags / session_tags row,
+  // so it could not exist unassigned, could not be renamed, and its colour had to
+  // be written across every row that happened to use it.
+  //
+  // `kind` is part of the key: project tags and session tags are separate
+  // vocabularies, so the same name may exist in both with different colours.
+  //
+  // Seeded from whatever is already assigned; the first colour seen for a name
+  // wins, which is exactly the rule the sidebar chips used to apply at read time.
+  // The assignment tables keep their `color` column for now — stage 2 stops reading
+  // it, and dropping it is left to a later migration so a rollback stays possible.
+  (db) => {
+    try {
+      db.exec(`CREATE TABLE IF NOT EXISTS tag_defs (
+        kind     TEXT NOT NULL,
+        name     TEXT NOT NULL,
+        color    TEXT,
+        hidden   INTEGER NOT NULL DEFAULT 0,
+        disabled INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (kind, name)
+      )`);
+      db.exec(`
+        INSERT OR IGNORE INTO tag_defs (kind, name, color)
+        SELECT 'project', tag, MIN(color) FROM project_tags WHERE tag IS NOT NULL GROUP BY tag
+      `);
+      db.exec(`
+        INSERT OR IGNORE INTO tag_defs (kind, name, color)
+        SELECT 'session', tag, MIN(color) FROM session_tags WHERE tag IS NOT NULL GROUP BY tag
+      `);
+    } catch {}
+  },
 ];
 
 const currentDbVersion = (() => {
@@ -470,24 +502,71 @@ const stmts = {
   projectHandoffsRename: db.prepare('UPDATE project_handoffs SET projectPath = ? WHERE projectPath = ?'),
   projectHandoffsDeleteAll: db.prepare('DELETE FROM project_handoffs WHERE projectPath = ?'),
   // Session tags
-  tagsGet: db.prepare('SELECT tag, color FROM session_tags WHERE sessionId = ? ORDER BY tag'),
+  // Colour and state now live on the tag def (#138); the assignment tables keep a
+  // stale `color` column, used only as a fallback for a def that somehow went missing.
+  tagsGet: db.prepare(`
+    SELECT s.tag, COALESCE(d.color, s.color) AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
+    FROM session_tags s LEFT JOIN tag_defs d ON d.kind = 'session' AND d.name = s.tag
+    WHERE s.sessionId = ? ORDER BY s.tag
+  `),
   tagInsert: db.prepare('INSERT OR REPLACE INTO session_tags (sessionId, tag, color) VALUES (?, ?, ?)'),
   tagDeleteAll: db.prepare('DELETE FROM session_tags WHERE sessionId = ?'),
-  tagListAll: db.prepare('SELECT DISTINCT tag, color FROM session_tags ORDER BY tag'),
-  tagAllRows: db.prepare('SELECT sessionId, tag, color FROM session_tags ORDER BY tag'),
+  // Suggestions come from the defs, not from what happens to be assigned (#138).
+  tagListAll: db.prepare(`
+    SELECT name AS tag, color, hidden, disabled FROM tag_defs
+    WHERE kind = 'session' ORDER BY name COLLATE NOCASE
+  `),
+  tagAllRows: db.prepare(`
+    SELECT s.sessionId, s.tag, COALESCE(d.color, s.color) AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
+    FROM session_tags s LEFT JOIN tag_defs d ON d.kind = 'session' AND d.name = s.tag
+    ORDER BY s.tag
+  `),
   // A tag carries one colour across every project and session that uses it (#134).
-  sessionTagsSetColor: db.prepare('UPDATE session_tags SET color = ? WHERE tag = ?'),
   // Project tags (#98) — mirror of the session-tag statements, keyed by projectPath.
-  projectTagsGet: db.prepare('SELECT tag, color FROM project_tags WHERE projectPath = ? ORDER BY tag'),
+  projectTagsGet: db.prepare(`
+    SELECT p.tag, COALESCE(d.color, p.color) AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
+    FROM project_tags p LEFT JOIN tag_defs d ON d.kind = 'project' AND d.name = p.tag
+    WHERE p.projectPath = ? ORDER BY p.tag
+  `),
   projectTagInsert: db.prepare('INSERT OR REPLACE INTO project_tags (projectPath, tag, color) VALUES (?, ?, ?)'),
   projectTagDeleteAll: db.prepare('DELETE FROM project_tags WHERE projectPath = ?'),
   // OR IGNORE: a tag the destination already carries keeps its own colour (#55).
   projectTagsMerge: db.prepare(
     'INSERT OR IGNORE INTO project_tags (projectPath, tag, color) SELECT ?, tag, color FROM project_tags WHERE projectPath = ?'
   ),
-  projectTagListAll: db.prepare('SELECT DISTINCT tag, color FROM project_tags ORDER BY tag'),
-  projectTagAllRows: db.prepare('SELECT projectPath, tag, color FROM project_tags ORDER BY tag'),
-  projectTagsSetColor: db.prepare('UPDATE project_tags SET color = ? WHERE tag = ?'),
+  projectTagListAll: db.prepare(`
+    SELECT name AS tag, color, hidden, disabled FROM tag_defs
+    WHERE kind = 'project' ORDER BY name COLLATE NOCASE
+  `),
+  projectTagAllRows: db.prepare(`
+    SELECT p.projectPath, p.tag, COALESCE(d.color, p.color) AS color, COALESCE(d.hidden, 0) AS hidden, COALESCE(d.disabled, 0) AS disabled
+    FROM project_tags p LEFT JOIN tag_defs d ON d.kind = 'project' AND d.name = p.tag
+    ORDER BY p.tag
+  `),
+
+  // --- Tag definitions (#138) — the tag itself, independent of any assignment ---
+  tagDefGet: db.prepare('SELECT kind, name, color, hidden, disabled FROM tag_defs WHERE kind = ? AND name = ?'),
+  tagDefInsert: db.prepare('INSERT OR IGNORE INTO tag_defs (kind, name, color) VALUES (?, ?, ?)'),
+  tagDefRename: db.prepare('UPDATE tag_defs SET name = ? WHERE kind = ? AND name = ?'),
+  tagDefSetColor: db.prepare('UPDATE tag_defs SET color = ? WHERE kind = ? AND name = ?'),
+  tagDefSetFlags: db.prepare('UPDATE tag_defs SET hidden = ?, disabled = ? WHERE kind = ? AND name = ?'),
+  tagDefDelete: db.prepare('DELETE FROM tag_defs WHERE kind = ? AND name = ?'),
+  // Usage counts come from the assignment tables, so a def never drifts from reality.
+  tagDefsProject: db.prepare(`
+    SELECT d.name, d.color, d.hidden, d.disabled,
+           (SELECT COUNT(*) FROM project_tags p WHERE p.tag = d.name) AS usageCount
+    FROM tag_defs d WHERE d.kind = 'project' ORDER BY d.name COLLATE NOCASE
+  `),
+  tagDefsSession: db.prepare(`
+    SELECT d.name, d.color, d.hidden, d.disabled,
+           (SELECT COUNT(*) FROM session_tags s WHERE s.tag = d.name) AS usageCount
+    FROM tag_defs d WHERE d.kind = 'session' ORDER BY d.name COLLATE NOCASE
+  `),
+  // Rename / delete have to carry the assignments with them.
+  projectTagsRename: db.prepare('UPDATE OR REPLACE project_tags SET tag = ? WHERE tag = ?'),
+  sessionTagsRename: db.prepare('UPDATE OR REPLACE session_tags SET tag = ? WHERE tag = ?'),
+  projectTagsDeleteByTag: db.prepare('DELETE FROM project_tags WHERE tag = ?'),
+  sessionTagsDeleteByTag: db.prepare('DELETE FROM session_tags WHERE tag = ?'),
   // Session cache statements
   cacheCount: db.prepare('SELECT COUNT(*) as cnt FROM session_cache'),
   cacheGetAll: db.prepare('SELECT * FROM session_cache'),
@@ -847,7 +926,14 @@ function getSessionTags(sessionId) {
 const setSessionTagsTx = db.transaction((sessionId, tags) => {
   stmts.tagDeleteAll.run(sessionId);
   for (const t of tags) {
-    if (t && t.tag) stmts.tagInsert.run(sessionId, String(t.tag), t.color || null);
+    if (!t || !t.tag) continue;
+    const name = String(t.tag);
+    // Tagging from the quick editor also creates the def (#138) — a tag typed there
+    // must become a first-class tag, not just an assignment. Existing defs keep
+    // their colour; recolouring goes through setTagDefColor.
+    stmts.tagDefInsert.run('session', name, t.color || null);
+    if (t.color) stmts.tagDefSetColor.run(t.color, 'session', name);
+    stmts.tagInsert.run(sessionId, name, t.color || null);
   }
 });
 
@@ -878,7 +964,12 @@ function getProjectTags(projectPath) {
 const setProjectTagsTx = db.transaction((projectPath, tags) => {
   stmts.projectTagDeleteAll.run(projectPath);
   for (const t of tags) {
-    if (t && t.tag) stmts.projectTagInsert.run(projectPath, String(t.tag), t.color || null);
+    if (!t || !t.tag) continue;
+    const name = String(t.tag);
+    // See setSessionTagsTx: the quick editor creates defs as a side effect (#138).
+    stmts.tagDefInsert.run('project', name, t.color || null);
+    if (t.color) stmts.tagDefSetColor.run(t.color, 'project', name);
+    stmts.projectTagInsert.run(projectPath, name, t.color || null);
   }
 });
 
@@ -888,26 +979,89 @@ function setProjectTags(projectPath, tags) {
   return stmts.projectTagsGet.all(projectPath);
 }
 
-// --- Tag colour is global per tag (#134) ---
-// The colour lives on each (projectPath, tag) / (sessionId, tag) row, but the
-// sidebar's filter chips are per *tag* and pick "the first non-empty colour".
-// Recolouring a tag in one project therefore looked like it did nothing whenever
-// another project still carried the old colour. A tag has one colour; apply it
-// everywhere the tag appears, sessions included, so the two chip sets agree.
-const setTagColorTx = db.transaction((entries) => {
-  for (const { tag, color } of entries) {
-    stmts.projectTagsSetColor.run(color, tag);
-    stmts.sessionTagsSetColor.run(color, tag);
-  }
+// --- Tag definitions (#138) ---
+// A tag exists in its own right: it can be created before it is used, renamed,
+// recoloured, hidden, disabled, and deleted. `kind` separates the two vocabularies
+// ('project' | 'session'), so the same name in both is two independent tags.
+
+const TAG_KINDS = new Set(['project', 'session']);
+
+function assertKind(kind) {
+  if (!TAG_KINDS.has(kind)) throw new Error('Unknown tag kind: ' + kind);
+}
+
+function listTagDefs(kind) {
+  assertKind(kind);
+  const rows = kind === 'project' ? stmts.tagDefsProject.all() : stmts.tagDefsSession.all();
+  return rows.map(r => ({
+    name: r.name,
+    color: r.color || null,
+    hidden: !!r.hidden,
+    disabled: !!r.disabled,
+    usageCount: r.usageCount || 0,
+  }));
+}
+
+// Idempotent: assigning a tag from the quick editor calls this, and re-tagging a
+// project must not fail just because the def already exists.
+function createTagDef(kind, name, color) {
+  assertKind(kind);
+  const tag = String(name || '').trim();
+  if (!tag) return { ok: false, error: 'Tag name is empty' };
+  runWithBusyRetry(() => stmts.tagDefInsert.run(kind, tag, color || null));
+  return { ok: true };
+}
+
+// Renaming onto an existing name is rejected rather than merged: a merge is
+// irreversible and almost never what was meant.
+const renameTagDefTx = db.transaction((kind, oldName, newName) => {
+  stmts.tagDefRename.run(newName, kind, oldName);
+  if (kind === 'project') stmts.projectTagsRename.run(newName, oldName);
+  else stmts.sessionTagsRename.run(newName, oldName);
 });
 
-function setTagColors(tags) {
-  const entries = (Array.isArray(tags) ? tags : [])
-    .filter(t => t && t.tag && typeof t.color === 'string' && t.color)
-    .map(t => ({ tag: String(t.tag), color: t.color }));
-  if (entries.length === 0) return { updated: 0 };
-  runWithBusyRetry(() => setTagColorTx(entries));
-  return { updated: entries.length };
+function renameTagDef(kind, oldName, newName) {
+  assertKind(kind);
+  const from = String(oldName || '').trim();
+  const to = String(newName || '').trim();
+  if (!from || !to) return { ok: false, error: 'Tag name is empty' };
+  if (from === to) return { ok: true };
+  if (!stmts.tagDefGet.get(kind, from)) return { ok: false, error: 'Tag not found' };
+  if (stmts.tagDefGet.get(kind, to)) return { ok: false, error: 'A tag with that name already exists' };
+  runWithBusyRetry(() => renameTagDefTx(kind, from, to));
+  return { ok: true };
+}
+
+function setTagDefColor(kind, name, color) {
+  assertKind(kind);
+  if (!stmts.tagDefGet.get(kind, name)) return { ok: false, error: 'Tag not found' };
+  runWithBusyRetry(() => stmts.tagDefSetColor.run(color || null, kind, name));
+  return { ok: true };
+}
+
+function setTagDefFlags(kind, name, { hidden, disabled } = {}) {
+  assertKind(kind);
+  const def = stmts.tagDefGet.get(kind, name);
+  if (!def) return { ok: false, error: 'Tag not found' };
+  const h = hidden === undefined ? def.hidden : (hidden ? 1 : 0);
+  const d = disabled === undefined ? def.disabled : (disabled ? 1 : 0);
+  runWithBusyRetry(() => stmts.tagDefSetFlags.run(h, d, kind, name));
+  return { ok: true };
+}
+
+// Deleting a tag takes its assignments with it — the caller is expected to have
+// confirmed against the usage count first.
+const deleteTagDefTx = db.transaction((kind, name) => {
+  stmts.tagDefDelete.run(kind, name);
+  if (kind === 'project') stmts.projectTagsDeleteByTag.run(name);
+  else stmts.sessionTagsDeleteByTag.run(name);
+});
+
+function deleteTagDef(kind, name) {
+  assertKind(kind);
+  if (!stmts.tagDefGet.get(kind, name)) return { ok: false, error: 'Tag not found' };
+  runWithBusyRetry(() => deleteTagDefTx(kind, name));
+  return { ok: true };
 }
 
 // --- Project path lifecycle (#55) ---
@@ -1385,7 +1539,8 @@ module.exports = {
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
-  getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags, setTagColors,
+  getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
+  listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder,
   replaceSessionMetrics,

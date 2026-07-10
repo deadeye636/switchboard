@@ -7355,6 +7355,104 @@ body.grid-dragging .grid-card-header {
   white-space: nowrap;
 }
 .settings-tag-label { cursor: pointer; }
+/* --- Tag management lists (#138) --- */
+.settings-tagdef-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.settings-tagdef-row:last-child { border-bottom: none; }
+
+/* Hidden: still assigned, just out of the way. Disabled: on its way out. */
+.settings-tagdef-row.hidden .settings-tagdef-name { color: #8a8a9e; }
+.settings-tagdef-row.disabled .settings-tagdef-name {
+  color: #7a7a90;
+  text-decoration: line-through;
+}
+
+.settings-tagdef-color {
+  position: relative; /* anchors the colour popover */
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.settings-tagdef-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: #e0e0f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-tagdef-rename { flex: 1; min-width: 0; }
+.settings-tagdef-usage {
+  font-size: 11px;
+  color: #6a6a80;
+  white-space: nowrap;
+}
+
+.settings-tagdef-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.settings-tagdef-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #a0a0b4;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid #3a3a4a;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.settings-tagdef-btn:hover { background: rgba(255,255,255,0.08); color: #e0e0f0; }
+.settings-tagdef-btn.on {
+  background: rgba(97,175,239,0.18);
+  border-color: #61afef;
+  color: #9ecbf5;
+}
+.settings-tagdef-btn.danger:hover {
+  background: rgba(224,108,117,0.18);
+  border-color: #e06c75;
+  color: #f0a0a6;
+}
+
+.settings-tagdef-add {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.settings-tagdef-add .settings-tagdef-new { flex: 1; min-width: 0; }
+.settings-tagdef-add-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  color: #c0c0d0;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid #3a3a4a;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.settings-tagdef-add-btn:hover { background: rgba(255,255,255,0.1); color: #e0e0f0; }
+
+.settings-tagdef-empty {
+  padding: 10px 4px;
+  font-size: 12px;
+  color: #6a6a80;
+}
+.settings-tagdef-error {
+  margin-top: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #f0a0a6;
+  background: rgba(224,108,117,0.12);
+  border: 1px solid rgba(224,108,117,0.35);
+  border-radius: 6px;
+}
+
 /* --- Tag colour picker (#134) --- */
 /* In-app HSV picker. The former <input type="color"> opened Chromium's OS dialog,
    which the app cannot position — it appeared in the window's top-left corner. */
