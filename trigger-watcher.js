@@ -87,6 +87,18 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Schedule the next tick of a wait loop. The timer is unref'd so a poll in flight
+// never keeps the process alive on its own: a wait that falls back to
+// DEFAULT_IDLE_TIMEOUT polls for five minutes, and closing the watcher does not
+// cancel it. In the app this changes nothing — the Electron main process holds the
+// event loop open through its own handles — but a test process would otherwise sit
+// out the full timeout after its assertions have long passed.
+function schedulePoll(fn) {
+  const timer = setTimeout(fn, IDLE_POLL_INTERVAL);
+  if (typeof timer.unref === 'function') timer.unref();
+  return timer;
+}
+
 // Submit a command to a PTY the way a human terminal does: write the text,
 // then send Enter as a SEPARATE write so it is read as a discrete "submit"
 // keypress rather than a trailing newline. See DEFAULT_SUBMIT_ENTER_DELAY_MS.
@@ -136,7 +148,7 @@ function pollForBusyRise(sessionId, ctx, windowMs, deadlineMs) {
         // Verify window elapsed without a rise — caller decides what to do.
         return resolve({ rose: false, timedOut: false, sessionExited: false, waited_ms: now - start });
       }
-      setTimeout(check, IDLE_POLL_INTERVAL);
+      schedulePoll(check);
     }
 
     check();
@@ -230,7 +242,7 @@ function waitForBusyFall(sessionId, ctx, deadlineMs) {
       if (!ctx.isSessionBusy(sessionId)) {
         return resolve({ timedOut: false, sessionExited: false, waited_ms: now - start });
       }
-      setTimeout(check, IDLE_POLL_INTERVAL);
+      schedulePoll(check);
     }
 
     check();
@@ -279,7 +291,7 @@ function waitForIdle(sessionId, ctx, timeoutMs) {
       if (waited_ms >= timeout) {
         return resolve({ timedOut: true, sessionExited: false, waited_ms });
       }
-      setTimeout(check, IDLE_POLL_INTERVAL);
+      schedulePoll(check);
     }
 
     check();
