@@ -82,7 +82,7 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 ## Commands
 
 - `npm test` — runs `node --test` over `test/*.test.js`. No Electron needed. Keep it green (run it for the current pass count — don't rely on a hardcoded number here).
-  (Note: `trigger-watcher.test.js` uses real `fs.watch`/timers and takes ~5 min — run the suite in the background.)
+  (Takes ~20 s. `trigger-watcher.test.js` uses real `fs.watch`/timers and is the slowest file at ~19 s, which sets the wall clock since files run in parallel.)
 - `npm start` — bundles CodeMirror, then launches Electron.
 - `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe`.
 
