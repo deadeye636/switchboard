@@ -147,7 +147,26 @@ test('formatBinding: human-readable labels per platform', () => {
   assert.equal(formatBinding('sessionNavArrows', false, D), 'Ctrl+Shift+←/→/↑/↓');
   assert.equal(formatBinding('sessionNavArrows', true, D), 'Cmd+Shift+←/→/↑/↓');
   assert.equal(formatBinding('sessionNavBrackets', false, D), 'Ctrl+Shift+[ / ]');
+  assert.equal(formatBinding('sessionHistoryNav', false, D), 'Ctrl+Shift+, / .');
   assert.equal(formatBinding('gridToggle', false, D), 'Ctrl+Shift+G');
+});
+
+test('sessionHistoryNav matches Comma/Period by code, under the right modifiers', () => {
+  assert.equal(matchShortcut('sessionHistoryNav', ev(',', 'ctrl+shift', 'Comma'), false, D), true);
+  assert.equal(matchShortcut('sessionHistoryNav', ev('.', 'ctrl+shift', 'Period'), false, D), true);
+  // Bare and wrong-modifier presses must reach the terminal untouched.
+  assert.equal(matchShortcut('sessionHistoryNav', ev(',', '', 'Comma'), false, D), false);
+  assert.equal(matchShortcut('sessionHistoryNav', ev(',', 'ctrl', 'Comma'), false, D), false);
+  assert.equal(matchShortcut('sessionHistoryNav', ev(',', 'ctrl+alt+shift', 'Comma'), false, D), false);
+  // A different key under the same chord is not this shortcut.
+  assert.equal(matchShortcut('sessionHistoryNav', ev(';', 'ctrl+shift', 'Semicolon'), false, D), false);
+});
+
+test('isSessionNavShortcut covers the history pair, so xterm blocks it', () => {
+  // Without this the chord would reach the PTY instead of switching sessions.
+  assert.equal(isSessionNavShortcut(ev(',', 'ctrl+shift', 'Comma'), false, D), true);
+  assert.equal(isSessionNavShortcut(ev('.', 'ctrl+shift', 'Period'), false, D), true);
+  assert.equal(isSessionNavShortcut(ev(',', '', 'Comma'), false, D), false);
 });
 
 test('captureBinding: needs a modifier + real key; rejects bare/modifier-only presses', () => {

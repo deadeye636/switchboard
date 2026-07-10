@@ -115,12 +115,44 @@ window._openSessions = openSessions;
 const userStoppedSessions = new Set();
 window._markUserStopped = (id) => { if (id) userStoppedSessions.add(id); };
 let activeSessionId = sessionStorage.getItem('activeSessionId') || null;
+
+// Visit history (#36). setActiveSession is the choke point every focus path funnels
+// through — showSession, focusGridCard, tabs, the attention inbox — so recording
+// here catches them all. `navigatingHistory` suppresses the record while a
+// back/forward jump is in flight: without it the jump would append itself and
+// destroy the forward tail, degrading back/forward into "toggle the last two".
+const sessionHistory = createSessionHistory();
+let navigatingHistory = false;
+
 function setActiveSession(id) {
   activeSessionId = id;
   if (id) sessionStorage.setItem('activeSessionId', id);
   else sessionStorage.removeItem('activeSessionId');
+  if (id && !navigatingHistory) visitSession(sessionHistory, id);
   // Update file panel to show this session's open files/diffs
   if (typeof switchPanel === 'function') switchPanel(id);
+}
+
+// A history entry is navigable only while its session is still mounted — a closed
+// or evicted session would otherwise be a dead jump target.
+function sessionHistoryAlive(sessionId) {
+  const entry = openSessions.get(sessionId);
+  return !!entry && !entry.closed;
+}
+
+// Step through the visit history. Direction: -1 back, +1 forward.
+function navigateSessionHistory(direction) {
+  const target = direction < 0
+    ? historyBack(sessionHistory, sessionHistoryAlive)
+    : historyForward(sessionHistory, sessionHistoryAlive);
+  if (!target || target === activeSessionId) return;
+  navigatingHistory = true;
+  try {
+    if (gridViewActive) focusGridCard(target);
+    else showSession(target);
+  } finally {
+    navigatingHistory = false;
+  }
 }
 // Persist slug group expand state across reloads AND restarts (localStorage, so
 // the "letzter Stand" collapse-default actually survives an app restart).

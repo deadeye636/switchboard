@@ -2008,6 +2008,16 @@ function handleSessionNavKey(e) {
     return true;
   }
 
+  // Back/forward through visited sessions (default Cmd/Ctrl+Shift+, / .) — #36.
+  // Temporal order, unlike the bracket pair above, which walks the sidebar order.
+  if (matchShortcut('sessionHistoryNav', e, isMac, appShortcuts)) {
+    e.preventDefault();
+    if (e.type === 'keydown' && typeof navigateSessionHistory === 'function') {
+      navigateSessionHistory(e.code === 'Comma' ? -1 : 1);
+    }
+    return true;
+  }
+
   // Arrow nav (default Cmd/Ctrl+Shift+Arrow) — grid view: 2D navigation; single view: cycle sessions
   if (matchShortcut('sessionNavArrows', e, isMac, appShortcuts)) {
     e.preventDefault();

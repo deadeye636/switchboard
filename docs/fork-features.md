@@ -41,6 +41,17 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 - Helpers for inbox ordering, status counts, and status filtering — all pure and
   unit-tested (`test/session-status.test.js`).
 
+### Session visit history
+`public/session-history.js`
+
+- Browser-style **back / forward** through visited sessions
+  (`Ctrl/Cmd+Shift+,` / `.`, rebindable). Temporal order, unlike `navigateSession`,
+  which cycles the sidebar's spatial order.
+- A visit stack with a cursor; going somewhere new from the middle abandons the
+  forward tail, and a back/forward jump never records itself. Entries whose
+  session is gone are pruned, not navigated to. Pure and unit-tested
+  (`test/session-history.test.js`).
+
 ### Attention inbox + status chips
 `public/sidebar.js`
 

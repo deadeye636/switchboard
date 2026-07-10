@@ -6,9 +6,10 @@
 //
 // A "binding" describes a modifier combo plus, for the 'key' family, a literal
 // key. The base key(s) of each action are fixed by its `family`:
-//   arrows   → ArrowLeft/Right/Up/Down   (session/grid navigation)
-//   brackets → [ and ]                    (previous/next session)
-//   key      → a single literal key       (e.g. grid toggle = G)
+//   arrows      → ArrowLeft/Right/Up/Down  (session/grid navigation)
+//   brackets    → [ and ]                   (previous/next session)
+//   commaPeriod → , and .                   (back/forward through visited sessions)
+//   key         → a single literal key      (e.g. grid toggle = G)
 // The user customises the *modifiers*; `primary` is Cmd on macOS / Ctrl elsewhere.
 
 const DEFAULT_SHORTCUTS = {
@@ -18,6 +19,10 @@ const DEFAULT_SHORTCUTS = {
   sessionNavArrows: { primary: true, alt: false, shift: true },
   // Ctrl/Cmd+Shift+[ / ] — never conflicted with terminal editing, kept as-is.
   sessionNavBrackets: { primary: true, alt: false, shift: true },
+  // Ctrl/Cmd+Shift+, / . — back / forward through visited sessions (#36).
+  // Not Alt+Arrows as originally proposed: that is the terminal's word-jump
+  // sequence, the same trade-off the sessionNavArrows note above rejects.
+  sessionHistoryNav: { primary: true, alt: false, shift: true },
   // Ctrl/Cmd+Shift+G — toggle the grid overview.
   gridToggle: { primary: true, alt: false, shift: true, key: 'g' },
   // Ctrl/Cmd+Shift+B — bookmark the current message (transcript viewer) or the
@@ -56,6 +61,13 @@ const SHORTCUT_DEFS = [
     label: 'Previous / next session',
     description: 'Cycle to the previous or next session',
     family: 'brackets',
+    group: 'general',
+  },
+  {
+    id: 'sessionHistoryNav',
+    label: 'Back / forward through visited sessions',
+    description: 'Step back and forward through the sessions you visited, in the order you visited them',
+    family: 'commaPeriod',
     group: 'general',
   },
   {
@@ -133,6 +145,7 @@ function normalizeShortcuts(stored) {
 function keyFamily(e) {
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return 'arrows';
   if (e.code === 'BracketLeft' || e.code === 'BracketRight') return 'brackets';
+  if (e.code === 'Comma' || e.code === 'Period') return 'commaPeriod';
   return 'key';
 }
 
@@ -155,6 +168,7 @@ function matchShortcut(id, e, isMac, shortcuts) {
   if (!modifiersMatch(sc, e, isMac)) return false;
   if (def.family === 'arrows') return keyFamily(e) === 'arrows';
   if (def.family === 'brackets') return keyFamily(e) === 'brackets';
+  if (def.family === 'commaPeriod') return keyFamily(e) === 'commaPeriod';
   if (def.family === 'key') {
     const want = (sc.key || DEFAULT_SHORTCUTS[id].key || '').toLowerCase();
     return (e.key || '').toLowerCase() === want;
@@ -162,12 +176,14 @@ function matchShortcut(id, e, isMac, shortcuts) {
   return false;
 }
 
-// Is this event any session-navigation shortcut (arrows or brackets)?
-// Used by xterm to block the key without the terminal acting on it.
+// Is this event any session-navigation shortcut (arrows, brackets, or the
+// visit-history pair)? Used by xterm to block the key without the terminal
+// acting on it.
 function isSessionNavShortcut(e, isMac, shortcuts) {
   return (
     matchShortcut('sessionNavArrows', e, isMac, shortcuts) ||
-    matchShortcut('sessionNavBrackets', e, isMac, shortcuts)
+    matchShortcut('sessionNavBrackets', e, isMac, shortcuts) ||
+    matchShortcut('sessionHistoryNav', e, isMac, shortcuts)
   );
 }
 
@@ -182,6 +198,7 @@ function formatBinding(id, isMac, shortcuts) {
   if (sc.shift) parts.push('Shift');
   if (def.family === 'arrows') parts.push('←/→/↑/↓');
   else if (def.family === 'brackets') parts.push('[ / ]');
+  else if (def.family === 'commaPeriod') parts.push(', / .');
   else parts.push((sc.key || DEFAULT_SHORTCUTS[id].key || '').toUpperCase());
   return parts.join('+');
 }

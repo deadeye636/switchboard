@@ -186,6 +186,8 @@
   <script src="session-timeline.js"></script>
   <script src="away-summary.js"></script>
   <script src="grid-layout.js"></script>
+  <!-- session-history.js must load before app.js, which builds its store at module scope. -->
+  <script src="session-history.js"></script>
   <script src="update-restart.js"></script>
   <!-- shortcuts.js defines matchShortcut/appShortcuts helpers used by terminal-manager,
        grid-view, app and settings-panel — must load before those consumers. -->
