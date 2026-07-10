@@ -1282,7 +1282,13 @@ function focusGridCard(sessionId, { reveal = true } = {}) {
   // Focus moved off the card being moved (nav shortcut, click, inbox jump) —
   // the mode belongs to that one card, so it ends here.
   if (isGridMoveModeActive() && gridMoveModeSessionId !== sessionId) exitGridMoveMode();
+  const prevFocused = gridFocusedSessionId;
   gridFocusedSessionId = sessionId;
+  // WebGL follows focus (#140): demote the previously focused card to the DOM
+  // renderer and promote the new one, so only one grid card ever holds a live
+  // WebGL context. Off-screen cards stay DOM (applyGridWebglPolicy checks that).
+  if (prevFocused && prevFocused !== sessionId) applyGridWebglPolicy(prevFocused);
+  applyGridWebglPolicy(sessionId);
   setActiveSession(sessionId);
   clearNotifications(sessionId);
   lruTouch(sessionId);
@@ -1682,7 +1688,7 @@ function initGridObservers() {
         const sid = e.target.dataset.sessionId;
         if (!sid) continue;
         if (e.isIntersecting) {
-          restoreTerminalWebgl(sid);
+          applyGridWebglPolicy(sid, true); // WebGL only for the focused card (#140)
           // Back on screen: flush the pending chunk while still marked
           // off-screen (keeps it behind the replay data), then drain what
           // accumulated while the card was scrolled out (#81).
@@ -1695,6 +1701,24 @@ function initGridObservers() {
         }
       }
     }, { threshold: 0 });
+  }
+}
+
+// Only the focused grid card runs the WebGL renderer; every other card uses the
+// DOM renderer (#140). xterm shares one glyph texture atlas across all WebGL
+// terminals with identical config, but each holds its own GL context — so several
+// live WebGL grid cards corrupt each other's glyphs (all but the actively-
+// rendering/focused one, healed only by a full re-render like a resize). Keeping
+// WebGL to the single focused card removes the shared-atlas contention entirely.
+// Off-screen cards are always DOM (they get suspended by the observer). No fork
+// does this — jbr/haydng/doctly keep WebGL on every visible card.
+function applyGridWebglPolicy(sid, onScreen) {
+  if (!gridViewActive) return;
+  if (onScreen === undefined) onScreen = !gridOffscreenSessions.has(sid);
+  if (sid === gridFocusedSessionId && onScreen) {
+    if (typeof restoreTerminalWebgl === 'function') restoreTerminalWebgl(sid);
+  } else {
+    if (typeof suspendTerminalWebgl === 'function') suspendTerminalWebgl(sid);
   }
 }
 
