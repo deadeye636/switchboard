@@ -87,7 +87,7 @@ const {
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
-  getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
+  getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags, setTagColors,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
@@ -2727,7 +2727,12 @@ ipcMain.handle('project-tags-get', (_event, projectPath) => {
 });
 ipcMain.handle('project-tags-set', (_event, payload) => {
   const { projectPath, tags } = payload || {};
-  return setProjectTags(projectPath, tags);
+  const saved = setProjectTags(projectPath, tags);
+  // A tag has one colour everywhere it appears (#134) — otherwise recolouring it
+  // here leaves other projects (and session tags) on the old hue, and the sidebar's
+  // per-tag chip picks whichever it finds first.
+  setTagColors(tags);
+  return saved;
 });
 ipcMain.handle('project-tags-list-all', () => {
   return listAllProjectTags();

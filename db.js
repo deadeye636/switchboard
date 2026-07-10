@@ -475,6 +475,8 @@ const stmts = {
   tagDeleteAll: db.prepare('DELETE FROM session_tags WHERE sessionId = ?'),
   tagListAll: db.prepare('SELECT DISTINCT tag, color FROM session_tags ORDER BY tag'),
   tagAllRows: db.prepare('SELECT sessionId, tag, color FROM session_tags ORDER BY tag'),
+  // A tag carries one colour across every project and session that uses it (#134).
+  sessionTagsSetColor: db.prepare('UPDATE session_tags SET color = ? WHERE tag = ?'),
   // Project tags (#98) — mirror of the session-tag statements, keyed by projectPath.
   projectTagsGet: db.prepare('SELECT tag, color FROM project_tags WHERE projectPath = ? ORDER BY tag'),
   projectTagInsert: db.prepare('INSERT OR REPLACE INTO project_tags (projectPath, tag, color) VALUES (?, ?, ?)'),
@@ -485,6 +487,7 @@ const stmts = {
   ),
   projectTagListAll: db.prepare('SELECT DISTINCT tag, color FROM project_tags ORDER BY tag'),
   projectTagAllRows: db.prepare('SELECT projectPath, tag, color FROM project_tags ORDER BY tag'),
+  projectTagsSetColor: db.prepare('UPDATE project_tags SET color = ? WHERE tag = ?'),
   // Session cache statements
   cacheCount: db.prepare('SELECT COUNT(*) as cnt FROM session_cache'),
   cacheGetAll: db.prepare('SELECT * FROM session_cache'),
@@ -883,6 +886,28 @@ function setProjectTags(projectPath, tags) {
   if (!projectPath) return [];
   runWithBusyRetry(() => setProjectTagsTx(projectPath, Array.isArray(tags) ? tags : []));
   return stmts.projectTagsGet.all(projectPath);
+}
+
+// --- Tag colour is global per tag (#134) ---
+// The colour lives on each (projectPath, tag) / (sessionId, tag) row, but the
+// sidebar's filter chips are per *tag* and pick "the first non-empty colour".
+// Recolouring a tag in one project therefore looked like it did nothing whenever
+// another project still carried the old colour. A tag has one colour; apply it
+// everywhere the tag appears, sessions included, so the two chip sets agree.
+const setTagColorTx = db.transaction((entries) => {
+  for (const { tag, color } of entries) {
+    stmts.projectTagsSetColor.run(color, tag);
+    stmts.sessionTagsSetColor.run(color, tag);
+  }
+});
+
+function setTagColors(tags) {
+  const entries = (Array.isArray(tags) ? tags : [])
+    .filter(t => t && t.tag && typeof t.color === 'string' && t.color)
+    .map(t => ({ tag: String(t.tag), color: t.color }));
+  if (entries.length === 0) return { updated: 0 };
+  runWithBusyRetry(() => setTagColorTx(entries));
+  return { updated: entries.length };
 }
 
 // --- Project path lifecycle (#55) ---
@@ -1360,7 +1385,7 @@ module.exports = {
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
   saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
-  getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
+  getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags, setTagColors,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder,
   replaceSessionMetrics,
