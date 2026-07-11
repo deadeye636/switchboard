@@ -1196,19 +1196,19 @@
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Max visible sessions</span>
-                    <div class="settings-description">Show this many before collapsing the rest behind "+N older".</div>
+                    <div class="settings-description">Show this many before collapsing the rest behind "+N older". 0 = no limit.</div>
                   </div>
                   <div class="settings-field-control">
-                    <input type="number" class="settings-input settings-input-compact" id="sv-visible-count" min="1" max="100" value="${visCountValue}">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-visible-count" min="0" max="100" value="${visCountValue}">
                   </div>
                 </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Hide sessions older than (days)</span>
-                    <div class="settings-description">Older sessions collapse behind "+N older" even if under the count limit.</div>
+                    <div class="settings-description">Older sessions collapse behind "+N older" even if under the count limit. 0 = no limit.</div>
                   </div>
                   <div class="settings-field-control">
-                    <input type="number" class="settings-input settings-input-compact" id="sv-max-age" min="1" max="365" value="${maxAgeValue}">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-max-age" min="0" max="365" value="${maxAgeValue}">
                   </div>
                 </div>
                 <div class="settings-field">
@@ -1809,8 +1809,16 @@
         settings.preLaunchCmd = settingsViewerBody.querySelector('#sv-pre-launch').value.trim();
         settings.addDirs = settingsViewerBody.querySelector('#sv-add-dirs').value.trim();
         settings.afkTimeoutSec = normalizeAfk(settingsViewerBody.querySelector('#sv-afk-timeout').value);
-        settings.visibleSessionCount = parseInt(settingsViewerBody.querySelector('#sv-visible-count').value) || 10;
-        settings.sessionMaxAgeDays = parseInt(settingsViewerBody.querySelector('#sv-max-age').value) || 3;
+        {
+          // 0 = no limit — preserve a literal 0; only fall back to the default
+          // for blank/garbage/negative input (#144).
+          const parseLimit = (sel, def) => {
+            const v = parseInt(settingsViewerBody.querySelector(sel).value, 10);
+            return Number.isNaN(v) || v < 0 ? def : v;
+          };
+          settings.visibleSessionCount = parseLimit('#sv-visible-count', 10);
+          settings.sessionMaxAgeDays = parseLimit('#sv-max-age', 3);
+        }
         settings.autoHideDays = parseInt(settingsViewerBody.querySelector('#sv-auto-hide-days').value) || 0;
         {
           // Clamp semantics shared with the status bar via utils.js (#79).
@@ -1916,10 +1924,10 @@
 
       // Update visibleSessionCount, sessionMaxAgeDays, and theme
       if (!isProject) {
-        if (settings.visibleSessionCount && typeof window._setVisibleSessionCount === 'function') {
+        if (settings.visibleSessionCount != null && typeof window._setVisibleSessionCount === 'function') {
           window._setVisibleSessionCount(settings.visibleSessionCount);
         }
-        if (settings.sessionMaxAgeDays && typeof window._setSessionMaxAge === 'function') {
+        if (settings.sessionMaxAgeDays != null && typeof window._setSessionMaxAge === 'function') {
           window._setSessionMaxAge(settings.sessionMaxAgeDays);
         }
         if (settings.terminalTheme && typeof window._applyTerminalTheme === 'function') {

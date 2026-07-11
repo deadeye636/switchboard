@@ -679,9 +679,13 @@ function processProjectSessions(project, resort) {
       visible = allItems;
     } else {
       let count = 0;
+      // 0 = no limit for either dimension (#144).
+      const unlimitedAge = sessionMaxAgeDays === 0;
       const ageCutoff = Date.now() - sessionMaxAgeDays * 86400000;
       for (const item of allItems) {
-        if (item.running || item.pinned || (count < visibleSessionCount && item.sortTime >= ageCutoff)) {
+        const withinCount = visibleSessionCount === 0 || count < visibleSessionCount;
+        const withinAge = unlimitedAge || item.sortTime >= ageCutoff;
+        if (item.running || item.pinned || (withinCount && withinAge)) {
           visible.push(item);
           count++;
         } else {
@@ -1104,7 +1108,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
       header.classList.add('collapsed');
     } else if (searchMatchIds === null && !showStarredOnly && !showRunningOnly) {
       const mostRecent = filtered[0]?.modified;
-      if (mostRecent && (Date.now() - new Date(mostRecent)) > sessionMaxAgeDays * 86400000) {
+      if (sessionMaxAgeDays > 0 && mostRecent && (Date.now() - new Date(mostRecent)) > sessionMaxAgeDays * 86400000) {
         header.classList.add('collapsed');
       }
     }
@@ -1155,7 +1159,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { nest
       // Auto-collapse worktree if stale
       if (searchMatchIds === null && !showStarredOnly && !showRunningOnly) {
         const mostRecent = wtResult.filtered[0]?.modified;
-        if (mostRecent && (Date.now() - new Date(mostRecent)) > sessionMaxAgeDays * 86400000) {
+        if (sessionMaxAgeDays > 0 && mostRecent && (Date.now() - new Date(mostRecent)) > sessionMaxAgeDays * 86400000) {
           wtHeader.classList.add('collapsed');
         }
       }

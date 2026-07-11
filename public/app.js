@@ -2551,8 +2551,8 @@ async function reapplyGlobalSettings() {
       ? g.gpuAcceleration
       : (g.terminalWebgl === false ? 'off' : 'auto')); // migrate old boolean (#87); default auto
   window._setUsageThresholds?.({ fiveHWarn: g.usage5hWarn, fiveHCrit: g.usage5hCrit, sevenDWarn: g.usage7dWarn, sevenDCrit: g.usage7dCrit });
-  if (g.visibleSessionCount) window._setVisibleSessionCount?.(g.visibleSessionCount);
-  if (g.sessionMaxAgeDays) window._setSessionMaxAge?.(g.sessionMaxAgeDays);
+  if (g.visibleSessionCount != null) window._setVisibleSessionCount?.(g.visibleSessionCount);
+  if (g.sessionMaxAgeDays != null) window._setSessionMaxAge?.(g.sessionMaxAgeDays);
   if (g.shortcuts && typeof setAppShortcuts === 'function') setAppShortcuts(g.shortcuts);
   window._applySessionDisplaySettings?.(g);
   window._applyProjectSortSettings?.(g);
@@ -2682,10 +2682,10 @@ setTimeout(() => {
     if (global.sidebarWidth) {
       document.getElementById('sidebar').style.width = global.sidebarWidth + 'px';
     }
-    if (global.visibleSessionCount) {
+    if (global.visibleSessionCount != null) {
       visibleSessionCount = global.visibleSessionCount;
     }
-    if (global.sessionMaxAgeDays) {
+    if (global.sessionMaxAgeDays != null) {
       sessionMaxAgeDays = global.sessionMaxAgeDays;
     }
     if (global.terminalTheme && TERMINAL_THEMES[global.terminalTheme]) {
