@@ -3315,7 +3315,19 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       let recorded = null;
       if (!sessionOptions?.backendId) {
         const lookupId = sessionOptions?.forkFrom || (!isNew ? sessionId : null);
-        if (lookupId) recorded = sessionBackends.get(lookupId);
+        if (lookupId) {
+          recorded = sessionBackends.get(lookupId);
+          // The overlay is only the bridge until the first scan. `session_cache.backendId` is the
+          // AUTHORITATIVE provenance (§5.7), so fall back to it — otherwise resuming a session the
+          // overlay no longer knows (a scanner-discovered Codex session, or one whose entry aged out)
+          // would silently default to `claude` and spawn `claude --resume <codex-uuid>`, which fails.
+          if (!recorded) {
+            try {
+              const row = getCachedSession(lookupId);
+              if (row && row.backendId) recorded = { backendId: row.backendId, profileId: null };
+            } catch { /* cache unavailable -> fall through to the claude default */ }
+          }
+        }
       }
       const backend = backends.get(sessionOptions?.backendId || recorded?.backendId || 'claude') || backends.get('claude');
 
@@ -3899,6 +3911,7 @@ function claimCodexRollout(sessionId, session) {
   // older session whose own file is still just a header. Sessions are iterated in launch order, so
   // taking the EARLIEST unclaimed candidate pairs them up in order.
   let best = null;
+  let bestId = null;
   let bestBirth = Infinity;
   for (const handle of codex.discoverSessions()) {
     if (claimed.has(handle.path)) continue;
@@ -3909,9 +3922,33 @@ function claimCodexRollout(sessionId, session) {
     const row = codex.parseSession(handle);
     if (!row || !row.cwd) continue;
     if (path.resolve(row.cwd) !== path.resolve(session.projectPath || '')) continue;
-    if (birth < bestBirth) { best = handle.path; bestBirth = birth; }
+    if (birth < bestBirth) { best = handle.path; bestId = row.sessionId; bestBirth = birth; }
   }
-  if (best) codexRollout.set(sessionId, best);
+  if (best) {
+    codexRollout.set(sessionId, best);
+    // Reconcile the two identities. We launched the session under an id WE generated, but Codex names
+    // its rollout with an id IT generated (unlike Claude, it has no --session-id). Until those are
+    // reconciled the app shows two rows for one session (our pending row + the scanned rollout row),
+    // the pending row never dies, and resuming from the sidebar targets an id Codex never had.
+    //
+    // This is exactly Claude's temp->real transition, so it reuses the same plumbing: re-key the live
+    // session, move the backend overlay across, and tell the renderer to fold the two rows together.
+    if (bestId && bestId !== sessionId && !activeSessions.has(bestId)) {
+      log.info(`[codex] session ${sessionId} → ${bestId} (adopting Codex's rollout id)`);
+      session.realSessionId = bestId;
+      activeSessions.delete(sessionId);
+      activeSessions.set(bestId, session);
+      sessionBackends.rekeySession(sessionId, bestId);
+      codexRollout.delete(sessionId);
+      codexRollout.set(bestId, best);
+      const wasBusy = codexBusy.get(sessionId);
+      codexBusy.delete(sessionId);
+      if (wasBusy !== undefined) codexBusy.set(bestId, wasBusy);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('session-forked', sessionId, bestId);
+      }
+    }
+  }
   return best;
 }
 
@@ -3919,7 +3956,9 @@ function updateCodexBusyStates() {
   const codex = backends.get('codex');
   if (!codex || typeof codex.deriveStateFromFileTail !== 'function') return;
 
-  for (const [sessionId, session] of activeSessions) {
+  // Snapshot: claimCodexRollout may re-key a session (adopting Codex's rollout id), which mutates
+  // activeSessions mid-iteration.
+  for (const [sessionId, session] of [...activeSessions]) {
     if (session.exited || session.isPlainTerminal) continue;
     const mapped = sessionBackends.get(session.realSessionId || sessionId);
     if (!mapped || mapped.backendId !== 'codex') continue;
@@ -3927,14 +3966,16 @@ function updateCodexBusyStates() {
     const rollout = claimCodexRollout(sessionId, session);
     if (!rollout) continue;
 
+    // The session may have just adopted Codex's id — key the busy latch on whatever it is now.
+    const liveId = session.realSessionId || sessionId;
     const state = codex.deriveStateFromFileTail(rollout);
     if (state == null) continue;
     const busy = state === 'busy';
-    if (codexBusy.get(sessionId) === busy) continue;   // only push edges, not every event
-    codexBusy.set(sessionId, busy);
-    log.info(`[codex] session=${sessionId} → ${busy ? 'BUSY' : 'IDLE'} (rollout tail)`);
+    if (codexBusy.get(liveId) === busy) continue;   // only push edges, not every event
+    codexBusy.set(liveId, busy);
+    log.info(`[codex] session=${liveId} → ${busy ? 'BUSY' : 'IDLE'} (rollout tail)`);
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('cli-busy-state', session.realSessionId || sessionId, busy);
+      mainWindow.webContents.send('cli-busy-state', liveId, busy);
     }
   }
 }

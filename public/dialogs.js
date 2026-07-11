@@ -58,7 +58,14 @@ async function resolveLaunchOptionsFor(project, backendId) {
   let options;
   if (isAxisB) {
     const effective = await window.api.getEffectiveSettings(project.projectPath);
-    options = applyBackendDefaultsToOptions({}, (effective.backendDefaults || {})[backendId]);
+    // Seed from the descriptor's declared defaults, THEN apply the user's saved ones. Without the
+    // seed, a plain row-click and an untouched "Start" in the gear dialog would launch differently
+    // (the dialog pre-fills descriptor defaults and sends them; the bare click sent nothing).
+    options = {};
+    for (const f of (backend.configFields || [])) {
+      if (f.default !== '' && f.default != null && f.default !== false) options[f.id] = f.default;
+    }
+    applyBackendDefaultsToOptions(options, (effective.backendDefaults || {})[backendId]);
   } else {
     options = await resolveDefaultSessionOptions(project);
   }
@@ -678,7 +685,90 @@ async function showNewSessionDialog(project, groupId, backendId) {
   document.addEventListener('keydown', onKey);
 }
 
+// Resume-with-configure for a backend that has its OWN option schema (Axis-B: Codex). §5.11: resume
+// is binary-bound — it never offers a backend chooser and never changes where the session points; it
+// only adjusts that backend's configFields. Showing a Codex session Claude's permission-mode/Chrome
+// form would be the wrong schema for the wrong binary.
+async function showGeneratedResumeDialog(session, backend) {
+  const effective = await window.api.getEffectiveSettings(session.projectPath);
+  const saved = (effective.backendDefaults || {})[backend.id] || {};
+  const fields = backend.configFields || [];
+  const sessionName = session.name || session.aiTitle || session.summary || String(session.sessionId).slice(0, 8);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'new-session-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'new-session-dialog';
+
+  const body = fields.map((f, i) => {
+    const val = saved[f.id] !== undefined ? saved[f.id] : f.default;
+    const id = `grd-${i}`;
+    let control;
+    if (f.type === 'select') {
+      const opts = (f.choices || []).map(c =>
+        `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String(c))}</option>`
+      ).join('');
+      control = `<select class="settings-select" id="${id}">${opts}</select>`;
+    } else if (f.type === 'toggle') {
+      control = `<label class="settings-toggle"><input type="checkbox" id="${id}" ${val ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>`;
+    } else {
+      control = `<input type="text" class="settings-input" id="${id}" value="${escapeHtml(val == null ? '' : String(val))}">`;
+    }
+    return `
+      <div class="settings-field settings-field-wide">
+        <div class="settings-field-info"><span class="settings-label">${escapeHtml(f.label || f.id)}</span></div>
+        <div class="settings-field-control">${control}</div>
+      </div>`;
+  }).join('');
+
+  dialog.innerHTML = `
+    <h3>Resume ${escapeHtml(backend.label)} — ${escapeHtml(sessionName)}</h3>
+    ${body || '<div class="settings-description">This backend has no launch options.</div>'}
+    <div class="new-session-actions">
+      <button class="new-session-cancel-btn">Cancel</button>
+      <button class="new-session-start-btn">Resume</button>
+    </div>
+  `;
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  function close() {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+  function resume() {
+    // NOTE: no backendId is sent — main reapplies the session's RECORDED backend (§5.11). We only
+    // carry this backend's own options.
+    const options = {};
+    fields.forEach((f, i) => {
+      const el = dialog.querySelector(`#grd-${i}`);
+      if (!el) return;
+      const v = f.type === 'toggle' ? el.checked : el.value.trim();
+      if (v === '' || v === false) return;
+      options[f.id] = v;
+    });
+    close();
+    openSession(session, options);
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') close();
+    else if (e.key === 'Enter' && !e.target.matches('input')) resume();
+  }
+  dialog.querySelector('.new-session-cancel-btn').onclick = close;
+  dialog.querySelector('.new-session-start-btn').onclick = resume;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+}
+
 async function showResumeSessionDialog(session) {
+  // An Axis-B session (Codex) has its own option schema -> generated form. Claude and Axis-A profiles
+  // share the claude binary and therefore Claude's options -> the purpose-built form below.
+  const backendId = window.sessionBackendId ? window.sessionBackendId(session) : 'claude';
+  const backend = window.getBackend ? window.getBackend(backendId) : null;
+  if (backend && backend.axis === 'B') {
+    return showGeneratedResumeDialog(session, backend);
+  }
+
   const effective = await window.api.getEffectiveSettings(session.projectPath);
 
   const overlay = document.createElement('div');

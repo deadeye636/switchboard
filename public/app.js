@@ -2273,8 +2273,14 @@ async function openSession(session, customOptions, { show = true } = {}) {
   // Create new terminal entry (hidden until showSession)
   const entry = createTerminalEntry(session);
 
-  // Open terminal in main process
-  const resumeOptions = customOptions || await resolveDefaultSessionOptions({ projectPath });
+  // Open terminal in main process.
+  // Resume is binary-bound (§5.11): main reapplies the session's RECORDED backend, so we must not
+  // hand it Claude's launch defaults when the session belongs to another binary — Claude's `model`
+  // would land on Codex's `-m`, and its permission mode means nothing there. Resolve the options for
+  // the session's OWN backend instead. (No backendId is sent: main reapplies the recorded one.)
+  const resumeBackendId = window.sessionBackendId ? window.sessionBackendId(session) : 'claude';
+  const resumeOptions = customOptions || await resolveLaunchOptionsFor({ projectPath }, resumeBackendId);
+  if (resumeOptions) delete resumeOptions.backendId;
   // The `worktree` default applies to NEW sessions only. Resuming must reuse the
   // session's existing directory, so never pass --worktree on resume — otherwise
   // a plain-click resume tries to spin up a fresh git worktree and fails to attach

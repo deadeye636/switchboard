@@ -64,6 +64,20 @@ test('the title skips Codex\'s injected AGENTS.md context and uses the real prom
   assert.strictEqual(row.summary, 'Fix the failing auth test', 'injected context must not become the title');
 });
 
+test('injected context is kept OUT of the search body (it is identical in every session of a project)', () => {
+  const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'codex-fts-')), 'rollout.jsonl');
+  const line = (o) => JSON.stringify(o) + '\n';
+  fs.writeFileSync(tmp,
+    line({ timestamp: '2026-06-27T10:00:00Z', type: 'session_meta', payload: { id: 'X3', cwd: 'D:\\p', timestamp: '2026-06-27T10:00:00Z' } }) +
+    line({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ text: '# AGENTS.md instructions for D:\\p\n\nUSE_TABS_EVERYWHERE' }] } }) +
+    line({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ text: 'Fix the auth test' }] } })
+  );
+  const row = parser.parseSession({ kind: 'file', path: tmp });
+  assert.ok(!/USE_TABS_EVERYWHERE/.test(row.textContent),
+    'a term from the injected AGENTS.md must not make every Codex session of the project match');
+  assert.match(row.textContent, /Fix the auth test/, 'the real prompt IS indexed');
+});
+
 test('a session with ONLY injected context still gets a title (fallback, not blank)', () => {
   const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'codex-title2-')), 'rollout.jsonl');
   const line = (o) => JSON.stringify(o) + '\n';

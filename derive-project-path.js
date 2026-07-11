@@ -107,8 +107,15 @@ function resolveWorktreePath(cwd) {
   return cwd;
 }
 
-// A session's working directory for grouping purposes: where it is working NOW, falling back to
-// where it started. A session that moved parent -> worktree must follow its current tree (#147).
+// A single session's ACTUAL working directory: where it works now, falling back to where it started.
+//
+// NOTE — deliberately NOT used by deriveProjectPath below. A Claude project FOLDER is keyed on the
+// cwd it was created from, and deriveProjectPath assigns one project to the whole folder from the
+// first transcript it finds. Deriving that from a session's *current* cwd would let a single session
+// that moved (parent repo -> worktree) drag every sibling session in the folder with it, depending on
+// readdir order. Per-session attribution needs a per-session project column; until then the folder
+// keeps its stable head-cwd identity. The real #147 fix — a real worktree is never collapsed into its
+// parent — lives in resolveWorktreePath and applies at folder granularity, where it is correct.
 function sessionCwd(filePath) {
   return extractCurrentCwdFromJsonl(filePath) || extractCwdFromJsonl(filePath);
 }
@@ -119,7 +126,7 @@ function deriveProjectPath(folderPath) {
     // Check direct .jsonl files first
     for (const e of entries) {
       if (e.isFile() && e.name.endsWith('.jsonl')) {
-        const cwd = sessionCwd(path.join(folderPath, e.name));
+        const cwd = extractCwdFromJsonl(path.join(folderPath, e.name));
         if (cwd) return resolveWorktreePath(cwd);
       }
     }
@@ -138,7 +145,7 @@ function deriveProjectPath(folderPath) {
             if (agentFiles.length > 0) jsonlPath = path.join(subDir, 'subagents', agentFiles[0]);
           }
           if (jsonlPath) {
-            const cwd = sessionCwd(jsonlPath);
+            const cwd = extractCwdFromJsonl(jsonlPath);
             if (cwd) return resolveWorktreePath(cwd);
           }
         }

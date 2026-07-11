@@ -111,6 +111,7 @@ function applyEntry(st, entry) {
       if (payload.type !== 'message') break;
       const text = messageText(payload);
       st.messageCount++;
+      const injected = payload.role === 'user' && looksLikeInjectedContext(text);
       if (payload.role === 'user') {
         st.userMessageCount++;
         const words = countWords(text);
@@ -118,10 +119,12 @@ function applyEntry(st, entry) {
         // The session title = the first REAL user prompt, not Codex's injected AGENTS.md context.
         if (text) {
           if (!st.fallbackSummary) st.fallbackSummary = text.slice(0, 500);
-          if (!st.summary && !looksLikeInjectedContext(text)) st.summary = text.slice(0, 500);
+          if (!st.summary && !injected) st.summary = text.slice(0, 500);
         }
       }
-      if (text) st.textParts.push(text);
+      // Keep the injected context OUT of the search body too: it is the same AGENTS.md text in every
+      // Codex session of a project, so indexing it makes any term from that file match all of them.
+      if (text && !injected) st.textParts.push(text);
       break;
     }
     case 'event_msg': {
