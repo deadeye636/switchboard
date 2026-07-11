@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (15 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (19 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-11
 
@@ -16,6 +16,9 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 
 - [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
+- [#145](https://github.com/deadeye636/switchboard/issues/145) Settings: export & import (global settings, JSON file) · _feature_
+- [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
+- [#147](https://github.com/deadeye636/switchboard/issues/147) Real git-worktree awareness — treat `git worktree add` worktrees as first-class projects · _bug_
 
 ## P3 — someday
 
@@ -31,3 +34,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#127](https://github.com/deadeye636/switchboard/issues/127) Persist incremental parse state so cold-start scans read only the delta · _feature_
 - [#142](https://github.com/deadeye636/switchboard/issues/142) Multi-LLM system: profiles (alt endpoints) + runtimes (Codex/Copilot/…) · _feature_
+- [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
