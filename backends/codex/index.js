@@ -19,7 +19,7 @@ const path = require('path');
 const fs = require('fs');
 
 const parser = require('./parser');
-const { deriveState } = require('./state');
+const { deriveState, deriveStateFromFileTail } = require('./state');
 
 // CODEX_HOME overrides the whole dir; default ~/.codex. Resolved lazily so an env change (or a test)
 // is honoured, and overridable via setHome().
@@ -125,6 +125,7 @@ module.exports = {
   PARSER_SCHEMA_VERSION: parser.PARSER_SCHEMA_VERSION,
   watchTargets,
   deriveState,
+  deriveStateFromFileTail,
   setHome,
   sessionsRoot,
 };

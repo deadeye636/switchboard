@@ -3410,6 +3410,9 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     activeSessions.delete(realId);
     // Clean up the original key too in case transition detection hasn't run yet
     activeSessions.delete(sessionId);
+    // Release the Codex rollout claim + busy latch for this session (T-4.5), so the file can be
+    // re-claimed and the maps don't grow for the life of the app.
+    for (const id of [realId, sessionId]) { codexRollout.delete(id); codexBusy.delete(id); }
     // Wipe this session's secret-ref temp files (default on; the prompt that used
     // them is done). Quit/startup wipe still covers the setting-off case.
     if (getSetting('global')?.secretRefCleanupOnSessionStop !== false) {
@@ -3699,6 +3702,68 @@ function startProjectsWatcher() {
 const backendWatchers = [];
 let backendWatcherRetry = null;
 
+// --- Codex busy/idle (T-4.5) ---
+//
+// Claude reports busy/idle through OSC title sequences in its PTY stream. Codex emits NO OSC, so a
+// live Codex session would sit permanently "idle". Its rollout file carries the signal instead
+// (task_started / task_complete), and the backend watcher already fires whenever that file changes —
+// so on each event we re-derive the state of every ACTIVE Codex session and push the edge to the UI.
+//
+// The rollout path isn't known at spawn (Codex names the file with its own UUID), so it is claimed
+// lazily: the newest rollout whose header cwd matches the session's project and that appeared after
+// the session started. One file per session — a claimed file is never handed to a second session.
+const codexRollout = new Map();   // sessionId -> rollout path
+const codexBusy = new Map();      // sessionId -> boolean (last state pushed to the renderer)
+
+function claimCodexRollout(sessionId, session) {
+  const existing = codexRollout.get(sessionId);
+  if (existing && fs.existsSync(existing)) return existing;
+
+  const codex = backends.get('codex');
+  if (!codex || typeof codex.discoverSessions !== 'function') return null;
+  const claimed = new Set(codexRollout.values());
+  const startedAt = (session._openedAt || 0) - 10000; // small grace: the file appears just after spawn
+
+  let best = null;
+  let bestMtime = 0;
+  for (const handle of codex.discoverSessions()) {
+    if (claimed.has(handle.path)) continue;
+    let mtime;
+    try { mtime = fs.statSync(handle.path).mtimeMs; } catch { continue; }
+    if (mtime < startedAt) continue;
+    const row = codex.parseSession(handle);
+    if (!row || !row.cwd) continue;
+    if (path.resolve(row.cwd) !== path.resolve(session.projectPath || '')) continue;
+    if (mtime > bestMtime) { best = handle.path; bestMtime = mtime; }
+  }
+  if (best) codexRollout.set(sessionId, best);
+  return best;
+}
+
+function updateCodexBusyStates() {
+  const codex = backends.get('codex');
+  if (!codex || typeof codex.deriveStateFromFileTail !== 'function') return;
+
+  for (const [sessionId, session] of activeSessions) {
+    if (session.exited || session.isPlainTerminal) continue;
+    const mapped = sessionBackends.get(session.realSessionId || sessionId);
+    if (!mapped || mapped.backendId !== 'codex') continue;
+
+    const rollout = claimCodexRollout(sessionId, session);
+    if (!rollout) continue;
+
+    const state = codex.deriveStateFromFileTail(rollout);
+    if (state == null) continue;
+    const busy = state === 'busy';
+    if (codexBusy.get(sessionId) === busy) continue;   // only push edges, not every event
+    codexBusy.set(sessionId, busy);
+    log.info(`[codex] session=${sessionId} → ${busy ? 'BUSY' : 'IDLE'} (rollout tail)`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('cli-busy-state', session.realSessionId || sessionId, busy);
+    }
+  }
+}
+
 function startBackendWatchers() {
   stopBackendWatchers();
 
@@ -3721,6 +3786,8 @@ function startBackendWatchers() {
         log.warn(`[watch] backend ${id} refresh failed: ${err?.message || err}`);
       }
     }
+    // The rollout that just changed is also the busy/idle signal for a live Codex session (T-4.5).
+    try { updateCodexBusyStates(); } catch (err) { log.warn(`[codex] busy-state update failed: ${err?.message || err}`); }
     if (changed) notifyRendererProjectsChanged();
   }
 

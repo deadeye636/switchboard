@@ -211,3 +211,35 @@ test('deriveState: task_started -> busy, task_complete -> idle', () => {
 test('deriveState: a session with no task event yet is idle', () => {
   assert.strictEqual(codex.deriveState(parser.createParseState()), 'idle');
 });
+
+// The LIVE signal: Codex emits no OSC title, so busy/idle is read from the rollout file's tail.
+
+test('deriveStateFromFileTail: last task event in the file wins', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-tail-'));
+  const f = path.join(dir, 'rollout.jsonl');
+  const line = (t) => JSON.stringify({ type: 'event_msg', payload: { type: t } }) + '\n';
+
+  fs.writeFileSync(f, line('task_started'));
+  assert.strictEqual(codex.deriveStateFromFileTail(f), 'busy');
+
+  fs.appendFileSync(f, line('task_complete'));
+  assert.strictEqual(codex.deriveStateFromFileTail(f), 'idle');
+
+  // a new turn begins -> busy again
+  fs.appendFileSync(f, line('task_started'));
+  assert.strictEqual(codex.deriveStateFromFileTail(f), 'busy');
+});
+
+test('deriveStateFromFileTail: ignores a truncated tail line and unrelated events', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-tail2-'));
+  const f = path.join(dir, 'rollout.jsonl');
+  fs.writeFileSync(f,
+    JSON.stringify({ type: 'event_msg', payload: { type: 'task_started' } }) + '\n' +
+    JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: {} } }) + '\n' +
+    '{"type":"event_msg","payl');   // live append, mid-write
+  assert.strictEqual(codex.deriveStateFromFileTail(f), 'busy', 'token_count is not a task event');
+});
+
+test('deriveStateFromFileTail: an unreadable file returns null (state left untouched)', () => {
+  assert.strictEqual(codex.deriveStateFromFileTail('D:\\nope\\missing.jsonl'), null);
+});
