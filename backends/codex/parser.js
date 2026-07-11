@@ -42,6 +42,7 @@ function createParseState() {
     userMessageCount: 0,
     largestUserPromptWords: 0,
     summary: '',
+    fallbackSummary: '',   // first user message, even if it's injected context (better than nothing)
     textParts: [],
     // last token_count wins (Codex re-emits the running total)
     usageTotals: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
@@ -58,6 +59,18 @@ function countWords(text) {
 }
 
 // Pull the plain text out of a response_item message payload: content[] entries with a .text.
+// Codex's FIRST "user" message is usually not the user's prompt at all: it's injected context —
+// the project's AGENTS.md, an <INSTRUCTIONS>/<environment_context> block. Taking it as the session
+// title puts "# AGENTS.md instructions for D:\..." in the sidebar for every Codex session. Skip
+// those and use the first REAL prompt; if a session only ever has injected turns, fall back to it
+// rather than showing nothing.
+function looksLikeInjectedContext(text) {
+  const head = text.slice(0, 300);
+  if (/<\/?(INSTRUCTIONS|user_instructions|environment_context|system_context)>/i.test(head)) return true;
+  if (/^\s*#.*\b(AGENTS\.md|instructions)\b/i.test(head)) return true;
+  return false;
+}
+
 function messageText(payload) {
   const content = payload && payload.content;
   if (typeof content === 'string') return content;
@@ -102,8 +115,11 @@ function applyEntry(st, entry) {
         st.userMessageCount++;
         const words = countWords(text);
         if (words > st.largestUserPromptWords) st.largestUserPromptWords = words;
-        // First user prompt is the session summary/title source (FTS + sidebar label).
-        if (!st.summary && text) st.summary = text.slice(0, 500);
+        // The session title = the first REAL user prompt, not Codex's injected AGENTS.md context.
+        if (text) {
+          if (!st.fallbackSummary) st.fallbackSummary = text.slice(0, 500);
+          if (!st.summary && !looksLikeInjectedContext(text)) st.summary = text.slice(0, 500);
+        }
       }
       if (text) st.textParts.push(text);
       break;
@@ -182,6 +198,7 @@ function readFrom(filePath, st, startOffset) {
 /** Build the normalised row session-cache consumes (same shape as read-session-file's). */
 function buildRow(st, filePath, opts = {}) {
   if (!st.sessionId || st.messageCount < 1) return null;
+  const summary = st.summary || st.fallbackSummary || '';
   let stat;
   try { stat = fs.statSync(filePath); } catch { return null; }
   const activeMinutes = st.startedAt && st.lastEntryAt
@@ -193,8 +210,8 @@ function buildRow(st, filePath, opts = {}) {
     cwd: st.cwd,                       // the scanner buckets by this via the central derive-project-path
     folder: opts.folder != null ? opts.folder : null,
     projectPath: opts.projectPath != null ? opts.projectPath : null,
-    summary: st.summary,
-    firstPrompt: st.summary,
+    summary,
+    firstPrompt: summary,
     created: st.startedAt || stat.birthtime.toISOString(),
     modified: st.lastEntryAt || stat.mtime.toISOString(),
     messageCount: st.messageCount,

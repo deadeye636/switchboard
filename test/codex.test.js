@@ -51,6 +51,30 @@ test('summary/firstPrompt is the first user prompt (searchable via FTS)', () => 
   assert.match(row.textContent, /token expiry edge case/);
 });
 
+test('the title skips Codex\'s injected AGENTS.md context and uses the real prompt', () => {
+  const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'codex-title-')), 'rollout.jsonl');
+  const line = (o) => JSON.stringify(o) + '\n';
+  fs.writeFileSync(tmp,
+    line({ timestamp: '2026-06-27T10:00:00Z', type: 'session_meta', payload: { id: 'X1', cwd: 'D:\\p', timestamp: '2026-06-27T10:00:00Z' } }) +
+    // Codex injects the project's AGENTS.md as the first "user" message — not a prompt.
+    line({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ text: '# AGENTS.md instructions for D:\\p\n\n<INSTRUCTIONS>do things</INSTRUCTIONS>' }] } }) +
+    line({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ text: 'Fix the failing auth test' }] } })
+  );
+  const row = parser.parseSession({ kind: 'file', path: tmp });
+  assert.strictEqual(row.summary, 'Fix the failing auth test', 'injected context must not become the title');
+});
+
+test('a session with ONLY injected context still gets a title (fallback, not blank)', () => {
+  const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'codex-title2-')), 'rollout.jsonl');
+  const line = (o) => JSON.stringify(o) + '\n';
+  fs.writeFileSync(tmp,
+    line({ timestamp: '2026-06-27T10:00:00Z', type: 'session_meta', payload: { id: 'X2', cwd: 'D:\\p', timestamp: '2026-06-27T10:00:00Z' } }) +
+    line({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ text: '# AGENTS.md instructions for D:\\p' }] } })
+  );
+  const row = parser.parseSession({ kind: 'file', path: tmp });
+  assert.match(row.summary, /AGENTS\.md/, 'falls back rather than showing an empty title');
+});
+
 test('the base_instructions system-prompt blob never reaches textContent', () => {
   const row = parser.parseSession(handle);
   assert.ok(!/HUGE SYSTEM PROMPT BLOB/.test(row.textContent), 'base_instructions must be skipped');

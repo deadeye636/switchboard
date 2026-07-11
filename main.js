@@ -2027,6 +2027,18 @@ ipcMain.handle('get-setting', (_event, key) => {
 
 ipcMain.handle('set-setting', (_event, key, value) => {
   setSetting(key, value);
+  // Enabling/disabling a backend changes which stores must be watched and scanned. Re-arm here so
+  // the change takes effect immediately instead of only after a restart (§5.8: a newly-enabled
+  // `ready` backend must "appear with no code change" — and with no restart either).
+  if (key === 'global') {
+    try {
+      startBackendWatchers();
+      refreshAllBackendSessions();
+      notifyRendererProjectsChanged();
+    } catch (err) {
+      log.warn('[backends] re-arm after settings change failed:', err?.message || err);
+    }
+  }
   return { ok: true };
 });
 
@@ -3669,6 +3681,125 @@ function startProjectsWatcher() {
   }
 }
 
+// --- live watch on the OTHER backends' session stores (T-4.8) ---
+//
+// Scan-generalization (T-4.2) is not watch-generalization. The watcher above is Claude-shaped: it
+// watches PROJECTS_DIR and speaks in folders + per-file refreshes. A backend with its own store needs
+// its own watch, and it operates on STORE-level targets (a dir root, or a db file), not on the
+// per-session handles discovery returns — hence the separate `watchTargets()` hook.
+//
+// Two things bite here:
+//   - Codex's tree is DATE-BUCKETED (sessions/YYYY/MM/DD/). A naive watch on today's directory goes
+//     stale at MIDNIGHT (tomorrow's dir does not exist yet) and misses the dir a fresh session
+//     creates. A recursive watch on the sessions ROOT covers both.
+//   - The root may not exist yet (no session ever run). Watching it would throw, so we retry.
+//
+// A db-kind target (Hermes' state.db, Phase 5) polls the file AND its `-wal` sibling: a plain
+// state.db mtime misses WAL-buffered commits.
+const backendWatchers = [];
+let backendWatcherRetry = null;
+
+function startBackendWatchers() {
+  stopBackendWatchers();
+
+  const DEBOUNCE_MS = 600;
+  const pending = new Set();       // backendIds with unflushed changes
+  let debounceTimer = null;
+  let missingRoot = false;
+
+  function flush() {
+    debounceTimer = null;
+    if (appQuitting) return;
+    const ids = [...pending];
+    pending.clear();
+    let changed = false;
+    for (const id of ids) {
+      try {
+        const res = sessionCache.refreshBackendSessions(id);
+        if (res && (res.upserted || res.deleted)) changed = true;
+      } catch (err) {
+        log.warn(`[watch] backend ${id} refresh failed: ${err?.message || err}`);
+      }
+    }
+    if (changed) notifyRendererProjectsChanged();
+  }
+
+  function schedule(backendId) {
+    pending.add(backendId);
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(flush, DEBOUNCE_MS);
+  }
+
+  for (const backend of backends.launchable()) {
+    // Claude (and every Axis-A profile, which shares Claude's store) is already covered by
+    // startProjectsWatcher above — watching it twice would double every refresh.
+    if (backend.axis !== 'B' || typeof backend.watchTargets !== 'function') continue;
+
+    let targets = [];
+    try { targets = backend.watchTargets() || []; } catch { continue; }
+
+    for (const target of targets) {
+      if (!target || !target.path) continue;
+
+      if (target.kind === 'db') {
+        // Poll the DB and its write-ahead log: a commit can land in the -wal without touching the
+        // main file's mtime, so watching state.db alone would miss live sessions.
+        for (const file of [target.path, target.path + '-wal']) {
+          try {
+            fs.watchFile(file, { interval: 2000, persistent: false }, (cur, prev) => {
+              if (cur.mtimeMs !== prev.mtimeMs || cur.size !== prev.size) schedule(backend.id);
+            });
+            backendWatchers.push({ kind: 'poll', file });
+          } catch { /* best effort */ }
+        }
+        continue;
+      }
+
+      // dir-kind (Codex, later Pi).
+      if (!fs.existsSync(target.path)) {
+        // No session has ever been run for this backend — nothing to watch yet. Re-arm later so the
+        // very first session still shows up live rather than only after a restart.
+        missingRoot = true;
+        continue;
+      }
+      try {
+        const w = fs.watch(target.path, { recursive: target.recursive !== false }, (_evt, filename) => {
+          if (!filename) return;
+          // Only session files matter; ignore the dir churn of the date buckets themselves.
+          if (!String(filename).endsWith('.jsonl')) return;
+          schedule(backend.id);
+        });
+        w.on('error', (err) => log.warn(`[watch] backend ${backend.id} watcher error: ${err?.message || err}`));
+        backendWatchers.push({ kind: 'watch', watcher: w });
+        log.info(`[watch] backend=${backend.id} watching ${target.path}`);
+      } catch (err) {
+        log.warn(`[watch] backend ${backend.id} watch failed: ${err?.message || err}`);
+      }
+    }
+  }
+
+  // A store root that doesn't exist yet (or a backend the user just enabled) — re-arm periodically so
+  // it starts being watched without a restart.
+  if (missingRoot && !backendWatcherRetry) {
+    backendWatcherRetry = setTimeout(() => {
+      backendWatcherRetry = null;
+      if (!appQuitting) startBackendWatchers();
+    }, 60000);
+    if (backendWatcherRetry.unref) backendWatcherRetry.unref();
+  }
+}
+
+function stopBackendWatchers() {
+  for (const entry of backendWatchers) {
+    try {
+      if (entry.kind === 'watch') entry.watcher.close();
+      else if (entry.kind === 'poll') fs.unwatchFile(entry.file);
+    } catch { /* best effort */ }
+  }
+  backendWatchers.length = 0;
+  if (backendWatcherRetry) { clearTimeout(backendWatcherRetry); backendWatcherRetry = null; }
+}
+
 // --- IPC: app version ---
 ipcMain.handle('get-app-version', () => app.getVersion());
 
@@ -3753,6 +3884,9 @@ if (!gotSingleInstanceLock) {
     createWindow();
     createTray();
     startProjectsWatcher();
+    // Watch the other enabled backends' own stores (Codex's rollout tree, later Hermes' state.db)
+    // so their sessions appear live, not just after a restart (T-4.8).
+    startBackendWatchers();
     startAttentionHookServer();
     // Remove IDE lock files left behind by a crashed instance whose PID was
     // reused (the function only unlinks locks matching our own pid).
@@ -3866,11 +4000,12 @@ app.on('before-quit', () => {
     tray = null;
   }
 
-  // Close filesystem watcher
+  // Close filesystem watchers
   if (projectsWatcher) {
     projectsWatcher.close();
     projectsWatcher = null;
   }
+  stopBackendWatchers();
 
   // Kill all PTY processes on quit
   for (const [, session] of activeSessions) {
