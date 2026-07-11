@@ -6,7 +6,7 @@ const { readSubagentMeta } = require('./read-session-file');
  * Fork / plan-accept detection for active PTY sessions.
  * Call init(ctx) once with shared context.
  */
-let PROJECTS_DIR, activeSessions, getMainWindow, log, rekeyMcpServer;
+let PROJECTS_DIR, activeSessions, getMainWindow, log, rekeyMcpServer, rekeySessionBackend;
 
 function init(ctx) {
   PROJECTS_DIR = ctx.PROJECTS_DIR;
@@ -14,6 +14,9 @@ function init(ctx) {
   getMainWindow = ctx.getMainWindow;
   log = ctx.log;
   rekeyMcpServer = ctx.rekeyMcpServer;
+  // Multi-LLM (T-1.4): rekey the backend/profile overlay on temp->real id transition, so a
+  // session's backend follows it across fork/clear. No-op if not injected.
+  rekeySessionBackend = ctx.rekeySessionBackend || (() => {});
 }
 
 // --- Subagent spawn / completion detection ---
@@ -395,6 +398,8 @@ function detectSessionTransitions(folder) {
         activeSessions.set(newId, session);
         // Re-key MCP server to match new session ID
         rekeyMcpServer(sessionId, newId);
+        // Re-key the backend/profile overlay too (T-1.4) so provenance follows the id.
+        rekeySessionBackend(sessionId, newId);
         const mainWindow = getMainWindow();
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('session-forked', sessionId, newId);

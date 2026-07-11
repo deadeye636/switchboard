@@ -15,6 +15,11 @@ const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolveP
 const { fetchAndTransformUsage } = require('./claude-auth');
 const { withMainProcessUsageCache } = require('./usage-cache');
 const { shouldUseSingleInstanceLock } = require('./main-lifecycle');
+// Multi-LLM backend seam (Phase 1): the spawn/env/id-map paths ask a backend instead of
+// assuming Claude. `claude` is the default backend and behaves byte-identically through it.
+const backends = require('./backends');
+const sessionBackends = require('./session-backends');
+const { resolveEnv } = require('./env-refs');
 // Log levels (#121). Raising this from the settings avoids needing a dev build to
 // diagnose a live session. Three tiers, matching electron-log's own ladder:
 //   info  — default. Transitions and lifecycle: busy edges, subagent spawn/complete.
@@ -2743,6 +2748,20 @@ ipcMain.handle('session-tags-all', () => {
   return getAllSessionTags();
 });
 
+// --- IPC: multi-LLM backends (Phase 1, T-1.5). Kebab-case, matching the convention above.
+// Renderer reads the registry + the launch-time overlay; it doesn't act on them yet (Phase 2/3).
+ipcMain.handle('backends-list', () => {
+  // Only JSON-safe descriptor data crosses IPC (hook functions are stripped).
+  return backends.list().map(b => ({
+    id: b.id, label: b.label, tier: b.tier, axis: b.axis, status: b.status,
+    enabled: b.enabled !== undefined ? b.enabled : (b.id === 'claude'),
+    monogram: b.monogram, colour: b.colour, configFields: b.configFields || [],
+  }));
+});
+ipcMain.handle('session-backends-get-all', () => {
+  return sessionBackends.getAll();
+});
+
 // --- IPC: project tags (#98) ---
 ipcMain.handle('project-tags-get', (_event, projectPath) => {
   return getProjectTags(projectPath);
@@ -3048,44 +3067,29 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         }
       }, 300);
     } else {
-      // Build claude command, using array to prevent accidental shell injection
-      const claudeArgs = [];
-      if (sessionOptions?.forkFrom) {
-        claudeArgs.push('--resume', String(sessionOptions.forkFrom), '--fork-session');
-      } else if (isNew) {
-        claudeArgs.push('--session-id', String(sessionId));
-      } else {
-        claudeArgs.push('--resume', String(sessionId));
+      // Route the launch through the backend registry (Phase 1, T-1.2). `claude` is the default
+      // backend and reproduces today's exact argv/command; an Axis-A profile additionally supplies
+      // an env bundle (merged into ptyEnv further down). Claude behaviour is byte-identical — the
+      // arg logic now lives in backends/claude.js buildLaunch.
+      // Resume is backend-bound (§5.11): when resuming/forking WITHOUT an explicit backend choice,
+      // keep the session's recorded backend/profile from the overlay instead of clobbering it with
+      // the `claude` default. In Phase 1 the overlay is empty for pre-existing sessions, so this is
+      // byte-identical (recorded == null -> claude); it forecloses the resume-clobber landmine once
+      // profiles ship (Phase 2/3). A fork inherits the source session's recorded backend too.
+      let recorded = null;
+      if (!sessionOptions?.backendId) {
+        const lookupId = sessionOptions?.forkFrom || (!isNew ? sessionId : null);
+        if (lookupId) recorded = sessionBackends.get(lookupId);
       }
-
-      if (sessionOptions) {
-        if (sessionOptions.dangerouslySkipPermissions) {
-          claudeArgs.push('--dangerously-skip-permissions');
-        } else if (sessionOptions.permissionMode) {
-          claudeArgs.push('--permission-mode', String(sessionOptions.permissionMode));
-        }
-        if (sessionOptions.worktree) {
-          claudeArgs.push('--worktree');
-          if (sessionOptions.worktreeName) {
-            claudeArgs.push(String(sessionOptions.worktreeName));
-          }
-        }
-        if (sessionOptions.chrome) {
-          claudeArgs.push('--chrome');
-        }
-        if (sessionOptions.addDirs) {
-          const dirs = String(sessionOptions.addDirs).split(',').map(d => d.trim()).filter(Boolean);
-          for (const dir of dirs) {
-            claudeArgs.push('--add-dir', dir);
-          }
-        }
-      }
-
-      if (sessionOptions?.appendSystemPrompt) {
-        claudeArgs.push('--append-system-prompt', String(sessionOptions.appendSystemPrompt));
-      }
-
-      let claudeCmd = 'claude ' + quoteArgvForShell(shell, claudeArgs);
+      const backend = backends.get(sessionOptions?.backendId || recorded?.backendId || 'claude') || backends.get('claude');
+      const launch = backend.buildLaunch({
+        cwd: projectPath,
+        resume: !isNew,
+        sessionId,
+        forkFrom: sessionOptions?.forkFrom,
+        options: sessionOptions || {},
+      });
+      let claudeCmd = launch.command + ' ' + quoteArgvForShell(shell, launch.args);
 
       // preLaunchCmd is raw shell by design (e.g. "aws-vault exec profile --") — block newlines only
       if (sessionOptions?.preLaunchCmd) {
@@ -3107,14 +3111,13 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         }
       }
 
+      // Core terminal env comes from the backend layer (single source of truth): iTerm identity so
+      // Claude emits OSC 9, plus the MCP IDE-bridge port when one was started. Byte-identical to the
+      // former inline block; shared with every backend spawn (T-1.2).
       const ptyEnv = {
         ...cleanPtyEnv,
-        TERM: 'xterm-256color', COLORTERM: 'truecolor',
-        TERM_PROGRAM: 'iTerm.app', TERM_PROGRAM_VERSION: '3.6.6', FORCE_COLOR: '3', ITERM_SESSION_ID: '1',
+        ...backends.backendCoreEnv({ mcpPort: mcpServer ? mcpServer.port : undefined }),
       };
-      if (mcpServer) {
-        ptyEnv.CLAUDE_CODE_SSE_PORT = String(mcpServer.port);
-      }
 
       // Per-session AskUserQuestion timeout (#51): cascade session > project >
       // global, empty = inherit. Only inject when a value is actually set so an
@@ -3129,6 +3132,14 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
           log.info(`[afk] session=${sessionId} CLAUDE_AFK_TIMEOUT_MS=${afkMs} (from sec=${sec})`);
         }
       }
+
+      // Axis-A profile env bundle: resolve `$VAR` refs at spawn (never on disk, §5.2) and merge
+      // over the base env — the profile OVERRIDES base. Empty for the Claude default, so this is a
+      // no-op there (byte-identical). Then record the launch-time backend/profile OVERLAY (§5.7):
+      // the scanner later merges it into the authoritative session_cache.backendId.
+      Object.assign(ptyEnv, resolveEnv(launch.env));
+      const effectiveProfileId = sessionOptions?.profileId != null ? sessionOptions.profileId : (recorded?.profileId || null);
+      sessionBackends.record(sessionId, backend.id, effectiveProfileId);
 
       ptyProcess = pty.spawn(shell, ptyShellArgs(shell, claudeCmd, shellExtraArgs), {
         name: 'xterm-256color',
@@ -3456,7 +3467,10 @@ ipcMain.on('close-terminal', (_event, sessionId) => {
 
 // Session transitions → session-transitions.js
 const sessionTransitions = require('./session-transitions');
-sessionTransitions.init({ PROJECTS_DIR, activeSessions, getMainWindow: () => mainWindow, log, rekeyMcpServer });
+sessionTransitions.init({ PROJECTS_DIR, activeSessions, getMainWindow: () => mainWindow, log, rekeyMcpServer, rekeySessionBackend: sessionBackends.rekeySession });
+// Point the Claude backend's file-mode discovery at the app's actual projects dir (may differ from
+// ~/.claude/projects when CLAUDE_DIR is overridden). The scanner adopts discoverSessions() in T-4.2.
+try { require('./backends/claude').setRoots([PROJECTS_DIR]); } catch {}
 const { detectSessionTransitions } = sessionTransitions;
 
 // --- fs.watch on projects directory ---
@@ -3767,6 +3781,10 @@ app.on('before-quit', () => {
 
   // Wipe any secret-ref temp files written for inline secret insertion.
   cleanupSecretRefs();
+
+  // Flush the launch-time backend/profile overlay so a session started just before quit keeps
+  // its provenance across the restart (§5.7).
+  try { sessionBackends.flushNow(); } catch {}
 });
 
 // Close SQLite after all windows are closed to avoid "connection is not open" errors

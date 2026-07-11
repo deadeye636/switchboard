@@ -17,6 +17,13 @@ contextBridge.exposeInMainWorld('api', {
   deleteWorkFile: (filePath) => ipcRenderer.invoke('delete-work-file', filePath),
   getProjects: (showArchived) => ipcRenderer.invoke('get-projects', showArchived),
   rebuildCache: () => ipcRenderer.invoke('rebuild-cache'),
+  // Multi-LLM backends (Phase 1, T-1.5). Renderer caches these in Phase 3; unused for now.
+  backends: {
+    list: () => ipcRenderer.invoke('backends-list'),
+  },
+  sessionBackends: {
+    getAll: () => ipcRenderer.invoke('session-backends-get-all'),
+  },
   getActiveSessions: () => ipcRenderer.invoke('get-active-sessions'),
   getActiveTerminals: () => ipcRenderer.invoke('get-active-terminals'),
   stopSession: (id) => ipcRenderer.invoke('stop-session', id),
