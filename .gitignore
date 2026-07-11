@@ -21,3 +21,6 @@ temp/
 # Claude Code: personal/local config + scratchpad (not shared)
 .claude/settings.local.json
 .claude/scratchpad/
+
+# Local, untracked planning for large efforts (e.g. multi-LLM #142)
+docs/plans/
