@@ -1002,6 +1002,10 @@ module.exports = {
   refreshFile,
   refreshBackendSessions,
   refreshAllBackendSessions,
+  // Exposed so the IPC handlers that delete a folder's rows (remove-project, delete-project-sessions,
+  // delete-worktree) can scope the delete exactly like the scanner does — a project folder key is
+  // shared across backends, so an unscoped delete takes another backend's rows with it.
+  claudeStoreScope,
   resolveRowFilePath,
   flushPendingReindex,
   reconcileCacheFromFilesystem,

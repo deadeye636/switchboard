@@ -690,10 +690,14 @@ ipcMain.handle('remove-project', (_event, projectPath) => {
     }
     setSetting('global', global);
 
-    // Clean up DB cache and search index for this folder
+    // Clean up DB cache and search index for this folder. SCOPED to Claude's store: a project folder
+    // key is derived from the cwd and is therefore shared with the other backends, but this action
+    // only removes Claude's data — another backend's rows must survive (its session files are still
+    // on disk, so an unscoped wipe would only make them reappear on the next scan anyway).
     const folder = encodeProjectPath(projectPath);
-    deleteCachedFolder(folder);
-    deleteSearchFolder(folder);
+    const claudeScope = sessionCache.claudeStoreScope();
+    deleteCachedFolder(folder, claudeScope);
+    deleteSearchFolder(folder, claudeScope);
     deleteSetting('project:' + projectPath);
 
     notifyRendererProjectsChanged();
@@ -1048,8 +1052,10 @@ ipcMain.handle('delete-project-sessions', (_event, projectPath) => {
       const resolved = path.resolve(folderPath);
       if (!resolved.startsWith(path.resolve(PROJECTS_DIR) + path.sep)) continue;
       fs.rmSync(resolved, { recursive: true, force: true });
-      try { deleteCachedFolder(d.name); } catch {}
-      try { deleteSearchFolder(d.name); } catch {}
+      // Scoped: only Claude's transcripts were deleted above. Another backend's rows for this project
+      // must stay — their session files still exist, so wiping the rows would just resurrect them.
+      try { deleteCachedFolder(d.name, sessionCache.claudeStoreScope()); } catch {}
+      try { deleteSearchFolder(d.name, sessionCache.claudeStoreScope()); } catch {}
       removed++;
     }
     pruneProjectIfGone(projectPath);
@@ -1136,11 +1142,13 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
         }
       } catch {}
 
-      // Also clean up folder meta
+      // Also clean up folder meta. Scoped to Claude's store — the worktree removal above only took
+      // Claude's data with it; another backend's rows for that path must not be collateral.
       try {
         const folder = encodeProjectPath(normalizedPath);
-        deleteCachedFolder(folder);
-        deleteSearchFolder(folder);
+        const claudeScope = sessionCache.claudeStoreScope();
+        deleteCachedFolder(folder, claudeScope);
+        deleteSearchFolder(folder, claudeScope);
       } catch {}
 
       log.info(`[delete-worktree] removed=${normalizedPath} sessions=${removed}`);
@@ -3925,7 +3933,6 @@ function claimCodexRollout(sessionId, session) {
     if (birth < bestBirth) { best = handle.path; bestId = row.sessionId; bestBirth = birth; }
   }
   if (best) {
-    codexRollout.set(sessionId, best);
     // Reconcile the two identities. We launched the session under an id WE generated, but Codex names
     // its rollout with an id IT generated (unlike Claude, it has no --session-id). Until those are
     // reconciled the app shows two rows for one session (our pending row + the scanned rollout row),
@@ -3939,7 +3946,6 @@ function claimCodexRollout(sessionId, session) {
       activeSessions.delete(sessionId);
       activeSessions.set(bestId, session);
       sessionBackends.rekeySession(sessionId, bestId);
-      codexRollout.delete(sessionId);
       codexRollout.set(bestId, best);
       const wasBusy = codexBusy.get(sessionId);
       codexBusy.delete(sessionId);
@@ -3947,6 +3953,11 @@ function claimCodexRollout(sessionId, session) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('session-forked', sessionId, bestId);
       }
+    } else {
+      // No rekey needed (or the target id is somehow already live). Record the claim under the id we
+      // have. NOTE: the claim is deliberately NOT recorded before a successful rekey — doing so would
+      // make the early-return at the top of this function skip the rekey forever if it ever failed.
+      codexRollout.set(sessionId, best);
     }
   }
   return best;
