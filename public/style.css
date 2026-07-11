@@ -9321,3 +9321,131 @@ details.settings-adv.backend-env-adv #be-env-add { margin: 4px 16px 14px; }
   border-radius: 4px;
   color: #f0c0c0;
 }
+
+/* ========== TERMINAL TOOLS — Tier-3 custom launchers (T-3.10) ========== */
+
+/* Settings → Terminal → "Terminal tools". Reuses the settings primitives; only the row's
+   pills + command line and the editor modal need styling of their own. */
+.settings-section-title.launcher-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.launcher-row .settings-field-header { gap: 8px; flex-wrap: wrap; }
+.launcher-row .settings-field-control { gap: 6px; }
+
+.launcher-pill {
+  font-size: 10px;
+  line-height: 1.6;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: #7fa6c9;
+  border: 1px solid rgba(127,166,201,0.3);
+  background: rgba(127,166,201,0.1);
+  white-space: nowrap;
+}
+.launcher-pill.mode {
+  color: #6fca8f;
+  border-color: rgba(111,202,143,0.32);
+  background: rgba(111,202,143,0.1);
+}
+.launcher-pill.override {
+  color: #c9a36a;
+  border-color: rgba(201,163,106,0.32);
+  background: rgba(201,163,106,0.1);
+}
+
+.launcher-cmd code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  background: rgba(0,0,0,0.25);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #b0b0c4;
+}
+.launcher-empty { color: #6a6a80; }
+
+/* Launcher editor modal (reuses .new-session-overlay / .new-session-dialog + the env rows). */
+.launcher-editor { width: 620px; max-height: 86vh; overflow-y: auto; }
+.launcher-editor .settings-btn-row { position: static; padding-top: 16px; }
+.launcher-editor .settings-field-wide { display: block; }
+.launcher-editor .settings-field-wide .settings-field-control { margin-top: 10px; }
+details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
+
+/* Launch picker: the Terminal group (plain terminal, external, custom command, saved tools). */
+.popover-group-label {
+  padding: 8px 12px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6a6a80;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  margin-top: 4px;
+}
+/* A saved tool's name can be long — keep the popover from growing sideways (the row stays a flex
+   container; only the label truncates). */
+.popover-option-launcher { max-width: 320px; }
+.popover-option-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ========== STATS — per-backend breakdown + filter bar (T-3.9) ========== */
+
+.backend-breakdown {
+  margin-top: 12px;
+  margin-bottom: 28px;
+  padding-top: 12px;
+}
+.backend-breakdown-head {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.backend-breakdown-head .daily-chart-title { margin-bottom: 0; }
+
+.backend-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.backend-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  color: #9a9ab0;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.backend-filter-pill:hover { border-color: #8088ff; color: #d0d0e8; }
+.backend-filter-pill.active {
+  border-color: #8088ff;
+  background: rgba(128,136,255,0.16);
+  color: #d0d0e8;
+}
+.backend-filter-icon { flex: 0 0 auto; }
+
+.backend-breakdown-grid { margin-top: 12px; }
+.backend-stat-card { gap: 6px; }
+.backend-stat-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b0b0c4;
+}
+.backend-breakdown-empty {
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: #6a6a80;
+}

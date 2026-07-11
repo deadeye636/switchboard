@@ -121,6 +121,9 @@ contextBridge.exposeInMainWorld('api', {
   openPath: (filePath) => ipcRenderer.invoke('open-path', filePath),
   openInEditor: (filePath) => ipcRenderer.invoke('open-in-editor', filePath),
   openExternalTerminal: (cwdPath) => ipcRenderer.invoke('open-external-terminal', cwdPath),
+  // Tier-3 custom launcher, runMode:'external' (T-3.10): launch-and-forget in an OS window.
+  // The 'in-app' mode needs no binding of its own — it rides on openTerminal's sessionOptions.
+  runCustomLauncher: (launcher, projectPath) => ipcRenderer.invoke('run-custom-launcher', { launcher, projectPath }),
   writeClipboard: (text) => ipcRenderer.invoke('clipboard-write-text', text),
   readClipboard: () => ipcRenderer.invoke('read-clipboard'),
   saveClipboardImage: () => ipcRenderer.invoke('save-clipboard-image'),

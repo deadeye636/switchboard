@@ -21,6 +21,9 @@ const backends = require('./backends');
 const sessionBackends = require('./session-backends');
 const profiles = require('./profiles');
 const { resolveEnv } = require('./env-refs');
+// Tier-3 custom launchers (T-3.10): the entry shape + cascade live in one module shared with the
+// renderer; main only re-validates what the renderer hands it before spawning.
+const { normalizeLauncher } = require('./public/custom-launchers');
 // Log levels (#121). Raising this from the settings avoids needing a dev build to
 // diagnose a live session. Three tiers, matching electron-log's own ladder:
 //   info  — default. Transitions and lifecycle: busy edges, subagent spawn/complete.
@@ -116,7 +119,7 @@ const {
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
-  isCachePopulated, getAllCached, getCachedByFolder, getCachedByBackend, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
+  isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
@@ -606,10 +609,8 @@ sessionCache.init({
   log,
   // NOTE: this db object is an explicit allow-list — a function session-cache.js reads via ctx.db.*
   // but that is missing here is `undefined` at runtime (see test/main-ctx-db-wiring.test.js).
-  // getCachedByBackend (multi-LLM, T-4.2) scopes cached rows by backend, so refreshing one backend's
-  // sessions can never delete another backend's rows in the same project folder.
   db: {
-    deleteCachedFolder, getCachedByFolder, getCachedByBackend, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics,
+    deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics,
     deleteSearchFolder, deleteSearchSession, upsertSearchEntries,
     setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
     getFavoritedProjects, getProjectDisplayNames, getAutoHiddenProjects,
@@ -1252,6 +1253,90 @@ ipcMain.handle('open-external-terminal', (_event, cwdPath) => {
   } catch (e) {
     log.warn('[open-external-terminal]', e?.message || String(e));
     return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+// --- Tier-3 custom launchers (T-3.10) + the ad-hoc custom command (T-3.5) ---
+//
+// A launcher is the user's OWN command line, run the way they would type it — not an execFile with
+// a fixed argv. So it runs in the Terminal bucket's shell (`terminalShellProfile`, T-3.7) and a
+// pipeline / redirect / `&&` works. Tier 3 = launch-only: no backend id, no session file, no badge
+// (00 §2) — the scanner never learns it exists.
+
+/** The one-line command the shell will run: the raw command plus any argv tokens, quoted for THAT shell. */
+function composeLauncherCommand(shellPath, launcher) {
+  const command = String((launcher && launcher.command) || '').replace(/[\r\n]+/g, ' ').trim();
+  if (!command) return '';
+  const args = (launcher && Array.isArray(launcher.args)) ? launcher.args.filter(a => a != null && a !== '') : [];
+  return args.length ? command + ' ' + quoteArgvForShell(shellPath, args) : command;
+}
+
+/** `cwd` defaults to the launching project — a launch is always in a project, so the folder is known. */
+function resolveLauncherCwd(launcher, projectPath) {
+  const raw = launcher && typeof launcher.cwd === 'string' ? launcher.cwd.trim() : '';
+  if (raw) {
+    try {
+      const resolved = path.resolve(raw);
+      if (fs.existsSync(resolved)) return resolved;
+      log.warn(`[launcher] cwd not found, falling back to the project: ${resolved}`);
+    } catch { /* fall through to the project */ }
+  }
+  return projectPath;
+}
+
+/** Shell args that RUN the command and leave the external window open so its output stays readable. */
+function externalCommandArgs(shellPath, cmd) {
+  const base = path.basename(shellPath || '').toLowerCase();
+  if (isWslShell(shellPath)) return ['--', 'bash', '-l', '-i', '-c', `${cmd}; exec bash -i`];
+  if (base.includes('powershell') || base.includes('pwsh')) return ['-NoLogo', '-NoExit', '-Command', cmd];
+  if (base === 'cmd.exe' || base === 'cmd') return ['/K', cmd];
+  const shellName = base || 'bash';
+  return ['-l', '-i', '-c', `${cmd}; exec ${shellName} -i`];
+}
+
+// --- IPC: run-custom-launcher (runMode:'external') ---
+// Launch-and-forget in an OS window; the app does not monitor it. `env` values are `$VAR` refs
+// resolved HERE, at spawn (resolveEnv drops an unresolved one — a secret is never on disk, §5.2).
+//
+// Windows note: this deliberately does NOT go through `wt.exe` like the plain External Terminal.
+// Windows Terminal re-parses its command line and treats a bare `;` as a pane separator, which
+// would silently split a perfectly normal PowerShell command in half. A detached spawn of the shell
+// gets its own console window (node's `detached` on Windows) with no such re-parsing.
+ipcMain.handle('run-custom-launcher', (_event, payload) => {
+  const launcher = normalizeLauncher((payload && payload.launcher) || null);
+  if (!launcher) return { ok: false, error: 'invalid launcher' };
+
+  const projectPath = payload && typeof payload.projectPath === 'string' ? payload.projectPath : '';
+  if (!projectPath || !fs.existsSync(projectPath)) return { ok: false, error: 'project directory not found' };
+
+  const cwd = resolveLauncherCwd(launcher, projectPath);
+  let shellPath;
+  try {
+    shellPath = resolveShell(resolveTerminalShellProfileId(projectPath)).path;
+  } catch {
+    shellPath = process.env.COMSPEC || '/bin/sh';
+  }
+
+  const cmd = composeLauncherCommand(shellPath, launcher);
+  if (!cmd) return { ok: false, error: 'empty command' };
+  const env = { ...process.env, ...resolveEnv(launcher.env) };
+
+  try {
+    const { spawn } = require('child_process');
+    const child = spawn(shellPath, externalCommandArgs(shellPath, cmd), {
+      cwd,
+      env,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+    });
+    child.on('error', (err) => log.warn(`[launcher] external launch failed: ${err.message}`));
+    child.unref();
+    log.info(`[launcher] external "${launcher.name}" shell=${path.basename(shellPath)} cwd=${cwd}`);
+    return { ok: true };
+  } catch (err) {
+    log.warn('[launcher] external launch failed:', err?.message || String(err));
+    return { ok: false, error: String(err?.message || err) };
   }
 });
 
@@ -2273,6 +2358,35 @@ function resolveShellTypeForProject(projectPath) {
   return classifyShellType(resolveShell(effectiveSettings(projectPath).shellProfile).path);
 }
 
+// Resolve a bare command name to a directly-executable binary, for backends that ask for argv-mode
+// spawn (00 §4). Returns null when it can't be executed directly — notably a `.cmd`/`.bat` npm shim
+// on Windows, which CreateProcess (and therefore node-pty's argv spawn) cannot run. The caller then
+// falls back to the shell path, which resolves shims fine.
+function resolveArgvExecutable(command) {
+  if (!command) return null;
+  const directlyExecutable = (p) => !isWindows || /\.(exe|com)$/i.test(p);
+
+  if (path.isAbsolute(command)) {
+    try { if (fs.statSync(command).isFile() && directlyExecutable(command)) return command; } catch {}
+    return null;
+  }
+  // POSIX: let execvp resolve it via PATH.
+  if (!isWindows) return command;
+
+  const exts = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map(e => e.trim()).filter(Boolean);
+  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
+    for (const ext of exts) {
+      const candidate = path.join(dir, command + ext);
+      try {
+        if (fs.statSync(candidate).isFile()) {
+          return directlyExecutable(candidate) ? candidate : null; // a shim -> use the shell instead
+        }
+      } catch { /* keep looking */ }
+    }
+  }
+  return null;
+}
+
 // The TERMINAL bucket's shell (T-3.7): the in-app plain terminal + the External Terminal action.
 // `terminalShellProfile` defaults to 'inherit', which falls back to the CLI shell (`shellProfile`),
 // so the split is a no-op until the user picks a different terminal shell. Both keys cascade
@@ -3052,6 +3166,12 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
 
   const isPlainTerminal = sessionOptions?.type === 'terminal';
 
+  // T-3.10 / T-3.5: a Tier-3 custom launcher (and the ad-hoc "Custom command…") rides on the plain
+  // terminal path — the same MONITORED PTY tab, with the user's command typed into the shell once
+  // it is up. It stays a terminal session: no backendId, no session file, nothing for the scanner.
+  const launcher = isPlainTerminal ? normalizeLauncher(sessionOptions?.launcher) : null;
+  const spawnCwd = resolveLauncherCwd(launcher, projectPath);
+
   // Resolve shell profile from effective settings.
   // T-3.7 — the shell is split by INTENT: `shellProfile` is the CLI shell (Claude and every backend
   // spawn), `terminalShellProfile` is the Terminal bucket (the in-app plain terminal + the External
@@ -3073,7 +3193,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
   // For WSL, convert Windows path to /mnt/ path and pass via --cd;
   // the spawn cwd must remain a valid Windows path for wsl.exe itself.
   if (isWsl) {
-    const wslCwd = windowsToWslPath(projectPath);
+    const wslCwd = windowsToWslPath(spawnCwd);
     shellExtraArgs.unshift('--cd', wslCwd);
   }
   log.info(`[shell] profile=${shellProfile.id} shell=${shell} args=${JSON.stringify(shellExtraArgs)}`);
@@ -3139,11 +3259,15 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       // for PowerShell/cmd, so don't set them there.
       if (isBashLike) { env.ENV = bashShim; env.BASH_ENV = bashShim; }
 
+      // A custom launcher's env: `$VAR` refs resolved at spawn (an unresolved one is dropped —
+      // never a literal secret on disk, §5.2). It must be in place BEFORE the shell starts.
+      if (launcher && launcher.env) Object.assign(env, resolveEnv(launcher.env));
+
       ptyProcess = pty.spawn(shell, ptyShellArgs(shell, undefined, shellExtraArgs), {
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
-        cwd: isWsl ? os.homedir() : projectPath,
+        cwd: isWsl ? os.homedir() : spawnCwd,
         env,
         useConptyDll,
       });
@@ -3165,6 +3289,19 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
           } catch {}
         }
       }, 300);
+
+      // Type the launcher's command into the shell, after the init line above has been consumed.
+      // Written into the PTY (not passed as `-c`/`/C` argv) so the interactive shell SURVIVES the
+      // command: the tab keeps its output and stays usable, exactly as if the user had typed it.
+      const launcherCmd = launcher ? composeLauncherCommand(shell, launcher) : '';
+      if (launcherCmd) {
+        log.info(`[launcher] in-app "${launcher.name}" session=${sessionId} cwd=${spawnCwd}`);
+        setTimeout(() => {
+          if (!ptyProcess._isDisposed) {
+            try { ptyProcess.write(launcherCmd + '\r'); } catch {}
+          }
+        }, 600);
+      }
     } else {
       // Route the launch through the backend registry (Phase 1, T-1.2). `claude` is the default
       // backend and reproduces today's exact argv/command; an Axis-A profile additionally supplies
@@ -3197,20 +3334,43 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         forkFrom: sessionOptions?.forkFrom,
         options: sessionOptions || {},
       });
-      let claudeCmd = launch.command + ' ' + quoteArgvForShell(shell, launch.args);
+      // How this backend wants to be spawned (00 §4). Claude runs as a shell-quoted command string
+      // (today's path). An Axis-B binary may ask for ARGV mode instead: Codex is happiest with clean
+      // execFile-style argv, and Windows shell quoting mangles it.
+      //
+      // Windows caveat: argv mode spawns through CreateProcess, which can only execute a real binary.
+      // A CLI installed via npm is usually a `.cmd` shim on PATH (that is what `codex` resolves to),
+      // and CreateProcess cannot run one. So argv mode is honoured only when the command resolves to
+      // an actual executable; otherwise we fall back to the shell path, which resolves the shim fine.
+      const argvExe = launch.spawnMode === 'argv' ? resolveArgvExecutable(launch.command) : null;
+      const useArgvSpawn = !!argvExe;
+      if (launch.spawnMode === 'argv' && !useArgvSpawn) {
+        log.info(`[spawn] backend=${backend.id} wanted argv mode but '${launch.command}' is not a directly-executable binary here — using the shell path`);
+      }
 
-      // preLaunchCmd is raw shell by design (e.g. "aws-vault exec profile --") — block newlines only
-      if (sessionOptions?.preLaunchCmd) {
-        const pre = String(sessionOptions.preLaunchCmd);
-        if (/[\r\n]/.test(pre)) {
-          return { ok: false, error: 'preLaunchCmd must not contain newlines' };
+      // The MCP IDE bridge and preLaunchCmd are CLAUDE-CLI concerns: `--ide` is a claude flag and
+      // preLaunchCmd is documented as prefixing the claude command. Appending them to another binary
+      // would hand Codex a flag it doesn't know. Gate them on the claude binary (Claude + Axis-A
+      // profiles, which run the same executable).
+      const isClaudeBinary = launch.command === 'claude';
+
+      let claudeCmd = null;
+      if (!useArgvSpawn) {
+        claudeCmd = launch.command + ' ' + quoteArgvForShell(shell, launch.args);
+
+        // preLaunchCmd is raw shell by design (e.g. "aws-vault exec profile --") — block newlines only
+        if (isClaudeBinary && sessionOptions?.preLaunchCmd) {
+          const pre = String(sessionOptions.preLaunchCmd);
+          if (/[\r\n]/.test(pre)) {
+            return { ok: false, error: 'preLaunchCmd must not contain newlines' };
+          }
+          claudeCmd = pre + ' ' + claudeCmd;
         }
-        claudeCmd = pre + ' ' + claudeCmd;
       }
 
       // Start MCP server for this session so Claude CLI sends diffs/file opens to Switchboard
       // (skip if user disabled IDE emulation in global settings)
-      if (sessionOptions?.mcpEmulation !== false) {
+      if (isClaudeBinary && sessionOptions?.mcpEmulation !== false) {
         try {
           mcpServer = await startMcpServer(sessionId, [projectPath], mainWindow, log);
           claudeCmd += ' --ide';
@@ -3249,7 +3409,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       const effectiveProfileId = sessionOptions?.profileId != null ? sessionOptions.profileId : (recorded?.profileId || null);
       sessionBackends.record(sessionId, backend.id, effectiveProfileId);
 
-      ptyProcess = pty.spawn(shell, ptyShellArgs(shell, claudeCmd, shellExtraArgs), {
+      const ptyOpts = {
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
@@ -3259,7 +3419,16 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         // app's minimal Electron environment won't trigger those sequences.
         env: ptyEnv,
         useConptyDll,
-      });
+      };
+
+      if (useArgvSpawn) {
+        // ARGV mode: spawn the binary directly, no shell in between, so nothing re-interprets the
+        // arguments. Codex asks for this because Windows shell quoting mangles its argv.
+        log.info(`[spawn] backend=${backend.id} mode=argv cmd=${argvExe} args=${JSON.stringify(launch.args)}`);
+        ptyProcess = pty.spawn(argvExe, launch.args, ptyOpts);
+      } else {
+        ptyProcess = pty.spawn(shell, ptyShellArgs(shell, claudeCmd, shellExtraArgs), ptyOpts);
+      }
 
     }
   } catch (err) {
@@ -3621,10 +3790,14 @@ function startProjectsWatcher() {
 
     // Per-file refreshes (perf #1): update just the changed transcript(s) instead
     // of re-scanning the whole folder on every append.
+    // NOTE on the vanished-folder branches below: they must NOT call the raw db deleteCachedFolder.
+    // A project folder key is shared across backends (same cwd -> same project), so an unscoped wipe
+    // would also delete the Codex rows for that project even though nothing happened to Codex's own
+    // store. refreshFolder() detects the missing folder and does a Claude-SCOPED delete instead.
     for (const [folder, relSet] of files) {
       if (folders.has(folder)) continue; // a full folder refresh below covers it
       const folderPath = path.join(PROJECTS_DIR, folder);
-      if (!fs.existsSync(folderPath)) { deleteCachedFolder(folder); changed = true; continue; }
+      if (!fs.existsSync(folderPath)) { refreshFolder(folder); changed = true; continue; }
       detectSessionTransitions(folder);
       for (const rel of relSet) refreshFile(folder, rel);
       changed = true;
@@ -3633,12 +3806,8 @@ function startProjectsWatcher() {
     // Folder-level events (top-level add/remove) → full folder refresh.
     for (const folder of folders) {
       const folderPath = path.join(PROJECTS_DIR, folder);
-      if (fs.existsSync(folderPath)) {
-        detectSessionTransitions(folder);
-        refreshFolder(folder);
-      } else {
-        deleteCachedFolder(folder);
-      }
+      if (fs.existsSync(folderPath)) detectSessionTransitions(folder);
+      refreshFolder(folder); // handles both: refresh when present, scoped delete when gone
       changed = true;
     }
 
@@ -3724,17 +3893,23 @@ function claimCodexRollout(sessionId, session) {
   const claimed = new Set(codexRollout.values());
   const startedAt = (session._openedAt || 0) - 10000; // small grace: the file appears just after spawn
 
+  // Correlate by CREATION time, not by "most recently touched". Codex writes the rollout header at
+  // startup, so the file's birth time is what lines up with the session's spawn. Picking the newest
+  // mtime instead would let an already-working session's file (freshly appended) be stolen by an
+  // older session whose own file is still just a header. Sessions are iterated in launch order, so
+  // taking the EARLIEST unclaimed candidate pairs them up in order.
   let best = null;
-  let bestMtime = 0;
+  let bestBirth = Infinity;
   for (const handle of codex.discoverSessions()) {
     if (claimed.has(handle.path)) continue;
-    let mtime;
-    try { mtime = fs.statSync(handle.path).mtimeMs; } catch { continue; }
-    if (mtime < startedAt) continue;
+    let st;
+    try { st = fs.statSync(handle.path); } catch { continue; }
+    const birth = st.birthtimeMs || st.mtimeMs;
+    if (birth < startedAt) continue;         // predates this session -> not ours
     const row = codex.parseSession(handle);
     if (!row || !row.cwd) continue;
     if (path.resolve(row.cwd) !== path.resolve(session.projectPath || '')) continue;
-    if (mtime > bestMtime) { best = handle.path; bestMtime = mtime; }
+    if (birth < bestBirth) { best = handle.path; bestBirth = birth; }
   }
   if (best) codexRollout.set(sessionId, best);
   return best;

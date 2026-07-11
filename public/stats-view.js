@@ -1,8 +1,15 @@
 // --- Stats view ---
-// Depends on globals: escapeHtml (utils.js), statsViewerBody (app.js)
+// Depends on globals: escapeHtml (utils.js), statsViewerBody + cachedAllProjects (app.js),
+//   backend-registry.js (refreshBackendCaches / launchableBackends / getBackend / sessionBackendId),
+//   backend-icons.js (renderBackendIcon)
 
 let cachedUsage = null;
 let loadStatsGen = 0;
+
+// T-3.9 — the backend filter of the Stats view. 'all' or a backendId. Stats ONLY: Plans and
+// Memory are Claude-only artifacts (~/.claude/plans, CLAUDE.md), so a pill per backend would
+// render empty there and read as a bug.
+let statsBackendFilter = 'all';
 
 // Local YYYY-MM-DD. NOT toISOString().slice(0,10): that formats a local-midnight
 // Date as UTC, so in TZ+n the day axis lands one calendar day off from where the
@@ -17,6 +24,11 @@ function localDateKey(d) {
 async function loadStats() {
   const myGen = ++loadStatsGen;
   statsViewerBody.innerHTML = '';
+
+  // The breakdown below resolves each session's backend from the registry caches.
+  if (typeof window.refreshBackendCaches === 'function') {
+    try { await window.refreshBackendCaches(); } catch {}
+  }
 
   // Show spinner while fetching usage via PTY
   const spinner = document.createElement('div');
@@ -65,6 +77,9 @@ async function loadStats() {
     buildDailyBarChart(stats);
     buildStatsSummary(stats, dailyMap);
   }
+
+  // Per-backend breakdown + its filter bar (T-3.9).
+  buildBackendBreakdown();
 
   // Build usage section below charts (from /usage output)
   if (Object.keys(usage).length) {
@@ -185,6 +200,175 @@ function buildUsageSection(usage) {
   // Insert before the stats notice footer if it exists, otherwise append
   const statsNotice = statsViewerBody.querySelector('.stats-notice');
   if (statsNotice) statsViewerBody.insertBefore(container, statsNotice);
+  else statsViewerBody.appendChild(container);
+}
+
+// --- Per-backend breakdown + filter bar (T-3.9) ---------------------------------------------
+//
+// Sourced from the cached session rows the sidebar already holds: each carries the AUTHORITATIVE
+// `backendId` written by the scanner (§5.7), plus its message/token counters. The DB stats
+// aggregates above (heatmap, daily bars, per-model tokens) have no backend dimension — they are
+// whole-corpus figures — so the filter scopes THIS breakdown, which is the part that has one.
+
+/** {backendId: {sessions, messages, inputTokens, outputTokens, cacheTokens}} over all cached rows. */
+function collectBackendUsage() {
+  const projects = (typeof cachedAllProjects !== 'undefined' && cachedAllProjects.length)
+    ? cachedAllProjects
+    : (typeof cachedProjects !== 'undefined' ? cachedProjects : []);
+
+  const byBackend = new Map();
+  for (const project of projects || []) {
+    for (const session of project.sessions || []) {
+      // A Tier-3 terminal tab is not a backend session at all: it has no transcript and no
+      // provenance, so it must not be counted (or invented as "Claude") here.
+      if (session.type === 'terminal') continue;
+      const id = typeof sessionBackendId === 'function' ? sessionBackendId(session) : 'claude';
+      let acc = byBackend.get(id);
+      if (!acc) {
+        acc = { sessions: 0, messages: 0, inputTokens: 0, outputTokens: 0, cacheTokens: 0 };
+        byBackend.set(id, acc);
+      }
+      // Subagents ride with their parent — they'd inflate the session count (same rule as the
+      // DB's getTotalCounts) but their messages and tokens are real work, so those do count.
+      if (!session.parentSessionId) acc.sessions++;
+      acc.messages += session.messageCount || 0;
+      acc.inputTokens += session.inputTokens || 0;
+      acc.outputTokens += session.outputTokens || 0;
+      acc.cacheTokens += (session.cacheCreationTokens || 0) + (session.cacheReadTokens || 0);
+    }
+  }
+  return byBackend;
+}
+
+function backendLabelOf(id) {
+  const b = typeof getBackend === 'function' ? getBackend(id) : null;
+  return (b && b.label) || id;
+}
+
+function buildBackendBreakdown() {
+  const existing = statsViewerBody.querySelector('.backend-breakdown');
+  if (existing) existing.remove();
+
+  const usage = collectBackendUsage();
+  if (!usage.size) return; // nothing indexed yet — an empty filter bar would just be noise
+
+  // Pills: All + every `ready && enabled` backend (§5.8). A backend that was disabled AFTER it
+  // produced sessions keeps its card under "All" (disable ≠ erase history) but gets no pill.
+  const launchable = typeof launchableBackends === 'function' ? launchableBackends() : [];
+  const pills = [{ id: 'all', label: 'All' }].concat(
+    launchable
+      .slice()
+      .sort((a, b) => (a.id === 'claude' ? -1 : b.id === 'claude' ? 1 : String(a.label).localeCompare(String(b.label))))
+      .map(b => ({ id: b.id, label: b.label, icon: b.icon || b.colour || b.id, monogram: b.monogram }))
+  );
+  if (!pills.some(p => p.id === statsBackendFilter)) statsBackendFilter = 'all';
+
+  const container = document.createElement('div');
+  container.className = 'backend-breakdown';
+
+  const titleRow = document.createElement('div');
+  titleRow.className = 'usage-title-row backend-breakdown-head';
+  const title = document.createElement('div');
+  title.className = 'daily-chart-title';
+  title.textContent = 'By backend';
+  titleRow.appendChild(title);
+
+  const bar = document.createElement('div');
+  bar.className = 'backend-filter-bar';
+  bar.setAttribute('role', 'group');
+  bar.setAttribute('aria-label', 'Filter stats by backend');
+  for (const pill of pills) {
+    const btn = document.createElement('button');
+    btn.className = 'backend-filter-pill' + (pill.id === statsBackendFilter ? ' active' : '');
+    btn.dataset.backend = pill.id;
+    btn.setAttribute('aria-pressed', pill.id === statsBackendFilter ? 'true' : 'false');
+    if (pill.icon && typeof renderBackendIcon === 'function') {
+      const icon = renderBackendIcon(pill.icon, 14, { monogram: pill.monogram });
+      icon.classList.add('backend-filter-icon');
+      btn.appendChild(icon);
+    }
+    btn.append(pill.label);
+    btn.onclick = () => {
+      statsBackendFilter = pill.id;
+      buildBackendBreakdown(); // re-render in place; the charts above are whole-corpus and stay put
+    };
+    bar.appendChild(btn);
+  }
+  titleRow.appendChild(bar);
+  container.appendChild(titleRow);
+
+  const fmtNum = (n) => {
+    n = n || 0;
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return n.toLocaleString();
+  };
+
+  const grid = document.createElement('div');
+  grid.className = 'stats-summary backend-breakdown-grid';
+
+  const entries = Array.from(usage.entries())
+    .filter(([id]) => statsBackendFilter === 'all' || id === statsBackendFilter)
+    .sort((a, b) => b[1].messages - a[1].messages);
+
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'backend-breakdown-empty';
+    empty.textContent = `No sessions on ${backendLabelOf(statsBackendFilter)} yet.`;
+    container.appendChild(empty);
+  } else if (statsBackendFilter === 'all') {
+    // One card per backend: the comparison view.
+    for (const [id, acc] of entries) {
+      const card = document.createElement('div');
+      card.className = 'stat-card backend-stat-card';
+      const head = document.createElement('div');
+      head.className = 'backend-stat-head';
+      const b = typeof getBackend === 'function' ? getBackend(id) : null;
+      if (typeof renderBackendIcon === 'function') {
+        head.appendChild(renderBackendIcon((b && (b.icon || b.colour)) || id, 16, { monogram: b && b.monogram }));
+      }
+      const name = document.createElement('span');
+      name.textContent = backendLabelOf(id);
+      head.appendChild(name);
+      card.appendChild(head);
+
+      const value = document.createElement('span');
+      value.className = 'stat-card-value';
+      value.textContent = acc.sessions.toLocaleString();
+      card.appendChild(value);
+
+      const label = document.createElement('span');
+      label.className = 'stat-card-label';
+      label.textContent = `sessions · ${fmtNum(acc.messages)} msgs · ${fmtNum(acc.inputTokens + acc.outputTokens)} tokens`;
+      card.appendChild(label);
+      grid.appendChild(card);
+    }
+    container.appendChild(grid);
+  } else {
+    // One backend selected: its own numbers, broken out.
+    const acc = entries[0][1];
+    const cards = [
+      { value: acc.sessions.toLocaleString(), label: 'Sessions' },
+      { value: acc.messages.toLocaleString(), label: 'Messages' },
+      { value: fmtNum(acc.inputTokens), label: 'Input Tokens' },
+      { value: fmtNum(acc.outputTokens), label: 'Output Tokens' },
+      { value: fmtNum(acc.cacheTokens), label: 'Cache Tokens' },
+    ];
+    for (const card of cards) {
+      const el = document.createElement('div');
+      el.className = 'stat-card';
+      el.innerHTML = `<span class="stat-card-value">${escapeHtml(card.value)}</span><span class="stat-card-label">${escapeHtml(card.label)}</span>`;
+      grid.appendChild(el);
+    }
+    container.appendChild(grid);
+  }
+
+  // Sits above the rate-limit panel and the footer notice, below the charts.
+  const usageContainer = statsViewerBody.querySelector('.usage-container');
+  const notice = statsViewerBody.querySelector('.stats-notice');
+  const anchor = usageContainer || notice;
+  if (anchor) statsViewerBody.insertBefore(container, anchor);
   else statsViewerBody.appendChild(container);
 }
 

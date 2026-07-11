@@ -704,6 +704,9 @@
           </div>
         </div>
 
+        <!-- Terminal tools (T-3.10) — the project's own custom launchers, on top of the global ones. -->
+        <div id="sv-launchers-root"></div>
+
         <!-- Per-backend launch defaults (T-2.6) — rendered from each backend's configFields. -->
         <div id="sv-backends-root"></div>
         ${btnRow}
@@ -1033,6 +1036,10 @@
                   </div>
                 </div>
               </div>
+
+              <!-- Terminal tools (T-3.10): the user-managed list of custom launchers. Under
+                   Terminal, not Sessions & CLI — this is where users look for terminal things. -->
+              <div id="sv-launchers-root"></div>
 
               <details class="settings-adv">
                 <summary>${advChev}Advanced</summary>
@@ -1639,6 +1646,18 @@
       });
     }
 
+    // Terminal tools (T-3.10) — the custom-launcher list of THIS scope. The panel owns its DOM and
+    // hands the edited list back at save time (launchersPanel.read).
+    const launchersRoot = settingsViewerBody.querySelector('#sv-launchers-root');
+    if (launchersRoot && window.launchersPanel) {
+      window.launchersPanel.mount(launchersRoot, {
+        isProject,
+        settings: current,
+        globalSettings: isProject ? globalSettings : current,
+        useGlobalCheckbox,
+      });
+    }
+
     // Use-global checkboxes toggle field disabled state
     settingsViewerBody.querySelectorAll('.use-global-cb').forEach(cb => {
       cb.addEventListener('change', () => {
@@ -1933,6 +1952,12 @@
               backendDefaults: () => (window.backendsPanel
                 ? window.backendsPanel.readProjectDefaults(settingsViewerBody.querySelector('#sv-backends-root'))
                 : {}),
+              // Custom launchers (T-3.10): the project stores only its OWN entries. The effective
+              // list a launch menu shows is global ⊕ project (project wins by id) — merged at read
+              // time in custom-launchers.js, NOT here, so the global list stays a live template.
+              customLaunchers: () => (window.launchersPanel
+                ? (window.launchersPanel.read(settingsViewerBody.querySelector('#sv-launchers-root')) || [])
+                : []),
             };
             if (fieldMap[field]) settings[field] = fieldMap[field]();
           }
@@ -2044,6 +2069,14 @@
             settings.defaultLaunchTarget = bs.defaultLaunchTarget;
             settings.backendDefaults = bs.backendDefaults;
           }
+        }
+        // Terminal tools (T-3.10): the GLOBAL launcher list — the template every project inherits.
+        // Null when the panel never mounted → leave the stored list alone.
+        {
+          const ls = window.launchersPanel
+            ? window.launchersPanel.read(settingsViewerBody.querySelector('#sv-launchers-root'))
+            : null;
+          if (ls) settings.customLaunchers = ls;
         }
         // Build only the form-managed keys here; these sub-objects are re-based on
         // the freshly-read global below so a second settings window's changes since

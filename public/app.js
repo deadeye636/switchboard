@@ -1239,7 +1239,13 @@ function refreshSidebar({ resort = false } = {}) {
   // badges at all — the app looks exactly as it did before multi-LLM.
   if (typeof computeShowAllBadges === 'function') {
     const all = [];
-    for (const p of (cachedAllProjects || [])) for (const s of (p.sessions || [])) all.push(s);
+    // A terminal tab (plain Terminal, or a Tier-3 custom launcher, T-3.10) is NOT a backend
+    // session: it has no provenance, so sessionBackendId would read it as Claude and a single
+    // terminal tab could flip a Codex-only user into mixed mode. The sidebar skips it for the
+    // badge too — keep the counting side in step.
+    for (const p of (cachedAllProjects || [])) {
+      for (const s of (p.sessions || [])) if (s.type !== 'terminal') all.push(s);
+    }
     computeShowAllBadges(all);
   }
 

@@ -7,6 +7,11 @@
 // Claude's brand mark, used for its row in the launch picker (other backends render a monogram badge).
 const CLAUDE_POPOVER_ICON = '<svg class="popover-option-icon claude-icon" width="16" height="16" viewBox="0 0 1200 1200" fill="#d97757" stroke="none"><path d="M 233.959793 800.214905 L 468.644287 668.536987 L 472.590637 657.100647 L 468.644287 650.738403 L 457.208069 650.738403 L 417.986633 648.322144 L 283.892639 644.69812 L 167.597321 639.865845 L 54.926208 633.825623 L 26.577238 627.785339 L 3.3e-05 592.751709 L 2.73832 575.27533 L 26.577238 559.248352 L 60.724873 562.228149 L 136.187973 567.382629 L 249.422867 575.194763 L 331.570496 580.026978 L 453.261841 592.671082 L 472.590637 592.671082 L 475.328857 584.859009 L 468.724915 580.026978 L 463.570557 575.194763 L 346.389313 495.785217 L 219.543671 411.865906 L 153.100723 363.543762 L 117.181267 339.060425 L 99.060455 316.107361 L 91.248367 266.01355 L 123.865784 230.093994 L 167.677887 233.073853 L 178.872513 236.053772 L 223.248367 270.201477 L 318.040283 343.570496 L 441.825592 434.738342 L 459.946411 449.798706 L 467.194672 444.64447 L 468.080597 441.020203 L 459.946411 427.409485 L 392.617493 305.718323 L 320.778564 181.932983 L 288.80542 130.630859 L 280.348999 99.865845 C 277.369171 87.221436 275.194641 76.590698 275.194641 63.624268 L 312.322174 13.20813 L 332.8591 6.604126 L 382.389313 13.20813 L 403.248352 31.328979 L 434.013519 101.71814 L 483.865753 212.537048 L 561.181274 363.221497 L 583.812134 407.919434 L 595.892639 449.315491 L 600.40271 461.959839 L 608.214783 461.959839 L 608.214783 454.711609 L 614.577271 369.825623 L 626.335632 265.61084 L 637.771851 131.516846 L 641.718201 93.745117 L 660.402832 48.483276 L 697.530334 24.000122 L 726.52356 37.852417 L 750.362549 72 L 747.060486 94.067139 L 732.886047 186.201416 L 705.100708 330.52356 L 686.979919 427.167847 L 697.530334 427.167847 L 709.61084 415.087341 L 758.496704 350.174561 L 840.644348 247.490051 L 876.885925 206.738342 L 919.167847 161.71814 L 946.308838 140.29541 L 997.61084 140.29541 L 1035.38269 196.429626 L 1018.469849 254.416199 L 965.637634 321.422852 L 921.825562 378.201538 L 859.006714 462.765259 L 819.785278 530.41626 L 823.409424 535.812073 L 832.75177 534.92627 L 974.657776 504.724915 L 1051.328979 490.872559 L 1142.818848 475.167786 L 1184.214844 494.496582 L 1188.724854 514.147644 L 1172.456421 554.335693 L 1074.604126 578.496765 L 959.838989 601.449829 L 788.939636 641.879272 L 786.845764 643.409485 L 789.261841 646.389343 L 866.255127 653.637634 L 899.194702 655.409424 L 979.812134 655.409424 L 1129.932861 666.604187 L 1169.154419 692.537109 L 1192.671265 724.268677 L 1188.724854 748.429688 L 1128.322144 779.194641 L 1046.818848 759.865845 L 856.590759 714.604126 L 791.355774 698.335754 L 782.335693 698.335754 L 782.335693 703.731567 L 836.69812 756.885986 L 936.322205 846.845581 L 1061.073975 962.81897 L 1067.436279 991.490112 L 1051.409424 1014.120911 L 1034.496704 1011.704712 L 924.885986 929.234924 L 882.604126 892.107544 L 786.845764 811.48999 L 780.483276 811.48999 L 780.483276 819.946289 L 802.550415 852.241699 L 919.087341 1027.409424 L 925.127625 1081.127686 L 916.671204 1098.604126 L 886.469849 1109.154419 L 853.288696 1103.114136 L 785.073914 1007.355835 L 714.684631 899.516785 L 657.906067 802.872498 L 650.979858 806.81897 L 617.476624 1167.704834 L 601.771851 1186.147705 L 565.530212 1200 L 535.328857 1177.046997 L 519.302124 1139.919556 L 535.328857 1066.550537 L 554.657776 970.792053 L 570.362488 894.68457 L 584.536926 800.134277 L 592.993347 768.724976 L 592.429626 766.630859 L 585.503479 767.516968 L 514.22821 865.369263 L 405.825531 1011.865906 L 320.053711 1103.677979 L 299.516815 1111.812256 L 263.919525 1093.369263 L 267.221497 1060.429688 L 287.114136 1031.114136 L 405.825531 880.107361 L 477.422913 786.52356 L 523.651062 732.483276 L 523.328918 724.671265 L 520.590698 724.671265 L 205.288605 929.395935 L 149.154434 936.644409 L 124.993355 914.01355 L 127.973183 876.885986 L 139.409409 864.80542 L 234.201385 799.570435 L 233.879227 799.8927 Z"/></svg>';
 
+// Terminal glyphs, shared by the Terminal group of the launch picker (plain terminal, external
+// terminal, custom command, saved launchers) so the rows read as one family.
+const TERMINAL_POPOVER_ICON = '<svg class="popover-option-icon terminal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>';
+const EXTERNAL_TERMINAL_POPOVER_ICON = '<svg class="popover-option-icon terminal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/><path d="M15 3h6v6"/><path d="M21 3l-7 7"/></svg>';
+
 // --- New session dialog ---
 async function resolveDefaultSessionOptions(project) {
   const effective = await window.api.getEffectiveSettings(project.projectPath);
@@ -119,12 +124,103 @@ async function launchScheduleCreator(project) {
   pollActiveSessions();
 }
 
+// --- Tier-3 custom launchers (T-3.10) ---
+// The effective list for one project: the GLOBAL list is a template for every project, a PROJECT
+// entry overrides the same-id global one or adds a project-only launcher (merge in
+// custom-launchers.js). Read straight from the two settings blobs — get-effective-settings cascades
+// at top-level key granularity and would let a project list REPLACE the global one wholesale.
+async function effectiveCustomLaunchers(projectPath, globalSettings) {
+  if (typeof window.mergeCustomLaunchers !== 'function') return [];
+  let global = globalSettings;
+  if (!global) {
+    try { global = (await window.api.getSetting('global')) || {}; } catch { global = {}; }
+  }
+  let projectSettings = {};
+  try { projectSettings = (await window.api.getSetting('project:' + projectPath)) || {}; } catch {}
+  return window.mergeCustomLaunchers(global.customLaunchers, projectSettings.customLaunchers);
+}
+
+// Run one launcher: 'in-app' → a monitored PTY tab (the plain-terminal spawn path); 'external' →
+// the OS, launch-and-forget. Tier 3 either way: no backend, no session file, no badge.
+async function runCustomLauncher(project, launcher, groupId) {
+  if (launcher.runMode === 'external') {
+    const res = await window.api.runCustomLauncher(launcher, project.projectPath)
+      .catch(err => ({ ok: false, error: String((err && err.message) || err) }));
+    // An external launch is unmonitored — there is no terminal tab to print the failure into, so
+    // surface it here or it would fail silently.
+    if (res && res.ok === false && typeof showControlMessage === 'function') {
+      showControlMessage({
+        title: `Could not start “${launcher.name}”`,
+        message: res.error || 'The external launch failed.',
+        tone: 'danger',
+      });
+    }
+    return;
+  }
+  launchTerminalSession(project, groupId, launcher);
+}
+
+// The ad-hoc "Custom command…" (T-3.5): one command, typed now, run in a terminal tab. Same spawn
+// path as an in-app launcher — it is just a launcher that was never saved.
+function showCustomCommandDialog(project, groupId) {
+  const overlay = document.createElement('div');
+  overlay.className = 'new-session-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'new-session-dialog';
+  dialog.innerHTML = `
+    <h3>Custom command — ${escapeHtml(project.projectPath.split(/[\\/]/).filter(Boolean).slice(-2).join('/'))}</h3>
+    <div class="settings-field settings-field-wide">
+      <div class="settings-field-info">
+        <span class="settings-label">Command</span>
+        <div class="settings-description">Runs in a terminal tab, in your terminal shell, in this project. Any command or script — <code>npm run dev</code>, a git command, a <code>.ps1</code>/<code>.sh</code>. Save it under Settings → Terminal → Terminal tools to keep it.</div>
+      </div>
+      <div class="settings-field-control">
+        <input type="text" class="settings-input" id="ccd-command" placeholder="e.g. npm run dev" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="new-session-actions">
+      <button class="new-session-cancel-btn">Cancel</button>
+      <button class="new-session-start-btn">Run</button>
+    </div>`;
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  const input = dialog.querySelector('#ccd-command');
+  input.focus();
+
+  function close() {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+  function run() {
+    const command = input.value.trim();
+    if (!command) { input.focus(); return; }
+    close();
+    launchTerminalSession(project, groupId, {
+      id: 'ad-hoc',
+      name: command,
+      command,
+      runMode: 'in-app',
+    });
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') close();
+    else if (e.key === 'Enter') run();
+  }
+  dialog.querySelector('.new-session-cancel-btn').onclick = close;
+  dialog.querySelector('.new-session-start-btn').onclick = run;
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+  document.addEventListener('keydown', onKey);
+}
+
 async function showNewSessionPopover(project, anchorEl, { groupId = null } = {}) {
   // Remove any existing popover
   document.querySelectorAll('.new-session-popover').forEach(el => el.remove());
 
   // Handoff library: when on, offer "Claude Handoff resume" in the menu.
-  const handoffLibrary = !!((await window.api.getSetting('global'))?.handoffLibrary);
+  const globalSettings = (await window.api.getSetting('global')) || {};
+  const handoffLibrary = !!globalSettings.handoffLibrary;
+  const launchers = await effectiveCustomLaunchers(project.projectPath, globalSettings);
 
   const popover = document.createElement('div');
   popover.className = 'new-session-popover';
@@ -181,7 +277,7 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
 
   const termBtn = document.createElement('button');
   termBtn.className = 'popover-option popover-option-terminal';
-  termBtn.innerHTML = '<svg class="popover-option-icon terminal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg> Terminal';
+  termBtn.innerHTML = TERMINAL_POPOVER_ICON + ' Terminal';
   termBtn.onclick = () => { popover.remove(); launchTerminalSession(project, groupId); };
 
   // "Claude Handoff resume" — only in Handoff-library mode. Disabled+greyed when the
@@ -205,15 +301,43 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
     }).catch(() => { resumeBtn.title = 'No saved handoffs for this project'; });
   }
 
+  // The Terminal group (T-3.10): the plain terminal, the OS terminal, the ad-hoc custom command,
+  // then the user's saved launchers. Everything here is Tier 3 — launch-only, never a session.
+  const termLabel = document.createElement('div');
+  termLabel.className = 'popover-group-label';
+  termLabel.textContent = 'Terminal';
+  popover.appendChild(termLabel);
+
   popover.appendChild(termBtn);
 
   // External terminal — launch the OS terminal in the project directory
   // (launch-and-forget; not monitored/shown in the app).
   const extTermBtn = document.createElement('button');
   extTermBtn.className = 'popover-option popover-option-terminal';
-  extTermBtn.innerHTML = '<svg class="popover-option-icon terminal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/><path d="M15 3h6v6"/><path d="M21 3l-7 7"/></svg> External Terminal';
+  extTermBtn.innerHTML = EXTERNAL_TERMINAL_POPOVER_ICON + ' External Terminal';
   extTermBtn.onclick = () => { popover.remove(); window.api.openExternalTerminal(project.projectPath); };
   popover.appendChild(extTermBtn);
+
+  // Ad-hoc custom command (T-3.5) — a one-off command in a terminal tab.
+  const customCmdBtn = document.createElement('button');
+  customCmdBtn.className = 'popover-option popover-option-terminal';
+  customCmdBtn.innerHTML = TERMINAL_POPOVER_ICON + ' Custom command…';
+  customCmdBtn.title = 'Run any command once in a terminal tab';
+  customCmdBtn.onclick = () => { popover.remove(); showCustomCommandDialog(project, groupId); };
+  popover.appendChild(customCmdBtn);
+
+  // Saved launchers (T-3.10) — the effective global ⊕ project list for THIS project.
+  for (const launcher of launchers) {
+    const btn = document.createElement('button');
+    btn.className = 'popover-option popover-option-terminal popover-option-launcher';
+    btn.innerHTML = (launcher.runMode === 'external' ? EXTERNAL_TERMINAL_POPOVER_ICON : TERMINAL_POPOVER_ICON)
+      + `<span class="popover-option-text">${escapeHtml(launcher.name)}</span>`;
+    btn.title = launcher.runMode === 'external'
+      ? `${launcher.command} — runs in an external window (not monitored)`
+      : `${launcher.command} — runs in a terminal tab`;
+    btn.onclick = () => { popover.remove(); runCustomLauncher(project, launcher, groupId); };
+    popover.appendChild(btn);
+  }
 
   // Open the project directory in the OS file explorer.
   const explorerBtn = document.createElement('button');
@@ -245,12 +369,16 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
   setTimeout(() => document.addEventListener('mousedown', onClickOutside, true), 0);
 }
 
-async function launchTerminalSession(project, groupId) {
+// `launcher` (optional, T-3.10/T-3.5): a Tier-3 custom launcher, or the ad-hoc custom command. It
+// spawns the SAME monitored PTY tab as a plain terminal — main just types the command into the
+// shell once it is up. The session stays a terminal session: no transcript, so nothing downstream
+// (scanner, cache, badge) has anything to trip over.
+async function launchTerminalSession(project, groupId, launcher = null) {
   const sessionId = crypto.randomUUID();
   const projectPath = project.projectPath;
   const session = {
     sessionId,
-    summary: 'Terminal',
+    summary: launcher ? launcher.name : 'Terminal',
     firstPrompt: '',
     projectPath,
     name: null,
@@ -277,7 +405,9 @@ async function launchTerminalSession(project, groupId) {
 
   const entry = createTerminalEntry(session);
 
-  const result = await window.api.openTerminal(sessionId, projectPath, true, { type: 'terminal' });
+  const sessionOptions = { type: 'terminal' };
+  if (launcher) sessionOptions.launcher = launcher;
+  const result = await window.api.openTerminal(sessionId, projectPath, true, sessionOptions);
   if (!result.ok) {
     entry.terminal.write(`\r\nError: ${result.error}\r\n`);
     entry.closed = true;
