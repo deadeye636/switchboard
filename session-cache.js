@@ -2,10 +2,12 @@ const path = require('path');
 const fs = require('fs');
 const { Worker } = require('worker_threads');
 const { getFolderIndexMtimeMs } = require('./folder-index-state');
-const { deriveProjectPath } = require('./derive-project-path');
+const { deriveProjectPath, resolveWorktreePath } = require('./derive-project-path');
 const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId } = require('./read-session-file');
 const { readFolderSessions } = require('./read-folder-sessions');
 const { encodeProjectPath } = require('./encode-project-path');
+const backends = require('./backends');
+const sessionBackends = require('./session-backends');
 
 /**
  * Session cache module.
@@ -42,6 +44,78 @@ function init(ctx) {
   getFavoritedProjects = ctx.db.getFavoritedProjects;
   getProjectDisplayNames = ctx.db.getProjectDisplayNames;
   getAutoHiddenProjects = ctx.db.getAutoHiddenProjects;
+}
+
+// --- backend provenance + scoping (multi-LLM T-4.2) ---
+//
+// The cache is no longer Claude-only, but the FOLDER key is still shared: a session groups into a
+// project by its cwd (§5.9), and the folder key is encodeProjectPath(cwd) whatever produced it. So a
+// Codex rollout in D:\Projekte\demo lands in the SAME folder bucket as the Claude session there.
+//
+// Consequence: every folder-wide read/delete below must be scoped to the store being refreshed, or
+// the Claude sweep would delete the Codex rows in "its" folder (they have no file under
+// ~/.claude/projects, so the vanished-file reconcile would sweep them away) — and the Codex sweep
+// would do the same in reverse. Two disjoint scopes:
+//   CLAUDE store  = claude + every Axis-A profile (a profile shares Claude's binary AND its store)
+//   Axis-B stores = codex (later gemini/hermes/pi) — each has its own root
+// Expressed as { except: [axis-B ids] } so a newly-created Axis-A profile is automatically inside
+// Claude's scope without the scanner needing the profile list.
+
+let _foreignIds = null;
+function foreignBackendIds() {
+  if (_foreignIds) return _foreignIds;
+  try {
+    // Axis-B backends own their session store. `planned` ones never have rows, but listing them is
+    // harmless and keeps the scope stable when a phase flips one to `ready`.
+    _foreignIds = backends.list().filter(b => b.axis === 'B').map(b => b.id);
+  } catch {
+    _foreignIds = ['codex'];
+  }
+  return _foreignIds;
+}
+
+/** The scope of the Claude/Axis-A store: everything that is NOT an Axis-B backend's own row. */
+function claudeStoreScope() {
+  return { except: foreignBackendIds() };
+}
+
+// The launch-time overlay (session-backends.json) is the ONLY way to tell an Axis-A profile session
+// from a plain Claude one — they share the binary, the root and the format (§5.7). Root-derivation
+// only distinguishes Axis-B. So: for a session discovered under Claude's root, the overlay wins;
+// with no overlay entry it is plain `claude`.
+//
+// backendId is left UNDEFINED (not 'claude') when there is no overlay entry: db.js COALESCEs a NULL
+// against the stored value, so a row that already carries a profile id is never downgraded when the
+// overlay's FIFO has since evicted its entry. The row is authoritative once written.
+function overlayFor(sessionId, parentSessionId) {
+  try {
+    const own = sessionBackends.get(sessionId);
+    if (own) return own;
+    // A subagent transcript has no overlay entry of its own — it belongs to its parent's backend.
+    if (parentSessionId) return sessionBackends.get(parentSessionId);
+  } catch { /* no overlay available (e.g. unit test without electron userData) */ }
+  return null;
+}
+
+/** Stamp a Claude-root session row with its authoritative backendId before it is written (§5.7). */
+function stampClaudeProvenance(s) {
+  const ov = overlayFor(s.sessionId, s.parentSessionId);
+  if (ov && ov.backendId) {
+    s.backendId = ov.backendId;
+    if (ov.profileId) s.profileId = ov.profileId;
+  }
+  return s;
+}
+
+/** After the row is written the overlay entry may finally be FIFO-evicted (§5.7). */
+function markPersisted(sessionId) {
+  try { sessionBackends.markPersisted(sessionId); } catch {}
+}
+
+/** The absolute session file behind a cached row: stored path (non-Claude) or the Claude reconstruction. */
+function resolveRowFilePath(row) {
+  if (row && row.filePath) return row.filePath;
+  return resolveJsonlPath(PROJECTS_DIR, row);
 }
 
 // readSessionFile is imported from read-session-file.js (shared with worker)
@@ -89,8 +163,12 @@ function buildSearchEntry(s) {
 // triggers one extra sweep next pass.
 function refreshFolder(folder, opts = {}) {
   const folderPath = path.join(PROJECTS_DIR, folder);
+  // Scope EVERY folder-wide read/delete below to Claude's store: an Axis-B backend (Codex) can hold
+  // rows under the same folder key (same cwd -> same project -> same encodeProjectPath key), and its
+  // sessions live outside ~/.claude/projects. An unscoped sweep here would delete them.
+  const scope = claudeStoreScope();
   if (!fs.existsSync(folderPath)) {
-    deleteCachedFolder(folder);
+    deleteCachedFolder(folder, scope);
     return;
   }
   const stampMtimeMs = () =>
@@ -120,13 +198,13 @@ function refreshFolder(folder, opts = {}) {
   // Get what's currently cached for this folder.
   // cachedMap: DB sessionId → { modified, filePath } so we can do mtime comparison
   // even for subagents whose DB sessionId differs from the on-disk filename.
-  const cachedSessions = getCachedByFolder(folder);
+  const cachedSessions = getCachedByFolder(folder, scope);
   const cachedMap = new Map(); // DB sessionId → { modified, filePath }
   const cachedByFilePath = new Map(); // filePath → { dbId, entry } (reverse map for the per-file loop)
   for (const row of cachedSessions) {
     const entry = {
       modified: row.modified,
-      filePath: resolveJsonlPath(PROJECTS_DIR, row),
+      filePath: resolveRowFilePath(row),
     };
     cachedMap.set(row.sessionId, entry);
     cachedByFilePath.set(entry.filePath, { dbId: row.sessionId, entry });
@@ -167,7 +245,7 @@ function refreshFolder(folder, opts = {}) {
     const s = readSessionFile(filePath, folder, projectPath, { parentSessionId });
     if (s) {
       currentIds.add(s.sessionId); // ensure we don't delete a newly-read subagent row
-      sessionsToUpsert.push(s);
+      sessionsToUpsert.push(stampClaudeProvenance(s));
       // Per-(date,model) metrics only exist on the full-read path. The header-only
       // refresh branch above doesn't produce dailyMetrics, so this is the sole
       // write point for an incremental refresh — short transaction, fine to run
@@ -190,6 +268,8 @@ function refreshFolder(folder, opts = {}) {
   // Batch all DB writes to reduce lock contention
   if (sessionsToUpsert.length > 0) {
     upsertCachedSessions(sessionsToUpsert);
+    // The row now carries the authoritative backendId, so the overlay entry may be evicted (§5.7).
+    for (const s of sessionsToUpsert) markPersisted(s.sessionId);
   }
   for (const entry of searchEntriesToUpsert) {
     deleteSearchSession(entry.id);
@@ -331,7 +411,8 @@ function refreshFile(folder, relFilename, opts = {}) {
     // changed it. Without this notify, the deferred reindex writes the new name to
     // the DB but the sidebar keeps showing the old one until an unrelated refresh.
     const prevName = (getMeta(s.sessionId) || {}).name || null;
-    upsertCachedSessions([s]);
+    upsertCachedSessions([stampClaudeProvenance(s)]);
+    markPersisted(s.sessionId);
     replaceSessionMetrics(s.sessionId, s.dailyMetrics);
     deleteSearchSession(s.sessionId);
     upsertSearchEntries([buildSearchEntry(s)]);
@@ -393,6 +474,151 @@ function reconcileCacheFromFilesystem() {
   }
 }
 
+// --- multi-source scan: the backends that own their session store (Axis B) ---
+//
+// Claude's folder-driven scan above is untouched. This is the generic counterpart for a backend that
+// keeps its sessions somewhere else entirely (Codex: (CODEX_HOME||~/.codex)/sessions/YYYY/MM/DD/
+// rollout-*.jsonl). It is deliberately handle-based, not root-glob-based, so a db-mode backend
+// (Hermes, Phase 5) plugs in by yielding {kind:'db'} handles with no change here.
+//
+// The project bucket stays CENTRAL and backend-agnostic (§5.9): the backend supplies only a `cwd`,
+// which is run through the same resolveWorktreePath + encodeProjectPath pipeline Claude's folders
+// use. That is what makes a Codex session in <project> and a Claude session in <project> land in the
+// same sidebar project — they get the same projectPath AND the same folder key.
+
+// Cached rows of one backend, across all folders — the per-backend reconcile input. Filtered off
+// getAllCached() (already the sidebar's per-paint read) rather than a dedicated indexed query, so
+// this needs no new ctx.db wiring. db.js has an idx_session_cache_backend index ready if the sweep
+// ever gets hot enough to warrant a scoped getCachedByBackend().
+function cachedRowsOfBackend(backendId) {
+  return (getAllCached() || []).filter(r => (r.backendId || 'claude') === backendId);
+}
+
+/**
+ * Rescan one backend's own session store and reconcile the cache with it.
+ *
+ * Only `ready && enabled` backends are scanned (§5.8). A `planned` or disabled backend's store is
+ * NEVER enumerated — but its already-cached rows are left alone (disable != erase: they stay
+ * visible and searchable, they just stop being refreshed).
+ *
+ * Claude (and every Axis-A profile, which shares Claude's store) is a no-op here — refreshFolder /
+ * populateCacheViaWorker own that store.
+ *
+ * Returns { scanned, upserted, skipped, deleted } (all 0 when the backend is skipped).
+ */
+function refreshBackendSessions(backendId) {
+  const stats = { scanned: 0, upserted: 0, skipped: 0, deleted: 0 };
+
+  const b = backends.list().find(d => d.id === backendId);
+  if (!b) return stats;
+  if (b.status !== 'ready' || !b.enabled) return stats;          // §5.8 gate: never enumerate its roots
+  if (b.id === 'claude' || b.isProfile) return stats;            // shares Claude's store — not ours to scan
+  if (typeof b.discoverSessions !== 'function' || typeof b.parseSession !== 'function') return stats;
+
+  let handles;
+  try { handles = b.discoverSessions() || []; } catch (err) {
+    log.info(`[scan] ${backendId}: discovery failed: ${err.message}`);
+    return stats;
+  }
+
+  // Cached rows of THIS backend only — the reconcile below must never look at (or delete) another
+  // backend's rows, even when they sit in the same folder.
+  const cached = cachedRowsOfBackend(backendId);
+  const cachedByFile = new Map();
+  for (const row of cached) {
+    if (row.filePath) cachedByFile.set(row.filePath, row);
+  }
+
+  const seenFiles = new Set();
+  const seenIds = new Set();
+  const rows = [];
+  const searchEntries = [];
+
+  for (const h of handles) {
+    if (!h || h.kind !== 'file' || !h.path) continue;   // db-mode handles: Phase 5
+    stats.scanned++;
+    seenFiles.add(h.path);
+
+    // Change gate, same shape as refreshFolder's: the row's `modified` IS the file mtime, so an
+    // untouched rollout is never re-parsed. Without this every sweep would re-read every rollout.
+    let fileMtime;
+    try { fileMtime = fs.statSync(h.path).mtime.toISOString(); } catch { continue; }
+    const hit = cachedByFile.get(h.path);
+    if (hit && hit.modified === fileMtime) {
+      seenIds.add(hit.sessionId);
+      stats.skipped++;
+      continue;
+    }
+
+    let row;
+    try { row = b.parseSession(h, {}); } catch { row = null; }
+    if (!row || !row.sessionId) continue;
+
+    // §5.9: the backend supplies a cwd, the grouping layer owns the rest. A backend may yield a
+    // session with NO cwd (Hermes gateway/cron sessions) — those need a backend-scoped bucket
+    // (Phase 5), so skip them here rather than inventing a project for them.
+    const cwd = row.cwd || null;
+    if (!cwd) continue;
+    const projectPath = resolveWorktreePath(cwd);
+    if (!projectPath) continue;
+    // Hidden/removed project: don't re-index it back in (mirrors refreshFolder). The row, if one
+    // already exists, is left alone — hiding is a view decision, not a delete.
+    if (isHiddenProject(projectPath)) {
+      if (hit) seenIds.add(hit.sessionId);
+      continue;
+    }
+
+    row.folder = encodeProjectPath(projectPath);   // the SAME key Claude's folder for this cwd carries
+    row.projectPath = projectPath;
+    row.backendId = row.backendId || backendId;    // the parser already knows (Axis B = own root)
+    row.filePath = h.path;                         // nothing to reconstruct it from — store it (v11)
+    row.modified = fileMtime;                      // keep the cache's change gate meaningful
+
+    seenIds.add(row.sessionId);
+    rows.push(row);
+    searchEntries.push(buildSearchEntry(row));
+  }
+
+  if (rows.length) {
+    upsertCachedSessions(rows);
+    stats.upserted = rows.length;
+    for (const r of rows) {
+      markPersisted(r.sessionId);
+      if (r.customTitle) setName(r.sessionId, r.customTitle);
+    }
+    for (const e of searchEntries) deleteSearchSession(e.id);
+    upsertSearchEntries(searchEntries);
+  }
+
+  // Reconcile: a cached row whose file is gone from the store is dropped. Keyed on the file (not on
+  // "did we parse it this pass"), so a row skipped by the mtime gate or by a hidden project survives.
+  for (const row of cached) {
+    const stillThere = row.filePath ? seenFiles.has(row.filePath) : seenIds.has(row.sessionId);
+    if (stillThere) continue;
+    deleteCachedSession(row.sessionId);
+    deleteSearchSession(row.sessionId);
+    stats.deleted++;
+  }
+
+  if (stats.upserted || stats.deleted) {
+    log.info(`[scan] ${backendId}: ${stats.scanned} sessions (${stats.upserted} indexed, ${stats.skipped} unchanged, ${stats.deleted} removed)`);
+  }
+  return stats;
+}
+
+/** Rescan every ready+enabled backend that owns its store (i.e. everything except Claude/Axis-A). */
+function refreshAllBackendSessions() {
+  const out = {};
+  let list;
+  try { list = backends.list(); } catch { return out; }
+  for (const b of list) {
+    if (b.status !== 'ready' || !b.enabled) continue;
+    if (b.id === 'claude' || b.isProfile) continue;
+    out[b.id] = refreshBackendSessions(b.id);
+  }
+  return out;
+}
+
 /** Build projects response from cached data */
 function buildProjectsFromCache(showArchived) {
   const metaMap = getAllMeta();
@@ -444,6 +670,11 @@ function buildProjectsFromCache(showArchived) {
       agentId: row.agentId || null,
       subagentType: row.subagentType || null,
       description: row.description || null,
+      // Authoritative backend provenance (§5.7) — drives the sidebar's provider badge. A row written
+      // before the multi-LLM columns existed (NULL) is Claude by definition. (The row's filePath is
+      // NOT sent: it would bloat every sidebar paint. Read it per session via getCachedSession, or
+      // through resolveRowFilePath below.)
+      backendId: row.backendId || 'claude',
       name: meta?.name || null,
       starred: meta?.starred || 0,
       archived: meta?.archived || 0,
@@ -691,13 +922,19 @@ function populateCacheViaWorker() {
 
     // Write results to DB on main thread (fast)
     let sessionCount = 0;
+    // The worker only scans Claude's root, so its rebuild must stay inside Claude's store — an
+    // unscoped wipe would drop the Codex rows that share this folder key (multi-LLM T-4.2).
+    const scope = claudeStoreScope();
     for (const { folder, projectPath, sessions, indexMtimeMs } of msg.results) {
-      deleteCachedFolder(folder);
-      deleteSearchFolder(folder);
+      // Search first: the scoped FTS delete resolves the backend through session_cache, so the rows
+      // it reads must still be there.
+      deleteSearchFolder(folder, scope);
+      deleteCachedFolder(folder, scope);
       if (sessions.length > 0) {
         sessionCount += sessions.length;
-        upsertCachedSessions(sessions);
+        upsertCachedSessions(sessions.map(stampClaudeProvenance));
         for (const s of sessions) {
+          markPersisted(s.sessionId);
           // Only JSONL custom-title (genuine user title) promotes to the DB name column.
           // AI titles must not — see refreshFolder for the rationale.
           if (s.customTitle) setName(s.sessionId, s.customTitle);
@@ -763,6 +1000,9 @@ module.exports = {
   readFolderFromFilesystem,
   refreshFolder,
   refreshFile,
+  refreshBackendSessions,
+  refreshAllBackendSessions,
+  resolveRowFilePath,
   flushPendingReindex,
   reconcileCacheFromFilesystem,
   buildProjectsFromCache,

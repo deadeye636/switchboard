@@ -60,6 +60,12 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
   } else if (opts.permissionMode) {
     args.push('--permission-mode', String(opts.permissionMode));
   }
+  // `model` is declared in configFields (and settable as a per-backend launch default), so it must
+  // actually reach the CLI — otherwise the user sets a model and nothing happens. Nothing sent one
+  // before this, so an unset model keeps the argv byte-identical to the pre-refactor command.
+  if (opts.model) {
+    args.push('--model', String(opts.model));
+  }
   if (opts.worktree) {
     args.push('--worktree');
     if (opts.worktreeName) args.push(String(opts.worktreeName));

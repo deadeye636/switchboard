@@ -23,6 +23,18 @@
 
 const registry = new Map();
 
+// Injected by main.js (T-2.1) so the registry can merge user state without importing electron:
+//   getGlobalSettings() -> the global settings blob (holds backendEnabled.<id> + defaultLaunchTarget)
+//   profiles            -> the profiles module (user-created Axis-A backends)
+// Left un-injected (unit tests), list() simply returns the built-ins with default enabled flags.
+let _getGlobalSettings = () => ({});
+let _profiles = null;
+
+function init({ getGlobalSettings, profiles } = {}) {
+  if (typeof getGlobalSettings === 'function') _getGlobalSettings = getGlobalSettings;
+  if (profiles) _profiles = profiles;
+}
+
 // Register (or replace) a descriptor. Later phases swap a `planned` dummy for the real `ready` one.
 function register(descriptor) {
   if (!descriptor || typeof descriptor.id !== 'string' || descriptor.id === '') {
@@ -32,18 +44,103 @@ function register(descriptor) {
   return descriptor;
 }
 
+// Is a backend user-activated? `backendEnabled.<id>` (global-only, §5.8). Default: only `claude` for
+// built-ins; a user profile is enabled on creation. `planned` can never be enabled.
+function isEnabled(descriptor, enabledMap) {
+  if (descriptor.status === 'planned') return false;
+  const stored = enabledMap ? enabledMap[descriptor.id] : undefined;
+  if (stored !== undefined) return !!stored;
+  return descriptor.isProfile ? true : descriptor.id === 'claude';
+}
+
+// A user profile (Axis-A) IS a backend — the same shape as a built-in (10-phase-1 key decision: no
+// parallel profile/backend abstractions). It has NO own launch: buildLaunch delegates to Claude and
+// merely merges the profile's env bundle over it (00 §4 "Axis-A composition"). The bundle's `$VAR`
+// refs are resolved at spawn by the caller (main.js), never here and never on disk.
+function profileToDescriptor(p) {
+  const claude = registry.get('claude');
+  return {
+    id: p.id,
+    label: p.name,
+    tier: 1,
+    axis: 'A',
+    status: 'ready',
+    isProfile: true,
+    icon: p.icon || null,
+    monogram: null,           // renderer derives the glyph from icon/id
+    colour: p.icon || 'default',
+    configFields: claude ? claude.configFields : [],  // same binary -> same launch options
+    buildLaunch(ctx) {
+      const launch = claude.buildLaunch(ctx);
+      return { ...launch, env: { ...(launch.env || {}), ...(p.env || {}) } };
+    },
+    // Axis-A shares Claude's store/format entirely.
+    discoverSessions: claude ? claude.discoverSessions : () => [],
+    parseSession: claude ? claude.parseSession : () => null,
+    watchTargets: claude ? claude.watchTargets : () => [],
+    deriveState: null,
+  };
+}
+
+// Resolve a backend id -> descriptor. Looks through built-ins first, then user profiles, so
+// `backends.get(sessionOptions.backendId)` works uniformly for both.
 function get(id) {
-  return registry.get(id) || null;
+  const builtin = registry.get(id);
+  if (builtin) return builtin;
+  if (_profiles) {
+    const p = _profiles.get(id);
+    if (p) return profileToDescriptor(p);
+  }
+  return null;
 }
 
 function has(id) {
-  return registry.has(id);
+  return get(id) != null;
 }
 
-// Phase 1: built-in descriptors only. T-2.1 overrides this to return built-ins ∪ user profiles and
-// to merge the `backendEnabled.<id>` flags — the single unified list every UI layer reads.
+// The single unified list every UI layer reads: built-ins ∪ user profiles, each carrying its merged
+// `enabled` flag. Only `ready && enabled` entries may appear in launch surfaces / be scanned (§5.8);
+// the callers apply that filter, this returns the full set (Settings needs the disabled/planned rows).
 function list() {
-  return Array.from(registry.values());
+  const g = _getGlobalSettings() || {};
+  const enabledMap = g.backendEnabled || {};
+  const out = [];
+  for (const b of registry.values()) {
+    out.push({ ...b, enabled: isEnabled(b, enabledMap) });
+  }
+  if (_profiles) {
+    for (const p of _profiles.list()) {
+      const d = profileToDescriptor(p);
+      out.push({ ...d, enabled: isEnabled(d, enabledMap) });
+    }
+  }
+  return out;
+}
+
+// May this backend be spawned/scanned at all? The §5.8 gate: `ready` (built) AND `enabled` (activated
+// by the user). A `planned` binary or a disabled backend must never spawn and never have its roots
+// scanned. Note: disable ≠ erase — a disabled backend's ALREADY-CACHED sessions stay visible; only
+// launching and re-scanning stop.
+function isLaunchable(id) {
+  const d = list().find(b => b.id === id);
+  return !!(d && d.status === 'ready' && d.enabled);
+}
+
+// Every backend that may currently be spawned or scanned.
+function launchable() {
+  return list().filter(b => b.status === 'ready' && b.enabled);
+}
+
+// The one backend/profile a plain new-session action launches (00 §4). Falls back to `claude` when
+// unset or when the stored target no longer exists / isn't launchable.
+function getDefaultLaunchTarget() {
+  const g = _getGlobalSettings() || {};
+  const id = g.defaultLaunchTarget;
+  if (typeof id === 'string' && id) {
+    const d = list().find(b => b.id === id);
+    if (d && d.status === 'ready' && d.enabled) return id;
+  }
+  return 'claude';
 }
 
 // The core terminal env shared by every backend spawn (00 §4 spawn pseudo:
@@ -78,8 +175,8 @@ function plannedDummy({ id, label, monogram, colour }) {
   };
 }
 
+// Axis-B binaries not built yet. Phases 5/6/7 replace hermes/pi/gemini with real `ready` descriptors.
 function registerPlannedDummies() {
-  register(plannedDummy({ id: 'codex',  label: 'Codex',      monogram: 'Cx', colour: 'codex'  }));
   register(plannedDummy({ id: 'hermes', label: 'Hermes',     monogram: 'H',  colour: 'hermes' }));
   register(plannedDummy({ id: 'pi',     label: 'Pi',         monogram: 'Pi', colour: 'pi'     }));
   register(plannedDummy({ id: 'gemini', label: 'Gemini CLI', monogram: 'G',  colour: 'gemini' }));
@@ -90,16 +187,19 @@ function _resetForTests() {
   registry.clear();
 }
 
-// Seed the default registry: the real Claude adapter + the planned Axis-B dummies.
+// Seed the default registry: the real adapters (Claude default + Codex, Phase 4) + the planned dummies.
+// A `ready` backend still needs the user to ENABLE it (§5.8) — only `claude` is on out of the box.
 function _seedDefaults() {
   registry.clear();
   register(require('./claude'));
+  register(require('./codex'));
   registerPlannedDummies();
 }
 
 _seedDefaults();
 
 module.exports = {
-  register, get, has, list, backendCoreEnv,
+  init, register, get, has, list, backendCoreEnv,
+  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, profileToDescriptor,
   _resetForTests, _seedDefaults, plannedDummy,
 };

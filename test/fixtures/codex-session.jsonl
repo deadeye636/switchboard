@@ -1,0 +1,15 @@
+{"timestamp":"2026-06-27T10:03:04.019Z","type":"session_meta","payload":{"id":"019f081a-8834-7342-8741-30624c553c1c","session_id":"019f081a-8834-7342-8741-30624c553c1c","timestamp":"2026-06-27T10:03:04.019Z","cwd":"D:\\Projekte\\demo","originator":"codex-tui","cli_version":"0.142.2","source":"cli","thread_source":"user","model_provider":"openai","git":{"commit_hash":"abc1234","branch":"main"},"base_instructions":{"text":"YOU ARE A HUGE SYSTEM PROMPT BLOB THAT MUST NEVER LAND IN textContent"}}}
+{"timestamp":"2026-06-27T10:03:05.100Z","type":"turn_context","payload":{"turn_id":"t1","cwd":"D:\\Projekte\\demo","model":"gpt-5.4","effort":"medium","approval_policy":"on-request","sandbox_policy":"workspace-write"}}
+{"timestamp":"2026-06-27T10:03:05.200Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-06-27T10:03:06.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Refactor the auth middleware and add tests"}]}}
+{"timestamp":"2026-06-27T10:03:09.500Z","type":"response_item","payload":{"type":"reasoning","content":[{"text":"thinking about it"}]}}
+{"timestamp":"2026-06-27T10:03:12.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I refactored the middleware."}]}}
+{"timestamp":"2026-06-27T10:03:12.500Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":10,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":135},"last_token_usage":{"input_tokens":100,"cached_input_tokens":10,"output_tokens":20,"reasoning_output_tokens":5,"total_tokens":135},"model_context_window":258400}}}
+{"timestamp":"2026-06-27T10:03:13.000Z","type":"event_msg","payload":{"type":"task_complete"}}
+{"timestamp":"2026-06-27T10:05:01.000Z","type":"turn_context","payload":{"turn_id":"t2","cwd":"D:\\Projekte\\demo","model":"gpt-5.5","effort":"high","approval_policy":"on-request","sandbox_policy":"workspace-write"}}
+{"timestamp":"2026-06-27T10:05:01.200Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-06-27T10:05:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Now also cover the token expiry edge case please"}]}}
+{"timestamp":"2026-06-27T10:05:20.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Added a test for token expiry."}]}}
+{"timestamp":"2026-06-27T10:05:20.500Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":14425,"cached_input_tokens":2432,"output_tokens":267,"reasoning_output_tokens":77,"total_tokens":14692},"last_token_usage":{"input_tokens":300,"cached_input_tokens":50,"output_tokens":40,"reasoning_output_tokens":9,"total_tokens":399},"model_context_window":258400}}}
+{"timestamp":"2026-06-27T10:05:21.000Z","type":"event_msg","payload":{"type":"task_complete"}}
+{"timestamp":"2026-06-27T10:06:00.000Z","type":"response_item","payload":{"type":"message","role":"assist

@@ -2128,6 +2128,25 @@ function buildSessionItem(session) {
   indicators.appendChild(pin);
   indicators.appendChild(dot);
 
+  // Provider badge (T-3.4). Deliberately OFF for a single-backend user: badging every row when
+  // everything is Claude would be pure noise. It appears in "mixed mode" — ≥2 distinct backends are
+  // in play, or the only one in play is not the default launch target (computeShowAllBadges). A
+  // non-default session is always badged so it can never be mistaken for a Claude one.
+  if (session.type !== 'terminal' && window.sessionBackendId) {
+    const backendId = window.sessionBackendId(session);
+    const isDefault = backendId === (window._defaultBackendId || 'claude');
+    if (window._showAllBadges || !isDefault) {
+      const descriptor = window.getBackend ? window.getBackend(backendId) : null;
+      const badge = document.createElement('span');
+      badge.className = 'session-backend-badge backend-' + backendId;
+      badge.textContent = (descriptor && descriptor.monogram)
+        || (window.backendMonogram ? window.backendMonogram(backendId) : backendId.slice(0, 2));
+      badge.title = descriptor ? descriptor.label : backendId;
+      if (window.backendIconColour) badge.style.background = window.backendIconColour(descriptor?.icon || backendId);
+      indicators.appendChild(badge);
+    }
+  }
+
   // Info block
   const info = document.createElement('div');
   info.className = 'session-info';

@@ -5644,6 +5644,95 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   border-radius: 3px;
 }
 
+/* Launch picker: one row per enabled backend (T-3.2). The row is a flex container holding the
+   launch button (row body) and an inline configure gear, replacing the old two-row
+   "Claude" / "Claude (Configure...)" pattern — otherwise the menu would double per backend.
+   `.popover-option-backend` is a div, not a button, so it must not inherit button padding. */
+.popover-option-backend {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  padding: 0;
+  border-radius: 6px;
+  cursor: default;
+}
+
+.popover-option-backend:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.popover-option-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-radius: 6px 0 0 6px;
+  color: #b0b0c4;
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.12s;
+}
+
+.popover-option-backend:hover .popover-option-body {
+  color: #d0d0e8;
+}
+
+.popover-option-gear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  align-self: stretch;
+  padding: 0;
+  background: none;
+  border: none;
+  border-left: 1px solid transparent;
+  border-radius: 0 6px 6px 0;
+  color: #6a6a80;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+
+/* The gear only appears on hover/focus so the picker stays visually calm at rest. */
+.popover-option-backend:hover .popover-option-gear,
+.popover-option-gear:focus-visible {
+  opacity: 1;
+  border-left-color: rgba(255,255,255,0.08);
+}
+
+.popover-option-gear:hover {
+  background: rgba(255,255,255,0.08);
+  color: #d0d0e8;
+}
+
+/* Sidebar provider badge (T-3.4). Only rendered in mixed mode or for a non-default backend, so a
+   Claude-only user never sees one. Background colour is set inline from the backend's colour token. */
+.session-backend-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #64748b;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
 .popover-option-terminal .popover-option-icon,
 .terminal-icon {
   color: #3ecf5a;
@@ -9039,3 +9128,196 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .tv-status-menu .tv-opt-done { color: #98c379; }
 .tv-status-menu .tv-opt-dropped { color: #8a8a9e; }
 .tv-status-menu .tv-status-current { font-weight: 600; background: rgba(255, 255, 255, 0.06); }
+
+/* ========== BACKENDS (multi-LLM, Phase 2) ==========
+   Settings → Backends: the manage rows, the generated "Launch defaults" panels and the profile
+   editor modal (backends-panel.js). Built on the existing settings primitives — these rules only
+   add what the new classes need; the row/field chrome comes from .settings-field. */
+
+/* Monogram badge (backend-icons.js renders the SVG into the slot). */
+.backend-icon-slot {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.backend-icon { display: block; border-radius: 5px; }
+
+/* A backend / profile row is a settings-field with an icon + pills. */
+.backend-row .settings-field-header { gap: 8px; flex-wrap: wrap; }
+.backend-row-planned { opacity: 0.6; }
+
+.backend-pill {
+  font-size: 10px;
+  line-height: 1.6;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: #7fa6c9;
+  border: 1px solid rgba(127,166,201,0.3);
+  background: rgba(127,166,201,0.1);
+  white-space: nowrap;
+}
+.backend-pill.soon {
+  color: #c9a36a;
+  border-color: rgba(201,163,106,0.32);
+  background: rgba(201,163,106,0.1);
+}
+.backend-pill.default-pill {
+  color: #6fca8f;
+  border-color: rgba(111,202,143,0.32);
+  background: rgba(111,202,143,0.1);
+}
+.backend-planned-note { font-size: 11.5px; color: #6a6a80; }
+
+/* Row action buttons (Set default / Edit / Delete) + the editor's small buttons. */
+.backend-btn {
+  font-size: 12px;
+  padding: 5px 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: #c8c8e0;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.backend-btn:hover { border-color: #8088ff; background: rgba(128,136,255,0.12); }
+.backend-btn.danger { color: #e08a8a; border-color: rgba(224,138,138,0.28); }
+.backend-btn.danger:hover { border-color: #e05a5a; background: rgba(224,90,90,0.12); }
+
+/* Maintenance action (Rebuild session cache). */
+.settings-action-btn {
+  font-size: 12.5px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: #c8c8e0;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.settings-action-btn:hover { border-color: #8088ff; background: rgba(128,136,255,0.12); }
+.settings-action-btn.danger { color: #e08a8a; border-color: rgba(224,138,138,0.28); }
+.settings-action-btn.danger:hover { border-color: #e05a5a; background: rgba(224,90,90,0.12); }
+.settings-action-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* "Add from template" chips. */
+.backend-template-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 2px 16px;
+}
+.backend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  color: #d0d0e8;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.backend-chip:hover { border-color: #8088ff; background: rgba(128,136,255,0.12); }
+.backend-chip-blank { color: #9a9ab0; }
+
+/* Per-backend "Launch defaults" panel (a settings-adv details with an icon in the summary). */
+details.settings-adv.backend-defaults > summary { color: #b0b0c4; }
+.settings-section-title.backend-defaults-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- Profile editor modal (reuses .new-session-overlay / .new-session-dialog) ---- */
+.backend-editor { width: 620px; max-height: 86vh; overflow-y: auto; }
+.backend-editor .settings-btn-row { position: static; padding-top: 16px; }
+.backend-editor .settings-field-wide { display: block; }
+.backend-editor .settings-field-wide .settings-field-control { margin-top: 10px; }
+
+.backend-icon-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.backend-icon-choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  cursor: pointer;
+}
+.backend-icon-choice:hover { border-color: rgba(128,136,255,0.6); }
+.backend-icon-choice.selected {
+  border-color: #8088ff;
+  background: rgba(128,136,255,0.16);
+}
+
+.backend-env-hint {
+  font-size: 11.5px;
+  color: #7a7a90;
+  padding: 10px 16px 4px;
+  line-height: 1.5;
+}
+.backend-env-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 16px 4px;
+}
+.backend-env-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.backend-env-row .settings-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; }
+.backend-env-key { flex: 0 0 42%; min-width: 0; }
+.backend-env-value { flex: 1 1 auto; min-width: 0; }
+.backend-env-status {
+  flex: 0 0 auto;
+  min-width: 62px;
+  text-align: center;
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: #7a7a90;
+  white-space: nowrap;
+}
+.backend-env-status[data-state="ok"] {
+  color: #6fca8f;
+  border-color: rgba(111,202,143,0.32);
+  background: rgba(111,202,143,0.1);
+}
+.backend-env-status[data-state="missing"] {
+  color: #e08a8a;
+  border-color: rgba(224,138,138,0.32);
+  background: rgba(224,138,138,0.1);
+}
+.backend-env-remove { padding: 3px 9px; line-height: 1.2; }
+.backend-env-empty { font-size: 12px; color: #6a6a80; padding: 4px 0; }
+details.settings-adv.backend-env-adv > summary { color: #b0b0c4; }
+details.settings-adv.backend-env-adv #be-env-add { margin: 4px 16px 14px; }
+
+.backend-editor-error {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(224,90,90,0.35);
+  border-left: 3px solid #e05a5a;
+  background: rgba(224,90,90,0.08);
+  color: #e6b0b0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.backend-editor-error code {
+  background: rgba(0,0,0,0.3);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #f0c0c0;
+}

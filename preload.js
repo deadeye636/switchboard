@@ -17,13 +17,21 @@ contextBridge.exposeInMainWorld('api', {
   deleteWorkFile: (filePath) => ipcRenderer.invoke('delete-work-file', filePath),
   getProjects: (showArchived) => ipcRenderer.invoke('get-projects', showArchived),
   rebuildCache: () => ipcRenderer.invoke('rebuild-cache'),
-  // Multi-LLM backends (Phase 1, T-1.5). Renderer caches these in Phase 3; unused for now.
+  // Multi-LLM backends + user Axis-A profiles (Phase 1 T-1.5, Phase 2 T-2.1).
   backends: {
     list: () => ipcRenderer.invoke('backends-list'),
   },
   sessionBackends: {
     getAll: () => ipcRenderer.invoke('session-backends-get-all'),
   },
+  profiles: {
+    list: () => ipcRenderer.invoke('profiles-list'),
+    save: (profile, allowSecrets) => ipcRenderer.invoke('profiles-save', { profile, allowSecrets }),
+    delete: (id) => ipcRenderer.invoke('profiles-delete', id),
+    setDefault: (id) => ipcRenderer.invoke('profiles-set-default', id),
+  },
+  // Presence-only check for $VAR env refs (never returns values).
+  checkEnvRefs: (names) => ipcRenderer.invoke('env-refs-check', names),
   getActiveSessions: () => ipcRenderer.invoke('get-active-sessions'),
   getActiveTerminals: () => ipcRenderer.invoke('get-active-terminals'),
   stopSession: (id) => ipcRenderer.invoke('stop-session', id),

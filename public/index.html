@@ -172,6 +172,12 @@
   <script src="file-panel.js"></script>
   <!-- color-utils.js backs the tag colour picker in settings-panel.js. -->
   <script src="color-utils.js"></script>
+  <!-- Multi-LLM: presets + icons must load BEFORE backends-panel.js, which reads
+       window.BACKEND_PRESETS / window.renderBackendIcon; settings-panel.js mounts it. -->
+  <script src="backend-presets.js"></script>
+  <script src="backend-icons.js"></script>
+  <script src="backend-registry.js"></script>
+  <script src="backends-panel.js"></script>
   <script src="settings-panel.js"></script>
   <script src="utils.js"></script>
   <script src="a11y-utils.js"></script>

@@ -383,6 +383,25 @@ const migrations = [
     try { db.exec('ALTER TABLE project_tags DROP COLUMN color'); } catch {}
     try { db.exec('ALTER TABLE session_tags DROP COLUMN color'); } catch {}
   },
+  // v10 (multi-LLM): which backend produced this session. This column is the AUTHORITATIVE
+  // backend provenance (00-architecture §5.7) — the scanner sets it by merging the launch-time
+  // overlay (session-backends.json) into the row, because an Axis-A profile shares Claude's store
+  // and cannot be told apart from a plain Claude session by its files alone. Existing rows are
+  // Claude by definition, hence the DEFAULT; no cache clear is needed (the backfill is exact).
+  (db) => {
+    try { db.exec("ALTER TABLE session_cache ADD COLUMN backendId TEXT DEFAULT 'claude'"); } catch {}
+    try { db.exec("UPDATE session_cache SET backendId = 'claude' WHERE backendId IS NULL"); } catch {}
+  },
+  // v11 (multi-LLM T-4.2): the absolute session file behind a row. Claude rows can RECONSTRUCT their
+  // path from folder + sessionId (read-session-file.js resolveJsonlPath), because the folder name IS
+  // the encoded project path and the file name IS the session id. A Codex rollout lives in a
+  // date-bucketed tree under its own root (sessions/YYYY/MM/DD/rollout-<ISO>-<uuid>.jsonl) — there is
+  // nothing to reconstruct it from. So the scanner stores the path for every non-Claude row and readers
+  // prefer it whenever present. Stays NULL for Claude rows (reconstruction keeps working unchanged).
+  (db) => {
+    try { db.exec('ALTER TABLE session_cache ADD COLUMN filePath TEXT'); } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_backend ON session_cache(backendId)'); } catch {}
+  },
 ];
 
 const currentDbVersion = (() => {
@@ -580,15 +599,21 @@ const stmts = {
   // Session cache statements
   cacheCount: db.prepare('SELECT COUNT(*) as cnt FROM session_cache'),
   cacheGetAll: db.prepare('SELECT * FROM session_cache'),
+  // backendId / filePath (multi-LLM, v10 + v11) are COALESCEd on update, never overwritten with NULL:
+  // the scanner passes NULL when it cannot tell (no launch overlay, Claude root), and a NULL must not
+  // downgrade a row that already carries an Axis-A profile id — the row is the authoritative
+  // provenance (§5.7) and the overlay is only the bridge until it is written. A NULL on INSERT means
+  // "plain Claude"; the row getters below normalise it to 'claude'.
   cacheUpsert: db.prepare(`
     INSERT INTO session_cache (
       sessionId, folder, projectPath, summary, firstPrompt, created, modified,
       messageCount, userMessageCount, inputTokens, outputTokens, cacheCreationTokens,
       cacheReadTokens, largestUserPromptWords, startedAt, lastEntryAt, activeMinutes,
       slug, aiTitle,
-      parentSessionId, agentId, subagentType, description
+      parentSessionId, agentId, subagentType, description,
+      backendId, filePath
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET
       folder = excluded.folder, projectPath = excluded.projectPath,
       summary = excluded.summary, firstPrompt = excluded.firstPrompt,
@@ -608,10 +633,12 @@ const stmts = {
       parentSessionId = excluded.parentSessionId,
       agentId = excluded.agentId,
       subagentType = excluded.subagentType,
-      description = excluded.description
+      description = excluded.description,
+      backendId = COALESCE(excluded.backendId, session_cache.backendId),
+      filePath = COALESCE(excluded.filePath, session_cache.filePath)
   `),
   cacheGetByParent: db.prepare('SELECT * FROM session_cache WHERE parentSessionId = ? ORDER BY created ASC'),
-  cacheGetByFolder: db.prepare('SELECT sessionId, modified, parentSessionId, agentId FROM session_cache WHERE folder = ?'),
+  cacheGetByFolder: db.prepare('SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath FROM session_cache WHERE folder = ?'),
   cacheGetFolder: db.prepare('SELECT folder FROM session_cache WHERE sessionId = ?'),
   cacheGetSession: db.prepare('SELECT * FROM session_cache WHERE sessionId = ?'),
   cacheDeleteSession: db.prepare('DELETE FROM session_cache WHERE sessionId = ?'),
@@ -1135,12 +1162,69 @@ function getAllProjectTags() {
 
 // --- Session cache functions ---
 
+// --- backend scoping (multi-LLM T-4.2) ---
+//
+// A folder key no longer belongs to ONE backend. A Codex session's folder is the SAME
+// encodeProjectPath(cwd) key as the Claude session in that cwd (project grouping is central and
+// cwd-keyed, §5.9) — so `~/.claude/projects/<folder>` and a Codex rollout can share a row bucket.
+// Every folder-wide read/delete on the scan path must therefore be scoped to the backend being
+// refreshed, or a Claude sweep would delete the Codex rows sitting in "its" folder (and vice versa).
+//
+// scope:
+//   null / undefined  -> all rows (unchanged legacy behaviour: project removal wipes everything)
+//   { except: [ids] } -> everything NOT owned by those backends (the Claude-store sweep: Claude plus
+//                        every Axis-A profile, which shares Claude's store, minus the Axis-B stores)
+//   { only:   [ids] } -> only those backends (a single backend's own sweep)
+//
+// A NULL backendId counts as 'claude' (the v10 DEFAULT, and what the scanner writes when it cannot
+// tell — see cacheUpsert).
+function backendScopeClause(scope, col = 'backendId') {
+  if (!scope) return { sql: '', params: [] };
+  const isOnly = Array.isArray(scope.only);
+  const ids = isOnly ? scope.only : (Array.isArray(scope.except) ? scope.except : null);
+  if (!ids) return { sql: '', params: [] };
+  if (ids.length === 0) return isOnly ? { sql: ' AND 0', params: [] } : { sql: '', params: [] };
+
+  const q = ids.map(() => '?').join(', ');
+  // A NULL backendId IS 'claude' (the v10 DEFAULT, and what the scanner writes when it has nothing
+  // to say). Handled as an explicit OR rather than COALESCE(backendId,'claude') so the comparison
+  // stays on the bare column and idx_session_cache_backend remains usable.
+  const inSide = isOnly ? `${col} IN (${q})` : `${col} NOT IN (${q})`;
+  const claudeListed = ids.includes('claude');
+  const nullSide = isOnly
+    ? (claudeListed ? `${col} IS NULL` : null)   // only:[claude,…] must also match the NULL rows
+    : (claudeListed ? null : `${col} IS NULL`);  // except:[axis-B…] must keep them
+  return {
+    sql: nullSide ? ` AND (${nullSide} OR ${inSide})` : ` AND ${inSide}`,
+    params: ids.slice(),
+  };
+}
+
+// The scope list is dynamic (built-in Axis-B backends + user profiles), so these statements cannot be
+// prepared up front. Memoize by SQL text — the set of distinct shapes is tiny (one per scope size).
+const _scopedStmts = new Map();
+function prepScoped(sql) {
+  let s = _scopedStmts.get(sql);
+  if (!s) { s = db.prepare(sql); _scopedStmts.set(sql, s); }
+  return s;
+}
+
+// A NULL backendId (legacy row, or a row the scanner could not attribute) reads as 'claude'.
+function normalizeCacheRow(row) {
+  if (row && row.backendId == null) row.backendId = 'claude';
+  return row;
+}
+function normalizeCacheRows(rows) {
+  for (const r of rows) if (r.backendId == null) r.backendId = 'claude';
+  return rows;
+}
+
 function isCachePopulated() {
   return stmts.cacheCount.get().cnt > 0;
 }
 
 function getAllCached() {
-  return stmts.cacheGetAll.all();
+  return normalizeCacheRows(stmts.cacheGetAll.all());
 }
 
 const upsertCachedSessionsBatch = db.transaction((sessions) => {
@@ -1154,7 +1238,10 @@ const upsertCachedSessionsBatch = db.transaction((sessions) => {
       s.activeMinutes || 0,
       s.slug || null, s.aiTitle || null,
       s.parentSessionId || null, s.agentId || null,
-      s.subagentType || null, s.description || null
+      s.subagentType || null, s.description || null,
+      // NULL = "unknown" (see cacheUpsert): keeps an already-recorded backendId instead of
+      // downgrading it to 'claude' when the launch overlay has since been evicted.
+      s.backendId || null, s.filePath || null
     );
   }
 });
@@ -1179,15 +1266,21 @@ function replaceSessionMetrics(sessionId, rows) {
 }
 
 function getCachedByParent(parentSessionId) {
-  return stmts.cacheGetByParent.all(parentSessionId);
+  return normalizeCacheRows(stmts.cacheGetByParent.all(parentSessionId));
 }
 
 function upsertCachedSessions(sessions) {
   runWithBusyRetry(() => upsertCachedSessionsBatch(sessions));
 }
 
-function getCachedByFolder(folder) {
-  return stmts.cacheGetByFolder.all(folder);
+// `scope` (optional, see backendScopeClause): restricts the rows to one backend's store. Omitted =
+// every row in the folder, whatever produced it.
+function getCachedByFolder(folder, scope) {
+  if (!scope) return normalizeCacheRows(stmts.cacheGetByFolder.all(folder));
+  const c = backendScopeClause(scope);
+  const sql = 'SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath'
+    + ' FROM session_cache WHERE folder = ?' + c.sql;
+  return normalizeCacheRows(prepScoped(sql).all(folder, ...c.params));
 }
 
 function getCachedFolder(sessionId) {
@@ -1196,7 +1289,7 @@ function getCachedFolder(sessionId) {
 }
 
 function getCachedSession(sessionId) {
-  return stmts.cacheGetSession.get(sessionId) || null;
+  return normalizeCacheRow(stmts.cacheGetSession.get(sessionId) || null);
 }
 
 function deleteCachedSession(sessionId) {
@@ -1206,12 +1299,25 @@ function deleteCachedSession(sessionId) {
   });
 }
 
-function deleteCachedFolder(folder) {
+// `scope` (optional): only delete the rows of that backend store. Without it this stays the old
+// wipe-the-whole-folder call (project removal / cold-start rebuild of a single-backend folder).
+function deleteCachedFolder(folder, scope) {
+  const c = backendScopeClause(scope);
+  const metricsSql = 'DELETE FROM session_metrics WHERE sessionId IN'
+    + ' (SELECT sessionId FROM session_cache WHERE folder = ?' + c.sql + ')';
+  const cacheSql = 'DELETE FROM session_cache WHERE folder = ?' + c.sql;
   runWithBusyRetry(() => {
-    // Delete metrics first — metricsDeleteByFolder sub-selects on session_cache,
-    // so it must run before the session_cache rows for this folder are gone.
-    stmts.metricsDeleteByFolder.run(folder);
-    stmts.cacheDeleteFolder.run(folder);
+    // Delete metrics first — the metrics statement sub-selects on session_cache, so it must run
+    // before the session_cache rows for this folder are gone.
+    if (!scope) {
+      stmts.metricsDeleteByFolder.run(folder);
+      stmts.cacheDeleteFolder.run(folder);
+    } else {
+      prepScoped(metricsSql).run(folder, ...c.params);
+      prepScoped(cacheSql).run(folder, ...c.params);
+    }
+    // cache_meta is Claude's per-folder index state (only the Claude scan writes it), so it is
+    // dropped with the folder in both modes.
     stmts.metaDelete.run(folder);
   });
 }
@@ -1278,12 +1384,37 @@ function deleteSearchSession(sessionId) {
   });
 }
 
-function deleteSearchFolder(folder) {
-  // Same external-content FTS5 ordering: FTS delete before content delete.
+// `scope` (optional, multi-LLM): restrict the wipe to one backend's sessions. search_map has no
+// backendId of its own, so the scope resolves through session_cache. The membership test is phrased
+// so it does NOT depend on the caller's delete order: with { except: [...] } an entry survives only
+// while a session_cache row explicitly owns it for an excluded backend — an orphaned entry (no cache
+// row) is still cleaned up, exactly as the unscoped call would.
+function deleteSearchFolder(folder, scope) {
+  if (!scope) {
+    // Same external-content FTS5 ordering: FTS delete before content delete.
+    runWithBusyRetry(() => {
+      stmts.searchDeleteByFolder.run(folder);
+      stmts.searchDeleteContentByFolder.run(folder);
+      stmts.searchMapDeleteByFolder.run(folder);
+    });
+    return;
+  }
+
+  // Both scope kinds resolve to the same shape: list the sessions of a SET of backends, then keep or
+  // drop the search entries whose id is in that set.
+  //   { only:   [a,b] } -> delete the entries OF a,b            -> id IN     (sessions of {a,b})
+  //   { except: [a,b] } -> delete everything BUT a,b's entries  -> id NOT IN (sessions of {a,b})
+  const ids = Array.isArray(scope.only) ? scope.only : scope.except;
+  const op = Array.isArray(scope.only) ? 'IN' : 'NOT IN';
+  const c = backendScopeClause({ only: ids }, 'sc.backendId');
+  const sub = 'SELECT sc.sessionId FROM session_cache sc WHERE 1 = 1' + c.sql;
+  const mapSel = "SELECT rowid FROM search_map WHERE type = 'session' AND folder = ?"
+    + ` AND id ${op} (${sub})`;
+
   runWithBusyRetry(() => {
-    stmts.searchDeleteByFolder.run(folder);
-    stmts.searchDeleteContentByFolder.run(folder);
-    stmts.searchMapDeleteByFolder.run(folder);
+    prepScoped(`DELETE FROM search_fts WHERE rowid IN (${mapSel})`).run(folder, ...c.params);
+    prepScoped(`DELETE FROM search_content WHERE rowid IN (${mapSel})`).run(folder, ...c.params);
+    prepScoped(`DELETE FROM search_map WHERE rowid IN (${mapSel})`).run(folder, ...c.params);
   });
 }
 

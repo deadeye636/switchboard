@@ -1234,6 +1234,15 @@ function refreshSidebar({ resort = false } = {}) {
     ? cachedAllProjects
     : (showArchived ? cachedAllProjects : cachedProjects);
 
+  // Mixed-mode decision for the provider badges (T-3.1/T-3.4): recomputed from the full session set
+  // (not the filtered one) so a search doesn't flip badges on and off. A single-backend user gets no
+  // badges at all — the app looks exactly as it did before multi-LLM.
+  if (typeof computeShowAllBadges === 'function') {
+    const all = [];
+    for (const p of (cachedAllProjects || [])) for (const s of (p.sessions || [])) all.push(s);
+    computeShowAllBadges(all);
+  }
+
   if (searchMatchIds !== null) {
     projects = projects.map(p => {
       const hasMatchingSessions = p.sessions.some(s => searchMatchIds.has(s.sessionId));
@@ -2726,6 +2735,13 @@ setTimeout(() => {
 
 // Let the settings panel push updated key bindings live (no restart needed).
 window._applyShortcuts = (stored) => setAppShortcuts(stored);
+
+// Load the backend registry + the launch-time overlay once at startup (T-3.1), so the sidebar and the
+// launch picker can resolve a session's backend synchronously. Best-effort: a failure here must not
+// block the app — the caches simply stay empty and everything falls back to Claude.
+if (typeof refreshBackendCaches === 'function') {
+  refreshBackendCaches().then(() => refreshSidebar()).catch(() => {});
+}
 
 loadProjects().then(async () => {
   // Build the project tag-filter chip bar once projects are loaded (#98).

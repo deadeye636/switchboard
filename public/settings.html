@@ -26,9 +26,18 @@
   <script src="utils.js"></script>
   <script src="shortcuts.js"></script>
   <script src="terminal-themes.js"></script>
+  <!-- control-dialogs.js exposes window.showControlDialog — the confirms in settings-panel.js
+       (tag delete, rebuild cache) and backends-panel.js (delete profile, secret/unresolved-ref
+       warnings) need it here too, not just in the main window. -->
+  <script src="control-dialogs.js"></script>
   <!-- session-health.js exposes window.DEFAULT_HANDOFF_PROMPT, used to prefill the
        Handoff prompt textarea. Must load BEFORE settings-panel.js. -->
   <script src="session-health.js"></script>
+  <!-- Multi-LLM: presets + icons before backends-panel.js (it reads window.BACKEND_PRESETS /
+       window.renderBackendIcon); settings-panel.js mounts the Backends section. -->
+  <script src="backend-presets.js"></script>
+  <script src="backend-icons.js"></script>
+  <script src="backends-panel.js"></script>
   <script src="settings-panel.js"></script>
   <script src="settings-window.js"></script>
 </body>

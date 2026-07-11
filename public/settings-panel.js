@@ -453,7 +453,11 @@
     const attentionHooksValue = fieldValue('attentionHooks', false);
     const secretRefCleanupValue = fieldValue('secretRefCleanupOnSessionStop', true);
     const secretRefSweepValue = fieldValue('secretRefSweepMinutes', 0);
+    // Two shells, split by intent (T-2.5): `shellProfile` hosts Claude and every backend CLI
+    // spawn; `terminalShellProfile` is the plain Terminal / External Terminal bucket. 'inherit'
+    // falls back to the CLI shell — the default, so nothing changes until it is set.
     const shellProfileValue = fieldValue('shellProfile', 'auto');
+    const terminalShellProfileValue = fieldValue('terminalShellProfile', 'inherit');
     // #17 project list (global only): sort mode + favorites presentation.
     const projectSortValue = !isProject ? (current.projectSortMode || 'activity') : 'activity';
     const favoritesOwnListValue = !isProject ? !!current.favoritesOwnList : false;
@@ -658,6 +662,50 @@
             </div>
           </div>
         </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Shells</div>
+
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">CLI shell</span>
+                ${useGlobalCheckbox('shellProfile')}
+              </div>
+              <div class="settings-description">Shell that hosts Claude and every backend CLI in this project. New sessions only.</div>
+            </div>
+            <div class="settings-field-control">
+              <select class="settings-select" id="sv-shell-profile" ${fieldDisabled('shellProfile')}>
+                <option value="auto" ${shellProfileValue === 'auto' ? 'selected' : ''}>Auto (detect)</option>
+                ${shellProfiles.map(p =>
+                  `<option value="${escapeHtml(p.id)}" ${shellProfileValue === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+                ).join('')}
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Terminal shell</span>
+                ${useGlobalCheckbox('terminalShellProfile')}
+              </div>
+              <div class="settings-description">Shell for the in-app Terminal and External Terminal. Inherit = use the CLI shell above.</div>
+            </div>
+            <div class="settings-field-control">
+              <select class="settings-select" id="sv-terminal-shell-profile" ${fieldDisabled('terminalShellProfile')}>
+                <option value="inherit" ${terminalShellProfileValue === 'inherit' ? 'selected' : ''}>Inherit from CLI shell</option>
+                <option value="auto" ${terminalShellProfileValue === 'auto' ? 'selected' : ''}>Auto (detect)</option>
+                ${shellProfiles.map(p =>
+                  `<option value="${escapeHtml(p.id)}" ${terminalShellProfileValue === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+                ).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Per-backend launch defaults (T-2.6) — rendered from each backend's configFields. -->
+        <div id="sv-backends-root"></div>
         ${btnRow}
       </div>`;
     } else {
@@ -670,12 +718,13 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7a7a90" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
             <input id="sv-search" type="text" placeholder="Search settings…" autocomplete="off">
           </div>
-          <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">12</span></button>
+          <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">13</span></button>
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">7</span></button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
           <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
+          <button class="settings-nav-item" data-cat="backends">Backends</button>
           <div class="settings-nav-sep"></div>
           <button class="settings-nav-item" data-cat="shortcuts">Keyboard Shortcuts <span class="settings-nav-count">${SHORTCUT_DEFS.length}</span></button>
           <button class="settings-nav-item" data-cat="handoff">Handoff <span class="settings-nav-count">2</span></button>
@@ -740,14 +789,29 @@
                 </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
-                    <span class="settings-label">Shell profile</span>
-                    <div class="settings-description">Shell for new terminal and Claude sessions. New sessions only.</div>
+                    <span class="settings-label">CLI shell</span>
+                    <div class="settings-description">Shell that hosts Claude and every backend CLI when a session launches. New sessions only.</div>
                   </div>
                   <div class="settings-field-control">
                     <select class="settings-select" id="sv-shell-profile">
                       <option value="auto" ${shellProfileValue === 'auto' ? 'selected' : ''}>Auto (detect)</option>
                       ${shellProfiles.map(p =>
                         `<option value="${escapeHtml(p.id)}" ${shellProfileValue === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+                      ).join('')}
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Terminal shell</span>
+                    <div class="settings-description">Shell for the in-app Terminal and External Terminal. Inherit = use the CLI shell above.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-terminal-shell-profile">
+                      <option value="inherit" ${terminalShellProfileValue === 'inherit' ? 'selected' : ''}>Inherit from CLI shell</option>
+                      <option value="auto" ${terminalShellProfileValue === 'auto' ? 'selected' : ''}>Auto (detect)</option>
+                      ${shellProfiles.map(p =>
+                        `<option value="${escapeHtml(p.id)}" ${terminalShellProfileValue === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
                       ).join('')}
                     </select>
                   </div>
@@ -840,6 +904,25 @@
                   </div>
                 </div>
               </details>
+
+              <div class="settings-section">
+                <div class="settings-section-title">Maintenance</div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Rebuild session cache</span>
+                    <div class="settings-description">Drop and re-scan the session index. Use it if sessions look stale or wrong. Full re-scan — may take a while.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <button type="button" class="settings-action-btn danger" id="sv-rebuild-cache">Rebuild session cache…</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- ===== Backends (Phase 2, T-2.3/T-2.6) ===== -->
+            <section class="settings-cat" data-cat="backends">
+              <div class="settings-cat-head"><h2>Backends</h2><p>Which coding agents Switchboard can launch.</p></div>
+              <div id="sv-backends-root"></div>
             </section>
 
             <!-- ===== Terminal ===== -->
@@ -1540,6 +1623,22 @@
       });
     }
 
+    // --- Backends (T-2.3/T-2.6): backends-panel.js owns the section's DOM. Global scope gets the
+    // full manage UI (enable toggles, profiles, templates, default launch target + launch
+    // defaults); project scope only gets the launch-defaults block, since activation and the
+    // default target are global-only settings.
+    const backendsRoot = settingsViewerBody.querySelector('#sv-backends-root');
+    if (backendsRoot && window.backendsPanel) {
+      window.backendsPanel.mount(backendsRoot, {
+        isProject,
+        settings: current,
+        fieldValue,
+        useGlobalCheckbox,
+      }).catch(() => {
+        backendsRoot.innerHTML = '<div class="settings-hint">Could not load the backend list.</div>';
+      });
+    }
+
     // Use-global checkboxes toggle field disabled state
     settingsViewerBody.querySelectorAll('.use-global-cb').forEach(cb => {
       cb.addEventListener('change', () => {
@@ -1553,11 +1652,51 @@
           preLaunchCmd: 'sv-pre-launch',
           addDirs: 'sv-add-dirs',
           afkTimeoutSec: 'sv-afk-timeout',
+          shellProfile: 'sv-shell-profile',
+          terminalShellProfile: 'sv-terminal-shell-profile',
         };
         const input = settingsViewerBody.querySelector('#' + fieldMap[field]);
         if (input) input.disabled = cb.checked;
       });
     });
+
+    // The backendDefaults "use global default" checkbox arrives with the async-mounted section, so
+    // it is handled by delegation on that section (not the persistent viewer body, which would
+    // stack a listener per open) — and it gates a whole panel of controls, not a single input.
+    if (backendsRoot) {
+      backendsRoot.addEventListener('change', (e) => {
+        const cb = e.target.closest && e.target.closest('.use-global-cb');
+        if (!cb || cb.dataset.field !== 'backendDefaults') return;
+        backendsRoot.querySelectorAll('.backend-default-input').forEach(el => { el.disabled = cb.checked; });
+      });
+    }
+
+    // Rebuild session cache (T-2.7) — the existing rebuild-cache IPC, behind a confirm.
+    const rebuildBtn = settingsViewerBody.querySelector('#sv-rebuild-cache');
+    if (rebuildBtn) {
+      rebuildBtn.addEventListener('click', async () => {
+        const confirmed = typeof showControlDialog === 'function'
+          ? await showControlDialog({
+              title: 'Rebuild session cache?',
+              message: 'The session index is dropped and re-scanned from disk. Full re-scan, may take a while. Your session files are not touched.',
+              confirmLabel: 'Rebuild',
+              cancelLabel: 'Cancel',
+              tone: 'warning',
+            })
+          : window.confirm('Rebuild the session cache? Full re-scan, may take a while.');
+        if (!confirmed) return;
+        const label = rebuildBtn.textContent;
+        rebuildBtn.disabled = true;
+        rebuildBtn.textContent = 'Rebuilding…';
+        try {
+          await window.api.rebuildCache();
+          rebuildBtn.textContent = '✓ Rebuilt';
+        } catch {
+          rebuildBtn.textContent = 'Rebuild failed';
+        }
+        setTimeout(() => { rebuildBtn.textContent = label; rebuildBtn.disabled = false; }, 2500);
+      });
+    }
 
     // --- Keyboard shortcut rebinding (global only) ---
     // Capture listeners live on the button element itself (not on document), so
@@ -1785,6 +1924,15 @@
               preLaunchCmd: () => settingsViewerBody.querySelector('#sv-pre-launch').value.trim(),
               addDirs: () => settingsViewerBody.querySelector('#sv-add-dirs').value.trim(),
               afkTimeoutSec: () => normalizeAfk(settingsViewerBody.querySelector('#sv-afk-timeout').value),
+              // Both shells cascade per project (T-2.5). `terminalShellProfile` is not consumed yet
+              // (Phase 3, T-3.7); 'inherit' means "use the CLI shell", so this is a no-op today.
+              shellProfile: () => settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto',
+              terminalShellProfile: () => settingsViewerBody.querySelector('#sv-terminal-shell-profile').value || 'inherit',
+              // Per-backend launch options (T-2.6): the whole blob is the overridable unit — the
+              // cascade merges settings at top-level key granularity.
+              backendDefaults: () => (window.backendsPanel
+                ? window.backendsPanel.readProjectDefaults(settingsViewerBody.querySelector('#sv-backends-root'))
+                : {}),
             };
             if (fieldMap[field]) settings[field] = fieldMap[field]();
           }
@@ -1882,7 +2030,21 @@
         const svSecretSweep = settingsViewerBody.querySelector('#sv-secret-ref-sweep');
         if (svSecretSweep) settings.secretRefSweepMinutes = Math.max(0, parseInt(svSecretSweep.value, 10) || 0);
         settings.shellProfile = settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto';
+        settings.terminalShellProfile = settingsViewerBody.querySelector('#sv-terminal-shell-profile')?.value || 'inherit';
         settings.logLevel = settingsViewerBody.querySelector('#sv-log-level')?.value || 'info';
+        // Backends (T-2.3/T-2.6): backendEnabled.<id> + defaultLaunchTarget (both global-only) and
+        // backendDefaults.<id>.<opt>. Null when the section never mounted — then leave the stored
+        // values alone rather than clobbering them with an empty object.
+        {
+          const bs = window.backendsPanel
+            ? window.backendsPanel.readGlobal(settingsViewerBody.querySelector('#sv-backends-root'))
+            : null;
+          if (bs) {
+            settings.backendEnabled = bs.backendEnabled;
+            settings.defaultLaunchTarget = bs.defaultLaunchTarget;
+            settings.backendDefaults = bs.backendDefaults;
+          }
+        }
         // Build only the form-managed keys here; these sub-objects are re-based on
         // the freshly-read global below so a second settings window's changes since
         // this dialog opened aren't clobbered (issue #75) — hence no stale `current`
@@ -1915,6 +2077,17 @@
       }
 
       await window.api.setSetting(settingsKey, settings);
+
+      // Keep the profiles store's own default in step with the single default marker: if the
+      // default launch target is a user profile, it is also the default profile; otherwise no
+      // profile is the default (a plain Claude launch must not pick one up).
+      if (!isProject && settings.defaultLaunchTarget && window.api.profiles) {
+        try {
+          const res = await window.api.profiles.list();
+          const isProfile = ((res && res.profiles) || []).some(p => p.id === settings.defaultLaunchTarget);
+          await window.api.profiles.setDefault(isProfile ? settings.defaultLaunchTarget : null);
+        } catch {}
+      }
 
       // Standalone settings window: tell the main window to re-apply the changes
       // (it owns the live UI). The in-app overlay applies directly below instead.

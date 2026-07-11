@@ -1,7 +1,11 @@
 // --- Dialogs & session launch helpers ---
 // Depends on globals: launchNewSession, cachedProjects, cachedAllProjects, sessionMap,
 // pendingSessions, openSessions, activePtyIds, refreshSidebar, pollActiveSessions (app.js)
-// Depends on: ICONS (icons.js)
+// Depends on: ICONS (icons.js), backend-registry.js (launchableBackends/getBackend/refreshBackendCaches),
+//   backend-icons.js (renderBackendIcon)
+
+// Claude's brand mark, used for its row in the launch picker (other backends render a monogram badge).
+const CLAUDE_POPOVER_ICON = '<svg class="popover-option-icon claude-icon" width="16" height="16" viewBox="0 0 1200 1200" fill="#d97757" stroke="none"><path d="M 233.959793 800.214905 L 468.644287 668.536987 L 472.590637 657.100647 L 468.644287 650.738403 L 457.208069 650.738403 L 417.986633 648.322144 L 283.892639 644.69812 L 167.597321 639.865845 L 54.926208 633.825623 L 26.577238 627.785339 L 3.3e-05 592.751709 L 2.73832 575.27533 L 26.577238 559.248352 L 60.724873 562.228149 L 136.187973 567.382629 L 249.422867 575.194763 L 331.570496 580.026978 L 453.261841 592.671082 L 472.590637 592.671082 L 475.328857 584.859009 L 468.724915 580.026978 L 463.570557 575.194763 L 346.389313 495.785217 L 219.543671 411.865906 L 153.100723 363.543762 L 117.181267 339.060425 L 99.060455 316.107361 L 91.248367 266.01355 L 123.865784 230.093994 L 167.677887 233.073853 L 178.872513 236.053772 L 223.248367 270.201477 L 318.040283 343.570496 L 441.825592 434.738342 L 459.946411 449.798706 L 467.194672 444.64447 L 468.080597 441.020203 L 459.946411 427.409485 L 392.617493 305.718323 L 320.778564 181.932983 L 288.80542 130.630859 L 280.348999 99.865845 C 277.369171 87.221436 275.194641 76.590698 275.194641 63.624268 L 312.322174 13.20813 L 332.8591 6.604126 L 382.389313 13.20813 L 403.248352 31.328979 L 434.013519 101.71814 L 483.865753 212.537048 L 561.181274 363.221497 L 583.812134 407.919434 L 595.892639 449.315491 L 600.40271 461.959839 L 608.214783 461.959839 L 608.214783 454.711609 L 614.577271 369.825623 L 626.335632 265.61084 L 637.771851 131.516846 L 641.718201 93.745117 L 660.402832 48.483276 L 697.530334 24.000122 L 726.52356 37.852417 L 750.362549 72 L 747.060486 94.067139 L 732.886047 186.201416 L 705.100708 330.52356 L 686.979919 427.167847 L 697.530334 427.167847 L 709.61084 415.087341 L 758.496704 350.174561 L 840.644348 247.490051 L 876.885925 206.738342 L 919.167847 161.71814 L 946.308838 140.29541 L 997.61084 140.29541 L 1035.38269 196.429626 L 1018.469849 254.416199 L 965.637634 321.422852 L 921.825562 378.201538 L 859.006714 462.765259 L 819.785278 530.41626 L 823.409424 535.812073 L 832.75177 534.92627 L 974.657776 504.724915 L 1051.328979 490.872559 L 1142.818848 475.167786 L 1184.214844 494.496582 L 1188.724854 514.147644 L 1172.456421 554.335693 L 1074.604126 578.496765 L 959.838989 601.449829 L 788.939636 641.879272 L 786.845764 643.409485 L 789.261841 646.389343 L 866.255127 653.637634 L 899.194702 655.409424 L 979.812134 655.409424 L 1129.932861 666.604187 L 1169.154419 692.537109 L 1192.671265 724.268677 L 1188.724854 748.429688 L 1128.322144 779.194641 L 1046.818848 759.865845 L 856.590759 714.604126 L 791.355774 698.335754 L 782.335693 698.335754 L 782.335693 703.731567 L 836.69812 756.885986 L 936.322205 846.845581 L 1061.073975 962.81897 L 1067.436279 991.490112 L 1051.409424 1014.120911 L 1034.496704 1011.704712 L 924.885986 929.234924 L 882.604126 892.107544 L 786.845764 811.48999 L 780.483276 811.48999 L 780.483276 819.946289 L 802.550415 852.241699 L 919.087341 1027.409424 L 925.127625 1081.127686 L 916.671204 1098.604126 L 886.469849 1109.154419 L 853.288696 1103.114136 L 785.073914 1007.355835 L 714.684631 899.516785 L 657.906067 802.872498 L 650.979858 806.81897 L 617.476624 1167.704834 L 601.771851 1186.147705 L 565.530212 1200 L 535.328857 1177.046997 L 519.302124 1139.919556 L 535.328857 1066.550537 L 554.657776 970.792053 L 570.362488 894.68457 L 584.536926 800.134277 L 592.993347 768.724976 L 592.429626 766.630859 L 585.503479 767.516968 L 514.22821 865.369263 L 405.825531 1011.865906 L 320.053711 1103.677979 L 299.516815 1111.812256 L 263.919525 1093.369263 L 267.221497 1060.429688 L 287.114136 1031.114136 L 405.825531 880.107361 L 477.422913 786.52356 L 523.651062 732.483276 L 523.328918 724.671265 L 520.590698 724.671265 L 205.288605 929.395935 L 149.154434 936.644409 L 124.993355 914.01355 L 127.973183 876.885986 L 139.409409 864.80542 L 234.201385 799.570435 L 233.879227 799.8927 Z"/></svg>';
 
 // --- New session dialog ---
 async function resolveDefaultSessionOptions(project) {
@@ -20,6 +24,43 @@ async function resolveDefaultSessionOptions(project) {
   if (effective.preLaunchCmd) options.preLaunchCmd = effective.preLaunchCmd;
   if (effective.addDirs) options.addDirs = effective.addDirs;
   if (effective.mcpEmulation === false) options.mcpEmulation = false;
+  // NOTE: Claude's launch defaults live HERE (Sessions & CLI), not in backendDefaults.claude.*. Two
+  // homes for one setting means invisible precedence — see backends-panel.js. Axis-B backends, which
+  // have no legacy home, use backendDefaults.<id> via applyBackendDefaultsToOptions below.
+  return options;
+}
+
+// Map an Axis-B backend's `configFields` values (backendDefaults.<id>.<opt>) onto sessionOptions.
+// The stored blob is AUTHORITATIVE for the keys it contains, so an explicitly-off toggle or a
+// cleared text field really does turn the option off (a "skip falsy" merge could only ever turn
+// options ON, which silently strands the user's "off").
+function applyBackendDefaultsToOptions(options, defaults) {
+  if (!defaults || typeof defaults !== 'object') return options;
+  for (const [key, value] of Object.entries(defaults)) {
+    if (value === '' || value == null || value === false) { delete options[key]; continue; }
+    options[key] = value;
+  }
+  return options;
+}
+
+// The effective launch options for ONE backend: Claude (and every Axis-A profile — same binary, same
+// options) reuses the existing Claude resolution; an Axis-B binary has its OWN option schema, so it
+// only takes its backendDefaults.<id> block. `backendId` rides along so main.js routes the spawn.
+async function resolveLaunchOptionsFor(project, backendId) {
+  const backend = window.getBackend ? window.getBackend(backendId) : null;
+  const isAxisB = backend && backend.axis === 'B';
+
+  let options;
+  if (isAxisB) {
+    const effective = await window.api.getEffectiveSettings(project.projectPath);
+    options = applyBackendDefaultsToOptions({}, (effective.backendDefaults || {})[backendId]);
+  } else {
+    options = await resolveDefaultSessionOptions(project);
+  }
+
+  options.backendId = backendId;
+  // A profile is a user-created Axis-A backend; record it in the overlay as the profile too (§5.7).
+  if (backend && backend.isProfile) options.profileId = backendId;
   return options;
 }
 
@@ -88,23 +129,60 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
   const popover = document.createElement('div');
   popover.className = 'new-session-popover';
 
-  const claudeBtn = document.createElement('button');
-  claudeBtn.className = 'popover-option';
-  claudeBtn.innerHTML = '<svg class="popover-option-icon claude-icon" width="16" height="16" viewBox="0 0 1200 1200" fill="#d97757" stroke="none"><path d="M 233.959793 800.214905 L 468.644287 668.536987 L 472.590637 657.100647 L 468.644287 650.738403 L 457.208069 650.738403 L 417.986633 648.322144 L 283.892639 644.69812 L 167.597321 639.865845 L 54.926208 633.825623 L 26.577238 627.785339 L 3.3e-05 592.751709 L 2.73832 575.27533 L 26.577238 559.248352 L 60.724873 562.228149 L 136.187973 567.382629 L 249.422867 575.194763 L 331.570496 580.026978 L 453.261841 592.671082 L 472.590637 592.671082 L 475.328857 584.859009 L 468.724915 580.026978 L 463.570557 575.194763 L 346.389313 495.785217 L 219.543671 411.865906 L 153.100723 363.543762 L 117.181267 339.060425 L 99.060455 316.107361 L 91.248367 266.01355 L 123.865784 230.093994 L 167.677887 233.073853 L 178.872513 236.053772 L 223.248367 270.201477 L 318.040283 343.570496 L 441.825592 434.738342 L 459.946411 449.798706 L 467.194672 444.64447 L 468.080597 441.020203 L 459.946411 427.409485 L 392.617493 305.718323 L 320.778564 181.932983 L 288.80542 130.630859 L 280.348999 99.865845 C 277.369171 87.221436 275.194641 76.590698 275.194641 63.624268 L 312.322174 13.20813 L 332.8591 6.604126 L 382.389313 13.20813 L 403.248352 31.328979 L 434.013519 101.71814 L 483.865753 212.537048 L 561.181274 363.221497 L 583.812134 407.919434 L 595.892639 449.315491 L 600.40271 461.959839 L 608.214783 461.959839 L 608.214783 454.711609 L 614.577271 369.825623 L 626.335632 265.61084 L 637.771851 131.516846 L 641.718201 93.745117 L 660.402832 48.483276 L 697.530334 24.000122 L 726.52356 37.852417 L 750.362549 72 L 747.060486 94.067139 L 732.886047 186.201416 L 705.100708 330.52356 L 686.979919 427.167847 L 697.530334 427.167847 L 709.61084 415.087341 L 758.496704 350.174561 L 840.644348 247.490051 L 876.885925 206.738342 L 919.167847 161.71814 L 946.308838 140.29541 L 997.61084 140.29541 L 1035.38269 196.429626 L 1018.469849 254.416199 L 965.637634 321.422852 L 921.825562 378.201538 L 859.006714 462.765259 L 819.785278 530.41626 L 823.409424 535.812073 L 832.75177 534.92627 L 974.657776 504.724915 L 1051.328979 490.872559 L 1142.818848 475.167786 L 1184.214844 494.496582 L 1188.724854 514.147644 L 1172.456421 554.335693 L 1074.604126 578.496765 L 959.838989 601.449829 L 788.939636 641.879272 L 786.845764 643.409485 L 789.261841 646.389343 L 866.255127 653.637634 L 899.194702 655.409424 L 979.812134 655.409424 L 1129.932861 666.604187 L 1169.154419 692.537109 L 1192.671265 724.268677 L 1188.724854 748.429688 L 1128.322144 779.194641 L 1046.818848 759.865845 L 856.590759 714.604126 L 791.355774 698.335754 L 782.335693 698.335754 L 782.335693 703.731567 L 836.69812 756.885986 L 936.322205 846.845581 L 1061.073975 962.81897 L 1067.436279 991.490112 L 1051.409424 1014.120911 L 1034.496704 1011.704712 L 924.885986 929.234924 L 882.604126 892.107544 L 786.845764 811.48999 L 780.483276 811.48999 L 780.483276 819.946289 L 802.550415 852.241699 L 919.087341 1027.409424 L 925.127625 1081.127686 L 916.671204 1098.604126 L 886.469849 1109.154419 L 853.288696 1103.114136 L 785.073914 1007.355835 L 714.684631 899.516785 L 657.906067 802.872498 L 650.979858 806.81897 L 617.476624 1167.704834 L 601.771851 1186.147705 L 565.530212 1200 L 535.328857 1177.046997 L 519.302124 1139.919556 L 535.328857 1066.550537 L 554.657776 970.792053 L 570.362488 894.68457 L 584.536926 800.134277 L 592.993347 768.724976 L 592.429626 766.630859 L 585.503479 767.516968 L 514.22821 865.369263 L 405.825531 1011.865906 L 320.053711 1103.677979 L 299.516815 1111.812256 L 263.919525 1093.369263 L 267.221497 1060.429688 L 287.114136 1031.114136 L 405.825531 880.107361 L 477.422913 786.52356 L 523.651062 732.483276 L 523.328918 724.671265 L 520.590698 724.671265 L 205.288605 929.395935 L 149.154434 936.644409 L 124.993355 914.01355 L 127.973183 876.885986 L 139.409409 864.80542 L 234.201385 799.570435 L 233.879227 799.8927 Z"/></svg> Claude';
-  claudeBtn.onclick = async () => { popover.remove(); launchNewSession(project, await resolveDefaultSessionOptions(project), undefined, groupId); };
+  // One row per ready && enabled backend (T-3.2). The row BODY launches with the effective defaults;
+  // the inline gear opens the Configure dialog for a one-off override. This merges Claude's old
+  // two-row pattern ("Claude" + "Claude (Configure...)") into a single row per backend, so adding a
+  // backend doesn't double the menu length. Only `ready && enabled` backends appear (§5.8) — a
+  // `planned` or disabled one is never offered.
+  await (window.refreshBackendCaches ? window.refreshBackendCaches() : Promise.resolve());
+  const backendList = window.launchableBackends ? window.launchableBackends() : [];
+  // Claude first, then the other built-ins, then user profiles — a stable, predictable order.
+  backendList.sort((a, b) => {
+    if (a.id === 'claude') return -1;
+    if (b.id === 'claude') return 1;
+    if (!!a.isProfile !== !!b.isProfile) return a.isProfile ? 1 : -1;
+    return String(a.label).localeCompare(String(b.label));
+  });
 
-  const claudeOptsBtn = document.createElement('button');
-  claudeOptsBtn.className = 'popover-option';
-  claudeOptsBtn.innerHTML = '<svg class="popover-option-icon claude-icon" width="16" height="16" viewBox="0 0 1200 1200" fill="#d97757" stroke="none"><path d="M 233.959793 800.214905 L 468.644287 668.536987 L 472.590637 657.100647 L 468.644287 650.738403 L 457.208069 650.738403 L 417.986633 648.322144 L 283.892639 644.69812 L 167.597321 639.865845 L 54.926208 633.825623 L 26.577238 627.785339 L 3.3e-05 592.751709 L 2.73832 575.27533 L 26.577238 559.248352 L 60.724873 562.228149 L 136.187973 567.382629 L 249.422867 575.194763 L 331.570496 580.026978 L 453.261841 592.671082 L 472.590637 592.671082 L 475.328857 584.859009 L 468.724915 580.026978 L 463.570557 575.194763 L 346.389313 495.785217 L 219.543671 411.865906 L 153.100723 363.543762 L 117.181267 339.060425 L 99.060455 316.107361 L 91.248367 266.01355 L 123.865784 230.093994 L 167.677887 233.073853 L 178.872513 236.053772 L 223.248367 270.201477 L 318.040283 343.570496 L 441.825592 434.738342 L 459.946411 449.798706 L 467.194672 444.64447 L 468.080597 441.020203 L 459.946411 427.409485 L 392.617493 305.718323 L 320.778564 181.932983 L 288.80542 130.630859 L 280.348999 99.865845 C 277.369171 87.221436 275.194641 76.590698 275.194641 63.624268 L 312.322174 13.20813 L 332.8591 6.604126 L 382.389313 13.20813 L 403.248352 31.328979 L 434.013519 101.71814 L 483.865753 212.537048 L 561.181274 363.221497 L 583.812134 407.919434 L 595.892639 449.315491 L 600.40271 461.959839 L 608.214783 461.959839 L 608.214783 454.711609 L 614.577271 369.825623 L 626.335632 265.61084 L 637.771851 131.516846 L 641.718201 93.745117 L 660.402832 48.483276 L 697.530334 24.000122 L 726.52356 37.852417 L 750.362549 72 L 747.060486 94.067139 L 732.886047 186.201416 L 705.100708 330.52356 L 686.979919 427.167847 L 697.530334 427.167847 L 709.61084 415.087341 L 758.496704 350.174561 L 840.644348 247.490051 L 876.885925 206.738342 L 919.167847 161.71814 L 946.308838 140.29541 L 997.61084 140.29541 L 1035.38269 196.429626 L 1018.469849 254.416199 L 965.637634 321.422852 L 921.825562 378.201538 L 859.006714 462.765259 L 819.785278 530.41626 L 823.409424 535.812073 L 832.75177 534.92627 L 974.657776 504.724915 L 1051.328979 490.872559 L 1142.818848 475.167786 L 1184.214844 494.496582 L 1188.724854 514.147644 L 1172.456421 554.335693 L 1074.604126 578.496765 L 959.838989 601.449829 L 788.939636 641.879272 L 786.845764 643.409485 L 789.261841 646.389343 L 866.255127 653.637634 L 899.194702 655.409424 L 979.812134 655.409424 L 1129.932861 666.604187 L 1169.154419 692.537109 L 1192.671265 724.268677 L 1188.724854 748.429688 L 1128.322144 779.194641 L 1046.818848 759.865845 L 856.590759 714.604126 L 791.355774 698.335754 L 782.335693 698.335754 L 782.335693 703.731567 L 836.69812 756.885986 L 936.322205 846.845581 L 1061.073975 962.81897 L 1067.436279 991.490112 L 1051.409424 1014.120911 L 1034.496704 1011.704712 L 924.885986 929.234924 L 882.604126 892.107544 L 786.845764 811.48999 L 780.483276 811.48999 L 780.483276 819.946289 L 802.550415 852.241699 L 919.087341 1027.409424 L 925.127625 1081.127686 L 916.671204 1098.604126 L 886.469849 1109.154419 L 853.288696 1103.114136 L 785.073914 1007.355835 L 714.684631 899.516785 L 657.906067 802.872498 L 650.979858 806.81897 L 617.476624 1167.704834 L 601.771851 1186.147705 L 565.530212 1200 L 535.328857 1177.046997 L 519.302124 1139.919556 L 535.328857 1066.550537 L 554.657776 970.792053 L 570.362488 894.68457 L 584.536926 800.134277 L 592.993347 768.724976 L 592.429626 766.630859 L 585.503479 767.516968 L 514.22821 865.369263 L 405.825531 1011.865906 L 320.053711 1103.677979 L 299.516815 1111.812256 L 263.919525 1093.369263 L 267.221497 1060.429688 L 287.114136 1031.114136 L 405.825531 880.107361 L 477.422913 786.52356 L 523.651062 732.483276 L 523.328918 724.671265 L 520.590698 724.671265 L 205.288605 929.395935 L 149.154434 936.644409 L 124.993355 914.01355 L 127.973183 876.885986 L 139.409409 864.80542 L 234.201385 799.570435 L 233.879227 799.8927 Z"/></svg> Claude (Configure...)';
-  claudeOptsBtn.onclick = () => { popover.remove(); showNewSessionDialog(project, groupId); };
+  for (const backend of backendList) {
+    const row = document.createElement('div');
+    row.className = 'popover-option popover-option-backend';
+
+    const launchBtn = document.createElement('button');
+    launchBtn.className = 'popover-option-body';
+    launchBtn.title = `Start a ${backend.label} session with the current defaults`;
+    if (backend.id === 'claude') {
+      launchBtn.innerHTML = CLAUDE_POPOVER_ICON;
+      launchBtn.append(' Claude');
+    } else if (window.renderBackendIcon) {
+      const icon = window.renderBackendIcon(backend.icon || backend.id, 16, { monogram: backend.monogram });
+      icon.classList.add('popover-option-icon');
+      launchBtn.appendChild(icon);
+      launchBtn.append(' ' + backend.label);
+    } else {
+      launchBtn.textContent = backend.label;
+    }
+    launchBtn.onclick = async () => {
+      popover.remove();
+      launchNewSession(project, await resolveLaunchOptionsFor(project, backend.id), undefined, groupId);
+    };
+
+    const gearBtn = document.createElement('button');
+    gearBtn.className = 'popover-option-gear';
+    gearBtn.title = `Configure this ${backend.label} session`;
+    gearBtn.setAttribute('aria-label', `Configure ${backend.label}`);
+    gearBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+    gearBtn.onclick = () => { popover.remove(); showNewSessionDialog(project, groupId, backend.id); };
+
+    row.appendChild(launchBtn);
+    row.appendChild(gearBtn);
+    popover.appendChild(row);
+  }
 
   const termBtn = document.createElement('button');
   termBtn.className = 'popover-option popover-option-terminal';
   termBtn.innerHTML = '<svg class="popover-option-icon terminal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg> Terminal';
   termBtn.onclick = () => { popover.remove(); launchTerminalSession(project, groupId); };
-
-  popover.appendChild(claudeBtn);
-  popover.appendChild(claudeOptsBtn);
 
   // "Claude Handoff resume" — only in Handoff-library mode. Disabled+greyed when the
   // project has no saved handoffs (visible, not hidden).
@@ -263,7 +341,89 @@ function createPermissionModePicker(effective) {
   };
 }
 
-async function showNewSessionDialog(project, groupId) {
+// The Configure dialog for a backend whose launch options are its OWN (Axis-B: Codex, later Gemini).
+// It is GENERATED from the descriptor's `configFields` (00 §4a) and pre-filled from the effective
+// per-backend defaults (default → global → project), so a new backend needs no dialog code — it just
+// declares its schema. Claude (and every Axis-A profile, which runs the same binary with the same
+// options) keeps its purpose-built form below, which carries behaviour the generic schema doesn't
+// model (worktree naming, pre-launch command, AFK timeout).
+async function showGeneratedConfigDialog(project, groupId, backend) {
+  const effective = await window.api.getEffectiveSettings(project.projectPath);
+  const saved = (effective.backendDefaults || {})[backend.id] || {};
+  const fields = backend.configFields || [];
+
+  const overlay = document.createElement('div');
+  overlay.className = 'new-session-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'new-session-dialog';
+
+  const body = fields.map((f, i) => {
+    const val = saved[f.id] !== undefined ? saved[f.id] : f.default;
+    const id = `gcd-${i}`;
+    let control;
+    if (f.type === 'select') {
+      const opts = (f.choices || []).map(c =>
+        `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String(c))}</option>`
+      ).join('');
+      control = `<select class="settings-select" id="${id}">${opts}</select>`;
+    } else if (f.type === 'toggle') {
+      control = `<label class="settings-toggle"><input type="checkbox" id="${id}" ${val ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>`;
+    } else {
+      const t = f.type === 'number' ? 'text' : 'text';
+      control = `<input type="${t}" class="settings-input" id="${id}" value="${escapeHtml(val == null ? '' : String(val))}">`;
+    }
+    return `
+      <div class="settings-field settings-field-wide">
+        <div class="settings-field-info"><span class="settings-label">${escapeHtml(f.label || f.id)}</span></div>
+        <div class="settings-field-control">${control}</div>
+      </div>`;
+  }).join('');
+
+  dialog.innerHTML = `
+    <h3>New ${escapeHtml(backend.label)} Session — ${escapeHtml(project.projectPath.split(/[\\/]/).filter(Boolean).slice(-2).join('/'))}</h3>
+    ${body || '<div class="settings-description">This backend has no launch options.</div>'}
+    <div class="new-session-actions">
+      <button class="new-session-cancel-btn">Cancel</button>
+      <button class="new-session-start-btn">Start</button>
+    </div>
+  `;
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  function close() {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+  function start() {
+    const options = { backendId: backend.id };
+    fields.forEach((f, i) => {
+      const el = dialog.querySelector(`#gcd-${i}`);
+      if (!el) return;
+      const v = f.type === 'toggle' ? el.checked : el.value.trim();
+      if (v === '' || v === false) return;
+      options[f.id] = v;
+    });
+    close();
+    launchNewSession(project, options, undefined, groupId);
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') close();
+    else if (e.key === 'Enter') start();
+  }
+  dialog.querySelector('.new-session-cancel-btn').onclick = close;
+  dialog.querySelector('.new-session-start-btn').onclick = start;
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+  document.addEventListener('keydown', onKey);
+}
+
+async function showNewSessionDialog(project, groupId, backendId) {
+  // An Axis-B binary has its own option schema -> generated dialog. Claude and Axis-A profiles share
+  // the claude binary (and therefore Claude's options) -> the purpose-built form below.
+  const backend = (backendId && window.getBackend) ? window.getBackend(backendId) : null;
+  if (backend && backend.axis === 'B') {
+    return showGeneratedConfigDialog(project, groupId, backend);
+  }
+
   const effective = await window.api.getEffectiveSettings(project.projectPath);
 
   const overlay = document.createElement('div');
@@ -363,6 +523,12 @@ async function showNewSessionDialog(project, groupId) {
       if (raw !== '' && Number.isFinite(n) && n >= 0) options.afkTimeoutSec = String(Math.floor(n));
     }
     if (effective.mcpEmulation === false) options.mcpEmulation = false;
+    // Route the spawn to the chosen backend. Claude is the default; an Axis-A profile is just a
+    // backendId that also carries an env bundle, so record it as the profile too (§5.7).
+    if (backendId) {
+      options.backendId = backendId;
+      if (backend && backend.isProfile) options.profileId = backendId;
+    }
     close();
     launchNewSession(project, options, undefined, groupId);
   }

@@ -19,6 +19,7 @@ const { shouldUseSingleInstanceLock } = require('./main-lifecycle');
 // assuming Claude. `claude` is the default backend and behaves byte-identically through it.
 const backends = require('./backends');
 const sessionBackends = require('./session-backends');
+const profiles = require('./profiles');
 const { resolveEnv } = require('./env-refs');
 // Log levels (#121). Raising this from the settings avoids needing a dev build to
 // diagnose a live session. Three tiers, matching electron-log's own ladder:
@@ -115,7 +116,7 @@ const {
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
-  isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
+  isCachePopulated, getAllCached, getCachedByFolder, getCachedByBackend, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
@@ -603,15 +604,20 @@ sessionCache.init({
   activeSessions,
   getMainWindow: () => mainWindow,
   log,
+  // NOTE: this db object is an explicit allow-list — a function session-cache.js reads via ctx.db.*
+  // but that is missing here is `undefined` at runtime (see test/main-ctx-db-wiring.test.js).
+  // getCachedByBackend (multi-LLM, T-4.2) scopes cached rows by backend, so refreshing one backend's
+  // sessions can never delete another backend's rows in the same project folder.
   db: {
-    deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics,
+    deleteCachedFolder, getCachedByFolder, getCachedByBackend, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics,
     deleteSearchFolder, deleteSearchSession, upsertSearchEntries,
     setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
     getFavoritedProjects, getProjectDisplayNames, getAutoHiddenProjects,
   },
 });
 const { readSessionFile, readFolderFromFilesystem, refreshFolder, refreshFile, reconcileCacheFromFilesystem,
-        buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker } = sessionCache;
+        buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker,
+        refreshAllBackendSessions } = sessionCache;
 const { resolveJsonlPath } = require('./read-session-file');
 const claudeConfig = require('./claude-config');
 
@@ -1206,11 +1212,33 @@ ipcMain.handle('open-external-terminal', (_event, cwdPath) => {
   if (!fs.existsSync(cwd)) return { ok: false, error: 'path not found' };
   try {
     if (process.platform === 'win32') {
-      // Prefer Windows Terminal; fall back to a cmd window in the directory. The cwd
-      // is passed via execFile's option (no shell quoting of spaces).
-      execFile('wt.exe', ['-d', cwd], (err) => {
-        if (err) execFile('cmd.exe', ['/c', 'start', 'cmd.exe'], { cwd }, () => {});
-      });
+      // T-3.7: the External Terminal belongs to the TERMINAL bucket, so it follows
+      // `terminalShellProfile` (inherit -> the CLI shell). Only when that resolves to 'auto' (no
+      // explicit choice) do we keep the historical behaviour of preferring Windows Terminal.
+      // Launching the chosen shell INSIDE wt keeps the nice tabbed window; if wt is missing we fall
+      // back to starting the shell directly, and finally to a plain cmd window.
+      let chosenShell = null;
+      try {
+        const id = resolveTerminalShellProfileId(cwdPath);
+        if (id && id !== 'auto') chosenShell = resolveShell(id);
+      } catch { /* fall through to the default behaviour */ }
+
+      if (chosenShell && chosenShell.path) {
+        const shellArgv = [chosenShell.path, ...(chosenShell.args || [])];
+        execFile('wt.exe', ['-d', cwd, ...shellArgv], (err) => {
+          if (err) {
+            execFile(chosenShell.path, [...(chosenShell.args || [])], { cwd }, (e2) => {
+              if (e2) execFile('cmd.exe', ['/c', 'start', 'cmd.exe'], { cwd }, () => {});
+            });
+          }
+        });
+      } else {
+        // Prefer Windows Terminal; fall back to a cmd window in the directory. The cwd
+        // is passed via execFile's option (no shell quoting of spaces).
+        execFile('wt.exe', ['-d', cwd], (err) => {
+          if (err) execFile('cmd.exe', ['/c', 'start', 'cmd.exe'], { cwd }, () => {});
+        });
+      }
     } else if (process.platform === 'darwin') {
       execFile('open', ['-a', 'Terminal', cwd], () => {});
     } else {
@@ -1368,6 +1396,9 @@ ipcMain.handle('unwatch-file', (_event, filePath) => {
 ipcMain.handle('rebuild-cache', async () => {
   try {
     await populateCacheViaWorker();
+    // A rebuild must cover EVERY backend's roots, not just Claude's (T-2.7 + T-4.2) — otherwise
+    // "Rebuild session cache" would silently drop the user's Codex/other-backend history.
+    try { refreshAllBackendSessions(); } catch (err) { log.warn('[rebuild] backend scan failed:', err?.message || err); }
     return { ok: true };
   } catch (err) {
     console.error('Error rebuilding cache:', err);
@@ -1393,6 +1424,11 @@ ipcMain.handle('get-projects', async (_event, showArchived) => {
     // older build, so sessions/worktrees don't silently go missing. Stat-gated,
     // so it's cheap when nothing has changed.
     reconcileCacheFromFilesystem();
+    // Same, for every non-Claude backend that owns its own session store (T-4.2): Codex's
+    // date-bucketed rollout tree, later Hermes' SQLite. Self-gating — a `planned` or disabled
+    // backend is never enumerated, and Claude/Axis-A profiles are a no-op here (they live in the
+    // Claude store the reconcile above already covered). mtime-gated, so it is cheap when idle.
+    try { refreshAllBackendSessions(); } catch (err) { log.warn('[scan] backend scan failed:', err?.message || err); }
     // #57: apply auto-hide before building the response so freshly-hidden projects
     // drop out of this render. Internally throttled, so it's cheap on rapid calls.
     applyAutoHide();
@@ -2225,6 +2261,16 @@ function resolveShellTypeForProject(projectPath) {
   return classifyShellType(resolveShell(effectiveSettings(projectPath).shellProfile).path);
 }
 
+// The TERMINAL bucket's shell (T-3.7): the in-app plain terminal + the External Terminal action.
+// `terminalShellProfile` defaults to 'inherit', which falls back to the CLI shell (`shellProfile`),
+// so the split is a no-op until the user picks a different terminal shell. Both keys cascade
+// global → project through effectiveSettings, like every other setting.
+function resolveTerminalShellProfileId(projectPath) {
+  const eff = effectiveSettings(projectPath) || {};
+  const t = eff.terminalShellProfile;
+  return (t && t !== 'inherit') ? t : eff.shellProfile;
+}
+
 // Delete secret-ref temp files older than maxAgeMs (best-effort, tolerant).
 // Opt-in: a missing/<=0 maxAgeMs is a no-op (age-sweep off).
 function sweepSecretRefs(maxAgeMs) {
@@ -2517,6 +2563,9 @@ const SETTING_DEFAULTS = {
   terminalTheme: 'switchboard',
   mcpEmulation: false,
   shellProfile: 'auto',
+  // T-2.5/T-3.7: the Terminal bucket's shell (in-app plain terminal + External Terminal).
+  // 'inherit' = use the CLI shell (`shellProfile`) — the default, so behaviour is unchanged.
+  terminalShellProfile: 'inherit',
   conptyBackend: 'bundled',
 };
 
@@ -2752,14 +2801,46 @@ ipcMain.handle('session-tags-all', () => {
 // Renderer reads the registry + the launch-time overlay; it doesn't act on them yet (Phase 2/3).
 ipcMain.handle('backends-list', () => {
   // Only JSON-safe descriptor data crosses IPC (hook functions are stripped).
-  return backends.list().map(b => ({
-    id: b.id, label: b.label, tier: b.tier, axis: b.axis, status: b.status,
-    enabled: b.enabled !== undefined ? b.enabled : (b.id === 'claude'),
-    monogram: b.monogram, colour: b.colour, configFields: b.configFields || [],
-  }));
+  return {
+    backends: backends.list().map(b => ({
+      id: b.id, label: b.label, tier: b.tier, axis: b.axis, status: b.status,
+      enabled: !!b.enabled, isProfile: !!b.isProfile, icon: b.icon || null,
+      monogram: b.monogram || null, colour: b.colour || null, configFields: b.configFields || [],
+    })),
+    defaultLaunchTarget: backends.getDefaultLaunchTarget(),
+  };
 });
 ipcMain.handle('session-backends-get-all', () => {
   return sessionBackends.getAll();
+});
+
+// --- IPC: user Axis-A profiles (Phase 2, T-2.1). Kebab-case.
+ipcMain.handle('profiles-list', () => {
+  return { profiles: profiles.list(), defaultProfileId: profiles.getDefault() };
+});
+ipcMain.handle('profiles-save', (_event, payload) => {
+  const { profile, allowSecrets } = payload || {};
+  // Secret hardening (T-2.4): a value that looks like a pasted raw key is rejected unless the user
+  // explicitly acknowledged it. Auth belongs in a $VAR ref, never on disk (§5.2).
+  return profiles.save(profile, { allowSecrets: !!allowSecrets });
+});
+ipcMain.handle('profiles-delete', (_event, id) => {
+  return profiles.remove(id);
+});
+ipcMain.handle('profiles-set-default', (_event, id) => {
+  return profiles.setDefault(id == null ? null : id);
+});
+// Which host env vars a profile's `$VAR` refs actually resolve to right now — drives the editor's
+// live "resolves ✓ / not set ✗" badge per env row (UX#3) so a missing key surfaces in the editor
+// instead of as a cryptic auth failure on first launch. Returns only presence, never the VALUES.
+ipcMain.handle('env-refs-check', (_event, names) => {
+  const out = {};
+  if (Array.isArray(names)) {
+    for (const n of names) {
+      if (typeof n === 'string' && n) out[n] = typeof process.env[n] === 'string' && process.env[n] !== '';
+    }
+  }
+  return out;
 });
 
 // --- IPC: project tags (#98) ---
@@ -2959,8 +3040,14 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
 
   const isPlainTerminal = sessionOptions?.type === 'terminal';
 
-  // Resolve shell profile from effective settings
-  const effectiveProfileId = effectiveSettings(projectPath).shellProfile;
+  // Resolve shell profile from effective settings.
+  // T-3.7 — the shell is split by INTENT: `shellProfile` is the CLI shell (Claude and every backend
+  // spawn), `terminalShellProfile` is the Terminal bucket (the in-app plain terminal + the External
+  // Terminal action). Its default 'inherit' falls back to the CLI shell, so nothing changes until the
+  // user actually sets it.
+  const effectiveProfileId = isPlainTerminal
+    ? resolveTerminalShellProfileId(projectPath)
+    : effectiveSettings(projectPath).shellProfile;
   // WSL profiles only work for plain terminals — Claude CLI sessions need the
   // Windows shell because session data lives on the Windows filesystem.
   const requestedProfile = resolveShell(effectiveProfileId);
@@ -3082,6 +3169,15 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         if (lookupId) recorded = sessionBackends.get(lookupId);
       }
       const backend = backends.get(sessionOptions?.backendId || recorded?.backendId || 'claude') || backends.get('claude');
+
+      // §5.8 guard: only a `ready` (built) AND `enabled` (user-activated) backend may ever spawn. A
+      // `planned` binary or a disabled backend is rejected here, before any PTY exists — the picker
+      // never offers them, so reaching this is either a stale renderer or a crafted IPC call.
+      if (!backends.isLaunchable(backend.id)) {
+        const why = backend.status === 'planned' ? 'is not built yet' : 'is disabled';
+        return { ok: false, error: `Backend '${backend.label || backend.id}' ${why}.` };
+      }
+
       const launch = backend.buildLaunch({
         cwd: projectPath,
         resume: !isNew,
@@ -3471,6 +3567,10 @@ sessionTransitions.init({ PROJECTS_DIR, activeSessions, getMainWindow: () => mai
 // Point the Claude backend's file-mode discovery at the app's actual projects dir (may differ from
 // ~/.claude/projects when CLAUDE_DIR is overridden). The scanner adopts discoverSessions() in T-4.2.
 try { require('./backends/claude').setRoots([PROJECTS_DIR]); } catch {}
+// Give the registry access to user state (T-2.1): the `backendEnabled.<id>` flags + defaultLaunchTarget
+// live in the global settings blob, user Axis-A profiles in profiles.json. backends.list() then returns
+// built-ins ∪ profiles with their merged enabled flags.
+backends.init({ getGlobalSettings: () => getSetting('global') || {}, profiles });
 const { detectSessionTransitions } = sessionTransitions;
 
 // --- fs.watch on projects directory ---
