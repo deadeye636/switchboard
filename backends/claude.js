@@ -130,6 +130,7 @@ function watchTargets() {
 module.exports = {
   id: 'claude',
   label: 'Claude Code',
+  binary: 'claude',  // the executable name, for callers that build their own argv (the schedule runner)
   tier: 1,
   axis: null,        // default backend, no axis
   status: 'ready',

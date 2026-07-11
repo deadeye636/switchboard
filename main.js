@@ -4142,7 +4142,11 @@ if (!gotSingleInstanceLock) {
       const profileId = globalSettings.shellProfile || SETTING_DEFAULTS.shellProfile;
       const profile = resolveShell(profileId);
       const shell = profile.path;
-      const cmd = 'claude ' + quoteArgvForShell(shell, claudeArgv);
+      // The binary name comes from the backend descriptor, not a literal (T-1.7): scheduled runs are
+      // Claude-only by design (the schedule UI composes claude's headless argv), and their provenance
+      // is already correct — session_cache.backendId defaults to 'claude'. This just keeps the binary
+      // name in one place, so no `'claude '` command build survives outside backends/.
+      const cmd = (backends.get('claude')?.binary || 'claude') + ' ' + quoteArgvForShell(shell, claudeArgv);
       const args = shellArgs(shell, cmd, profile.args || []);
 
       // cmd.exe: Node's default arg joining escapes embedded `"` as `\"`, which
