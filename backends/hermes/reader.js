@@ -125,10 +125,20 @@ function openDb() {
 // Per-session change marker. Hermes has no `updated_at`, so we synthesise one from what does change:
 // the session's end time and its latest message. A running session's `ended_at` is null, so the
 // message timestamp is what moves.
+//
+// The last message arrives via a GROUPED JOIN, not a correlated subquery. discoverSessions() runs on
+// every WAL commit of a live session — the correlated form asked SQLite for MAX(timestamp) once PER
+// SESSION ROW, i.e. a scan of `messages` per session, several times a minute, for the whole history
+// (#155). One grouped pass answers all of them.
 const MARKER_SQL = `
   COALESCE(s.ended_at, 0) || ':' ||
-  COALESCE((SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id), 0) || ':' ||
+  COALESCE(m.last_ts, 0) || ':' ||
   COALESCE(s.message_count, 0)
+`;
+
+const LAST_MESSAGE_JOIN = `
+  LEFT JOIN (SELECT session_id, MAX(timestamp) AS last_ts FROM messages GROUP BY session_id) m
+    ON m.session_id = s.id
 `;
 
 // Default ingest: only sessions the user actually drove from the CLI. The `source` column is
@@ -146,7 +156,7 @@ function discoverSessions({ includeAll = false } = {}) {
   if (!db) return [];
   try {
     const rows = db.all(
-      `SELECT s.id AS id, ${MARKER_SQL} AS marker FROM sessions s${sourceFilter(includeAll)}`
+      `SELECT s.id AS id, ${MARKER_SQL} AS marker FROM sessions s${LAST_MESSAGE_JOIN}${sourceFilter(includeAll)}`
     );
     const ref = dbPath();
     return rows.map(r => ({
@@ -351,6 +361,38 @@ function parseSession(handle) {
 }
 
 /**
+ * The two facts busy/idle is made of — and nothing else.
+ *
+ * `liveState` runs on every WAL commit of a live session, i.e. several times a minute while the agent
+ * works. It used to go through `parseSession`, which reads the whole session to build a cache row: 500
+ * messages of text for our FTS index, a per-bucket metrics GROUP BY, a user-message count. All of it
+ * thrown away to answer "is this turn still running?" (#155). Two columns is the honest cost.
+ */
+function readLiveState(sessionId) {
+  if (!sessionId) return null;
+  const db = openDb();
+  if (!db) return null;
+  try {
+    const s = db.get(
+      'SELECT s.ended_at AS endedAt, s.started_at AS startedAt,'
+      + ' (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id) AS lastTs'
+      + ' FROM sessions s WHERE s.id = ?',
+      sessionId
+    );
+    if (!s) return null;
+    // Same fallback parseSession applies: no messages yet -> the session's own start time.
+    const lastActivityMs = s.lastTs
+      ? Number(s.lastTs) * 1000
+      : (s.startedAt ? Number(s.startedAt) * 1000 : 0);
+    return { isEnded: s.endedAt != null, lastActivityMs };
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * STORE-level watch target: the DB file. A `kind:'db'` target means "poll this file AND its `-wal`" —
  * the watcher appends the `-wal` itself (main.js), because a WAL commit can leave state.db's mtime
  * untouched. Do NOT also return the `-wal` here or it gets watched twice.
@@ -412,6 +454,6 @@ function readMessages(sessionId, { limit = 2000 } = {}) {
 module.exports = {
   PARSER_SCHEMA_VERSION,
   hermesHome, setHome, dbPath, dbExists,
-  discoverSessions, parseSession, watchTargets, readMessages,
+  discoverSessions, parseSession, watchTargets, readMessages, readLiveState,
   openDb,
 };

@@ -98,6 +98,8 @@ CREATE TABLE messages (
 //   sess-cli-nocwd   no cwd at all (a gateway/cron-style agent). Must parse, must NOT be dropped, and
 //                    must not be mistaken for a session launched in a project.
 //   sess-running     ended_at IS NULL — the busy signal. Its last message is what moves.
+//   sess-no-messages a row with no message rows and a null message_count — the change marker's join has
+//                    no partner here, and both of its COALESCEs have to earn their keep.
 //   sess-gateway-1   source='gateway' — a Telegram/cron chat. Default ingest must leave it out.
 
 const SESSIONS = [
@@ -212,6 +214,32 @@ const SESSIONS = [
     cost_status: 'n/a',
     cost_source: null,
     title: 'Unpriced model',
+  },
+  {
+    // A session with NO message rows at all — Hermes writes the row when the session starts, so this is
+    // simply one that was opened and never spoken to. It exists to keep the change marker honest (#155):
+    // the marker gets the last message time from a GROUPED JOIN, and this is the row that HAS no join
+    // partner. `message_count` is null on top, so both COALESCEs are exercised on the same row.
+    id: 'sess-no-messages',
+    source: 'cli',
+    model: 'claude-opus-4.6',
+    parent_session_id: null,
+    started_at: T0 + 5000,
+    ended_at: null,                     // opened, never used
+    end_reason: null,
+    message_count: null,
+    tool_call_count: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    reasoning_tokens: 0,
+    cwd: 'D:\\Projekte\\demo',
+    estimated_cost_usd: null,
+    actual_cost_usd: null,
+    cost_status: null,
+    cost_source: null,
+    title: 'Opened and left alone',
   },
   {
     id: 'sess-gateway-1',

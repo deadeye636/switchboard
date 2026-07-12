@@ -103,6 +103,28 @@ function findBash() {
   return findOnPath('bash');
 }
 
+// The toolchain probe, cached.
+//
+// `probe()` rides on `backends.list()`, which is on the SCAN path, and the registry's availability cache
+// only holds for 15 seconds — so this shelled out to `node --version` SYNCHRONOUSLY on the main process
+// every 15 seconds for the life of the app, blocking the UI for as long as the child took to answer
+// (#155). A toolchain does not change under a running app; when it does (someone installs Node while
+// Switchboard is open), five minutes is soon enough — and a restart is instant.
+const TOOLCHAIN_TTL_MS = 5 * 60 * 1000;
+let _toolchain = null;   // { at, nodeVersion, bash }
+
+function toolchain() {
+  const now = Date.now();
+  if (_toolchain && now - _toolchain.at < TOOLCHAIN_TTL_MS) return _toolchain;
+  _toolchain = { at: now, nodeVersion: systemNodeVersion(), bash: findBash() };
+  return _toolchain;
+}
+
+/** Test hook: forget the cached toolchain, so a test can change PATH and probe again. */
+function _resetToolchainCache() {
+  _toolchain = null;
+}
+
 /**
  * { ok, reason }. Pi has two undocumented dependencies — Node ≥ 22.19, and a bash on Windows — and a
  * launch without either dies in the terminal with nothing the user can act on. Say it here instead: the
@@ -121,7 +143,7 @@ function probe() {
   // `process.versions.node`: inside Electron that is the app's own embedded Node (22.x), so a machine
   // whose real node is 18 would sail through the check and then die raw in the terminal, and a machine
   // that IS too old would be told a version number it cannot find anywhere.
-  const nodeVersion = systemNodeVersion();
+  const { nodeVersion, bash } = toolchain();
   if (nodeVersion) {
     const [maj, min] = nodeVersion.replace(/^v/, '').split('.').map(Number);
     if (maj < 22 || (maj === 22 && min < 19)) {
@@ -134,7 +156,7 @@ function probe() {
     return { ok: false, reason: 'Pi runs on Node, and no node was found on your PATH. Install Node 22.19 or newer.' };
   }
 
-  if (!findBash()) {
+  if (!bash) {
     return {
       ok: false,
       reason: 'Pi needs a bash shell, and none was found. Install Git for Windows (Git Bash) or enable WSL.',
@@ -230,4 +252,5 @@ module.exports = {
 
   sessionsRoot,
   setRoot,
+  _resetToolchainCache,
 };

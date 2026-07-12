@@ -63,7 +63,8 @@ test('discoverSessions yields {kind:db} handles — only source=cli by default',
   const handles = reader.discoverSessions();
   const ids = handles.map(h => h.sessionId).sort();
   // sess-gateway-1 is source='gateway' -> a Telegram/cron chat, not a coding session -> excluded.
-  assert.deepStrictEqual(ids, ['sess-cli-1', 'sess-cli-2', 'sess-cli-nocwd', 'sess-running', 'sess-zero-cost']);
+  assert.deepStrictEqual(ids,
+    ['sess-cli-1', 'sess-cli-2', 'sess-cli-nocwd', 'sess-no-messages', 'sess-running', 'sess-zero-cost']);
   for (const h of handles) {
     assert.strictEqual(h.kind, 'db', 'db-mode handle, not a file handle');
     assert.ok(h.marker, 'carries a change marker (there is no file mtime to use)');
@@ -383,4 +384,50 @@ test('metrics: a settled cost survives, including a settled zero', () => {
   const carrier = reader.parseSession(h).dailyMetrics.find(b => b.inputTokens > 0);
   assert.strictEqual(carrier.estimatedCostUsd, 0.004);
   assert.strictEqual(carrier.actualCostUsd, 0.0038, 'the settled figure is its own number');
+});
+
+// --- the hot path: what busy/idle and the change gate actually cost (#155) -------------------------
+
+test('the change marker is unchanged by the grouped join (an unchanged session must not re-parse)', () => {
+  useFixture();
+  // The marker used to come from a correlated MAX(messages.timestamp) subquery — one scan of `messages`
+  // per session, on every WAL commit. It is a grouped join now. Same string, or every session in the
+  // cache would re-read itself once for nothing.
+  const db = reader.openDb();
+  const expected = new Map(db.all(
+    "SELECT s.id AS id, COALESCE(s.ended_at, 0) || ':' ||"
+    + ' COALESCE((SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id), 0) || \':\' ||'
+    + " COALESCE(s.message_count, 0) AS marker FROM sessions s WHERE s.source = 'cli'"
+  ).map(r => [String(r.id), String(r.marker)]));
+  db.close();
+
+  const handles = reader.discoverSessions();
+  assert.strictEqual(handles.length, expected.size);
+  for (const h of handles) {
+    assert.strictEqual(h.marker, expected.get(h.sessionId), `marker for ${h.sessionId} must be byte-identical`);
+  }
+  // The row the rewrite could actually break: no messages (so the grouped join has no partner) and a
+  // null message_count. A LEFT JOIN yields NULL there, exactly as the subquery did.
+  const empty = handles.find(h => h.sessionId === 'sess-no-messages');
+  assert.strictEqual(empty.marker, '0:0:0', 'no end, no message, no count — and still a stable marker');
+});
+
+test('readLiveState answers busy/idle from two columns, and agrees with the full parse', () => {
+  useFixture();
+  // liveState fires on every WAL commit. It used to go through parseSession — 500 messages of text, a
+  // metrics GROUP BY and a user-message count, all thrown away to learn whether the turn is running.
+  for (const id of ['sess-cli-1', 'sess-running']) {
+    const full = reader.parseSession({ kind: 'db', sessionId: id });
+    const live = reader.readLiveState(id);
+    assert.strictEqual(live.isEnded, full.isEnded, `${id}: same end state`);
+    assert.strictEqual(live.lastActivityMs, full.lastActivityMs, `${id}: same last activity`);
+  }
+  assert.strictEqual(reader.readLiveState('sess-running').isEnded, false, 'a running turn has no ended_at');
+  assert.strictEqual(reader.readLiveState('no-such-session'), null, 'an unknown id is no evidence, not idle');
+  assert.strictEqual(reader.readLiveState(null), null);
+});
+
+test('readLiveState degrades to null when the store is unreachable', () => {
+  hermes.setHome(path.join(os.tmpdir(), 'hermes-gone-' + process.pid));
+  assert.strictEqual(reader.readLiveState('sess-cli-1'), null);
 });

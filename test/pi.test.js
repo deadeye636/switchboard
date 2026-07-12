@@ -279,3 +279,39 @@ test('watchTargets: the sessions root, recursively (a new cwd folder appears wit
   assert.strictEqual(targets[0].kind, 'dir');
   assert.strictEqual(targets[0].recursive, true);
 });
+
+test('probe caches the toolchain — it does not shell out to `node --version` on every scan', () => {
+  // probe() rides on backends.list(), which is on the SCAN path, and the registry's availability cache
+  // only holds 15s. Uncached, this ran a SYNCHRONOUS child process on the main thread every 15 seconds
+  // for the life of the app (#155).
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-probe-'));
+  const oldPath = process.env.PATH;
+  const oldExt = process.env.PATHEXT;
+  try {
+    // A PATH holding `pi` and nothing else: no node, so the probe fails on the Node requirement.
+    const ext = process.platform === 'win32' ? '.CMD' : '';
+    fs.writeFileSync(path.join(dir, 'pi' + ext), '');
+    process.env.PATHEXT = '.EXE;.CMD;.BAT';
+    process.env.PATH = dir;
+    pi._resetToolchainCache();
+
+    const cold = pi.probe();
+    assert.strictEqual(cold.ok, false);
+    assert.match(cold.reason, /Node/, 'no node on PATH -> the probe says so');
+
+    // Put the real toolchain back. WITHOUT a reset the answer must not move: that is the cache doing its
+    // job (a fresh probe here would mean another synchronous exec).
+    process.env.PATH = oldPath + path.delimiter + dir;
+    assert.match(pi.probe().reason || '', /Node/, 'still the cached answer — no second exec');
+
+    // ...and the cache is a cache, not a freeze: cleared, it sees the node that is now there.
+    pi._resetToolchainCache();
+    const warm = pi.probe();
+    assert.ok(warm.ok || !/no node was found/.test(warm.reason), 'after a refresh the probe sees the real node');
+  } finally {
+    process.env.PATH = oldPath;
+    if (oldExt === undefined) delete process.env.PATHEXT; else process.env.PATHEXT = oldExt;
+    pi._resetToolchainCache();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

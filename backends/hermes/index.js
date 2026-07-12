@@ -156,7 +156,9 @@ function liveRefFor(sessionId) {
  * idle, never to declare one busy.
  */
 function liveState(ref, ctx = {}) {
-  const row = reader.parseSession({ kind: 'db', sessionId: ref });
+  // `readLiveState`, not `parseSession`: this fires on every WAL commit, and busy/idle needs two columns
+  // — not the 500-message text pull and the metrics GROUP BY a full parse does (#155).
+  const row = reader.readLiveState(ref);
   if (!row) return null;
   return deriveState(row, Date.now(), ctx);
 }

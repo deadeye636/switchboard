@@ -3942,6 +3942,10 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     projectFolder, knownJsonlFiles, sessionSlug,
     isPlainTerminal, forkFrom: sessionOptions?.forkFrom || null,
     mcpServer, _openedAt: Date.now(),
+    // Did this session already exist in the backend's store before we spawned it? Only then can our id
+    // be an id the backend knows — which is the one case where `liveRefFor` has anything to find
+    // (claimLiveRecord). A fork is NOT a resume: the backend names the child itself.
+    _resumed: !isNew,
     // Whether the OSC-0 TITLE heuristic applies to this session. It is Claude's, and only Claude's:
     // busy = a Braille spinner glyph, idle = the ✳ character. Run it against another CLI whose TUI also
     // spins in the title — Codex does — and the busy latch closes on the first spinner frame and can
@@ -4435,7 +4439,18 @@ function claimLiveRecord(sessionId, session, backend) {
   // record exists. This must come first: `matchLiveSession` only accepts records born after the spawn,
   // and a resumed session's record is by definition older, so correlation could never claim it — but it
   // WOULD happily claim the next new session's record in the same cwd and collapse two tabs onto one id.
-  if (typeof backend.liveRefFor === 'function') {
+  //
+  // Only a RESUMED session can have a record under our id. A new one (fork included) is about to be
+  // named by the backend itself, so asking is guaranteed to come back empty — and `liveRefFor` walks the
+  // whole store, on every watcher flush, for every session not yet claimed. That walk bought nothing and
+  // is simply not made (#155).
+  //
+  // For a resumed session the question IS asked on every flush until it answers, and deliberately so: a
+  // null is not proof that the record is absent. Hermes' openDb() returns null while its DB is locked —
+  // and the moment of heaviest write contention is right after a resume. Caching that first "no" would
+  // leave the session without busy/idle for good, with nothing left to heal it, since matchLiveSession
+  // can never claim a record older than the spawn. In practice this resolves on the first flush.
+  if (typeof backend.liveRefFor === 'function' && session._resumed !== false) {
     let ownRef = null;
     try { ownRef = backend.liveRefFor(sessionId); } catch { ownRef = null; }
     if (ownRef) {
