@@ -3601,7 +3601,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     activeSessions.delete(sessionId);
     // Release the Codex rollout claim + busy latch for this session (T-4.5), so the file can be
     // re-claimed and the maps don't grow for the life of the app.
-    for (const id of [realId, sessionId]) { codexRollout.delete(id); codexBusy.delete(id); }
+    for (const id of [realId, sessionId]) { liveStoreRef.delete(id); liveBusy.delete(id); }
     // Wipe this session's secret-ref temp files (default on; the prompt that used
     // them is done). Quit/startup wipe still covers the setting-off case.
     if (getSetting('global')?.secretRefCleanupOnSessionStop !== false) {
@@ -3891,105 +3891,99 @@ function startProjectsWatcher() {
 const backendWatchers = [];
 let backendWatcherRetry = null;
 
-// --- Codex busy/idle (T-4.5) ---
+// --- Axis-B live sessions: identity adoption + busy/idle (T-4.5, T-5.3) ---
 //
-// Claude reports busy/idle through OSC title sequences in its PTY stream. Codex emits NO OSC, so a
-// live Codex session would sit permanently "idle". Its rollout file carries the signal instead
-// (task_started / task_complete), and the backend watcher already fires whenever that file changes —
-// so on each event we re-derive the state of every ACTIVE Codex session and push the edge to the UI.
+// Two problems, one root, and they apply to EVERY backend that names its own sessions:
 //
-// The rollout path isn't known at spawn (Codex names the file with its own UUID), so it is claimed
-// lazily: the newest rollout whose header cwd matches the session's project and that appeared after
-// the session started. One file per session — a claimed file is never handed to a second session.
-const codexRollout = new Map();   // sessionId -> rollout path
-const codexBusy = new Map();      // sessionId -> boolean (last state pushed to the renderer)
+//  1. IDENTITY. Claude accepts `--session-id`, so we choose the id. Codex and Hermes do not: they
+//     create their own id in their own store. Until the two are reconciled the app shows two rows for
+//     one session (our pending row + the scanned store row), the pending row never dies, and resuming
+//     from the sidebar targets an id the tool never had.
+//  2. BUSY/IDLE. Claude reports state through OSC title sequences in its PTY stream. Neither Codex nor
+//     Hermes emits OSC, so a live session would sit permanently "idle". Their stores carry the signal
+//     instead — and the backend watcher already fires whenever those stores change.
+//
+// Both are solved once, generically, via two optional descriptor hooks:
+//     matchLiveSession({cwd, sinceMs, claimed}) -> {sessionId, ref} | null
+//     liveState(ref)                            -> 'busy' | 'idle' | null
+// A backend that names its own sessions implements them; anything else is simply skipped. Adding a
+// third such backend needs no change here.
+const liveStoreRef = new Map();   // our sessionId -> the backend's record ref (rollout path / db id)
+const liveBusy = new Map();       // our sessionId -> last busy state pushed to the renderer
 
-function claimCodexRollout(sessionId, session) {
-  const existing = codexRollout.get(sessionId);
-  if (existing && fs.existsSync(existing)) return existing;
+function claimLiveRecord(sessionId, session, backend) {
+  const existing = liveStoreRef.get(sessionId);
+  if (existing) return existing;
 
-  const codex = backends.get('codex');
-  if (!codex || typeof codex.discoverSessions !== 'function') return null;
-  const claimed = new Set(codexRollout.values());
-  const startedAt = (session._openedAt || 0) - 10000; // small grace: the file appears just after spawn
+  const claimed = new Set(liveStoreRef.values());
+  // Small grace window: the store record appears just AFTER we spawn the process.
+  const sinceMs = (session._openedAt || 0) - 10000;
 
-  // Correlate by CREATION time, not by "most recently touched". Codex writes the rollout header at
-  // startup, so the file's birth time is what lines up with the session's spawn. Picking the newest
-  // mtime instead would let an already-working session's file (freshly appended) be stolen by an
-  // older session whose own file is still just a header. Sessions are iterated in launch order, so
-  // taking the EARLIEST unclaimed candidate pairs them up in order.
-  let best = null;
-  let bestId = null;
-  let bestBirth = Infinity;
-  for (const handle of codex.discoverSessions()) {
-    if (claimed.has(handle.path)) continue;
-    let st;
-    try { st = fs.statSync(handle.path); } catch { continue; }
-    const birth = st.birthtimeMs || st.mtimeMs;
-    if (birth < startedAt) continue;         // predates this session -> not ours
-    const row = codex.parseSession(handle);
-    if (!row || !row.cwd) continue;
-    if (path.resolve(row.cwd) !== path.resolve(session.projectPath || '')) continue;
-    if (birth < bestBirth) { best = handle.path; bestId = row.sessionId; bestBirth = birth; }
+  let match = null;
+  try {
+    match = backend.matchLiveSession({ cwd: session.projectPath, sinceMs, claimed });
+  } catch (err) {
+    log.warn(`[${backend.id}] live match failed: ${err?.message || err}`);
+    return null;
   }
-  if (best) {
-    // Reconcile the two identities. We launched the session under an id WE generated, but Codex names
-    // its rollout with an id IT generated (unlike Claude, it has no --session-id). Until those are
-    // reconciled the app shows two rows for one session (our pending row + the scanned rollout row),
-    // the pending row never dies, and resuming from the sidebar targets an id Codex never had.
-    //
-    // This is exactly Claude's temp->real transition, so it reuses the same plumbing: re-key the live
-    // session, move the backend overlay across, and tell the renderer to fold the two rows together.
-    if (bestId && bestId !== sessionId && !activeSessions.has(bestId)) {
-      log.info(`[codex] session ${sessionId} → ${bestId} (adopting Codex's rollout id)`);
-      session.realSessionId = bestId;
-      activeSessions.delete(sessionId);
-      activeSessions.set(bestId, session);
-      sessionBackends.rekeySession(sessionId, bestId);
-      codexRollout.set(bestId, best);
-      const wasBusy = codexBusy.get(sessionId);
-      codexBusy.delete(sessionId);
-      if (wasBusy !== undefined) codexBusy.set(bestId, wasBusy);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('session-forked', sessionId, bestId);
-      }
-    } else {
-      // No rekey needed (or the target id is somehow already live). Record the claim under the id we
-      // have. NOTE: the claim is deliberately NOT recorded before a successful rekey — doing so would
-      // make the early-return at the top of this function skip the rekey forever if it ever failed.
-      codexRollout.set(sessionId, best);
+  if (!match || !match.sessionId) return null;
+
+  // Adopt the backend's id. This is exactly Claude's temp->real transition, so it reuses that
+  // plumbing: re-key the live session, move the backend overlay across, and tell the renderer to fold
+  // its pending row onto the real one.
+  const realId = match.sessionId;
+  if (realId !== sessionId && !activeSessions.has(realId)) {
+    log.info(`[${backend.id}] session ${sessionId} → ${realId} (adopting the backend's own session id)`);
+    session.realSessionId = realId;
+    activeSessions.delete(sessionId);
+    activeSessions.set(realId, session);
+    sessionBackends.rekeySession(sessionId, realId);
+    liveStoreRef.set(realId, match.ref);
+    const wasBusy = liveBusy.get(sessionId);
+    liveBusy.delete(sessionId);
+    if (wasBusy !== undefined) liveBusy.set(realId, wasBusy);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('session-forked', sessionId, realId);
     }
+  } else {
+    // No adoption needed (or the target id is somehow already live). NOTE: the claim is deliberately
+    // NOT recorded before a successful adoption — doing so would make the early-return above skip the
+    // adoption forever if it ever failed.
+    liveStoreRef.set(sessionId, match.ref);
   }
-  return best;
+  return match.ref;
 }
 
-function updateCodexBusyStates() {
-  const codex = backends.get('codex');
-  if (!codex || typeof codex.deriveStateFromFileTail !== 'function') return;
-
-  // Snapshot: claimCodexRollout may re-key a session (adopting Codex's rollout id), which mutates
-  // activeSessions mid-iteration.
+function updateBackendLiveStates() {
+  // Snapshot: claimLiveRecord may re-key a session, which mutates activeSessions mid-iteration.
   for (const [sessionId, session] of [...activeSessions]) {
     if (session.exited || session.isPlainTerminal) continue;
+
     const mapped = sessionBackends.get(session.realSessionId || sessionId);
-    if (!mapped || mapped.backendId !== 'codex') continue;
+    if (!mapped) continue;
+    const backend = backends.get(mapped.backendId);
+    if (!backend || typeof backend.matchLiveSession !== 'function' || typeof backend.liveState !== 'function') {
+      continue;   // Claude & Axis-A: they report state through OSC and own their session id already.
+    }
 
-    const rollout = claimCodexRollout(sessionId, session);
-    if (!rollout) continue;
+    const ref = claimLiveRecord(sessionId, session, backend);
+    if (!ref) continue;
 
-    // The session may have just adopted Codex's id — key the busy latch on whatever it is now.
     const liveId = session.realSessionId || sessionId;
-    const state = codex.deriveStateFromFileTail(rollout);
+    let state;
+    try { state = backend.liveState(ref); } catch { state = null; }
     if (state == null) continue;
+
     const busy = state === 'busy';
-    if (codexBusy.get(liveId) === busy) continue;   // only push edges, not every event
-    codexBusy.set(liveId, busy);
-    log.info(`[codex] session=${liveId} → ${busy ? 'BUSY' : 'IDLE'} (rollout tail)`);
+    if (liveBusy.get(liveId) === busy) continue;   // only push edges, not every watcher event
+    liveBusy.set(liveId, busy);
+    log.info(`[${backend.id}] session=${liveId} → ${busy ? 'BUSY' : 'IDLE'}`);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('cli-busy-state', liveId, busy);
     }
   }
 }
+
 
 function startBackendWatchers() {
   stopBackendWatchers();
@@ -4014,7 +4008,9 @@ function startBackendWatchers() {
       }
     }
     // The rollout that just changed is also the busy/idle signal for a live Codex session (T-4.5).
-    try { updateCodexBusyStates(); } catch (err) { log.warn(`[codex] busy-state update failed: ${err?.message || err}`); }
+    // The store that just changed is also the busy/idle signal — and the place a freshly launched
+    // session's real id first appears (T-4.5 / T-5.3). One generic pass covers every such backend.
+    try { updateBackendLiveStates(); } catch (err) { log.warn(`[backends] live-state update failed: ${err?.message || err}`); }
     if (changed) notifyRendererProjectsChanged();
   }
 

@@ -1,0 +1,214 @@
+'use strict';
+// Phase 5 — Hermes: the first NON-FILE backend. This is what proves the dual-mode discovery seam:
+// {kind:'db'} handles, a row-based parse, and a change marker that stands in for a file mtime.
+//
+// The fixture (test/fixtures/hermes-state.db) is built from the REAL schema dumped off a live install
+// (docs/plans/research/hermes-format.md) — the live DB itself has zero sessions, so there is nothing
+// real to read.
+const { test } = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const hermes = require('../backends/hermes');
+const reader = require('../backends/hermes/reader');
+const { deriveState, ACTIVITY_WINDOW_MS } = require('../backends/hermes/state');
+
+const FIXTURE = path.join(__dirname, 'fixtures', 'hermes-state.db');
+
+// Point the reader at a HERMES_HOME containing the fixture as state.db.
+function useFixture() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-home-'));
+  fs.copyFileSync(FIXTURE, path.join(home, 'state.db'));
+  hermes.setHome(home);
+  return home;
+}
+
+const T0 = 1780000000; // the fixture's fixed epoch, in seconds
+
+test('store root: %LOCALAPPDATA%\\hermes on Windows, never a hardcoded ~/.hermes', () => {
+  hermes.setHome(null);
+  const prevHome = process.env.HERMES_HOME;
+  delete process.env.HERMES_HOME;
+  try {
+    const home = reader.hermesHome();
+    if (process.platform === 'win32') {
+      assert.match(home, /AppData[\\/]Local[\\/]hermes$/i, 'Windows store lives under LOCALAPPDATA');
+      assert.ok(!/\.hermes$/.test(home), '~/.hermes is the Linux path, not the Windows one');
+    } else {
+      assert.match(home, /\.hermes$/);
+    }
+  } finally {
+    if (prevHome) process.env.HERMES_HOME = prevHome;
+  }
+});
+
+test('HERMES_HOME overrides the store root', () => {
+  hermes.setHome(null);
+  const prev = process.env.HERMES_HOME;
+  process.env.HERMES_HOME = 'D:\\custom\\hermes';
+  try {
+    assert.strictEqual(reader.hermesHome(), 'D:\\custom\\hermes');
+  } finally {
+    if (prev) process.env.HERMES_HOME = prev; else delete process.env.HERMES_HOME;
+  }
+});
+
+test('a missing store degrades to empty, never throws (Hermes installed but never run)', () => {
+  hermes.setHome(path.join(os.tmpdir(), 'hermes-does-not-exist-' + Date.now()));
+  assert.strictEqual(reader.dbExists(), false);
+  assert.deepStrictEqual(reader.discoverSessions(), []);
+  assert.strictEqual(reader.parseSession({ kind: 'db', sessionId: 'x' }), null);
+});
+
+test('discoverSessions yields {kind:db} handles — only source=cli by default', () => {
+  useFixture();
+  const handles = reader.discoverSessions();
+  const ids = handles.map(h => h.sessionId).sort();
+  // sess-gateway-1 is source='gateway' -> a Telegram/cron chat, not a coding session -> excluded.
+  assert.deepStrictEqual(ids, ['sess-cli-1', 'sess-cli-2', 'sess-cli-nocwd', 'sess-running']);
+  for (const h of handles) {
+    assert.strictEqual(h.kind, 'db', 'db-mode handle, not a file handle');
+    assert.ok(h.marker, 'carries a change marker (there is no file mtime to use)');
+    assert.ok(!h.path, 'a db session has no file path');
+  }
+});
+
+test('includeAll pulls the gateway sessions in too', () => {
+  useFixture();
+  const ids = reader.discoverSessions({ includeAll: true }).map(h => h.sessionId).sort();
+  assert.ok(ids.includes('sess-gateway-1'));
+});
+
+test('parseSession maps a row to the normalised shape (id taken verbatim, never parsed)', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-cli-1');
+  const row = reader.parseSession(h);
+
+  assert.strictEqual(row.sessionId, 'sess-cli-1');
+  assert.strictEqual(row.backendId, 'hermes');
+  assert.strictEqual(row.cwd, 'D:\\Projekte\\demo', 'a real cwd column EXISTS (the plan assumed it did not)');
+  assert.strictEqual(row.model, 'claude-opus-4.6');
+  assert.strictEqual(row.summary, 'Refactor the auth middleware');
+  assert.strictEqual(row.messageCount, 4);
+  // REAL epoch seconds -> ISO
+  assert.strictEqual(row.startedAt, new Date(T0 * 1000).toISOString());
+  assert.strictEqual(row.lastEntryAt, new Date((T0 + 600) * 1000).toISOString());
+  assert.strictEqual(row.activeMinutes, 10);
+});
+
+test('token breakdown + USD cost are read (Hermes is the only backend reporting money)', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-cli-1');
+  const row = reader.parseSession(h);
+  assert.strictEqual(row.inputTokens, 1000);
+  assert.strictEqual(row.outputTokens, 200);
+  assert.strictEqual(row.cacheReadTokens, 50);
+  assert.strictEqual(row.cacheCreationTokens, 10);
+  assert.strictEqual(row.reasoningTokens, 25);
+  // estimated is the PRIMARY field; actual is often null -> the UI must not present an estimate as truth
+  assert.strictEqual(row.estimatedCostUsd, 0.0123);
+  assert.strictEqual(row.actualCostUsd, null);
+  assert.strictEqual(row.costStatus, 'estimated');
+});
+
+test('a session with a real actual cost reports both figures', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-cli-2');
+  const row = reader.parseSession(h);
+  assert.strictEqual(row.estimatedCostUsd, 0.004);
+  assert.strictEqual(row.actualCostUsd, 0.0038);
+  assert.strictEqual(row.costStatus, 'actual');
+});
+
+test('lineage: parent_session_id is surfaced', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-cli-2');
+  assert.strictEqual(reader.parseSession(h).parentSessionId, 'sess-cli-1');
+});
+
+test('message text feeds OUR FTS body + first prompt', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-cli-1');
+  const row = reader.parseSession(h);
+  assert.match(row.textContent, /Refactor the auth middleware and add tests/);
+  assert.match(row.textContent, /extracted the token check/);
+  assert.strictEqual(row.firstPrompt, 'Refactor the auth middleware and add tests');
+});
+
+test('a cwd-less session parses fine and is NOT dropped (it needs the backend bucket)', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-cli-nocwd');
+  const row = reader.parseSession(h);
+  assert.ok(row, 'still a valid session');
+  assert.strictEqual(row.cwd, null, 'a general agent genuinely has no working dir here');
+  assert.strictEqual(typeof hermes.sessionBucketPath(), 'string', 'the backend offers a bucket for it');
+});
+
+test('the change marker moves when a session changes (it replaces the file mtime)', () => {
+  useFixture();
+  const before = reader.discoverSessions().find(h => h.sessionId === 'sess-cli-1').marker;
+  assert.ok(before && before.includes(':'), 'marker is built from ended_at + last message + count');
+  // Same DB, unchanged -> same marker => the scanner will skip the row.
+  const again = reader.discoverSessions().find(h => h.sessionId === 'sess-cli-1').marker;
+  assert.strictEqual(again, before, 'an unchanged session must produce a stable marker');
+});
+
+test('watchTargets returns the DB (the watcher polls its -wal too — a WAL commit misses the mtime)', () => {
+  useFixture();
+  const t = hermes.watchTargets();
+  assert.strictEqual(t[0].kind, 'db');
+  assert.match(t[0].path, /state\.db$/);
+});
+
+// --- state derivation (T-5.3): Hermes has no OSC title and no shipped status file, so the DB row IS
+// the signal: ended_at null + recent activity = busy.
+
+test('deriveState: a finished session is idle', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-cli-1');
+  assert.strictEqual(deriveState(reader.parseSession(h)), 'idle');
+});
+
+test('deriveState: a running session with recent activity is busy', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-running');
+  const row = reader.parseSession(h);
+  assert.strictEqual(row.isEnded, false, 'ended_at is null while the turn runs');
+  const justAfter = (T0 + 1001) * 1000 + 1000;   // 1s after its last message
+  assert.strictEqual(deriveState(row, justAfter), 'busy');
+});
+
+test('deriveState: a stale running session goes idle (crashed/abandoned, never spins forever)', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-running');
+  const row = reader.parseSession(h);
+  const wayLater = (T0 + 1001) * 1000 + ACTIVITY_WINDOW_MS + 1000;
+  assert.strictEqual(deriveState(row, wayLater), 'idle');
+});
+
+// --- descriptor
+
+test('descriptor: Axis-B, ready, monogram H, argv spawn, and NO auth injected', () => {
+  assert.strictEqual(hermes.id, 'hermes');
+  assert.strictEqual(hermes.axis, 'B');
+  assert.strictEqual(hermes.status, 'ready');
+  assert.strictEqual(hermes.monogram, 'H');
+
+  const launch = hermes.buildLaunch({ cwd: 'D:\\p', resume: false, sessionId: 'S' });
+  assert.strictEqual(launch.spawnMode, 'argv', 'hermes is a real .exe — argv mode genuinely applies');
+  // Hermes self-auths from its OWN .env/OAuth. We must inject nothing and never read its credentials.
+  assert.deepStrictEqual(launch.env, {}, 'no auth key may be injected');
+});
+
+test('buildLaunch: resume targets the recorded session id (binary-bound, §5.11)', () => {
+  const launch = hermes.buildLaunch({ resume: true, sessionId: 'sess-cli-1' });
+  assert.deepStrictEqual(launch.args, ['-r', 'sess-cli-1']);
+});
+
+test('probe reports a clear reason when hermes is not installed', () => {
+  const res = hermes.probe();
+  assert.strictEqual(typeof res.ok, 'boolean');
+  if (!res.ok) assert.match(res.reason, /hermes/i);
+});

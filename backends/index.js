@@ -175,9 +175,8 @@ function plannedDummy({ id, label, monogram, colour }) {
   };
 }
 
-// Axis-B binaries not built yet. Phases 5/6/7 replace hermes/pi/gemini with real `ready` descriptors.
+// Axis-B binaries not built yet. Phases 6/7 replace pi/gemini with real `ready` descriptors.
 function registerPlannedDummies() {
-  register(plannedDummy({ id: 'hermes', label: 'Hermes',     monogram: 'H',  colour: 'hermes' }));
   register(plannedDummy({ id: 'pi',     label: 'Pi',         monogram: 'Pi', colour: 'pi'     }));
   register(plannedDummy({ id: 'gemini', label: 'Gemini CLI', monogram: 'G',  colour: 'gemini' }));
 }
@@ -193,6 +192,7 @@ function _seedDefaults() {
   registry.clear();
   register(require('./claude'));
   register(require('./codex'));
+  register(require('./hermes'));   // Phase 5 — the first non-file (SQLite) backend
   registerPlannedDummies();
 }
 

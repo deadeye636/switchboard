@@ -113,10 +113,11 @@ test('descriptor shape: ready, configFields present, contract hooks exposed', ()
 
 // --- registry.
 
-test('registry: claude + codex are ready; the unbuilt Axis-B binaries are planned dummies', () => {
+test('registry: claude + codex + hermes are ready; the unbuilt Axis-B binaries are planned dummies', () => {
   assert.strictEqual(backends.get('claude').status, 'ready');
-  assert.strictEqual(backends.get('codex').status, 'ready'); // Phase 4
-  for (const id of ['hermes', 'pi', 'gemini']) {
+  assert.strictEqual(backends.get('codex').status, 'ready');  // Phase 4 (file store)
+  assert.strictEqual(backends.get('hermes').status, 'ready'); // Phase 5 (SQLite store)
+  for (const id of ['pi', 'gemini']) {
     const d = backends.get(id);
     assert.ok(d, `${id} registered`);
     assert.strictEqual(d.status, 'planned', `${id} is a planned dummy until its phase builds it`);

@@ -402,6 +402,27 @@ const migrations = [
     try { db.exec('ALTER TABLE session_cache ADD COLUMN filePath TEXT'); } catch {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_backend ON session_cache(backendId)'); } catch {}
   },
+  // v12 (multi-LLM Phase 5 — Hermes, the first NON-FILE backend):
+  //
+  //  - changeMarker: a file-store row is re-read when its mtime changes. A DB-store session has no
+  //    file, and Hermes' schema has no `updated_at`, so its backend synthesises a marker (ended_at +
+  //    last message + message count). It cannot ride in `modified`, which is the timestamp the UI
+  //    actually shows. Stays NULL for file-backed rows.
+  //
+  //  - cost: Hermes is the only backend that reports USD. `estimatedCostUsd` is its PRIMARY figure;
+  //    `actualCostUsd` is often null and `costStatus` may say 'n/a' — so the two are stored separately
+  //    and the UI must label an estimate AS an estimate, never as billing truth.
+  //
+  //  - lineageParentId: Hermes sessions have a parent (`parent_session_id`). This deliberately does NOT
+  //    reuse `parentSessionId`, which this app already uses for Claude SUBAGENT transcripts — putting a
+  //    Hermes parent there would make its child sessions render as subagents of it.
+  (db) => {
+    try { db.exec('ALTER TABLE session_cache ADD COLUMN changeMarker TEXT'); } catch {}
+    try { db.exec('ALTER TABLE session_cache ADD COLUMN estimatedCostUsd REAL'); } catch {}
+    try { db.exec('ALTER TABLE session_cache ADD COLUMN actualCostUsd REAL'); } catch {}
+    try { db.exec('ALTER TABLE session_cache ADD COLUMN costStatus TEXT'); } catch {}
+    try { db.exec('ALTER TABLE session_cache ADD COLUMN lineageParentId TEXT'); } catch {}
+  },
 ];
 
 const currentDbVersion = (() => {
@@ -611,9 +632,10 @@ const stmts = {
       cacheReadTokens, largestUserPromptWords, startedAt, lastEntryAt, activeMinutes,
       slug, aiTitle,
       parentSessionId, agentId, subagentType, description,
-      backendId, filePath
+      backendId, filePath,
+      changeMarker, estimatedCostUsd, actualCostUsd, costStatus, lineageParentId
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET
       folder = excluded.folder, projectPath = excluded.projectPath,
       summary = excluded.summary, firstPrompt = excluded.firstPrompt,
@@ -635,10 +657,15 @@ const stmts = {
       subagentType = excluded.subagentType,
       description = excluded.description,
       backendId = COALESCE(excluded.backendId, session_cache.backendId),
-      filePath = COALESCE(excluded.filePath, session_cache.filePath)
+      filePath = COALESCE(excluded.filePath, session_cache.filePath),
+      changeMarker = excluded.changeMarker,
+      estimatedCostUsd = COALESCE(excluded.estimatedCostUsd, session_cache.estimatedCostUsd),
+      actualCostUsd = COALESCE(excluded.actualCostUsd, session_cache.actualCostUsd),
+      costStatus = COALESCE(excluded.costStatus, session_cache.costStatus),
+      lineageParentId = COALESCE(excluded.lineageParentId, session_cache.lineageParentId)
   `),
   cacheGetByParent: db.prepare('SELECT * FROM session_cache WHERE parentSessionId = ? ORDER BY created ASC'),
-  cacheGetByFolder: db.prepare('SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath FROM session_cache WHERE folder = ?'),
+  cacheGetByFolder: db.prepare('SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath, changeMarker FROM session_cache WHERE folder = ?'),
   cacheGetFolder: db.prepare('SELECT folder FROM session_cache WHERE sessionId = ?'),
   cacheGetSession: db.prepare('SELECT * FROM session_cache WHERE sessionId = ?'),
   cacheDeleteSession: db.prepare('DELETE FROM session_cache WHERE sessionId = ?'),
@@ -1241,7 +1268,13 @@ const upsertCachedSessionsBatch = db.transaction((sessions) => {
       s.subagentType || null, s.description || null,
       // NULL = "unknown" (see cacheUpsert): keeps an already-recorded backendId instead of
       // downgrading it to 'claude' when the launch overlay has since been evicted.
-      s.backendId || null, s.filePath || null
+      s.backendId || null, s.filePath || null,
+      // v12 — db-store change marker + Hermes cost/lineage. All NULL for a file backend.
+      s.changeMarker || null,
+      s.estimatedCostUsd == null ? null : Number(s.estimatedCostUsd),
+      s.actualCostUsd == null ? null : Number(s.actualCostUsd),
+      s.costStatus || null,
+      s.lineageParentId || s.parentSessionIdLineage || null
     );
   }
 });
@@ -1278,7 +1311,7 @@ function upsertCachedSessions(sessions) {
 function getCachedByFolder(folder, scope) {
   if (!scope) return normalizeCacheRows(stmts.cacheGetByFolder.all(folder));
   const c = backendScopeClause(scope);
-  const sql = 'SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath'
+  const sql = 'SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath, changeMarker'
     + ' FROM session_cache WHERE folder = ?' + c.sql;
   return normalizeCacheRows(prepScoped(sql).all(folder, ...c.params));
 }

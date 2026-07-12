@@ -347,15 +347,16 @@ test('a disabled backend is never scanned but keeps its cached rows', () => {
 });
 
 test('a planned backend is never scanned and its roots are never enumerated', () => {
-  const w = setup({ enabledMap: { hermes: true, faketest: true } });
+  // gemini is still a `planned` dummy (hermes became ready in Phase 5, codex in Phase 4).
+  const w = setup({ enabledMap: { gemini: true, faketest: true } });
   try {
     w.db.upsertCachedSessions([{
       sessionId: 'dddddddd-0000-4000-8000-000000000004', folder: w.folder, projectPath: w.projectCwd,
-      backendId: 'hermes', filePath: null, summary: 'old hermes session',
+      backendId: 'gemini', filePath: null, summary: 'old gemini session',
     }]);
 
     // `planned` can never be enabled (backends.isEnabled), so this is a no-op by construction.
-    const stats = sessionCache.refreshBackendSessions('hermes');
+    const stats = sessionCache.refreshBackendSessions('gemini');
     assert.deepEqual(stats, { scanned: 0, upserted: 0, skipped: 0, deleted: 0 });
     assert.ok(w.db._cache.has('dddddddd-0000-4000-8000-000000000004'), 'planned backend keeps its cached rows');
 
@@ -411,5 +412,133 @@ test('a hidden project is not re-indexed but its cached Codex rows are left alon
     assert.equal(stats.upserted, 0, 'hidden project is not re-indexed');
     assert.equal(stats.deleted, 0, 'and its rows are not swept away');
     assert.ok(w.db._cache.has('bbbbbbbb-0000-4000-8000-000000000002'));
+  } finally { cleanup(w); }
+});
+
+// --- (e) DB-MODE (Phase 5, Hermes): the scanner must handle {kind:'db'} handles, not just files.
+//
+// This is the whole point of the dual-mode seam. A db-store session has NO file, so:
+//   - the change gate rides on a backend-supplied marker instead of a file mtime,
+//   - the reconcile keys on the session id instead of a file path,
+//   - a session with no cwd (a general agent's gateway/cron chat) must land in a backend-scoped
+//     bucket rather than being dropped or force-fitted into some project.
+
+function fakeDbBackend(id, { sessions, bucketPath }) {
+  return {
+    id, label: id, tier: 1, axis: 'B', status: 'ready',
+    monogram: 'X', colour: 'x', configFields: [],
+    buildLaunch() { throw new Error('nope'); },
+    discoverSessions() {
+      return sessions.map(s => ({ kind: 'db', ref: 'store.db', sessionId: s.sessionId, marker: s.marker }));
+    },
+    parseSession(h) {
+      const s = sessions.find(x => x.sessionId === h.sessionId);
+      return s ? { ...s.row, sessionId: s.sessionId, backendId: id } : null;
+    },
+    watchTargets() { return [{ kind: 'db', path: 'store.db' }]; },
+    deriveState: null,
+    sessionBucketPath: () => bucketPath,
+  };
+}
+
+test('db-mode: a {kind:db} session is indexed and grouped by its cwd like any other backend', () => {
+  const w = setup({ enabledMap: { dbtest: true } });
+  try {
+    backends.register(fakeDbBackend('dbtest', {
+      bucketPath: w.root,
+      sessions: [{
+        sessionId: 'hsess-1', marker: 'm1',
+        row: { cwd: w.projectCwd, summary: 'from a database', messageCount: 2, textContent: 'hello db' },
+      }],
+    }));
+
+    const stats = sessionCache.refreshBackendSessions('dbtest');
+    assert.equal(stats.upserted, 1, 'a db handle is parsed and cached (not skipped as "not a file")');
+
+    const row = w.db._cache.get('hsess-1');
+    assert.ok(row, 'the db session is in the cache');
+    assert.equal(row.backendId, 'dbtest');
+    assert.equal(row.projectPath, w.projectCwd, 'grouped by its cwd, centrally, like everyone else');
+    assert.equal(row.folder, w.folder, 'same folder key a Claude session with that cwd would get');
+    assert.ok(!row.filePath, 'a db session has no file path');
+    assert.equal(row.changeMarker, 'm1', 'its change gate rides on the backend-supplied marker instead');
+    assert.ok(w.db._search.has('hsess-1'), 'and it is searchable');
+  } finally { cleanup(w); }
+});
+
+test('db-mode: the change marker is the gate — an unchanged session is not re-parsed', () => {
+  const w = setup({ enabledMap: { dbtest: true } });
+  try {
+    let parses = 0;
+    const be = fakeDbBackend('dbtest', {
+      bucketPath: w.root,
+      sessions: [{ sessionId: 'hsess-1', marker: 'm1', row: { cwd: w.projectCwd, summary: 'v1', messageCount: 1 } }],
+    });
+    const realParse = be.parseSession;
+    be.parseSession = (h) => { parses++; return realParse(h); };
+    backends.register(be);
+
+    assert.equal(sessionCache.refreshBackendSessions('dbtest').upserted, 1);
+    assert.equal(parses, 1);
+
+    // Same marker -> the scanner must skip it without touching the store.
+    const second = sessionCache.refreshBackendSessions('dbtest');
+    assert.equal(second.skipped, 1, 'unchanged session skipped via its marker');
+    assert.equal(second.upserted, 0);
+    assert.equal(parses, 1, 'and NOT re-parsed');
+  } finally { cleanup(w); }
+});
+
+test('db-mode: a moved marker re-reads the session', () => {
+  const w = setup({ enabledMap: { dbtest: true } });
+  try {
+    const sessions = [{ sessionId: 'hsess-1', marker: 'm1', row: { cwd: w.projectCwd, summary: 'v1', messageCount: 1 } }];
+    backends.register(fakeDbBackend('dbtest', { bucketPath: w.root, sessions }));
+    sessionCache.refreshBackendSessions('dbtest');
+
+    // The session gained a message -> its marker moves -> it must be re-read.
+    sessions[0].marker = 'm2';
+    sessions[0].row.summary = 'v2';
+    const stats = sessionCache.refreshBackendSessions('dbtest');
+    assert.equal(stats.upserted, 1, 'a changed marker forces a re-read');
+    assert.equal(w.db._cache.get('hsess-1').summary, 'v2');
+  } finally { cleanup(w); }
+});
+
+test('db-mode: a cwd-LESS session lands in the backend bucket, not dropped and not in a real project', () => {
+  const w = setup({ enabledMap: { dbtest: true } });
+  try {
+    backends.register(fakeDbBackend('dbtest', {
+      bucketPath: w.root,   // the backend's own store root stands in as its bucket
+      sessions: [{
+        sessionId: 'hsess-nocwd', marker: 'm1',
+        row: { cwd: null, summary: 'a gateway chat with no working dir', messageCount: 1 },
+      }],
+    }));
+
+    const stats = sessionCache.refreshBackendSessions('dbtest');
+    assert.equal(stats.upserted, 1, 'a general agent session with no cwd is still ingested');
+    const row = w.db._cache.get('hsess-nocwd');
+    assert.equal(row.projectPath, w.root, 'bucketed under the backend, not forced into a project');
+    assert.notEqual(row.projectPath, w.projectCwd);
+  } finally { cleanup(w); }
+});
+
+test('db-mode: a session that disappears from the DB is reconciled away (keyed on id, not a file)', () => {
+  const w = setup({ enabledMap: { dbtest: true } });
+  try {
+    const sessions = [
+      { sessionId: 'hsess-1', marker: 'm1', row: { cwd: w.projectCwd, summary: 'a', messageCount: 1 } },
+      { sessionId: 'hsess-2', marker: 'm1', row: { cwd: w.projectCwd, summary: 'b', messageCount: 1 } },
+    ];
+    backends.register(fakeDbBackend('dbtest', { bucketPath: w.root, sessions }));
+    sessionCache.refreshBackendSessions('dbtest');
+    assert.ok(w.db._cache.has('hsess-2'));
+
+    sessions.pop();   // hermes deleted a session
+    const stats = sessionCache.refreshBackendSessions('dbtest');
+    assert.equal(stats.deleted, 1);
+    assert.ok(!w.db._cache.has('hsess-2'), 'gone from the store -> gone from the cache');
+    assert.ok(w.db._cache.has('hsess-1'), 'the survivor is untouched');
   } finally { cleanup(w); }
 });

@@ -109,6 +109,39 @@ function watchTargets() {
   return [{ kind: 'dir', path: sessionsRoot(), recursive: true }];
 }
 
+// --- LIVE-session hooks (the identity seam) ---
+//
+// Codex has no `--session-id`: it names its rollout with an id IT generates. So the id we launched the
+// session under is not the id Codex records, and until the two are reconciled the app shows two rows
+// for one session and resume targets an id Codex never had. `matchLiveSession` is how the main process
+// finds the store record belonging to a session it just spawned; it then adopts that id.
+//
+// Correlate by CREATION time, not "most recently touched": Codex writes the rollout header at startup,
+// so birth time is what lines up with the spawn. Picking the newest mtime would let an already-working
+// session's file be stolen by an older session whose own file is still just a header.
+function matchLiveSession({ cwd, sinceMs, claimed } = {}) {
+  const claimedSet = claimed instanceof Set ? claimed : new Set(claimed || []);
+  let best = null;
+  let bestBirth = Infinity;
+  for (const handle of discoverSessions()) {
+    if (claimedSet.has(handle.path)) continue;
+    let st;
+    try { st = fs.statSync(handle.path); } catch { continue; }
+    const birth = st.birthtimeMs || st.mtimeMs;
+    if (sinceMs != null && birth < sinceMs) continue;
+    const row = parser.parseSession(handle);
+    if (!row || !row.cwd || !row.sessionId) continue;
+    if (cwd && path.resolve(row.cwd) !== path.resolve(cwd)) continue;
+    if (birth < bestBirth) { best = { sessionId: row.sessionId, ref: handle.path }; bestBirth = birth; }
+  }
+  return best;
+}
+
+/** Busy/idle for a live session, from the store record `matchLiveSession` returned. */
+function liveState(ref) {
+  return deriveStateFromFileTail(ref);
+}
+
 module.exports = {
   id: 'codex',
   label: 'Codex',
@@ -126,6 +159,8 @@ module.exports = {
   watchTargets,
   deriveState,
   deriveStateFromFileTail,
+  matchLiveSession,
+  liveState,
   setHome,
   sessionsRoot,
 };

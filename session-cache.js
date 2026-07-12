@@ -525,8 +525,10 @@ function refreshBackendSessions(backendId) {
   // backend's rows, even when they sit in the same folder.
   const cached = cachedRowsOfBackend(backendId);
   const cachedByFile = new Map();
+  const cachedById = new Map();
   for (const row of cached) {
     if (row.filePath) cachedByFile.set(row.filePath, row);
+    cachedById.set(row.sessionId, row);
   }
 
   const seenFiles = new Set();
@@ -535,29 +537,50 @@ function refreshBackendSessions(backendId) {
   const searchEntries = [];
 
   for (const h of handles) {
-    if (!h || h.kind !== 'file' || !h.path) continue;   // db-mode handles: Phase 5
+    if (!h) continue;
+    const isFile = h.kind === 'file' && !!h.path;
+    const isDb = h.kind === 'db' && !!h.sessionId;
+    if (!isFile && !isDb) continue;
     stats.scanned++;
-    seenFiles.add(h.path);
 
-    // Change gate, same shape as refreshFolder's: the row's `modified` IS the file mtime, so an
-    // untouched rollout is never re-parsed. Without this every sweep would re-read every rollout.
-    let fileMtime;
-    try { fileMtime = fs.statSync(h.path).mtime.toISOString(); } catch { continue; }
-    const hit = cachedByFile.get(h.path);
-    if (hit && hit.modified === fileMtime) {
-      seenIds.add(hit.sessionId);
-      stats.skipped++;
-      continue;
+    // The change gate. For a FILE store the mtime is the marker; for a DB store there is no file per
+    // session, so the backend supplies its own marker on the handle (Hermes builds one from ended_at +
+    // last message, because its schema has no updated_at). Either way it lands in the row's `modified`
+    // -equivalent, so an unchanged session is never re-read.
+    let changeKey;
+    let hit;
+    if (isFile) {
+      seenFiles.add(h.path);
+      try { changeKey = fs.statSync(h.path).mtime.toISOString(); } catch { continue; }
+      hit = cachedByFile.get(h.path);
+      if (hit && hit.modified === changeKey) {
+        seenIds.add(hit.sessionId);
+        stats.skipped++;
+        continue;
+      }
+    } else {
+      changeKey = h.marker == null ? null : String(h.marker);
+      hit = cachedById.get(h.sessionId);
+      if (hit && changeKey && hit.changeMarker === changeKey) {
+        seenIds.add(hit.sessionId);
+        stats.skipped++;
+        continue;
+      }
     }
 
     let row;
     try { row = b.parseSession(h, {}); } catch { row = null; }
     if (!row || !row.sessionId) continue;
 
-    // §5.9: the backend supplies a cwd, the grouping layer owns the rest. A backend may yield a
-    // session with NO cwd (Hermes gateway/cron sessions) — those need a backend-scoped bucket
-    // (Phase 5), so skip them here rather than inventing a project for them.
-    const cwd = row.cwd || null;
+    // §5.9: the backend supplies a cwd, the grouping layer owns the rest — grouping is central and
+    // backend-agnostic. A backend may yield a session with NO cwd: Hermes is a general agent, so its
+    // gateway/cron chats genuinely have no working directory. Those group into a BACKEND-SCOPED bucket
+    // (the backend's own store root — a real path, so the Projects view handles it like any other)
+    // rather than being force-fitted under some project they were never in.
+    let cwd = row.cwd || null;
+    if (!cwd && typeof b.sessionBucketPath === 'function') {
+      try { cwd = b.sessionBucketPath(); } catch { cwd = null; }
+    }
     if (!cwd) continue;
     const projectPath = resolveWorktreePath(cwd);
     if (!projectPath) continue;
@@ -571,8 +594,20 @@ function refreshBackendSessions(backendId) {
     row.folder = encodeProjectPath(projectPath);   // the SAME key Claude's folder for this cwd carries
     row.projectPath = projectPath;
     row.backendId = row.backendId || backendId;    // the parser already knows (Axis B = own root)
-    row.filePath = h.path;                         // nothing to reconstruct it from — store it (v11)
-    row.modified = fileMtime;                      // keep the cache's change gate meaningful
+    if (isFile) {
+      row.filePath = h.path;                       // nothing to reconstruct it from — store it (v11)
+      row.modified = changeKey;                    // keep the cache's change gate meaningful
+    } else {
+      // A db-store session has no file. `filePath` stays null (resolveRowFilePath must tolerate that)
+      // and the change gate rides on the backend's own marker instead.
+      row.changeMarker = changeKey;
+      // Hermes lineage lives in its OWN column: `parentSessionId` is this app's Claude-subagent link,
+      // and reusing it would make a Hermes child session render as a subagent of its parent.
+      if (row.parentSessionId) {
+        row.lineageParentId = row.parentSessionId;
+        row.parentSessionId = null;
+      }
+    }
 
     seenIds.add(row.sessionId);
     rows.push(row);

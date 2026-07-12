@@ -1,0 +1,276 @@
+// backends/hermes/reader.js — the DB-MODE adapter (the first non-file backend).
+//
+// Hermes keeps its history in SQLite (%LOCALAPPDATA%\hermes\state.db), not in files. This is the whole
+// reason the discovery seam is dual-mode: `discoverSessions()` yields {kind:'db'} handles instead of
+// {kind:'file'} ones, and `parseSession(handle)` reads a row instead of a JSONL.
+//
+// Hard rules (upstream issue #2914 — a reader must never block Hermes writing):
+//   - open READ-ONLY, with `PRAGMA query_only` on top,
+//   - short-lived connections (open, read, close) — never hold one across a scan,
+//   - WAL-aware: the DB runs in `journal_mode=wal`, so a commit can sit in `state.db-wal` without
+//     touching the main file's mtime. Never gate a re-read on state.db's mtime alone.
+//
+// Live schema (docs/plans/research/hermes-format.md, dumped from a real install): `sessions` has 33
+// columns incl. a real `cwd`, a full token breakdown, `parent_session_id` lineage, and USD cost
+// (`estimated_cost_usd` / `actual_cost_usd` / `cost_status` / `cost_source` / `pricing_version`).
+// There is NO `updated_at` column, so the change marker is built from `ended_at` / message activity.
+'use strict';
+
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
+
+// Bump on ANY behavioural change here — persisted parse-state keyed on it is then dropped (§5.10).
+const PARSER_SCHEMA_VERSION = 1;
+
+let _home = null;
+
+// The store root. Windows-native is %LOCALAPPDATA%\hermes (CONFIRMED on a real install — `~/.hermes`
+// does NOT exist there); Linux/WSL uses ~/.hermes. HERMES_HOME overrides both. Never hardcode ~/.hermes.
+function hermesHome() {
+  if (_home) return _home;
+  if (process.env.HERMES_HOME) return process.env.HERMES_HOME;
+  if (process.platform === 'win32') {
+    const base = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    return path.join(base, 'hermes');
+  }
+  return path.join(os.homedir(), '.hermes');
+}
+
+function setHome(dir) { _home = dir || null; }
+
+function dbPath() { return path.join(hermesHome(), 'state.db'); }
+
+function dbExists() {
+  try { return fs.statSync(dbPath()).isFile(); } catch { return false; }
+}
+
+// --- SQLite driver ---
+//
+// Two drivers, one tiny interface. `better-sqlite3` is what the app already ships (and is what runs in
+// production), but it is compiled against Electron's ABI and cannot be loaded by a plain `node --test`
+// process. Node 22 ships `node:sqlite`, which can — so the reader falls back to it. That keeps this
+// backend testable in the normal suite instead of untested, and makes the reader work even where the
+// native module is unavailable.
+//
+// The wrapper normalises the two APIs down to what we actually use: prepare().all/get, a pragma read,
+// and close.
+function loadDriver() {
+  try {
+    const Database = require('better-sqlite3');
+    // require() alone proves nothing: better-sqlite3 loads its native binding LAZILY, on first open.
+    // Under a plain `node` process that binding is the wrong ABI (it is built for Electron) and only
+    // blows up here. Probe it for real, so we can fall through to node:sqlite instead of silently
+    // returning "no sessions".
+    new Database(':memory:').close();
+    return {
+      open(file) {
+        const db = new Database(file, { readonly: true, fileMustExist: true });
+        db.pragma('query_only = 1');   // belt and braces: we can never write, even by mistake
+        return {
+          all: (sql, ...p) => db.prepare(sql).all(...p),
+          get: (sql, ...p) => db.prepare(sql).get(...p),
+          pragma: (name) => db.pragma(name, { simple: true }),
+          close: () => db.close(),
+        };
+      },
+    };
+  } catch { /* fall through */ }
+
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    return {
+      open(file) {
+        const db = new DatabaseSync(file, { readOnly: true });
+        return {
+          all: (sql, ...p) => db.prepare(sql).all(...p),
+          get: (sql, ...p) => db.prepare(sql).get(...p),
+          pragma: (name) => {
+            const row = db.prepare(`PRAGMA ${name}`).get();
+            return row ? Object.values(row)[0] : null;
+          },
+          close: () => db.close(),
+        };
+      },
+    };
+  } catch { /* no driver at all */ }
+
+  return null;
+}
+
+let _driver;
+function driver() {
+  if (_driver === undefined) _driver = loadDriver();
+  return _driver;
+}
+
+// Open a short-lived READ-ONLY connection. Returns null when the DB isn't there (Hermes installed but
+// never run, or a degraded-mode install writing JSON instead — a known gap, not a crash), or when it is
+// momentarily unreadable. NEVER throws: a reader must not take Hermes down with it.
+function openDb() {
+  if (!dbExists()) return null;
+  const d = driver();
+  if (!d) return null;
+  try {
+    return d.open(dbPath());
+  } catch {
+    return null;                   // locked/corrupt -> degrade quietly, never block Hermes (#2914)
+  }
+}
+
+// A cheap DB-level "did anything change at all?" marker. Survives WAL commits, which an mtime check on
+// state.db would miss entirely.
+function dataVersion() {
+  const db = openDb();
+  if (!db) return null;
+  try { return db.pragma('data_version'); } catch { return null; } finally { db.close(); }
+}
+
+// Per-session change marker. Hermes has no `updated_at`, so we synthesise one from what does change:
+// the session's end time and its latest message. A running session's `ended_at` is null, so the
+// message timestamp is what moves.
+const MARKER_SQL = `
+  COALESCE(s.ended_at, 0) || ':' ||
+  COALESCE((SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id), 0) || ':' ||
+  COALESCE(s.message_count, 0)
+`;
+
+// Default ingest: only sessions the user actually drove from the CLI. The `source` column is
+// cli | gateway | … — Telegram/cron/gateway chats are not coding sessions and would be noise.
+function sourceFilter(includeAll) {
+  return includeAll ? '' : " WHERE s.source = 'cli'";
+}
+
+/**
+ * DB-mode discovery: one {kind:'db'} handle per session row. The handle carries the id and the change
+ * marker, so the scanner can skip unchanged sessions without re-reading the row.
+ */
+function discoverSessions({ includeAll = false } = {}) {
+  const db = openDb();
+  if (!db) return [];
+  try {
+    const rows = db.all(
+      `SELECT s.id AS id, ${MARKER_SQL} AS marker FROM sessions s${sourceFilter(includeAll)}`
+    );
+    const ref = dbPath();
+    return rows.map(r => ({
+      kind: 'db',
+      ref,                 // which store this came from
+      sessionId: String(r.id),
+      marker: String(r.marker),   // the scanner's change gate (stands in for a file mtime)
+    }));
+  } catch {
+    return [];
+  } finally {
+    db.close();
+  }
+}
+
+// Hermes stores times as REAL unix epoch seconds, not ISO strings.
+function toIso(epochSeconds) {
+  if (epochSeconds == null) return null;
+  const ms = Number(epochSeconds) * 1000;
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  try { return new Date(ms).toISOString(); } catch { return null; }
+}
+
+/**
+ * Read one session row -> our normalised shape. The id is taken from the `id` column verbatim and
+ * NEVER parsed (its format is inconsistent across Hermes' own docs).
+ */
+function parseSession(handle) {
+  if (!handle || handle.kind !== 'db' || !handle.sessionId) return null;
+  const db = openDb();
+  if (!db) return null;
+  try {
+    const s = db.get('SELECT * FROM sessions WHERE id = ?', handle.sessionId);
+    if (!s) return null;
+
+    // Body for our FTS index: Hermes has its own FTS tables, but we feed OUR search, so pull the
+    // message text. Bounded — a long session's transcript can be large and this runs per scan.
+    let title = s.title || '';
+    let textContent = '';
+    let firstPrompt = '';
+    let lastMessageMs = 0;
+    try {
+      const msgs = db.all(
+        "SELECT role, content, timestamp FROM messages WHERE session_id = ? AND content IS NOT NULL AND content <> '' ORDER BY id LIMIT 500",
+        handle.sessionId
+      );
+      const parts = [];
+      for (const m of msgs) {
+        const text = typeof m.content === 'string' ? m.content : '';
+        if (m.timestamp) lastMessageMs = Math.max(lastMessageMs, Number(m.timestamp) * 1000);
+        if (!text) continue;
+        if (!firstPrompt && m.role === 'user') firstPrompt = text.slice(0, 500);
+        parts.push(text);
+      }
+      textContent = parts.join('\n').slice(0, 200000);
+    } catch { /* messages unreadable -> still index the session row itself */ }
+
+    const summary = title || firstPrompt || '';
+    const startedAt = toIso(s.started_at);
+    const lastEntryAt = toIso(s.ended_at) || startedAt;
+    const activeMinutes = (s.started_at && s.ended_at)
+      ? Math.max(0, Math.round((Number(s.ended_at) - Number(s.started_at)) / 60))
+      : 0;
+
+    return {
+      sessionId: String(s.id),
+      backendId: 'hermes',
+      // A real cwd column EXISTS (contrary to the original plan). Gateway/cron sessions may still have
+      // none — those fall into the backend bucket, they are not forced under a project (§5.9).
+      cwd: s.cwd || null,
+      summary,
+      firstPrompt: firstPrompt || summary,
+      textContent,
+      created: startedAt,
+      modified: lastEntryAt,
+      startedAt,
+      lastEntryAt,
+      activeMinutes,
+      messageCount: Number(s.message_count || 0),
+      userMessageCount: 0,      // not tracked separately by Hermes
+      largestUserPromptWords: 0,
+      slug: null, customTitle: null, aiTitle: null,
+      model: s.model || null,
+      // Token breakdown (richer than Claude's).
+      inputTokens: Number(s.input_tokens || 0),
+      outputTokens: Number(s.output_tokens || 0),
+      cacheReadTokens: Number(s.cache_read_tokens || 0),
+      cacheCreationTokens: Number(s.cache_write_tokens || 0),
+      reasoningTokens: Number(s.reasoning_tokens || 0),
+      // Cost — Hermes is the only backend that reports USD. `estimated_cost_usd` is the PRIMARY field;
+      // `actual_cost_usd` is often null and `cost_status` may be 'n/a', so the UI must label an
+      // estimate AS an estimate and never present it as billing truth (T-5.5).
+      estimatedCostUsd: s.estimated_cost_usd == null ? null : Number(s.estimated_cost_usd),
+      actualCostUsd: s.actual_cost_usd == null ? null : Number(s.actual_cost_usd),
+      costStatus: s.cost_status || null,
+      // Lineage.
+      parentSessionId: s.parent_session_id || null,
+      toolCallCount: Number(s.tool_call_count || 0),
+      // Busy/idle inputs (state.js): Hermes has no OSC title and no shipped status file, so the DB row
+      // IS the signal — a running turn has no `ended_at`, and its last message keeps moving.
+      isEnded: s.ended_at != null,
+      lastActivityMs: lastMessageMs || (s.started_at ? Number(s.started_at) * 1000 : 0),
+      _marker: handle.marker || null,
+    };
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+/** STORE-level watch targets: the DB *and* its write-ahead log (a WAL commit misses state.db's mtime). */
+function watchTargets() {
+  const p = dbPath();
+  return [{ kind: 'db', path: p }];
+}
+
+module.exports = {
+  PARSER_SCHEMA_VERSION,
+  hermesHome, setHome, dbPath, dbExists, dataVersion,
+  discoverSessions, parseSession, watchTargets,
+  openDb,
+};
