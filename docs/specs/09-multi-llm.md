@@ -71,6 +71,30 @@ seam is dual-mode from Phase 1: a handle is either a file or a database referenc
 file-only, Hermes would have forced a rewrite of the scanner. It did not: the DB backend landed without
 touching the seam, and the generalized watcher already handled a `{kind:'db'}` target.
 
+### A file backend composes the file half, it does not copy it
+
+Discovery, watching and the two identity lookups are the **same code** for every backend whose history is
+one transcript per session under a root — only the root, the filename shape and the parser differ. Codex
+and Pi carried that code verbatim, which is precisely the shape of #148–#155: a defect found in one
+backend, fixed there, and kept by its twin.
+
+So it lives once, in **`backends/file-store.js`**. A file backend declares what is genuinely its own and
+gets the rest:
+
+```js
+const store = createFileStore({
+  root: sessionsRoot,                                    // LAZY — setHome()/tests move it
+  matches: (name) => name.startsWith('rollout-') && name.endsWith('.jsonl'),
+  parseSession: parser.parseSession,
+  refSuffix: (sessionId) => `-${sessionId}.jsonl`,       // how a filename names a session
+});
+// -> store.discoverSessions / watchTargets / matchLiveSession / liveRefFor
+```
+
+`findOnPath(name)` sits there too (PATHEXT-aware, because the npm CLIs are `.cmd` shims on Windows) and is
+used by the db backend as well — PATH resolution is not a file-store concern, but it is not Codex' either.
+A db backend composes nothing else: its store has no files.
+
 ### The identity seam — three hooks, or a resume bug
 
 Claude accepts `--session-id`, so *we* choose the id. **Codex, Hermes and Pi name their own sessions.**
@@ -261,6 +285,9 @@ subscription limits from Claude's API, and no other CLI has them.
   Electron), so they were "checked" against a JS re-implementation of themselves — which passes whether
   or not the SQL is right. The first thing the real test found was a `GROUP BY` resolving to the raw
   column instead of the `COALESCE` alias, which dropped every legacy row from the stacked chart.
+- `test/file-store.test.js` pins the shared file-mode mechanics against a synthetic backend, so a fix to
+  discovery/watching/identity is checked **once** instead of in one backend's suite while the sibling
+  quietly misses it.
 - Per backend: `test/{codex,hermes,pi}.test.js` (parsers + state against **real** fixtures),
   `test/scan-multi-backend.test.js` (the generic scanner: shared project bucket, cross-backend delete
   isolation, an unreachable store must not reconcile a history away), `test/settings-cascade.test.js`

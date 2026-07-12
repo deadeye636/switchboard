@@ -91,6 +91,10 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
   published docs were wrong in three places).
 - **Don't hardcode a backend id outside its own folder.** `main.js` / `session-cache.js` / `public/*.js`
   contain no `if (backendId === 'codex')` and must not gain one.
+- **A file-mode backend composes `backends/file-store.js` — it does not copy the walk.** Discovery,
+  `watchTargets`, the birth-time `matchLiveSession` and the suffix `liveRefFor` are the same code for every
+  backend that keeps one transcript per session; declare `root` (lazy), `matches`, `parseSession` and
+  `refSuffix` and take the rest. `findOnPath` lives there too (PATHEXT — the npm CLIs are `.cmd` shims).
 - **Adding or changing one → run `npm test`**: `test/backend-parity.test.js` asserts the properties every
   backend must share (an availability probe; an honest `supportsFork`; all three identity hooks if it
   names its own sessions; a versioned incremental parser). It exists because the same defect got fixed in

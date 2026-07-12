@@ -23,6 +23,7 @@ const fs = require('fs');
 const { execFileSync } = require('child_process');
 
 const parser = require('./parser');
+const { createFileStore, findOnPath } = require('../file-store');
 const { deriveState, deriveStateFromFileTail } = require('./state');
 
 let _root = null;
@@ -71,16 +72,7 @@ const configFields = [
 
 /** Is pi actually installed? */
 function findExecutable() {
-  const exts = process.platform === 'win32'
-    ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').map(e => e.trim()).filter(Boolean)
-    : [''];
-  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
-    for (const ext of exts) {
-      const p = path.join(dir, 'pi' + ext);
-      try { if (fs.statSync(p).isFile()) return p; } catch { /* keep looking */ }
-    }
-  }
-  return null;
+  return findOnPath('pi');
 }
 
 /** The version of the node ON PATH (`v22.22.0`), or null when there is none. */
@@ -108,11 +100,7 @@ function findBash() {
     try { if (fs.statSync(c).isFile()) return c; } catch { /* keep looking */ }
   }
   // Last resort: anything named bash on PATH.
-  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
-    const p = path.join(dir, 'bash.exe');
-    try { if (fs.statSync(p).isFile()) return p; } catch { /* keep looking */ }
-  }
-  return null;
+  return findOnPath('bash');
 }
 
 /**
@@ -190,69 +178,18 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
   return { command: 'pi', args, env, cwd, spawnMode: 'argv' };
 }
 
-/** Collect the session transcripts under the cwd-encoded folders (one level deep, but walk anyway). */
-function walkSessions(dir, out) {
-  let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-  for (const e of entries) {
-    const p = path.join(dir, e.name);
-    if (e.isDirectory()) walkSessions(p, out);
-    else if (e.isFile() && e.name.endsWith('.jsonl')) out.push(p);
-  }
-}
-
-/** FILE-mode discovery: one {kind:'file'} handle per transcript. */
-function discoverSessions() {
-  const files = [];
-  walkSessions(sessionsRoot(), files);
-  return files.map(p => ({
-    kind: 'file',
-    path: p,
-    // The filename carries the id too, but the header is authoritative — the parser reads it there.
-    sessionId: null,
-    parentSessionId: null,
-    root: sessionsRoot(),
-  }));
-}
-
-/** STORE-level watch target: the sessions root (a new cwd folder appears with the first session in it). */
-function watchTargets() {
-  return [{ kind: 'dir', path: sessionsRoot(), recursive: true }];
-}
-
-// --- LIVE-session hooks (the identity seam, D10/D17) ---
+// --- The file-store seam (discovery, watching, and the two identity hooks) ---
 //
-// Pi names its own session (a uuid in its header), so the id we launch under is not the id it records.
-// `matchLiveSession` finds the transcript a freshly spawned session created; `liveRefFor` claims a
-// RESUMED session's own transcript (which predates the spawn, so correlation could never find it).
-function matchLiveSession({ cwd, sinceMs, claimed } = {}) {
-  const claimedSet = claimed instanceof Set ? claimed : new Set(claimed || []);
-  let best = null;
-  let bestBirth = Infinity;
-  for (const handle of discoverSessions()) {
-    if (claimedSet.has(handle.path)) continue;
-    let st;
-    try { st = fs.statSync(handle.path); } catch { continue; }
-    const birth = st.birthtimeMs || st.mtimeMs;
-    if (sinceMs != null && birth < sinceMs) continue;
-    const row = parser.parseSession(handle);
-    if (!row || !row.sessionId || !row.cwd) continue;
-    if (cwd && path.resolve(row.cwd) !== path.resolve(cwd)) continue;
-    if (birth < bestBirth) { best = { sessionId: row.sessionId, ref: handle.path }; bestBirth = birth; }
-  }
-  return best;
-}
-
-function liveRefFor(sessionId) {
-  if (!sessionId) return null;
-  // The filename ends in `_<uuid>.jsonl` — a readdir match, where parsing every transcript to compare
-  // header ids would read the whole store.
-  const suffix = `_${String(sessionId).toLowerCase()}.jsonl`;
-  for (const handle of discoverSessions()) {
-    if (handle.path && handle.path.toLowerCase().endsWith(suffix)) return handle.path;
-  }
-  return null;
-}
+// Pi names its own session (a uuid in its header), so the id we launch under is not the id it records —
+// the same problem Codex has, solved in the same place. backends/file-store.js owns the mechanics (#156);
+// Pi declares only what is Pi's: the root, what a transcript is called, and how a filename names a session.
+const store = createFileStore({
+  root: sessionsRoot,
+  matches: (name) => name.endsWith('.jsonl'),
+  parseSession: parser.parseSession,
+  // `<ISO>_<uuid>.jsonl`
+  refSuffix: (sessionId) => `_${sessionId}.jsonl`,
+});
 
 // `ctx.lastOutputMs` = when this session's PTY last said anything (main.js). Used ONLY to keep a
 // silent-but-running turn from being declared idle — never to declare one busy.
@@ -280,15 +217,15 @@ module.exports = {
   probe,
   findExecutable,
 
-  // the dual-mode seam, file side
-  discoverSessions,
+  // the dual-mode seam, file side (backends/file-store.js)
+  discoverSessions: store.discoverSessions,
   parseSession: parser.parseSession,
   parseSessionIncremental: parser.parseSessionIncremental,
   PARSER_SCHEMA_VERSION: parser.PARSER_SCHEMA_VERSION,
-  watchTargets,
+  watchTargets: store.watchTargets,
   deriveState,
-  matchLiveSession,
-  liveRefFor,
+  matchLiveSession: store.matchLiveSession,
+  liveRefFor: store.liveRefFor,
   liveState,
 
   sessionsRoot,

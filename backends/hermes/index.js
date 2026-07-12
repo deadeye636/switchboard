@@ -14,10 +14,10 @@
 'use strict';
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
 const reader = require('./reader');
+const { findOnPath } = require('../file-store');
 const { deriveState } = require('./state');
 
 // Hermes' own launch options — taken from its real `--help` (#160), not from its docs.
@@ -57,16 +57,10 @@ const configFields = [
  */
 function findExecutable() {
   // 1. A hermes on PATH (any platform).
-  const exts = process.platform === 'win32'
-    ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').map(e => e.trim()).filter(Boolean)
-    : [''];
-  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
-    for (const ext of exts) {
-      const p = path.join(dir, 'hermes' + ext);
-      try { if (fs.statSync(p).isFile()) return p; } catch { /* keep looking */ }
-    }
-  }
-  // 2. The install's own venv, which is where the Windows installer puts it.
+  const onPath = findOnPath('hermes');
+  if (onPath) return onPath;
+  // 2. The install's own venv, which is where the Windows installer puts it. Hermes is a db backend, so
+  //    it composes nothing else from file-store.js — but PATH resolution is PATH resolution.
   const venv = path.join(reader.hermesHome(), 'hermes-agent', 'venv', 'Scripts',
     process.platform === 'win32' ? 'hermes.exe' : 'hermes');
   try { if (fs.statSync(venv).isFile()) return venv; } catch { /* not there */ }

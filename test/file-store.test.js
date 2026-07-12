@@ -1,0 +1,208 @@
+// backends/file-store.js — the file-mode seam Codex and Pi both compose (#156).
+//
+// These test the shared mechanics ONCE, against a synthetic backend. The point of the extraction is that
+// a fix here reaches every file backend; the point of these tests is that the fix is checked here rather
+// than in one backend's suite, where the sibling would quietly miss it.
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const { createFileStore, findOnPath, walkStore } = require('../backends/file-store');
+
+// A store shaped like a real one: nested folders, a mix of matching and non-matching files.
+// `<root>/2026/07/12/log-<id>.jsonl`, with a sidecar the backend must ignore.
+function makeStore() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'file-store-'));
+  const bucket = path.join(root, '2026', '07', '12');
+  fs.mkdirSync(bucket, { recursive: true });
+  return { root, bucket };
+}
+
+function writeSession(bucket, id, cwd, { name } = {}) {
+  const file = path.join(bucket, name || `log-${id}.jsonl`);
+  fs.writeFileSync(file, JSON.stringify({ id, cwd }) + '\n');
+  return file;
+}
+
+// The synthetic backend: its transcripts are `log-*.jsonl`, its parser reads the first line, and a
+// filename names a session by ending in `-<id>.jsonl`.
+function storeFor(root) {
+  return createFileStore({
+    root: () => root,
+    matches: (name) => name.startsWith('log-') && name.endsWith('.jsonl'),
+    parseSession: (handle) => {
+      try {
+        const head = JSON.parse(fs.readFileSync(handle.path, 'utf8').split('\n')[0]);
+        return { sessionId: head.id, cwd: head.cwd };
+      } catch { return null; }
+    },
+    refSuffix: (id) => `-${id}.jsonl`,
+  });
+}
+
+test('createFileStore refuses a spec it cannot honour', () => {
+  // A root passed as a STRING is the tempting mistake, and a silent one: the store would freeze the root
+  // it was constructed with, and setHome()/setRoot() (and every test fixture) would stop moving it.
+  assert.throws(() => createFileStore({ root: '/tmp', matches: () => true, parseSession: () => null, refSuffix: () => '' }),
+    /root must be a function/);
+  assert.throws(() => createFileStore({ root: () => '/tmp' }), /matches must be a function/);
+});
+
+test('discoverSessions recurses the store and yields {kind:file} handles', () => {
+  const { root, bucket } = makeStore();
+  try {
+    const a = writeSession(bucket, 'aaa', '/p');
+    writeSession(bucket, 'bbb', '/p', { name: 'notes.txt' });      // not a transcript
+    fs.writeFileSync(path.join(root, 'index.json'), '{}');          // nor is this
+    const handles = storeFor(root).discoverSessions();
+
+    assert.equal(handles.length, 1, 'only the matching file is a session');
+    assert.deepEqual(handles[0], {
+      kind: 'file', path: a, sessionId: null, parentSessionId: null, root,
+    });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a store root that does not exist yields no sessions, and does not throw', () => {
+  const missing = path.join(os.tmpdir(), 'file-store-nope-' + process.pid);
+  assert.deepEqual(storeFor(missing).discoverSessions(), []);
+  assert.deepEqual(walkStore(missing, () => true), []);
+});
+
+test('the root is read on every call — setHome()/setRoot() must keep working', () => {
+  // The whole reason `root` is a function. A store that captured the path at construction would keep
+  // reading the old one after the backend was pointed somewhere else (and every fixture would leak).
+  const first = makeStore();
+  const second = makeStore();
+  try {
+    writeSession(first.bucket, 'one', '/p');
+    writeSession(second.bucket, 'two', '/p');
+
+    let current = first.root;
+    const store = createFileStore({
+      root: () => current,
+      matches: (name) => name.endsWith('.jsonl'),
+      parseSession: () => null,
+      refSuffix: (id) => `-${id}.jsonl`,
+    });
+
+    assert.equal(store.discoverSessions().length, 1);
+    assert.equal(store.watchTargets()[0].path, first.root);
+    current = second.root;
+    assert.equal(store.discoverSessions()[0].root, second.root);
+    assert.equal(store.watchTargets()[0].path, second.root);
+  } finally {
+    fs.rmSync(first.root, { recursive: true, force: true });
+    fs.rmSync(second.root, { recursive: true, force: true });
+  }
+});
+
+test('watchTargets watches the root recursively', () => {
+  // Recursive, because new subdirectories appear on their own: a date bucket at midnight (Codex), a
+  // cwd folder with its first session (Pi). A non-recursive watch would go blind at the rollover.
+  const { root } = makeStore();
+  try {
+    assert.deepEqual(storeFor(root).watchTargets(), [{ kind: 'dir', path: root, recursive: true }]);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('matchLiveSession pairs a freshly spawned session with its transcript', () => {
+  const { root, bucket } = makeStore();
+  try {
+    const file = writeSession(bucket, 'live-1', 'D:\\Projekte\\demo');
+    const match = storeFor(root).matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set() });
+    assert.deepEqual(match, { sessionId: 'live-1', ref: file });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('matchLiveSession ignores another project, a claimed record, and anything older than the spawn', () => {
+  const { root, bucket } = makeStore();
+  try {
+    const file = writeSession(bucket, 'live-1', 'D:\\Projekte\\demo');
+    const store = storeFor(root);
+
+    assert.equal(store.matchLiveSession({ cwd: 'D:\\Projekte\\elsewhere', sinceMs: 0, claimed: new Set() }), null,
+      'a transcript from another cwd is not the session we just launched');
+    assert.equal(store.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set([file]) }), null,
+      'a record another session already claimed must never be handed out twice');
+    assert.equal(store.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set() }), null,
+      'a record that predates the spawn belongs to an older session');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('matchLiveSession takes the OLDEST unclaimed record, not the most recently touched', () => {
+  // Correlation is by birth time. Newest-mtime would let a working session's file — which keeps growing —
+  // be stolen by an older session whose own transcript is still just a header.
+  const { root, bucket } = makeStore();
+  try {
+    const older = writeSession(bucket, 'first', '/p');
+    const newer = writeSession(bucket, 'second', '/p');
+    // The OLDER session is the busy one: touch it so it has the newest mtime.
+    const soon = new Date(Date.now() + 60_000);
+    fs.utimesSync(older, soon, soon);
+
+    const match = storeFor(root).matchLiveSession({ cwd: '/p', sinceMs: 0, claimed: new Set() });
+    assert.equal(match.ref, older, 'the first-born record wins, however busy the file has been since');
+    assert.ok(match.ref !== newer);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('matchLiveSession skips a transcript with no id or no cwd', () => {
+  const { root, bucket } = makeStore();
+  try {
+    writeSession(bucket, 'no-cwd', null);
+    assert.equal(storeFor(root).matchLiveSession({ cwd: '/p', sinceMs: 0, claimed: new Set() }), null);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('liveRefFor finds a RESUMED session by id, whatever the record\'s age', () => {
+  // matchLiveSession only accepts records born after the spawn, which a resumed session's transcript
+  // never is. Without this hook the resumed session claims nothing — and the stale claim then adopts the
+  // id of the next NEW session in the same cwd.
+  const { root, bucket } = makeStore();
+  try {
+    const file = writeSession(bucket, 'RESUMED-1', '/p');
+    const store = storeFor(root);
+
+    assert.equal(store.liveRefFor('RESUMED-1'), file);
+    assert.equal(store.liveRefFor('resumed-1'), file, 'the id is matched case-insensitively');
+    assert.equal(store.liveRefFor('11111111-2222-4333-8444-555555555555'), null,
+      'a store must never claim to know an id it never issued');
+    assert.equal(store.liveRefFor(null), null);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('liveRefFor matches the SUFFIX, not a substring of the id', () => {
+  // `_<uuid>.jsonl` (Pi) and `-<uuid>.jsonl` (Codex) are the shapes; a bare `includes()` would let a
+  // session whose id merely CONTAINS another's claim the wrong transcript.
+  const { root, bucket } = makeStore();
+  try {
+    writeSession(bucket, 'abc', '/p');           // log-abc.jsonl
+    const store = storeFor(root);
+    assert.match(store.liveRefFor('abc'), /log-abc\.jsonl$/);
+    assert.equal(store.liveRefFor('b'), null, 'a suffix of the id is not the id');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('findOnPath honours PATHEXT — the npm CLIs are .cmd shims on Windows', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'file-store-path-'));
+  const oldPath = process.env.PATH;
+  const oldExt = process.env.PATHEXT;
+  try {
+    const ext = process.platform === 'win32' ? '.CMD' : '';
+    const exe = path.join(dir, 'faketool' + ext);
+    fs.writeFileSync(exe, '');
+    process.env.PATH = dir;
+    process.env.PATHEXT = '.EXE;.CMD;.BAT';
+
+    assert.equal(findOnPath('faketool'), exe);
+    assert.equal(findOnPath('nosuchtool'), null);
+  } finally {
+    process.env.PATH = oldPath;
+    if (oldExt === undefined) delete process.env.PATHEXT; else process.env.PATHEXT = oldExt;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
