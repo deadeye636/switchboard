@@ -2,7 +2,7 @@
 
 Each file in this folder is a **self-contained spec for one feature**, written so a single agent can pick it up and implement it without needing the original planning conversation. They derive from the productivity roadmap (since migrated to GitHub Issues — see `docs/BACKLOG.md`).
 
-**All eight specs are implemented.** They remain as design records; each spec's `Status:` line and an "As built" note (where the implementation diverged) reflect the final state. Line-number references below describe the codebase at spec-writing time and have drifted.
+**All nine specs are implemented.** They remain as design records; each spec's `Status:` line and an "As built" note (where the implementation diverged) reflect the final state. Line-number references below describe the codebase at spec-writing time and have drifted.
 
 **Every agent must read this README first**, then their assigned spec.
 
@@ -18,6 +18,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 06 | [Bulk actions from grid](06-grid-bulk-actions.md) | #6 | Yes |
 | 07 | [Session groups (visual folders)](07-session-groups.md) | #7a | Yes |
 | 08 | [Flexible grid layout (resize/drag)](08-flexible-grid-layout.md) | #7b | Depends on 07 |
+| 09 | [Multi-LLM backends](09-multi-llm.md) | #142 | No — touches spawn/scan/settings |
 
 ## Shared architecture (read once, applies to all specs)
 

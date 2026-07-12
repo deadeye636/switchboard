@@ -1,0 +1,154 @@
+# Spec 09 — Multi-LLM backends
+
+> Read `docs/specs/README.md` (shared architecture, IPC, conventions, validation gate) before starting.
+
+**Status:** Implemented · **Issue:** #142 (closed) · **Independent:** No — it touches the spawn, scan and
+settings hot paths
+
+User-facing guide: [`docs/multi-llm.md`](../multi-llm.md). Session formats of each backend:
+[`docs/backend-formats.md`](../backend-formats.md).
+
+## Problem & goal
+
+Switchboard was a **Claude Code** cockpit: `main.js` spawned `claude`, the scanner read
+`~/.claude/projects/**/*.jsonl`, the sidebar assumed one binary and one transcript format. Meanwhile the
+same person runs Codex, Hermes or Pi in a second terminal, with no session list, no search, no attention
+signals, no stats — the entire reason Switchboard exists, missing for half their work.
+
+**Goal:** run several coding CLIs side by side in one app — one sidebar, one full-text index, one launch
+menu, one stats view — **without changing anything for a Claude-only user**, and without a per-provider
+special case anywhere outside that provider's own folder.
+
+## Target state
+
+- **A backend is a folder** under `backends/` exporting one descriptor. Adding one changes no other file.
+- **Two axes.** *Axis A* = the Claude binary against a different endpoint (a user **profile**: DeepSeek,
+  GLM, OpenRouter, …) — data only, no per-provider code. *Axis B* = its own binary with its own session
+  store (Codex, Hermes, Pi; `agy` planned).
+- **Every backend is a first-class citizen**: its sessions are cached, grouped, searchable, badged, and
+  its state (busy/idle) is live — not just "we can launch it".
+- **Claude stays the default**, byte-identical command line, and a Claude-only user sees no new UI at all.
+
+## Architecture
+
+### The descriptor (the whole contract)
+
+| Field / hook | Purpose |
+|---|---|
+| `id`, `label`, `monogram`, `colour` | identity + badge |
+| `status` | `ready` \| `planned` (a "Coming soon" dummy that can never launch or be scanned) |
+| `axis` | `'B'` = own binary + own store. Claude is the default (`axis: null`); a profile is Axis-A and declares no schema of its own (it runs Claude's binary, so it uses Claude's). |
+| `configFields` | this CLI's launch options. **The Settings page and the Configure dialog are generated from it.** |
+| `supportsFork` | whether Fork is offered for its sessions |
+| `startupHint`, `caveat` | a slow first paint (Hermes ≈ 12 s); a standing gotcha shown in Settings |
+| `buildLaunch({cwd, resume, sessionId, forkFrom, options})` | → `{command, args, env, cwd, spawnMode}`. `env` values are `$VAR` refs, resolved at spawn. |
+| `probe()` | → `{ok, reason}` — is the binary (and what it needs) there? |
+| `discoverSessions()` | → handles: `{kind:'file', path}` **or** `{kind:'db', ref, sessionId, marker}` |
+| `parseSession(handle)` | → the normalised row (id, cwd, title, timestamps, tokens, optional cost) |
+| `parseSessionIncremental` + `PARSER_SCHEMA_VERSION` | resume a parse from a byte offset + tail fingerprint |
+| `watchTargets()` | store-level addresses — also how the app knows the store **exists** |
+| `matchLiveSession` / `liveRefFor` / `liveState` | the identity + state seam (below) |
+
+### Dual-mode discovery — built first, not retrofitted
+
+Hermes keeps its history in **SQLite**, not in files. Because it was the *second* backend, the discovery
+seam is dual-mode from Phase 1: a handle is either a file or a database reference. Had the seam been
+file-only, Hermes would have forced a rewrite of the scanner. It did not: the DB backend landed without
+touching the seam, and the generalized watcher already handled a `{kind:'db'}` target.
+
+### The identity seam — three hooks, or a resume bug
+
+Claude accepts `--session-id`, so *we* choose the id. **Codex, Hermes and Pi name their own sessions.**
+Unreconciled, that produces two sidebar rows for one session and a resume that targets an id the tool
+never had.
+
+- `matchLiveSession({cwd, sinceMs, claimed})` — find the record a **newly spawned** session created; the
+  app then adopts that id (re-using Claude's existing temp→real re-key path).
+- `liveRefFor(sessionId)` — find the record of a **resumed** session. **Not optional.** A resumed
+  session's record predates the spawn, so `matchLiveSession` can never match it — and the stale claim
+  would then adopt the *next new session's* record, collapsing two tabs onto one identity.
+- `liveState(ref, ctx)` — `'busy' | 'idle' | null`. `null` means *no evidence*; never guess idle.
+
+### Busy/idle: what each backend actually tells us
+
+| Backend | Signal | Failure mode to respect |
+|---|---|---|
+| Claude | **states** it in the terminal (OSC title: spinner = busy, `✳` = idle) | — |
+| Codex | **states** it in its transcript (`task_started` / `task_complete`) | a busy turn out-writes a fixed tail window long before it completes → the window must **grow** |
+| Hermes | states only that a turn **ended** (`ended_at`) | busy is inferred → a long silent turn reads idle |
+| Pi | states nothing; inferred from which line exists (a trailing user prompt = a turn is running) | same, plus: one message is one JSONL line, and a large answer can fill the whole window |
+
+For the inferred ones, terminal output is used as a **liveness** signal (`ctx.lastOutputMs`): it may keep
+a running-but-silent turn out of idle, and may **never** declare one busy. Activity is a bad state signal
+(a spinner frame is activity, so is an echoed keystroke) and a fine liveness signal.
+
+### Settings and launch, end to end
+
+`backendDefaults.<id>.<opt>` (settings blob, global → project cascade) → `get-effective-settings` →
+renderer → `sessionOptions` → `buildLaunch` → spawn. Both the per-backend settings page and the Configure
+dialog are **generated** from `configFields`, so a new backend needs no UI code.
+
+### Data
+
+`session_cache` gained `backendId` (authoritative provenance), `filePath` (a rollout path cannot be
+reconstructed), `changeMarker` (a db session has no mtime), `estimatedCostUsd` / `actualCostUsd` /
+`costStatus`, and `lineageParentId` (a backend's own parent link — deliberately *not* `parentSessionId`,
+which already means "this row is a Claude subagent").
+
+## Decisions, and why
+
+The ones that will look wrong to someone tidying up later:
+
+1. **`backendId` is the single discriminator.** A "profile" is just a user-created Axis-A backend. No
+   parallel profile/backend abstractions.
+2. **Every backend's launch options live in `backendDefaults.<id>` — Claude's too.** They used to sit in
+   *Sessions & CLI*; that panel now keeps only what is **not** a launch option. One setting, one home.
+   The first cut kept Claude out (to avoid two homes) and that "decision" hid a real bug: the cascade
+   never carried `backendDefaults` at all, so **every** saved Codex default was silently ignored at
+   launch. `test/settings-cascade.test.js` follows a stored default all the way to the argv.
+3. **A `false` is a value, not an absence.** An option whose default is ON (Claude's IDE emulation) can
+   only be switched off by sending the `false` — dropping it silently restores the default.
+4. **Availability informs and refuses; it does not hide.** A failed `probe()` shows the reason in Settings
+   and refuses the spawn with it. It does **not** filter the backend out of the picker: a probe is a
+   heuristic, and a false negative must never make a working backend vanish with no explanation.
+5. **An estimate is never a bill.** A cost counts as *settled* only when the backend says so; an unknown
+   or missing status degrades to "estimate". A **zero** estimate reads as "no cost reported", not `$0.00`
+   — a backend returning zero means it had no price for that model, not that the work was free.
+6. **A backend that cannot fork must say so.** Accepting `forkFrom` and ignoring it does not disable the
+   button — it launches an unrelated empty session.
+7. **Disable is not delete.** A disabled backend leaves the picker, the scan and the badge counting; its
+   sessions stay visible and searchable.
+8. **Argv spawn is honoured only when the command is a real executable.** On Windows `CreateProcess`
+   cannot run an npm `.cmd` shim (which is what `codex` is), so argv mode falls back to the shell there.
+9. **Cross-backend deletes are scoped.** A project bucket is keyed on the working directory and therefore
+   *shared*: refreshing, hiding or removing a Claude project must not take another backend's rows with
+   it — their data is still on disk.
+10. **Real git worktrees are their own project**, detected by the `.git` *file*; grouping stays on the
+    stable head cwd (deriving it per session let one moved session drag its siblings).
+
+## As built — known gaps
+
+Filed as issues rather than silently carried:
+
+- **#148** the handoff system is still Claude-only; a handoff *resume* should ask which backend to run it on.
+- **#149** `backendDefaults` cascades as a whole block, not per option.
+- **#150–#152** Hermes: probe scope, no busy/idle fallback when its DB is unreadable, parser-version marker.
+- **#153** leftovers vs. the plan (Tier-2 registration path, a launch-time `$VAR` warning, picker cosmetics).
+- **#154** the Stats time-series charts (heatmap, daily bars, per-model tokens) still cover **Claude only** —
+  `session_metrics` is written on the Claude read path; the per-backend cards below them include everyone.
+- **#155** hot-path cost (Hermes re-parses a session per watcher flush; store walks per flush).
+- **#156** this contract needs a shared file-store helper — Codex and Pi duplicate ~60 lines of walk /
+  watch / match / lookup boilerplate that the next file backend would copy a third time.
+
+## Validation
+
+- `npm test` — `test/backend-parity.test.js` asserts the properties **every** backend must share (a probe,
+  an honest `supportsFork`, all three identity hooks if it names its own sessions, a versioned incremental
+  parser). It exists because the same defect was found and fixed in one backend four separate times while
+  its siblings quietly kept it.
+- Per backend: `test/{codex,hermes,pi}.test.js` (parsers + state against **real** fixtures),
+  `test/scan-multi-backend.test.js` (the generic scanner: shared project bucket, cross-backend delete
+  isolation, an unreachable store must not reconcile a history away), `test/settings-cascade.test.js`
+  (a stored default reaches the argv), `test/scoped-folder-deletes.test.js`.
+- Human gate: enable a backend, launch it, confirm the TUI drives, the badge shows, the session is
+  searchable and flips busy → idle, and that resume returns to the same binary.
