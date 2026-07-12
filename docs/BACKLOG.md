@@ -24,7 +24,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#43](https://github.com/deadeye636/switchboard/issues/43) Detect subagent spawn via .meta.json (not only .jsonl) · _feature_
 - [#50](https://github.com/deadeye636/switchboard/issues/50) Per-session API key override · _port, source:brianstanley_
 - [#84](https://github.com/deadeye636/switchboard/issues/84) Make the terminal LRU cap configurable · _feature_
-- [#99](https://github.com/deadeye636/switchboard/issues/99) Session tags: add a discoverable entry point (can't add the first tag) · _bug_
 - [#104](https://github.com/deadeye636/switchboard/issues/104) Evaluate: multi-sidebar panes · _feature, port_
 - [#105](https://github.com/deadeye636/switchboard/issues/105) Evaluate: local Whisper voice input · _feature, port_
 - [#107](https://github.com/deadeye636/switchboard/issues/107) Evaluate: brianstanley cursor-ui-refresh · _feature, port, source:brianstanley_
@@ -37,3 +36,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#155](https://github.com/deadeye636/switchboard/issues/155) Backend hot paths: avoidable per-event work (Hermes re-parse, Pi node probe, store walks) · _chore_
 - [#156](https://github.com/deadeye636/switchboard/issues/156) Backends: extract the shared file-store boilerplate (Codex and Pi duplicate it) · _chore_
 - [#157](https://github.com/deadeye636/switchboard/issues/157) A session that moved into a worktree still follows its original folder · _bug_
+- [#164](https://github.com/deadeye636/switchboard/issues/164) Session tags: filter the sidebar by session tag · _feature_
