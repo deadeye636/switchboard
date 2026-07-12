@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (23 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-12
 
@@ -16,7 +16,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 
 - [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
-- [#145](https://github.com/deadeye636/switchboard/issues/145) Settings: export & import (global settings, JSON file) · _feature_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 
 ## P3 — someday
