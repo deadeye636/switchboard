@@ -157,13 +157,6 @@ function watchTargets() {
 module.exports = {
   id: 'claude',
   supportsFork,
-  // Does this CLI have a slash-command surface at all? Every shipped backend does (Codex, Hermes and Pi
-  // all have one, and all turn installed skills into slash commands) — but their commands are their OWN.
-  // `/handoff` is a Claude skill; it does not exist in Codex just because Codex has skills. So this flag
-  // is NOT a licence to send any slash command anywhere: it only says "a `/command` means something
-  // here". Which command exists is what the per-backend handoff prompt is for. A backend that declares
-  // `false` (an unbuilt one, say) never gets a slash command typed into it.
-  slashCommands: true,
   label: 'Claude Code',
   binary: 'claude',  // the executable name, for callers that build their own argv (the schedule runner)
   tier: 1,

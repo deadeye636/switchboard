@@ -215,12 +215,8 @@
   const firstLine = (text) => String(text || '').split('\n')[0].trim();
 
   function handoffPromptHtml(backend, value, globalPrompt) {
-    const hint = backend.slashCommands === true
-      ? `Leave empty to use the global handoff prompt. A slash command set HERE is sent to ${esc(backend.label)} as-is — `
-        + 'so this is the place to use one of its own commands or skills (a global slash command is only sent to your default agent, '
-        + 'because commands do not carry across CLIs).'
-      : `Leave empty to use the global handoff prompt. ${esc(backend.label)} has no slash commands, so a `
-        + '<code>/command</code> would arrive as plain text and is never sent.';
+    const hint = `Leave empty to use the global handoff prompt. Set one here when ${esc(backend.label)} needs `
+      + 'its own wording — or its own slash command / skill, which is sent to it exactly as you write it.';
     return `
       <div class="settings-section">
         <div class="settings-section-title">Handoff</div>

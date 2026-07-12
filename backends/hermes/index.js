@@ -143,7 +143,6 @@ module.exports = {
   monogram: 'H',
   colour: 'hermes',
   supportsFork: false,   // no confirmed fork flag — do not offer what we cannot do (see codex/index.js)
-  slashCommands: true,   // slash autocomplete in the TUI; installed skills become slash commands
   // Hermes loads a heavy Python stack before its TUI paints — measured at ~12s on a warm machine
   // (T-5.0). Said out loud, because a silent black tab for 12 seconds reads as a crash.
   startupHint: 'Starting Hermes — its TUI takes about 10-15 seconds to appear.',

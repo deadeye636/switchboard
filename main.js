@@ -3060,9 +3060,6 @@ ipcMain.handle('backends-list', () => {
       // How long this CLI needs before it can accept input at all (Hermes: ~12s of Python imports).
       // The handoff seeding path waits it out instead of pasting into a process that cannot hear it.
       seedGraceMs: Number(b.seedGraceMs) || 0,
-      // Does it understand slash commands (= skills)? Only Claude does; the handoff path refuses to type
-      // a `/handoff` into a CLI that would just read it as text.
-      slashCommands: b.slashCommands === true,
     })),
     defaultLaunchTarget: backends.getDefaultLaunchTarget(),
   };

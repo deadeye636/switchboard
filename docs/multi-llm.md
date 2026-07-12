@@ -84,14 +84,14 @@ Resuming a *handoff* starts a **new** session seeded with context, so it is free
 picker just defaults to the backend that produced it. If that backend is no longer available, the row
 says so instead of quietly running the packet somewhere else.
 
-**About slash commands.** Every CLI here has them (and turns its skills into them) — but the commands
-are each CLI's own: `/handoff` exists in Claude, not in Codex merely because Codex also has skills. So a
-slash command in the *global* handoff prompt is only sent to your **default** agent; another backend gets
-the standard prompt instead, and the app says so. Give a backend its own handoff prompt on its Backends
-page to use one of *its* commands.
+**The prompt.** Switchboard ships a default handoff prompt. Change it globally in *Sessions & CLI*, and
+override it per backend on that backend's page in *Settings → Backends* — so a CLI that wants different
+wording, or its own slash command / skill, gets exactly what you write for it. Every CLI here has slash
+commands and turns its skills into them, but the commands are its own: `/handoff` is a Claude skill and
+does not exist in Codex just because Codex also has skills. Point a backend at a command it has.
 
-And if the agent does not answer at all — an unknown command, a session that is not listening — you are
-asked before its **previous** message is offered to you as the packet.
+If the agent answers nothing at all, you are asked before its **previous** message is offered to you as
+the packet — a handoff that silently describes the wrong state is worse than no handoff.
 
 ## Turning a backend off
 

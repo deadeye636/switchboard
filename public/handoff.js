@@ -251,18 +251,12 @@ async function runHandoff(session, project) {
   const g = (await window.api.getSetting('global')) || {};
   const handoffLibrary = !!g.handoffLibrary;
 
-  // The prompt is resolved PER BACKEND: its own, else the global one, else the built-in default.
-  //
-  // Every CLI here has slash commands — but they are each CLI's OWN. `/handoff` is a Claude skill; it
-  // does not exist in Codex just because Codex also has skills. So a GLOBAL slash command is only sent
-  // to the default agent it was written for; another backend gets the prose default and a note saying
-  // it can have its own. (A prompt set ON a backend is sent as-is: the user chose it for that CLI.)
+  // The prompt is resolved PER BACKEND: its own, else the global one, else the built-in default. A slash
+  // command is that CLI's own business — if the user points a backend at a command it does not have,
+  // they fix it on that backend's page. We do not silently rewrite what they asked us to send.
   const backendId = backendOfSession(session);
   const backend = (typeof getBackend === 'function' ? getBackend(backendId) : null) || { id: backendId };
-  const resolved = resolveHandoffPrompt(backend, g, {
-    defaultBackendId: window._defaultBackendId || g.defaultLaunchTarget || 'claude',
-  });
-  if (resolved.usedFallback) showControlToast({ message: resolved.reason });
+  const template = resolveHandoffPrompt(backend, g);
 
   // What the agent had already said BEFORE we asked. If its last message is still this one afterwards,
   // it produced nothing — and offering that old text as the new packet is exactly the silent wrongness
@@ -270,7 +264,7 @@ async function runHandoff(session, project) {
   const before = await readLatestHandoffPacket(session);
 
   // Token step #1 — authorized by the "Hand off (guided)" button. The prompt is typed into the session.
-  const requestPrompt = fillHandoffPrompt(resolved.prompt, session);
+  const requestPrompt = fillHandoffPrompt(template, session);
   window.api.sendInput(session.sessionId, `\x1b[200~${requestPrompt}\x1b[201~\r`);
 
   if (handoffLibrary) {
