@@ -207,11 +207,49 @@ Return only a markdown handoff with these sections:
     return fillHandoffPrompt(DEFAULT_HANDOFF_PROMPT, session);
   }
 
+  // Which prompt do we actually type into THIS backend's session?
+  //
+  //   1. the backend's own override, if the user set one (per-backend quirks: a CLI may want a
+  //      different wording, or its own skill),
+  //   2. else the global prompt,
+  //   3. else the built-in default.
+  //
+  // ...and then the safety net. A slash command is a SKILL, and skills are a Claude thing: typed into
+  // Codex, Pi or Hermes it is just text they do not understand. The agent then produces nothing useful,
+  // and the capture step happily offers the PREVIOUS assistant turn as the "fresh" packet — silently
+  // wrong, which is the failure mode this whole feature keeps producing. So: if the prompt we would
+  // send is a slash command and this backend does not do slash commands, fall back to the prose default
+  // and SAY that we did.
+  //
+  // `backend` = the descriptor ({ id, label, slashCommands }); `settings` = the global settings blob.
+  // Returns { prompt, usedFallback, reason }.
+  function resolveHandoffPrompt(backend, settings = {}) {
+    const perBackend = (settings.handoffPromptByBackend || {})[(backend && backend.id) || 'claude'];
+    const global = settings.handoffPrompt;
+
+    const pick = (v) => (typeof v === 'string' && v.trim()) ? v.trim() : null;
+    const chosen = pick(perBackend) || pick(global) || DEFAULT_HANDOFF_PROMPT;
+
+    const isSlashCommand = /^\/[^\s]/.test(chosen);
+    const supportsSlash = !backend || backend.slashCommands === true;
+
+    if (isSlashCommand && !supportsSlash) {
+      return {
+        prompt: DEFAULT_HANDOFF_PROMPT,
+        usedFallback: true,
+        reason: `"${chosen.split(/\s/)[0]}" is a Claude skill — ${(backend && backend.label) || 'this backend'} `
+          + 'would only see it as text, so the standard handoff prompt was used instead.',
+      };
+    }
+    return { prompt: chosen, usedFallback: false, reason: null };
+  }
+
   return {
     HEALTH_THRESHOLDS,
     getSessionHealth,
     buildHandoffTemplate,
     buildHandoffRequestPrompt,
+    resolveHandoffPrompt,
     DEFAULT_HANDOFF_PROMPT,
     fillHandoffPrompt,
   };

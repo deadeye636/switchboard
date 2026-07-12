@@ -157,6 +157,9 @@ function watchTargets() {
 module.exports = {
   id: 'claude',
   supportsFork,
+  // Slash commands are SKILLS, and only Claude has them. A handoff prompt set to `/handoff` typed into
+  // another CLI is just text it does not understand — the handoff path checks this before sending.
+  slashCommands: true,
   label: 'Claude Code',
   binary: 'claude',  // the executable name, for callers that build their own argv (the schedule runner)
   tier: 1,

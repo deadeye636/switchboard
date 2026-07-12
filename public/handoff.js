@@ -250,12 +250,23 @@ function showHandoffSaveDialog(session) {
 async function runHandoff(session, project) {
   const g = (await window.api.getSetting('global')) || {};
   const handoffLibrary = !!g.handoffLibrary;
-  const template = (typeof g.handoffPrompt === 'string' && g.handoffPrompt.trim())
-    ? g.handoffPrompt : DEFAULT_HANDOFF_PROMPT;
 
-  // Token step #1 — authorized by the "Hand off (guided)" button. The prompt (or a
-  // skill command like /handoff) is typed into the running session.
-  const requestPrompt = fillHandoffPrompt(template, session);
+  // The prompt is resolved PER BACKEND: its own override, else the global one, else the built-in
+  // default. And a slash command is a SKILL — typed into a CLI that has none it is merely text; the
+  // agent then answers nothing useful and the capture step would hand you its PREVIOUS turn as the
+  // "fresh" packet. resolveHandoffPrompt refuses that, and says why.
+  const backendId = backendOfSession(session);
+  const backend = (typeof getBackend === 'function' ? getBackend(backendId) : null) || { id: backendId };
+  const resolved = resolveHandoffPrompt(backend, g);
+  if (resolved.usedFallback) showControlToast({ message: resolved.reason });
+
+  // What the agent had already said BEFORE we asked. If its last message is still this one afterwards,
+  // it produced nothing — and offering that old text as the new packet is exactly the silent wrongness
+  // this feature must not commit.
+  const before = await readLatestHandoffPacket(session);
+
+  // Token step #1 — authorized by the "Hand off (guided)" button. The prompt is typed into the session.
+  const requestPrompt = fillHandoffPrompt(resolved.prompt, session);
   window.api.sendInput(session.sessionId, `\x1b[200~${requestPrompt}\x1b[201~\r`);
 
   if (handoffLibrary) {
@@ -265,6 +276,20 @@ async function runHandoff(session, project) {
     if (cap !== 'capture') return;
   } else {
     showControlToast({ message: 'Asked the agent for a handoff packet — review it once it finishes.' });
+  }
+
+  // Did the agent actually answer? Its last message being unchanged means it did not.
+  const after = await readLatestHandoffPacket(session);
+  if (after && before && after === before) {
+    const go = await showControlDialog({
+      title: 'The agent did not answer',
+      message: 'Its last message has not changed since the handoff was requested — the prompt may not '
+        + 'have reached it, or it did not understand it. Continuing would hand you its PREVIOUS message '
+        + 'as the packet. Review it anyway?',
+      confirmLabel: 'Review anyway',
+      cancelLabel: 'Cancel',
+    });
+    if (!go) return;
   }
 
   // Token step #0 (no tokens) — review/edit the captured packet. In library mode

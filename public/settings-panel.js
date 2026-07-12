@@ -1821,6 +1821,9 @@
             settings.backendEnabled = bs.backendEnabled;
             settings.defaultLaunchTarget = bs.defaultLaunchTarget;
             settings.backendDefaults = bs.backendDefaults;
+            // Per-backend handoff prompt override (empty = use the global one). NOT a launch option —
+            // it is typed into the running agent, not put on its command line.
+            settings.handoffPromptByBackend = bs.handoffPromptByBackend;
           }
         }
         // Terminal tools (T-3.10): the GLOBAL launcher list — the template every project inherits.

@@ -34,6 +34,8 @@
   let inheritedDefaults = {};   // project scope only: what it would inherit from global
   let pendingDefaults = {};     // edited since the panel mounted, on any page
   let clearedDefaults = {};     // project scope: overrides the user handed back to the global default
+  let storedHandoffPrompts = {};  // handoffPromptByBackend on disk
+  let pendingHandoffPrompts = {}; // ...edited in this settings session
 
   // One-line blurb per built-in backend (the descriptor carries no description).
   const BACKEND_BLURB = {
@@ -202,6 +204,38 @@
   // the attention hook patches Claude's OWN ~/.claude/settings.json and applies to every Claude session,
   // including ones Switchboard never started. It belongs to the backend, not to a generic app section —
   // but it is stored as a plain global setting, not under backendDefaults.
+  // The handoff prompt, per backend. NOT a launch option (it reaches no argv and no env) — it is what we
+  // TYPE INTO the running agent, so it is stored as its own setting: `handoffPromptByBackend.<id>`.
+  // Empty = use the global prompt from Sessions & CLI.
+  //
+  // Why per backend at all: a CLI may want different wording, or have its own skill. And a slash command
+  // is a Claude skill — the handoff path refuses to type one into a CLI that has none (it would be read
+  // as plain text, the agent would answer nothing useful, and the capture step would then offer its
+  // previous message as the "fresh" packet).
+  const firstLine = (text) => String(text || '').split('\n')[0].trim();
+
+  function handoffPromptHtml(backend, value, globalPrompt) {
+    const skills = backend.slashCommands === true;
+    const hint = skills
+      ? 'Leave empty to use the global handoff prompt. A slash command (e.g. <code>/handoff</code>) runs a skill.'
+      : `Leave empty to use the global handoff prompt. ${esc(backend.label)} has no slash commands — a `
+        + '<code>/command</code> would be sent as plain text, so it is ignored here and the standard prompt is used.';
+    return `
+      <div class="settings-section">
+        <div class="settings-section-title">Handoff</div>
+        <div class="settings-field settings-field-wide">
+          <div class="settings-field-info">
+            <span class="settings-label">Handoff prompt</span>
+            <div class="settings-description">${hint} Placeholders: {goal} {project} {sessionId} {metrics}.</div>
+          </div>
+          <div class="settings-field-control">
+            <textarea class="settings-input backend-handoff-prompt" rows="4" data-backend="${esc(backend.id)}"
+              placeholder="${esc(firstLine(globalPrompt) || 'Use the global prompt')}">${esc(value || '')}</textarea>
+          </div>
+        </div>
+      </div>`;
+  }
+
   function claudeIntegrationsHtml(attentionHooksOn) {
     return `
       <div class="settings-section">
@@ -506,7 +540,8 @@
     // Edits are remembered across the per-backend pages WITHIN one settings session — but a settings
     // window that is closed without saving must not smuggle its abandoned edits into the next save.
     // `mount` runs when the panel opens (and on a fresh re-render), so that is where they are dropped.
-    if (!ctx.keepPending) { pendingDefaults = {}; clearedDefaults = {}; }
+    if (!ctx.keepPending) { pendingDefaults = {}; clearedDefaults = {}; pendingHandoffPrompts = {}; }
+    storedHandoffPrompts = ctx.fieldValue('handoffPromptByBackend', {}) || {};
     const backendDefaults = mergedDefaults();
 
     // Everything is rendered into a FRESH child element and the delegated listeners hang off it —
@@ -681,9 +716,11 @@
     function openBackendPage(backendId) {
       const backend = backends.find(b => b.id === backendId);
       if (!backend) return;
-      const extras = backend.id === 'claude'
-        ? claudeIntegrationsHtml(!!ctx.fieldValue('attentionHooks', false))
-        : '';
+      const handoffByBackend = ctx.fieldValue('handoffPromptByBackend', {}) || {};
+      const extras = handoffPromptHtml(backend, handoffByBackend[backend.id], ctx.fieldValue('handoffPrompt', ''))
+        + (backend.id === 'claude'
+          ? claudeIntegrationsHtml(!!ctx.fieldValue('attentionHooks', false))
+          : '');
       const page = document.createElement('div');
       page.className = 'backends-panel';
       page.innerHTML = launchDefaultsPage(backend, mergedDefaults(), false, extras);
@@ -693,8 +730,8 @@
       page.addEventListener('click', (e) => {
         if (e.target.closest('[data-act="back"]')) mount(root, { ...ctx, keepPending: true });
       });
-      page.addEventListener('input', (e) => recordDefault(e.target));
-      page.addEventListener('change', (e) => recordDefault(e.target));
+      page.addEventListener('input', (e) => { recordDefault(e.target); recordHandoffPrompt(e.target); });
+      page.addEventListener('change', (e) => { recordDefault(e.target); recordHandoffPrompt(e.target); });
     }
 
     box.addEventListener('click', (e) => {
@@ -783,7 +820,25 @@
       backendEnabled,
       defaultLaunchTarget: root.querySelector('#sv-default-launch-target').value || 'claude',
       backendDefaults: readDefaults(root),
+      handoffPromptByBackend: readHandoffPrompts(root),
     };
+  }
+
+  // Per-backend handoff prompts. Same rule as the launch defaults: only ONE backend's page is in the DOM
+  // at a time, so the stored blob is the source of truth and the open page is merged over it. An emptied
+  // field is REMOVED (= "use the global prompt"), not stored as an empty string.
+  function readHandoffPrompts(root) {
+    const out = { ...(storedHandoffPrompts || {}), ...(pendingHandoffPrompts || {}) };
+    if (root) {
+      root.querySelectorAll('.backend-handoff-prompt').forEach(el => {
+        const id = el.dataset.backend;
+        if (!id) return;
+        const v = el.value.trim();
+        if (v) out[id] = v; else delete out[id];
+      });
+    }
+    for (const [id, v] of Object.entries(out)) if (!v) delete out[id];
+    return out;
   }
 
   // backendDefaults.<backendId>.<optionId> — the GLOBAL scope's blob.
@@ -853,6 +908,14 @@
     if (el.dataset.type === 'toggle') return !!el.checked;
     if (el.dataset.type === 'number') return el.value.trim() === '' ? '' : Number(el.value);
     return el.value;
+  }
+
+  function recordHandoffPrompt(el) {
+    if (!el || !el.classList || !el.classList.contains('backend-handoff-prompt')) return;
+    const id = el.dataset.backend;
+    if (!id) return;
+    const v = el.value.trim();
+    if (v) pendingHandoffPrompts[id] = v; else pendingHandoffPrompts[id] = '';   // '' -> dropped on read
   }
 
   function recordDefault(el) {
