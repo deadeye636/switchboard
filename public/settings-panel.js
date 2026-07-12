@@ -457,7 +457,10 @@
     const projectAutoAddValue = !isProject ? (current.projectAutoAdd !== false) : true;
     // Handoff library (global only): toggle + editable request prompt.
     const defaultHandoffPrompt = (typeof window !== 'undefined' && window.DEFAULT_HANDOFF_PROMPT) || '';
-    const handoffLibraryValue = !isProject ? !!current.handoffLibrary : false;
+    const defaultHandoffReadPrompt = (typeof window !== 'undefined' && window.DEFAULT_HANDOFF_READ_PROMPT) || '';
+    const handoffReadPromptValue = !isProject
+      ? ((typeof current.handoffReadPrompt === 'string' && current.handoffReadPrompt.length) ? current.handoffReadPrompt : defaultHandoffReadPrompt)
+      : '';
     const handoffPromptValue = !isProject
       ? ((typeof current.handoffPrompt === 'string' && current.handoffPrompt.length) ? current.handoffPrompt : defaultHandoffPrompt)
       : '';
@@ -1230,24 +1233,26 @@
             <!-- ===== Handoff ===== -->
             <section class="settings-cat" data-cat="handoff">
               <div class="settings-cat-head"><h2>Handoff</h2><p>Save a session's context and pick it up later.</p></div>
+              <div class="settings-hint">A handoff is a packet that summarises the state of the work, written by an agent. You choose who writes it: <b>this session's agent</b> (it summarises what it is holding — it is resumed for one turn if it is not running), or <b>a new session</b> (a fresh agent reads this session's transcript and writes the packet itself). Each has its own prompt below, and each can be overridden per backend on its page under <b>Backends</b>.</div>
+
               <div class="settings-section">
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Integrated handoff</span>${help}</div>
-                    <div class="settings-description">Save a handoff to the project and resume it later from the new-session menu.</div>
-                    <div class="settings-more">When on, a handoff can be saved to the project (instead of starting a fresh session right away) and later resumed from the new-session menu ("Resume from handoff") — into any backend, not just the one that wrote it. The guided flow needs a running session.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-handoff-library" ${handoffLibraryValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-                  </div>
-                </div>
                 <div class="settings-field settings-field-wide">
                   <div class="settings-field-info">
-                    <span class="settings-label">Handoff prompt</span>
-                    <div class="settings-description">Sent to the running agent to produce the handoff. Placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default. A slash command (e.g. <code>/handoff</code>) runs that agent's own skill — each CLI has its own, so give a backend its own prompt on its <b>Backends</b> page when it needs a different one.</div>
+                    <span class="settings-label">Summarise prompt — asked of this session's agent</span>
+                    <div class="settings-description">Sent to the agent that ran this session: it summarises the state it already holds. Placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default. A slash command (e.g. <code>/handoff</code>) runs that agent's own skill — each CLI has its own, so give a backend its own prompt on its <b>Backends</b> page when it needs a different one.</div>
                   </div>
                   <div class="settings-field-control">
                     <textarea class="settings-input" id="sv-handoff-prompt" spellcheck="false" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffPromptValue)}</textarea>
+                  </div>
+                </div>
+
+                <div class="settings-field settings-field-wide">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Read prompt — given to a new session</span>
+                    <div class="settings-description">Sent to a FRESH agent that reads the old session's transcript and writes the handoff itself — nothing is resumed, and the old session spends nothing. <code>{transcript}</code> is the path it can read (a backend whose history lives in a database, like Hermes, has it exported for this). Other placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <textarea class="settings-input" id="sv-handoff-read-prompt" spellcheck="false" style="width:100%;min-height:180px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffReadPromptValue)}</textarea>
                   </div>
                 </div>
               </div>
@@ -1778,11 +1783,13 @@
         settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
         settings.subagentLiveStatus = !!settingsViewerBody.querySelector('#sv-subagent-live-status')?.checked;
         settings.stickyAttentionInbox = !!settingsViewerBody.querySelector('#sv-sticky-attention-inbox')?.checked;
-        settings.handoffLibrary = !!settingsViewerBody.querySelector('#sv-handoff-library')?.checked;
         {
+          // The two handoff prompts. Empty, or unchanged from the built-in default ⇒ store '' so the
+          // runtime default is used (never freeze a copy of it into the user's settings).
           const hp = settingsViewerBody.querySelector('#sv-handoff-prompt')?.value || '';
-          // Empty or unchanged-from-default ⇒ store '' so the runtime default is used (no lock).
           settings.handoffPrompt = (hp.trim() && hp.trim() !== defaultHandoffPrompt.trim()) ? hp : '';
+          const rp = settingsViewerBody.querySelector('#sv-handoff-read-prompt')?.value || '';
+          settings.handoffReadPrompt = (rp.trim() && rp.trim() !== defaultHandoffReadPrompt.trim()) ? rp : '';
         }
         settings.tabPosition = settingsViewerBody.querySelector('#sv-tab-position').value || 'top';
         settings.tabCloseBehavior = settingsViewerBody.querySelector('#sv-tab-close').value || 'closeView';
@@ -1824,6 +1831,7 @@
             // Per-backend handoff prompt override (empty = use the global one). NOT a launch option —
             // it is typed into the running agent, not put on its command line.
             settings.handoffPromptByBackend = bs.handoffPromptByBackend;
+            settings.handoffReadPromptByBackend = bs.handoffReadPromptByBackend;
           }
         }
         // Terminal tools (T-3.10): the GLOBAL launcher list — the template every project inherits.

@@ -2,53 +2,51 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const { computeHandoffActions } = require('../public/handoff-actions.js');
 
-test('running session with project → guided + copy + new session', () => {
-  const a = computeHandoffActions({ canAskRunning: true, handoffLibrary: false, hasProject: true });
-  assert.strictEqual(a.mode, 'running');
-  assert.strictEqual(a.confirm, 'Hand off (guided)');
-  assert.strictEqual(a.secondary, 'Copy Packet');
-  assert.strictEqual(a.tertiary, 'New session');
+// A handoff is a PACKET — a summary of the actual state, written by an agent. There are two ways to get
+// one, and which one you want is a real choice, so the dialog asks instead of guessing:
+//
+//   'this' — this session's agent summarises what it is holding (resumed for one turn if it is stopped)
+//   'new'  — a fresh agent reads this session's transcript and writes the packet itself
+//
+// What the app used to do instead: with no live agent it quietly saved a "starter" — a metadata skeleton
+// telling the next session to work the state out for itself. It looked like a handoff in the library and
+// contained no summary at all.
+
+test('a running session: ask its agent, or let a new one read it', () => {
+  const a = computeHandoffActions({ canAskRunning: true, hasProject: true, canReadTranscript: true });
+  assert.deepStrictEqual(a.producers.map(p => p.id), ['this', 'new']);
+  assert.strictEqual(a.producers[0].needsResume, false);
 });
 
-test('running session library on → unchanged (guided already covers save/resume)', () => {
-  const a = computeHandoffActions({ canAskRunning: true, handoffLibrary: true, hasProject: true });
-  assert.strictEqual(a.mode, 'running');
-  assert.strictEqual(a.secondary, 'Copy Packet');
-  assert.strictEqual(a.tertiary, 'New session');
+test('a stopped session offers the same two — its agent is simply resumed for one turn', () => {
+  const a = computeHandoffActions({ canAskRunning: false, hasProject: true, canReadTranscript: true });
+  assert.deepStrictEqual(a.producers.map(p => p.id), ['this', 'new']);
+  assert.strictEqual(a.producers[0].needsResume, true, 'and it says so');
+  assert.match(a.producers[0].detail, /resumed/i);
+  assert.match(a.producers[0].detail, /tokens/i, 'spending tokens is never a surprise');
 });
 
-test('not running, project, library OFF → copy + new session, no save', () => {
-  const a = computeHandoffActions({ canAskRunning: false, handoffLibrary: false, hasProject: true });
-  assert.strictEqual(a.mode, 'local');
-  assert.strictEqual(a.confirm, 'Copy Handoff');
-  assert.strictEqual(a.secondary, null);
-  assert.strictEqual(a.tertiary, 'New session');
+test('with no readable transcript, only its own agent can write the packet', () => {
+  // Nothing to read: a session that has not written a transcript yet (or a backend that cannot expose it).
+  const a = computeHandoffActions({ canAskRunning: true, hasProject: true, canReadTranscript: false });
+  assert.deepStrictEqual(a.producers.map(p => p.id), ['this']);
 });
 
-test('not running, project, library ON → copy + save + new session', () => {
-  const a = computeHandoffActions({ canAskRunning: false, handoffLibrary: true, hasProject: true });
-  assert.strictEqual(a.mode, 'local');
-  assert.strictEqual(a.secondary, 'Save to library');
-  assert.strictEqual(a.tertiary, 'New session');
+test('with no project there is nowhere to launch a reader', () => {
+  const a = computeHandoffActions({ canAskRunning: true, hasProject: false, canReadTranscript: true });
+  assert.deepStrictEqual(a.producers.map(p => p.id), ['this']);
 });
 
-test('no project → no new-session, no save, even with library on', () => {
-  const a = computeHandoffActions({ canAskRunning: false, handoffLibrary: true, hasProject: false });
-  assert.strictEqual(a.mode, 'local');
-  assert.strictEqual(a.secondary, null);
-  assert.strictEqual(a.tertiary, null);
+test('the local starter is always reachable — and is never a producer', () => {
+  const a = computeHandoffActions({ canAskRunning: false, hasProject: false, canReadTranscript: false });
+  assert.strictEqual(a.starter, true, 'you can always copy it somewhere');
+  assert.ok(!a.producers.some(p => p.id === 'starter'), 'but it writes no packet — it contains no summary');
 });
 
-test('running but no project falls back to local mode', () => {
-  const a = computeHandoffActions({ canAskRunning: true, handoffLibrary: false, hasProject: false });
-  assert.strictEqual(a.mode, 'local');
-  assert.strictEqual(a.tertiary, null);
-});
-
-test('missing input is treated as all-false (local, copy only)', () => {
-  const a = computeHandoffActions();
-  assert.strictEqual(a.mode, 'local');
-  assert.strictEqual(a.confirm, 'Copy Handoff');
-  assert.strictEqual(a.secondary, null);
-  assert.strictEqual(a.tertiary, null);
+test('every producer states that it spends tokens', () => {
+  const a = computeHandoffActions({ canAskRunning: false, hasProject: true, canReadTranscript: true });
+  for (const p of a.producers) {
+    assert.strictEqual(p.spendsTokens, true);
+    assert.ok(p.detail && p.detail.length > 20, `${p.id} must explain itself`);
+  }
 });

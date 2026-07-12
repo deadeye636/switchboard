@@ -3105,6 +3105,59 @@ ipcMain.handle('backend-can-fork', (_event, sessionId) => {
   return { ok: true };
 });
 
+// A path a DIFFERENT agent can read, for the handoff route where a fresh session reads the old one.
+//
+// Backends declare how their transcript is reachable (`transcriptAccess`), because it is a property of
+// the backend, not a quirk of Hermes: 'file' = it is on disk, hand over the path; 'export' = it lives in
+// a store with no file, so we write it out. Any future db-backed backend declares 'export' and works.
+//
+// The export is a temp file (plain markdown — an agent reads that better than raw rows) and is cleaned
+// up when the app quits. It contains the conversation, which is exactly what the user is asking a fresh
+// agent to read, so nothing is exposed that they did not just ask for.
+ipcMain.handle('handoff-transcript-path', (_event, sessionId) => {
+  if (!sessionId) return { ok: false, reason: 'Unknown session.' };
+
+  let row = null;
+  try { row = getCachedSession(sessionId); } catch { /* cache unavailable */ }
+  if (!row) return { ok: false, reason: 'This session is not in the cache yet.' };
+
+  const backend = backends.get(row.backendId || 'claude');
+  const access = (backend && backend.transcriptAccess) || 'file';
+
+  if (access === 'file') {
+    const filePath = row.filePath
+      || (row.folder ? path.join(PROJECTS_DIR, row.folder, sessionId + '.jsonl') : null);
+    if (!filePath || !fs.existsSync(filePath)) {
+      return { ok: false, reason: 'This session has no transcript file on disk (yet).' };
+    }
+    return { ok: true, path: filePath };
+  }
+
+  // 'export': the backend hands us its messages and we write them out.
+  if (typeof backend.readMessages !== 'function') {
+    return { ok: false, reason: `${backend.label || row.backendId} cannot expose this session's transcript.` };
+  }
+  let entries;
+  try { entries = backend.readMessages(sessionId) || []; } catch (err) { return { ok: false, reason: err.message }; }
+  if (!entries.length) return { ok: false, reason: 'This session has no messages to read.' };
+
+  try {
+    const dir = path.join(app.getPath('temp'), 'switchboard-handoff');
+    fs.mkdirSync(dir, { recursive: true });
+    const out = path.join(dir, `${String(sessionId).replace(/[^A-Za-z0-9._-]/g, '_')}.md`);
+    const body = entries.map(e => {
+      const role = (e.message && e.message.role) || 'unknown';
+      const text = (e.message && typeof e.message.content === 'string') ? e.message.content : '';
+      return `## ${role}\n\n${text}\n`;
+    }).join('\n');
+    fs.writeFileSync(out, `# Transcript — session ${sessionId}\n\n${body}`, 'utf8');
+    handoffExports.add(out);
+    return { ok: true, path: out, exported: true };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+});
+
 ipcMain.handle('session-backends-get-all', () => {
   return sessionBackends.getAll();
 });
@@ -4130,6 +4183,9 @@ function startProjectsWatcher() {
 // A db-kind target (Hermes' state.db, Phase 5) polls the file AND its `-wal` sibling: a plain
 // state.db mtime misses WAL-buffered commits.
 const backendWatchers = [];
+// Transcripts we exported for a "let the new session read the old one" handoff. Temp files: they exist
+// so another agent can read them once, and they do not outlive the app.
+const handoffExports = new Set();
 let backendBusyTicker = null;   // slow re-check so a hung backend cannot stay BUSY forever
 let backendWatcherRetry = null;
 
@@ -4571,6 +4627,10 @@ app.on('before-quit', () => {
   // UserPromptSubmit until it times out, in every project, not just ours (#125). The
   // next boot rewrites the hook, so removing it here costs nothing.
   try { if (attentionHooksEnabled()) removeClaudeAttentionHook(); } catch { /* best effort */ }
+  for (const file of handoffExports) {
+    try { fs.unlinkSync(file); } catch { /* best effort */ }
+  }
+  handoffExports.clear();
 
   // Shut down all MCP servers
   shutdownAllMcp();

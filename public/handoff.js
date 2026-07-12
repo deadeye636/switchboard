@@ -13,83 +13,130 @@ async function showHandoffPrompt(session) {
   const health = getSessionHealth(session);
   const canAskRunningSession = activePtyIds.has(session.sessionId) && session.type !== 'terminal';
   const project = findProjectForSession(session);
-  const handoffLibrary = !!((await window.api.getSetting('global'))?.handoffLibrary);
-  // The button is offered on EVERY session now, so the copy must not assume the session is in trouble:
-  // handing over at a clean breakpoint is a normal thing to do, not an emergency.
-  const recommended = health.state !== 'healthy';
-  const evidence = health.reasons.length
-    ? health.reasons.map(reason => reason.label).join(', ')
-    : '';
-  const why = recommended
-    ? `This session is becoming expensive: ${evidence}.`
-    : 'This session is still within healthy bounds — handing over now is simply a clean break.';
-  const tone = health.tier === 'strong' || health.tier === 'warning' ? 'warning' : 'default';
-  const details = {
-    Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
-    Project: session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '',
-    Recommendation: health.label,
-    Running: canAskRunningSession ? 'Yes' : '',
-  };
 
-  // Which buttons to show is decided by the pure helper (unit-tested matrix).
+  // Can a FRESH agent read this session? Backends declare how their transcript is reachable
+  // (`transcriptAccess`), so a store-backed one (Hermes today) exports it rather than being excluded.
+  let transcript = null;
+  try { transcript = await window.api.backends.transcriptPath(session.sessionId); } catch { transcript = null; }
+  const canReadTranscript = !!(transcript && transcript.ok);
+
   const actions = computeHandoffActions({
     canAskRunning: canAskRunningSession,
-    handoffLibrary,
     hasProject: !!project,
+    canReadTranscript,
   });
 
-  // Running mode: a live agent can summarize and there is a project to launch into.
-  if (actions.mode === 'running') {
-    const action = await showControlDialog({
-      title: 'Hand Off Session',
-      message: `${why} The guided handoff asks the running agent for a summary (spends tokens), then starts a fresh, lean session in the same project seeded with it. You'll review the packet before anything new is started. Or copy a local starter packet instead.`,
-      confirmLabel: actions.confirm,
-      secondaryLabel: actions.secondary || undefined,
-      tertiaryLabel: actions.tertiary || undefined,
-      cancelLabel: 'Close',
-      tone,
-      details,
-    });
-    if (action === true) {
-      await runHandoff(session, project);
-    } else if (action === 'secondary') {
-      await window.api.writeClipboard(buildHandoffTemplate(session));
-      showControlToast({ message: 'Handoff copied to clipboard.' });
-    } else if (action === 'tertiary') {
-      await newSessionFromHandoff(project, session);
-    }
-    return;
-  }
+  // The button is on EVERY session now, so the copy must not assume trouble: handing over at a clean
+  // breakpoint is a normal thing to do, not an emergency.
+  const recommended = health.state !== 'healthy';
+  const evidence = health.reasons.map(reason => reason.label).join(', ');
+  const why = recommended
+    ? `This session is becoming expensive: ${evidence}.`
+    : 'Handing over at a clean breakpoint keeps the next session lean.';
 
-  // Local mode (no live agent): local starter packet — copy, plus "New session" and,
-  // with the Integrated Handoff System on, "Save to library".
-  const action = await showControlDialog({
-    title: 'Create Handoff',
-    message: `${why} Copy a short handoff packet and start fresh when you reach a natural breakpoint.${actions.secondary ? ' Or save it to this project to resume later.' : ''}`,
-    confirmLabel: actions.confirm,
-    secondaryLabel: actions.secondary || undefined,
-    tertiaryLabel: actions.tertiary || undefined,
+  const choice = await showControlDialog({
+    title: 'Who writes the handoff?',
+    message: `${why}
+
+A handoff is a packet that summarises the actual state of the work, written by an `
+      + `agent. Choose who writes it — you review it before anything is started or saved.`,
+    confirmLabel: actions.producers[0] ? actions.producers[0].label : 'Cancel',
+    secondaryLabel: actions.producers[1] ? actions.producers[1].label : undefined,
+    tertiaryLabel: actions.starter ? 'Copy starter prompt' : undefined,
     cancelLabel: 'Close',
-    tone,
-    details,
+    tone: health.tier === 'strong' || health.tier === 'warning' ? 'warning' : 'default',
+    details: {
+      Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
+      Project: session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '',
+      Recommendation: health.label,
+      [actions.producers[0] ? actions.producers[0].label : '']: actions.producers[0] ? actions.producers[0].detail : '',
+      [actions.producers[1] ? actions.producers[1].label : '']: actions.producers[1] ? actions.producers[1].detail : '',
+    },
   });
-  if (action === 'tertiary') {
-    await newSessionFromHandoff(project, session);
+
+  const producer = choice === true ? actions.producers[0]
+    : choice === 'secondary' ? actions.producers[1]
+      : null;
+
+  if (choice === 'tertiary') {
+    // The local skeleton. NOT a handoff — it contains no summary, only instructions to a next session to
+    // work the state out for itself. It is offered for pasting somewhere, and it never enters the library.
+    await window.api.writeClipboard(buildHandoffTemplate(session));
+    showControlToast({ message: 'Starter prompt copied. It contains no summary — it tells a fresh session what to work out for itself.' });
     return;
   }
-  if (action === 'secondary') {
+  if (!producer) return;
+
+  const packet = producer.id === 'new'
+    ? await handoffFromNewSession(session, project, transcript.path)
+    : await handoffFromThisSession(session, project, { needsResume: producer.needsResume });
+
+  if (!packet) return;
+  await reviewAndPlacePacket(session, project, packet);
+}
+
+// Route 1 — THIS session's agent summarises what it is holding. Resumed for one turn if it is not running.
+async function handoffFromThisSession(session, project, { needsResume }) {
+  if (!needsResume) return askRunningAgentForHandoff(session);
+  return runHandoffOnStoppedSession(session, project);
+}
+
+// Route 2 — a FRESH agent reads the old session's transcript and writes the packet itself.
+//
+// Nothing is resumed; the old session costs nothing. The new agent is launched on the same backend as
+// the old session (a Codex packet is written by Codex), seeded with the read-prompt, and we then wait for
+// its answer exactly as we do for the other route.
+async function handoffFromNewSession(session, project, transcriptPath) {
+  const g = (await window.api.getSetting('global')) || {};
+  const backendId = backendOfSession(session);
+  const backend = (typeof getBackend === 'function' ? getBackend(backendId) : null) || { id: backendId };
+
+  const prompt = fillHandoffPrompt(
+    resolveHandoffPrompt(backend, g, 'read'),
+    { ...session, transcriptPath },
+  );
+
+  const options = await resolveLaunchOptionsFor(project, backendId);
+  const newId = await launchNewSession(project, options, prompt);
+  if (!newId) return null;
+
+  showControlToast({ message: 'A fresh agent is reading the previous session — the packet will be offered for review.' });
+
+  // Wait for THAT session to answer. It is brand new, so anything it says is the packet.
+  const reader = { sessionId: newId, projectPath: session.projectPath, backendId };
+  const packet = await waitForAgentAnswer(reader, { before: '' });
+  if (!packet) {
+    showControlMessage({
+      title: 'The new session did not produce a handoff',
+      message: 'It was asked to read the previous session and summarise it, but it has not answered. Its tab is open — you can look at what it is doing.',
+      tone: 'warning',
+    });
+    return null;
+  }
+  return packet;
+}
+
+// Review the packet, then place it: start a fresh session with it, or store it in the library.
+async function reviewAndPlacePacket(session, project, packet) {
+  const review = await showHandoffReviewDialog(session, true, packet);
+  if (review === null) return;
+
+  if (review.action === 'save') {
     const label = await showHandoffSaveDialog(session);
     if (label === null) return;
     await window.api.saveHandoff({
-      projectPath: project.projectPath, label, content: buildHandoffTemplate(session),
-      backendId: backendOfSession(session),   // provenance, or the resume picker's default is a lie
+      projectPath: project.projectPath,
+      label,
+      content: review.text,
+      backendId: backendOfSession(session),   // provenance: the resume picker defaults to it
     });
-    showControlToast({ message: 'Handoff saved to project.' });
+    showControlToast({ message: 'Handoff saved to this project.' });
     return;
   }
-  if (!action) return;
-  await window.api.writeClipboard(buildHandoffTemplate(session));
-  showControlToast({ message: 'Handoff copied to clipboard.' });
+
+  const options = await resolveLaunchOptionsFor(project, backendOfSession(session));
+  const newId = await launchNewSession(project, options, review.text);
+  if (newId) showControlToast({ message: 'Fresh session seeded with the handoff packet.' });
 }
 
 // Start a fresh session in the project seeded directly with the local handoff
@@ -99,13 +146,6 @@ async function showHandoffPrompt(session) {
 // a Codex packet into a Claude session without anyone asking.
 function backendOfSession(session) {
   return (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || 'claude';
-}
-
-async function newSessionFromHandoff(project, session) {
-  if (!project) return;
-  const options = await resolveLaunchOptionsFor(project, backendOfSession(session));
-  const newId = await launchNewSession(project, options, buildHandoffTemplate(session));
-  if (newId) showControlToast({ message: 'New session seeded with the handoff.' });
 }
 
 async function readLatestHandoffPacket(session) {
@@ -125,18 +165,19 @@ async function readLatestHandoffPacket(session) {
 // assistant turn from the session JSONL (no brittle terminal scraping); falls back
 // to the local starter template. With the Integrated Handoff System on, the target
 // choice (start fresh vs save for later) lives here — no separate follow-up dialog.
-async function showHandoffReviewDialog(session, handoffLibrary) {
+// `packet` = what the chosen agent wrote. Always offered for review, always editable, and always with
+// both destinations (start a session with it, or store it) — the library is just where a packet is kept,
+// not a separate "system" the user has to switch on.
+async function showHandoffReviewDialog(session, _unused, packet) {
   const overlay = document.createElement('div');
   overlay.className = 'new-session-overlay';
 
   const dialog = document.createElement('div');
   dialog.className = 'new-session-dialog';
-  const hint = handoffLibrary
-    ? 'This text seeds a brand-new, lean session in the same project — or save it to resume later. Review and edit it first. Starting a session spends tokens; the old session is left untouched. If the agent is still writing, use “Refresh from session”.'
-    : 'This text seeds a brand-new, lean session in the same project. Review and edit it, then start the fresh session. Starting the session spends tokens; the old session is left untouched. If the agent is still writing, use “Refresh from session”.';
-  const saveBtn = handoffLibrary
-    ? '<button type="button" class="handoff-save-btn">Save for later</button>'
-    : '';
+  const hint = 'Review and edit the packet. “Start fresh session” launches a new, lean session in this '
+    + 'project seeded with it (spends tokens; the old session is untouched). “Save for later” stores it '
+    + 'in this project’s handoff library. If the agent is still writing, use “Refresh from session”.';
+  const saveBtn = '<button type="button" class="handoff-save-btn">Save for later</button>';
   dialog.innerHTML = `
     <h3>Review Handoff Packet</h3>
     <div class="add-project-hint">${hint}</div>
@@ -153,8 +194,9 @@ async function showHandoffReviewDialog(session, handoffLibrary) {
   document.body.appendChild(overlay);
 
   const textarea = dialog.querySelector('#handoff-packet-text');
-  const captured = await readLatestHandoffPacket(session);
-  textarea.value = captured || buildHandoffTemplate(session);
+  // The packet the producer wrote. (Falling back to the transcript's last turn keeps "Refresh from
+  // session" meaningful, and the starter is the last resort — but it is never what the library gets.)
+  textarea.value = packet || (await readLatestHandoffPacket(session)) || buildHandoffTemplate(session);
   textarea.focus();
 
   return new Promise(resolve => {
@@ -183,33 +225,6 @@ async function showHandoffReviewDialog(session, handoffLibrary) {
     function onKey(e) {
       if (e.key === 'Escape') close(null);
     }
-    document.addEventListener('keydown', onKey);
-  });
-}
-
-// Guided one-click handoff: request packet → review → fresh lean session seeded
-// with it → switch. Linear orchestration (the old handoff-flow state machine was
-// removed). Every token-spending step is gated behind an explicit user confirmation;
-// cancelling at any point leaves both the old and (not-yet-created) new session untouched.
-// Non-modal bar shown after the request prompt is sent, so the user can answer an
-// interactive skill question (e.g. /handoff asking chat-vs-file) in the live terminal
-// before capturing. Resolves 'capture' or 'cancel'. Used only in Handoff-library mode.
-function showHandoffCaptureBar() {
-  document.querySelectorAll('.handoff-capture-bar').forEach(el => el.remove());
-  const bar = document.createElement('div');
-  bar.className = 'handoff-capture-bar';
-  bar.innerHTML = `
-    <span class="handoff-capture-text">Prompt sent — answer any skill question in the terminal, then capture.</span>
-    <button type="button" class="handoff-capture-confirm">Capture handoff</button>
-    <button type="button" class="handoff-capture-cancel">Cancel</button>
-  `;
-  document.body.appendChild(bar);
-  return new Promise(resolve => {
-    function onKey(e) { if (e.key === 'Escape') close('cancel'); }
-    function close(result) { bar.remove(); document.removeEventListener('keydown', onKey); resolve(result); }
-    bar.querySelector('.handoff-capture-confirm').onclick = () => close('capture');
-    bar.querySelector('.handoff-capture-cancel').onclick = () => close('cancel');
-    // Escape dismisses (as cancel) so the bar/promise can't linger forever (issue #78).
     document.addEventListener('keydown', onKey);
   });
 }
@@ -253,72 +268,103 @@ function showHandoffSaveDialog(session) {
   });
 }
 
-async function runHandoff(session, project) {
-  const g = (await window.api.getSetting('global')) || {};
-  const handoffLibrary = !!g.handoffLibrary;
+// Ask a STOPPED session for a handoff packet.
+//
+// A stopped session has no agent to ask, which is why the old code quietly fell back to the local
+// starter — a metadata skeleton that tells the next session to work the state out for itself. Saved to
+// the library it looked like a handoff and contained none, and the user only found out one session
+// later, when the context was not there.
+//
+// The honest way is the expensive one: resume the session for a single turn, ask, take the answer, and
+// put it back the way we found it. That spends tokens and starts an agent, so it is confirmed first —
+// in those words.
+async function runHandoffOnStoppedSession(session, project) {
+  const backend = (typeof getBackend === 'function' ? getBackend(backendOfSession(session)) : null);
+  const agent = (backend && backend.label) || 'the agent';
 
-  // The prompt is resolved PER BACKEND: its own, else the global one, else the built-in default. A slash
-  // command is that CLI's own business — if the user points a backend at a command it does not have,
-  // they fix it on that backend's page. We do not silently rewrite what they asked us to send.
+  const go = await showControlDialog({
+    title: 'Resume the agent to write a handoff?',
+    message: `This session is not running. To get a real handoff packet — a summary of the actual state, `
+      + `not a to-do list for your next session — ${agent} has to be asked, so it will be resumed for one `
+      + `turn and closed again afterwards.
+
+That starts the agent and spends tokens.`,
+    confirmLabel: `Resume ${agent} and ask`,
+    cancelLabel: 'Cancel',
+    tone: 'warning',
+  });
+  if (!go) return null;
+
+  // Resume it. It stays open while we wait — the user can watch the agent work.
+  const wasOpen = typeof openSessions !== 'undefined' && openSessions.has(session.sessionId);
+  try {
+    await openSession(session);
+  } catch {
+    showControlMessage({ title: 'Could not resume the session', message: 'The agent did not start.', tone: 'danger' });
+    return null;
+  }
+
+  const packet = await askRunningAgentForHandoff(session, { waitForBoot: true });
+
+  // Put it back: a session we resumed only to ask a question does not stay running.
+  if (!wasOpen) {
+    try { await window.api.stopSession(session.sessionId); } catch { /* best effort */ }
+    if (typeof activePtyIds !== 'undefined') activePtyIds.delete(session.sessionId);
+    if (typeof refreshSidebar === 'function') refreshSidebar();
+  }
+  return packet;
+}
+
+// Send the configured prompt to a RUNNING session and wait for the agent to answer. Returns the packet
+// text, or null when it never answered (the caller decides what to do about that).
+//
+// "Answered" = its last assistant turn changed. Anything else — a prompt it did not understand, a
+// session that is not listening — would otherwise hand the user its PREVIOUS message as the packet,
+// which is the silent wrongness this whole feature must not produce.
+async function askRunningAgentForHandoff(session, { waitForBoot = false } = {}) {
+  const g = (await window.api.getSetting('global')) || {};
   const backendId = backendOfSession(session);
   const backend = (typeof getBackend === 'function' ? getBackend(backendId) : null) || { id: backendId };
-  const template = resolveHandoffPrompt(backend, g);
 
-  // What the agent had already said BEFORE we asked. If its last message is still this one afterwards,
-  // it produced nothing — and offering that old text as the new packet is exactly the silent wrongness
-  // this feature must not commit.
+  // A resumed CLI has to be able to listen before we type into it (Hermes: ~12s of Python imports).
+  if (waitForBoot) {
+    await new Promise(resolve => setTimeout(resolve, (backend && backend.seedGraceMs) || 1500));
+  }
+
+  // What it had already said. If that is still its last word afterwards, it produced nothing — and
+  // offering THAT as the packet is the silent wrongness this feature must never commit.
   const before = await readLatestHandoffPacket(session);
+  const requestPrompt = fillHandoffPrompt(resolveHandoffPrompt(backend, g, 'summarise'), session);
+  window.api.sendInput(session.sessionId, `[200~${requestPrompt}[201~
+`);
+  showControlToast({ message: 'Asked the agent for a handoff — the packet is offered for review when it answers.' });
 
-  // Token step #1 — authorized by the "Hand off (guided)" button. The prompt is typed into the session.
-  const requestPrompt = fillHandoffPrompt(template, session);
-  window.api.sendInput(session.sessionId, `\x1b[200~${requestPrompt}\x1b[201~\r`);
-
-  if (handoffLibrary) {
-    // Decoupled capture: the prompt may be an interactive skill — let the user answer
-    // in the terminal, then capture explicitly (no modal covering the terminal).
-    const cap = await showHandoffCaptureBar();
-    if (cap !== 'capture') return;
-  } else {
-    showControlToast({ message: 'Asked the agent for a handoff packet — review it once it finishes.' });
-  }
-
-  // Did the agent actually answer? Its last message being unchanged means it did not.
-  const after = await readLatestHandoffPacket(session);
-  if (after && before && after === before) {
+  const packet = await waitForAgentAnswer(session, { before });
+  if (!packet) {
     const go = await showControlDialog({
-      title: 'The agent did not answer',
-      message: 'Its last message has not changed since the handoff was requested — the prompt may not '
-        + 'have reached it, or it did not understand it. Continuing would hand you its PREVIOUS message '
-        + 'as the packet. Review it anyway?',
-      confirmLabel: 'Review anyway',
+      title: 'The agent has not answered',
+      message: 'Its last message is unchanged since the handoff was requested — the prompt may not have '
+        + 'reached it, or it did not understand it. Its previous message is NOT a handoff. Use it anyway?',
+      confirmLabel: 'Review its last message',
       cancelLabel: 'Cancel',
+      tone: 'warning',
     });
-    if (!go) return;
+    if (!go) return null;
+    return before || buildHandoffTemplate(session);
   }
+  return packet;
+}
 
-  // Token step #0 (no tokens) — review/edit the captured packet. In library mode
-  // the target choice (start fresh vs save for later) is part of this dialog.
-  const review = await showHandoffReviewDialog(session, handoffLibrary);
-  if (review === null) return;
-  const packet = review.text;
-
-  // Library mode: "Save for later" chosen in the review dialog → store, done.
-  if (handoffLibrary && review.action === 'save') {
-    const label = await showHandoffSaveDialog(session);
-    if (label === null) return;
-    await window.api.saveHandoff({
-      projectPath: project.projectPath, label, content: packet,
-      backendId: backendOfSession(session),   // so a later resume can default to where it came from
-    });
-    showControlToast({ message: 'Handoff saved to project.' });
-    return;
+// Poll the transcript until the agent's last assistant turn CHANGES. That is the only honest signal that
+// it answered: the terminal going quiet says nothing (a spinner is output, so is an echoed keystroke).
+async function waitForAgentAnswer(session, { before = '', deadlineMs = 5 * 60 * 1000, pollMs = 1500 } = {}) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < deadlineMs) {
+    await new Promise(resolve => setTimeout(resolve, pollMs));
+    const now = await readLatestHandoffPacket(session);
+    if (now && now !== before) return now;
   }
-
-  // Token step #2 — start a FRESH lean session (not a fork) seeded with the packet, on the same backend.
-  const options = await resolveLaunchOptionsFor(project, backendOfSession(session));
-  const newId = await launchNewSession(project, options, packet);
-  if (!newId) return;
-  showControlToast({ message: 'Handed off → fresh lean session seeded with the packet.' });
+  return null;
 }
 
 // Picker for the Handoff library: list a project's saved handoffs (with delete),

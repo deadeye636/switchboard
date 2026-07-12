@@ -157,6 +157,10 @@ function watchTargets() {
 module.exports = {
   id: 'claude',
   supportsFork,
+  // How another agent can READ this session's transcript (the 'new session reads the old one' handoff
+  // route). 'file' = it is a file on disk, hand over the path. 'export' = it lives in a store with no
+  // file (Hermes), so Switchboard writes it out first. Declare it; do not let the code guess.
+  transcriptAccess: 'file',
   label: 'Claude Code',
   binary: 'claude',  // the executable name, for callers that build their own argv (the schedule runner)
   tier: 1,

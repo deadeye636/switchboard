@@ -71,24 +71,36 @@ outright — that combination would send your key to someone else.
 
 ## Handoffs across backends
 
-A handoff asks the running agent to write a compact context packet, which you review and then either
-run in a fresh session or save to the project's handoff library.
+A **handoff** is a packet that summarises the actual state of the work — written by an agent, reviewed by
+you, then either used to seed a fresh lean session or stored in the project's handoff library.
 
-It works from **any** backend: the packet is read back from whichever agent wrote it (Hermes hands its
-messages over from its database, since it keeps no transcript file). The fresh session a handoff seeds
-runs on the backend the packet came from.
+**You choose who writes it**, because that is a real trade-off and not something the app should guess:
+
+- **This session's agent.** It summarises what it is already holding, so the content is as good as it
+  gets. If the session is not running it is **resumed for a single turn** and closed again — which costs
+  tokens, so it is confirmed first, in those words.
+- **A new session.** A fresh agent **reads this session's transcript** and writes the packet itself.
+  Nothing is resumed and the old session costs nothing; the new one does the reading.
+
+Both routes work on every backend. A backend declares how its transcript can be reached
+(`transcriptAccess`): most have a file, and Hermes — whose history lives in SQLite — has it **exported**
+for the reader. Any future database-backed backend declares the same and works the same.
+
+There is also a **starter prompt** you can copy to the clipboard. It is *not* a handoff: it holds no
+summary, only instructions telling a fresh session to work the state out for itself. It is named for what
+it is, and it never enters the library.
 
 **Resuming a saved handoff asks which backend should run it** — and that is not an inconsistency with
 "resume keeps its backend". Resuming a *session* continues it, so it must stay on its own binary.
 Resuming a *handoff* starts a **new** session seeded with context, so it is free to run anywhere; the
-picker just defaults to the backend that produced it. If that backend is no longer available, the row
-says so instead of quietly running the packet somewhere else.
+picker defaults to the backend that produced it. If that backend is no longer available, the row says so
+instead of quietly running the packet somewhere else.
 
-**The prompt.** Switchboard ships a default handoff prompt. Change it globally in *Sessions & CLI*, and
-override it per backend on that backend's page in *Settings → Backends* — so a CLI that wants different
-wording, or its own slash command / skill, gets exactly what you write for it. Every CLI here has slash
-commands and turns its skills into them, but the commands are its own: `/handoff` is a Claude skill and
-does not exist in Codex just because Codex also has skills. Point a backend at a command it has.
+**The prompts.** There are two, because there are two routes: a *summarise* prompt (asked of this
+session's agent) and a *read* prompt (given to the new one, with `{transcript}` pointing at what it should
+open). Both have a built-in default, both can be changed globally in *Sessions & CLI → Handoff*, and both
+can be overridden per backend on that backend's page — so a CLI with its own skill or wording gets exactly
+what you write for it. A slash command is that CLI's own; point a backend at a command it has.
 
 If the agent answers nothing at all, you are asked before its **previous** message is offered to you as
 the packet — a handoff that silently describes the wrong state is worse than no handoff.

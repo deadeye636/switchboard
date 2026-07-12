@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('api', {
   backends: {
     list: () => ipcRenderer.invoke('backends-list'),
     canFork: (sessionId) => ipcRenderer.invoke('backend-can-fork', sessionId),
+    transcriptPath: (sessionId) => ipcRenderer.invoke('handoff-transcript-path', sessionId),
   },
   sessionBackends: {
     getAll: () => ipcRenderer.invoke('session-backends-get-all'),

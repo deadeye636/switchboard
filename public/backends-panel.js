@@ -214,22 +214,30 @@
   // previous message as the "fresh" packet).
   const firstLine = (text) => String(text || '').split('\n')[0].trim();
 
-  function handoffPromptHtml(backend, value, globalPrompt) {
-    const hint = `Leave empty to use the global handoff prompt. Set one here when ${esc(backend.label)} needs `
-      + 'its own wording — or its own slash command / skill, which is sent to it exactly as you write it.';
+  function handoffPromptHtml(backend, values, globals) {
+    const row = (kind, id, label, hint, value, placeholder) => `
+        <div class="settings-field settings-field-wide">
+          <div class="settings-field-info">
+            <span class="settings-label">${esc(label)}</span>
+            <div class="settings-description">${hint}</div>
+          </div>
+          <div class="settings-field-control">
+            <textarea class="settings-input backend-handoff-prompt" rows="4"
+              data-backend="${esc(backend.id)}" data-kind="${esc(kind)}"
+              placeholder="${esc(firstLine(placeholder) || 'Use the global prompt')}">${esc(value || '')}</textarea>
+          </div>
+        </div>`;
+
     return `
       <div class="settings-section">
         <div class="settings-section-title">Handoff</div>
-        <div class="settings-field settings-field-wide">
-          <div class="settings-field-info">
-            <span class="settings-label">Handoff prompt</span>
-            <div class="settings-description">${hint} Placeholders: {goal} {project} {sessionId} {metrics}.</div>
-          </div>
-          <div class="settings-field-control">
-            <textarea class="settings-input backend-handoff-prompt" rows="4" data-backend="${esc(backend.id)}"
-              placeholder="${esc(firstLine(globalPrompt) || 'Use the global prompt')}">${esc(value || '')}</textarea>
-          </div>
-        </div>
+        <div class="settings-hint">A handoff is written either by THIS session's agent (it summarises what it holds) or by a NEW one (it reads this session's transcript). Each has its own prompt; leave a field empty to use the global one.</div>
+        ${row('summarise', 'sum', `Summarise prompt — asked of a ${backend.label} session`,
+          `Sent to the ${esc(backend.label)} agent that ran the session. A slash command is sent to it exactly as you write it — use ${esc(backend.label)}'s own command or skill here.`,
+          (values || {}).summarise, (globals || {}).summarise)}
+        ${row('read', 'read', `Read prompt — given to a new ${backend.label} session`,
+          `Sent to a fresh ${esc(backend.label)} agent that reads the old session's transcript. <code>{transcript}</code> is the path it can open.`,
+          (values || {}).read, (globals || {}).read)}
       </div>`;
   }
 
@@ -538,7 +546,10 @@
     // window that is closed without saving must not smuggle its abandoned edits into the next save.
     // `mount` runs when the panel opens (and on a fresh re-render), so that is where they are dropped.
     if (!ctx.keepPending) { pendingDefaults = {}; clearedDefaults = {}; pendingHandoffPrompts = {}; }
-    storedHandoffPrompts = ctx.fieldValue('handoffPromptByBackend', {}) || {};
+    storedHandoffPrompts = {
+      summarise: ctx.fieldValue('handoffPromptByBackend', {}) || {},
+      read: ctx.fieldValue('handoffReadPromptByBackend', {}) || {},
+    };
     const backendDefaults = mergedDefaults();
 
     // Everything is rendered into a FRESH child element and the delegated listeners hang off it —
@@ -713,8 +724,13 @@
     function openBackendPage(backendId) {
       const backend = backends.find(b => b.id === backendId);
       if (!backend) return;
-      const handoffByBackend = ctx.fieldValue('handoffPromptByBackend', {}) || {};
-      const extras = handoffPromptHtml(backend, handoffByBackend[backend.id], ctx.fieldValue('handoffPrompt', ''))
+      const bySummarise = ctx.fieldValue('handoffPromptByBackend', {}) || {};
+      const byRead = ctx.fieldValue('handoffReadPromptByBackend', {}) || {};
+      const extras = handoffPromptHtml(
+        backend,
+        { summarise: bySummarise[backend.id], read: byRead[backend.id] },
+        { summarise: ctx.fieldValue('handoffPrompt', ''), read: ctx.fieldValue('handoffReadPrompt', '') },
+      )
         + (backend.id === 'claude'
           ? claudeIntegrationsHtml(!!ctx.fieldValue('attentionHooks', false))
           : '');
@@ -817,17 +833,20 @@
       backendEnabled,
       defaultLaunchTarget: root.querySelector('#sv-default-launch-target').value || 'claude',
       backendDefaults: readDefaults(root),
-      handoffPromptByBackend: readHandoffPrompts(root),
+      handoffPromptByBackend: readHandoffPrompts(root, 'summarise'),
+      handoffReadPromptByBackend: readHandoffPrompts(root, 'read'),
     };
   }
 
   // Per-backend handoff prompts. Same rule as the launch defaults: only ONE backend's page is in the DOM
   // at a time, so the stored blob is the source of truth and the open page is merged over it. An emptied
   // field is REMOVED (= "use the global prompt"), not stored as an empty string.
-  function readHandoffPrompts(root) {
-    const out = { ...(storedHandoffPrompts || {}), ...(pendingHandoffPrompts || {}) };
+  function readHandoffPrompts(root, kind) {
+    const stored = (storedHandoffPrompts[kind] || {});
+    const pending = (pendingHandoffPrompts[kind] || {});
+    const out = { ...stored, ...pending };
     if (root) {
-      root.querySelectorAll('.backend-handoff-prompt').forEach(el => {
+      root.querySelectorAll(`.backend-handoff-prompt[data-kind="${kind}"]`).forEach(el => {
         const id = el.dataset.backend;
         if (!id) return;
         const v = el.value.trim();
@@ -910,9 +929,10 @@
   function recordHandoffPrompt(el) {
     if (!el || !el.classList || !el.classList.contains('backend-handoff-prompt')) return;
     const id = el.dataset.backend;
-    if (!id) return;
-    const v = el.value.trim();
-    if (v) pendingHandoffPrompts[id] = v; else pendingHandoffPrompts[id] = '';   // '' -> dropped on read
+    const kind = el.dataset.kind;
+    if (!id || !kind) return;
+    if (!pendingHandoffPrompts[kind]) pendingHandoffPrompts[kind] = {};
+    pendingHandoffPrompts[kind][id] = el.value.trim();   // '' -> dropped on read
   }
 
   function recordDefault(el) {

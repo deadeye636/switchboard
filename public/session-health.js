@@ -183,6 +183,32 @@ Return only a markdown handoff with these sections:
 - Avoid
 `;
 
+  // The OTHER way to produce a handoff: a fresh agent reads the old session and writes the packet itself.
+  //
+  // Nothing has to be resumed, and no tokens are spent in the old session — the new one does the reading.
+  // {transcript} is a path it can actually open: the session's own file, or, for a backend whose history
+  // lives in a store rather than a file (Hermes today, and it will not be the last), a transcript
+  // Switchboard exports for exactly this.
+  const DEFAULT_HANDOFF_READ_PROMPT = `Read the previous session's transcript and write a handoff for continuing it.
+
+Transcript: {transcript}
+
+Known local context from Switchboard:
+- Goal/session title: {goal}
+- Project: {project}
+- Previous session: {sessionId}
+- Session shape: {metrics}
+
+Read the transcript first. Do not continue the work yet. Then return only a markdown handoff with these sections:
+- Goal
+- Completed
+- In progress
+- Blocked or risky
+- Important files/context
+- Next actions
+- Avoid
+`;
+
   // Substitute the {placeholders} in a handoff prompt template with the session's
   // local values. Templates without placeholders (e.g. a bare "/handoff" skill
   // command) pass through unchanged.
@@ -198,9 +224,11 @@ Return only a markdown handoff with these sections:
       project: session.projectPath || 'unknown',
       sessionId: session.sessionId || 'unknown',
       metrics,
+      // Only set on the "a fresh agent reads the old session" route; empty elsewhere.
+      transcript: session.transcriptPath || '',
     };
     return String(template == null ? '' : template)
-      .replace(/\{(goal|project|sessionId|metrics)\}/g, (_m, key) => values[key]);
+      .replace(/\{(goal|project|sessionId|metrics|transcript)\}/g, (_m, key) => values[key]);
   }
 
   function buildHandoffRequestPrompt(session = {}) {
@@ -220,10 +248,18 @@ Return only a markdown handoff with these sections:
   //
   // (What we DO still guard is the consequence, not the choice: if the agent answers nothing at all, the
   // handoff flow asks before offering its previous message as the "fresh" packet.)
-  function resolveHandoffPrompt(backend, settings = {}) {
+  //   kind 'summarise' — sent to the OLD agent: "summarise the state you are holding".
+  //   kind 'read'      — sent to the NEW agent: "read the old session's transcript and write the handoff".
+  // Both are overridable globally and per backend; the per-backend value wins.
+  function resolveHandoffPrompt(backend, settings = {}, kind = 'summarise') {
     const id = (backend && backend.id) || 'claude';
     const pick = (v) => (typeof v === 'string' && v.trim()) ? v.trim() : null;
 
+    if (kind === 'read') {
+      return pick((settings.handoffReadPromptByBackend || {})[id])
+        || pick(settings.handoffReadPrompt)
+        || DEFAULT_HANDOFF_READ_PROMPT;
+    }
     return pick((settings.handoffPromptByBackend || {})[id])
       || pick(settings.handoffPrompt)
       || DEFAULT_HANDOFF_PROMPT;
@@ -238,6 +274,7 @@ Return only a markdown handoff with these sections:
     buildHandoffRequestPrompt,
     resolveHandoffPrompt,
     DEFAULT_HANDOFF_PROMPT,
+    DEFAULT_HANDOFF_READ_PROMPT,
     fillHandoffPrompt,
   };
 });

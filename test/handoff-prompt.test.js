@@ -81,3 +81,45 @@ test('a global slash command reaches every backend — the user decides, not us'
   // to fix on Codex's page. Silently substituting a different prompt would be worse than being wrong.
   assert.strictEqual(resolveHandoffPrompt(CODEX, { handoffPrompt: '/handoff' }), '/handoff');
 });
+
+// --- the two prompts (#148) -----------------------------------------------------------------------
+// There are two ways to produce a handoff, so there are two prompts — and both are overridable globally
+// and per backend. Conflating them is what let the library fill up with metadata skeletons.
+
+const { DEFAULT_HANDOFF_READ_PROMPT } = require('../public/session-health.js');
+
+test('the summarise prompt goes to the OLD agent; the read prompt goes to a NEW one', () => {
+  const settings = {
+    handoffPrompt: 'summarise what you hold',
+    handoffReadPrompt: 'read {transcript} and summarise it',
+  };
+  assert.strictEqual(resolveHandoffPrompt(CODEX, settings, 'summarise'), 'summarise what you hold');
+  assert.strictEqual(resolveHandoffPrompt(CODEX, settings, 'read'), 'read {transcript} and summarise it');
+});
+
+test('each prompt has its own per-backend override', () => {
+  const settings = {
+    handoffPrompt: 'global summarise',
+    handoffReadPrompt: 'global read',
+    handoffPromptByBackend: { codex: 'codex summarise' },
+    handoffReadPromptByBackend: { codex: 'codex read' },
+  };
+  assert.strictEqual(resolveHandoffPrompt(CODEX, settings, 'summarise'), 'codex summarise');
+  assert.strictEqual(resolveHandoffPrompt(CODEX, settings, 'read'), 'codex read');
+  assert.strictEqual(resolveHandoffPrompt(CLAUDE, settings, 'summarise'), 'global summarise', 'another backend is untouched');
+  assert.strictEqual(resolveHandoffPrompt(CLAUDE, settings, 'read'), 'global read');
+});
+
+test('both fall back to their own built-in default', () => {
+  assert.strictEqual(resolveHandoffPrompt(CODEX, {}, 'summarise'), DEFAULT_HANDOFF_PROMPT);
+  assert.strictEqual(resolveHandoffPrompt(CODEX, {}, 'read'), DEFAULT_HANDOFF_READ_PROMPT);
+  assert.match(DEFAULT_HANDOFF_READ_PROMPT, /\{transcript\}/, 'the reader must be told WHAT to read');
+});
+
+test('{transcript} is filled with the path the new agent can actually open', () => {
+  const filled = fillHandoffPrompt(DEFAULT_HANDOFF_READ_PROMPT, {
+    sessionId: 's1', projectPath: '/p', transcriptPath: '/tmp/switchboard-handoff/s1.md',
+  });
+  assert.match(filled, /\/tmp\/switchboard-handoff\/s1\.md/);
+  assert.ok(!filled.includes('{transcript}'));
+});

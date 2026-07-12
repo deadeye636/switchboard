@@ -143,6 +143,10 @@ module.exports = {
   monogram: 'H',
   colour: 'hermes',
   supportsFork: false,   // no confirmed fork flag — do not offer what we cannot do (see codex/index.js)
+  // Its history is in SQLite: there IS no file another agent could open. Switchboard exports the
+  // messages to a temp file when a fresh agent is asked to read this session. Any future db-backed
+  // backend declares the same and gets the same treatment.
+  transcriptAccess: 'export',
   // Hermes loads a heavy Python stack before its TUI paints — measured at ~12s on a warm machine
   // (T-5.0). Said out loud, because a silent black tab for 12 seconds reads as a crash.
   startupHint: 'Starting Hermes — its TUI takes about 10-15 seconds to appear.',

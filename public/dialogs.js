@@ -248,7 +248,6 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
   // Handoff library: when on, offer "Resume from handoff" in the menu. NOT "Claude handoff" — a
   // handoff is a context packet and can be produced by, and resumed into, any backend (#148).
   const globalSettings = (await window.api.getSetting('global')) || {};
-  const handoffLibrary = !!globalSettings.handoffLibrary;
   const launchers = await effectiveCustomLaunchers(project.projectPath, globalSettings);
 
   const popover = document.createElement('div');
@@ -311,7 +310,7 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
 
   // "Resume from handoff" — only in Handoff-library mode. Disabled+greyed when the
   // project has no saved handoffs (visible, not hidden).
-  if (handoffLibrary) {
+  {   // The handoff library is always available — it is where a packet is kept, not a mode.
     const resumeBtn = document.createElement('button');
     resumeBtn.className = 'popover-option popover-option-handoff';
     resumeBtn.innerHTML = '<svg class="popover-option-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg> Resume from handoff';
