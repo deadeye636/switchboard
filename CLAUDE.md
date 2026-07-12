@@ -78,6 +78,37 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
   Add a new migration by **appending** to the end — never insert or renumber.
 - **Session data**: read from `~/.claude/projects/**/*.jsonl` (`read-session-file.js`,
   `derive-project-path.js`, `workers/scan-projects.js`, `session-cache.js`, `session-transitions.js`).
+- **Backends** (`backends/`): the app runs **several coding CLIs** (Claude, Codex, Hermes, Pi; `agy`
+  planned), not just Claude. One descriptor per backend — `backends/index.js` (registry) + `claude.js`
+  (thin adapter over the modules above) + a folder per Axis-B binary. **Everything else derives from the
+  descriptor**: spawn routing, scanning, the watcher, the launch menu, the generated settings page and
+  Configure dialog, the sidebar badge, search, stats, resume.
+
+### Working on backends
+
+- **Read first:** `docs/specs/09-multi-llm.md` (the contract + why each decision is what it is) and
+  `docs/backend-formats.md` (what each backend actually writes — taken from real installs, because the
+  published docs were wrong in three places).
+- **Don't hardcode a backend id outside its own folder.** `main.js` / `session-cache.js` / `public/*.js`
+  contain no `if (backendId === 'codex')` and must not gain one.
+- **Adding or changing one → run `npm test`**: `test/backend-parity.test.js` asserts the properties every
+  backend must share (an availability probe; an honest `supportsFork`; all three identity hooks if it
+  names its own sessions; a versioned incremental parser). It exists because the same defect got fixed in
+  one backend four separate times while its siblings quietly kept it — **fix a backend, check its
+  siblings**.
+- `session_cache.backendId` is the authoritative provenance. Any folder-wide delete must be **backend-scoped**
+  (a project bucket is keyed on cwd and therefore shared) — `test/scoped-folder-deletes.test.js` guards it.
+
+## Docs — where a document goes
+
+| Kind | Home |
+|---|---|
+| **Design record** for a feature ("why is it like this", decisions, as-built + known gaps) | `docs/specs/NN-<feature>.md` + a row in `docs/specs/README.md` |
+| **User-facing guide** ("how do I use it") | `docs/<feature>.md`, linked from the README's "What this fork adds" |
+| **Reference** (formats, build gotchas, colors) | `docs/<topic>.md` (e.g. `backend-formats.md`, `build-windows.md`) |
+| **Fork feature list** | `README.md` "What this fork adds" **and** `docs/fork-features.md` (Wave 4) — a new fork feature goes in **both** |
+| **Backlog** | GitHub Issues. `docs/BACKLOG.md` / `.jsonl` are **generated** (`node scripts/build-backlog.js`) — never hand-edit |
+| **Planning scaffolding** (task lists, state trackers, agent prompts, mockups) | **stays local / gitignored.** It is scaffolding: once the work lands, its lasting parts belong in a spec or a reference; the rest is noise, and stale plan text next to a correct spec is worse than no plan text |
 
 ## Commands
 
