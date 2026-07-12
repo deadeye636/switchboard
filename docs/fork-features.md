@@ -310,6 +310,14 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   auto-close, and removal of the top menubar for a cleaner window.
 - **Settings overhaul** — two-column layout, sticky Save/Cancel bar, optional pop-out
   settings window, permission modes aligned to the Claude CLI.
+- **Settings export / import** (*Settings → Maintenance*) — the global settings blob to a JSON
+  file and back, for a backup or a move to another machine. Import **merges**: keys the file does
+  not name keep their value, and keys this build does not know survive untouched, so a file from a
+  newer Switchboard cannot silently drop a setting. A file from a *newer format* is refused rather
+  than guessed at. Import and a normal save share one write path (`persistSettingsBlob`), which is
+  what keeps the launcher secret-scrub and the backend re-arm from being bypassed — the imported
+  backends take effect with no restart. Values that could not mean anything elsewhere
+  (`windowBounds`) are dropped in both directions. Pure logic in `settings-transfer.js`, unit-tested.
 - **About tab.**
 
 ### Projects & sidebar

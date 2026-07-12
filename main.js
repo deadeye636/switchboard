@@ -20,6 +20,7 @@ const { shouldUseSingleInstanceLock } = require('./main-lifecycle');
 const backends = require('./backends');
 const sessionBackends = require('./session-backends');
 const profiles = require('./profiles');
+const settingsTransfer = require('./settings-transfer');
 const { resolveEnv } = require('./env-refs');
 // Tier-3 custom launchers (T-3.10): the entry shape + cascade live in one module shared with the
 // renderer; main only re-validates what the renderer hands it before spawning.
@@ -272,15 +273,21 @@ function openSettingsWindow() {
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 ipcMain.on('open-settings-window', () => openSettingsWindow());
-ipcMain.on('settings-changed', (event) => {
-  // Broadcast to every window except the sender, so a change made in the main
-  // window also reaches the settings popout (and vice-versa) (issue #76).
+
+/**
+ * Tell the windows to re-apply the global settings. `except` skips the window that already
+ * applied the change itself (that is the renderer-initiated save path, issue #76). A change
+ * made in MAIN — the settings import — passes nothing and reaches every window, including
+ * the one that triggered it: nobody has applied it yet.
+ */
+function broadcastSettingsChanged(except) {
   for (const w of [mainWindow, settingsWindow]) {
-    if (w && !w.isDestroyed() && w.webContents !== event.sender) {
+    if (w && !w.isDestroyed() && w.webContents !== except) {
       w.webContents.send('settings-changed');
     }
   }
-});
+}
+ipcMain.on('settings-changed', (event) => broadcastSettingsChanged(event.sender));
 
 // Subagent live-tail watchers (watchId → { filePath, parentSessionId, agentId })
 const subagentWatchers = new Map();
@@ -2128,7 +2135,12 @@ ipcMain.handle('get-setting', (_event, key) => {
   return getSetting(key);
 });
 
-ipcMain.handle('set-setting', (_event, key, value) => {
+/**
+ * The one way a settings blob reaches the disk. Every writer goes through here — the settings
+ * form, and the settings IMPORT (#145). An importer that called setSetting() directly would be a
+ * back door around both halves of this: the secret scrub below, and the backend re-arm.
+ */
+function persistSettingsBlob(key, value) {
   // Custom launchers (Tier-3) carry an env block, and the settings blob goes to DISK. A profile's env is
   // guarded at exactly this boundary (profiles.save rejects a literal key); the launchers promised "the
   // same hygiene" in their own comment and never had it — a pasted key was written out verbatim. Strip
@@ -2154,6 +2166,10 @@ ipcMain.handle('set-setting', (_event, key, value) => {
       log.warn('[backends] re-arm after settings change failed:', err?.message || err);
     }
   }
+}
+
+ipcMain.handle('set-setting', (_event, key, value) => {
+  persistSettingsBlob(key, value);
   return { ok: true };
 });
 
@@ -2171,6 +2187,61 @@ ipcMain.handle('merge-setting', (_event, key, partial) => {
 ipcMain.handle('delete-setting', (_event, key) => {
   deleteSetting(key);
   return { ok: true };
+});
+
+// --- IPC: settings export / import (#145) ---
+// Global blob only. What goes in the file and what may come out of it is decided in
+// settings-transfer.js; this pair owns the two things that need Electron — the native file
+// dialogs — and nothing else. The dialog parents to the window that ASKED, because these
+// buttons also render in the standalone settings pop-out.
+ipcMain.handle('export-settings', async (event) => {
+  const parent = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const stamp = new Date().toISOString().slice(0, 10);
+  const result = await dialog.showSaveDialog(parent, {
+    title: 'Export Settings',
+    defaultPath: `switchboard-settings-${stamp}.json`,
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+  try {
+    const payload = settingsTransfer.buildExportPayload(getSetting('global'), new Date().toISOString());
+    fs.writeFileSync(result.filePath, JSON.stringify(payload, null, 2), 'utf8');
+    log.info(`[settings] exported ${Object.keys(payload.global).length} global key(s)`);
+    return { ok: true, filePath: result.filePath, keys: Object.keys(payload.global).length };
+  } catch (err) {
+    log.error('[settings] export failed:', err);
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('import-settings', async (event) => {
+  const parent = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const result = await dialog.showOpenDialog(parent, {
+    title: 'Import Settings',
+    properties: ['openFile'],
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
+  try {
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
+    } catch {
+      return { ok: false, error: 'The file is not valid JSON.' };
+    }
+    const check = settingsTransfer.validateImportPayload(parsed);
+    if (!check.ok) return { ok: false, error: check.error };
+
+    // Through the same door a normal save uses: secrets scrubbed, backends re-armed.
+    persistSettingsBlob('global', settingsTransfer.mergeImport(getSetting('global'), check.global));
+    broadcastSettingsChanged();   // main-initiated: every window re-applies, incl. the sender
+    const keys = Object.keys(check.global).length;
+    log.info(`[settings] imported ${keys} global key(s)`);
+    return { ok: true, keys };
+  } catch (err) {
+    log.error('[settings] import failed:', err);
+    return { ok: false, error: err.message };
+  }
 });
 
 // --- IPC: saved variables ---

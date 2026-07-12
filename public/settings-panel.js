@@ -679,10 +679,30 @@
 
             </section>
 
-            <!-- ===== Maintenance (own category; export/import lands here next) ===== -->
+            <!-- ===== Maintenance ===== -->
             <section class="settings-cat" data-cat="maintenance">
               <div class="settings-cat-head"><h2>Maintenance</h2><p>Repair and move your Switchboard data.</p></div>
               <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Export settings</span>${help}</div>
+                    <div class="settings-description">Write these global settings to a JSON file — a backup, or a way to move your setup to another machine.</div>
+                    <div class="settings-more">Project settings are not exported (they are tied to a path on this machine). The file does contain the paths <b>you</b> configured — added and hidden projects, a pre-launch command, a launcher's working directory. It never contains a secret: those live in your environment, and Switchboard only stores <code>$VAR</code> references to them.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <button type="button" class="settings-action-btn" id="sv-export-settings">Export…</button>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Import settings</span>${help}</div>
+                    <div class="settings-description">Read a settings file back in. Its values replace yours; settings the file does not mention are kept.</div>
+                    <div class="settings-more">Applied immediately — no restart. Unsaved edits in this dialog are discarded.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <button type="button" class="settings-action-btn danger" id="sv-import-settings">Import…</button>
+                  </div>
+                </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Rebuild session cache</span>
@@ -1451,6 +1471,62 @@
         if (input) input.disabled = cb.checked;
       });
     });
+
+    // Export / import the global settings (#145). Both live in Maintenance, so they exist in the
+    // global scope only — the file carries the global blob and nothing else.
+    const exportBtn = settingsViewerBody.querySelector('#sv-export-settings');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', async () => {
+        const res = await window.api.exportSettings();
+        if (!res || res.canceled) return;
+        if (res.ok) {
+          await showControlMessage({
+            title: 'Settings exported',
+            message: `${res.keys} setting${res.keys === 1 ? '' : 's'} written.`,
+            details: { File: res.filePath },
+            tone: 'success',
+          });
+        } else {
+          await showControlMessage({
+            title: 'Export failed',
+            message: res.error || 'The settings could not be written.',
+            tone: 'danger',
+          });
+        }
+      });
+    }
+
+    const importBtn = settingsViewerBody.querySelector('#sv-import-settings');
+    if (importBtn) {
+      importBtn.addEventListener('click', async () => {
+        const confirmed = await showControlDialog({
+          title: 'Import settings?',
+          message: 'Pick a settings file. Every setting it names overwrites yours; the rest are kept. This is applied at once and cannot be undone — export your current settings first if you want a way back.',
+          confirmLabel: 'Choose file…',
+          cancelLabel: 'Cancel',
+          tone: 'warning',
+        });
+        if (!confirmed) return;
+        const res = await window.api.importSettings();
+        if (!res || res.canceled) return;
+        if (!res.ok) {
+          await showControlMessage({
+            title: 'Import failed',
+            message: res.error || 'The settings could not be imported.',
+            tone: 'danger',
+          });
+          return;
+        }
+        // Main has persisted and re-armed, and told every window to re-apply. What is still
+        // stale is THIS form — it was rendered from the old blob. Re-open it on the imported one.
+        await showControlMessage({
+          title: 'Settings imported',
+          message: `${res.keys} setting${res.keys === 1 ? '' : 's'} applied.`,
+          tone: 'success',
+        });
+        await openSettingsViewer('global');
+      });
+    }
 
     // Rebuild session cache (T-2.7) — the existing rebuild-cache IPC, behind a confirm.
     const rebuildBtn = settingsViewerBody.querySelector('#sv-rebuild-cache');
