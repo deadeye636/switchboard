@@ -423,6 +423,17 @@ const migrations = [
     try { db.exec('ALTER TABLE session_cache ADD COLUMN costStatus TEXT'); } catch {}
     try { db.exec('ALTER TABLE session_cache ADD COLUMN lineageParentId TEXT'); } catch {}
   },
+
+  // v13 (#148): a handoff records the backend it came from.
+  //
+  // A handoff is a packet of context, not a Claude artifact — it can be produced by any backend and
+  // resumed into any backend. Resuming one starts a NEW session (it is not a continuation), so unlike
+  // resuming an existing session it may legitimately change binary: the user picks. Remembering where
+  // it came from is what lets that picker default to the obvious answer.
+  // NULL = a handoff saved before this existed, i.e. Claude's.
+  (db) => {
+    try { db.exec('ALTER TABLE project_handoffs ADD COLUMN backendId TEXT'); } catch {}
+  },
 ];
 
 const currentDbVersion = (() => {
@@ -541,8 +552,8 @@ const stmts = {
   taskOpenCountsBySession: db.prepare("SELECT sessionId, COUNT(*) AS n FROM tasks WHERE sessionId IS NOT NULL AND status IN ('open','in_progress') GROUP BY sessionId"),
   taskOpenCountsByProject: db.prepare("SELECT projectPath, COUNT(*) AS n FROM tasks WHERE projectPath IS NOT NULL AND status IN ('open','in_progress') GROUP BY projectPath"),
   // Project handoffs (Handoff library)
-  handoffInsert: db.prepare('INSERT INTO project_handoffs (projectPath, label, content, createdAt) VALUES (?, ?, ?, ?)'),
-  handoffListByProject: db.prepare('SELECT id, label, content, createdAt FROM project_handoffs WHERE projectPath = ? ORDER BY createdAt DESC'),
+  handoffInsert: db.prepare('INSERT INTO project_handoffs (projectPath, label, content, createdAt, backendId) VALUES (?, ?, ?, ?, ?)'),
+  handoffListByProject: db.prepare('SELECT id, label, content, createdAt, backendId FROM project_handoffs WHERE projectPath = ? ORDER BY createdAt DESC'),
   handoffDeleteById: db.prepare('DELETE FROM project_handoffs WHERE id = ?'),
   // Project path lifecycle (#55). Handoffs are a list, so a remap lets them accrue
   // to the destination rather than conflicting.
@@ -968,9 +979,13 @@ function openTaskCountsByProject() {
 }
 
 // --- Project handoffs (Handoff library) ---
-function saveProjectHandoff(projectPath, label, content) {
+// `backendId` = where the packet came from (#148). It is a hint, not a binding: resuming a handoff
+// starts a NEW session, so the user may run it on any backend — this just makes the picker default to
+// the one that wrote it. NULL for handoffs saved before this existed (they are Claude's).
+function saveProjectHandoff(projectPath, label, content, backendId) {
   const info = runWithBusyRetry(() =>
-    stmts.handoffInsert.run(projectPath, label || null, String(content || ''), new Date().toISOString()));
+    stmts.handoffInsert.run(projectPath, label || null, String(content || ''), new Date().toISOString(),
+      backendId || null));
   return info.lastInsertRowid;
 }
 

@@ -276,3 +276,34 @@ test('probe reports a clear reason when hermes is not installed', () => {
   assert.strictEqual(typeof res.ok, 'boolean');
   if (!res.ok) assert.match(res.reason, /hermes/i);
 });
+
+// #148 — Hermes has no transcript FILE, so two things silently did not work for it: "View messages"
+// showed "nothing to show here", and a handoff could not pre-fill the packet the agent had just
+// written (the user had to retype it). Its messages are right there in its DB.
+
+test('readMessages hands out the session transcript, in the shape the viewer speaks', () => {
+  useFixture();
+  const entries = reader.readMessages('sess-cli-1');
+  assert.ok(entries.length, 'the DB has the messages');
+  for (const e of entries) {
+    assert.strictEqual(e.type, 'message');
+    assert.ok(e.message && typeof e.message.role === 'string');
+    assert.strictEqual(typeof e.message.content, 'string');
+  }
+  // The handoff extractor must find the last assistant turn in exactly this shape.
+  const { extractLatestAssistantText } = require('../public/handoff-extract.js');
+  const assistants = entries.filter(e => e.message.role === 'assistant');
+  if (assistants.length) {
+    assert.strictEqual(
+      extractLatestAssistantText(entries),
+      assistants[assistants.length - 1].message.content.trim(),
+      'the handoff pre-fill reads the packet Hermes wrote',
+    );
+  }
+});
+
+test('readMessages is bounded and never throws on a missing session', () => {
+  useFixture();
+  assert.deepStrictEqual(reader.readMessages('does-not-exist'), []);
+  assert.ok(reader.readMessages('sess-cli-1', { limit: 1 }).length <= 1);
+});

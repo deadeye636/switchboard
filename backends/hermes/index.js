@@ -155,6 +155,9 @@ module.exports = {
   discoverSessions: reader.discoverSessions,
   parseSession: reader.parseSession,
   watchTargets: reader.watchTargets,
+  // A db-store backend has no transcript file, so it supplies its messages directly — this is what
+  // makes "View messages" and the handoff pre-fill work for it (#148).
+  readMessages: reader.readMessages,
   deriveState,
   matchLiveSession,
   liveRefFor,

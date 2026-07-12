@@ -85,6 +85,13 @@ async function showHandoffPrompt(session) {
 
 // Start a fresh session in the project seeded directly with the local handoff
 // template (no agent round-trip). Used by the "New session" action in both dialogs.
+// A handoff is not a Claude artifact (#148). The fresh session it seeds runs on the backend the packet
+// came FROM — resolving Claude's defaults here would hand a Claude model to `pi --model`, and would put
+// a Codex packet into a Claude session without anyone asking.
+function backendOfSession(session) {
+  return (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || 'claude';
+}
+
 async function newSessionFromHandoff(project, session) {
   if (!project) return;
   const options = await resolveDefaultSessionOptions(project);
@@ -267,13 +274,16 @@ async function runHandoff(session, project) {
   if (handoffLibrary && review.action === 'save') {
     const label = await showHandoffSaveDialog(session);
     if (label === null) return;
-    await window.api.saveHandoff({ projectPath: project.projectPath, label, content: packet });
+    await window.api.saveHandoff({
+      projectPath: project.projectPath, label, content: packet,
+      backendId: backendOfSession(session),   // so a later resume can default to where it came from
+    });
     showControlToast({ message: 'Handoff saved to project.' });
     return;
   }
 
-  // Token step #2 — start a FRESH lean session (not a fork) seeded with the packet.
-  const options = await resolveDefaultSessionOptions(project);
+  // Token step #2 — start a FRESH lean session (not a fork) seeded with the packet, on the same backend.
+  const options = await resolveLaunchOptionsFor(project, backendOfSession(session));
   const newId = await launchNewSession(project, options, packet);
   if (!newId) return;
   showControlToast({ message: 'Handed off → fresh lean session seeded with the packet.' });
@@ -302,7 +312,7 @@ async function showHandoffResumePicker(project, groupId) {
   function render() {
     dialog.innerHTML = `
       <h3>Resume from Handoff</h3>
-      <div class="add-project-hint">Start a fresh session seeded with a saved handoff.</div>
+      <div class="add-project-hint">Starts a fresh session seeded with the saved packet. Pick which backend runs it — a handoff is context, not a continuation, so it is not tied to the CLI that wrote it.</div>
       <div class="handoff-list"></div>
       <div class="new-session-actions"><button type="button" class="new-session-cancel-btn">Cancel</button></div>
     `;
@@ -310,16 +320,40 @@ async function showHandoffResumePicker(project, groupId) {
     if (!handoffs.length) {
       listEl.innerHTML = '<div class="add-project-hint">No saved handoffs for this project.</div>';
     } else {
+      // Resuming a handoff starts a NEW session seeded with context — it is not a continuation of the
+      // old one. So, unlike resuming an existing session (which is bound to its binary, §5.11), the
+      // user may run it on ANY backend, and is asked which (#148). The default is the one the packet
+      // came from; a handoff saved before backends existed has none, so it defaults to Claude.
+      const launchable = (typeof launchableBackends === 'function') ? launchableBackends() : [];
+
       handoffs.forEach(h => {
         const row = document.createElement('div');
         row.className = 'handoff-row';
-        row.innerHTML = '<button type="button" class="handoff-pick"><span class="handoff-row-label"></span><span class="handoff-row-date"></span></button><button type="button" class="handoff-del" title="Delete handoff">✕</button>';
+        row.innerHTML = '<button type="button" class="handoff-pick"><span class="handoff-row-label"></span><span class="handoff-row-date"></span></button><select class="handoff-backend settings-select" title="Which backend runs this handoff"></select><button type="button" class="handoff-del" title="Delete handoff">✕</button>';
         row.querySelector('.handoff-row-label').textContent = h.label || 'Handoff';
         row.querySelector('.handoff-row-date').textContent = fmt(h.createdAt);
+
+        const select = row.querySelector('.handoff-backend');
+        const source = h.backendId || 'claude';
+        // A backend that is disabled (or gone) must not be offered — but if the packet came from it,
+        // say so rather than silently swapping the user onto another one.
+        const options = launchable.length ? launchable : [{ id: 'claude', label: 'Claude Code' }];
+        for (const b of options) {
+          const opt = document.createElement('option');
+          opt.value = b.id;
+          opt.textContent = b.label + (b.id === source ? ' (source)' : '');
+          if (b.id === source) opt.selected = true;
+          select.appendChild(opt);
+        }
+        if (!options.some(b => b.id === source)) {
+          select.title = 'The backend this handoff came from is not available — pick another.';
+        }
+
         row.querySelector('.handoff-pick').onclick = async () => {
+          const backendId = select.value || 'claude';
           close();
-          const options = await resolveDefaultSessionOptions(project);
-          await launchNewSession(project, options, h.content, groupId);
+          const opts = await resolveLaunchOptionsFor(project, backendId);
+          await launchNewSession(project, opts, h.content, groupId);
         };
         row.querySelector('.handoff-del').onclick = async () => {
           // Confirm first, and keep the entry if the delete actually fails —

@@ -314,9 +314,39 @@ function watchTargets() {
   return [{ kind: 'db', path: p }];
 }
 
+/**
+ * The session's messages, in the shape the transcript viewer and the handoff extractor speak.
+ *
+ * Hermes has no transcript FILE, which used to mean two things silently did not work for it: "View
+ * messages" showed "there is nothing to show here", and a handoff could not pre-fill the packet the
+ * agent had just written (#148) — the user had to retype it. Its messages are right there in the DB.
+ *
+ * Bounded: this is a viewer, not a scan.
+ */
+function readMessages(sessionId, { limit = 2000 } = {}) {
+  const db = openDb();
+  if (!db) return [];
+  try {
+    const rows = db.all(
+      "SELECT role, content, timestamp FROM messages WHERE session_id = ? AND content IS NOT NULL AND content <> ''"
+      + ' ORDER BY id LIMIT ?',
+      sessionId, limit
+    );
+    return rows.map(r => ({
+      type: 'message',
+      timestamp: r.timestamp ? new Date(Number(r.timestamp) * 1000).toISOString() : null,
+      message: { role: r.role || null, content: typeof r.content === 'string' ? r.content : '' },
+    }));
+  } catch {
+    return [];
+  } finally {
+    db.close();
+  }
+}
+
 module.exports = {
   PARSER_SCHEMA_VERSION,
   hermesHome, setHome, dbPath, dbExists,
-  discoverSessions, parseSession, watchTargets,
+  discoverSessions, parseSession, watchTargets, readMessages,
   openDb,
 };

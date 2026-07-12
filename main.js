@@ -3012,9 +3012,9 @@ ipcMain.handle('task-open-counts', () => {
 
 // --- IPC: project handoffs (Handoff library) ---
 ipcMain.handle('save-handoff', (_event, payload) => {
-  const { projectPath, label, content } = payload || {};
+  const { projectPath, label, content, backendId } = payload || {};
   if (!projectPath || !content) return null;
-  return saveProjectHandoff(projectPath, label || null, content);
+  return saveProjectHandoff(projectPath, label || null, content, backendId || null);
 });
 ipcMain.handle('list-handoffs', (_event, projectPath) => {
   return listProjectHandoffs(projectPath || null);
@@ -3178,6 +3178,17 @@ ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
   const backendId = row.backendId || 'claude';
   const b = backends.get(backendId);
   if (b && b.axis === 'B') {
+    // A backend with no transcript file can still hand us its messages (Hermes reads them from its DB).
+    // That is what makes the viewer AND the handoff pre-fill work for it — without it, a handoff on such
+    // a backend silently makes the user retype the packet the agent just wrote (#148).
+    if (typeof b.readMessages === 'function') {
+      try {
+        const entries = b.readMessages(sessionId) || [];
+        return { entries };
+      } catch (err) {
+        return { error: err.message };
+      }
+    }
     return { error: `${b.label || backendId} keeps this session in its own store, not in a transcript file — there is nothing to show here.` };
   }
   const folder = row.folder || getCachedFolder(sessionId);

@@ -8011,6 +8011,16 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 
 .handoff-list { margin: 10px 0; max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
 .handoff-row { display: flex; align-items: stretch; gap: 6px; }
+
+/* Which backend runs this handoff (#148). A handoff is context, not a continuation, so unlike resuming
+   a session it may cross binaries — the select defaults to the backend the packet came from. */
+.handoff-row .handoff-backend {
+  align-self: center;
+  max-width: 170px;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
 .handoff-row .handoff-pick {
   flex: 1;
   display: flex;
