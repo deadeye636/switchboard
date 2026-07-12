@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-12
 
@@ -33,7 +33,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
 - [#150](https://github.com/deadeye636/switchboard/issues/150) Hermes: availability probe only checks the executable · _enhancement_
 - [#151](https://github.com/deadeye636/switchboard/issues/151) Hermes: no busy/idle signal when the DB is unreadable (no fallback) · _bug_
-- [#152](https://github.com/deadeye636/switchboard/issues/152) Incremental parse: change marker is not keyed on the parser schema version · _chore_
 - [#153](https://github.com/deadeye636/switchboard/issues/153) Multi-LLM: leftover gaps against the plan and the mockups · _chore_
 - [#155](https://github.com/deadeye636/switchboard/issues/155) Backend hot paths: avoidable per-event work (Hermes re-parse, Pi node probe, store walks) · _chore_
 - [#156](https://github.com/deadeye636/switchboard/issues/156) Backends: extract the shared file-store boilerplate (Codex and Pi duplicate it) · _chore_
