@@ -2301,8 +2301,10 @@ function buildSessionItem(session) {
     if (canFork) actions.appendChild(forkBtn);
     actions.appendChild(timelineBtn);
     actions.appendChild(jsonlBtn);
-    actions.appendChild(archiveBtn);
+    // "Resume with config" sits next to the other session-starting actions; Archive is the odd one out
+    // (it removes the row), so it goes last, away from the buttons that launch something.
     actions.appendChild(launchConfigBtn);
+    actions.appendChild(archiveBtn);
   }
 
   row.appendChild(indicators);

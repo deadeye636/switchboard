@@ -121,3 +121,17 @@ test('a long SILENT turn stays busy on every store-derived backend while its PTY
   // And output NEVER creates a busy state out of an answered turn.
   assert.equal(hermes.deriveState({ isEnded: true, lastActivityMs: now }, now, { lastOutputMs: now }), 'idle');
 });
+
+test('a backend that names its own sessions can say whether it knows one yet', () => {
+  // The fork bug: Codex, Hermes and Pi name their own sessions, and we only adopt that name once they
+  // have written their store record — after the agent's first answer. Fork a session before that, and
+  // the only id we hold is OUR id, which means nothing to them: `pi --fork <our-uuid>` answers "No
+  // session found" and the user gets a dead tab. `liveRefFor` is what the fork guard asks.
+  for (const id of REAL) {
+    const b = backends.get(id);
+    if (typeof b.matchLiveSession !== 'function') continue;   // Claude: our id IS its id
+    assert.equal(typeof b.liveRefFor, 'function', `${id} must be able to answer "do you know this session?"`);
+    assert.equal(b.liveRefFor('11111111-2222-4333-8444-555555555555'), null,
+      `${id} must NOT claim to know an id it never issued`);
+  }
+});

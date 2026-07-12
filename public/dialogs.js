@@ -85,6 +85,19 @@ async function resolveDefaultSessionOptions(project) {
 // `pi --fork` — the same class of bug as the reattach path.
 async function forkSession(session, project) {
   const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || 'claude';
+
+  // A backend that names its own sessions (Codex, Hermes, Pi) only knows a session once it has written
+  // its store record — i.e. after the agent has answered. Before that the only id we hold is ours, and
+  // `pi --fork <our-uuid>` just says "No session found". Ask first, so the user gets a sentence instead
+  // of a dead tab.
+  try {
+    const can = await window.api.backends.canFork(session.sessionId);
+    if (can && can.ok === false) {
+      showControlMessage({ title: 'Cannot fork this session yet', message: can.reason, tone: 'warning' });
+      return;
+    }
+  } catch { /* the spawn path guards this too — never block a fork on a failed probe */ }
+
   const options = await resolveLaunchOptionsFor(project, backendId);
   options.forkFrom = session.sessionId;
   launchNewSession(project, options);

@@ -3064,6 +3064,47 @@ ipcMain.handle('backends-list', () => {
     defaultLaunchTarget: backends.getDefaultLaunchTarget(),
   };
 });
+// Can this session be forked RIGHT NOW?
+//
+// Claude accepts `--session-id`, so the id we launched under IS its id — forking it always works. Codex,
+// Hermes and Pi NAME THEIR OWN sessions, and we only adopt that name once they have written their store
+// record, i.e. after the first turn. Before that, the only id we hold is our own, which means nothing to
+// them: `pi --fork <our-uuid>` answers "No session found" and the user gets a dead tab.
+//
+// So: ask the backend whether it knows this session. If it does not, say why — the fix is one message.
+ipcMain.handle('backend-can-fork', (_event, sessionId) => {
+  if (!sessionId) return { ok: false, reason: 'Unknown session.' };
+
+  const live = activeSessions.get(sessionId);
+  const mapped = sessionBackends.get((live && live.realSessionId) || sessionId);
+  let backendId = mapped && mapped.backendId;
+  if (!backendId) {
+    try {
+      const row = getCachedSession(sessionId);
+      backendId = row && row.backendId;
+    } catch { /* cache unavailable */ }
+  }
+  const backend = backends.get(backendId || 'claude');
+  if (!backend) return { ok: false, reason: 'Unknown backend.' };
+
+  if (backend.supportsFork !== true) {
+    return { ok: false, reason: `${backend.label || backend.id} cannot fork a session.` };
+  }
+  // A backend that names its own sessions must actually HAVE this one in its store.
+  if (typeof backend.liveRefFor === 'function') {
+    let known = null;
+    try { known = backend.liveRefFor(sessionId); } catch { known = null; }
+    if (!known) {
+      return {
+        ok: false,
+        reason: `${backend.label || backend.id} has not written this session yet — it names its own sessions, `
+          + 'and only records one once the agent has answered. Send it a message first, then fork.',
+      };
+    }
+  }
+  return { ok: true };
+});
+
 ipcMain.handle('session-backends-get-all', () => {
   return sessionBackends.getAll();
 });
@@ -3506,6 +3547,21 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         if (avail && avail.ok === false) {
           log.info(`[spawn] backend=${backend.id} unavailable: ${avail.reason}`);
           return { ok: false, error: avail.reason || `${backend.label || backend.id} is not available.` };
+        }
+      }
+
+      // Forking an id the backend never issued produces a dead tab ("No session found"). It happens with
+      // every backend that names its own sessions: until it has written its store record we only hold OUR
+      // id, which means nothing to it. Refuse with a sentence instead of spawning.
+      if (sessionOptions?.forkFrom && typeof backend.liveRefFor === 'function') {
+        let known = null;
+        try { known = backend.liveRefFor(sessionOptions.forkFrom); } catch { known = null; }
+        if (!known) {
+          return {
+            ok: false,
+            error: `${backend.label || backend.id} does not know this session yet — it names its own `
+              + 'sessions and records one only after the agent has answered. Send a message first, then fork.',
+          };
         }
       }
 

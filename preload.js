@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('api', {
   // Multi-LLM backends + user Axis-A profiles (Phase 1 T-1.5, Phase 2 T-2.1).
   backends: {
     list: () => ipcRenderer.invoke('backends-list'),
+    canFork: (sessionId) => ipcRenderer.invoke('backend-can-fork', sessionId),
   },
   sessionBackends: {
     getAll: () => ipcRenderer.invoke('session-backends-get-all'),
