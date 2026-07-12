@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (28 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-12
 
@@ -37,7 +37,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#113](https://github.com/deadeye636/switchboard/issues/113) Optional second tray icon showing Claude usage (live percentage) · _feature_
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#127](https://github.com/deadeye636/switchboard/issues/127) Persist incremental parse state so cold-start scans read only the delta · _feature_
-- [#142](https://github.com/deadeye636/switchboard/issues/142) Multi-LLM system: profiles (alt endpoints) + runtimes (Codex/Copilot/…) · _feature_
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
 - [#150](https://github.com/deadeye636/switchboard/issues/150) Hermes: availability probe only checks the executable · _enhancement_
 - [#151](https://github.com/deadeye636/switchboard/issues/151) Hermes: no busy/idle signal when the DB is unreadable (no fallback) · _bug_
