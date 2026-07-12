@@ -274,6 +274,36 @@ Smaller but important changes (mostly in main/Node-side files).
 Everything below is added by **this fork** on top of the HaydnG base. Derived via
 `git diff haydng/main...main`. Some items are ports of other community forks (noted).
 
+### Multi-LLM backends
+
+The largest structural change this fork makes: Switchboard stops being a Claude-only cockpit and
+becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
+
+- **Four backends, one app** — Claude Code, **Codex**, **Hermes** and **Pi** run side by side in one
+  sidebar, one FTS index, one launch menu and one stats view. A backend is a folder under `backends/`
+  with a single descriptor; the registry, scanner, watcher, launch menu, settings page, Configure
+  dialog, badge, search, stats and resume all derive from it.
+- **Two kinds of history, one seam** — discovery is dual-mode from the start: a backend yields
+  `{kind:'file'}` handles (Claude, Codex, Pi) **or** `{kind:'db'}` handles (Hermes keeps its sessions
+  in SQLite). Every parser also exposes an incremental contract (byte offset + tail fingerprint +
+  schema version).
+- **Launch options per CLI** — each backend declares its own `configFields`; the Settings page and the
+  Configure dialog are **generated** from them and stored under `backendDefaults.<id>`, cascading
+  global → project. Claude's permission mode is never shown to Codex.
+- **Provider badges + mixed mode** — a badge per session row, shown only once more than one backend is
+  actually in use. A Claude-only user sees the app unchanged.
+- **Cost analytics** — where a backend prices its own turns (Hermes, Pi), Stats shows it per backend.
+  An estimate is labelled as an estimate, a zero estimate reads as "no cost reported" rather than
+  `$0.00`, and a token-only backend shows an em dash.
+- **Profiles + presets** — the Claude binary against another endpoint (DeepSeek, GLM, OpenRouter, or
+  blank). Secrets are `$VAR` references resolved at spawn and never written to disk; a literal key is
+  refused, and a profile that would send your Anthropic key to a third-party endpoint is blocked.
+- **Custom launchers (Tier-3)** — any command or script as a saved launcher (in-app monitored tab or
+  detached window), global template ⊕ per-project override.
+- **Identity, resume and fork done honestly** — a backend that names its own sessions (Codex, Hermes,
+  Pi) has its id adopted, so one session is one row; resume reapplies the recorded backend and never
+  falls back to Claude; Fork is only offered where the backend can actually fork.
+
 ### UI / window
 - **Tabbed single-view** as the primary layout — session tabs, viewer close buttons; the
   grid is kept as a legacy mode. Right-click **tab context menu** (Close / Stop / Relaunch),
