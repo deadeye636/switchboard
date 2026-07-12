@@ -621,6 +621,11 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
       hit = cachedByFile.get(h.path);
       if (!force && hit && hit.modified === changeKey && parserCurrent(hit)) {
         seenIds.add(hit.sessionId);
+        // A SKIPPED session is a persisted one: its row is right there, carrying the authoritative
+        // backendId. Only the upsert path used to say so, so a session that never changed again was
+        // never re-marked — and the overlay entry, spared from eviction as un-scanned, lived forever
+        // (#155). The mark is cheap and idempotent; only the first one writes.
+        markPersisted(hit.sessionId);
         stats.skipped++;
         continue;
       }
@@ -629,6 +634,7 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
       hit = cachedById.get(h.sessionId);
       if (!force && hit && changeKey && hit.changeMarker === changeKey && parserCurrent(hit)) {
         seenIds.add(hit.sessionId);
+        markPersisted(hit.sessionId);
         stats.skipped++;
         continue;
       }

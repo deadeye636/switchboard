@@ -25,7 +25,11 @@ const FLUSH_DEBOUNCE_MS = 200;
 let _filePath = null;      // resolved lazily (electron userData) unless overridden for tests
 let state = null;          // { version, sessions: { id: { backendId, profileId } } }
 let order = [];            // insertion order of ids (FIFO)
-const persisted = new Set(); // ids whose session_cache row already carries backendId (runtime-only)
+// Ids whose session_cache row already carries the backendId. This is WRITTEN TO THE FILE (#155): it used
+// to be runtime-only, so every entry read back after a restart looked un-scanned — and eviction spares
+// un-scanned entries by design. The cap could therefore never fire, and the file grew for the life of the
+// install, taking the startup read and the getAll() IPC to the renderer with it.
+const persisted = new Set();
 let flushTimer = null;
 let loaded = false;
 
@@ -57,6 +61,9 @@ function ensureLoaded() {
     if (typeof id === 'string' && id !== '' && isValidEntry(v)) {
       state.sessions[id] = { backendId: v.backendId, profileId: v.profileId == null ? null : v.profileId };
       order.push(id);
+      // A file written before this flag existed carries none, so every entry starts un-persisted and is
+      // spared — exactly as before. The next scan marks them and the cap starts working again.
+      if (v.persisted) persisted.add(id);
     }
   }
 }
@@ -67,6 +74,18 @@ function scheduleFlush() {
   if (flushTimer.unref) flushTimer.unref();
 }
 
+// The on-disk shape. `persisted` is written only where it is true — an absent flag reads as
+// "not scanned yet", which is both the safe default and what an older file already says.
+function serialize() {
+  const sessions = {};
+  for (const [id, v] of Object.entries(state.sessions)) {
+    sessions[id] = persisted.has(id)
+      ? { backendId: v.backendId, profileId: v.profileId, persisted: true }
+      : { backendId: v.backendId, profileId: v.profileId };
+  }
+  return { version: VERSION, sessions };
+}
+
 // Atomic write (tmp + rename). Synchronous so before-quit can call it directly.
 function flushNow() {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
@@ -75,7 +94,7 @@ function flushNow() {
   const tmp = file + '.tmp';
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, JSON.stringify({ version: VERSION, sessions: state.sessions }), 'utf8');
+    fs.writeFileSync(tmp, JSON.stringify(serialize()), 'utf8');
     fs.renameSync(tmp, file);
   } catch {
     try { fs.unlinkSync(tmp); } catch {}
@@ -147,13 +166,19 @@ function rekeySession(tempId, realId) {
 }
 
 // The scanner calls this after writing a row's authoritative backendId — it makes the overlay
-// entry eligible for FIFO eviction (before this it is spared, §5.7).
+// entry eligible for FIFO eviction (before this it is spared, §5.7). The flag is flushed, so the
+// entry stays evictable across a restart instead of reverting to "un-scanned" and living forever.
 function markPersisted(sessionId) {
   ensureLoaded();
-  if (sessionId in state.sessions) persisted.add(sessionId);
+  if (!(sessionId in state.sessions)) return;
+  if (persisted.has(sessionId)) return;      // already known — no write, this runs per scanned session
+  persisted.add(sessionId);
+  capEvict();
+  scheduleFlush();
 }
 
 function isPersisted(sessionId) {
+  ensureLoaded();   // the flag lives in the file now — answering before the load reads every entry as fresh
   return persisted.has(sessionId);
 }
 

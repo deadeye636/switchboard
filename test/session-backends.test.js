@@ -125,3 +125,57 @@ test('mixed: persisted evicted down to CAP, un-persisted always spared', () => {
   // 50 oldest persisted evicted to make room.
   assert.strictEqual(Object.keys(all).length, CAP);
 });
+
+// --- the flag must survive a restart, or the file grows forever (#155) -----------------------------
+
+test('the persisted flag is written to disk', () => {
+  const file = tmpFile();
+  sb._configureForTests({ filePath: file });
+  sb.record('scanned', 'codex');
+  sb.record('fresh', 'codex');
+  sb.markPersisted('scanned');
+  sb.flushNow();
+
+  const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.strictEqual(onDisk.sessions.scanned.persisted, true);
+  assert.strictEqual('persisted' in onDisk.sessions.fresh, false,
+    'an un-scanned entry carries no flag — absent reads as "not scanned yet", which is the safe default');
+});
+
+test('a reloaded entry stays evictable — the cap must still fire after a restart', () => {
+  // The bug: `persisted` was runtime-only, so after a restart every entry read back looked un-scanned.
+  // Eviction spares un-scanned entries by design, so the cap could never fire and the file grew for the
+  // life of the install.
+  const file = tmpFile();
+  sb._configureForTests({ filePath: file });
+  const CAP = sb.CAP;
+  for (let i = 0; i < CAP; i++) { sb.record('p' + i, 'claude'); sb.markPersisted('p' + i); }
+  sb.flushNow();
+
+  // Restart.
+  sb._configureForTests({ filePath: file });
+  assert.strictEqual(sb.isPersisted('p0'), true, 'the flag came back from disk');
+
+  // One more launch pushes us over the cap: the oldest PERSISTED entry goes.
+  sb.record('new-one', 'codex');
+  const all = sb.getAll();
+  assert.strictEqual(Object.keys(all).length, CAP, 'the cap fires again instead of growing forever');
+  assert.ok(!('p0' in all), 'the oldest persisted entry was evicted');
+  assert.ok('new-one' in all);
+});
+
+test('an old file with no flags loses nothing — every entry is spared until the next scan', () => {
+  const file = tmpFile();
+  fs.writeFileSync(file, JSON.stringify({
+    version: 1,
+    sessions: Object.fromEntries(
+      Array.from({ length: sb.CAP + 10 }, (_, i) => ['old' + i, { backendId: 'codex', profileId: null }])
+    ),
+  }));
+  sb._configureForTests({ filePath: file });
+  sb.record('new-one', 'codex');
+
+  // Nothing is marked yet, so nothing may be dropped: provenance is unrecoverable, size is not (§5.7).
+  assert.strictEqual(Object.keys(sb.getAll()).length, sb.CAP + 11);
+  assert.strictEqual(sb.isPersisted('old0'), false);
+});
