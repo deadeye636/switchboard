@@ -79,6 +79,21 @@ function claudeStoreScope() {
   return { except: foreignBackendIds() };
 }
 
+/**
+ * Is Claude switched on? (#162)
+ *
+ * Claude's store is walked by a path of its own (PROJECTS_DIR), not by `refreshBackendSessions`, and that
+ * path never consulted the enable gate — so "disabling Claude" left it happily indexing. Every other
+ * backend stops being scanned when it is switched off; Claude does now too.
+ *
+ * Fails OPEN. If the registry cannot answer (a unit test with no backends.init, a settings read that
+ * throws), scanning is the safe direction: a missed scan is a stale sidebar, while a wrongly-skipped one
+ * would look like the user's sessions had vanished.
+ */
+function claudeEnabled() {
+  try { return backends.isLaunchable('claude') !== false; } catch { return true; }
+}
+
 // The launch-time overlay (session-backends.json) is the ONLY way to tell an Axis-A profile session
 // from a plain Claude one — they share the binary, the root and the format (§5.7). Root-derivation
 // only distinguishes Axis-B. So: for a session discovered under Claude's root, the overlay wins;
@@ -164,6 +179,15 @@ function buildSearchEntry(s) {
 // pre-refresh value is the safe direction: a file that changes mid-refresh just
 // triggers one extra sweep next pass.
 function refreshFolder(folder, opts = {}) {
+  // Claude answers to the enable gate like every other backend now (#162). Its store used to be walked
+  // unconditionally — `refreshBackendSessions` deliberately skips Claude ("shares Claude's store"), and
+  // THIS path never asked whether Claude was enabled at all. So a disabled Claude kept indexing, which
+  // is not what disabling a backend means anywhere else in the app.
+  //
+  // "Disable is not delete" (§5.8) still holds: the cached rows stay, so the sessions remain visible and
+  // searchable. They are simply not re-read, and nothing new appears.
+  if (!claudeEnabled()) return;
+
   const folderPath = path.join(PROJECTS_DIR, folder);
   // Scope EVERY folder-wide read/delete below to Claude's store: an Axis-B backend (Codex) can hold
   // rows under the same folder key (same cwd -> same project -> same encodeProjectPath key), and its
@@ -354,6 +378,7 @@ const FILE_READ_STATE_MAX = 512;
 // `relFilename` is the watcher's path relative to PROJECTS_DIR, e.g.
 // "<folder>/<uuid>.jsonl" (top-level) or "<folder>/<uuid>/subagents/<f>.jsonl".
 function refreshFile(folder, relFilename, opts = {}) {
+  if (!claudeEnabled()) return;   // #162 — a disabled backend is not watched, Claude included
   const folderPath = path.join(PROJECTS_DIR, folder);
   const rel = relFilename.split(/[\\/]/).filter(Boolean);
   const inner = rel.slice(1); // path within the folder

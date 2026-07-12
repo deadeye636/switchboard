@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('api', {
   profiles: {
     list: () => ipcRenderer.invoke('profiles-list'),
     save: (profile, allowSecrets) => ipcRenderer.invoke('profiles-save', { profile, allowSecrets }),
+    // Check without writing — the template editor stages, Save Settings commits.
+    validate: (profile, allowSecrets) => ipcRenderer.invoke('profiles-validate', { profile, allowSecrets }),
     delete: (id) => ipcRenderer.invoke('profiles-delete', id),
     setDefault: (id) => ipcRenderer.invoke('profiles-set-default', id),
   },

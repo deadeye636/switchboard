@@ -35,19 +35,70 @@ function init({ getGlobalSettings, profiles } = {}) {
   if (profiles) _profiles = profiles;
 }
 
+// Options that belong to SWITCHBOARD, not to any one CLI — so they are added here, once, instead of
+// being copied into four descriptors and drifting.
+//
+// `preLaunchCmd` was Claude's, which was never a decision: it is a raw shell prefix (`nvm use 20 &&`,
+// `aws-vault exec profile --`) and has nothing to do with Claude. It was gated on the claude binary
+// because only Claude spawns through a SHELL — the Axis-B backends use argv mode (no shell to prefix,
+// because Windows shell quoting mangles their arguments). The fix is not to make the option Claude's
+// forever; it is to spawn through the shell when, and only when, someone actually sets one. main.js does
+// that, and the argv path stays the default for everyone who does not.
+const UNIVERSAL_FIELDS = [
+  {
+    id: 'preLaunchCmd',
+    label: 'Pre-launch command',
+    type: 'text',
+    default: '',
+    // Applied by main.js at the spawn site: it PREFIXES the command line, so it is not part of the argv
+    // this backend's buildLaunch returns.
+    appliesAt: 'spawn',
+    description: 'Runs in the shell immediately before the CLI, on the same line — e.g. `nvm use 20 &&` or '
+      + '`aws-vault exec profile --`. Setting one makes the session start through a shell instead of '
+      + 'spawning the binary directly.',
+  },
+];
+
+/** A descriptor as the app sees it: its own options, plus the ones Switchboard adds to every backend. */
+function withUniversalFields(descriptor) {
+  const own = Array.isArray(descriptor.configFields) ? descriptor.configFields : [];
+  const missing = UNIVERSAL_FIELDS.filter(u => !own.some(f => f.id === u.id));
+  if (!missing.length) return descriptor;
+  return { ...descriptor, configFields: [...own, ...missing] };
+}
+
 // Register (or replace) a descriptor. Later phases swap a `planned` dummy for the real `ready` one.
 function register(descriptor) {
   if (!descriptor || typeof descriptor.id !== 'string' || descriptor.id === '') {
     throw new Error('backend descriptor needs a non-empty string id');
   }
-  registry.set(descriptor.id, descriptor);
+  registry.set(descriptor.id, withUniversalFields(descriptor));
   return descriptor;
 }
 
 // Is a backend user-activated? `backendEnabled.<id>` (global-only, §5.8). Default: only `claude` for
-// built-ins; a user profile is enabled on creation. `planned` can never be enabled.
-function isEnabled(descriptor, enabledMap) {
+// built-ins; a template is enabled on creation. `planned` can never be enabled.
+//
+// Claude is NOT exempt (#162). It never was here — `id === 'claude'` is only the default when nothing is
+// stored — but the UI pretended otherwise, and the model was not ready for the truth. It is now.
+//
+// A TEMPLATE follows its base backend: disabling a backend disables the templates that run on it, because
+// a template runs that backend's binary and there is nothing left to launch. Deliberate and uniform: a
+// DeepSeek template runs the *claude* binary, so disabling Claude stops it too.
+function isEnabled(descriptor, enabledMap, seen) {
   if (descriptor.status === 'planned') return false;
+
+  if (descriptor.isProfile) {
+    const base = registry.get(descriptor.baseId || 'claude');
+    // Guard against a cycle even though a template's base must be a built-in — a future change that
+    // allowed a template on a template must not spin here.
+    const chain = seen || new Set();
+    if (base && !chain.has(base.id)) {
+      chain.add(descriptor.id);
+      if (!isEnabled(base, enabledMap, chain)) return false;
+    }
+  }
+
   const stored = enabledMap ? enabledMap[descriptor.id] : undefined;
   if (stored !== undefined) return !!stored;
   return descriptor.isProfile ? true : descriptor.id === 'claude';
@@ -58,27 +109,60 @@ function isEnabled(descriptor, enabledMap) {
 // merely merges the profile's env bundle over it (00 §4 "Axis-A composition"). The bundle's `$VAR`
 // refs are resolved at spawn by the caller (main.js), never here and never on disk.
 function profileToDescriptor(p) {
-  const claude = registry.get('claude');
+  // The BASE backend this template runs on (#161). It used to be `registry.get('claude')`, always — a
+  // template could not say what it ran on, and the editor never said either.
+  const baseId = p.backendId || 'claude';
+  const base = registry.get(baseId);
+
+  // A template whose base is gone (unregistered, or a `planned` dummy) must not throw on launch — the
+  // old code dereferenced `claude.buildLaunch` unguarded. It stays visible in Settings, says what is
+  // wrong, and simply cannot be started.
+  const usable = !!base && base.status === 'ready';
+
   return {
     id: p.id,
     label: p.name,
     tier: 1,
+    // 'A' is the historical name for "runs another backend's binary". It is no longer Claude-specific:
+    // the axis says the template has no store of its own, not which binary it borrows.
     axis: 'A',
-    status: 'ready',
+    status: usable ? 'ready' : 'planned',
     isProfile: true,
+    baseId,
+    baseLabel: base ? base.label : baseId,
     icon: p.icon || null,
     monogram: null,           // renderer derives the glyph from icon/id
     colour: p.icon || 'default',
-    configFields: claude ? claude.configFields : [],  // same binary -> same launch options
+    // The template's own option values — the TOP layer of the cascade (default → global → project →
+    // template). Only what it explicitly set; the rest falls through to the base backend's own defaults.
+    templateOptions: p.options || {},
+    templateEnv: p.env || {},
+    caveat: usable ? base.caveat : `Its backend (${baseId}) is not available, so this template cannot start.`,
+    // Same binary -> same launch options. The template's own values live in `backendDefaults.<templateId>`
+    // and cascade over the base backend's (see dialogs.js `storedDefaultsFor`).
+    configFields: usable ? base.configFields : [],
+    PARSER_SCHEMA_VERSION: base ? base.PARSER_SCHEMA_VERSION : undefined,
+    supportsFork: base ? base.supportsFork : false,
+    transcriptAccess: base ? base.transcriptAccess : undefined,
     buildLaunch(ctx) {
-      const launch = claude.buildLaunch(ctx);
+      if (!usable) throw new Error(`Template '${p.name}' runs on '${baseId}', which is not available.`);
+      const launch = base.buildLaunch(ctx);
+      // The template's env bundle wins over the base's. That is the whole point of an Axis-A template:
+      // same binary, different endpoint. `$VAR` refs are resolved at spawn (main.js), never here.
       return { ...launch, env: { ...(launch.env || {}), ...(p.env || {}) } };
     },
-    // Axis-A shares Claude's store/format entirely.
-    discoverSessions: claude ? claude.discoverSessions : () => [],
-    parseSession: claude ? claude.parseSession : () => null,
-    watchTargets: claude ? claude.watchTargets : () => [],
-    deriveState: null,
+    // A template has NO store of its own: it shares its base's entirely. The scanner skips it for
+    // exactly that reason (session-cache.js), and its sessions carry the template's id as provenance
+    // through the launch overlay, not through the scan.
+    discoverSessions: usable ? base.discoverSessions : () => [],
+    parseSession: usable ? base.parseSession : () => null,
+    watchTargets: usable ? base.watchTargets : () => [],
+    deriveState: base ? base.deriveState : null,
+    probe: base && typeof base.probe === 'function' ? base.probe : undefined,
+    liveRefFor: base ? base.liveRefFor : undefined,
+    liveState: base ? base.liveState : undefined,
+    matchLiveSession: base ? base.matchLiveSession : undefined,
+    sessionBucketPath: base ? base.sessionBucketPath : undefined,
   };
 }
 
@@ -160,14 +244,28 @@ function launchable() {
 
 // The one backend/profile a plain new-session action launches (00 §4). Falls back to `claude` when
 // unset or when the stored target no longer exists / isn't launchable.
+// The target a plain "new session" launches. It must be one that can ACTUALLY launch (#162): this used
+// to fall back to a hardcoded 'claude' even when Claude was disabled, handing every caller a target the
+// spawn gate would then refuse. With Claude disableable, that fallback is a dead end, not a safety net.
+//
+// Order: the user's stored choice, then Claude (still the default backend when it is available), then
+// whatever else is launchable — a Codex-only user has a working default without ever setting one. If
+// NOTHING is launchable, return null and let the caller say so; inventing a target here would only move
+// the error somewhere less explainable.
 function getDefaultLaunchTarget() {
   const g = _getGlobalSettings() || {};
+  const all = list();
+  const launchable = (id) => {
+    const d = all.find(b => b.id === id);
+    return !!(d && d.status === 'ready' && d.enabled);
+  };
+
   const id = g.defaultLaunchTarget;
-  if (typeof id === 'string' && id) {
-    const d = list().find(b => b.id === id);
-    if (d && d.status === 'ready' && d.enabled) return id;
-  }
-  return 'claude';
+  if (typeof id === 'string' && id && launchable(id)) return id;
+  if (launchable('claude')) return 'claude';
+
+  const first = all.find(b => b.status === 'ready' && b.enabled);
+  return first ? first.id : null;
 }
 
 // The core terminal env shared by every backend spawn (00 §4 spawn pseudo:

@@ -36,6 +36,18 @@ function resolveFilePath() {
 // slug generator avoids this, but the IPC handler is the real trust boundary — enforce it here.
 const RESERVED_IDS = new Set(['claude', 'codex', 'agy', 'hermes', 'pi']);
 
+// The backend a template RUNS ON (#161). A template is a named set of defaults for a backend — "Codex
+// with model X and this sandbox" and "Claude against DeepSeek" are the same mechanism, not two.
+//
+// It used to be Claude, always, hardcoded in three places: no field in the editor, no field in the
+// stored shape (this validator dropped anything else), and `profileToDescriptor` reaching for
+// `registry.get('claude')`. The editor never said so either — the word "Claude" did not appear in it.
+//
+// The base must be a BUILT-IN backend. A template on a template would be a chain we would have to
+// resolve, and it buys nothing: a template already carries everything a second one could add.
+const BASE_IDS = RESERVED_IDS;
+const DEFAULT_BASE = 'claude';
+
 // An env var whose NAME says "credential". Such a var must be a `$VAR` reference (or the empty
 // string, used to blank an inherited one) — any literal is a secret written to disk (§5.2). Being
 // name-driven catches the shapes a generic entropy heuristic misses: JWTs (dots), AWS keys
@@ -109,6 +121,12 @@ function validateProfile(input, opts = {}) {
   // renderer's slug generator is a convenience, not a guarantee).
   if (RESERVED_IDS.has(id)) return { ok: false, error: `'${id}' is a built-in backend id — pick another` };
   if (typeof name !== 'string' || name.length < 1 || name.length > 100) return { ok: false, error: 'name must be 1..100 chars' };
+  // The backend this template runs on (#161). Absent = Claude, which is what every profile written
+  // before this existed meant — they had no other option.
+  const backendId = input.backendId == null || input.backendId === '' ? DEFAULT_BASE : input.backendId;
+  if (typeof backendId !== 'string' || !BASE_IDS.has(backendId)) {
+    return { ok: false, error: `unknown backend '${backendId}' — a template runs on a built-in backend` };
+  }
   const env = input.env;
   if (env == null || typeof env !== 'object') return { ok: false, error: 'env must be an object' };
   const keys = Object.keys(env);
@@ -129,12 +147,40 @@ function validateProfile(input, opts = {}) {
   // Host-key-leak lint. Deliberately NOT bypassable by `allowSecrets`: acknowledging "yes, that's my
   // key" is a different decision from "yes, send my Anthropic key to a third party". Skipped only on
   // LOAD (skipLeakCheck) — a pre-existing profile must not silently vanish from the list.
-  if (!opts.skipLeakCheck) {
+  // ...and only on a CLAUDE base: the check is about `ANTHROPIC_*` vars, which exist because a template
+  // re-points the claude binary at another endpoint. Codex and Pi have no such variables, so running it
+  // there would be theatre.
+  if (!opts.skipLeakCheck && backendId === 'claude') {
     const leak = checkEndpointLeak(cleanEnv);
     if (leak) return { ok: false, error: leak, leak: true };
   }
 
-  const profile = { id, name, env: cleanEnv };
+  // The template's LAUNCH OPTIONS — values for its base backend's `configFields` (#161).
+  //
+  // They live HERE, in the template record, and not in `backendDefaults.<templateId>`. A template is one
+  // thing: base + name + icon + options + env. Splitting it across two stores gave it two save buttons
+  // and two lifetimes, and left the editor showing only half of itself.
+  //
+  // Only what the template EXPLICITLY sets is stored. An option it does not name falls through to the
+  // base backend's own cascade (default → global → project), so a template never freezes a copy of
+  // settings it was never asked about — the same rule as every other scope (#163).
+  const options = {};
+  if (input.options != null) {
+    if (typeof input.options !== 'object' || Array.isArray(input.options)) {
+      return { ok: false, error: 'options must be an object' };
+    }
+    for (const [k, v] of Object.entries(input.options)) {
+      if (!ID_RE.test(k)) return { ok: false, error: `invalid option id: ${k}` };
+      if (v === undefined) continue;                        // absent = "not set" = fall through
+      if (v !== null && typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
+        return { ok: false, error: `option ${k} must be a string, number or boolean` };
+      }
+      if (typeof v === 'string' && v.length > MAX_VALUE_LEN) return { ok: false, error: `option ${k} too long` };
+      options[k] = v;                                       // '' and false ARE values (spec decision 3)
+    }
+  }
+
+  const profile = { id, name, backendId, options, env: cleanEnv };
   if (typeof input.icon === 'string' && input.icon) profile.icon = input.icon.slice(0, 64);
   return { ok: true, profile };
 }

@@ -1657,13 +1657,34 @@ ipcMain.handle('get-stats-from-db', (_event, backendId) => {
 // `backendId` (optional) scopes EVERY figure below to one backend — the page's filter (#159). Falsy or
 // 'all' means the whole corpus. It is resolved in SQL rather than in the renderer because the renderer
 // has no per-session daily data to filter: only the aggregates ever cross the IPC boundary.
+/**
+ * "Codex" means everything that ran the Codex binary.
+ *
+ * The Stats filter offers BACKENDS. A session launched from a template records the TEMPLATE's id as its
+ * provenance (§5.7) — that is what the user picked, and the sidebar badge should say so. But nobody wants
+ * a stats page whose filter lists "my Codex template" as if it were a provider: the question is where the
+ * work went, and the answer is the backend. So a backend filter expands to the backend plus every
+ * template that runs on it.
+ */
+function backendFilterIds(backendId) {
+  if (!backendId || backendId === 'all') return null;
+  const base = String(backendId);
+  const ids = [base];
+  try {
+    for (const b of backends.list()) {
+      if (b.isProfile && (b.baseId || 'claude') === base) ids.push(b.id);
+    }
+  } catch { /* registry unavailable -> the base alone is still the honest answer */ }
+  return ids;
+}
+
 function buildStatsFromDb(backendId) {
-  const only = backendId && backendId !== 'all' ? String(backendId) : null;
+  const only = backendFilterIds(backendId);
   const daily = getDailyMetrics(only);    // [{date, messageCount, toolCallCount, tokens, sessionCount}]
   const totals = getTotalCounts(only);
   const lastComputedDate = new Date().toISOString().slice(0, 10);
   return {
-    backendId: only || 'all',            // what these numbers are ABOUT — the renderer labels with it
+    backendId: backendId || 'all',       // what these numbers are ABOUT — the renderer labels with it
     dailyActivity: daily,
     dailyModelTokens: getDailyModelTokens(only),
     dailyBackendTokens: getDailyBackendTokens(only),
@@ -2159,6 +2180,11 @@ function persistSettingsBlob(key, value) {
     if (stripped.removed.length) {
       log.warn(`[launchers] refused to persist literal secret(s): ${stripped.removed.join(', ')} — use a $VAR reference`);
       value = stripped.value;
+    }
+    const env = stripBackendEnvSecrets(value);
+    if (env.removed.length) {
+      log.warn(`[backends] refused to persist literal secret(s) in backendEnv: ${env.removed.join(', ')} — use a $VAR reference`);
+      value = env.value;
     }
   } catch { /* never block a settings save on this */ }
 
@@ -2817,6 +2843,34 @@ function stripLauncherSecrets(blob) {
   return { value: { ...blob, customLaunchers: launchers }, removed };
 }
 
+/**
+ * The same rule for a BACKEND's own env bundle (`backendEnv.<id>`). It goes to disk exactly like a
+ * launcher's and a template's, so it gets exactly the same guard: a value that looks like a pasted key is
+ * dropped here, at the trust boundary, and never written. A `$VAR` reference is the supported way — it is
+ * resolved at spawn and lives only in the user's environment.
+ */
+function stripBackendEnvSecrets(blob) {
+  const removed = [];
+  if (!blob || typeof blob !== 'object' || !blob.backendEnv || typeof blob.backendEnv !== 'object') {
+    return { value: blob, removed };
+  }
+  const out = {};
+  for (const [backendId, env] of Object.entries(blob.backendEnv)) {
+    if (!env || typeof env !== 'object') continue;
+    const clean = {};
+    for (const [k, v] of Object.entries(env)) {
+      if (typeof v === 'string' && profiles.looksLikeRawSecret(v, k)) {
+        removed.push(`${backendId}.${k}`);
+        continue;   // an unresolved $VAR is dropped at spawn too, so this fails visibly, not silently
+      }
+      clean[k] = v;
+    }
+    out[backendId] = clean;
+  }
+  if (!removed.length) return { value: blob, removed };
+  return { value: { ...blob, backendEnv: out }, removed };
+}
+
 const SETTING_DEFAULTS = {
   visibleSessionCount: 5,
   sidebarWidth: 340,
@@ -3252,6 +3306,17 @@ ipcMain.handle('profiles-save', (_event, payload) => {
   // explicitly acknowledged it. Auth belongs in a $VAR ref, never on disk (§5.2).
   return profiles.save(profile, { allowSecrets: !!allowSecrets });
 });
+// Check a template WITHOUT writing it. The editor stages its changes now and they are only committed by
+// Save Settings — but the checks that matter (a raw secret, a host-key leak) must still happen while the
+// user is looking at the dialog, not minutes later when they press Save somewhere else. Same validator,
+// no side effects.
+ipcMain.handle('profiles-validate', (_event, payload) => {
+  const { profile, allowSecrets } = payload || {};
+  const res = profiles.validateProfile(profile, { allowSecrets: !!allowSecrets });
+  return res.ok
+    ? { ok: true, profile: res.profile }
+    : { ok: false, error: res.error, secretKeys: res.secretKeys, leak: res.leak };
+});
 ipcMain.handle('profiles-delete', (_event, id) => {
   return profiles.remove(id);
 });
@@ -3568,6 +3633,10 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
   // Set inside the backend branch below (where the descriptor is in scope) and consumed after the
   // session object exists — a backend may warn that it takes a while to become usable.
   let startupHint = null;
+  // Does the OSC-0 TITLE busy heuristic apply to this session? Only for the claude binary — see the
+  // session object below. Same reason `isClaudeBinary` exists, hoisted because the session is built out
+  // here while the descriptor is only in scope in the branch.
+  let oscTitleState = false;
   try {
     if (isPlainTerminal) {
       // Plain terminal: interactive login shell, no claude command. Override `claude`
@@ -3660,15 +3729,39 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
           }
         }
       }
-      const backend = backends.get(sessionOptions?.backendId || recorded?.backendId || 'claude') || backends.get('claude');
+      // A session with no recorded provenance predates the multi-LLM era: it is Claude's, by definition.
+      // That inference is still right, and with Claude disableable (#162) it is also the reason such a
+      // session cannot be resumed while Claude is off — which the user is owed a sentence about, not a
+      // raw failure.
+      const requestedId = sessionOptions?.backendId || recorded?.backendId || 'claude';
+      const inferredClaude = !sessionOptions?.backendId && !recorded?.backendId;
+      const backend = backends.get(requestedId) || backends.get('claude');
+      if (!backend) {
+        return { ok: false, error: `Backend '${requestedId}' is not installed in this build.` };
+      }
       startupHint = backend.startupHint || null;
 
       // §5.8 guard: only a `ready` (built) AND `enabled` (user-activated) backend may ever spawn. A
       // `planned` binary or a disabled backend is rejected here, before any PTY exists — the picker
       // never offers them, so reaching this is either a stale renderer or a crafted IPC call.
       if (!backends.isLaunchable(backend.id)) {
-        const why = backend.status === 'planned' ? 'is not built yet' : 'is disabled';
-        return { ok: false, error: `Backend '${backend.label || backend.id}' ${why}.` };
+        const label = backend.label || backend.id;
+        let error;
+        if (backend.status === 'planned') {
+          error = `Backend '${label}' is not built yet.`;
+        } else if (backend.isProfile) {
+          // A template runs its base backend's binary, so a disabled base leaves it nothing to launch.
+          error = `'${label}' runs on ${backend.baseLabel || backend.baseId}, which is disabled. `
+            + `Enable ${backend.baseLabel || backend.baseId} in Settings → Backends to use it again.`;
+        } else if (inferredClaude) {
+          error = 'This session was started before Switchboard supported other backends, so it belongs '
+            + 'to Claude Code — which is currently disabled. Enable Claude Code in Settings → Backends '
+            + 'to resume it. (It stays visible and searchable either way.)';
+        } else {
+          error = `Backend '${label}' is disabled. Enable it in Settings → Backends.`;
+        }
+        log.info(`[spawn] refused: backend=${backend.id} not launchable`);
+        return { ok: false, error };
       }
 
       // Availability: a backend may declare that its binary is missing. Without this the user gets a
@@ -3714,29 +3807,37 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       // and CreateProcess cannot run one. So argv mode is honoured only when the command resolves to
       // an actual executable; otherwise we fall back to the shell path, which resolves the shim fine.
       const argvExe = launch.spawnMode === 'argv' ? resolveArgvExecutable(launch.command) : null;
-      const useArgvSpawn = !!argvExe;
-      if (launch.spawnMode === 'argv' && !useArgvSpawn) {
-        log.info(`[spawn] backend=${backend.id} wanted argv mode but '${launch.command}' is not a directly-executable binary here — using the shell path`);
+
+      // A pre-launch command is a raw SHELL prefix (`nvm use 20 &&`, `aws-vault exec profile --`), so
+      // there has to be a shell — and a command line — for it to sit in front of. Argv mode has neither.
+      //
+      // That is the entire reason this option was Claude's: Claude spawns through a shell, the Axis-B
+      // backends spawn argv (Windows shell quoting mangles their arguments). It was never a statement
+      // about Claude. So: keep argv as the default for everyone, and drop to the shell path for the one
+      // session where somebody actually set a prefix. They asked for a shell; they get one, quoted by
+      // the same `quoteArgvForShell` Claude has always used.
+      const preLaunchCmd = String(sessionOptions?.preLaunchCmd || '').trim();
+      if (preLaunchCmd && /[\r\n]/.test(preLaunchCmd)) {
+        return { ok: false, error: 'The pre-launch command must not contain newlines.' };
       }
 
-      // The MCP IDE bridge and preLaunchCmd are CLAUDE-CLI concerns: `--ide` is a claude flag and
-      // preLaunchCmd is documented as prefixing the claude command. Appending them to another binary
-      // would hand Codex a flag it doesn't know. Gate them on the claude binary (Claude + Axis-A
-      // profiles, which run the same executable).
+      const useArgvSpawn = !!argvExe && !preLaunchCmd;
+      if (launch.spawnMode === 'argv' && !argvExe) {
+        log.info(`[spawn] backend=${backend.id} wanted argv mode but '${launch.command}' is not a directly-executable binary here — using the shell path`);
+      } else if (launch.spawnMode === 'argv' && preLaunchCmd) {
+        log.info(`[spawn] backend=${backend.id} has a pre-launch command — starting through the shell instead of argv`);
+      }
+
+      // The MCP IDE bridge stays CLAUDE's: `--ide` is a claude flag and the bridge speaks Claude's own
+      // protocol. Handing it to Codex would be a flag it does not know. (`preLaunchCmd` used to be gated
+      // here too, for a reason that turned out to be about the spawn mode — see above.)
       const isClaudeBinary = launch.command === 'claude';
+      oscTitleState = isClaudeBinary;
 
       let claudeCmd = null;
       if (!useArgvSpawn) {
         claudeCmd = launch.command + ' ' + quoteArgvForShell(shell, launch.args);
-
-        // preLaunchCmd is raw shell by design (e.g. "aws-vault exec profile --") — block newlines only
-        if (isClaudeBinary && sessionOptions?.preLaunchCmd) {
-          const pre = String(sessionOptions.preLaunchCmd);
-          if (/[\r\n]/.test(pre)) {
-            return { ok: false, error: 'preLaunchCmd must not contain newlines' };
-          }
-          claudeCmd = pre + ' ' + claudeCmd;
-        }
+        if (preLaunchCmd) claudeCmd = preLaunchCmd + ' ' + claudeCmd;
       }
 
       // Start MCP server for this session so Claude CLI sends diffs/file opens to Switchboard
@@ -3780,7 +3881,31 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       // over the base env — the profile OVERRIDES base. Empty for the Claude default, so this is a
       // no-op there (byte-identical). Then record the launch-time backend/profile OVERLAY (§5.7):
       // the scanner later merges it into the authoritative session_cache.backendId.
-      Object.assign(ptyEnv, resolveEnv(launch.env));
+      // The env a session actually gets, least specific first:
+      //   1. the BACKEND's own bundle — its `$VAR` auth refs, from buildLaunch
+      //   2. the USER's variables for that backend (`backendEnv.<id>`). New: a plain backend could not
+      //      carry any, so the only way to hand Codex a variable was to wrap it in a whole template
+      //   3. the TEMPLATE's bundle, when this launch is a template — the most specific thing there is
+      //
+      // `launch.env` already has (1) ⊕ (3) merged, because a template's descriptor merges its bundle over
+      // its base's. So lift the template's own keys back out first, or the user's backend variables would
+      // land ON TOP of the template — the wrong way round, and silently.
+      //
+      // `$VAR` refs are resolved here, at spawn, and never written to disk (§5.2).
+      {
+        const allEnv = (getSetting('global') || {}).backendEnv || {};
+        const baseId = backend.isProfile ? (backend.baseId || 'claude') : backend.id;
+        const templateEnv = backend.isProfile ? (backend.templateEnv || {}) : {};
+
+        const baseEnv = { ...(launch.env || {}) };
+        for (const key of Object.keys(templateEnv)) delete baseEnv[key];
+
+        Object.assign(ptyEnv, resolveEnv({
+          ...baseEnv,
+          ...(allEnv[baseId] || {}),
+          ...templateEnv,
+        }));
+      }
       const effectiveProfileId = sessionOptions?.profileId != null ? sessionOptions.profileId : (recorded?.profileId || null);
       sessionBackends.record(sessionId, backend.id, effectiveProfileId);
 
@@ -3817,6 +3942,13 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     projectFolder, knownJsonlFiles, sessionSlug,
     isPlainTerminal, forkFrom: sessionOptions?.forkFrom || null,
     mcpServer, _openedAt: Date.now(),
+    // Whether the OSC-0 TITLE heuristic applies to this session. It is Claude's, and only Claude's:
+    // busy = a Braille spinner glyph, idle = the ✳ character. Run it against another CLI whose TUI also
+    // spins in the title — Codex does — and the busy latch closes on the first spinner frame and can
+    // NEVER open again, because that CLI has no reason to ever write a ✳. The session then reads
+    // "working" forever while it sits at its prompt. Every other backend reports its own state through
+    // `liveState`; this heuristic exists precisely because Claude does not.
+    _oscTitleState: oscTitleState,
   };
   activeSessions.set(sessionId, session);
 
@@ -3853,8 +3985,14 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       for (const m of oscMatches) {
         const code = m[1];
         const payload = m[2].slice(0, 120);
-        // Detect Claude CLI busy state from OSC 0 title (spinner chars = busy, ✳ = idle)
-        if (code === '0') {
+        // Detect Claude CLI busy state from OSC 0 title (spinner chars = busy, ✳ = idle).
+        //
+        // CLAUDE ONLY. The idle half of this test is the literal character ✳, which no other CLI has any
+        // reason to write — so on a backend whose TUI also spins in the window title (Codex), the busy
+        // latch closes on the first spinner frame and never opens again. The session reads "working"
+        // forever while it sits at its prompt. Every other backend reports its own state through
+        // `liveState`; this heuristic exists precisely because Claude does not.
+        if (code === '0' && session._oscTitleState) {
           const firstChar = payload.charAt(0);
           const isBusy = firstChar.charCodeAt(0) >= 0x2800 && firstChar.charCodeAt(0) <= 0x28FF;
           const isIdle = firstChar === '\u2733'; // ✳
@@ -4613,10 +4751,21 @@ if (!gotSingleInstanceLock) {
       const profileId = globalSettings.shellProfile || SETTING_DEFAULTS.shellProfile;
       const profile = resolveShell(profileId);
       const shell = profile.path;
-      // The binary name comes from the backend descriptor, not a literal (T-1.7): scheduled runs are
-      // Claude-only by design (the schedule UI composes claude's headless argv), and their provenance
-      // is already correct — session_cache.backendId defaults to 'claude'. This just keeps the binary
-      // name in one place, so no `'claude '` command build survives outside backends/.
+
+      // Scheduled runs are Claude-only by design: the schedule UI composes Claude's headless argv. So
+      // they answer to Claude's enable gate like everything else (#162) — a disabled backend must not
+      // keep spawning its binary from a cron tick, which is exactly what this path did, silently,
+      // because it never asked. Refuse loudly instead: a scheduled task that quietly stops running is
+      // worse than one that says why.
+      if (!backends.isLaunchable('claude')) {
+        const msg = `[schedule] "${name}" skipped: Claude Code is disabled (scheduled runs are Claude-only).`;
+        log.warn(msg);
+        if (typeof onDone === 'function') onDone(new Error('Claude Code is disabled — scheduled runs need it.'));
+        return;
+      }
+
+      // The binary name comes from the backend descriptor, not a literal (T-1.7) — so no `'claude '`
+      // command build survives outside backends/.
       const cmd = (backends.get('claude')?.binary || 'claude') + ' ' + quoteArgvForShell(shell, claudeArgv);
       const args = shellArgs(shell, cmd, profile.args || []);
 

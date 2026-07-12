@@ -1,9 +1,14 @@
-// backends/presets.js — Axis-A provider PRESETS (templates). Source of truth (main process).
+// backends/presets.js — provider PRESETS for a template. Source of truth (main process).
 //
-// An Axis-A provider runs the SAME `claude` binary against an Anthropic-compatible endpoint via an
-// env bundle — zero per-provider code (00 §3). A preset is DATA: a name/icon + an env bundle whose
-// auth is a `$VAR` reference (resolved at spawn, never on disk). A preset is not a backend until a
-// user instantiates a profile from it (Phase 2 editor "Add from template").
+// A preset is a starting point for a TEMPLATE: a name/icon + an env bundle whose auth is a `$VAR`
+// reference (resolved at spawn, never on disk). It is not a backend until a user instantiates a
+// template from it (the editor's "Add from template").
+//
+// Every preset here declares `backendId: 'claude'`, and that is not decoration (#161). These are
+// `ANTHROPIC_*` bundles: they re-point the SAME `claude` binary at an Anthropic-compatible endpoint —
+// zero per-provider code (00 §3). They mean nothing on a Codex or Pi base, which have no such variables.
+// A template can now name any backend it runs on; the preset list a user is offered belongs to the base
+// they picked, not to one global list.
 //
 // Cross-cutting rules baked into every preset (01-providers §"Cross-cutting rules"):
 //   - Prefer ANTHROPIC_AUTH_TOKEN ($VAR) over ANTHROPIC_API_KEY.
@@ -29,6 +34,7 @@ const PRESETS = [
     name: 'Anthropic (default)',
     icon: 'anthropic',
     axis: 'A',
+    backendId: 'claude',   // these are ANTHROPIC_* bundles: they only mean anything on a Claude base (#161)
     // The plain Claude passthrough — no endpoint redirect, host auth. Provided as the "blank-ish"
     // template; a user rarely needs a profile for this (the built-in `claude` backend covers it).
     model: '',
@@ -40,6 +46,7 @@ const PRESETS = [
     name: 'DeepSeek',
     icon: 'deepseek',
     axis: 'A',
+    backendId: 'claude',   // these are ANTHROPIC_* bundles: they only mean anything on a Claude base (#161)
     model: 'deepseek-v4-pro',
     haikuModel: 'deepseek-v4-flash',
     env: {
@@ -62,6 +69,7 @@ const PRESETS = [
     name: 'GLM (Z.ai)',
     icon: 'glm',
     axis: 'A',
+    backendId: 'claude',   // these are ANTHROPIC_* bundles: they only mean anything on a Claude base (#161)
     model: 'glm-4.6',
     haikuModel: 'glm-4.6',
     env: {
@@ -82,6 +90,7 @@ const PRESETS = [
     name: 'OpenRouter',
     icon: 'openrouter',
     axis: 'A',
+    backendId: 'claude',   // these are ANTHROPIC_* bundles: they only mean anything on a Claude base (#161)
     model: 'anthropic/claude-sonnet-4.6',
     haikuModel: 'anthropic/claude-haiku-latest',
     env: {

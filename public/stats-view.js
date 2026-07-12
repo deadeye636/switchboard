@@ -134,10 +134,19 @@ async function loadStats() {
  */
 function buildBackendFilterBar() {
   const launchable = typeof launchableBackends === 'function' ? launchableBackends() : [];
+  // BACKENDS only — never templates.
+  //
+  // A template is a set of defaults, not a provider. "Where did my work go?" is answered by the backend
+  // that ran it, so a pill per template would split Codex' own numbers across "Codex" and "my Codex
+  // template" and answer nothing. The sessions are not lost: main expands a backend filter to that
+  // backend PLUS every template on it, because a template's sessions record the template as their
+  // provenance (which is right — the sidebar badge should say which one launched them).
+  //
   // A backend disabled AFTER it produced sessions keeps its history under "All" (disable is not erase)
   // but gets no pill: it is not something you can launch into any more.
   const pills = [{ id: 'all', label: 'All backends' }].concat(
     launchable
+      .filter(b => !b.isProfile)
       .slice()
       .sort((a, b) => (a.id === 'claude' ? -1 : b.id === 'claude' ? 1 : String(a.label).localeCompare(String(b.label))))
       .map(b => ({ id: b.id, label: b.label, icon: b.icon || b.colour || b.id, monogram: b.monogram }))

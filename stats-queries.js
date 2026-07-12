@@ -23,19 +23,34 @@
 const BACKEND_JOIN = 'JOIN session_cache sc ON sc.sessionId = m.sessionId';
 const BACKEND_EXPR = "COALESCE(sc.backendId, 'claude')";
 
+/**
+ * The filter is a LIST of provenance ids, not one id.
+ *
+ * The Stats page filters by BACKEND — "Codex", not "my Codex template". But a session launched from a
+ * template records the TEMPLATE's id as its provenance (§5.7), because that is what the user chose. So
+ * "Codex" has to mean "everything that ran the Codex binary": the backend, plus every template on it.
+ * The caller (main.js) expands the id; the query just takes the list.
+ */
+function idList(backend) {
+  if (!backend) return null;
+  const ids = (Array.isArray(backend) ? backend : [backend]).filter(Boolean).map(String);
+  return ids.length ? ids : null;
+}
+
 /** Compose a metrics query with an optional backend predicate. -> { sql, params } */
 function compose(select, { backend, extra = '', groupBy = '', orderBy = '' } = {}) {
   const where = [];
   const params = [];
-  if (backend) {
-    where.push(`${BACKEND_EXPR} = ?`);
-    params.push(backend);
+  const ids = idList(backend);
+  if (ids) {
+    where.push(`${BACKEND_EXPR} IN (${ids.map(() => '?').join(', ')})`);
+    params.push(...ids);
   }
   if (extra) where.push(`(${extra})`);
   const sql = [
     select,
     'FROM session_metrics m',
-    backend ? BACKEND_JOIN : '',
+    ids ? BACKEND_JOIN : '',
     where.length ? 'WHERE ' + where.join(' AND ') : '',
     groupBy ? 'GROUP BY ' + groupBy : '',
     orderBy ? 'ORDER BY ' + orderBy : '',
@@ -80,9 +95,10 @@ function modelUsage(backend) {
 function dailyBackendTokens(backend) {
   const params = [];
   let where = '';
-  if (backend) {
-    where = `WHERE ${BACKEND_EXPR} = ?`;
-    params.push(backend);
+  const ids = idList(backend);
+  if (ids) {
+    where = `WHERE ${BACKEND_EXPR} IN (${ids.map(() => '?').join(', ')})`;
+    params.push(...ids);
   }
   // GROUP BY the EXPRESSION, not the output alias. `GROUP BY backendId` looks like it groups on the
   // COALESCE above, but SQLite resolves that name to the underlying `sc.backendId` column — so a legacy
@@ -149,13 +165,15 @@ function totals(backend) {
 
 /** Parent (human) sessions only — counting subagents here would inflate every user's session count. */
 function totalSessions(backend) {
-  if (!backend) {
+  const ids = idList(backend);
+  if (!ids) {
     return { sql: 'SELECT COUNT(*) AS cnt FROM session_cache WHERE parentSessionId IS NULL', params: [] };
   }
   return {
-    sql: "SELECT COUNT(*) AS cnt FROM session_cache"
-       + " WHERE parentSessionId IS NULL AND COALESCE(backendId, 'claude') = ?",
-    params: [backend],
+    sql: 'SELECT COUNT(*) AS cnt FROM session_cache'
+       + " WHERE parentSessionId IS NULL AND COALESCE(backendId, 'claude') IN "
+       + `(${ids.map(() => '?').join(', ')})`,
+    params: ids,
   };
 }
 

@@ -310,6 +310,33 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   auto-close, and removal of the top menubar for a cleaner window.
 - **Settings overhaul** — two-column layout, sticky Save/Cancel bar, optional pop-out
   settings window, permission modes aligned to the Claude CLI.
+- **A backend declares what it can do, and it is all configurable** — `configFields` on the descriptor;
+  the settings page, the Configure dialog and the template editor are **generated** from it. Pi and
+  Hermes declared a single option each while their CLIs took a dozen (`--provider`, `--thinking`,
+  `--tools`, `--toolsets`, `--skills`, `--safe-mode`, `-c key=value`, …) — so neither was configurable at
+  all. Two honest exceptions are **declared** rather than discovered: `appliesAt: 'spawn'` (applied by
+  main.js, not in the argv) and `requires: '<other>'` (meaningless on its own). `preLaunchCmd` belongs to
+  Switchboard rather than to a CLI, so the registry adds it to **every** backend; setting one drops that
+  session to the shell path, because a shell prefix needs a shell. A declared option that changes nothing
+  is a control that lies, and `test/backend-config-fields.test.js` refuses to let one exist.
+- **Per-option "use the backend's default", at every level** — the cascade is
+  `backend default → global → project → template`, resolved **per option**, and each level stores only
+  what it explicitly set. Without the marker, "not set" cannot be told from "deliberately empty / off",
+  and an option whose default is ON could not be switched off at all. The **global** scope lacked it and
+  therefore froze the shipped defaults into every user's settings the first time they saved — after which
+  no improved default could reach them, and nothing said so.
+- **Per-backend environment variables** (`$VAR` references, resolved at spawn, never on disk). Only a
+  template could carry a bundle before, so the only way to hand Codex a variable was to wrap it in a whole
+  extra backend.
+- **Templates** — a named set of defaults **for a backend**: *Codex with this model and sandbox*, or
+  *Claude Code against DeepSeek*. The same mechanism, not two concepts. A template names its base backend
+  (it was hardcoded to Claude in three places, and the editor never said so), carries its own options and
+  env bundle in **one** record, and is **staged** like every other setting — created, edited and deleted
+  by *Save Settings*, discarded by *Cancel*.
+- **Claude is disableable** like any other backend. The "always enabled" rule lived in one line of
+  renderer code while the model would have half-broken on it — so a settings import could already produce
+  a state the app could not handle. The gate is in the model now, every Claude fallback that assumed it
+  could not fail is gone, and *disable is not delete*: the sessions stay visible and searchable.
 - **Settings export / import** (*Settings → Maintenance*) — the global settings blob to a JSON
   file and back, for a backup or a move to another machine. Import **merges**: keys the file does
   not name keep their value, and keys this build does not know survive untouched, so a file from a

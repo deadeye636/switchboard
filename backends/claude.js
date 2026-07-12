@@ -60,10 +60,13 @@ const configFields = [
   { id: 'chrome', label: 'Chrome', type: 'toggle', default: false },
   { id: 'addDirs', label: 'Additional directories', type: 'text', default: '' },
   // `appliesAt: 'spawn'`: NOT part of the argv this function builds. main.js applies these at the spawn
-  // site — preLaunchCmd PREFIXES the command line, mcpEmulation starts the MCP bridge and appends
-  // `--ide`, and afkTimeoutSec becomes an env var. They are still this backend's options and still
-  // cascade like any other; they just do not land in `args`. Say so, rather than let a test discover it.
-  { id: 'preLaunchCmd', label: 'Pre-launch command', type: 'text', default: '', appliesAt: 'spawn' },
+  // site — mcpEmulation starts the MCP bridge and appends `--ide`, and afkTimeoutSec becomes an env var.
+  // They are still this backend's options and still cascade like any other; they just do not land in
+  // `args`. Say so, rather than let a test discover it.
+  //
+  // `preLaunchCmd` used to be here too. It never belonged to Claude: it is a raw shell prefix and has
+  // nothing to do with which CLI follows it. The registry adds it to EVERY backend now
+  // (backends/index.js, UNIVERSAL_FIELDS).
   { id: 'mcpEmulation', label: 'IDE emulation (MCP bridge)', type: 'toggle', default: true, appliesAt: 'spawn' },
   { id: 'afkTimeoutSec', label: 'AskUserQuestion timeout (s)', type: 'number', default: '', appliesAt: 'spawn' },
 ];

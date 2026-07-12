@@ -277,3 +277,62 @@ test('buckets with no hour are kept out of the grid but stay in the daily figure
     assert.equal(daily.reduce((n, r) => n + r.messageCount, 0), 17, 'but all 17 still count per day');
   } finally { db.close(); }
 });
+
+// --- the filter is a BACKEND, and a backend means "everything that ran its binary" ------------------
+//
+// The Stats page filters by backend, never by template: a template is a set of defaults, not a provider,
+// and a pill per template would split Codex' own numbers across "Codex" and "my Codex template" while
+// answering nothing.
+//
+// But a session launched from a template records the TEMPLATE's id as its provenance (§5.7) — which is
+// right, the sidebar badge should say which one launched it. So the filter takes a LIST: the backend
+// plus every template that runs on it. Get this wrong and a user's template sessions silently vanish
+// from the very chart they went looking for.
+
+test('a backend filter takes a list, so a template\'s sessions count towards its backend', () => {
+  const db = seed();
+  try {
+    db.exec(`
+      INSERT INTO session_cache (sessionId, parentSessionId, backendId) VALUES ('tpl1', NULL, 'codex-fast');
+      INSERT INTO session_metrics (sessionId, date, hour, model, messageCount, inputTokens, outputTokens)
+        VALUES ('tpl1', '${MONDAY}', 9, 'gpt', 5, 500, 100);
+    `);
+
+    // 'codex' alone: only the sessions that recorded 'codex'.
+    const bare = run(db, q.dailyMetrics('codex'));
+    assert.equal(bare[0].messageCount, 2, 'the template session is not there');
+
+    // 'codex' EXPANDED to its templates — what the page actually asks for.
+    const expanded = run(db, q.dailyMetrics(['codex', 'codex-fast']));
+    assert.equal(expanded[0].messageCount, 7, '2 + 5: the work went to Codex either way');
+    assert.equal(expanded[0].tokens, 260 + 600);
+  } finally { db.close(); }
+});
+
+test('the expansion works for every aggregate, not just the daily one', () => {
+  const db = seed();
+  try {
+    db.exec(`
+      INSERT INTO session_cache (sessionId, parentSessionId, backendId) VALUES ('tpl1', NULL, 'codex-fast');
+      INSERT INTO session_metrics (sessionId, date, hour, model, messageCount, inputTokens, outputTokens)
+        VALUES ('tpl1', '${MONDAY}', 9, 'gpt', 5, 500, 100);
+    `);
+    const ids = ['codex', 'codex-fast'];
+    assert.equal(run(db, q.totalSessions(ids))[0].cnt, 2, 'both count as sessions of this backend');
+    assert.equal(run(db, q.totals(ids))[0].totalTokens, 260 + 600);
+    assert.equal(run(db, q.modelUsage(ids))[0].inputTokens, 200 + 500);
+
+    const stacked = run(db, q.dailyBackendTokens(ids));
+    const backendsSeen = new Set(stacked.map(r => r.backendId));
+    assert.deepEqual([...backendsSeen].sort(), ['codex', 'codex-fast'],
+      'the stacked chart still shows them apart — the FILTER is what merges them, not the data');
+  } finally { db.close(); }
+});
+
+test('an empty list is not a filter — it must not silently match nothing', () => {
+  const db = seed();
+  try {
+    assert.equal(run(db, q.dailyMetrics([])).length, run(db, q.dailyMetrics(null)).length,
+      'an empty expansion means "no filter", never "no rows"');
+  } finally { db.close(); }
+});

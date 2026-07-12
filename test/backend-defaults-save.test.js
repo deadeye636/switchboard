@@ -18,8 +18,10 @@ const { JSDOM } = require('jsdom');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
+// `enabled` is what backends.list() reports — the panel reads it, and since #162 nothing forces
+// Claude's toggle on any more, so the stub has to be honest about it.
 const CODEX = {
-  id: 'codex', label: 'Codex', status: 'ready', axis: 'B', isProfile: false,
+  id: 'codex', label: 'Codex', status: 'ready', axis: 'B', isProfile: false, enabled: false,
   colour: 'codex', monogram: 'X',
   configFields: [
     { id: 'model', label: 'Model', type: 'text', default: '' },
@@ -28,7 +30,7 @@ const CODEX = {
   ],
 };
 const CLAUDE = {
-  id: 'claude', label: 'Claude Code', status: 'ready', axis: null, isProfile: false,
+  id: 'claude', label: 'Claude Code', status: 'ready', axis: null, isProfile: false, enabled: true,
   colour: 'claude', monogram: 'C',
   configFields: [{ id: 'model', label: 'Model', type: 'text', default: '' }],
 };
@@ -234,4 +236,161 @@ test('readGlobal still returns null when the Backends section was never opened',
     isProject: true, settings: {}, fieldValue: (_k, f) => f, globalDefaults: {},
   });
   assert.equal(window.backendsPanel.readGlobal(dom.window.document.getElementById('root')), null);
+});
+
+// --- templates are STAGED, like everything else on this screen -------------------------------------
+//
+// The editor used to write straight to the profiles store, and Delete removed a template there and then.
+// So one settings screen had two save buttons that meant different things: "Save template" was final,
+// while "Save Settings" ten pixels below it was what saved everything else — and Cancel undid one and not
+// the other. Now both paths stage, and only Save Settings commits.
+
+async function mountWithProfiles(storedProfiles) {
+  const dom = new JSDOM('<!DOCTYPE html><body><div id="root"></div></body>', {
+    url: 'http://localhost/', runScripts: 'outside-only',
+  });
+  const { window } = dom;
+  const calls = { saved: [], deleted: [] };
+
+  Object.defineProperty(window, 'api', {
+    value: {
+      backends: { list: async () => ({ backends: [CLAUDE, CODEX], defaultLaunchTarget: 'claude' }) },
+      profiles: {
+        list: async () => ({ profiles: storedProfiles }),
+        save: async (p, allowSecrets) => { calls.saved.push({ p, allowSecrets }); return { ok: true }; },
+        delete: async (id) => { calls.deleted.push(id); return { ok: true }; },
+        validate: async (p) => ({ ok: true, profile: p }),
+        setDefault: async () => ({ ok: true }),
+      },
+      checkEnvRefs: async () => ({}),
+    },
+    writable: true, configurable: true,
+  });
+  Object.defineProperty(window, 'renderBackendIcon', {
+    value: () => window.document.createElement('span'), writable: true, configurable: true,
+  });
+  Object.defineProperty(window, 'CSS', {
+    value: { escape: (s) => String(s).replace(/([^\w-])/g, '\$1') }, writable: true, configurable: true,
+  });
+  // The panel's confirmDialog() delegates to showControlDialog() and otherwise falls back to
+  // window.confirm, which jsdom does not implement. Stub the real seam.
+  Object.defineProperty(window, 'showControlDialog', {
+    value: async () => true, writable: true, configurable: true,   // the user always says yes here
+  });
+
+  vm.runInContext(fs.readFileSync(path.join(PUBLIC_DIR, 'backends-panel.js'), 'utf8'),
+    dom.getInternalVMContext(), { filename: 'backends-panel.js' });
+
+  const root = window.document.getElementById('root');
+  const settings = {};
+  await window.backendsPanel.mount(root, {
+    isProject: false, settings, fieldValue: (k, f) => (settings[k] !== undefined ? settings[k] : f),
+  });
+  return { window, root, calls };
+}
+
+const DS = { id: 'ds', name: 'DeepSeek', backendId: 'claude', icon: 'deepseek', options: {}, env: {} };
+
+// The click handler confirms, then re-mounts — and mount() awaits two IPC calls. Give the whole chain a
+// few turns of the loop rather than guessing at one.
+const settle = async () => { for (let i = 0; i < 10; i++) await new Promise(r => setTimeout(r, 0)); };
+
+test('deleting a template writes NOTHING until the settings are saved', async () => {
+  const { window, root, calls } = await mountWithProfiles([DS]);
+
+  root.querySelector('.backend-row [data-act="delete"][data-id="ds"]').click();
+  await settle();
+
+  assert.deepEqual(calls.deleted, [], 'nothing has left the disk yet');
+  assert.equal(root.querySelector('[data-profile-row="ds"]'), null, 'but it is gone from the list');
+
+  await window.backendsPanel.commitTemplates();
+  assert.deepEqual(calls.deleted, ['ds'], 'the delete happens when Save Settings says so');
+});
+
+test('closing the settings without saving discards a staged delete', async () => {
+  const { window, root, calls } = await mountWithProfiles([DS]);
+
+  root.querySelector('.backend-row [data-act="delete"][data-id="ds"]').click();
+  await settle();
+
+  // A fresh mount without keepPending is what happens when Settings is closed and re-opened.
+  const settings = {};
+  await window.backendsPanel.mount(root, {
+    isProject: false, settings, fieldValue: (k, f) => (settings[k] !== undefined ? settings[k] : f),
+  });
+
+  assert.ok(root.querySelector('[data-profile-row="ds"]'), 'the template is back — Cancel really cancelled');
+  assert.deepEqual(calls.deleted, [], 'and it was never deleted');
+});
+
+test('commitTemplates deletes BEFORE it saves', async () => {
+  // A rename frees an id and a new template may claim it. If the save ran first, the delete would then
+  // remove the row that had just been written.
+  const { window, calls } = await mountWithProfiles([DS]);
+  const order = [];
+  window.api.profiles.delete = async (id) => { order.push('delete:' + id); return { ok: true }; };
+  window.api.profiles.save = async (p) => { order.push('save:' + p.id); return { ok: true }; };
+
+  // Stage both by hand — the UI paths are covered above; this is about the ORDER.
+  await window.backendsPanel.mount(window.document.getElementById('root'), {
+    isProject: false, settings: {}, fieldValue: (_k, f) => f,
+  });
+  const root = window.document.getElementById('root');
+  root.querySelector('.backend-row [data-act="delete"][data-id="ds"]').click();
+  await settle();
+  await window.backendsPanel.commitTemplates();
+
+  assert.deepEqual(order, ['delete:ds']);
+});
+
+test('a template that could not be saved is REPORTED, not swallowed', async () => {
+  const { window, calls } = await mountWithProfiles([DS]);
+  window.api.profiles.delete = async () => ({ ok: false, error: 'file is read-only' });
+
+  const root = window.document.getElementById('root');
+  root.querySelector('.backend-row [data-act="delete"][data-id="ds"]').click();
+  await settle();
+
+  const res = await window.backendsPanel.commitTemplates();
+  assert.equal(res.ok, false);
+  assert.match(res.errors[0], /read-only/,
+    'a template the user believes they saved and that never reached the disk is the worst outcome');
+});
+
+// Create a template and delete it again, both before saving: the two stagings cancel out. Asking the
+// store to remove a record it never got would report "not found" about a thing the user never created —
+// a true statement about the store, and nonsense to the person reading it.
+test('creating and then deleting a template before saving is a no-op, not an error', async () => {
+  const { window, root, calls } = await mountWithProfiles([]);
+
+  // Create one through the real dialog — no test-only seam.
+  root.querySelector('.backend-chip-blank').click();
+  await settle();
+  const dialog = window.document.querySelector('.backend-editor');
+  assert.ok(dialog, 'the editor opened');
+  dialog.querySelector('#be-name').value = 'Fresh';
+  dialog.querySelector('#be-save').click();
+  await settle();
+
+  const row = root.querySelector('.backend-row [data-act="delete"]');
+  assert.ok(row, 'the staged template is shown, marked as unsaved');
+  const id = row.dataset.id;
+
+  row.click();
+  await settle();
+  assert.equal(root.querySelector(`[data-profile-row="${id}"]`), null, 'and it is gone again');
+
+  const res = await window.backendsPanel.commitTemplates();
+  assert.equal(res.ok, true, 'nothing to report — nothing happened');
+  assert.deepEqual(calls.deleted, [], 'the store was never asked to remove a record it never had');
+  assert.deepEqual(calls.saved, [], 'and never asked to write one either');
+});
+
+test('deleting a STORED template still reaches the store', async () => {
+  const { window, root, calls } = await mountWithProfiles([DS]);
+  root.querySelector('.backend-row [data-act="delete"][data-id="ds"]').click();
+  await settle();
+  await window.backendsPanel.commitTemplates();
+  assert.deepEqual(calls.deleted, ['ds'], 'the cancel-out must not swallow a real delete');
 });

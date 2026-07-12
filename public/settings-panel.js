@@ -1904,10 +1904,26 @@
             settings.backendEnabled = bs.backendEnabled;
             settings.defaultLaunchTarget = bs.defaultLaunchTarget;
             settings.backendDefaults = bs.backendDefaults;
+            // Per-backend environment variables. Only a template could carry a bundle before, so the
+            // only way to give Codex a variable was to wrap it in a whole extra backend.
+            settings.backendEnv = bs.backendEnv;
             // Per-backend handoff prompt override (empty = use the global one). NOT a launch option —
             // it is typed into the running agent, not put on its command line.
             settings.handoffPromptByBackend = bs.handoffPromptByBackend;
             settings.handoffReadPromptByBackend = bs.handoffReadPromptByBackend;
+          }
+        }
+        // Templates (profiles.json) are STAGED by their editor and committed here — so this one Save
+        // means the same thing everywhere on the screen, and Cancel really cancels. They live in their
+        // own store, not in the settings blob, hence the separate call rather than another key above.
+        if (window.backendsPanel && typeof window.backendsPanel.commitTemplates === 'function') {
+          const res = await window.backendsPanel.commitTemplates();
+          if (res && !res.ok && typeof showControlMessage === 'function') {
+            await showControlMessage({
+              title: 'Some templates were not saved',
+              message: res.errors.join('\n'),
+              tone: 'danger',
+            });
           }
         }
         // Terminal tools (T-3.10): the GLOBAL launcher list — the template every project inherits.

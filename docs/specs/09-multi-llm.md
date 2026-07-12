@@ -22,12 +22,27 @@ special case anywhere outside that provider's own folder.
 ## Target state
 
 - **A backend is a folder** under `backends/` exporting one descriptor. Adding one changes no other file.
-- **Two axes.** *Axis A* = the Claude binary against a different endpoint (a user **profile**: DeepSeek,
-  GLM, OpenRouter, …) — data only, no per-provider code. *Axis B* = its own binary with its own session
-  store (Codex, Hermes, Pi; `agy` planned).
+- **Two axes.** *Axis A* = a **template**: a named set of defaults that runs **another backend's** binary
+  — data only, no per-provider code. *Axis B* = its own binary with its own session store (Codex, Hermes,
+  Pi; `agy` planned).
+
+  A template names the backend it runs on (#161). It used to be Claude, always, hardcoded in three
+  places — and the editor never said so, which is why the feature read as arbitrary. "Codex with model X
+  and this sandbox" and "Claude Code against DeepSeek" are now the same mechanism. A template has **no
+  store of its own**: it shares its base's entirely, which is why the scanner skips it and its sessions
+  take their provenance from the launch overlay. The shipped presets (DeepSeek/GLM/OpenRouter) are
+  `ANTHROPIC_*` bundles and therefore belong to the **Claude** base; they mean nothing on another one.
 - **Every backend is a first-class citizen**: its sessions are cached, grouped, searchable, badged, and
   its state (busy/idle) is live — not just "we can launch it".
 - **Claude stays the default**, byte-identical command line, and a Claude-only user sees no new UI at all.
+  It is the **default**, not a fixture: Claude can be switched off like any other backend (#162). The
+  "always enabled" rule only ever existed as one line of renderer code — `isEnabled()` had no carve-out,
+  so a hand-edited blob or a settings import could already set the flag, and the app would half-break on
+  it. The gate is in the model now, and every Claude fallback that assumed it could not fail is gone:
+  the default launch target resolves to something actually launchable, a resume of a provenance-less
+  session says *why* it cannot start, the scheduler refuses instead of quietly spawning a disabled
+  binary, and Claude's own store stops being scanned. *Disable is not delete* — the sessions stay
+  visible and searchable.
 
 ## Architecture
 
@@ -38,7 +53,7 @@ special case anywhere outside that provider's own folder.
 | `id`, `label`, `monogram`, `colour` | identity + badge |
 | `status` | `ready` \| `planned` (a "Coming soon" dummy that can never launch or be scanned) |
 | `axis` | `'B'` = own binary + own store. Claude is the default (`axis: null`); a profile is Axis-A and declares no schema of its own (it runs Claude's binary, so it uses Claude's). |
-| `configFields` | this CLI's launch options. **The Settings page and the Configure dialog are generated from it.** |
+| `configFields` | this CLI's launch options. **The Settings page and the Configure dialog are generated from it.** A field may declare `appliesAt: 'spawn'` (applied by main.js, not part of the argv) or `requires: '<other>'` (meaningless on its own). Options that belong to **Switchboard** rather than to a CLI — today `preLaunchCmd` — are added to every backend by the registry (`UNIVERSAL_FIELDS`), not copied into each descriptor. |
 | `supportsFork` | whether Fork is offered for its sessions |
 | `startupHint`, `caveat` | a slow first paint (Hermes ≈ 12 s); a standing gotcha shown in Settings |
 | `buildLaunch({cwd, resume, sessionId, forkFrom, options})` | → `{command, args, env, cwd, spawnMode}`. `env` values are `$VAR` refs, resolved at spawn. |
@@ -108,6 +123,20 @@ The ones that will look wrong to someone tidying up later:
    launch. `test/settings-cascade.test.js` follows a stored default all the way to the argv.
 3. **A `false` is a value, not an absence.** An option whose default is ON (Claude's IDE emulation) can
    only be switched off by sending the `false` — dropping it silently restores the default.
+
+   This is why **every scope carries a per-option "is this set?" marker**, and the cascade resolves
+   **per option**:
+
+   ```
+   backend default (configFields)  →  global  →  project  →  template
+   ```
+
+   A scope stores an option only when it explicitly marks it as set; otherwise the option falls through.
+   The project scope got this in #149; the **global** scope did not have it until #163, and so it froze
+   the shipped defaults into every user's settings the first time they opened a backend's page and saved
+   — after which no improved default could ever reach them, and nothing said so, because the frozen value
+   still looked right. A template is the top layer for the options it names and falls through for the
+   rest, which is what keeps it from becoming a second home for the same setting.
 4. **Availability informs and refuses; it does not hide.** A failed `probe()` shows the reason in Settings
    and refuses the spawn with it. It does **not** filter the backend out of the picker: a probe is a
    heuristic, and a false negative must never make a working backend vanish with no explanation.
@@ -127,6 +156,13 @@ The ones that will look wrong to someone tidying up later:
    agent just wrote.
 8. **Argv spawn is honoured only when the command is a real executable.** On Windows `CreateProcess`
    cannot run an npm `.cmd` shim (which is what `codex` is), so argv mode falls back to the shell there.
+
+   **...and only when nobody asked for a shell.** A `preLaunchCmd` is a raw shell prefix, so it needs a
+   shell and a command line to sit in front of — argv mode has neither. That, and nothing about Claude,
+   is why the option used to be Claude's: Claude spawns through a shell, the Axis-B backends spawn argv.
+   Setting one now drops **that session** to the shell path; argv stays the default for everyone who sets
+   nothing. The MCP bridge (`--ide`) stays Claude-only for a real reason — it is a Claude flag speaking
+   Claude's protocol. The two were gated on the same line, which is the only thing they ever had in common.
 9. **Cross-backend deletes are scoped.** A project bucket is keyed on the working directory and therefore
    *shared*: refreshing, hiding or removing a Claude project must not take another backend's rows with
    it — their data is still on disk.

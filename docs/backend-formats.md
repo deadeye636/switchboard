@@ -119,10 +119,19 @@ which meant they were, in practice, not configurable from Switchboard.
 
 | Backend | Declared | Deliberately left out, and why |
 |---|---|---|
-| **Claude** | `permissionMode`, `model`, `worktree` (+`worktreeName`), `chrome`, `addDirs`, `preLaunchCmd`, `mcpEmulation`, `afkTimeoutSec` | — |
+| **Claude** | `permissionMode`, `model`, `worktree` (+`worktreeName`), `chrome`, `addDirs`, `mcpEmulation`, `afkTimeoutSec` | — |
 | **Codex** | `model`, `approvalMode`, `sandbox`, `profile` (Codex' *own* config profile), `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` (`-c key=value`) | `--dangerously-bypass-approvals-and-sandbox` — its own help calls it "EXTREMELY DANGEROUS… solely for externally sandboxed environments". `sandbox: danger-full-access` already lets a user drop the sandbox on purpose; a single toggle that removes approvals *and* the sandbox is a different thing. `-C/--cd` (we own the cwd). |
 | **Hermes** | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo` | `--cli`/`--tui` (we run it in a PTY — interactive is the point), `-q`/`-Q` (non-interactive), anything that moves its session store. |
 | **Pi** | `model`, `provider`, `thinking`, `tools`, `excludeTools`, `appendSystemPrompt`, `noContextFiles` | **`--api-key`** — it would put a raw key on the COMMAND LINE, readable in any process listing. Pi reads its key from the environment; a template's `$VAR` env bundle (resolved at spawn, never on disk) is the only route we offer. Also `--mode json/rpc` and `--print` (non-interactive), `--session-dir`/`--no-session` (they move or suppress the store we watch). |
+
+**Some options belong to Switchboard, not to a CLI**, and the registry adds those to *every* backend
+(`backends/index.js`, `UNIVERSAL_FIELDS`) rather than letting four descriptors carry four copies that
+drift apart. Today that is **`preLaunchCmd`** — a raw shell prefix (`nvm use 20 &&`, `aws-vault exec
+profile --`) with nothing Claude-specific about it. It *was* Claude's, for a reason nobody wrote down and
+which turned out to be about the **spawn mode**: Claude starts through a shell (there is a command line to
+prefix), the Axis-B backends start argv (no shell — Windows shell quoting mangles their arguments). So the
+option is universal now, and setting one drops **that session** to the shell path; argv stays the default
+for everyone who sets nothing.
 
 Two markers a field may carry, because two honest exceptions exist and both must be **declared** rather
 than discovered by a puzzled reader:

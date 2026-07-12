@@ -26,22 +26,45 @@ function applyBackendDefaultsToOptions(options, defaults) {
   return options;
 }
 
-// An Axis-A profile runs the CLAUDE binary, so its launch options ARE Claude's — it declares no schema
-// of its own. Every dialog and every launch asks these two for "which fields?" and "which values?", so
-// the answer is the same everywhere.
+// A template (Axis-A) runs its BASE backend's binary, so its launch options are that backend's — it
+// declares no schema of its own. Every dialog and every launch asks these two for "which fields?" and
+// "which values?", so the answer is the same everywhere.
+//
+// This used to say "the CLAUDE binary" and reach for `getBackend('claude')`. A template can now name the
+// backend it runs on (#161), so a Codex template offers Codex' options, not Claude's.
+function baseIdOf(backend) {
+  return (backend && backend.isProfile && backend.baseId) || 'claude';
+}
+
 function schemaBackendOf(backend) {
-  if (backend && backend.isProfile && window.getBackend) return window.getBackend('claude') || backend;
+  if (backend && backend.isProfile && window.getBackend) {
+    return window.getBackend(baseIdOf(backend)) || backend;
+  }
   return backend;
 }
 
-// The stored defaults that apply to this backend. A profile INHERITS Claude's defaults and may override
-// them with its own (`backendDefaults.<profileId>`) — without the inheritance a profile would silently
-// launch without the permission mode the user set for Claude; without the override its own settings page
-// would write values nothing ever reads.
+// The stored defaults that apply to this backend — the cascade, resolved per option:
+//
+//     backend default (configFields)  →  global  →  project  →  template
+//
+// A template INHERITS its base backend's defaults and overrides only the options it explicitly set.
+// Without the inheritance a Codex template would launch without the sandbox the user chose for Codex;
+// without the override the template's own settings would be values nothing ever reads.
+//
+// `backendDefaults[templateId]` is the LEGACY layer: template options used to live in the settings blob,
+// keyed by the template's id. They now live in the template record itself (one thing, one store, one
+// save button), and the record wins — but an existing entry is still honoured rather than silently
+// dropped, because a user who set it meant it.
 function storedDefaultsFor(effective, backend) {
   const all = (effective && effective.backendDefaults) || {};
   if (!backend) return {};
-  if (backend.isProfile) return { ...(all.claude || {}), ...(all[backend.id] || {}) };
+  if (backend.isProfile) {
+    return {
+      ...(all[baseIdOf(backend)] || {}),   // the base backend's global ⊕ project defaults
+      ...(all[backend.id] || {}),          // legacy: options once stored against the template's id
+      ...(backend.templateOptions || {}),  // the template itself — the top layer
+    };
+  }
   return { ...(all[backend.id] || {}) };
 }
 
