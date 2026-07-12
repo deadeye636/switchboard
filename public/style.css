@@ -5526,6 +5526,15 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   box-shadow: 0 16px 48px rgba(0,0,0,0.4);
 }
 
+/* Where the value on display comes from — "From your settings." or "<Backend> decides." Quiet, but it is
+   what makes the dialog readable without opening the settings next to it. */
+.gcd-source {
+  font-size: 11px;
+  color: #6a6a80;
+  font-style: italic;
+  margin-top: 2px;
+}
+
 /* The generated Configure dialog: the OPTIONS scroll, the title and the actions stay put. Capping the
    frame alone would only move the problem — the buttons would scroll away inside it. */
 .new-session-dialog-scroll {

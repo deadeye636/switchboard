@@ -251,22 +251,33 @@ test('a stored `false` survives the cascade (an option with an ON default can be
   assert.notEqual(untouched.mcpEmulation, false, 'and it must never read as "switched off"');
 });
 
-// --- the Configure dialog: it SHOWS the truth, it SENDS only what says something -------------------
+// --- the Configure dialog: a per-session override, ON TOP of the settings ---------------------------
 //
-// The dialog is prefilled with the effective value, which is right — it must not lie about what will
-// happen. But it used to SEND every field it displayed, so opening it and pressing Start without
-// touching anything put `-a on-request -s workspace-write` on Codex' command line: a choice nobody made,
-// from a dialog nobody filled in.
+// The dialog SHOWS the effective value, which it must — it may not lie about what is about to happen. But
+// showing is not sending, and the two used to look the same: a select reading `workspace-write` was the
+// same pixels whether it came from Codex' own default (not sent) or from the user's settings (sent).
 //
-// The rule: send a field when the user moved it away from what the CLI does anyway, or when they had
-// already stored a value for it (an explicit choice, even one that equals the default).
+// So every option carries the same per-option marker the settings pages have. Here it means:
+//
+//     ticked (ALWAYS the starting state) = use what already applies — your settings, or the CLI's own
+//     unticked                           = override, for THIS session, with the value shown
+//
+// Two mistakes it exists to prevent, both of which a first cut made:
+//   * calling it "use the backend's default" — the value on display may well be one the USER stored;
+//   * starting it unticked for a stored value — it looked like the user had changed something they had not.
+//
+// And one wish that could not be expressed at all before: if your config.toml says `read-only` and our
+// descriptor default says `workspace-write`, then choosing `workspace-write` here is a real instruction.
+// A rule that compared the value to our default dropped it as "same as the default", and Codex stayed on
+// read-only. The marker is the difference between what a value IS and what it MEANS.
 
-function loadDecider(effective, backends) {
+function loadHelpers(effective, backends) {
   const window = loadDialogs(effective, backends);
+  const first = backends[Object.keys(backends)[0]];
   return {
-    shouldSend: window.shouldSendField,
+    override: window.isSessionOverride,
     displayValue: window.displayValueOf,
-    stored: window.storedDefaultsFor(effective, backends[Object.keys(backends)[0]]),
+    stored: window.storedDefaultsFor(effective, first),
   };
 }
 
@@ -276,38 +287,52 @@ const IDE = { id: 'mcpEmulation', type: 'toggle', default: true };
 const CODEX2 = { id: 'codex', label: 'Codex', axis: 'B', configFields: [MODEL, SANDBOX] };
 
 test('the dialog shows the effective value, so it never lies about what will happen', () => {
-  const { displayValue, stored } = loadDecider(
+  const { displayValue, stored } = loadHelpers(
     { backendDefaults: { codex: { sandbox: 'read-only' } } }, { codex: CODEX2 });
   assert.equal(displayValue(SANDBOX, stored), 'read-only', "the user's stored choice");
-  assert.equal(displayValue(MODEL, stored), '', 'and the CLI\'s own default where they chose nothing');
+  assert.equal(displayValue(MODEL, stored), '', "and the CLI's own default where they chose nothing");
 });
 
-test('an untouched field is not sent — pressing Start changes nothing', () => {
-  const { shouldSend, stored } = loadDecider({ backendDefaults: {} }, { codex: CODEX2 });
-  assert.equal(shouldSend(SANDBOX, 'workspace-write', stored), false,
-    'the value shown is what Codex does anyway — putting it on the argv overrules its own config');
-  assert.equal(shouldSend(MODEL, '', stored), false, 'an empty text field is "not set"');
+test('a field left alone is no override — opening the dialog and pressing Start changes nothing', () => {
+  const { override } = loadHelpers({ backendDefaults: {} }, { codex: CODEX2 });
+  assert.equal(override(SANDBOX, 'workspace-write', true), false);
+  assert.equal(override(SANDBOX, 'read-only', true), false,
+    'the marker wins over the value — ticked means "what already applies", whatever the control shows');
 });
 
-test('a field the user MOVED is sent', () => {
-  const { shouldSend, stored } = loadDecider({ backendDefaults: {} }, { codex: CODEX2 });
-  assert.equal(shouldSend(SANDBOX, 'read-only', stored), true);
-  assert.equal(shouldSend(MODEL, 'gpt-5.5', stored), true);
+test('a field the user took over IS an override', () => {
+  const { override } = loadHelpers({ backendDefaults: {} }, { codex: CODEX2 });
+  assert.equal(override(SANDBOX, 'read-only', false), true);
+  assert.equal(override(MODEL, 'gpt-5.5', false), true);
 });
 
-// A stored value is an explicit choice even when it happens to equal the descriptor default. Dropping it
-// because "it looks like the default" would mean the user's decision quietly stops being sent the day we
-// change our mind about what the default is.
-test('a stored value is sent even when it equals the default', () => {
-  const { shouldSend, stored } = loadDecider(
-    { backendDefaults: { codex: { sandbox: 'workspace-write' } } }, { codex: CODEX2 });
-  assert.equal(shouldSend(SANDBOX, 'workspace-write', stored), true);
+test('an override is sent even when its value equals our descriptor default', () => {
+  const { override } = loadHelpers({ backendDefaults: {} }, { codex: CODEX2 });
+  assert.equal(override(SANDBOX, 'workspace-write', false), true,
+    'if their config.toml says read-only, this is the only way to say "workspace-write, just this once"');
 });
 
-// The `false` case, again: an option whose default is ON can only be turned off by SENDING the false.
-test('switching an ON-by-default option off is a difference, and is sent', () => {
+test('an empty text field is still nothing — there is no such thing as an empty --model', () => {
+  const { override } = loadHelpers({ backendDefaults: {} }, { codex: CODEX2 });
+  assert.equal(override(MODEL, '', false), false);
+});
+
+test('switching an ON-by-default option off is an override', () => {
   const claudeDesc = { id: 'claude', label: 'Claude Code', axis: null, configFields: [IDE] };
-  const { shouldSend, stored } = loadDecider({ backendDefaults: {} }, { claude: claudeDesc });
-  assert.equal(shouldSend(IDE, false, stored), true, 'false !== true is a difference like any other');
-  assert.equal(shouldSend(IDE, true, stored), false, 'leaving it on says nothing');
+  const { override } = loadHelpers({ backendDefaults: {} }, { claude: claudeDesc });
+  assert.equal(override(IDE, false, false), true, 'the user turned it off — that has to reach main.js');
+  assert.equal(override(IDE, true, true), false, 'left alone, it says nothing and Claude keeps its own');
+});
+
+// The dialog LAYERS on the cascade rather than replacing it: a stored setting the user did not touch must
+// still be sent, or opening the dialog would quietly strip their own configuration.
+test('a stored setting survives a dialog the user did not touch', async () => {
+  const window = loadDialogs(
+    { backendDefaults: { codex: { model: 'gpt-5.5', sandbox: 'read-only' } } },
+    { codex: CODEX2 },
+  );
+  const base = await window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'codex');
+  assert.equal(base.model, 'gpt-5.5');
+  assert.equal(base.sandbox, 'read-only',
+    'the dialog starts from THIS and lays overrides on top — it does not start from nothing');
 });

@@ -105,18 +105,27 @@ function displayValueOf(field, stored) {
 }
 
 /**
- * Should the dialog SEND this field?
+ * Is this field an OVERRIDE for this one session?
  *
- * Only if it says something: the user changed it away from what the CLI would do anyway, or they had
- * already stored a value for it (an explicit choice, even one that happens to equal the default).
+ * The Configure dialog sits ON TOP of the cascade (backend default → global → project → template). So a
+ * field left alone is not "send nothing" — it is "whatever already applies", which may well be a value
+ * the user stored. Only a field they deliberately take over is an override.
  *
- * This is what keeps a plain row-click and an untouched "Start" identical — both send nothing — while
- * still letting the dialog be a real per-session override.
+ * `inherit` is the per-option marker, and it starts ticked for EVERY field: opening this dialog changes
+ * nothing until you say so. It is not "use the backend's default" (the value shown may be yours, not the
+ * CLI's) — it is "use what already applies".
+ *
+ * An override is sent even when its value happens to equal our descriptor default. That is not pedantry:
+ * if a user's `config.toml` says `read-only` and our default says `workspace-write`, then "workspace-write
+ * for this session" is a real instruction, and a rule that compared values could not express it — it
+ * looked like "same as the default" and vanished. The marker is the difference between what a value IS
+ * and what it MEANS.
+ *
+ * An empty text field stays nothing: there is no such thing as an empty `--model`.
  */
-function shouldSendField(field, value, stored) {
-  if (value === '') return false;                      // an empty text field is "not set"
-  if (stored[field.id] !== undefined) return true;     // an explicit choice, default-valued or not
-  return value !== field.default;                      // otherwise: only if it differs from the CLI's own
+function isSessionOverride(field, value, inherit) {
+  if (inherit) return false;
+  return value !== '';
 }
 
 // Claude's effective launch defaults, WITHOUT a backendId — for the paths that must not force a backend
@@ -515,20 +524,36 @@ async function showGeneratedConfigDialog(project, groupId, backend) {
   const dialog = document.createElement('div');
   dialog.className = 'new-session-dialog';
 
+  // Every option carries the same per-option marker the settings pages have (#149/#163) — the fourth and
+  // last place where "set" and "not set" could still be confused. Here it means something slightly
+  // different, and the difference matters:
+  //
+  //   ticked (ALWAYS the starting state) = use what already applies — your settings, or the CLI's own
+  //   unticked                           = override, for this session only, with the value shown
+  //
+  // It is NOT "use the backend's default": the value on display may well be one the user stored, and
+  // calling that "the backend's default" would be a lie. Nor may a stored value start the box unticked,
+  // which is what a first cut did — it looked like the user had changed something when they had not.
+  //
+  // Opening this dialog and pressing Start changes NOTHING. That is the whole promise of the marker.
+  //
+  // A label under the control says where the shown value comes from, so "what will happen" is readable
+  // without opening the settings.
   const body = fields.map((f, i) => {
-    const val = saved[f.id] !== undefined ? saved[f.id] : f.default;
+    const fromSettings = saved[f.id] !== undefined;
+    const val = fromSettings ? saved[f.id] : f.default;
     const id = `gcd-${i}`;
     let control;
     if (f.type === 'select') {
       const opts = (f.choices || []).map(c =>
         `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String((f.choiceLabels || {})[c] || c))}</option>`
       ).join('');
-      control = `<select class="settings-select" id="${id}">${opts}</select>`;
+      control = `<select class="settings-select" id="${id}" disabled>${opts}</select>`;
     } else if (f.type === 'toggle') {
-      control = `<label class="settings-toggle"><input type="checkbox" id="${id}" ${val ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>`;
+      control = `<label class="settings-toggle"><input type="checkbox" id="${id}" ${val ? 'checked' : ''} disabled><span class="settings-toggle-slider"></span></label>`;
     } else {
       const t = f.type === 'number' ? 'text' : 'text';
-      control = `<input type="${t}" class="settings-input" id="${id}" value="${escapeHtml(val == null ? '' : String(val))}">`;
+      control = `<input type="${t}" class="settings-input" id="${id}" value="${escapeHtml(val == null ? '' : String(val))}" disabled>`;
     }
     // A backend's own quirks belong on screen (#160): the description comes from the descriptor, so a
     // CLI's caveat ("at your own risk", "only applies with the local provider above") reaches the user
@@ -536,8 +561,15 @@ async function showGeneratedConfigDialog(project, groupId, backend) {
     return `
       <div class="settings-field settings-field-wide" ${f.requires ? `data-requires="${escapeHtml(f.requires)}"` : ''}>
         <div class="settings-field-info">
-          <span class="settings-label">${escapeHtml(f.label || f.id)}</span>
+          <div class="settings-field-header">
+            <span class="settings-label">${escapeHtml(f.label || f.id)}</span>
+            <label class="settings-use-global">
+              <input type="checkbox" class="gcd-inherit" data-for="${id}" checked>
+              Use the current setting
+            </label>
+          </div>
           ${f.description ? `<div class="settings-description">${escapeHtml(f.description)}</div>` : ''}
+          <div class="settings-description gcd-source">${fromSettings ? 'From your settings.' : `${escapeHtml(backend.label)} decides.`}</div>
         </div>
         <div class="settings-field-control">${control}</div>
       </div>`;
@@ -563,29 +595,42 @@ async function showGeneratedConfigDialog(project, groupId, backend) {
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
 
+  // Un-ticking "use the backend's default" hands the option to the user: the control comes alive at the
+  // value it was already showing, and that value will be sent. Re-ticking it hands it back — the same
+  // gesture, and the same meaning, as on every settings page.
+  dialog.addEventListener('change', (e) => {
+    const cb = e.target.closest && e.target.closest('.gcd-inherit');
+    if (!cb) return;
+    const control = dialog.querySelector('#' + cb.dataset.for);
+    if (!control) return;
+    control.disabled = cb.checked;
+    if (!cb.checked) control.focus();
+  });
+
   function close() {
     overlay.remove();
     document.removeEventListener('keydown', onKey);
   }
-  function start() {
-    const options = { backendId: backend.id };
+  async function start() {
+    // Start from what would happen ANYWAY — the cascade, resolved for this backend and project — and lay
+    // this session's overrides on top. The dialog is a layer above the settings, not a replacement for
+    // them: a field the user did not take over must keep whatever they stored, and if they stored
+    // nothing, must stay off the command line entirely so the CLI keeps its own.
+    //
+    // It used to send every field it displayed, so pressing Start without touching anything put
+    // `-a on-request -s workspace-write` on Codex' command line and overruled the user's own config.toml
+    // — a choice nobody made, from a dialog nobody filled in.
+    const options = await resolveLaunchOptionsFor(project, backend.id);
+
     fields.forEach((f, i) => {
       const el = dialog.querySelector(`#gcd-${i}`);
+      const inheritCb = dialog.querySelector(`.gcd-inherit[data-for="gcd-${i}"]`);
       if (!el) return;
       const v = f.type === 'toggle' ? el.checked : el.value.trim();
-      // The dialog SHOWS the effective value, but it only SENDS what actually says something: a value the
-      // user moved away from what the CLI does anyway, or one they had already stored.
-      //
-      // It used to send every field it displayed. So opening the dialog and pressing Start without
-      // touching anything put `-a on-request -s workspace-write` on Codex' command line and overruled the
-      // user's own config.toml — a choice nobody made, from a dialog they had not filled in.
-      //
-      // A `false` toggle is NOT "not set": for an option whose default is ON (Claude's IDE emulation) it
-      // is the user turning it off, and dropping it would silently restore the default. `shouldSendField`
-      // keeps that straight, because `false !== true` is a difference like any other.
-      if (!shouldSendField(f, v, saved)) return;
+      if (!isSessionOverride(f, v, !inheritCb || inheritCb.checked)) return;
       options[f.id] = v;
     });
+
     close();
     launchNewSession(project, options, undefined, groupId);
   }

@@ -319,12 +319,21 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Switchboard rather than to a CLI, so the registry adds it to **every** backend; setting one drops that
   session to the shell path, because a shell prefix needs a shell. A declared option that changes nothing
   is a control that lies, and `test/backend-config-fields.test.js` refuses to let one exist.
-- **Per-option "use the backend's default", at every level** — the cascade is
+- **Per-option "is this set?" marker, at every level** — the cascade is
   `backend default → global → project → template`, resolved **per option**, and each level stores only
   what it explicitly set. Without the marker, "not set" cannot be told from "deliberately empty / off",
   and an option whose default is ON could not be switched off at all. The **global** scope lacked it and
   therefore froze the shipped defaults into every user's settings the first time they saved — after which
   no improved default could reach them, and nothing said so.
+- **A backend default is never put on the command line** — it describes what the CLI does anyway. Every
+  non-empty default used to be seeded into the launch, so a plain Codex session carried
+  `-a on-request -s workspace-write` although the user had chosen neither, overruling their own
+  `config.toml` without telling them. Nothing anybody chose, nothing on the argv.
+- **The Configure dialog is a per-session override that layers on the cascade** — same marker, ticked by
+  default, so opening it and pressing Start changes nothing. Each control says where its value comes from
+  (*"From your settings."* / *"Codex decides."*), and an override is sent even when it equals our own
+  default — which is the only way to say *"workspace-write, just this once"* when your `config.toml` says
+  otherwise.
 - **Per-backend environment variables** (`$VAR` references, resolved at spawn, never on disk). Only a
   template could carry a bundle before, so the only way to hand Codex a variable was to wrap it in a whole
   extra backend.
