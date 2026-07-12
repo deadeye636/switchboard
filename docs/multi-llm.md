@@ -52,9 +52,10 @@ An estimate is never displayed as a bill, and a *zero* estimate is shown as "no 
 than `$0.00` — a backend returning zero usually means it had no price for that model, not that the work
 was free.
 
-Note: the charts above that section (heatmap, daily bars, per-model tokens) currently cover **Claude
-sessions only** — the other backends' parsers do not yet emit per-day metrics. The per-backend cards do
-include everyone.
+The charts above that section (heatmap, daily bars, per-model tokens) cover **every** backend. One
+caveat, because it is an honest approximation rather than a measurement: Hermes records no tokens per
+message — only per session — so its message counts are per day while its token totals land on the day
+the session was last active.
 
 ## Profiles: Claude Code against another endpoint
 
@@ -83,8 +84,14 @@ Resuming a *handoff* starts a **new** session seeded with context, so it is free
 picker just defaults to the backend that produced it. If that backend is no longer available, the row
 says so instead of quietly running the packet somewhere else.
 
-One caveat: if you set the handoff prompt to a slash command (`/handoff`), that is a **Claude skill**.
-Other backends will receive it as plain text.
+**About slash commands.** Every CLI here has them (and turns its skills into them) — but the commands
+are each CLI's own: `/handoff` exists in Claude, not in Codex merely because Codex also has skills. So a
+slash command in the *global* handoff prompt is only sent to your **default** agent; another backend gets
+the standard prompt instead, and the app says so. Give a backend its own handoff prompt on its Backends
+page to use one of *its* commands.
+
+And if the agent does not answer at all — an unknown command, a session that is not listening — you are
+asked before its **previous** message is offered to you as the packet.
 
 ## Turning a backend off
 

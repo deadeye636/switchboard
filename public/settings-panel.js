@@ -1244,7 +1244,7 @@
                 <div class="settings-field settings-field-wide">
                   <div class="settings-field-info">
                     <span class="settings-label">Handoff prompt</span>
-                    <div class="settings-description">Sent to the running agent to produce the handoff. Placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default. <b>A slash command like <code>/handoff</code> is a Claude skill</b> — Codex, Hermes and Pi receive it as plain text, so keep this a normal prompt if you hand off from those.</div>
+                    <div class="settings-description">Sent to the running agent to produce the handoff. Placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default. <b>A slash command is that agent's own</b> — <code>/handoff</code> exists in Claude, not in Codex or Hermes just because they also have skills. A slash command set here is only sent to your default agent; give the others their own on their Backends page.</div>
                   </div>
                   <div class="settings-field-control">
                     <textarea class="settings-input" id="sv-handoff-prompt" spellcheck="false" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffPromptValue)}</textarea>

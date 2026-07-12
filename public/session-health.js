@@ -209,40 +209,61 @@ Return only a markdown handoff with these sections:
 
   // Which prompt do we actually type into THIS backend's session?
   //
-  //   1. the backend's own override, if the user set one (per-backend quirks: a CLI may want a
-  //      different wording, or its own skill),
+  //   1. the backend's OWN prompt, if the user set one on its settings page,
   //   2. else the global prompt,
   //   3. else the built-in default.
   //
-  // ...and then the safety net. A slash command is a SKILL, and skills are a Claude thing: typed into
-  // Codex, Pi or Hermes it is just text they do not understand. The agent then produces nothing useful,
-  // and the capture step happily offers the PREVIOUS assistant turn as the "fresh" packet — silently
-  // wrong, which is the failure mode this whole feature keeps producing. So: if the prompt we would
-  // send is a slash command and this backend does not do slash commands, fall back to the prose default
-  // and SAY that we did.
+  // The subtlety is slash commands. EVERY shipped CLI has them (Codex, Hermes and Pi all do, and all
+  // turn installed skills into slash commands) — but the commands are each CLI's OWN. `/handoff` is a
+  // Claude skill; it does not exist in Codex merely because Codex also has skills. Typed there it is
+  // read as text or rejected as unknown, the agent produces no packet, and the capture step would then
+  // offer its previous (or its error) message as the "fresh" handoff. Silently wrong.
   //
-  // `backend` = the descriptor ({ id, label, slashCommands }); `settings` = the global settings blob.
+  // So:
+  //   - a prompt set ON a backend may be any slash command — the user chose it FOR that CLI,
+  //   - a GLOBAL slash command belongs to the CLI it was written for, i.e. the default backend. Sent to
+  //     any other backend it is replaced by the prose default, and we say why (and where to fix it).
+  //
+  // `backend` = descriptor ({ id, label, slashCommands }); `settings` = the global settings blob.
   // Returns { prompt, usedFallback, reason }.
-  function resolveHandoffPrompt(backend, settings = {}) {
-    const perBackend = (settings.handoffPromptByBackend || {})[(backend && backend.id) || 'claude'];
-    const global = settings.handoffPrompt;
-
+  function resolveHandoffPrompt(backend, settings = {}, { defaultBackendId = 'claude' } = {}) {
+    const id = (backend && backend.id) || 'claude';
+    const label = (backend && backend.label) || id;
     const pick = (v) => (typeof v === 'string' && v.trim()) ? v.trim() : null;
-    const chosen = pick(perBackend) || pick(global) || DEFAULT_HANDOFF_PROMPT;
 
-    const isSlashCommand = /^\/[^\s]/.test(chosen);
-    const supportsSlash = !backend || backend.slashCommands === true;
+    const own = pick((settings.handoffPromptByBackend || {})[id]);
+    const global = pick(settings.handoffPrompt);
+    const isSlash = (t) => /^\/[^\s]/.test(t || '');
 
-    if (isSlashCommand && !supportsSlash) {
-      return {
-        prompt: DEFAULT_HANDOFF_PROMPT,
-        usedFallback: true,
-        reason: `"${chosen.split(/\s/)[0]}" is a Claude skill — ${(backend && backend.label) || 'this backend'} `
-          + 'would only see it as text, so the standard handoff prompt was used instead.',
-      };
+    // Explicitly set for THIS backend: send it, whatever it is.
+    if (own) return { prompt: own, usedFallback: false, reason: null };
+
+    if (global && isSlash(global)) {
+      const command = global.split(/\s/)[0];
+
+      // The backend cannot do slash commands at all (an unbuilt one, say).
+      if (backend && backend.slashCommands === false) {
+        return {
+          prompt: DEFAULT_HANDOFF_PROMPT,
+          usedFallback: true,
+          reason: `${label} has no slash commands, so "${command}" would arrive as plain text. `
+            + 'The standard handoff prompt was used instead.',
+        };
+      }
+      // It does — but the command was written for another CLI, and commands do not carry across.
+      if (id !== defaultBackendId) {
+        return {
+          prompt: DEFAULT_HANDOFF_PROMPT,
+          usedFallback: true,
+          reason: `"${command}" is a command of your default agent, and ${label} has its own. `
+            + `The standard handoff prompt was used — set a handoff prompt on ${label}'s page to use one of its commands.`,
+        };
+      }
     }
-    return { prompt: chosen, usedFallback: false, reason: null };
+
+    return { prompt: global || DEFAULT_HANDOFF_PROMPT, usedFallback: false, reason: null };
   }
+
 
   return {
     HEALTH_THRESHOLDS,

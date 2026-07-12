@@ -42,7 +42,8 @@ test('buildHandoffRequestPrompt equals the filled default template', () => {
 const { resolveHandoffPrompt } = require('../public/session-health.js');
 
 const CLAUDE = { id: 'claude', label: 'Claude Code', slashCommands: true };
-const CODEX = { id: 'codex', label: 'Codex', slashCommands: false };
+const CODEX = { id: 'codex', label: 'Codex', slashCommands: true };   // Codex has slash commands + skills too
+const AGY = { id: 'agy', label: 'Antigravity CLI', slashCommands: false };  // unbuilt: we know nothing
 
 test('a backend override beats the global prompt', () => {
   const r = resolveHandoffPrompt(CODEX, {
@@ -59,28 +60,41 @@ test('no override falls back to the global prompt, then to the built-in default'
   assert.strictEqual(resolveHandoffPrompt(CODEX, { handoffPrompt: '   ' }).prompt, DEFAULT_HANDOFF_PROMPT);
 });
 
-test('a slash command reaches Claude, because it has skills', () => {
-  const r = resolveHandoffPrompt(CLAUDE, { handoffPrompt: '/handoff' });
+// Every shipped CLI has slash commands — but the COMMANDS are each CLI's own. `/handoff` is a Claude
+// skill; it does not exist in Codex merely because Codex also has skills. Typed there, the agent answers
+// nothing useful (or "unknown command"), and the capture step would offer THAT as the handoff packet.
+
+test('a global slash command reaches the agent it was written for (the default)', () => {
+  const r = resolveHandoffPrompt(CLAUDE, { handoffPrompt: '/handoff' }, { defaultBackendId: 'claude' });
   assert.strictEqual(r.prompt, '/handoff');
   assert.strictEqual(r.usedFallback, false);
 });
 
-test('a slash command is NOT typed into a backend without skills — and it says why', () => {
-  const r = resolveHandoffPrompt(CODEX, { handoffPrompt: '/handoff' });
-  assert.strictEqual(r.prompt, DEFAULT_HANDOFF_PROMPT, 'the prose default is sent instead');
+test('a global slash command is NOT typed into a DIFFERENT agent — its commands are its own', () => {
+  const r = resolveHandoffPrompt(CODEX, { handoffPrompt: '/handoff' }, { defaultBackendId: 'claude' });
+  assert.strictEqual(r.prompt, DEFAULT_HANDOFF_PROMPT, 'the prose default goes out instead');
   assert.strictEqual(r.usedFallback, true);
   assert.match(r.reason, /\/handoff/);
-  assert.match(r.reason, /Codex/);
+  assert.match(r.reason, /Codex/, 'and it names the backend the user has to fix it on');
 });
 
-test('the same guard applies to a per-backend override that is a slash command', () => {
-  const r = resolveHandoffPrompt(CODEX, { handoffPromptByBackend: { codex: '/summarize' } });
+test("...unless the user set that backend's OWN slash command — then it is exactly what they chose", () => {
+  const r = resolveHandoffPrompt(CODEX, {
+    handoffPrompt: '/handoff',
+    handoffPromptByBackend: { codex: '/prompts:handoff' },   // a real Codex-side command
+  }, { defaultBackendId: 'claude' });
+  assert.strictEqual(r.prompt, '/prompts:handoff');
+  assert.strictEqual(r.usedFallback, false);
+});
+
+test('a backend with no slash-command surface at all never gets one typed into it', () => {
+  const r = resolveHandoffPrompt(AGY, { handoffPrompt: '/handoff' }, { defaultBackendId: 'agy' });
   assert.strictEqual(r.usedFallback, true);
-  assert.match(r.reason, /\/summarize/);
+  assert.match(r.reason, /no slash commands/i);
 });
 
 test('a prompt that merely CONTAINS a slash is not a command', () => {
-  const r = resolveHandoffPrompt(CODEX, { handoffPrompt: 'Summarise the work in src/app.js' });
+  const r = resolveHandoffPrompt(CODEX, { handoffPrompt: 'Summarise the work in src/app.js' }, { defaultBackendId: 'claude' });
   assert.strictEqual(r.usedFallback, false);
   assert.match(r.prompt, /src\/app\.js/);
 });

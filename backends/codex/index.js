@@ -202,6 +202,7 @@ module.exports = {
   // alternative is what shipped before: the button stays, `forkFrom` is dropped in buildLaunch, and the
   // user gets a brand-new empty session that has nothing to do with the one they forked.
   supportsFork: false,
+  slashCommands: true,   // /init /compact /review /model … plus skills (which become slash commands)
   configFields,
   buildLaunch,
   probe,

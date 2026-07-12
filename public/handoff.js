@@ -251,13 +251,17 @@ async function runHandoff(session, project) {
   const g = (await window.api.getSetting('global')) || {};
   const handoffLibrary = !!g.handoffLibrary;
 
-  // The prompt is resolved PER BACKEND: its own override, else the global one, else the built-in
-  // default. And a slash command is a SKILL — typed into a CLI that has none it is merely text; the
-  // agent then answers nothing useful and the capture step would hand you its PREVIOUS turn as the
-  // "fresh" packet. resolveHandoffPrompt refuses that, and says why.
+  // The prompt is resolved PER BACKEND: its own, else the global one, else the built-in default.
+  //
+  // Every CLI here has slash commands — but they are each CLI's OWN. `/handoff` is a Claude skill; it
+  // does not exist in Codex just because Codex also has skills. So a GLOBAL slash command is only sent
+  // to the default agent it was written for; another backend gets the prose default and a note saying
+  // it can have its own. (A prompt set ON a backend is sent as-is: the user chose it for that CLI.)
   const backendId = backendOfSession(session);
   const backend = (typeof getBackend === 'function' ? getBackend(backendId) : null) || { id: backendId };
-  const resolved = resolveHandoffPrompt(backend, g);
+  const resolved = resolveHandoffPrompt(backend, g, {
+    defaultBackendId: window._defaultBackendId || g.defaultLaunchTarget || 'claude',
+  });
   if (resolved.usedFallback) showControlToast({ message: resolved.reason });
 
   // What the agent had already said BEFORE we asked. If its last message is still this one afterwards,
