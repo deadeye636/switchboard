@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (20 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (19 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-12
 
@@ -33,6 +33,5 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#150](https://github.com/deadeye636/switchboard/issues/150) Hermes: availability probe only checks the executable · _enhancement_
 - [#151](https://github.com/deadeye636/switchboard/issues/151) Hermes: no busy/idle signal when the DB is unreadable (no fallback) · _bug_
 - [#153](https://github.com/deadeye636/switchboard/issues/153) Multi-LLM: leftover gaps against the plan and the mockups · _chore_
-- [#155](https://github.com/deadeye636/switchboard/issues/155) Backend hot paths: avoidable per-event work (Hermes re-parse, Pi node probe, store walks) · _chore_
 - [#157](https://github.com/deadeye636/switchboard/issues/157) A session that moved into a worktree still follows its original folder · _bug_
 - [#164](https://github.com/deadeye636/switchboard/issues/164) Session tags: filter the sidebar by session tag · _feature_
