@@ -257,3 +257,56 @@ test('deriveStateFromFileTail: ignores a truncated tail line and unrelated event
 test('deriveStateFromFileTail: an unreadable file returns null (state left untouched)', () => {
   assert.strictEqual(codex.deriveStateFromFileTail('D:\\nope\\missing.jsonl'), null);
 });
+
+// --- D10: identity adoption. Codex names its own session, so the id we launch under is NOT the id it
+// records. matchLiveSession is how the main process finds the rollout belonging to a session it just
+// spawned. Getting this wrong steals another session's rollout — so it is worth testing directly.
+
+test('matchLiveSession: finds the rollout for a session we just launched in this cwd', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-live-'));
+  const day = path.join(home, 'sessions', '2026', '06', '27');
+  fs.mkdirSync(day, { recursive: true });
+  fs.copyFileSync(FIXTURE, path.join(day, 'rollout-a.jsonl'));
+  codex.setHome(home);
+
+  const match = codex.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set() });
+  assert.ok(match, 'found the rollout');
+  assert.strictEqual(match.sessionId, '019f081a-8834-7342-8741-30624c553c1c', 'the id CODEX chose, not ours');
+  assert.match(match.ref, /rollout-a\.jsonl$/);
+});
+
+test('matchLiveSession: never hands the same rollout to two sessions', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-live2-'));
+  const day = path.join(home, 'sessions', '2026', '06', '27');
+  fs.mkdirSync(day, { recursive: true });
+  const first = path.join(day, 'rollout-a.jsonl');
+  fs.copyFileSync(FIXTURE, first);
+  codex.setHome(home);
+
+  // Session A claimed it; session B must not be given the same file.
+  const match = codex.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set([first]) });
+  assert.strictEqual(match, null, 'a claimed rollout is never re-handed out');
+});
+
+test('matchLiveSession: ignores a rollout from a different project', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-live3-'));
+  const day = path.join(home, 'sessions', '2026', '06', '27');
+  fs.mkdirSync(day, { recursive: true });
+  fs.copyFileSync(FIXTURE, path.join(day, 'rollout-a.jsonl'));   // its cwd is D:\Projekte\demo
+  codex.setHome(home);
+
+  const match = codex.matchLiveSession({ cwd: 'D:\\Projekte\\somewhere-else', sinceMs: 0, claimed: new Set() });
+  assert.strictEqual(match, null, 'a rollout from another project is not ours');
+});
+
+test('matchLiveSession: ignores a rollout that predates the launch', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-live4-'));
+  const day = path.join(home, 'sessions', '2026', '06', '27');
+  fs.mkdirSync(day, { recursive: true });
+  fs.copyFileSync(FIXTURE, path.join(day, 'rollout-a.jsonl'));
+  codex.setHome(home);
+
+  // sinceMs far in the future -> nothing can belong to this launch.
+  const match = codex.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set() });
+  assert.strictEqual(match, null, 'an older rollout belongs to a previous session, not this one');
+});

@@ -207,6 +207,49 @@ test('buildLaunch: resume targets the recorded session id (binary-bound, §5.11)
   assert.deepStrictEqual(launch.args, ['-r', 'sess-cli-1']);
 });
 
+// --- D10: identity adoption. Hermes, like Codex, creates its OWN session id in its own store, so the
+// id we launch under is not the id it records. Without this, resume targets an id Hermes never had and
+// the sidebar shows a ghost row. This is the DB-side of the same seam.
+
+test('matchLiveSession: finds the DB row for a session we just launched in this cwd', () => {
+  useFixture();
+  const match = hermes.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set() });
+  assert.ok(match, 'found the session row');
+  assert.strictEqual(match.sessionId, 'sess-cli-1', 'the EARLIEST matching session (launch order)');
+});
+
+test('matchLiveSession: never hands the same session to two tabs', () => {
+  useFixture();
+  const match = hermes.matchLiveSession({
+    cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set(['sess-cli-1']),
+  });
+  assert.ok(match, 'a second live tab gets the NEXT session, not the claimed one');
+  assert.notStrictEqual(match.sessionId, 'sess-cli-1');
+});
+
+test('matchLiveSession: ignores a session from another project', () => {
+  useFixture();
+  const match = hermes.matchLiveSession({ cwd: 'D:\\Projekte\\elsewhere', sinceMs: 0, claimed: new Set() });
+  assert.strictEqual(match, null);
+});
+
+test('matchLiveSession: ignores sessions that predate the launch', () => {
+  useFixture();
+  const match = hermes.matchLiveSession({
+    cwd: 'D:\\Projekte\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set(),
+  });
+  assert.strictEqual(match, null, 'an older session belongs to a previous run');
+});
+
+test('liveState: reads busy/idle straight from the session row', () => {
+  useFixture();
+  assert.strictEqual(hermes.liveState('sess-cli-1'), 'idle', 'a finished session');
+  // sess-running has ended_at NULL but its last message is long in the past (fixed fixture epoch),
+  // so it reads idle rather than spinning forever — the safety net.
+  assert.strictEqual(hermes.liveState('sess-running'), 'idle');
+  assert.strictEqual(hermes.liveState('does-not-exist'), null);
+});
+
 test('probe reports a clear reason when hermes is not installed', () => {
   const res = hermes.probe();
   assert.strictEqual(typeof res.ok, 'boolean');
