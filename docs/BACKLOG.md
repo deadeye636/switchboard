@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (24 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-12
 
@@ -17,9 +17,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
-- [#160](https://github.com/deadeye636/switchboard/issues/160) Backends: declare what each CLI can actually do (configFields is nearly empty for Pi, Hermes, Codex) · _feature_
-- [#161](https://github.com/deadeye636/switchboard/issues/161) Templates: choose the backend a template runs on (today every profile is silently Claude) · _feature_
-- [#162](https://github.com/deadeye636/switchboard/issues/162) Claude must be disableable like any other backend (the lock is renderer-only, and the model would not survive it) · _feature_
 
 ## P3 — someday
 
