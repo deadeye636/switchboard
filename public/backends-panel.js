@@ -25,7 +25,7 @@
     : String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])));
 
   // Icons offered in the editor's icon grid (drives the badge colour + monogram).
-  const ICON_KEYS = ['anthropic', 'claude', 'deepseek', 'glm', 'openrouter', 'codex', 'gemini', 'hermes', 'pi'];
+  const ICON_KEYS = ['anthropic', 'claude', 'deepseek', 'glm', 'openrouter', 'codex', 'agy', 'hermes', 'pi'];
 
   // Launch defaults live on a per-backend page now, so at most one backend's inputs exist in the DOM.
   // `storedDefaults` = what this settings scope has on disk; `pendingDefaults` = what the user changed
@@ -39,7 +39,7 @@
     codex: "OpenAI's terminal coding agent.",
     hermes: 'General AI agent with its own session store.',
     pi: 'Terminal coding agent.',
-    gemini: "Google's terminal coding agent.",
+    agy: "Google's terminal coding agent (Antigravity CLI, the successor to the retired Gemini CLI).",
   };
 
   const ENV_REF_RE = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/;
@@ -106,8 +106,9 @@
     }
     if (field.type === 'select') {
       const choices = Array.isArray(field.choices) ? field.choices : [];
+      const labels = field.choiceLabels || {};   // a bare id like "acceptEdits" is not a UI label
       return `<select class="settings-select backend-default-input" data-backend="${esc(backendId)}" data-opt="${esc(field.id)}" data-type="select" id="${esc(name)}" ${dis}>
-        ${choices.map(c => `<option value="${esc(c)}" ${String(value) === String(c) ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        ${choices.map(c => `<option value="${esc(c)}" ${String(value) === String(c) ? 'selected' : ''}>${esc(labels[c] || c)}</option>`).join('')}
       </select>`;
     }
     const type = field.type === 'number' ? 'number' : 'text';
@@ -115,14 +116,12 @@
     return `<input type="${type}" class="${cls} backend-default-input" data-backend="${esc(backendId)}" data-opt="${esc(field.id)}" data-type="${esc(field.type || 'text')}" id="${esc(name)}" value="${esc(value == null ? '' : value)}" ${dis}>`;
   }
 
-  // One collapsible panel per ready backend. `disabled` = the project scope is inheriting the
-  // global defaults (the "use global default" checkbox is checked).
-  // One backend's launch options, as its OWN page (reached by the gear on its row). EVERY backend has
-  // one, Claude included (`backendDefaults.<id>.<opt>`, 00 §4a) — Claude's used to sit in Sessions &
-  // CLI, which now keeps only what is not a launch option (shells, log level, …). One setting, one home:
-  // the page of the backend it belongs to.
-  // The project scope has no gear pages — it is one short "what this project overrides" list, so every
-  // backend's options are shown inline under its own heading.
+  // A backend's launch options live on its OWN page, reached by the gear on its row (`launchDefaultsPage`
+  // below). EVERY backend has one, Claude included (`backendDefaults.<id>.<opt>`, 00 §4a).
+  //
+  // The PROJECT scope has no gear pages — it is one short "what this project overrides" list, so there
+  // every backend's options are shown inline under its own heading. `disabled` = the project inherits
+  // the global defaults (its "use global default" checkbox is checked).
   function inlineDefaultsSection(backend, defaults, disabled) {
     const rows = defaultRows(backend, defaults, disabled);
     if (!rows) return '';
@@ -179,6 +178,7 @@
             <h3>${esc(backend.label)}</h3>
           </div>
         </div>
+        ${backend.caveat ? `<div class="settings-notice backend-caveat">${esc(backend.caveat)}</div>` : ''}
         ${rows
           ? `<div class="settings-section"><div class="settings-section-title">Launch defaults</div>${rows}</div>`
           : '<div class="settings-hint">This backend declares no launch options.</div>'}

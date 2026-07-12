@@ -2347,10 +2347,15 @@ async function attachRunningSession(session) {
   }
 
   const entry = createTerminalEntry(session);
-  // Resume options mirror openSession() (worktree stripped) so that, in the rare
-  // race where the PTY exited between the last poll and now, the fallback spawn
-  // still resumes the existing session rather than starting a fresh one.
-  const resumeOptions = await resolveDefaultSessionOptions({ projectPath });
+  // Resume options mirror openSession() (worktree stripped) so that, in the rare race where the PTY
+  // exited between the last poll and now, the fallback spawn still resumes the existing session rather
+  // than starting a fresh one.
+  //
+  // They must be THIS session's backend's options, not Claude's: resolving Claude's defaults here would
+  // hand a Claude model to `pi --model` / `codex -m` in exactly that race. (openSession() was fixed for
+  // this; this caller was missed.)
+  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || 'claude';
+  const resumeOptions = await resolveLaunchOptionsFor({ projectPath }, backendId);
   if (resumeOptions) { delete resumeOptions.worktree; delete resumeOptions.worktreeName; }
   const result = await window.api.openTerminal(sessionId, projectPath, false, resumeOptions);
   if (!result || !result.ok) {

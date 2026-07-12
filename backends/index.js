@@ -202,10 +202,14 @@ function plannedDummy({ id, label, monogram, colour }) {
   };
 }
 
-// Axis-B binaries not built yet. Phases 6/7 replace pi/gemini with real `ready` descriptors.
+// Axis-B binaries not built yet.
+//
+// `agy` = Google's Antigravity CLI. It REPLACES the Gemini CLI, which Google retired in June 2026
+// (https://antigravity.google/docs/cli/install) — a single Go binary, installed to ~/.local/bin/agy or
+// via `npm i -g @google/antigravity-cli`, which imports an existing ~/.gemini config on first run. The
+// old `gemini` id is gone, not aliased: it was never built, so nothing can reference it.
 function registerPlannedDummies() {
-  register(plannedDummy({ id: 'pi',     label: 'Pi',         monogram: 'Pi', colour: 'pi'     }));
-  register(plannedDummy({ id: 'gemini', label: 'Gemini CLI', monogram: 'G',  colour: 'gemini' }));
+  register(plannedDummy({ id: 'agy', label: 'Antigravity CLI', monogram: 'Ag', colour: 'agy' }));
 }
 
 // --- test hook: wipe + re-seed the registry deterministically.
@@ -220,6 +224,7 @@ function _seedDefaults() {
   register(require('./claude'));
   register(require('./codex'));
   register(require('./hermes'));   // Phase 5 — the first non-file (SQLite) backend
+  register(require('./pi'));       // Phase 6 — file mode again, the payoff of the abstraction
   registerPlannedDummies();
 }
 

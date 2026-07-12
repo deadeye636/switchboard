@@ -2986,6 +2986,9 @@ ipcMain.handle('backends-list', () => {
       // Is the binary actually installed? Settings shows the reason instead of letting the user enable
       // a backend whose first launch then dies with a raw shell error.
       available: b.available !== false, unavailableReason: b.unavailableReason || null,
+      // A standing gotcha the user cannot see from inside the app (Pi: a stored OAuth login silently
+      // beats an injected key). Rendered on the backend's settings page.
+      caveat: b.caveat || null,
     })),
     defaultLaunchTarget: backends.getDefaultLaunchTarget(),
   };
@@ -3983,6 +3986,7 @@ function startProjectsWatcher() {
 // A db-kind target (Hermes' state.db, Phase 5) polls the file AND its `-wal` sibling: a plain
 // state.db mtime misses WAL-buffered commits.
 const backendWatchers = [];
+let backendBusyTicker = null;   // slow re-check so a hung backend cannot stay BUSY forever
 let backendWatcherRetry = null;
 
 // --- Axis-B live sessions: identity adoption + busy/idle (T-4.5, T-5.3) ---
@@ -4192,6 +4196,24 @@ function startBackendWatchers() {
     }, 60000);
     if (backendWatcherRetry.unref) backendWatcherRetry.unref();
   }
+
+  // Busy/idle for these backends is derived from their STORE, and the store only tells us something
+  // when it changes. A backend that hangs mid-turn writes nothing more — so the last edge we pushed
+  // (BUSY) would stand forever, and every backend's state logic has a staleness rule that never gets a
+  // chance to run. This slow tick gives it one: it re-evaluates only while something is actually marked
+  // busy, so an idle app does no work at all.
+  if (!backendBusyTicker) {
+    backendBusyTicker = setInterval(() => {
+      if (appQuitting) return;
+      let anyBusy = false;
+      for (const busy of liveBusy.values()) if (busy) { anyBusy = true; break; }
+      if (!anyBusy) return;
+      try { updateBackendLiveStates(); } catch (err) {
+        log.warn(`[backends] busy re-check failed: ${err?.message || err}`);
+      }
+    }, 30000);
+    if (backendBusyTicker.unref) backendBusyTicker.unref();
+  }
 }
 
 function stopBackendWatchers() {
@@ -4203,6 +4225,7 @@ function stopBackendWatchers() {
   }
   backendWatchers.length = 0;
   if (backendWatcherRetry) { clearTimeout(backendWatcherRetry); backendWatcherRetry = null; }
+  if (backendBusyTicker) { clearInterval(backendBusyTicker); backendBusyTicker = null; }
 }
 
 // --- IPC: app version ---

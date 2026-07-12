@@ -506,6 +506,21 @@ function cachedRowsOfBackend(backendId) {
  *
  * Returns { scanned, upserted, skipped, deleted } (all 0 when the backend is skipped).
  */
+/**
+ * Does the backend's store actually exist? Asked via its own `watchTargets()` — the store-level
+ * addresses it already declares (a dir root, or a db file) — so no backend-specific knowledge is needed
+ * here. A backend that declares nothing is assumed present (we cannot prove otherwise).
+ */
+function storeExists(b) {
+  let targets;
+  try { targets = (typeof b.watchTargets === 'function' && b.watchTargets()) || []; } catch { return true; }
+  if (!targets.length) return true;
+  return targets.some(t => {
+    if (!t || !t.path) return false;
+    try { return fs.existsSync(t.path); } catch { return false; }
+  });
+}
+
 function refreshBackendSessions(backendId, { force = false } = {}) {
   const stats = { scanned: 0, upserted: 0, skipped: 0, deleted: 0 };
 
@@ -524,6 +539,17 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
   // Cached rows of THIS backend only — the reconcile below must never look at (or delete) another
   // backend's rows, even when they sit in the same folder.
   const cached = cachedRowsOfBackend(backendId);
+
+  // An empty store means two very different things: "the user deleted their sessions" (reconcile them
+  // away) or "we are looking in the wrong place" (do NOT). The second is real: a backend whose root is
+  // an env var (Pi's PI_CODING_AGENT_SESSION_DIR) resolves elsewhere when the app is started from the
+  // Start menu instead of a shell, and an unreadable root also reads as "no sessions". Deleting the
+  // whole history because a directory is missing is not a reconcile, it is data loss — so when there
+  // are no handles AND the store is not there, leave the cached rows alone.
+  if (!handles.length && cached.length && !storeExists(b)) {
+    log.info(`[scan] ${backendId}: store not found — keeping ${cached.length} cached session(s) instead of reconciling them away`);
+    return stats;
+  }
   const cachedByFile = new Map();
   const cachedById = new Map();
   for (const row of cached) {

@@ -8,6 +8,7 @@ const path = require('path');
 const sessionCache = require('../session-cache');
 const backends = require('../backends');
 const codex = require('../backends/codex');
+const pi = require('../backends/pi');
 const sessionBackends = require('../session-backends');
 const { encodeProjectPath } = require('../encode-project-path');
 
@@ -347,16 +348,16 @@ test('a disabled backend is never scanned but keeps its cached rows', () => {
 });
 
 test('a planned backend is never scanned and its roots are never enumerated', () => {
-  // gemini is still a `planned` dummy (hermes became ready in Phase 5, codex in Phase 4).
-  const w = setup({ enabledMap: { gemini: true, faketest: true } });
+  // agy is still a `planned` dummy (hermes became ready in Phase 5, codex in Phase 4).
+  const w = setup({ enabledMap: { agy: true, faketest: true } });
   try {
     w.db.upsertCachedSessions([{
       sessionId: 'dddddddd-0000-4000-8000-000000000004', folder: w.folder, projectPath: w.projectCwd,
-      backendId: 'gemini', filePath: null, summary: 'old gemini session',
+      backendId: 'agy', filePath: null, summary: 'old agy session',
     }]);
 
     // `planned` can never be enabled (backends.isEnabled), so this is a no-op by construction.
-    const stats = sessionCache.refreshBackendSessions('gemini');
+    const stats = sessionCache.refreshBackendSessions('agy');
     assert.deepEqual(stats, { scanned: 0, upserted: 0, skipped: 0, deleted: 0 });
     assert.ok(w.db._cache.has('dddddddd-0000-4000-8000-000000000004'), 'planned backend keeps its cached rows');
 
@@ -573,5 +574,101 @@ test('db-mode: a session that disappears from the DB is reconciled away (keyed o
     assert.equal(stats.deleted, 1);
     assert.ok(!w.db._cache.has('hsess-2'), 'gone from the store -> gone from the cache');
     assert.ok(w.db._cache.has('hsess-1'), 'the survivor is untouched');
+  } finally { cleanup(w); }
+});
+
+// --- (f) Pi: the REAL module through the REAL scanner (T-6.4) -------------------------------------
+//
+// pi.test.js covers the parser in isolation. This is the other half: that the generic scanner picks Pi
+// up with no Pi-specific code anywhere in it — same integration Codex gets above, so a regression in the
+// shared path cannot hide behind a green unit test.
+
+test('a Pi session is scanned by the generic path: cached, grouped by its cwd, searchable, with cost', () => {
+  const w = setup({ enabledMap: { pi: true } });
+  try {
+    // Pi's store: <root>/<cwd-encoded>/<ISO>_<uuid>.jsonl. The cwd comes from the HEADER, so the folder
+    // name here is deliberately NOT derived from the project path — the parser must not read it.
+    const piRoot = path.join(w.root, 'pi-sessions');
+    const dir = path.join(piRoot, '--whatever--');
+    fs.mkdirSync(dir, { recursive: true });
+    const id = 'aaaaaaaa-1111-4000-8000-000000000001';
+    fs.writeFileSync(path.join(dir, `2026-07-12T08-30-53-415Z_${id}.jsonl`), [
+      JSON.stringify({ type: 'session', version: 3, id, timestamp: '2026-07-12T08:30:53.415Z', cwd: w.projectCwd }),
+      JSON.stringify({ type: 'message', timestamp: '2026-07-12T08:31:00.000Z', message: { role: 'user', content: [{ type: 'text', text: 'hello pi' }] } }),
+      JSON.stringify({ type: 'message', timestamp: '2026-07-12T08:31:05.000Z', message: {
+        role: 'assistant', content: [{ type: 'text', text: 'hi there' }], model: 'gpt-5.5', provider: 'openai-codex',
+        stopReason: 'stop', usage: { input: 100, output: 10, totalTokens: 110, cost: { total: 0.0042 } },
+      } }),
+    ].join('\n') + '\n', 'utf8');
+    pi.setRoot(piRoot);
+
+    // A Claude session in the SAME cwd — the two must share one project bucket (§5.9).
+    writeClaudeSession(w.projectsDir, w.folder, w.projectCwd, 'cccccccc-0000-4000-8000-000000000003');
+    sessionCache.refreshFolder(w.folder);
+
+    const stats = sessionCache.refreshBackendSessions('pi');
+    assert.equal(stats.upserted, 1, 'the generic scanner parsed Pi with no Pi-specific code in it');
+
+    const row = w.db._cache.get(id);
+    assert.ok(row, 'cached');
+    assert.equal(row.backendId, 'pi');
+    assert.equal(row.projectPath, w.projectCwd, 'grouped by the cwd from its HEADER, not by the folder name');
+    assert.equal(row.folder, w.folder, 'the same bucket a Claude session with that cwd gets');
+    assert.equal(row.estimatedCostUsd, 0.0042, "Pi's own price estimate rides along");
+    assert.equal(row.costStatus, 'estimated');
+    assert.equal(row.actualCostUsd, null, 'an estimate is never a settled amount');
+    assert.equal(row.model, 'gpt-5.5');
+
+    const entry = w.db._search.get(id);
+    assert.ok(entry, 'indexed for search');
+    assert.match(entry.body, /hello pi/);
+
+    // ...and refreshing Claude must not touch it (the cross-backend delete invariant).
+    sessionCache.refreshFolder(w.folder);
+    assert.ok(w.db._cache.get(id), 'a Claude refresh leaves the Pi row alone');
+  } finally { pi.setRoot(null); cleanup(w); }
+});
+
+test('a MISSING store keeps the cached rows — an unreachable root is not "the user deleted everything"', () => {
+  // Pi's root can come from PI_CODING_AGENT_SESSION_DIR, which is set in the user's shell but NOT when
+  // the app is started from the Start menu. The root then resolves elsewhere, discovery returns nothing,
+  // and reconciling "nothing" against the cache would delete the user's entire Pi history.
+  const w = setup({ enabledMap: { pi: true } });
+  try {
+    pi.setRoot(path.join(w.root, 'does-not-exist'));
+    w.db._cache.set('pi-old', {
+      sessionId: 'pi-old', backendId: 'pi', folder: w.folder, projectPath: w.projectCwd,
+      summary: 'indexed under the other root',
+    });
+
+    const stats = sessionCache.refreshBackendSessions('pi');
+    assert.equal(stats.deleted, 0, 'nothing is reconciled away when the store is not even there');
+    assert.ok(w.db._cache.get('pi-old'), 'the history survives an unreachable root');
+  } finally { pi.setRoot(null); cleanup(w); }
+});
+
+test('an EMPTY but existing store DOES reconcile — that really is "the sessions are gone"', () => {
+  const w = setup({ enabledMap: { pi: true } });
+  try {
+    const piRoot = path.join(w.root, 'pi-empty');
+    fs.mkdirSync(piRoot, { recursive: true });
+    pi.setRoot(piRoot);
+    w.db._cache.set('pi-gone', {
+      sessionId: 'pi-gone', backendId: 'pi', folder: w.folder, projectPath: w.projectCwd, summary: 'deleted',
+    });
+
+    const stats = sessionCache.refreshBackendSessions('pi');
+    assert.equal(stats.deleted, 1, 'the store is reachable and empty -> the row is stale');
+    assert.equal(w.db._cache.get('pi-gone'), undefined);
+  } finally { pi.setRoot(null); cleanup(w); }
+});
+
+test('a disabled Pi is never scanned, but keeps its cached rows (5.8)', () => {
+  const w = setup({ enabledMap: { pi: false } });
+  try {
+    w.db._cache.set('pi-old', { sessionId: 'pi-old', backendId: 'pi', folder: w.folder, projectPath: w.projectCwd, summary: 'old pi session' });
+    const stats = sessionCache.refreshBackendSessions('pi');
+    assert.equal(stats.scanned, 0, 'a disabled backend has its store left alone entirely');
+    assert.ok(w.db._cache.get('pi-old'), 'disable is not erase');
   } finally { cleanup(w); }
 });

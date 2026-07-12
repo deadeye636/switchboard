@@ -636,10 +636,15 @@ function renderJsonlEntry(entry, toolResultMap) {
   let role = null;
   let contentBlocks = null;
 
-  if (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user')) {
+  // The role sits at the top level for Claude/Codex, but INSIDE the payload for Pi
+  // ({type:'message', message:{role, content:[…]}}) — read both, or a Pi transcript renders as a blank
+  // panel behind a button we happily offer on its rows.
+  const entryRole = entry.role || entry.message?.role || null;
+
+  if (entry.type === 'user' || (entry.type === 'message' && entryRole === 'user')) {
     role = 'user';
     contentBlocks = entry.message?.content || entry.content;
-  } else if (entry.type === 'assistant' || (entry.type === 'message' && entry.role === 'assistant')) {
+  } else if (entry.type === 'assistant' || (entry.type === 'message' && entryRole === 'assistant')) {
     role = 'assistant';
     contentBlocks = entry.message?.content || entry.content;
   } else {
