@@ -9168,6 +9168,59 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 }
 .backend-planned-note { font-size: 11.5px; color: #6a6a80; }
 
+/* Gear on a backend row → that backend's own Launch-defaults page. Same icon, same meaning as the
+   gear in the launch picker. Visible at rest (an invisible affordance is one nobody finds). */
+.backend-gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  color: #9a9ab0;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.backend-gear:hover { color: #d0d0e8; border-color: #8088ff; background: rgba(128,136,255,0.14); }
+
+.backend-page-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.backend-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 3px 8px 3px 4px;
+  font-size: 12px;
+  font-family: inherit;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: none;
+  color: #9a9ab0;
+  cursor: pointer;
+}
+.backend-back:hover { color: #d0d0e8; border-color: rgba(255,255,255,0.12); }
+.backend-page-title { display: flex; align-items: center; gap: 9px; }
+.backend-page-title h3 { margin: 0; font-size: 16px; font-weight: 600; color: #d8d8e8; }
+
+.backend-inline-title { display: flex; align-items: center; gap: 7px; }
+
+/* The backend is built, but its binary isn't on this machine — the probe's own reason is shown
+   under the row, so the user learns what to install BEFORE a launch dies in the terminal. */
+.backend-pill.missing {
+  color: #d98080;
+  border-color: rgba(217,128,128,0.32);
+  background: rgba(217,128,128,0.1);
+}
+.backend-unavailable { color: #d98080; }
+
 /* Row action buttons (Set default / Edit / Delete) + the editor's small buttons. */
 .backend-btn {
   font-size: 12px;

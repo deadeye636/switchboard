@@ -12,67 +12,67 @@ const CLAUDE_POPOVER_ICON = '<svg class="popover-option-icon claude-icon" width=
 const TERMINAL_POPOVER_ICON = '<svg class="popover-option-icon terminal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>';
 const EXTERNAL_TERMINAL_POPOVER_ICON = '<svg class="popover-option-icon terminal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/><path d="M15 3h6v6"/><path d="M21 3l-7 7"/></svg>';
 
-// --- New session dialog ---
-async function resolveDefaultSessionOptions(project) {
-  const effective = await window.api.getEffectiveSettings(project.projectPath);
-  const options = {};
-  if (effective.dangerouslySkipPermissions) {
-    options.dangerouslySkipPermissions = true;
-  } else if (effective.permissionMode) {
-    options.permissionMode = effective.permissionMode;
-  }
-  if (effective.worktree) {
-    options.worktree = true;
-    if (effective.worktreeName) options.worktreeName = effective.worktreeName;
-  }
-  if (effective.chrome) options.chrome = true;
-  if (effective.preLaunchCmd) options.preLaunchCmd = effective.preLaunchCmd;
-  if (effective.addDirs) options.addDirs = effective.addDirs;
-  if (effective.mcpEmulation === false) options.mcpEmulation = false;
-  // NOTE: Claude's launch defaults live HERE (Sessions & CLI), not in backendDefaults.claude.*. Two
-  // homes for one setting means invisible precedence — see backends-panel.js. Axis-B backends, which
-  // have no legacy home, use backendDefaults.<id> via applyBackendDefaultsToOptions below.
-  return options;
-}
-
-// Map an Axis-B backend's `configFields` values (backendDefaults.<id>.<opt>) onto sessionOptions.
-// The stored blob is AUTHORITATIVE for the keys it contains, so an explicitly-off toggle or a
-// cleared text field really does turn the option off (a "skip falsy" merge could only ever turn
-// options ON, which silently strands the user's "off").
+// Map a backend's `configFields` values (backendDefaults.<id>.<opt>) onto sessionOptions.
+// The stored blob is AUTHORITATIVE for the keys it contains, so an explicitly-off toggle really does
+// turn the option off. `false` is therefore KEPT, not dropped: an option whose default is ON (Claude's
+// IDE emulation) can only be switched off by sending the false — dropping it would silently restore
+// the default. Only an empty/absent value means "not set".
 function applyBackendDefaultsToOptions(options, defaults) {
   if (!defaults || typeof defaults !== 'object') return options;
   for (const [key, value] of Object.entries(defaults)) {
-    if (value === '' || value == null || value === false) { delete options[key]; continue; }
+    if (value === '' || value == null) { delete options[key]; continue; }
     options[key] = value;
   }
   return options;
 }
 
-// The effective launch options for ONE backend: Claude (and every Axis-A profile — same binary, same
-// options) reuses the existing Claude resolution; an Axis-B binary has its OWN option schema, so it
-// only takes its backendDefaults.<id> block. `backendId` rides along so main.js routes the spawn.
+// An Axis-A profile runs the CLAUDE binary, so its launch options ARE Claude's — it declares no schema
+// of its own. Every dialog and every launch asks these two for "which fields?" and "which values?", so
+// the answer is the same everywhere.
+function schemaBackendOf(backend) {
+  if (backend && backend.isProfile && window.getBackend) return window.getBackend('claude') || backend;
+  return backend;
+}
+
+// The stored defaults that apply to this backend. A profile INHERITS Claude's defaults and may override
+// them with its own (`backendDefaults.<profileId>`) — without the inheritance a profile would silently
+// launch without the permission mode the user set for Claude; without the override its own settings page
+// would write values nothing ever reads.
+function storedDefaultsFor(effective, backend) {
+  const all = (effective && effective.backendDefaults) || {};
+  if (!backend) return {};
+  if (backend.isProfile) return { ...(all.claude || {}), ...(all[backend.id] || {}) };
+  return { ...(all[backend.id] || {}) };
+}
+
+// The effective launch options for ONE backend: seed the descriptor's declared defaults, then let the
+// user's saved ones win. (Without the seed, a plain row-click and an untouched "Start" in the gear
+// dialog would launch differently — the dialog pre-fills the descriptor defaults and sends them, while
+// the bare click sent nothing.) `backendId` rides along so main.js routes the spawn.
 async function resolveLaunchOptionsFor(project, backendId) {
   const backend = window.getBackend ? window.getBackend(backendId) : null;
-  const isAxisB = backend && backend.axis === 'B';
+  const schema = schemaBackendOf(backend);
 
-  let options;
-  if (isAxisB) {
-    const effective = await window.api.getEffectiveSettings(project.projectPath);
-    // Seed from the descriptor's declared defaults, THEN apply the user's saved ones. Without the
-    // seed, a plain row-click and an untouched "Start" in the gear dialog would launch differently
-    // (the dialog pre-fills descriptor defaults and sends them; the bare click sent nothing).
-    options = {};
-    for (const f of (backend.configFields || [])) {
-      if (f.default !== '' && f.default != null && f.default !== false) options[f.id] = f.default;
-    }
-    applyBackendDefaultsToOptions(options, (effective.backendDefaults || {})[backendId]);
-  } else {
-    options = await resolveDefaultSessionOptions(project);
+  const effective = await window.api.getEffectiveSettings(project.projectPath);
+  const options = {};
+  for (const f of ((schema && schema.configFields) || [])) {
+    if (f.default !== '' && f.default != null && f.default !== false) options[f.id] = f.default;
   }
+  applyBackendDefaultsToOptions(options, storedDefaultsFor(effective, backend));
 
   options.backendId = backendId;
   // A profile is a user-created Axis-A backend; record it in the overlay as the profile too (§5.7).
   if (backend && backend.isProfile) options.profileId = backendId;
+  return options;
+}
+
+// Claude's effective launch defaults, for the paths that are Claude by definition (fork, handoff
+// resume, plain resume). Deliberately WITHOUT a backendId: a resume must keep the backend the session
+// was recorded with (§5.11), so it must not be handed 'claude' here.
+async function resolveDefaultSessionOptions(project) {
+  const options = await resolveLaunchOptionsFor(project, 'claude');
+  delete options.backendId;
+  delete options.profileId;
   return options;
 }
 
@@ -431,63 +431,10 @@ async function launchTerminalSession(project, groupId, launcher = null) {
 // Owns the mode list, grid HTML, selection state, and click handling; callers
 // embed html() in their dialog markup, bind() the mounted grid element, and
 // applyTo() the launch options on confirm.
-const PERMISSION_MODES = [
-  { value: null, label: 'Default', desc: 'Prompt for all actions' },
-  { value: 'acceptEdits', label: 'Accept Edits', desc: 'Auto-accept file edits & common fs commands' },
-  { value: 'plan', label: 'Plan Mode', desc: 'Read-only exploration, no writes' },
-  { value: 'auto', label: 'Auto', desc: 'Auto-approve tool calls, background safety checks (preview)' },
-  { value: 'dontAsk', label: "Don't Ask", desc: 'Auto-deny tools unless pre-approved' },
-  { value: 'bypassPermissions', label: 'Bypass', desc: 'Skip all prompts except ask-rules & root/home removals' },
-];
-
-function createPermissionModePicker(effective) {
-  let selectedMode = effective.permissionMode || null;
-  let dangerousSkip = effective.dangerouslySkipPermissions || false;
-
-  const html = () =>
-    PERMISSION_MODES.map(m => {
-      const isSelected = !dangerousSkip && selectedMode === m.value;
-      return `<button class="permission-option${isSelected ? ' selected' : ''}" data-mode="${m.value}"><span class="perm-name">${m.label}</span><span class="perm-desc">${m.desc}</span></button>`;
-    }).join('') +
-    `<button class="permission-option dangerous${dangerousSkip ? ' selected' : ''}" data-mode="dangerous-skip"><span class="perm-name">Dangerous Skip</span><span class="perm-desc">Skip all safety prompts (use with caution)</span></button>`;
-
-  return {
-    html,
-    bind(gridEl) {
-      gridEl.addEventListener('click', (e) => {
-        const btn = e.target.closest('.permission-option');
-        if (!btn) return;
-        const mode = btn.dataset.mode;
-        if (mode === 'dangerous-skip') {
-          dangerousSkip = !dangerousSkip;
-          if (dangerousSkip) selectedMode = null;
-        } else {
-          dangerousSkip = false;
-          selectedMode = mode === 'null' ? null : mode;
-        }
-        gridEl.innerHTML = html();
-      });
-    },
-    applyTo(options) {
-      if (dangerousSkip) {
-        options.dangerouslySkipPermissions = true;
-      } else if (selectedMode) {
-        options.permissionMode = selectedMode;
-      }
-    },
-  };
-}
-
-// The Configure dialog for a backend whose launch options are its OWN (Axis-B: Codex, later Gemini).
-// It is GENERATED from the descriptor's `configFields` (00 §4a) and pre-filled from the effective
-// per-backend defaults (default → global → project), so a new backend needs no dialog code — it just
-// declares its schema. Claude (and every Axis-A profile, which runs the same binary with the same
-// options) keeps its purpose-built form below, which carries behaviour the generic schema doesn't
-// model (worktree naming, pre-launch command, AFK timeout).
 async function showGeneratedConfigDialog(project, groupId, backend) {
   const effective = await window.api.getEffectiveSettings(project.projectPath);
-  const saved = (effective.backendDefaults || {})[backend.id] || {};
-  const fields = backend.configFields || [];
+  const saved = storedDefaultsFor(effective, backend);
+  const fields = (schemaBackendOf(backend) || {}).configFields || [];
 
   const overlay = document.createElement('div');
   overlay.className = 'new-session-overlay';
@@ -500,7 +447,7 @@ async function showGeneratedConfigDialog(project, groupId, backend) {
     let control;
     if (f.type === 'select') {
       const opts = (f.choices || []).map(c =>
-        `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String(c))}</option>`
+        `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String((f.choiceLabels || {})[c] || c))}</option>`
       ).join('');
       control = `<select class="settings-select" id="${id}">${opts}</select>`;
     } else if (f.type === 'toggle') {
@@ -553,146 +500,21 @@ async function showGeneratedConfigDialog(project, groupId, backend) {
   document.addEventListener('keydown', onKey);
 }
 
+// The Configure dialog for a new session. Generated from the backend's `configFields` for EVERY
+// backend (00 §4a) — Claude used to have a purpose-built form here; its fields ARE its configFields
+// now, so the generic dialog shows them all, plus the ones the old form silently omitted (Model, IDE
+// emulation). A new backend needs no dialog code: it declares its schema.
 async function showNewSessionDialog(project, groupId, backendId) {
-  // An Axis-B binary has its own option schema -> generated dialog. Claude and Axis-A profiles share
-  // the claude binary (and therefore Claude's options) -> the purpose-built form below.
-  const backend = (backendId && window.getBackend) ? window.getBackend(backendId) : null;
-  if (backend && backend.axis === 'B') {
-    return showGeneratedConfigDialog(project, groupId, backend);
-  }
-
-  const effective = await window.api.getEffectiveSettings(project.projectPath);
-
-  const overlay = document.createElement('div');
-  overlay.className = 'new-session-overlay';
-
-  const dialog = document.createElement('div');
-  dialog.className = 'new-session-dialog';
-
-  const modePicker = createPermissionModePicker(effective);
-
-  dialog.innerHTML = `
-    <h3>New Session — ${escapeHtml(project.projectPath.split('/').filter(Boolean).slice(-2).join('/'))}</h3>
-    <div class="settings-field">
-      <div class="settings-label">Permission Mode</div>
-      <div class="permission-grid" id="nsd-mode-grid">${modePicker.html()}</div>
-    </div>
-    <div class="settings-field">
-      <div class="settings-field-info">
-        <span class="settings-label">Worktree</span>
-        <div class="settings-description">Run session in an isolated git worktree</div>
-      </div>
-      <div class="settings-field-control">
-        <input type="text" class="settings-input" id="nsd-worktree-name" placeholder="name (optional)" value="${escapeHtml(effective.worktreeName || '')}" style="width:140px">
-        <label class="settings-toggle"><input type="checkbox" id="nsd-worktree" ${effective.worktree ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-      </div>
-    </div>
-    <div class="settings-field">
-      <div class="settings-field-info">
-        <span class="settings-label">Chrome</span>
-        <div class="settings-description">Enable Chrome browser automation</div>
-      </div>
-      <div class="settings-field-control">
-        <label class="settings-toggle"><input type="checkbox" id="nsd-chrome" ${effective.chrome ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-      </div>
-    </div>
-    <div class="settings-field settings-field-wide">
-      <div class="settings-field-info">
-        <span class="settings-label">Pre-launch Command</span>
-        <div class="settings-description">Prepended to the claude command</div>
-      </div>
-      <div class="settings-field-control">
-        <input type="text" class="settings-input" id="nsd-pre-launch" placeholder="e.g. aws-vault exec profile --" value="${escapeHtml(effective.preLaunchCmd || '')}">
-      </div>
-    </div>
-    <div class="settings-field settings-field-wide">
-      <div class="settings-field-info">
-        <span class="settings-label">Additional Directories</span>
-        <div class="settings-description">Extra directories to include (comma-separated)</div>
-      </div>
-      <div class="settings-field-control">
-        <input type="text" class="settings-input" id="nsd-add-dirs" placeholder="/path/to/dir1, /path/to/dir2" value="${escapeHtml(effective.addDirs || '')}">
-      </div>
-    </div>
-    <div class="settings-field settings-field-wide">
-      <div class="settings-field-info">
-        <span class="settings-label">AskUserQuestion timeout (seconds)</span>
-        <div class="settings-description">Empty = inherit (project/global, Claude default 60). <code>0</code> = never auto-continue.</div>
-      </div>
-      <div class="settings-field-control">
-        <input type="text" class="settings-input" id="nsd-afk-timeout" placeholder="inherit" value="" style="width:140px">
-      </div>
-    </div>
-    <div class="new-session-actions">
-      <button class="new-session-cancel-btn">Cancel</button>
-      <button class="new-session-start-btn">Start</button>
-    </div>
-  `;
-
-  overlay.appendChild(dialog);
-  document.body.appendChild(overlay);
-
-  modePicker.bind(dialog.querySelector('#nsd-mode-grid'));
-
-  function close() {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
-  }
-
-  function start() {
-    const options = {};
-    modePicker.applyTo(options);
-    if (dialog.querySelector('#nsd-worktree').checked) {
-      options.worktree = true;
-      options.worktreeName = dialog.querySelector('#nsd-worktree-name').value.trim();
-    }
-    if (dialog.querySelector('#nsd-chrome').checked) {
-      options.chrome = true;
-    }
-    const preLaunch = dialog.querySelector('#nsd-pre-launch').value.trim();
-    if (preLaunch) options.preLaunchCmd = preLaunch;
-    options.addDirs = dialog.querySelector('#nsd-add-dirs').value.trim();
-    {
-      // Per-session AFK-timeout override; empty/negative/invalid → inherit (not set).
-      // 0 is a valid value (= off / never).
-      const raw = dialog.querySelector('#nsd-afk-timeout').value.trim();
-      const n = Number(raw);
-      if (raw !== '' && Number.isFinite(n) && n >= 0) options.afkTimeoutSec = String(Math.floor(n));
-    }
-    if (effective.mcpEmulation === false) options.mcpEmulation = false;
-    // Route the spawn to the chosen backend. Claude is the default; an Axis-A profile is just a
-    // backendId that also carries an env bundle, so record it as the profile too (§5.7).
-    if (backendId) {
-      options.backendId = backendId;
-      if (backend && backend.isProfile) options.profileId = backendId;
-    }
-    close();
-    launchNewSession(project, options, undefined, groupId);
-  }
-
-  dialog.querySelector('.new-session-cancel-btn').onclick = close;
-  dialog.querySelector('.new-session-start-btn').onclick = start;
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-
-  // Keyboard support
-  // close() removes this listener for every dismissal path (cancel, overlay,
-  // start, Esc, Enter) — never leak it, or a later stray Enter fires start()
-  // on the detached dialog and launches a ghost session (issue #75).
-  function onKey(e) {
-    if (e.key === 'Escape') close();
-    if (e.key === 'Enter' && !e.target.matches('input')) start();
-  }
-  document.addEventListener('keydown', onKey);
+  const backend = (backendId && window.getBackend ? window.getBackend(backendId) : null)
+    || (window.getBackend ? window.getBackend('claude') : null);
+  if (!backend) return;
+  return showGeneratedConfigDialog(project, groupId, backend);
 }
 
-// Resume-with-configure for a backend that has its OWN option schema (Axis-B: Codex). §5.11: resume
-// is binary-bound — it never offers a backend chooser and never changes where the session points; it
-// only adjusts that backend's configFields. Showing a Codex session Claude's permission-mode/Chrome
-// form would be the wrong schema for the wrong binary.
 async function showGeneratedResumeDialog(session, backend) {
   const effective = await window.api.getEffectiveSettings(session.projectPath);
-  const saved = (effective.backendDefaults || {})[backend.id] || {};
-  const fields = backend.configFields || [];
+  const saved = storedDefaultsFor(effective, backend);
+  const fields = (schemaBackendOf(backend) || {}).configFields || [];
   const sessionName = session.name || session.aiTitle || session.summary || String(session.sessionId).slice(0, 8);
 
   const overlay = document.createElement('div');
@@ -706,7 +528,7 @@ async function showGeneratedResumeDialog(session, backend) {
     let control;
     if (f.type === 'select') {
       const opts = (f.choices || []).map(c =>
-        `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String(c))}</option>`
+        `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String((f.choiceLabels || {})[c] || c))}</option>`
       ).join('');
       control = `<select class="settings-select" id="${id}">${opts}</select>`;
     } else if (f.type === 'toggle') {
@@ -760,104 +582,16 @@ async function showGeneratedResumeDialog(session, backend) {
   document.addEventListener('keydown', onKey);
 }
 
+// Resume-with-configure. §5.11: resume is binary-bound — no backend chooser, no endpoint change; it
+// only adjusts the recorded backend's own configFields. The dialog is generated from that schema for
+// EVERY backend, Claude included (00 §4a: "this replaces today's hardcoded Claude Configure form").
 async function showResumeSessionDialog(session) {
-  // An Axis-B session (Codex) has its own option schema -> generated form. Claude and Axis-A profiles
-  // share the claude binary and therefore Claude's options -> the purpose-built form below.
-  const backendId = window.sessionBackendId ? window.sessionBackendId(session) : 'claude';
-  const backend = window.getBackend ? window.getBackend(backendId) : null;
-  if (backend && backend.axis === 'B') {
-    return showGeneratedResumeDialog(session, backend);
-  }
-
-  const effective = await window.api.getEffectiveSettings(session.projectPath);
-
-  const overlay = document.createElement('div');
-  overlay.className = 'new-session-overlay';
-
-  const dialog = document.createElement('div');
-  dialog.className = 'new-session-dialog';
-
-  const modePicker = createPermissionModePicker(effective);
-
-  const sessionName = session.name || session.aiTitle || session.summary || session.sessionId.slice(0, 8);
-
-  dialog.innerHTML = `
-    <h3>Resume Session — ${escapeHtml(sessionName)}</h3>
-    <div class="settings-field">
-      <div class="settings-label">Permission Mode</div>
-      <div class="permission-grid" id="rsd-mode-grid">${modePicker.html()}</div>
-    </div>
-    <div class="settings-field">
-      <div class="settings-field-info">
-        <span class="settings-label">Chrome</span>
-        <div class="settings-description">Enable Chrome browser automation</div>
-      </div>
-      <div class="settings-field-control">
-        <label class="settings-toggle"><input type="checkbox" id="rsd-chrome" ${effective.chrome ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-      </div>
-    </div>
-    <div class="settings-field settings-field-wide">
-      <div class="settings-field-info">
-        <span class="settings-label">Pre-launch Command</span>
-        <div class="settings-description">Prepended to the claude command</div>
-      </div>
-      <div class="settings-field-control">
-        <input type="text" class="settings-input" id="rsd-pre-launch" placeholder="e.g. aws-vault exec profile --" value="${escapeHtml(effective.preLaunchCmd || '')}">
-      </div>
-    </div>
-    <div class="settings-field settings-field-wide">
-      <div class="settings-field-info">
-        <span class="settings-label">Additional Directories</span>
-        <div class="settings-description">Extra directories to include (comma-separated)</div>
-      </div>
-      <div class="settings-field-control">
-        <input type="text" class="settings-input" id="rsd-add-dirs" placeholder="/path/to/dir1, /path/to/dir2" value="${escapeHtml(effective.addDirs || '')}">
-      </div>
-    </div>
-    <div class="new-session-actions">
-      <button class="new-session-cancel-btn">Cancel</button>
-      <button class="new-session-start-btn">Resume</button>
-    </div>
-  `;
-
-  overlay.appendChild(dialog);
-  document.body.appendChild(overlay);
-
-  modePicker.bind(dialog.querySelector('#rsd-mode-grid'));
-
-  function close() {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
-  }
-
-  function resume() {
-    const options = {};
-    modePicker.applyTo(options);
-    if (dialog.querySelector('#rsd-chrome').checked) {
-      options.chrome = true;
-    }
-    const preLaunch = dialog.querySelector('#rsd-pre-launch').value.trim();
-    if (preLaunch) options.preLaunchCmd = preLaunch;
-    options.addDirs = dialog.querySelector('#rsd-add-dirs').value.trim();
-    if (effective.mcpEmulation === false) options.mcpEmulation = false;
-    close();
-    openSession(session, options);
-  }
-
-  dialog.querySelector('.new-session-cancel-btn').onclick = close;
-  dialog.querySelector('.new-session-start-btn').onclick = resume;
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-
-  // See showNewSessionDialog: close() owns listener removal for all paths.
-  function onKey(e) {
-    if (e.key === 'Escape') close();
-    if (e.key === 'Enter' && !e.target.matches('input')) resume();
-  }
-  document.addEventListener('keydown', onKey);
+  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || 'claude';
+  const backend = (window.getBackend ? window.getBackend(backendId) : null)
+    || (window.getBackend ? window.getBackend('claude') : null);
+  if (!backend) return;
+  return showGeneratedResumeDialog(session, backend);
 }
-
-// Settings viewer is in settings-panel.js (openSettingsViewer / closeSettingsViewer)
-// Global settings button & add project button bindings are in app.js (need DOM refs)
 
 function showAddProjectDialog() {
   const overlay = document.createElement('div');

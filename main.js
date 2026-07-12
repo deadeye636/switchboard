@@ -124,7 +124,7 @@ const {
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated, searchFtsRecreated,
-  getSetting, setSetting, deleteSetting,
+  getSetting, setSetting, deleteSetting, listSettings,
   listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
   closeDb,
@@ -1490,8 +1490,10 @@ ipcMain.handle('rebuild-cache', async () => {
   try {
     await populateCacheViaWorker();
     // A rebuild must cover EVERY backend's roots, not just Claude's (T-2.7 + T-4.2) — otherwise
-    // "Rebuild session cache" would silently drop the user's Codex/other-backend history.
-    try { refreshAllBackendSessions(); } catch (err) { log.warn('[rebuild] backend scan failed:', err?.message || err); }
+    // "Rebuild session cache" would silently drop the user's Codex/other-backend history. And it must
+    // FORCE the re-read: the reason to rebuild is that a row is wrong, and a wrong row's change marker
+    // matches just fine, so the normal (marker-gated) sweep would skip exactly the rows to repair.
+    try { refreshAllBackendSessions({ force: true }); } catch (err) { log.warn('[rebuild] backend scan failed:', err?.message || err); }
     return { ok: true };
   } catch (err) {
     console.error('Error rebuilding cache:', err);
@@ -2684,24 +2686,58 @@ ipcMain.handle('configure-attention-hook', (_event, enabled) => {
 // --- Scheduled tasks ---
 const scheduleIpc = require('./schedule-ipc');
 
+// NOTE: Claude's launch options (permissionMode, worktree, chrome, addDirs, preLaunchCmd,
+// mcpEmulation, afkTimeoutSec, …) are NOT here. They are a backend's launch options like any other
+// backend's and live under `backendDefaults.claude` (§4a) — see migrateClaudeLaunchDefaults below.
+// What remains here is what belongs to the app, not to a CLI.
 const SETTING_DEFAULTS = {
-  permissionMode: null,
-  dangerouslySkipPermissions: false,
-  worktree: false,
-  worktreeName: '',
-  chrome: false,
-  preLaunchCmd: '',
-  addDirs: '',
   visibleSessionCount: 5,
   sidebarWidth: 340,
   terminalTheme: 'switchboard',
-  mcpEmulation: false,
   shellProfile: 'auto',
   // T-2.5/T-3.7: the Terminal bucket's shell (in-app plain terminal + External Terminal).
   // 'inherit' = use the CLI shell (`shellProfile`) — the default, so behaviour is unchanged.
   terminalShellProfile: 'inherit',
   conptyBackend: 'bundled',
 };
+
+// Claude's launch options used to live at the top of the settings blob (Sessions & CLI). They are
+// launch options like any other backend's, so they now live where every backend's do:
+// `backendDefaults.claude.<opt>` (§4a). Move them once, per settings scope, and delete the old keys —
+// keeping both would recreate exactly the two-homes-one-setting trap this consolidates away.
+//
+// `dangerouslySkipPermissions` collapses into the permissionMode CHOICE 'dangerously-skip': the CLI
+// treats them as one decision (the skip flag wins over --permission-mode), so the schema models one
+// control, not two that can contradict each other.
+const LEGACY_CLAUDE_LAUNCH_KEYS = [
+  'permissionMode', 'dangerouslySkipPermissions', 'worktree', 'worktreeName',
+  'chrome', 'addDirs', 'preLaunchCmd', 'mcpEmulation', 'afkTimeoutSec',
+];
+
+function migrateClaudeLaunchDefaults() {
+  const scopes = [{ key: 'global', value: getSetting('global') }, ...listSettings('project:')];
+  let moved = 0;
+  for (const scope of scopes) {
+    const blob = scope.value;
+    if (!blob || typeof blob !== 'object') continue;
+    if (blob.backendDefaults && blob.backendDefaults.claude) continue;            // already migrated
+    if (!LEGACY_CLAUDE_LAUNCH_KEYS.some(k => blob[k] !== undefined)) continue;    // nothing to move
+
+    const claude = {};
+    for (const k of LEGACY_CLAUDE_LAUNCH_KEYS) {
+      const v = blob[k];
+      if (v === undefined || v === null) continue;
+      if (k === 'dangerouslySkipPermissions') { if (v) claude.permissionMode = 'dangerously-skip'; continue; }
+      if (k === 'permissionMode' && claude.permissionMode === 'dangerously-skip') continue;   // skip wins
+      claude[k] = v;
+    }
+    const next = { ...blob, backendDefaults: { ...(blob.backendDefaults || {}), claude } };
+    for (const k of LEGACY_CLAUDE_LAUNCH_KEYS) delete next[k];
+    setSetting(scope.key, next);
+    moved++;
+  }
+  if (moved) log.info(`[settings] moved Claude's launch options into backendDefaults.claude (${moved} scope(s))`);
+}
 
 // Cascade all settings: default → global → project; null/undefined mean
 // "inherit". Single implementation for the get-effective-settings IPC, the
@@ -2714,6 +2750,13 @@ function effectiveSettings(projectPath) {
     if (global[key] !== undefined && global[key] !== null) effective[key] = global[key];
     if (project[key] !== undefined && project[key] !== null) effective[key] = project[key];
   }
+  // Per-backend launch defaults (§4a). NOT a SETTING_DEFAULTS key — it is a nested blob, and the
+  // Settings panel treats it as one unit ("use global default" is per project, not per option). It
+  // MUST be cascaded here: this IPC is where the renderer reads the defaults a plain launch uses, so
+  // leaving it out silently launched every backend with no defaults at all.
+  effective.backendDefaults = (project.backendDefaults && Object.keys(project.backendDefaults).length)
+    ? project.backendDefaults
+    : (global.backendDefaults || {});
   return effective;
 }
 
@@ -2940,6 +2983,9 @@ ipcMain.handle('backends-list', () => {
       id: b.id, label: b.label, tier: b.tier, axis: b.axis, status: b.status,
       enabled: !!b.enabled, isProfile: !!b.isProfile, icon: b.icon || null,
       monogram: b.monogram || null, colour: b.colour || null, configFields: b.configFields || [],
+      // Is the binary actually installed? Settings shows the reason instead of letting the user enable
+      // a backend whose first launch then dies with a raw shell error.
+      available: b.available !== false, unavailableReason: b.unavailableReason || null,
     })),
     defaultLaunchTarget: backends.getDefaultLaunchTarget(),
   };
@@ -3048,7 +3094,22 @@ async function readJsonlEntries(jsonlPath) {
 }
 
 ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
-  const folder = getCachedFolder(sessionId);
+  const row = getCachedSession(sessionId);
+  if (!row) return { error: 'Session not found in cache' };
+
+  // Only Claude's transcripts live at PROJECTS_DIR/<folder>/<id>.jsonl. Another file backend records
+  // its own absolute path (v11) — reconstructing Claude's layout for it would read the wrong file (or,
+  // for a db-store backend like Hermes, no file at all: it has none, so say that instead of throwing
+  // an ENOENT at the user).
+  if (row.filePath) return readJsonlEntries(row.filePath);
+  // An Axis-A profile runs the same binary into the same store, so it reads like Claude. Only an
+  // Axis-B backend owns a store of its own.
+  const backendId = row.backendId || 'claude';
+  const b = backends.get(backendId);
+  if (b && b.axis === 'B') {
+    return { error: `${b.label || backendId} keeps this session in its own store, not in a transcript file — there is nothing to show here.` };
+  }
+  const folder = row.folder || getCachedFolder(sessionId);
   if (!folder) return { error: 'Session not found in cache' };
   return readJsonlEntries(path.join(PROJECTS_DIR, folder, sessionId + '.jsonl'));
 });
@@ -3245,6 +3306,9 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
 
   let ptyProcess;
   let mcpServer = null;
+  // Set inside the backend branch below (where the descriptor is in scope) and consumed after the
+  // session object exists — a backend may warn that it takes a while to become usable.
+  let startupHint = null;
   try {
     if (isPlainTerminal) {
       // Plain terminal: interactive login shell, no claude command. Override `claude`
@@ -3338,6 +3402,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         }
       }
       const backend = backends.get(sessionOptions?.backendId || recorded?.backendId || 'claude') || backends.get('claude');
+      startupHint = backend.startupHint || null;
 
       // §5.8 guard: only a `ready` (built) AND `enabled` (user-activated) backend may ever spawn. A
       // `planned` binary or a disabled backend is rejected here, before any PTY exists — the picker
@@ -3345,6 +3410,18 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       if (!backends.isLaunchable(backend.id)) {
         const why = backend.status === 'planned' ? 'is not built yet' : 'is disabled';
         return { ok: false, error: `Backend '${backend.label || backend.id}' ${why}.` };
+      }
+
+      // Availability: a backend may declare that its binary is missing. Without this the user gets a
+      // raw `'hermes' is not recognized...` from the shell inside a terminal tab, with no hint what to
+      // install — the descriptor already knows the answer, so say it here instead of spawning.
+      if (typeof backend.probe === 'function') {
+        let avail;
+        try { avail = backend.probe(); } catch (err) { avail = { ok: false, reason: err?.message || String(err) }; }
+        if (avail && avail.ok === false) {
+          log.info(`[spawn] backend=${backend.id} unavailable: ${avail.reason}`);
+          return { ok: false, error: avail.reason || `${backend.label || backend.id} is not available.` };
+        }
       }
 
       const launch = backend.buildLaunch({
@@ -3410,9 +3487,13 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       // Per-session AskUserQuestion timeout (#51): cascade session > project >
       // global, empty = inherit. Only inject when a value is actually set so an
       // unset field leaves Claude's built-in default (60s) in place.
+      // The project/global halves now come from backendDefaults.claude (§4a), where every backend's
+      // launch options live; the session half still overrides both.
       {
-        const g = getSetting('global') || {};
-        const p = projectPath ? (getSetting('project:' + projectPath) || {}) : {};
+        const g = ((getSetting('global') || {}).backendDefaults || {}).claude || {};
+        const p = projectPath
+          ? (((getSetting('project:' + projectPath) || {}).backendDefaults || {}).claude || {})
+          : {};
         const sec = resolveAfkTimeoutSec(sessionOptions?.afkTimeoutSec, p.afkTimeoutSec, g.afkTimeoutSec);
         const afkMs = afkTimeoutToEnvMs(sec);
         if (afkMs != null) {
@@ -3464,6 +3545,19 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     mcpServer, _openedAt: Date.now(),
   };
   activeSessions.set(sessionId, session);
+
+  // A backend may warn that it takes a while to become usable (Hermes needs ~12s to load its Python
+  // stack). Without a word the tab just sits black and reads as broken. Write the hint straight into
+  // the session's buffer, so it also survives a detach/reattach — the binary's own output scrolls it
+  // away the moment it starts talking.
+  if (startupHint) {
+    const hint = `\x1b[2m${String(startupHint).replace(/[\r\n]+/g, ' ')}\x1b[0m\r\n`;
+    session.outputBuffer.push(hint);
+    session.outputBufferSize += hint.length;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('terminal-data', sessionId, hint);
+    }
+  }
 
   ptyProcess.onData(data => {
     // ConPTY flushes buffered output asynchronously after pty.kill(), so a last
@@ -3915,6 +4009,19 @@ function claimLiveRecord(sessionId, session, backend) {
   const existing = liveStoreRef.get(sessionId);
   if (existing) return existing;
 
+  // RESUME: our id already IS the backend's id, so there is nothing to correlate — just confirm the
+  // record exists. This must come first: `matchLiveSession` only accepts records born after the spawn,
+  // and a resumed session's record is by definition older, so correlation could never claim it — but it
+  // WOULD happily claim the next new session's record in the same cwd and collapse two tabs onto one id.
+  if (typeof backend.liveRefFor === 'function') {
+    let ownRef = null;
+    try { ownRef = backend.liveRefFor(sessionId); } catch { ownRef = null; }
+    if (ownRef) {
+      liveStoreRef.set(sessionId, ownRef);
+      return ownRef;
+    }
+  }
+
   const claimed = new Set(liveStoreRef.values());
   // Small grace window: the store record appears just AFTER we spawn the process.
   const sinceMs = (session._openedAt || 0) - 10000;
@@ -3957,7 +4064,15 @@ function claimLiveRecord(sessionId, session, backend) {
 function updateBackendLiveStates() {
   // Snapshot: claimLiveRecord may re-key a session, which mutates activeSessions mid-iteration.
   for (const [sessionId, session] of [...activeSessions]) {
-    if (session.exited || session.isPlainTerminal) continue;
+    if (session.exited) {
+      // Drop the claim so the maps don't grow for the life of the app (and so a re-launched session
+      // re-claims cleanly instead of inheriting a dead ref).
+      const liveId = session.realSessionId || sessionId;
+      liveStoreRef.delete(sessionId); liveStoreRef.delete(liveId);
+      liveBusy.delete(sessionId); liveBusy.delete(liveId);
+      continue;
+    }
+    if (session.isPlainTerminal) continue;
 
     const mapped = sessionBackends.get(session.realSessionId || sessionId);
     if (!mapped) continue;
@@ -4160,6 +4275,11 @@ if (!gotSingleInstanceLock) {
     // Wipe any secret-ref temp files left behind by a previous run that didn't
     // quit cleanly (crash) — plaintext must not survive a restart.
     try { cleanupSecretRefs(); } catch {}
+    // One-time: Claude's launch options move from the settings root into backendDefaults.claude.
+    // Runs before any window reads settings, so the panel never sees the half-migrated shape.
+    try { migrateClaudeLaunchDefaults(); } catch (err) {
+      log.warn('[settings] Claude launch-defaults migration failed:', err?.message || err);
+    }
     // Set Content Security Policy
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       callback({

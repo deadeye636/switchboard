@@ -27,15 +27,36 @@ function setRoots(roots) {
 // The per-CLI launch-option schema (00 §4a) — drives the generated Configure dialog (T-3.8) and the
 // per-backend "Launch defaults" panel (T-2.6). Declarative only in Phase 1; buildLaunch below keeps
 // today's exact two-field permission logic for byte-identical Claude behaviour.
+// Claude's launch options — the schema the Settings "Launch defaults" panel and the Configure dialog
+// are both generated from (§4a). These option ids are the ones the spawn path already speaks, so a
+// stored default and a one-off override are the same vocabulary.
+//
+// `dangerously-skip` is a CHOICE of permissionMode here rather than a separate boolean: they are
+// mutually exclusive in the CLI (`--dangerously-skip-permissions` wins over `--permission-mode`), and
+// two controls for one decision is how you end up with a UI that can express "plan AND skip".
 const configFields = [
+  // The full set the CLI accepts (as offered by the old Sessions & CLI form), plus the skip flag as a
+  // mutually-exclusive choice. 'default' = send no --permission-mode at all.
   { id: 'permissionMode', label: 'Permission mode', type: 'select',
-    choices: ['default', 'plan', 'acceptEdits', 'dangerously-skip'], default: 'default' },
+    choices: ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions', 'dangerously-skip'],
+    choiceLabels: {
+      'default': 'Default — ask each time',
+      'acceptEdits': 'Accept Edits — auto file edits',
+      'plan': 'Plan — read-only',
+      'auto': 'Auto — auto-approve (preview)',
+      'dontAsk': "Don't Ask — auto-deny unless allowed",
+      'bypassPermissions': 'Bypass — skip all prompts',
+      'dangerously-skip': 'Dangerous Skip — skip every safety prompt',
+    },
+    default: 'default' },
   { id: 'model', label: 'Model', type: 'text', default: '' },
   { id: 'worktree', label: 'Git worktree', type: 'toggle', default: false },
+  { id: 'worktreeName', label: 'Worktree branch name', type: 'text', default: '' },
   { id: 'chrome', label: 'Chrome', type: 'toggle', default: false },
   { id: 'addDirs', label: 'Additional directories', type: 'text', default: '' },
   { id: 'preLaunchCmd', label: 'Pre-launch command', type: 'text', default: '' },
-  { id: 'afkTimeout', label: 'AskUserQuestion timeout (s)', type: 'number', default: '' },
+  { id: 'mcpEmulation', label: 'IDE emulation (MCP bridge)', type: 'toggle', default: true },
+  { id: 'afkTimeoutSec', label: 'AskUserQuestion timeout (s)', type: 'number', default: '' },
 ];
 
 // Build the Claude argv exactly as main.js:3052-3086 does today. Returns a clean argv array (the
@@ -55,9 +76,13 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
     args.push('--resume', String(sessionId));
   }
 
-  if (opts.dangerouslySkipPermissions) {
+  // The descriptor owns the translation (§4a). `permissionMode: 'dangerously-skip'` is the schema's way
+  // of saying it; `dangerouslySkipPermissions: true` is the legacy shape the Configure dialog and older
+  // stored sessions still send. Both mean the same flag, and neither combines with --permission-mode.
+  const skip = opts.dangerouslySkipPermissions || opts.permissionMode === 'dangerously-skip';
+  if (skip) {
     args.push('--dangerously-skip-permissions');
-  } else if (opts.permissionMode) {
+  } else if (opts.permissionMode && opts.permissionMode !== 'default') {
     args.push('--permission-mode', String(opts.permissionMode));
   }
   // `model` is declared in configFields (and settable as a per-backend launch default), so it must

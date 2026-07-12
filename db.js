@@ -1518,6 +1518,15 @@ function deleteSetting(key) {
   runWithBusyRetry(() => stmts.settingsDelete.run(key));
 }
 
+/** Every settings blob whose key starts with `prefix` (e.g. 'project:'), parsed. */
+function listSettings(prefix) {
+  return stmts.settingsByPrefix.all(prefix + '%').map(row => {
+    let value;
+    try { value = JSON.parse(row.value); } catch { value = null; }
+    return { key: row.key, value };
+  });
+}
+
 // --- Saved variable functions ---
 
 function parseSavedVariableTags(tags) {
@@ -1721,7 +1730,7 @@ module.exports = {
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated, searchFtsRecreated,
-  getSetting, setSetting, deleteSetting,
+  getSetting, setSetting, deleteSetting, listSettings,
   listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   getDailyActivity,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,

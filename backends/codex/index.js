@@ -137,6 +137,24 @@ function matchLiveSession({ cwd, sinceMs, claimed } = {}) {
   return best;
 }
 
+/**
+ * The RESUME half of the seam. `matchLiveSession` only considers records BORN after the spawn, which a
+ * resumed session's rollout never is — it already existed. So a resumed session would never claim its
+ * own record (no busy/idle, and a re-scan of the whole store on every watcher flush), and the stale
+ * claim could later adopt the id of the next NEW session in the same cwd. On resume we already hold
+ * Codex's own id: just locate that rollout.
+ */
+function liveRefFor(sessionId) {
+  if (!sessionId) return null;
+  // The rollout filename ends in the session's UUID (`rollout-<ts>-<uuid>.jsonl`) — matching on it costs
+  // a readdir, where parsing every rollout to read session_meta would cost the whole store.
+  const suffix = `-${String(sessionId).toLowerCase()}.jsonl`;
+  for (const handle of discoverSessions()) {
+    if (handle.path && handle.path.toLowerCase().endsWith(suffix)) return handle.path;
+  }
+  return null;
+}
+
 /** Busy/idle for a live session, from the store record `matchLiveSession` returned. */
 function liveState(ref) {
   return deriveStateFromFileTail(ref);
@@ -160,6 +178,7 @@ module.exports = {
   deriveState,
   deriveStateFromFileTail,
   matchLiveSession,
+  liveRefFor,
   liveState,
   setHome,
   sessionsRoot,

@@ -241,6 +241,27 @@ test('matchLiveSession: ignores sessions that predate the launch', () => {
   assert.strictEqual(match, null, 'an older session belongs to a previous run');
 });
 
+// The RESUME half of the seam. `matchLiveSession` deliberately ignores records that predate the launch
+// — which is EVERY record a resume continues. Without `liveRefFor`, a resumed session could never claim
+// its own row (no busy/idle, a full-store search on every watcher tick), and the stale claim would later
+// adopt the id of the next NEW session in the same cwd, folding two tabs onto one identity.
+test('liveRefFor: a resumed session claims its OWN row, however old it is', () => {
+  useFixture();
+  assert.strictEqual(hermes.liveRefFor('sess-cli-1'), 'sess-cli-1');
+  // The same id via matchLiveSession is impossible once the launch is newer than the row:
+  const viaMatch = hermes.matchLiveSession({
+    cwd: 'D:\\Projekte\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set(),
+  });
+  assert.strictEqual(viaMatch, null, 'correlation cannot find it — which is exactly why liveRefFor exists');
+});
+
+test('liveRefFor: an id the store does not know claims nothing', () => {
+  useFixture();
+  // A NEW session runs under an id we invented; it must fall through to correlation, not claim a row.
+  assert.strictEqual(hermes.liveRefFor('7eecde0f-472e-4d37-a901-71a2fbc4bdb5'), null);
+  assert.strictEqual(hermes.liveRefFor(null), null);
+});
+
 test('liveState: reads busy/idle straight from the session row', () => {
   useFixture();
   assert.strictEqual(hermes.liveState('sess-cli-1'), 'idle', 'a finished session');

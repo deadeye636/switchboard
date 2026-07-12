@@ -193,6 +193,36 @@ test('the cost legend appears only once some backend reports a cost', () => {
     'a Claude-only user never sees a cost legend');
 });
 
+test('a ZERO estimate is not reported as a cost at all', () => {
+  // The live Hermes run produced exactly this: estimated_cost_usd = 0 on a session with real token
+  // usage. That means "no pricing for this model", not "free" — printing "~$0.00" would invent a fact.
+  const window = setup([{
+    projectPath: '/p',
+    sessions: [{
+      sessionId: 'h1', backendId: 'hermes', messageCount: 6, inputTokens: 900, outputTokens: 300,
+      estimatedCostUsd: 0, actualCostUsd: null, costStatus: 'estimated', lineageParentId: null,
+    }],
+  }]);
+  const card = Array.from(window.document.querySelectorAll('.backend-stat-card'))
+    .find(c => c.textContent.includes('Hermes'));
+  assert.ok(card.querySelector('.backend-cost-none'), 'reads as "no cost reported"');
+  assert.equal(card.querySelector('.backend-cost'), null);
+  assert.ok(!card.textContent.includes('$0.00'));
+  assert.equal(window.document.querySelector('.backend-cost-legend'), null,
+    'and a zero estimate does not conjure the cost legend');
+});
+
+test('a SETTLED zero is kept — a backend saying "this cost nothing" is a real statement', () => {
+  const window = setup([{
+    projectPath: '/p',
+    sessions: [{
+      sessionId: 'h1', backendId: 'hermes', messageCount: 2,
+      estimatedCostUsd: null, actualCostUsd: 0, costStatus: 'actual', lineageParentId: null,
+    }],
+  }]);
+  assert.equal(window.document.querySelector('.backend-stat-card .backend-cost').textContent, '$0.00');
+});
+
 test('sub-cent cost does not collapse to $0.00', () => {
   const window = setup([{
     projectPath: '/p',

@@ -386,14 +386,6 @@
     }
 
     const displayNameValue = isProject && typeof current.displayName === 'string' ? current.displayName : '';
-    const permModeValue = fieldValue('permissionMode', '');
-    const dangerousSkipValue = fieldValue('dangerouslySkipPermissions', false);
-    const worktreeValue = fieldValue('worktree', false);
-    const worktreeNameValue = fieldValue('worktreeName', '');
-    const chromeValue = fieldValue('chrome', false);
-    const preLaunchValue = fieldValue('preLaunchCmd', '');
-    const addDirsValue = fieldValue('addDirs', '');
-    const afkTimeoutValue = fieldValue('afkTimeoutSec', '');
     // Normalize an AFK-timeout input into stored form ('' | non-negative int).
     // 0 is kept (means off / never); empty / negative / non-numeric → '' (inherit).
     const normalizeAfk = (raw) => {
@@ -448,7 +440,6 @@
     const tabAutoCloseModeValue = fieldValue('tabAutoCloseMode', 'always');
     const tabAutoCloseDelayValue = fieldValue('tabAutoCloseDelaySec', 5);
     const tabsLiveRenderValue = fieldValue('tabsLiveRender', true);
-    const mcpEmulationValue = fieldValue('mcpEmulation', true);
     const restoreSessionsValue = fieldValue('restoreSessionsOnLaunch', true);
     const attentionHooksValue = fieldValue('attentionHooks', false);
     const secretRefCleanupValue = fieldValue('secretRefCleanupOnSessionStop', true);
@@ -544,124 +535,6 @@
             </div>
           </div>
         </div>
-        <div class="settings-section">
-          <div class="settings-section-title">Claude CLI Options</div>
-
-          <div class="settings-field">
-            <div class="settings-field-info">
-              <div class="settings-field-header">
-                <span class="settings-label">Permission Mode</span>
-                ${useGlobalCheckbox('permissionMode')}
-              </div>
-              <div class="settings-description">Permission mode passed to the <code>claude</code> command.</div>
-            </div>
-            <div class="settings-field-control">
-              <select class="settings-select" id="sv-perm-mode" ${fieldDisabled('permissionMode')}>
-                <option value="">Default — ask each time</option>
-                <option value="acceptEdits" ${permModeValue === 'acceptEdits' ? 'selected' : ''}>Accept Edits — auto file edits</option>
-                <option value="plan" ${permModeValue === 'plan' ? 'selected' : ''}>Plan — read-only</option>
-                <option value="auto" ${permModeValue === 'auto' ? 'selected' : ''}>Auto — auto-approve (preview)</option>
-                <option value="dontAsk" ${permModeValue === 'dontAsk' ? 'selected' : ''}>Don't Ask — auto-deny unless allowed</option>
-                <option value="bypassPermissions" ${permModeValue === 'bypassPermissions' ? 'selected' : ''}>Bypass — skip all prompts</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="settings-field">
-            <div class="settings-field-info">
-              <div class="settings-field-header">
-                <span class="settings-label">Dangerous Skip</span>
-                ${useGlobalCheckbox('dangerouslySkipPermissions')}
-              </div>
-              <div class="settings-description">Start every new session with <code>--dangerously-skip-permissions</code> — skips all permission prompts (same effect as Bypass) and overrides Permission Mode. Use with extreme caution.</div>
-            </div>
-            <div class="settings-field-control">
-              <label class="settings-toggle"><input type="checkbox" id="sv-dangerous-skip" ${dangerousSkipValue ? 'checked' : ''} ${fieldDisabled('dangerouslySkipPermissions')}><span class="settings-toggle-slider"></span></label>
-            </div>
-          </div>
-
-          <div class="settings-field">
-            <div class="settings-field-info">
-              <div class="settings-field-header">
-                <span class="settings-label">Worktree</span>
-                ${useGlobalCheckbox('worktree')}
-              </div>
-              <div class="settings-description">Enable worktree for new sessions</div>
-            </div>
-            <div class="settings-field-control">
-              <label class="settings-toggle"><input type="checkbox" id="sv-worktree" ${worktreeValue ? 'checked' : ''} ${fieldDisabled('worktree')}><span class="settings-toggle-slider"></span></label>
-            </div>
-          </div>
-
-          <div class="settings-field">
-            <div class="settings-field-info">
-              <div class="settings-field-header">
-                <span class="settings-label">Worktree Name</span>
-                ${useGlobalCheckbox('worktreeName')}
-              </div>
-              <div class="settings-description">Custom name for worktree branches</div>
-            </div>
-            <div class="settings-field-control">
-              <input type="text" class="settings-input" id="sv-worktree-name" placeholder="auto" value="${escapeHtml(worktreeNameValue)}" ${fieldDisabled('worktreeName')} style="width:140px">
-            </div>
-          </div>
-
-          <div class="settings-field">
-            <div class="settings-field-info">
-              <div class="settings-field-header">
-                <span class="settings-label">Chrome</span>
-                ${useGlobalCheckbox('chrome')}
-              </div>
-              <div class="settings-description">Enable Chrome browser automation</div>
-            </div>
-            <div class="settings-field-control">
-              <label class="settings-toggle"><input type="checkbox" id="sv-chrome" ${chromeValue ? 'checked' : ''} ${fieldDisabled('chrome')}><span class="settings-toggle-slider"></span></label>
-            </div>
-          </div>
-
-          <div class="settings-field settings-field-wide">
-            <div class="settings-field-info">
-              <div class="settings-field-header">
-                <span class="settings-label">Additional Directories</span>
-                ${useGlobalCheckbox('addDirs')}
-              </div>
-              <div class="settings-description">Extra directories to include in Claude sessions</div>
-            </div>
-            <div class="settings-field-control">
-              <input type="text" class="settings-input" id="sv-add-dirs" placeholder="/path/to/dir1, /path/to/dir2" value="${escapeHtml(addDirsValue)}" ${fieldDisabled('addDirs')}>
-            </div>
-          </div>
-        </div>
-
-        <div class="settings-section">
-          <div class="settings-section-title">Session Launch</div>
-
-          <div class="settings-field settings-field-wide">
-            <div class="settings-field-info">
-              <div class="settings-field-header">
-                <span class="settings-label">Pre-launch Command</span>
-                ${useGlobalCheckbox('preLaunchCmd')}
-              </div>
-              <div class="settings-description">Prepended to the claude command (e.g. "aws-vault exec profile --")</div>
-            </div>
-            <div class="settings-field-control">
-              <input type="text" class="settings-input" id="sv-pre-launch" placeholder="e.g. aws-vault exec profile --" value="${escapeHtml(preLaunchValue)}" ${fieldDisabled('preLaunchCmd')}>
-            </div>
-          </div>
-
-          <div class="settings-field settings-field-wide">
-            <div class="settings-field-info">
-              <div class="settings-field-header">
-                <span class="settings-label">AskUserQuestion timeout (seconds)</span>
-                ${useGlobalCheckbox('afkTimeoutSec')}
-              </div>
-              <div class="settings-description">Seconds before Claude auto-continues an unanswered AskUserQuestion. Empty = Claude default (60). <code>0</code> = never auto-continue. Applies only to Switchboard-started sessions.</div>
-            </div>
-            <div class="settings-field-control">
-              <input type="text" class="settings-input" id="sv-afk-timeout" placeholder="inherit / default (60)" value="${escapeHtml(afkTimeoutValue)}" ${fieldDisabled('afkTimeoutSec')} style="width:140px">
-            </div>
-          </div>
-        </div>
 
         <div class="settings-section">
           <div class="settings-section-title">Shells</div>
@@ -721,7 +594,7 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7a7a90" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
             <input id="sv-search" type="text" placeholder="Search settings…" autocomplete="off">
           </div>
-          <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">13</span></button>
+          <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">5</span></button>
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">7</span></button>
@@ -732,6 +605,7 @@
           <button class="settings-nav-item" data-cat="shortcuts">Keyboard Shortcuts <span class="settings-nav-count">${SHORTCUT_DEFS.length}</span></button>
           <button class="settings-nav-item" data-cat="handoff">Handoff <span class="settings-nav-count">2</span></button>
           <div class="settings-nav-sep"></div>
+          <button class="settings-nav-item" data-cat="maintenance">Maintenance</button>
           <button class="settings-nav-item" data-cat="about">About</button>
         </nav>
 
@@ -744,42 +618,6 @@
               <div class="settings-cat-head"><h2>Sessions &amp; CLI</h2><p>How Claude launches and what it may touch.</p></div>
 
               <div class="settings-section">
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Permission Mode</span>${help}</div>
-                    <div class="settings-description">How much Claude asks before acting. "Accept Edits" takes file edits automatically — risky commands still prompt.</div>
-                    <div class="settings-more">Passed to the <code>claude</code> command. <b>Default</b>: asks before each action. <b>Accept Edits</b>: auto-accepts file edits and common filesystem commands. <b>Plan</b>: read-only, proposes a plan first. <b>Auto</b>: auto-approves tool calls with background safety checks (research preview). <b>Don't Ask</b>: auto-denies tools unless pre-approved. <b>Bypass</b>: skips all prompts except explicit ask rules and root/home removals — use with care.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <select class="settings-select" id="sv-perm-mode">
-                      <option value="">Default — ask each time</option>
-                      <option value="acceptEdits" ${permModeValue === 'acceptEdits' ? 'selected' : ''}>Accept Edits — auto file edits</option>
-                      <option value="plan" ${permModeValue === 'plan' ? 'selected' : ''}>Plan — read-only</option>
-                      <option value="auto" ${permModeValue === 'auto' ? 'selected' : ''}>Auto — auto-approve (preview)</option>
-                      <option value="dontAsk" ${permModeValue === 'dontAsk' ? 'selected' : ''}>Don't Ask — auto-deny unless allowed</option>
-                      <option value="bypassPermissions" ${permModeValue === 'bypassPermissions' ? 'selected' : ''}>Bypass — skip all prompts</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Dangerous Skip</span>${help}</div>
-                    <div class="settings-description">Start every new session with <code>--dangerously-skip-permissions</code> — skips all permission prompts (same effect as Bypass) and overrides Permission Mode. Use with extreme caution.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-dangerous-skip" ${dangerousSkipValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">IDE emulation</span>${help}</div>
-                    <div class="settings-description">Let Claude open files and diffs in a side panel. Off = use your own editor.</div>
-                    <div class="settings-more">Emulates an IDE so Claude can open files and diffs in a side panel. Disable to use your own IDE instead. Changes take effect for new sessions only.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-mcp-emulation" ${mcpEmulationValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-                  </div>
-                </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Restore sessions on launch</span>${help}</div>
@@ -835,81 +673,13 @@
                 </div>
               </div>
 
-              <div class="settings-section">
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Worktree</span>
-                    <div class="settings-description">Run new sessions in a separate git worktree.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-worktree" ${worktreeValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Worktree branch name</span>
-                    <div class="settings-description">Blank = generated automatically.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="text" class="settings-input" id="sv-worktree-name" placeholder="auto" value="${escapeHtml(worktreeNameValue)}" style="width:140px">
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Chrome automation</span>
-                    <div class="settings-description">Allow Claude to drive a Chrome browser.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-chrome" ${chromeValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-                  </div>
-                </div>
-                <div class="settings-field settings-field-wide">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Additional directories</span>
-                    <div class="settings-description">Extra folders Claude may read outside the project.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="text" class="settings-input" id="sv-add-dirs" placeholder="/path/to/dir1, /path/to/dir2" value="${escapeHtml(addDirsValue)}">
-                  </div>
-                </div>
-                <div class="settings-field settings-field-wide">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Pre-launch command</span>
-                    <div class="settings-description">Runs before <code>claude</code>, e.g. <code>aws-vault exec profile --</code>.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="text" class="settings-input" id="sv-pre-launch" placeholder="e.g. aws-vault exec profile --" value="${escapeHtml(preLaunchValue)}">
-                  </div>
-                </div>
-                <div class="settings-field settings-field-wide">
-                  <div class="settings-field-info">
-                    <span class="settings-label">AskUserQuestion timeout (seconds)</span>
-                    <div class="settings-description">Seconds before Claude auto-continues an unanswered AskUserQuestion. Empty = default (60). <code>0</code> = never auto-continue. Applies only to Switchboard-started sessions.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="text" class="settings-input" id="sv-afk-timeout" placeholder="default (60)" value="${escapeHtml(afkTimeoutValue)}" style="width:140px">
-                  </div>
-                </div>
-              </div>
 
-              <details class="settings-adv">
-                <summary>${advChev}Advanced</summary>
-                <div class="settings-section">
-                  <div class="settings-field">
-                    <div class="settings-field-info">
-                      <div class="settings-field-header"><span class="settings-label">Claude Code hooks for attention</span>${help}</div>
-                      <div class="settings-description">More reliable attention detection than the terminal check alone.</div>
-                      <div class="settings-more">Catches permission and tool prompts the terminal heuristic can miss. Adds a reversible HTTP hook to <code>~/.claude/settings.json</code>; turning this off removes it again. OSC-9 detection keeps working either way.</div>
-                    </div>
-                    <div class="settings-field-control">
-                      <label class="settings-toggle"><input type="checkbox" id="sv-attention-hooks" ${attentionHooksValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-                    </div>
-                  </div>
-                </div>
-              </details>
+            </section>
 
+            <!-- ===== Maintenance (own category; export/import lands here next) ===== -->
+            <section class="settings-cat" data-cat="maintenance">
+              <div class="settings-cat-head"><h2>Maintenance</h2><p>Repair and move your Switchboard data.</p></div>
               <div class="settings-section">
-                <div class="settings-section-title">Maintenance</div>
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Rebuild session cache</span>
@@ -1662,15 +1432,9 @@
     settingsViewerBody.querySelectorAll('.use-global-cb').forEach(cb => {
       cb.addEventListener('change', () => {
         const field = cb.dataset.field;
+        // Claude's launch options are NOT here any more — they live in Settings → Backends → Claude →
+        // Launch defaults, like every other backend's (backendDefaults.<id>, §4a).
         const fieldMap = {
-          permissionMode: 'sv-perm-mode',
-          dangerouslySkipPermissions: 'sv-dangerous-skip',
-          worktree: 'sv-worktree',
-          worktreeName: 'sv-worktree-name',
-          chrome: 'sv-chrome',
-          preLaunchCmd: 'sv-pre-launch',
-          addDirs: 'sv-add-dirs',
-          afkTimeoutSec: 'sv-afk-timeout',
           shellProfile: 'sv-shell-profile',
           terminalShellProfile: 'sv-terminal-shell-profile',
         };
@@ -1935,14 +1699,6 @@
           if (!cb.checked) {
             const field = cb.dataset.field;
             const fieldMap = {
-              permissionMode: () => settingsViewerBody.querySelector('#sv-perm-mode').value || null,
-              dangerouslySkipPermissions: () => settingsViewerBody.querySelector('#sv-dangerous-skip').checked,
-              worktree: () => settingsViewerBody.querySelector('#sv-worktree').checked,
-              worktreeName: () => settingsViewerBody.querySelector('#sv-worktree-name').value.trim(),
-              chrome: () => settingsViewerBody.querySelector('#sv-chrome').checked,
-              preLaunchCmd: () => settingsViewerBody.querySelector('#sv-pre-launch').value.trim(),
-              addDirs: () => settingsViewerBody.querySelector('#sv-add-dirs').value.trim(),
-              afkTimeoutSec: () => normalizeAfk(settingsViewerBody.querySelector('#sv-afk-timeout').value),
               // Both shells cascade per project (T-2.5). `terminalShellProfile` is not consumed yet
               // (Phase 3, T-3.7); 'inherit' means "use the CLI shell", so this is a no-op today.
               shellProfile: () => settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto',
@@ -1974,14 +1730,8 @@
           try { await window.api.projectTagsSet(projectPath, tags); } catch {}
         }
       } else {
-        settings.permissionMode = settingsViewerBody.querySelector('#sv-perm-mode').value || null;
-        settings.dangerouslySkipPermissions = settingsViewerBody.querySelector('#sv-dangerous-skip').checked;
-        settings.worktree = settingsViewerBody.querySelector('#sv-worktree').checked;
-        settings.worktreeName = settingsViewerBody.querySelector('#sv-worktree-name').value.trim();
-        settings.chrome = settingsViewerBody.querySelector('#sv-chrome').checked;
-        settings.preLaunchCmd = settingsViewerBody.querySelector('#sv-pre-launch').value.trim();
-        settings.addDirs = settingsViewerBody.querySelector('#sv-add-dirs').value.trim();
-        settings.afkTimeoutSec = normalizeAfk(settingsViewerBody.querySelector('#sv-afk-timeout').value);
+        // Claude's launch options are saved by the Backends panel now (backendDefaults.claude), not
+        // here — this section keeps only the settings that are NOT a backend's launch option.
         {
           // 0 = no limit — preserve a literal 0; only fall back to the default
           // for blank/garbage/negative input (#144).
@@ -2047,9 +1797,15 @@
           settings.tabAutoCloseDelaySec = Math.max(0, Math.min(120, Number.isFinite(d) ? d : 5));
         }
         settings.tabsLiveRender = settingsViewerBody.querySelector('#sv-tabs-live-render').checked;
-        settings.mcpEmulation = settingsViewerBody.querySelector('#sv-mcp-emulation').checked;
         settings.restoreSessionsOnLaunch = settingsViewerBody.querySelector('#sv-restore-sessions').checked;
-        settings.attentionHooks = settingsViewerBody.querySelector('#sv-attention-hooks').checked;
+        // The attention hook now lives on the CLAUDE backend page (it patches Claude's own
+        // settings.json, so it belongs to Claude — but it is not a launch option, hence still a plain
+        // global setting). That page is only in the DOM while it is open: keep the stored value when
+        // it is not, instead of silently switching the hook off.
+        {
+          const el = settingsViewerBody.querySelector('#sv-attention-hooks');
+          settings.attentionHooks = el ? el.checked : attentionHooksValue;
+        }
         const svSecretCleanup = settingsViewerBody.querySelector('#sv-secret-ref-cleanup');
         if (svSecretCleanup) settings.secretRefCleanupOnSessionStop = svSecretCleanup.checked;
         const svSecretSweep = settingsViewerBody.querySelector('#sv-secret-ref-sweep');
@@ -2203,16 +1959,6 @@
       // Log level applies live — no restart (#121).
       if (!isProject && settings.logLevel !== logLevelValue) {
         try { await window.api.setLogLevel(settings.logLevel); } catch {}
-      }
-
-      // Notify if IDE Emulation changed
-      if (!isProject && settings.mcpEmulation !== mcpEmulationValue) {
-        const notice = document.createElement('div');
-        notice.className = 'settings-notice';
-        notice.textContent = 'IDE Emulation setting changed. New sessions will use the updated setting — running sessions are not affected.';
-        const saveBtn = settingsViewerBody.querySelector('#sv-save-btn');
-        saveBtn.parentElement.insertBefore(notice, saveBtn);
-        setTimeout(() => notice.remove(), 8000);
       }
 
       const saveBtn = settingsViewerBody.querySelector('#sv-save-btn');

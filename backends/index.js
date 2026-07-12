@@ -101,17 +101,44 @@ function has(id) {
 // The single unified list every UI layer reads: built-ins ∪ user profiles, each carrying its merged
 // `enabled` flag. Only `ready && enabled` entries may appear in launch surfaces / be scanned (§5.8);
 // the callers apply that filter, this returns the full set (Settings needs the disabled/planned rows).
+// Is the backend's binary actually there? A descriptor may declare a `probe()`; the answer rides on
+// every list() so Settings can say "not installed" instead of letting the user enable a backend whose
+// launch then dies with a raw shell error. Availability is NOT part of the §5.8 launch gate (a probe is
+// a heuristic — a false negative must never make a working backend unusable); the spawn path checks it
+// and refuses there, with the probe's own reason.
+// Cached briefly: list() is on the scan path, and a probe walks PATH.
+const PROBE_TTL_MS = 15000;
+const _probeCache = new Map();   // id -> { at, result }
+
+function availability(b) {
+  if (typeof b.probe !== 'function') return { available: true, unavailableReason: null };
+  const now = Date.now();
+  const hit = _probeCache.get(b.id);
+  if (hit && now - hit.at < PROBE_TTL_MS) return hit.result;
+  let result;
+  try {
+    const p = b.probe();
+    result = (p && p.ok === false)
+      ? { available: false, unavailableReason: p.reason || null }
+      : { available: true, unavailableReason: null };
+  } catch (err) {
+    result = { available: false, unavailableReason: err?.message || String(err) };
+  }
+  _probeCache.set(b.id, { at: now, result });
+  return result;
+}
+
 function list() {
   const g = _getGlobalSettings() || {};
   const enabledMap = g.backendEnabled || {};
   const out = [];
   for (const b of registry.values()) {
-    out.push({ ...b, enabled: isEnabled(b, enabledMap) });
+    out.push({ ...b, enabled: isEnabled(b, enabledMap), ...availability(b) });
   }
   if (_profiles) {
     for (const p of _profiles.list()) {
       const d = profileToDescriptor(p);
-      out.push({ ...d, enabled: isEnabled(d, enabledMap) });
+      out.push({ ...d, enabled: isEnabled(d, enabledMap), ...availability(d) });
     }
   }
   return out;

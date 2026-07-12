@@ -3,9 +3,9 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (19 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (25 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-11
+**As of:** 2026-07-12
 
 
 ## P1 — next up
@@ -19,6 +19,8 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#145](https://github.com/deadeye636/switchboard/issues/145) Settings: export & import (global settings, JSON file) · _feature_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#147](https://github.com/deadeye636/switchboard/issues/147) Real git-worktree awareness — treat `git worktree add` worktrees as first-class projects · _bug_
+- [#148](https://github.com/deadeye636/switchboard/issues/148) Handoff: make it backend-generic, and ask which backend on handoff-resume · _feature_
+- [#149](https://github.com/deadeye636/switchboard/issues/149) Backend launch defaults: cascade per option, not as a whole block · _bug_
 
 ## P3 — someday
 
@@ -35,3 +37,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#127](https://github.com/deadeye636/switchboard/issues/127) Persist incremental parse state so cold-start scans read only the delta · _feature_
 - [#142](https://github.com/deadeye636/switchboard/issues/142) Multi-LLM system: profiles (alt endpoints) + runtimes (Codex/Copilot/…) · _feature_
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
+- [#150](https://github.com/deadeye636/switchboard/issues/150) Hermes: availability probe only checks the executable · _enhancement_
+- [#151](https://github.com/deadeye636/switchboard/issues/151) Hermes: no busy/idle signal when the DB is unreadable (no fallback) · _bug_
+- [#152](https://github.com/deadeye636/switchboard/issues/152) Incremental parse: change marker is not keyed on the parser schema version · _chore_
+- [#153](https://github.com/deadeye636/switchboard/issues/153) Multi-LLM: leftover gaps against the plan and the mockups · _chore_

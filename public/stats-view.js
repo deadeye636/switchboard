@@ -234,6 +234,10 @@ function sessionCost(session) {
     : session.estimatedCostUsd != null ? session.estimatedCostUsd
       : null;
   if (usd == null) return null;
+  // A ZERO estimate on a session that did real work means the backend had no pricing for that model —
+  // not that the work was free. Reporting "~$0.00" would be a made-up fact; treat it as "no figure".
+  // (A settled zero is a real statement and is kept.)
+  if (usd === 0 && session.actualCostUsd == null) return null;
   const status = String(session.costStatus || '').toLowerCase();
   const settled = session.actualCostUsd != null && SETTLED_COST_STATUS.has(status);
   return { usd, estimated: !settled };

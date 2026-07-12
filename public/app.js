@@ -1243,8 +1243,17 @@ function refreshSidebar({ resort = false } = {}) {
     // session: it has no provenance, so sessionBackendId would read it as Claude and a single
     // terminal tab could flip a Codex-only user into mixed mode. The sidebar skips it for the
     // badge too — keep the counting side in step.
+    //
+    // Only a session of an ENABLED backend counts (§5.8: disabling removes a backend from the
+    // mixed-mode counting — its history stays visible, it just stops making the app "mixed").
+    // Otherwise one Codex session from months ago badges every row forever, and turning Codex off
+    // would not stop it.
     for (const p of (cachedAllProjects || [])) {
-      for (const s of (p.sessions || [])) if (s.type !== 'terminal') all.push(s);
+      for (const s of (p.sessions || [])) {
+        if (s.type === 'terminal') continue;
+        if (typeof isBackendEnabled === 'function' && !isBackendEnabled(sessionBackendId(s))) continue;
+        all.push(s);
+      }
     }
     computeShowAllBadges(all);
   }

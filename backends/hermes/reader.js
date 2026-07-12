@@ -118,14 +118,6 @@ function openDb() {
   }
 }
 
-// A cheap DB-level "did anything change at all?" marker. Survives WAL commits, which an mtime check on
-// state.db would miss entirely.
-function dataVersion() {
-  const db = openDb();
-  if (!db) return null;
-  try { return db.pragma('data_version'); } catch { return null; } finally { db.close(); }
-}
-
 // Per-session change marker. Hermes has no `updated_at`, so we synthesise one from what does change:
 // the session's end time and its latest message. A running session's `ended_at` is null, so the
 // message timestamp is what moves.
@@ -200,7 +192,6 @@ function parseSession(handle) {
       const parts = [];
       for (const m of msgs) {
         const text = typeof m.content === 'string' ? m.content : '';
-        if (m.timestamp) lastMessageMs = Math.max(lastMessageMs, Number(m.timestamp) * 1000);
         if (!text) continue;
         if (!firstPrompt && m.role === 'user') firstPrompt = text.slice(0, 500);
         parts.push(text);
@@ -208,9 +199,22 @@ function parseSession(handle) {
       textContent = parts.join('\n').slice(0, 200000);
     } catch { /* messages unreadable -> still index the session row itself */ }
 
+    // Last activity is asked SEPARATELY, over all messages. Deriving it from the capped read above
+    // would freeze it at message #500 — and busy/idle rides on it (state.js), so a long agent session
+    // (tool-call rows add up fast) would be declared idle while it is still working.
+    try {
+      const last = db.get('SELECT MAX(timestamp) AS t FROM messages WHERE session_id = ?', handle.sessionId);
+      if (last && last.t) lastMessageMs = Number(last.t) * 1000;
+    } catch { /* leave it at 0 -> deriveState falls back to the session row's own timestamps */ }
+
     const summary = title || firstPrompt || '';
     const startedAt = toIso(s.started_at);
-    const lastEntryAt = toIso(s.ended_at) || startedAt;
+    // A RUNNING session has no `ended_at`. Falling back to `started_at` would freeze its `modified`
+    // stamp at launch time, so a busy session would sort and display as untouched while it works —
+    // every file backend's mtime moves here. Its last message is the equivalent signal.
+    const lastEntryAt = toIso(s.ended_at)
+      || (lastMessageMs ? new Date(lastMessageMs).toISOString() : null)
+      || startedAt;
     const activeMinutes = (s.started_at && s.ended_at)
       ? Math.max(0, Math.round((Number(s.ended_at) - Number(s.started_at)) / 60))
       : 0;
@@ -262,7 +266,11 @@ function parseSession(handle) {
   }
 }
 
-/** STORE-level watch targets: the DB *and* its write-ahead log (a WAL commit misses state.db's mtime). */
+/**
+ * STORE-level watch target: the DB file. A `kind:'db'` target means "poll this file AND its `-wal`" —
+ * the watcher appends the `-wal` itself (main.js), because a WAL commit can leave state.db's mtime
+ * untouched. Do NOT also return the `-wal` here or it gets watched twice.
+ */
 function watchTargets() {
   const p = dbPath();
   return [{ kind: 'db', path: p }];
@@ -270,7 +278,7 @@ function watchTargets() {
 
 module.exports = {
   PARSER_SCHEMA_VERSION,
-  hermesHome, setHome, dbPath, dbExists, dataVersion,
+  hermesHome, setHome, dbPath, dbExists,
   discoverSessions, parseSession, watchTargets,
   openDb,
 };

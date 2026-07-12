@@ -44,6 +44,13 @@
     return window._backendsById[id] || null;
   }
 
+  // §5.8: only a `ready && enabled` backend counts as one the user actually runs. A disabled backend
+  // keeps its cached sessions (disable ≠ erase) but stops making the app "mixed mode".
+  function isBackendEnabled(id) {
+    const b = window._backendsById[id];
+    return !!(b && b.status === 'ready' && b.enabled);
+  }
+
   // Resolve a session's backend id. Authoritative cached column first, overlay second, default last.
   function sessionBackendId(session) {
     if (!session) return window._defaultBackendId;
@@ -75,6 +82,7 @@
   window.refreshBackendCaches = refreshBackendCaches;
   window.launchableBackends = launchableBackends;
   window.getBackend = getBackend;
+  window.isBackendEnabled = isBackendEnabled;
   window.sessionBackendId = sessionBackendId;
   window.computeShowAllBadges = computeShowAllBadges;
 })();

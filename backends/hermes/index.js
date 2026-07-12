@@ -102,6 +102,23 @@ function matchLiveSession({ cwd, sinceMs, claimed } = {}) {
   return best;
 }
 
+/**
+ * The RESUME half of the identity seam. `matchLiveSession` looks for a record that appeared AFTER we
+ * spawned — which is right for a new session and impossible for a resumed one: `hermes -r <id>`
+ * continues an existing row whose `started_at` long predates the relaunch. Without this hook a resumed
+ * session would never find its record (so busy/idle would never fire, and the search would be re-run on
+ * every watcher flush), and worse: the next NEW session in the same cwd is "newer than our launch", so
+ * the stale claim would adopt ITS id and collapse two tabs onto one identity.
+ *
+ * On resume we already hold the backend's own id, so no correlation is needed — just confirm the store
+ * really has that record.
+ */
+function liveRefFor(sessionId) {
+  if (!sessionId) return null;
+  const row = reader.parseSession({ kind: 'db', sessionId });
+  return row && row.sessionId ? row.sessionId : null;
+}
+
 /** Busy/idle for a live session: re-read its row (the watcher fires on every WAL commit). */
 function liveState(ref) {
   const row = reader.parseSession({ kind: 'db', sessionId: ref });
@@ -117,6 +134,9 @@ module.exports = {
   status: 'ready',
   monogram: 'H',
   colour: 'hermes',
+  // Hermes loads a heavy Python stack before its TUI paints — measured at ~12s on a warm machine
+  // (T-5.0). Said out loud, because a silent black tab for 12 seconds reads as a crash.
+  startupHint: 'Starting Hermes — its TUI takes about 10-15 seconds to appear.',
   configFields,
   buildLaunch,
   probe,
@@ -128,6 +148,7 @@ module.exports = {
   watchTargets: reader.watchTargets,
   deriveState,
   matchLiveSession,
+  liveRefFor,
   liveState,
   PARSER_SCHEMA_VERSION: reader.PARSER_SCHEMA_VERSION,
 

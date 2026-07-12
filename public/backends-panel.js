@@ -27,6 +27,12 @@
   // Icons offered in the editor's icon grid (drives the badge colour + monogram).
   const ICON_KEYS = ['anthropic', 'claude', 'deepseek', 'glm', 'openrouter', 'codex', 'gemini', 'hermes', 'pi'];
 
+  // Launch defaults live on a per-backend page now, so at most one backend's inputs exist in the DOM.
+  // `storedDefaults` = what this settings scope has on disk; `pendingDefaults` = what the user changed
+  // since the panel mounted, on any page. Save reads stored ⊕ pending — never the DOM alone.
+  let storedDefaults = {};
+  let pendingDefaults = {};
+
   // One-line blurb per built-in backend (the descriptor carries no description).
   const BACKEND_BLURB = {
     claude: 'Anthropic — the default backend, always available.',
@@ -111,15 +117,43 @@
 
   // One collapsible panel per ready backend. `disabled` = the project scope is inheriting the
   // global defaults (the "use global default" checkbox is checked).
-  function launchDefaultsPanel(backend, defaults, disabled) {
+  // One backend's launch options, as its OWN page (reached by the gear on its row). EVERY backend has
+  // one, Claude included (`backendDefaults.<id>.<opt>`, 00 §4a) — Claude's used to sit in Sessions &
+  // CLI, which now keeps only what is not a launch option (shells, log level, …). One setting, one home:
+  // the page of the backend it belongs to.
+  // The project scope has no gear pages — it is one short "what this project overrides" list, so every
+  // backend's options are shown inline under its own heading.
+  function inlineDefaultsSection(backend, defaults, disabled) {
+    const rows = defaultRows(backend, defaults, disabled);
+    if (!rows) return '';
+    return `
+      <div class="settings-section">
+        <div class="settings-section-title backend-inline-title">
+          <span class="backend-icon-slot" data-icon="${esc(backend.icon || backend.colour || backend.id)}" data-size="16" ${backend.monogram ? `data-monogram="${esc(backend.monogram)}"` : ''}></span>
+          ${esc(backend.label)}
+        </div>
+        ${rows}
+      </div>`;
+  }
+
+  function defaultRows(backend, defaults, disabled) {
     const fields = Array.isArray(backend.configFields) ? backend.configFields : [];
-    if (!fields.length) return '';
-    // Claude (and every Axis-A profile, which runs the same binary with the same options) already has
-    // a long-standing home for these settings: Sessions & CLI. Rendering them a SECOND time here
-    // would create two controls for one setting with invisible precedence — a user sets "plan" in one
-    // place and the other silently wins. So this generated panel is for backends that have no legacy
-    // home of their own (Axis-B: Codex, later Gemini). Sessions & CLI stays the single Claude source.
-    if (backend.axis !== 'B') return '';
+    const stored = (defaults && defaults[backend.id]) || {};
+    return fields.map(f => {
+      const value = stored[f.id] !== undefined ? stored[f.id] : f.default;
+      return `
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">${esc(f.label || f.id)}</span>
+            <div class="settings-description">Used when you start a ${esc(backend.label)} session without opening its configure dialog.</div>
+          </div>
+          <div class="settings-field-control">${configFieldControl(backend.id, f, value, disabled)}</div>
+        </div>`;
+    }).join('');
+  }
+
+  function launchDefaultsPage(backend, defaults, disabled, extraHtml) {
+    const fields = Array.isArray(backend.configFields) ? backend.configFields : [];
     const stored = (defaults && defaults[backend.id]) || {};
     const rows = fields.map(f => {
       const value = stored[f.id] !== undefined ? stored[f.id] : f.default;
@@ -132,11 +166,44 @@
           <div class="settings-field-control">${configFieldControl(backend.id, f, value, disabled)}</div>
         </div>`;
     }).join('');
+
     return `
-      <details class="settings-adv backend-defaults" data-backend="${esc(backend.id)}">
-        <summary><svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg><span class="backend-icon-slot" data-icon="${esc(backend.icon || backend.colour || backend.id)}" data-size="16" ${backend.monogram ? `data-monogram="${esc(backend.monogram)}"` : ''}></span>${esc(backend.label)} — Launch defaults</summary>
-        <div class="settings-section">${rows}</div>
-      </details>`;
+      <div class="backend-page" data-backend-page="${esc(backend.id)}">
+        <div class="backend-page-head">
+          <button type="button" class="backend-back" data-act="back">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            Backends
+          </button>
+          <div class="backend-page-title">
+            <span class="backend-icon-slot" data-icon="${esc(backend.icon || backend.colour || backend.id)}" data-size="20" ${backend.monogram ? `data-monogram="${esc(backend.monogram)}"` : ''}></span>
+            <h3>${esc(backend.label)}</h3>
+          </div>
+        </div>
+        ${rows
+          ? `<div class="settings-section"><div class="settings-section-title">Launch defaults</div>${rows}</div>`
+          : '<div class="settings-hint">This backend declares no launch options.</div>'}
+        ${extraHtml || ''}
+      </div>`;
+  }
+
+  // Claude-only extras that are NOT launch options (they touch no argv and no env), but ARE Claude's:
+  // the attention hook patches Claude's OWN ~/.claude/settings.json and applies to every Claude session,
+  // including ones Switchboard never started. It belongs to the backend, not to a generic app section —
+  // but it is stored as a plain global setting, not under backendDefaults.
+  function claudeIntegrationsHtml(attentionHooksOn) {
+    return `
+      <div class="settings-section">
+        <div class="settings-section-title">Integrations</div>
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label">Claude Code hooks for attention</span>
+            <div class="settings-description">More reliable attention detection than the terminal check alone. Catches permission and tool prompts the terminal heuristic can miss. Adds a reversible hook to <code>~/.claude/settings.json</code>; turning this off removes it again.</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" id="sv-attention-hooks" ${attentionHooksOn ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>
+      </div>`;
   }
 
   // ---------------------------------------------------------------------------
@@ -417,7 +484,8 @@
   async function mount(root, ctx) {
     if (!root) return;
     const isProject = !!ctx.isProject;
-    const backendDefaults = ctx.fieldValue('backendDefaults', {}) || {};
+    storedDefaults = ctx.fieldValue('backendDefaults', {}) || {};
+    const backendDefaults = mergedDefaults();
 
     // Everything is rendered into a FRESH child element and the delegated listeners hang off it —
     // a re-mount (after a profile was saved/deleted) throws the old box away with its listeners
@@ -460,7 +528,9 @@
           </div>
           <div class="settings-hint">Per-backend launch options for this project. Enabling a backend and the default launch target stay global.</div>
         </div>
-        ${readyBackends.map(b => launchDefaultsPanel(b, backendDefaults, inherit)).join('')}`;
+        ${readyBackends.map(b => inlineDefaultsSection(b, backendDefaults, inherit)).join('')}`;
+      box.addEventListener('input', (e) => recordDefault(e.target));
+      box.addEventListener('change', (e) => recordDefault(e.target));
       root.replaceChildren(box);
       paintIcons(box);
       return;
@@ -474,6 +544,13 @@
       return !!b.enabled;
     };
 
+    // Same affordance as the launch picker's gear: this icon means "configure this backend".
+    const gearBtn = (b) => `
+      <button type="button" class="backend-gear" data-act="configure" data-id="${esc(b.id)}"
+              title="Launch defaults for ${esc(b.label)}" aria-label="Launch defaults for ${esc(b.label)}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>`;
+
     const builtinRow = (b) => {
       const ready = b.status === 'ready';
       const locked = b.id === 'claude'; // the default backend is always available (invariant §5.1)
@@ -485,10 +562,15 @@
               <span class="backend-icon-slot" data-icon="${esc(b.colour || b.id)}" data-size="20" ${b.monogram ? `data-monogram="${esc(b.monogram)}"` : ''}></span>
               <span class="settings-label">${esc(b.label)}</span>
               ${ready ? '<span class="backend-pill">built-in</span>' : '<span class="backend-pill soon">Coming soon</span>'}
+              ${ready && b.available === false ? '<span class="backend-pill missing">not installed</span>' : ''}
             </div>
             <div class="settings-description">${esc(BACKEND_BLURB[b.id] || '')}</div>
+            ${ready && b.available === false && b.unavailableReason
+              ? `<div class="settings-description backend-unavailable">${esc(b.unavailableReason)}</div>`
+              : ''}
           </div>
           <div class="settings-field-control">
+            ${ready ? gearBtn(b) : ''}
             ${ready
               ? `<label class="settings-toggle" ${locked ? 'title="Built-in — always enabled"' : ''}><input type="checkbox" class="backend-enable" data-id="${esc(b.id)}" ${on ? 'checked' : ''} ${locked ? 'checked disabled' : ''}><span class="settings-toggle-slider"></span></label>`
               : '<span class="backend-planned-note">not built yet</span>'}
@@ -510,6 +592,7 @@
             <div class="settings-description">Claude Code on an alternative endpoint${auth ? ` · <code>${esc(auth)}</code>` : ''}</div>
           </div>
           <div class="settings-field-control">
+            ${gearBtn(b)}
             <button type="button" class="backend-btn" data-act="default" data-id="${esc(b.id)}">Set default</button>
             <button type="button" class="backend-btn" data-act="edit" data-id="${esc(b.id)}">Edit</button>
             <button type="button" class="backend-btn danger" data-act="delete" data-id="${esc(b.id)}">Delete</button>
@@ -554,12 +637,39 @@
         </div>
       </div>
 
-      <div class="settings-subhead">Launch defaults</div>
-      ${readyBackends.map(b => launchDefaultsPanel(b, backendDefaults, false)).join('')}
-      <div class="settings-hint">Each backend's own launch options, saved as <code>backendDefaults.&lt;backend&gt;.&lt;option&gt;</code> and overridable per project.</div>`;
+      <div class="settings-hint">Each backend's launch options live on its own page — the gear on its row.</div>`;
 
     root.replaceChildren(box);
     paintIcons(box);
+
+    // --- the per-backend page (gear) -------------------------------------------------------------
+    // Only ONE backend's inputs are in the DOM at a time, so the Save button can no longer read the
+    // others off the page. Edits are therefore recorded as they happen (`pendingDefaults`) and merged
+    // over the stored blob at save time — otherwise opening Claude's page and saving would wipe Codex's
+    // defaults, which is the sort of quiet data loss a settings screen must never do.
+    function openBackendPage(backendId) {
+      const backend = backends.find(b => b.id === backendId);
+      if (!backend) return;
+      const extras = backend.id === 'claude'
+        ? claudeIntegrationsHtml(!!ctx.fieldValue('attentionHooks', false))
+        : '';
+      const page = document.createElement('div');
+      page.className = 'backends-panel';
+      page.innerHTML = launchDefaultsPage(backend, mergedDefaults(), false, extras);
+      root.replaceChildren(page);
+      paintIcons(page);
+
+      page.addEventListener('click', (e) => {
+        if (e.target.closest('[data-act="back"]')) mount(root, ctx);
+      });
+      page.addEventListener('input', (e) => recordDefault(e.target));
+      page.addEventListener('change', (e) => recordDefault(e.target));
+    }
+
+    box.addEventListener('click', (e) => {
+      const gear = e.target.closest('.backend-gear');
+      if (gear) { e.preventDefault(); openBackendPage(gear.dataset.id); }
+    });
 
     // The one "default" marker: a select over ready && enabled backends/profiles. Rebuilt whenever
     // an enable toggle flips so a disabled backend can never stay the default target.
@@ -645,21 +755,45 @@
     };
   }
 
-  // backendDefaults.<backendId>.<optionId> from the generated panels.
+  // backendDefaults.<backendId>.<optionId>.
+  //
+  // The DOM only ever holds ONE backend's page, so it is not the source of truth: the stored blob is,
+  // with the edits made in this settings session merged over it. Reading the DOM alone would drop every
+  // backend the user did not happen to have open when they hit Save.
   function readDefaults(root) {
+    const merged = mergedDefaults();
+    if (root) {
+      root.querySelectorAll('.backend-default-input').forEach(el => {
+        const bid = el.dataset.backend;
+        const opt = el.dataset.opt;
+        if (!bid || !opt) return;
+        if (!merged[bid]) merged[bid] = {};
+        merged[bid][opt] = valueOfInput(el);
+      });
+    }
+    return merged;
+  }
+
+  function valueOfInput(el) {
+    if (el.dataset.type === 'toggle') return !!el.checked;
+    if (el.dataset.type === 'number') return el.value.trim() === '' ? '' : Number(el.value);
+    return el.value;
+  }
+
+  function recordDefault(el) {
+    if (!el || !el.classList || !el.classList.contains('backend-default-input')) return;
+    const bid = el.dataset.backend;
+    const opt = el.dataset.opt;
+    if (!bid || !opt) return;
+    if (!pendingDefaults[bid]) pendingDefaults[bid] = {};
+    pendingDefaults[bid][opt] = valueOfInput(el);
+  }
+
+  /** stored (this scope) ⊕ everything edited since the panel mounted. */
+  function mergedDefaults() {
     const out = {};
-    if (!root) return out;
-    root.querySelectorAll('.backend-default-input').forEach(el => {
-      const bid = el.dataset.backend;
-      const opt = el.dataset.opt;
-      if (!bid || !opt) return;
-      let value;
-      if (el.dataset.type === 'toggle') value = !!el.checked;
-      else if (el.dataset.type === 'number') value = el.value.trim() === '' ? '' : Number(el.value);
-      else value = el.value;
-      if (!out[bid]) out[bid] = {};
-      out[bid][opt] = value;
-    });
+    for (const [bid, opts] of Object.entries(storedDefaults || {})) out[bid] = { ...opts };
+    for (const [bid, opts] of Object.entries(pendingDefaults || {})) out[bid] = { ...(out[bid] || {}), ...opts };
     return out;
   }
 

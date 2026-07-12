@@ -506,7 +506,7 @@ function cachedRowsOfBackend(backendId) {
  *
  * Returns { scanned, upserted, skipped, deleted } (all 0 when the backend is skipped).
  */
-function refreshBackendSessions(backendId) {
+function refreshBackendSessions(backendId, { force = false } = {}) {
   const stats = { scanned: 0, upserted: 0, skipped: 0, deleted: 0 };
 
   const b = backends.list().find(d => d.id === backendId);
@@ -553,7 +553,7 @@ function refreshBackendSessions(backendId) {
       seenFiles.add(h.path);
       try { changeKey = fs.statSync(h.path).mtime.toISOString(); } catch { continue; }
       hit = cachedByFile.get(h.path);
-      if (hit && hit.modified === changeKey) {
+      if (!force && hit && hit.modified === changeKey) {
         seenIds.add(hit.sessionId);
         stats.skipped++;
         continue;
@@ -561,7 +561,7 @@ function refreshBackendSessions(backendId) {
     } else {
       changeKey = h.marker == null ? null : String(h.marker);
       hit = cachedById.get(h.sessionId);
-      if (hit && changeKey && hit.changeMarker === changeKey) {
+      if (!force && hit && changeKey && hit.changeMarker === changeKey) {
         seenIds.add(hit.sessionId);
         stats.skipped++;
         continue;
@@ -641,15 +641,22 @@ function refreshBackendSessions(backendId) {
   return stats;
 }
 
-/** Rescan every ready+enabled backend that owns its store (i.e. everything except Claude/Axis-A). */
-function refreshAllBackendSessions() {
+/**
+ * Rescan every ready+enabled backend that owns its store (i.e. everything except Claude/Axis-A).
+ *
+ * `force` re-parses every session even if its change marker says nothing moved. That is what "Rebuild
+ * session cache" means: the whole point of the action is that a cached row is WRONG, and a wrong row's
+ * marker matches happily. Without it the rebuild dropped and re-read Claude's store while quietly
+ * skipping every Codex and Hermes row it was asked to repair.
+ */
+function refreshAllBackendSessions({ force = false } = {}) {
   const out = {};
   let list;
   try { list = backends.list(); } catch { return out; }
   for (const b of list) {
     if (b.status !== 'ready' || !b.enabled) continue;
     if (b.id === 'claude' || b.isProfile) continue;
-    out[b.id] = refreshBackendSessions(b.id);
+    out[b.id] = refreshBackendSessions(b.id, { force });
   }
   return out;
 }

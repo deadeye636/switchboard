@@ -262,6 +262,23 @@ test('deriveStateFromFileTail: an unreadable file returns null (state left untou
 // records. matchLiveSession is how the main process finds the rollout belonging to a session it just
 // spawned. Getting this wrong steals another session's rollout — so it is worth testing directly.
 
+// The RESUME half: a resumed session continues an EXISTING rollout, which matchLiveSession rejects
+// (it only accepts records born after the spawn). liveRefFor claims it by the id we already hold.
+test('liveRefFor: a resumed session finds its own rollout by id, whatever its age', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-resume-'));
+  const day = path.join(home, 'sessions', '2026', '06', '27');
+  fs.mkdirSync(day, { recursive: true });
+  const id = '019f081a-8834-7342-8741-30624c553c1c';
+  fs.copyFileSync(FIXTURE, path.join(day, `rollout-2026-06-27T10-00-00-${id}.jsonl`));
+  codex.setHome(home);
+
+  assert.match(codex.liveRefFor(id), /rollout-2026-06-27T10-00-00-.*\.jsonl$/);
+  // A brand-new session runs under an id we invented — it must claim nothing and fall through to
+  // correlation, or it would adopt a stranger's rollout.
+  assert.strictEqual(codex.liveRefFor('11111111-2222-4333-8444-555555555555'), null);
+  assert.strictEqual(codex.liveRefFor(null), null);
+});
+
 test('matchLiveSession: finds the rollout for a session we just launched in this cwd', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-live-'));
   const day = path.join(home, 'sessions', '2026', '06', '27');
