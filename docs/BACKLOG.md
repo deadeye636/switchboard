@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (26 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (23 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-12
 
@@ -18,9 +18,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
 - [#145](https://github.com/deadeye636/switchboard/issues/145) Settings: export & import (global settings, JSON file) · _feature_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
-- [#148](https://github.com/deadeye636/switchboard/issues/148) Handoff: make it backend-generic, and ask which backend on handoff-resume · _feature_
-- [#149](https://github.com/deadeye636/switchboard/issues/149) Backend launch defaults: cascade per option, not as a whole block · _bug_
-- [#154](https://github.com/deadeye636/switchboard/issues/154) Stats: the time-series charts only cover Claude sessions · _bug_
 
 ## P3 — someday
 
