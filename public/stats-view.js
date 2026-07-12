@@ -210,7 +210,61 @@ function buildUsageSection(usage) {
 // aggregates above (heatmap, daily bars, per-model tokens) have no backend dimension — they are
 // whole-corpus figures — so the filter scopes THIS breakdown, which is the part that has one.
 
-/** {backendId: {sessions, messages, inputTokens, outputTokens, cacheTokens}} over all cached rows. */
+// Cost (T-5.5) is a metric a backend MAY report, not a first-class concept: Hermes reports USD from
+// its own state.db columns, Pi will aggregate it from its JSONL, and Claude/Codex/Axis-A report none
+// at all. So the breakdown reads it off the rows and simply omits the dimension for a backend that
+// has none — no per-provider branch anywhere in here.
+//
+// An estimate is never rendered as a bill. The figure is `actualCostUsd` where present (the better
+// number) else `estimatedCostUsd` — but whether it counts as SETTLED is decided by `costStatus`, the
+// field the backend uses to SAY so, not by the mere presence of an actual figure: Hermes can carry an
+// `actual_cost_usd` while its `cost_status` still reads 'estimated'/'pending'/'n/a'.
+//
+// The rule is deliberately asymmetric, because the two ways of being wrong are not equally bad. A
+// settled amount shown as an estimate is a cosmetic `~`; an estimate shown as a bill is the failure
+// this task exists to prevent. So a cost is settled ONLY when the backend explicitly declares it —
+// an unrecognised status, or none at all, reads as an estimate. (Hermes' cost_status enum is not
+// documented anywhere and its live DB is still empty, so SETTLED_COST_STATUS is an allowlist, not a
+// single guessed literal. A backend like Pi, which reports a cost with no status, is estimating
+// anyway.) If ANY contributing session is an estimate, the whole sum is one.
+const SETTLED_COST_STATUS = new Set(['actual', 'settled', 'final', 'confirmed', 'billed']);
+
+function sessionCost(session) {
+  const usd = session.actualCostUsd != null ? session.actualCostUsd
+    : session.estimatedCostUsd != null ? session.estimatedCostUsd
+      : null;
+  if (usd == null) return null;
+  const status = String(session.costStatus || '').toLowerCase();
+  const settled = session.actualCostUsd != null && SETTLED_COST_STATUS.has(status);
+  return { usd, estimated: !settled };
+}
+
+function formatUsd(usd) {
+  if (usd > 0 && usd < 0.01) return '<$0.01';
+  return '$' + usd.toFixed(2);
+}
+
+/** Cost cell for a backend accumulator: '~$1.23' / '$1.23', or an em dash for a token-only backend. */
+function costCellOf(acc) {
+  const span = document.createElement('span');
+  if (!acc.costSessions) {
+    span.className = 'backend-cost-none';
+    span.textContent = '—';
+    span.title = 'Token-only — this backend reports no cost';
+    return span;
+  }
+  span.className = 'backend-cost' + (acc.costEstimated ? ' is-estimated' : '');
+  span.textContent = (acc.costEstimated ? '~' : '') + formatUsd(acc.costUsd);
+  span.title = acc.costEstimated
+    ? 'Estimated by the backend — the actual amount billed may differ'
+    : 'Reported by the backend as the settled amount';
+  return span;
+}
+
+/**
+ * {backendId: {sessions, messages, inputTokens, outputTokens, cacheTokens,
+ *              costUsd, costEstimated, costSessions, chained}} over all cached rows.
+ */
 function collectBackendUsage() {
   const projects = (typeof cachedAllProjects !== 'undefined' && cachedAllProjects.length)
     ? cachedAllProjects
@@ -225,7 +279,10 @@ function collectBackendUsage() {
       const id = typeof sessionBackendId === 'function' ? sessionBackendId(session) : 'claude';
       let acc = byBackend.get(id);
       if (!acc) {
-        acc = { sessions: 0, messages: 0, inputTokens: 0, outputTokens: 0, cacheTokens: 0 };
+        acc = {
+          sessions: 0, messages: 0, inputTokens: 0, outputTokens: 0, cacheTokens: 0,
+          costUsd: 0, costEstimated: false, costSessions: 0, chained: 0,
+        };
         byBackend.set(id, acc);
       }
       // Subagents ride with their parent — they'd inflate the session count (same rule as the
@@ -235,6 +292,13 @@ function collectBackendUsage() {
       acc.inputTokens += session.inputTokens || 0;
       acc.outputTokens += session.outputTokens || 0;
       acc.cacheTokens += (session.cacheCreationTokens || 0) + (session.cacheReadTokens || 0);
+      const cost = sessionCost(session);
+      if (cost) {
+        acc.costUsd += cost.usd;
+        acc.costSessions++;
+        if (cost.estimated) acc.costEstimated = true;
+      }
+      if (session.lineageParentId) acc.chained++;
     }
   }
   return byBackend;
@@ -340,7 +404,8 @@ function buildBackendBreakdown() {
 
       const label = document.createElement('span');
       label.className = 'stat-card-label';
-      label.textContent = `sessions · ${fmtNum(acc.messages)} msgs · ${fmtNum(acc.inputTokens + acc.outputTokens)} tokens`;
+      label.append(`sessions · ${fmtNum(acc.messages)} msgs · ${fmtNum(acc.inputTokens + acc.outputTokens)} tokens · `);
+      label.appendChild(costCellOf(acc));
       card.appendChild(label);
       grid.appendChild(card);
     }
@@ -355,13 +420,53 @@ function buildBackendBreakdown() {
       { value: fmtNum(acc.outputTokens), label: 'Output Tokens' },
       { value: fmtNum(acc.cacheTokens), label: 'Cache Tokens' },
     ];
+    // Cost + lineage exist only where the backend reports them (Hermes today, Pi next). A
+    // token-only backend gets no empty "$0.00" card — that would read as "this was free".
+    if (acc.costSessions) {
+      // Same colour language as the comparison cards: amber = estimate, green = settled. The `~` and
+      // the label alone are too easy to skim past.
+      const costClass = 'backend-cost' + (acc.costEstimated ? ' is-estimated' : '');
+      cards.push({
+        value: (acc.costEstimated ? '~' : '') + formatUsd(acc.costUsd),
+        valueClass: costClass,
+        label: acc.costEstimated ? 'Est. cost (USD)' : 'Cost (USD)',
+        title: acc.costEstimated
+          ? `Estimated by the backend over ${acc.costSessions} session(s) — the actual amount billed may differ`
+          : `Reported by the backend as the settled amount over ${acc.costSessions} session(s)`,
+      });
+      const avg = acc.costUsd / acc.costSessions;
+      cards.push({
+        value: (acc.costEstimated ? '~' : '') + formatUsd(avg),
+        valueClass: costClass,
+        label: 'Per session',
+      });
+    }
+    if (acc.chained) {
+      cards.push({
+        value: acc.chained.toLocaleString(),
+        label: 'Chained sessions',
+        title: 'Sessions this backend started from a parent session of its own (lineage)',
+      });
+    }
     for (const card of cards) {
       const el = document.createElement('div');
       el.className = 'stat-card';
-      el.innerHTML = `<span class="stat-card-value">${escapeHtml(card.value)}</span><span class="stat-card-label">${escapeHtml(card.label)}</span>`;
+      if (card.title) el.title = card.title;
+      const valueClass = 'stat-card-value' + (card.valueClass ? ' ' + card.valueClass : '');
+      el.innerHTML = `<span class="${valueClass}">${escapeHtml(card.value)}</span><span class="stat-card-label">${escapeHtml(card.label)}</span>`;
       grid.appendChild(el);
     }
     container.appendChild(grid);
+  }
+
+  // Legend — only once a backend actually reports a cost, so a Claude-only user never sees it.
+  if (Array.from(usage.values()).some(a => a.costSessions)) {
+    const legend = document.createElement('div');
+    legend.className = 'backend-cost-legend';
+    legend.innerHTML = '<span class="backend-cost is-estimated">~$</span> estimated by the backend (may differ from what you are billed) · '
+      + '<span class="backend-cost">$</span> settled by the backend · '
+      + '<span class="backend-cost-none">—</span> token-only backend, reports no cost';
+    container.appendChild(legend);
   }
 
   // Sits above the rate-limit panel and the footer notice, below the charts.

@@ -466,6 +466,39 @@ test('db-mode: a {kind:db} session is indexed and grouped by its cwd like any ot
   } finally { cleanup(w); }
 });
 
+// T-5.5 — the cost/lineage columns are worthless if they stop at the cache: Stats reads them off the
+// renderer's session rows, so the whole chain parser -> upsert -> buildProjectsFromCache must carry
+// them. (Hermes' own parent link rides in `lineageParentId`, NOT `parentSessionId` = Claude subagent.)
+test('db-mode: cost + lineage reach the renderer session rows', () => {
+  const w = setup({ enabledMap: { dbtest: true } });
+  try {
+    backends.register(fakeDbBackend('dbtest', {
+      bucketPath: w.root,
+      sessions: [{
+        sessionId: 'hsess-1', marker: 'm1',
+        // The parser reports the backend's own parent as `parentSessionId` (see hermes/reader.js) —
+        // the scanner is what moves it to `lineageParentId`, so the fixture must use the real shape
+        // or the remap under test never runs.
+        row: {
+          cwd: w.projectCwd, summary: 'costed', messageCount: 2,
+          estimatedCostUsd: 0.0123, actualCostUsd: null, costStatus: 'estimated',
+          parentSessionId: 'hsess-0',
+        },
+      }],
+    }));
+    sessionCache.refreshBackendSessions('dbtest');
+
+    const session = sessionCache.buildProjectsFromCache(false)
+      .find(p => p.projectPath === w.projectCwd)
+      .sessions.find(s => s.sessionId === 'hsess-1');
+    assert.equal(session.estimatedCostUsd, 0.0123);
+    assert.equal(session.actualCostUsd, null, 'an unsettled cost stays null — never coerced to 0');
+    assert.equal(session.costStatus, 'estimated', 'so Stats can label the figure as an estimate');
+    assert.equal(session.lineageParentId, 'hsess-0');
+    assert.equal(session.parentSessionId, null, 'a backend lineage parent is not a Claude subagent');
+  } finally { cleanup(w); }
+});
+
 test('db-mode: the change marker is the gate — an unchanged session is not re-parsed', () => {
   const w = setup({ enabledMap: { dbtest: true } });
   try {

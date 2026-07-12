@@ -710,6 +710,15 @@ function buildProjectsFromCache(showArchived) {
       // NOT sent: it would bloat every sidebar paint. Read it per session via getCachedSession, or
       // through resolveRowFilePath below.)
       backendId: row.backendId || 'claude',
+      // v12 cost + lineage (T-5.5). Null on every token-only backend (Claude/Codex/Axis-A) — the
+      // Stats breakdown treats cost as just another metric and only shows it where a backend
+      // reports one. `costStatus` says whether the figure is an estimate or a settled amount, so
+      // an estimate is never presented as a bill. `lineageParentId` is a backend's OWN parent link
+      // (Hermes' parent_session_id), deliberately separate from `parentSessionId` = Claude subagent.
+      estimatedCostUsd: row.estimatedCostUsd == null ? null : Number(row.estimatedCostUsd),
+      actualCostUsd: row.actualCostUsd == null ? null : Number(row.actualCostUsd),
+      costStatus: row.costStatus || null,
+      lineageParentId: row.lineageParentId || null,
       name: meta?.name || null,
       starred: meta?.starred || 0,
       archived: meta?.archived || 0,

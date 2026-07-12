@@ -9449,3 +9449,21 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
   font-size: 12.5px;
   color: #6a6a80;
 }
+
+/* Cost dimension (T-5.5). Three states that must never be mistaken for one another: green = an
+   amount the backend settled, amber = an ESTIMATE (a `~` alone is too easy to miss in a dense card),
+   muted em dash = a token-only backend that reports no cost at all. An estimate read as a bill is
+   the failure mode this split exists to prevent. */
+.backend-cost {
+  color: #6ec48a;
+  white-space: nowrap;
+}
+.backend-cost.is-estimated { color: #d3a35f; }
+.backend-cost-none {
+  color: #6a6a80;
+}
+.backend-cost-legend {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: #8a8a9e;
+}

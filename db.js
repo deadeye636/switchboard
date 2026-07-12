@@ -1274,7 +1274,7 @@ const upsertCachedSessionsBatch = db.transaction((sessions) => {
       s.estimatedCostUsd == null ? null : Number(s.estimatedCostUsd),
       s.actualCostUsd == null ? null : Number(s.actualCostUsd),
       s.costStatus || null,
-      s.lineageParentId || s.parentSessionIdLineage || null
+      s.lineageParentId || null
     );
   }
 });
