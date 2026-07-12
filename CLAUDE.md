@@ -98,6 +98,22 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
   siblings**.
 - `session_cache.backendId` is the authoritative provenance. Any folder-wide delete must be **backend-scoped**
   (a project bucket is keyed on cwd and therefore shared) — `test/scoped-folder-deletes.test.js` guards it.
+- **A `configFields` default describes what the CLI does anyway — it is NEVER sent.** It is what a control
+  shows when nobody has said otherwise, not a value to put on the command line. Only what someone actually
+  chose reaches the argv. Every non-empty default used to be seeded into the launch, so a plain Codex
+  session carried `-a on-request -s workspace-write` although the user had chosen neither, overruling
+  their own `config.toml` in silence. So write a default that **matches what that CLI already does** — it
+  is a description of the CLI, not a wish. `test/backend-config-fields.test.js` also refuses a declared
+  option that changes nothing (a control that lies), unless it says why: `appliesAt: 'spawn'` (main.js
+  applies it, not the argv) or `requires: '<other>'` (meaningless on its own).
+- **Options cascade PER OPTION, and every level stores only what it marked as set:**
+  `backend default → global → project → template`. Without that marker, "not set" cannot be told from
+  "deliberately empty / off", and an option whose default is ON could never be switched off. The Configure
+  dialog sits on top as a per-session override; its markers start ticked, so opening it and pressing Start
+  changes nothing.
+- **Bump a parser and its sessions re-read themselves** (`PARSER_SCHEMA_VERSION` + `session_cache.parserVersion`).
+  A parser change moves no file's mtime, so without this a metrics schema change lands in an empty table
+  and stays there. Do not add a metrics field without bumping.
 
 ## Docs — where a document goes
 
@@ -157,7 +173,18 @@ diagnostic at `debug` that the packaged default hides is what made #120 invisibl
 - **Commit only after the feature is confirmed working.** Don't commit a change just
   because tests pass — wait until the behaviour has been verified (manual check in the
   app, or the user confirms it works). Green tests alone are not a green light to commit.
+  Two bugs that shipped green: Codex sat permanently at "working" (a Claude-only OSC title
+  heuristic ran on every backend), and a Save with a backend's gear page open silently
+  discarded every backend setting. Both needed a click, not a test run, to be seen.
 - Don't add a framework, build step, or bundler to the renderer beyond the existing esbuild CodeMirror bundle.
+- **A new control in the renderer inherits NO styling.** A button with only a behaviour class renders as
+  the browser's native control — a white box with black text, next to your styled ones. Reuse an existing
+  class (`.settings-action-btn`, `.new-session-secondary-btn`, `.backend-btn`, …) or add one; never ship a
+  bare `<button>`. Same for popovers and overlays. This has bitten repeatedly.
+- **A dialog that holds work must not be dismissible by accident.** A stray backdrop click or a reflexive
+  Escape closes a `showControlDialog` — fine for a question, wrong for anything holding something the user
+  cannot get back (a handoff packet an agent spent tokens writing). Pass `dismissible: false`, or ask
+  before discarding.
 - When touching `db.js` schema: append a migration, never edit an existing one.
 - When adding IPC: handler in `main.js` + binding in `preload.js` + (if it returns to UI) a renderer caller.
 - Prefer `execFile` over shell string interpolation for any external process (security).
