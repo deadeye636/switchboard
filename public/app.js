@@ -2031,24 +2031,32 @@ async function launchNewSession(project, sessionOptions, seedText, groupId) {
   showSession(sessionId);
   pollActiveSessions();
 
-  // For the guided handoff flow: seed the fresh session with the handoff packet
-  // as its first message once the CLI has booted. Because we pass --session-id
-  // (isNew), the session id stays this temp id, so we can seed it directly.
+  // For the guided handoff flow: seed the fresh session with the handoff packet as its first message
+  // once the CLI has booted. The session id we launched under is the one we seed — a backend that names
+  // its own session (Codex/Hermes/Pi) is re-keyed later, but the PTY is addressed by the id we hold.
   if (seedText && String(seedText).trim()) {
-    seedSessionWhenReady(sessionId, String(seedText));
+    const backend = (typeof getBackend === 'function' && sessionOptions && sessionOptions.backendId)
+      ? getBackend(sessionOptions.backendId)
+      : null;
+    seedSessionWhenReady(sessionId, String(seedText), { graceMs: (backend && backend.seedGraceMs) || 0 });
   }
 
   return sessionId;
 }
 
-// Seed a freshly-launched session with its first message once the Claude CLI has
-// booted and gone quiet. Rather than guessing a fixed delay, we watch
-// lastActivityTime (populated by trackActivity for every session's output) for
-// the boot UI to render and then settle. Best-effort: seeds anyway at timeout.
-function seedSessionWhenReady(sessionId, seedText) {
+// Seed a freshly-launched session with its first message once the CLI has booted and gone quiet. Rather
+// than guessing a fixed delay, we watch lastActivityTime (populated by trackActivity for every session's
+// output) for the boot UI to render and then settle. Best-effort: seeds anyway at timeout.
+//
+// `graceMs` (from the backend descriptor) is a floor, not a hint: Hermes needs ~12s of Python imports
+// before its TUI can take input at all, and it PRINTS during that time (our own startup hint does too),
+// so "the terminal went quiet" arrives long before the process can hear anything. Without the floor the
+// packet is pasted into a process with no input loop and is simply gone — on exactly the backend whose
+// handoff support this feature was extended for.
+function seedSessionWhenReady(sessionId, seedText, { graceMs = 0 } = {}) {
   const SETTLE_MS = 700;
   const POLL_MS = 250;
-  const MAX_WAIT_MS = 12000;
+  const MAX_WAIT_MS = 12000 + graceMs;
   const startedAt = Date.now();
   let seeded = false;
 
@@ -2057,10 +2065,13 @@ function seedSessionWhenReady(sessionId, seedText) {
     const entry = openSessions.get(sessionId);
     if (!entry || entry.closed) return; // session closed before it was ready
 
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < graceMs) { setTimeout(attempt, POLL_MS); return; }   // it cannot listen yet
+
     const last = lastActivityTime.get(sessionId);
     const quietFor = last ? Date.now() - last.getTime() : Infinity;
     const settled = last && quietFor >= SETTLE_MS;
-    const timedOut = Date.now() - startedAt >= MAX_WAIT_MS;
+    const timedOut = elapsed >= MAX_WAIT_MS;
 
     if (settled || timedOut) {
       seeded = true;

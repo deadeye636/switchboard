@@ -63,5 +63,31 @@
       .trim();
   }
 
-  return { extractLatestAssistantText, assistantContentOf };
+  // Which backend should run a saved handoff, and what should the row say about it? Pure, so the rules
+  // are pinned by tests instead of living only inside a DOM callback (#148).
+  //
+  //   source     = handoff.backendId (NULL for one saved before handoffs recorded their origin)
+  //   launchable = the backends that can actually run right now (ready && enabled)
+  //
+  // Returns { options, selected, sourceAvailable, warning, showPicker }.
+  function resolveHandoffTarget(source, launchable, defaultBackendId) {
+    const options = (Array.isArray(launchable) && launchable.length)
+      ? launchable
+      : [{ id: 'claude', label: 'Claude Code' }];
+
+    const sourceAvailable = !!source && options.some(b => b.id === source);
+    const fallback = options.some(b => b.id === defaultBackendId) ? defaultBackendId : options[0].id;
+    const selected = sourceAvailable ? source : fallback;
+
+    // The source is recorded but cannot run: SAY so. Quietly running the packet on whatever sorted
+    // first is the kind of "helpful" that loses a user an hour.
+    const warning = (source && !sourceAvailable) ? source : null;
+
+    // A single-backend user must see no new control at all.
+    const showPicker = !(options.length === 1 && (!source || source === options[0].id));
+
+    return { options, selected, sourceAvailable, warning, showPicker };
+  }
+
+  return { extractLatestAssistantText, assistantContentOf, resolveHandoffTarget };
 });

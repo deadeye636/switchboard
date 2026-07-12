@@ -269,7 +269,10 @@ function parseSession(handle) {
       lastEntryAt,
       activeMinutes,
       messageCount: Number(s.message_count || 0),
-      userMessageCount: 0,      // not tracked separately by Hermes
+      // Hermes has no user-message column, but the rows are right there. It used to be hardcoded to 0,
+      // which meant the "handoff recommended" nudge (session-health.js needs > 1) could never fire for
+      // the one backend whose handoff support this all exists for.
+      userMessageCount: countUserMessages(db, handle.sessionId),
       largestUserPromptWords: 0,
       slug: null, customTitle: null, aiTitle: null,
       model: s.model || null,
@@ -323,15 +326,34 @@ function watchTargets() {
  *
  * Bounded: this is a viewer, not a scan.
  */
+function countUserMessages(db, sessionId) {
+  try {
+    const row = db.get("SELECT COUNT(*) AS n FROM messages WHERE session_id = ? AND role = 'user'", sessionId);
+    return Number((row && row.n) || 0);
+  } catch {
+    return 0;
+  }
+}
+
 function readMessages(sessionId, { limit = 2000 } = {}) {
   const db = openDb();
   if (!db) return [];
   try {
+    // Take the LAST n, not the first. The two consumers both want the recent end: the handoff pre-fill
+    // reads the newest assistant turn, and the viewer scrolls to the bottom. Reading the head would, on
+    // exactly the long sessions this feature exists for, serve a stale mid-session turn AS the fresh
+    // packet — silently wrong content, which is worse than the empty textarea it replaced.
+    //
+    // Only real conversation turns: Hermes also stores tool scaffolding and compacted-away rows, and an
+    // assistant row whose "content" is a tool call is not the packet.
     const rows = db.all(
-      "SELECT role, content, timestamp FROM messages WHERE session_id = ? AND content IS NOT NULL AND content <> ''"
-      + ' ORDER BY id LIMIT ?',
+      "SELECT role, content, timestamp FROM messages"
+      + " WHERE session_id = ? AND content IS NOT NULL AND content <> ''"
+      + " AND role IN ('user', 'assistant')"
+      + ' ORDER BY id DESC LIMIT ?',
       sessionId, limit
     );
+    rows.reverse();   // back into chronological order for the viewer
     return rows.map(r => ({
       type: 'message',
       timestamp: r.timestamp ? new Date(Number(r.timestamp) * 1000).toISOString() : null,

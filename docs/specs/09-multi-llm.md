@@ -118,6 +118,13 @@ The ones that will look wrong to someone tidying up later:
    button — it launches an unrelated empty session.
 7. **Disable is not delete.** A disabled backend leaves the picker, the scan and the badge counting; its
    sessions stay visible and searchable.
+8. **A handoff is context, not a continuation — and it is the ONE exception to binary-bound resume.**
+   Resuming a *session* reapplies its backend, with no chooser (§5.11). Resuming a *handoff* starts a
+   **new** session seeded with a packet, so it may run on any backend and the user is asked which
+   (defaulting to the one that wrote it, recorded in `project_handoffs.backendId`). A backend with no
+   transcript file supplies its messages through `readMessages()`, which is what lets a handoff be
+   produced from it at all — without it the review dialog comes up empty and the user retypes what the
+   agent just wrote.
 8. **Argv spawn is honoured only when the command is a real executable.** On Windows `CreateProcess`
    cannot run an npm `.cmd` shim (which is what `codex` is), so argv mode falls back to the shell there.
 9. **Cross-backend deletes are scoped.** A project bucket is keyed on the working directory and therefore
@@ -130,7 +137,6 @@ The ones that will look wrong to someone tidying up later:
 
 Filed as issues rather than silently carried:
 
-- **#148** the handoff system is still Claude-only; a handoff *resume* should ask which backend to run it on.
 - **#149** `backendDefaults` cascades as a whole block, not per option.
 - **#150–#152** Hermes: probe scope, no busy/idle fallback when its DB is unreadable, parser-version marker.
 - **#153** leftovers vs. the plan (Tier-2 registration path, a launch-time `$VAR` warning, picker cosmetics).

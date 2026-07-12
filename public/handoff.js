@@ -74,7 +74,10 @@ async function showHandoffPrompt(session) {
   if (action === 'secondary') {
     const label = await showHandoffSaveDialog(session);
     if (label === null) return;
-    await window.api.saveHandoff({ projectPath: project.projectPath, label, content: buildHandoffTemplate(session) });
+    await window.api.saveHandoff({
+      projectPath: project.projectPath, label, content: buildHandoffTemplate(session),
+      backendId: backendOfSession(session),   // provenance, or the resume picker's default is a lie
+    });
     showControlToast({ message: 'Handoff saved to project.' });
     return;
   }
@@ -94,7 +97,7 @@ function backendOfSession(session) {
 
 async function newSessionFromHandoff(project, session) {
   if (!project) return;
-  const options = await resolveDefaultSessionOptions(project);
+  const options = await resolveLaunchOptionsFor(project, backendOfSession(session));
   const newId = await launchNewSession(project, options, buildHandoffTemplate(session));
   if (newId) showControlToast({ message: 'New session seeded with the handoff.' });
 }
@@ -218,7 +221,7 @@ function showHandoffSaveDialog(session) {
   const suggested = `${title} · ${stamp}`;
   dialog.innerHTML = `
     <h3>Save Handoff</h3>
-    <div class="add-project-hint">Stored with this project. Resume it later from the new-session menu → "Claude Handoff resume".</div>
+    <div class="add-project-hint">Stored with this project. Resume it later from the new-session menu → "Resume from handoff", on any backend you like.</div>
     <input type="text" id="handoff-save-label" class="settings-input" style="width:100%;box-sizing:border-box;">
     <div class="new-session-actions">
       <button type="button" class="new-session-cancel-btn">Cancel</button>
@@ -333,21 +336,31 @@ async function showHandoffResumePicker(project, groupId) {
         row.querySelector('.handoff-row-label').textContent = h.label || 'Handoff';
         row.querySelector('.handoff-row-date').textContent = fmt(h.createdAt);
 
+        // The rules (default, unavailable source, single-backend user) live in resolveHandoffTarget so
+        // they are testable — a DOM callback is where behaviour goes to hide.
         const select = row.querySelector('.handoff-backend');
-        const source = h.backendId || 'claude';
-        // A backend that is disabled (or gone) must not be offered — but if the packet came from it,
-        // say so rather than silently swapping the user onto another one.
-        const options = launchable.length ? launchable : [{ id: 'claude', label: 'Claude Code' }];
-        for (const b of options) {
+        const source = h.backendId || null;   // NULL = saved before handoffs recorded their origin
+        const target = resolveHandoffTarget(source, launchable, window._defaultBackendId || 'claude');
+
+        for (const b of target.options) {
           const opt = document.createElement('option');
           opt.value = b.id;
           opt.textContent = b.label + (b.id === source ? ' (source)' : '');
-          if (b.id === source) opt.selected = true;
+          if (b.id === target.selected) opt.selected = true;
           select.appendChild(opt);
         }
-        if (!options.some(b => b.id === source)) {
-          select.title = 'The backend this handoff came from is not available — pick another.';
+
+        if (target.warning) {
+          const label = (typeof getBackend === 'function' && getBackend(target.warning) && getBackend(target.warning).label)
+            || target.warning;
+          const warn = document.createElement('div');
+          warn.className = 'handoff-row-warn';
+          warn.textContent = `Written by ${label}, which is not available — it will run on the backend you pick.`;
+          row.appendChild(warn);
+          row.classList.add('handoff-row-stacked');
         }
+
+        if (!target.showPicker) select.remove();   // a single-backend user sees no new control
 
         row.querySelector('.handoff-pick').onclick = async () => {
           const backendId = select.value || 'claude';

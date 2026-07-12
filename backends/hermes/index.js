@@ -146,6 +146,11 @@ module.exports = {
   // Hermes loads a heavy Python stack before its TUI paints — measured at ~12s on a warm machine
   // (T-5.0). Said out loud, because a silent black tab for 12 seconds reads as a crash.
   startupHint: 'Starting Hermes — its TUI takes about 10-15 seconds to appear.',
+  // ...and until it HAS appeared it cannot take input. A handoff packet pasted into a Python process
+  // that has not built its input loop yet is simply lost, so the seeding path waits this long before it
+  // even starts looking for the terminal to settle (#148). Our own startup hint counts as output, so
+  // "the terminal went quiet" is not a usable readiness signal here on its own.
+  seedGraceMs: 20000,
   configFields,
   buildLaunch,
   probe,

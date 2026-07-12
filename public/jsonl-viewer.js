@@ -674,9 +674,14 @@ function renderJsonlEntry(entry, toolResultMap) {
 
 
   for (const block of contentBlocks) {
+    // A text block is one that CARRIES text. Codex calls its blocks `output_text` / `input_text`, so
+    // matching on `type === 'text'` rendered a Codex transcript as "No messages found" — while the
+    // handoff extractor read those very turns without trouble. One definition of "text", in both places.
+    const isTextBlock = block.type !== 'thinking' && typeof block.text === 'string' && block.text.trim();
+
     if (block.type === 'thinking' && block.thinking) {
       div.appendChild(makeCollapsible('jsonl-thinking', 'Thinking', block.thinking, false));
-    } else if (block.type === 'text' && block.text && block.text.trim()) {
+    } else if (isTextBlock) {
       // Render merged local command as a tool block
       if (block._localCmd) {
         div.appendChild(renderLocalCommand(block._localCmd));

@@ -1235,7 +1235,7 @@
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Integrated handoff</span>${help}</div>
                     <div class="settings-description">Save a handoff to the project and resume it later from the new-session menu.</div>
-                    <div class="settings-more">When on, a handoff can be saved to the project (instead of starting a fresh session right away) and later resumed from the new-session menu ("Claude Handoff resume"). The guided flow needs a running session.</div>
+                    <div class="settings-more">When on, a handoff can be saved to the project (instead of starting a fresh session right away) and later resumed from the new-session menu ("Resume from handoff") — into any backend, not just the one that wrote it. The guided flow needs a running session.</div>
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-handoff-library" ${handoffLibraryValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
@@ -1244,7 +1244,7 @@
                 <div class="settings-field settings-field-wide">
                   <div class="settings-field-info">
                     <span class="settings-label">Handoff prompt</span>
-                    <div class="settings-description">Sent to the running agent to produce the handoff. Placeholders: {goal} {project} {sessionId} {metrics}. Set a skill command like <code>/handoff</code> to run a skill instead. Clear the field to restore the default.</div>
+                    <div class="settings-description">Sent to the running agent to produce the handoff. Placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default. <b>A slash command like <code>/handoff</code> is a Claude skill</b> — Codex, Hermes and Pi receive it as plain text, so keep this a normal prompt if you hand off from those.</div>
                   </div>
                   <div class="settings-field-control">
                     <textarea class="settings-input" id="sv-handoff-prompt" spellcheck="false" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffPromptValue)}</textarea>

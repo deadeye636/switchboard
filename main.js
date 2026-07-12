@@ -3057,6 +3057,9 @@ ipcMain.handle('backends-list', () => {
       // A standing gotcha the user cannot see from inside the app (Pi: a stored OAuth login silently
       // beats an injected key). Rendered on the backend's settings page.
       caveat: b.caveat || null,
+      // How long this CLI needs before it can accept input at all (Hermes: ~12s of Python imports).
+      // The handoff seeding path waits it out instead of pasting into a process that cannot hear it.
+      seedGraceMs: Number(b.seedGraceMs) || 0,
     })),
     defaultLaunchTarget: backends.getDefaultLaunchTarget(),
   };

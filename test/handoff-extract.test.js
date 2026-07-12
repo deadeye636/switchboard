@@ -92,3 +92,59 @@ test('a user turn is never mistaken for the packet', () => {
   ];
   assert.strictEqual(extractLatestAssistantText(entries), 'the packet');
 });
+
+// --- the resume picker's rules (#148) ------------------------------------------------------------
+// A handoff resume starts a NEW session, so it may run on any backend. These rules used to live inside
+// a DOM callback, where the "unavailable source" case silently swapped the user onto whatever backend
+// happened to sort first.
+
+const { resolveHandoffTarget } = require('../public/handoff-extract.js');
+
+const LAUNCHABLE = [
+  { id: 'claude', label: 'Claude Code' },
+  { id: 'codex', label: 'Codex' },
+  { id: 'pi', label: 'Pi' },
+];
+
+test('the picker defaults to the backend that wrote the packet', () => {
+  const t = resolveHandoffTarget('codex', LAUNCHABLE, 'claude');
+  assert.strictEqual(t.selected, 'codex');
+  assert.strictEqual(t.sourceAvailable, true);
+  assert.strictEqual(t.warning, null);
+  assert.strictEqual(t.showPicker, true);
+});
+
+test('an unavailable source is announced, not silently swapped', () => {
+  // Hermes wrote the packet, but it has since been disabled/uninstalled.
+  const t = resolveHandoffTarget('hermes', LAUNCHABLE, 'claude');
+  assert.strictEqual(t.warning, 'hermes', 'the row must say which backend it came from');
+  assert.strictEqual(t.sourceAvailable, false);
+  assert.strictEqual(t.selected, 'claude', 'and fall back to the default, visibly');
+});
+
+test('a handoff saved before backends existed has no source, and claims none', () => {
+  const t = resolveHandoffTarget(null, LAUNCHABLE, 'codex');
+  assert.strictEqual(t.selected, 'codex', 'it just uses the default backend, like a new session');
+  assert.strictEqual(t.warning, null, 'unknown provenance is not a warning — it is simply unknown');
+});
+
+test('a single-backend user gets no picker at all', () => {
+  const t = resolveHandoffTarget('claude', [{ id: 'claude', label: 'Claude Code' }], 'claude');
+  assert.strictEqual(t.showPicker, false, 'the app must look untouched for them');
+
+  const legacy = resolveHandoffTarget(null, [{ id: 'claude', label: 'Claude Code' }], 'claude');
+  assert.strictEqual(legacy.showPicker, false);
+});
+
+test('a single-backend user WHOSE packet came from elsewhere still sees the picker', () => {
+  // Only Claude is enabled now, but the packet came from Codex — hiding that would be a lie.
+  const t = resolveHandoffTarget('codex', [{ id: 'claude', label: 'Claude Code' }], 'claude');
+  assert.strictEqual(t.showPicker, true);
+  assert.strictEqual(t.warning, 'codex');
+});
+
+test('no launchable backends at all still yields something runnable', () => {
+  const t = resolveHandoffTarget('codex', [], 'claude');
+  assert.strictEqual(t.selected, 'claude');
+  assert.strictEqual(t.options.length, 1);
+});

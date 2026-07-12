@@ -8014,6 +8014,13 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 
 /* Which backend runs this handoff (#148). A handoff is context, not a continuation, so unlike resuming
    a session it may cross binaries — the select defaults to the backend the packet came from. */
+.handoff-row-stacked { flex-wrap: wrap; }
+.handoff-row-warn {
+  flex: 1 0 100%;
+  font-size: 11.5px;
+  color: #d3a35f;
+  padding: 0 2px 2px;
+}
 .handoff-row .handoff-backend {
   align-self: center;
   max-width: 170px;

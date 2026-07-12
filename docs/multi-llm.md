@@ -68,6 +68,24 @@ is resolved from your environment at launch and never written to disk. Pasting a
 A profile that points at a third-party endpoint while still inheriting your Anthropic key is blocked
 outright — that combination would send your key to someone else.
 
+## Handoffs across backends
+
+A handoff asks the running agent to write a compact context packet, which you review and then either
+run in a fresh session or save to the project's handoff library.
+
+It works from **any** backend: the packet is read back from whichever agent wrote it (Hermes hands its
+messages over from its database, since it keeps no transcript file). The fresh session a handoff seeds
+runs on the backend the packet came from.
+
+**Resuming a saved handoff asks which backend should run it** — and that is not an inconsistency with
+"resume keeps its backend". Resuming a *session* continues it, so it must stay on its own binary.
+Resuming a *handoff* starts a **new** session seeded with context, so it is free to run anywhere; the
+picker just defaults to the backend that produced it. If that backend is no longer available, the row
+says so instead of quietly running the packet somewhere else.
+
+One caveat: if you set the handoff prompt to a slash command (`/handoff`), that is a **Claude skill**.
+Other backends will receive it as plain text.
+
 ## Turning a backend off
 
 Disabling a backend removes it from the launch menu, stops scanning its store, and stops it counting

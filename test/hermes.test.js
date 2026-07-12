@@ -290,20 +290,47 @@ test('readMessages hands out the session transcript, in the shape the viewer spe
     assert.ok(e.message && typeof e.message.role === 'string');
     assert.strictEqual(typeof e.message.content, 'string');
   }
-  // The handoff extractor must find the last assistant turn in exactly this shape.
+
+  // The handoff extractor must find the last assistant turn in exactly this shape. NOT guarded by an
+  // `if` — a fixture without an assistant turn would silently void this test, and this assertion is the
+  // whole point: without it, a handoff from Hermes comes up empty and the user retypes the packet.
   const { extractLatestAssistantText } = require('../public/handoff-extract.js');
   const assistants = entries.filter(e => e.message.role === 'assistant');
-  if (assistants.length) {
-    assert.strictEqual(
-      extractLatestAssistantText(entries),
-      assistants[assistants.length - 1].message.content.trim(),
-      'the handoff pre-fill reads the packet Hermes wrote',
-    );
+  assert.ok(assistants.length, 'the fixture must contain an assistant turn');
+  assert.strictEqual(
+    extractLatestAssistantText(entries),
+    assistants[assistants.length - 1].message.content.trim(),
+    'the handoff pre-fill reads the packet Hermes wrote',
+  );
+});
+
+test('readMessages keeps the RECENT end when it has to truncate', () => {
+  // Both consumers want the recent end: the handoff reads the newest assistant turn, the viewer scrolls
+  // to the bottom. Reading the head would — on exactly the long sessions this feature exists for — serve
+  // a stale mid-session turn AS the fresh packet. Silently wrong content is worse than an empty box.
+  useFixture();
+  const all = reader.readMessages('sess-cli-1');
+  assert.ok(all.length >= 2, 'the fixture has enough messages to truncate');
+
+  const tail = reader.readMessages('sess-cli-1', { limit: 1 });
+  assert.strictEqual(tail.length, 1);
+  assert.strictEqual(tail[0].message.content, all[all.length - 1].message.content,
+    'the LAST message survives the cap, not the first');
+});
+
+test('readMessages returns only real turns, and never throws on a missing session', () => {
+  useFixture();
+  assert.deepStrictEqual(reader.readMessages('does-not-exist'), []);
+  for (const e of reader.readMessages('sess-cli-1')) {
+    assert.ok(['user', 'assistant'].includes(e.message.role),
+      'tool scaffolding and compacted rows are not conversation turns');
   }
 });
 
-test('readMessages is bounded and never throws on a missing session', () => {
+test('a Hermes session reports its user-message count (the handoff nudge depends on it)', () => {
+  // It used to be hardcoded to 0, so session-health could never recommend a handoff for Hermes — the one
+  // backend whose handoff support the readMessages hook was built for.
   useFixture();
-  assert.deepStrictEqual(reader.readMessages('does-not-exist'), []);
-  assert.ok(reader.readMessages('sess-cli-1', { limit: 1 }).length <= 1);
+  const row = reader.parseSession({ kind: 'db', sessionId: 'sess-cli-1' });
+  assert.ok(row.userMessageCount >= 1, 'counted from the messages table, not assumed');
 });

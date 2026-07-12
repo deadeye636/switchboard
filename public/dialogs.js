@@ -66,9 +66,13 @@ async function resolveLaunchOptionsFor(project, backendId) {
   return options;
 }
 
-// Claude's effective launch defaults, for the paths that are Claude by definition (fork, handoff
-// resume, plain resume). Deliberately WITHOUT a backendId: a resume must keep the backend the session
-// was recorded with (§5.11), so it must not be handed 'claude' here.
+// Claude's effective launch defaults, WITHOUT a backendId — for the paths that must not force a backend
+// at all (a plain resume keeps the backend the session was recorded with, §5.11).
+//
+// It is NOT "the Claude-by-definition paths" any more: fork runs on the session's own backend, and so
+// does every handoff path (#148). That stale comment is what let a handoff keep launching Claude long
+// after the commit that claimed to fix it — if you reach for this function, ask first whether you
+// actually mean `resolveLaunchOptionsFor(project, <that session's backend>)`.
 async function resolveDefaultSessionOptions(project) {
   const options = await resolveLaunchOptionsFor(project, 'claude');
   delete options.backendId;
@@ -228,7 +232,8 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
   // Remove any existing popover
   document.querySelectorAll('.new-session-popover').forEach(el => el.remove());
 
-  // Handoff library: when on, offer "Claude Handoff resume" in the menu.
+  // Handoff library: when on, offer "Resume from handoff" in the menu. NOT "Claude handoff" — a
+  // handoff is a context packet and can be produced by, and resumed into, any backend (#148).
   const globalSettings = (await window.api.getSetting('global')) || {};
   const handoffLibrary = !!globalSettings.handoffLibrary;
   const launchers = await effectiveCustomLaunchers(project.projectPath, globalSettings);
@@ -291,12 +296,12 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
   termBtn.innerHTML = TERMINAL_POPOVER_ICON + ' Terminal';
   termBtn.onclick = () => { popover.remove(); launchTerminalSession(project, groupId); };
 
-  // "Claude Handoff resume" — only in Handoff-library mode. Disabled+greyed when the
+  // "Resume from handoff" — only in Handoff-library mode. Disabled+greyed when the
   // project has no saved handoffs (visible, not hidden).
   if (handoffLibrary) {
     const resumeBtn = document.createElement('button');
     resumeBtn.className = 'popover-option popover-option-handoff';
-    resumeBtn.innerHTML = '<svg class="popover-option-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg> Claude Handoff resume';
+    resumeBtn.innerHTML = '<svg class="popover-option-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg> Resume from handoff';
     resumeBtn.disabled = true;
     resumeBtn.title = 'Checking saved handoffs…';
     resumeBtn.onclick = () => { popover.remove(); showHandoffResumePicker(project, groupId); };
