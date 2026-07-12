@@ -19,9 +19,13 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
+const { bucketOf, bucketFromEpochSeconds, NO_HOUR } = require('../../metrics-bucket');
 
-// Bump on ANY behavioural change here — persisted parse-state keyed on it is then dropped (§5.10).
-const PARSER_SCHEMA_VERSION = 1;
+// Bump on ANY behavioural change here — persisted parse-state keyed on it is then dropped (§5.10), and
+// (since #152) every Hermes session already in the cache is re-read, so a change like v2 reaches the
+// charts by itself instead of waiting for a manual Rebuild.
+//   v2: per-(date, HOUR, model) metrics in LOCAL time, with cost per bucket (#159)
+const PARSER_SCHEMA_VERSION = 2;
 
 let _home = null;
 
@@ -207,38 +211,77 @@ function parseSession(handle) {
       if (last && last.t) lastMessageMs = Number(last.t) * 1000;
     } catch { /* leave it at 0 -> deriveState falls back to the session row's own timestamps */ }
 
-    // Per-(date, model) metrics for the Stats charts (#154).
+    // Per-(date, hour, model) metrics for the Stats charts (#154, #159).
     //
-    // Hermes is the one backend that cannot do this exactly: its `messages` rows carry timestamps but
-    // NO per-message tokens — the token counts exist only on the session row. So the message counts are
-    // per day (asked over ALL messages, not the capped read), while the token totals are booked on the
-    // day of the session's last activity. For a session that spans midnight, the tokens land on the day
-    // it finished rather than being split. That is an approximation, and it is the honest one available:
-    // the alternative would be to invent a distribution.
+    // Hermes is the one backend that cannot do this exactly: its `messages` rows carry timestamps but NO
+    // per-message tokens and no per-message cost — both exist only on the SESSION row. So the message
+    // counts are exact per bucket (asked over ALL messages, not the capped read), while the tokens, the
+    // tool calls and the money are booked on the bucket of the session's last activity. A session that
+    // spans midnight books its tokens where it finished rather than being split. That is an
+    // approximation; the alternative would be to invent a distribution, which is worse than admitting to
+    // one. The UI says so.
+    //
+    // Everything is bucketed in LOCAL time, like every other backend (metrics-bucket.js). This used to
+    // ask SQLite for `localtime` days but compute the token-booking day with `toISOString()` — i.e. UTC.
+    // Whenever those two disagreed (most evenings, east of Greenwich) the booking day matched no bucket
+    // at all and the session's ENTIRE token count was silently dropped from the charts.
     const dailyMetrics = [];
     try {
-      const perDay = db.all(
-        "SELECT strftime('%Y-%m-%d', timestamp, 'unixepoch', 'localtime') AS date, COUNT(*) AS n" +
-        ' FROM messages WHERE session_id = ? AND timestamp IS NOT NULL GROUP BY date',
+      const perBucket = db.all(
+        "SELECT strftime('%Y-%m-%d', timestamp, 'unixepoch', 'localtime') AS date," +
+        " CAST(strftime('%H', timestamp, 'unixepoch', 'localtime') AS INTEGER) AS hour," +
+        ' COUNT(*) AS n' +
+        ' FROM messages WHERE session_id = ? AND timestamp IS NOT NULL GROUP BY date, hour',
         handle.sessionId
       );
       const model = s.model || '';
-      const bookTokensOn = lastMessageMs
-        ? new Date(lastMessageMs).toISOString().slice(0, 10)
-        : (toIso(s.started_at) || '').slice(0, 10);
+      const bookOn = lastMessageMs
+        ? bucketOf(new Date(lastMessageMs))
+        : bucketFromEpochSeconds(s.started_at);
+      const isBookBucket = (row) => row.date === bookOn.date && Number(row.hour) === bookOn.hour;
 
-      for (const row of perDay) {
+      // A ZERO estimate on a session that did real work means Hermes had no pricing for that model —
+      // not that the work was free. Reported as 0 it would draw a $0.00 bar in the cost chart, which is
+      // a made-up fact; NULL keeps the day out of the chart entirely. This is the same rule the session
+      // cards already apply (stats-view.js `sessionCost`), now applied where the fact is known. A
+      // SETTLED zero is a real statement and is kept.
+      const est = s.estimated_cost_usd == null ? null : Number(s.estimated_cost_usd);
+      const actual = s.actual_cost_usd == null ? null : Number(s.actual_cost_usd);
+      const totals = () => ({
+        toolCallCount: Number(s.tool_call_count || 0),
+        inputTokens: Number(s.input_tokens || 0),
+        outputTokens: Number(s.output_tokens || 0),
+        cacheReadTokens: Number(s.cache_read_tokens || 0),
+        cacheCreationTokens: Number(s.cache_write_tokens || 0),
+        // Hermes is the only backend that can report a SETTLED amount. Both stay null when it reported
+        // nothing — a session nobody priced did not cost zero.
+        estimatedCostUsd: (est === 0 && actual == null) ? null : est,
+        actualCostUsd: actual,
+      });
+      const empty = {
+        toolCallCount: 0, inputTokens: 0, outputTokens: 0,
+        cacheReadTokens: 0, cacheCreationTokens: 0,
+        estimatedCostUsd: null, actualCostUsd: null,
+      };
+
+      let booked = false;
+      for (const row of perBucket) {
         if (!row.date) continue;
+        const carries = isBookBucket(row);
+        if (carries) booked = true;
         dailyMetrics.push({
           date: row.date,
+          hour: Number.isInteger(row.hour) ? row.hour : NO_HOUR,
           model,
           messageCount: Number(row.n || 0),
-          toolCallCount: Number(s.tool_call_count || 0) && row.date === bookTokensOn ? Number(s.tool_call_count) : 0,
-          inputTokens: row.date === bookTokensOn ? Number(s.input_tokens || 0) : 0,
-          outputTokens: row.date === bookTokensOn ? Number(s.output_tokens || 0) : 0,
-          cacheReadTokens: row.date === bookTokensOn ? Number(s.cache_read_tokens || 0) : 0,
-          cacheCreationTokens: row.date === bookTokensOn ? Number(s.cache_write_tokens || 0) : 0,
+          ...(carries ? totals() : empty),
         });
+      }
+
+      // A session with tokens but no message rows (or whose last-activity bucket somehow isn't among
+      // them) would otherwise contribute NOTHING to the charts while its totals show up in the cards.
+      if (!booked && bookOn.date) {
+        dailyMetrics.push({ date: bookOn.date, hour: bookOn.hour, model, messageCount: 0, ...totals() });
       }
     } catch { /* metrics are a nice-to-have: never fail the session read over them */ }
 

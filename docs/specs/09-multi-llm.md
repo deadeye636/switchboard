@@ -138,13 +138,52 @@ The ones that will look wrong to someone tidying up later:
 Filed as issues rather than silently carried:
 
 - **#149** `backendDefaults` cascades as a whole block, not per option.
-- **#150–#152** Hermes: probe scope, no busy/idle fallback when its DB is unreadable, parser-version marker.
+- **#150/#151** Hermes: probe scope, no busy/idle fallback when its DB is unreadable.
 - **#153** leftovers vs. the plan (Tier-2 registration path, a launch-time `$VAR` warning, picker cosmetics).
-- **#154** the Stats time-series charts (heatmap, daily bars, per-model tokens) still cover **Claude only** —
-  `session_metrics` is written on the Claude read path; the per-backend cards below them include everyone.
 - **#155** hot-path cost (Hermes re-parses a session per watcher flush; store walks per flush).
 - **#156** this contract needs a shared file-store helper — Codex and Pi duplicate ~60 lines of walk /
   watch / match / lookup boilerplate that the next file backend would copy a third time.
+
+Closed since: **#154** (every backend feeds the charts), **#152** + **#159** (below).
+
+## Metrics: the staleness gate, and what a bucket is (#152, #159)
+
+**A cached row records the parser that wrote it** (`session_cache.parserVersion`), and the scan skips a
+session only when its change marker matches **and** that version is the one we would read with now.
+
+This is not a nicety. A parser change does not move a file's mtime or a Hermes session's `ended_at`, so
+without the version half of the gate every metrics schema change lands in an empty table and stays there:
+that is exactly how the charts came to be silently Claude-only *and* stale for every existing user, until
+they happened to find **Settings → Maintenance → Rebuild session cache**. Migration v8's own comment
+claimed a cold-start rebuild would backfill it — but a cold start only runs when the cache is **empty**,
+which after the first launch it never is. **Bump a parser and its sessions re-read themselves. That is
+the contract; do not add a metrics field without bumping.**
+
+**A metrics bucket is `(date, hour, model)`, on the LOCAL clock** (`metrics-bucket.js` — one helper, all
+four backends). Claude used to slice the ISO string (the UTC day) while Hermes grouped by SQLite's
+`localtime`: in a chart that stacked both, the same evening's work sat a column apart. The user's day is
+the day their own clock showed.
+
+Each backend can be exact to a different depth, and the difference is stated rather than smoothed over:
+
+| Backend | Tokens | Cost |
+|---|---|---|
+| Claude | per message, exact | none reported |
+| Codex | per token_count report, **delta** (it re-emits a running total) | none reported |
+| Pi | per assistant turn, exact | **per turn, exact** — it prices its own turns |
+| Hermes | only on the session row → booked on the bucket of its **last activity** | same, and the UI says so |
+
+`hour = -1` means "this backend cannot say when within the day". The hour grid **excludes** those buckets
+— placing them at midnight would invent a working habit nobody has — while every per-day chart still
+counts them.
+
+**The Stats filter is one control** at the top of the page and scopes every figure below it. It is
+resolved in **SQL** (`stats-queries.js`), not in the renderer, because only aggregates cross the IPC
+boundary — there is nothing in the renderer left to filter. `session_metrics` carries no `backendId`: it
+JOINs `session_cache`, which owns the authoritative provenance. A `NULL` backendId there means Claude,
+and every query folds it in — otherwise a Claude user's entire pre-multi-LLM history vanishes the moment
+they click "Claude". The **Rate Limits** panel is deliberately NOT scoped: those are Claude's
+subscription limits from Claude's API, and no other CLI has them.
 
 ## Validation
 
@@ -152,6 +191,11 @@ Filed as issues rather than silently carried:
   an honest `supportsFork`, all three identity hooks if it names its own sessions, a versioned incremental
   parser). It exists because the same defect was found and fixed in one backend four separate times while
   its siblings quietly kept it.
+- `test/stats-queries.test.js` runs the **real SQL** of every Stats aggregate against an in-memory SQLite
+  with the real schema. It exists because the queries could not be tested at all before (db.js requires
+  Electron), so they were "checked" against a JS re-implementation of themselves — which passes whether
+  or not the SQL is right. The first thing the real test found was a `GROUP BY` resolving to the raw
+  column instead of the `COALESCE` alias, which dropped every legacy row from the stacked chart.
 - Per backend: `test/{codex,hermes,pi}.test.js` (parsers + state against **real** fixtures),
   `test/scan-multi-backend.test.js` (the generic scanner: shared project bucket, cross-backend delete
   isolation, an unreachable store must not reconcile a history away), `test/settings-cascade.test.js`

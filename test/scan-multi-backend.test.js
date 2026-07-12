@@ -11,6 +11,7 @@ const codex = require('../backends/codex');
 const pi = require('../backends/pi');
 const sessionBackends = require('../session-backends');
 const { encodeProjectPath } = require('../encode-project-path');
+const { bucketFromIso } = require('../metrics-bucket');
 
 // T-4.2 — the multi-source scanner. The invariant under test: Claude's folder-driven scan and a
 // backend that owns its own store (Codex) share the SAME project/folder bucket (grouping is central
@@ -700,7 +701,11 @@ test('the scanner stores EVERY backend\'s per-day metrics, not just Claude\'s (#
     assert.ok(buckets && buckets.length, 'the metrics reached the store');
     assert.equal(buckets.reduce((n, b) => n + b.inputTokens, 0), 90, 'with the real numbers');
     assert.equal(buckets.reduce((n, b) => n + b.messageCount, 0), 2, 'both turns counted');
-    assert.ok(buckets.every(b => b.date === '2026-07-12'), 'on the real day');
+    // The LOCAL day (#159) — never the literal '2026-07-12'. These timestamps are 08:00 UTC, which is
+    // the same calendar day in most timezones and a different one west of about UTC-9; hardcoding it
+    // would make this test pass here and fail on a machine somewhere else, which is the worst kind.
+    const expectedDay = bucketFromIso('2026-07-12T08:00:10.000Z').date;
+    assert.ok(buckets.every(b => b.date === expectedDay), 'on the real day');
 
     // A user turn carries no model, so it buckets under '' — the same convention Claude's reader uses
     // (read-session-file.js). The tokens belong to the model that produced them.
@@ -709,4 +714,67 @@ test('the scanner stores EVERY backend\'s per-day metrics, not just Claude\'s (#
     assert.equal(answered.inputTokens, 90);
     assert.equal(answered.outputTokens, 12);
   } finally { pi.setRoot(null); cleanup(w); }
+});
+
+// --- #152: a bumped parser re-reads its own sessions --------------------------------------------
+//
+// The scan skips a session whose SOURCE has not changed. But "unchanged source" is not "the cached row
+// still reflects what our parser produces": bumping a parser does not touch a file's mtime, so before
+// this gate every schema change (the per-day metrics of #154, the hour and cost of #159) landed in an
+// empty table and stayed there. That is why the Stats charts sat Claude-only-and-stale for every
+// existing user until they happened to find the manual "Rebuild session cache" button.
+
+test('an unchanged session is skipped — that is the point of the change marker', () => {
+  const w = setup();
+  try {
+    writeCodexRollout(w.codexHome, w.projectCwd, 'cccccccc-0000-4000-8000-000000000001');
+    assert.equal(sessionCache.refreshBackendSessions('codex').upserted, 1);
+
+    const again = sessionCache.refreshBackendSessions('codex');
+    assert.equal(again.skipped, 1, 'nothing moved on disk, so nothing is re-read');
+    assert.equal(again.upserted, 0);
+  } finally { cleanup(w); }
+});
+
+test('a row written by an OLDER parser is re-read, even though the file never changed', () => {
+  const w = setup();
+  try {
+    const id = 'cccccccc-0000-4000-8000-000000000002';
+    writeCodexRollout(w.codexHome, w.projectCwd, id);
+    sessionCache.refreshBackendSessions('codex');
+
+    const row = w.db._cache.get(id);
+    assert.equal(row.parserVersion, codex.PARSER_SCHEMA_VERSION, 'the row records the parser that wrote it');
+
+    // Pretend this row was written by yesterday's parser. The file is untouched; only our reader moved.
+    row.parserVersion = codex.PARSER_SCHEMA_VERSION - 1;
+    w.db._metrics.delete(id);
+
+    const stats = sessionCache.refreshBackendSessions('codex');
+    assert.equal(stats.skipped, 0, 'the marker matches, but the parser does not — so it is NOT skipped');
+    assert.equal(stats.upserted, 1);
+    assert.equal(w.db._cache.get(id).parserVersion, codex.PARSER_SCHEMA_VERSION, 're-stamped with the current parser');
+    assert.ok(w.db._metrics.get(id)?.length, 'and the metrics the new parser produces are back');
+  } finally { cleanup(w); }
+});
+
+test('the metrics a bumped parser writes carry the hour and the cost columns', () => {
+  const w = setup();
+  try {
+    const id = 'cccccccc-0000-4000-8000-000000000003';
+    writeCodexRollout(w.codexHome, w.projectCwd, id);
+    sessionCache.refreshBackendSessions('codex');
+
+    const buckets = w.db._metrics.get(id);
+    assert.ok(buckets && buckets.length);
+    for (const b of buckets) {
+      assert.equal(Number.isInteger(b.hour), true, 'every bucket knows its hour');
+      assert.ok(b.hour >= 0 && b.hour <= 23);
+      // Codex reports no money. NULL is "no figure" — 0 would be a claim that the work was free.
+      assert.equal(b.estimatedCostUsd, null);
+      assert.equal(b.actualCostUsd, null);
+    }
+    const at = bucketFromIso('2026-07-01T10:00:05.000Z');
+    assert.ok(buckets.some(b => b.date === at.date && b.hour === at.hour), 'in the LOCAL bucket it happened in');
+  } finally { cleanup(w); }
 });

@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const { readSessionFile, extractDailyMetrics, isToolResultOnly } = require('../read-session-file');
+const { bucketFromIso } = require('../metrics-bucket');
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-rsfm-'));
@@ -13,10 +14,30 @@ function cleanup(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-// Convenience: find the metric row for a given (date, model) pair.
+// The buckets are per-(date, HOUR, model) since #159, and keyed on the LOCAL clock. So a helper that
+// looked up one row by (date, model) no longer identifies a single bucket — it identifies a day's worth
+// of them. Sum them: what these tests are about is the day's figures, not which hour they fell in.
 function find(rows, date, model) {
-  return rows.find(r => r.date === date && r.model === model);
+  const hit = rows.filter(r => r.date === date && r.model === model);
+  if (!hit.length) return undefined;
+  return hit.reduce((acc, r) => ({
+    date, model,
+    messageCount: acc.messageCount + r.messageCount,
+    toolCallCount: acc.toolCallCount + r.toolCallCount,
+    inputTokens: acc.inputTokens + r.inputTokens,
+    outputTokens: acc.outputTokens + r.outputTokens,
+    cacheReadTokens: acc.cacheReadTokens + r.cacheReadTokens,
+    cacheCreationTokens: acc.cacheCreationTokens + r.cacheCreationTokens,
+  }), {
+    messageCount: 0, toolCallCount: 0, inputTokens: 0, outputTokens: 0,
+    cacheReadTokens: 0, cacheCreationTokens: 0,
+  });
 }
+
+/** The LOCAL day an ISO timestamp falls on — never hardcode it, the machine's timezone decides. */
+const dayOf = (iso) => bucketFromIso(iso).date;
+/** How many distinct (date, model) days a bucket list covers. */
+const daysIn = (rows) => new Set(rows.map(r => r.date)).size;
 
 test('isToolResultOnly detects pure tool_result user turns', () => {
   assert.equal(isToolResultOnly([{ type: 'tool_result', content: 'x' }]), true);
@@ -31,19 +52,22 @@ test('isToolResultOnly detects pure tool_result user turns', () => {
 });
 
 test('extractDailyMetrics sums tokens per (date, model) from message.usage', () => {
+  const A = '2026-06-01T10:00:00.000Z';
+  const B = '2026-06-01T11:00:00.000Z';
   const lines = [
-    JSON.stringify({ type: 'assistant', timestamp: '2026-06-01T10:00:00.000Z', message: {
+    JSON.stringify({ type: 'assistant', timestamp: A, message: {
       model: 'claude-opus-4-8',
       usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 10, cache_creation_input_tokens: 5 },
     } }),
-    JSON.stringify({ type: 'assistant', timestamp: '2026-06-01T11:00:00.000Z', message: {
+    JSON.stringify({ type: 'assistant', timestamp: B, message: {
       model: 'claude-opus-4-8',
       usage: { input_tokens: 200, output_tokens: 80 },
     } }),
   ];
-  const rows = extractDailyMetrics(lines, '2026-06-01');
-  assert.equal(rows.length, 1);
-  const r = find(rows, '2026-06-01', 'claude-opus-4-8');
+  const rows = extractDailyMetrics(lines, dayOf(A));
+  assert.equal(daysIn(rows), 1, 'one calendar day');
+  assert.equal(rows.length, 2, 'but two HOURS — the bucket is (date, hour, model) since #159');
+  const r = find(rows, dayOf(A), 'claude-opus-4-8');
   assert.ok(r);
   assert.equal(r.inputTokens, 300);
   assert.equal(r.outputTokens, 130);
@@ -53,14 +77,35 @@ test('extractDailyMetrics sums tokens per (date, model) from message.usage', () 
 });
 
 test('extractDailyMetrics buckets by message timestamp, not a single date', () => {
+  // Midday, 24h apart: two different LOCAL days wherever this runs.
+  const DAY_ONE = '2026-06-01T12:00:00.000Z';
+  const DAY_TWO = '2026-06-02T12:00:00.000Z';
   const lines = [
-    JSON.stringify({ type: 'assistant', timestamp: '2026-06-01T23:00:00.000Z', message: { model: 'claude-sonnet-4-6', usage: { input_tokens: 10, output_tokens: 1 } } }),
-    JSON.stringify({ type: 'assistant', timestamp: '2026-06-02T01:00:00.000Z', message: { model: 'claude-sonnet-4-6', usage: { input_tokens: 20, output_tokens: 2 } } }),
+    JSON.stringify({ type: 'assistant', timestamp: DAY_ONE, message: { model: 'claude-sonnet-4-6', usage: { input_tokens: 10, output_tokens: 1 } } }),
+    JSON.stringify({ type: 'assistant', timestamp: DAY_TWO, message: { model: 'claude-sonnet-4-6', usage: { input_tokens: 20, output_tokens: 2 } } }),
   ];
-  const rows = extractDailyMetrics(lines, '2026-06-02');
-  assert.equal(rows.length, 2, 'two distinct dates → two rows');
-  assert.equal(find(rows, '2026-06-01', 'claude-sonnet-4-6').inputTokens, 10);
-  assert.equal(find(rows, '2026-06-02', 'claude-sonnet-4-6').inputTokens, 20);
+  const rows = extractDailyMetrics(lines, dayOf(DAY_TWO));
+  assert.equal(daysIn(rows), 2, 'two distinct dates');
+  assert.equal(find(rows, dayOf(DAY_ONE), 'claude-sonnet-4-6').inputTokens, 10);
+  assert.equal(find(rows, dayOf(DAY_TWO), 'claude-sonnet-4-6').inputTokens, 20);
+});
+
+// #159 — the local clock is the user's clock. Claude used to slice the ISO string, i.e. bucket by the
+// UTC day, while Hermes grouped by localtime: in one chart, the same evening's work sat a column apart.
+test('extractDailyMetrics buckets on the LOCAL day and hour, not the UTC one', () => {
+  const iso = '2026-06-01T22:30:00.000Z';
+  const expected = bucketFromIso(iso);
+  const lines = [
+    JSON.stringify({ type: 'assistant', timestamp: iso, message: { model: 'm', usage: { input_tokens: 1, output_tokens: 1 } } }),
+  ];
+  const rows = extractDailyMetrics(lines, '1970-01-01');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].date, expected.date);
+  assert.equal(rows[0].hour, expected.hour);
+  assert.equal(rows[0].hour, new Date(iso).getHours(), 'the hour the user was actually at the keyboard');
+  // Claude reports no USD — an absence, not a zero.
+  assert.equal(rows[0].estimatedCostUsd, null);
+  assert.equal(rows[0].actualCostUsd, null);
 });
 
 test('extractDailyMetrics treats <synthetic> and model-less assistant lines as model "" with no tokens', () => {

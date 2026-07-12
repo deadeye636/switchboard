@@ -434,6 +434,52 @@ const migrations = [
   (db) => {
     try { db.exec('ALTER TABLE project_handoffs ADD COLUMN backendId TEXT'); } catch {}
   },
+
+  // v14 (#159 + #152) — the Stats rework. Three changes that only work together:
+  //
+  //  - `hour` joins the metrics key, so the day is no longer the finest bucket we have (an activity
+  //    grid needs the hour, and a session that spans midnight can finally be split at the right edge).
+  //    It changes the PRIMARY KEY, which SQLite cannot ALTER — hence a fresh table.
+  //
+  //  - cost per bucket. Cost used to live only on the session row, so any cost-over-time chart had to
+  //    book a whole session on a single day. Hermes is the only backend that reports USD, and even it
+  //    cannot attribute cost per message (its message rows carry no tokens) — it books on the bucket of
+  //    its last activity, and the UI says so. `estimated` and `actual` stay SEPARATE and NULLABLE:
+  //    "reported nothing" is not "cost 0", and an estimate must never be presentable as a bill.
+  //
+  //  - `parserVersion` on the session row (#152). This is what makes the other two arrive at all. The
+  //    scan skips a session whose change marker is unchanged — and a parser change does not move a file's
+  //    mtime, so a schema like this one would land in an empty table and stay there. v8 assumed a
+  //    cold-start rebuild would backfill it; there is no cold start once the cache is populated, which is
+  //    why the charts have been Claude-only-and-stale for every existing user until they found the manual
+  //    Rebuild button. Now: the row records the parser that wrote it, the gate compares it to the parser
+  //    that would read it, and a bumped parser re-reads its sessions by itself.
+  //
+  // DROP rather than migrate the old rows: every parser is bumped in this same change, so every row is
+  // about to be rewritten with an hour and a cost anyway. Keeping them would mean carrying rows with a
+  // sentinel hour that no chart could honestly place.
+  (db) => {
+    try {
+      db.exec('DROP TABLE IF EXISTS session_metrics');
+      db.exec(`CREATE TABLE session_metrics (
+        sessionId TEXT NOT NULL,
+        date TEXT NOT NULL,
+        hour INTEGER NOT NULL DEFAULT -1,
+        model TEXT NOT NULL DEFAULT '',
+        messageCount INTEGER DEFAULT 0,
+        toolCallCount INTEGER DEFAULT 0,
+        inputTokens INTEGER DEFAULT 0,
+        outputTokens INTEGER DEFAULT 0,
+        cacheReadTokens INTEGER DEFAULT 0,
+        cacheCreationTokens INTEGER DEFAULT 0,
+        estimatedCostUsd REAL,
+        actualCostUsd REAL,
+        PRIMARY KEY (sessionId, date, hour, model)
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_session_metrics_date ON session_metrics(date)');
+      db.exec('ALTER TABLE session_cache ADD COLUMN parserVersion INTEGER');
+    } catch {}
+  },
 ];
 
 const currentDbVersion = (() => {
@@ -644,9 +690,10 @@ const stmts = {
       slug, aiTitle,
       parentSessionId, agentId, subagentType, description,
       backendId, filePath,
-      changeMarker, estimatedCostUsd, actualCostUsd, costStatus, lineageParentId
+      changeMarker, estimatedCostUsd, actualCostUsd, costStatus, lineageParentId,
+      parserVersion
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET
       folder = excluded.folder, projectPath = excluded.projectPath,
       summary = excluded.summary, firstPrompt = excluded.firstPrompt,
@@ -673,10 +720,11 @@ const stmts = {
       estimatedCostUsd = COALESCE(excluded.estimatedCostUsd, session_cache.estimatedCostUsd),
       actualCostUsd = COALESCE(excluded.actualCostUsd, session_cache.actualCostUsd),
       costStatus = COALESCE(excluded.costStatus, session_cache.costStatus),
-      lineageParentId = COALESCE(excluded.lineageParentId, session_cache.lineageParentId)
+      lineageParentId = COALESCE(excluded.lineageParentId, session_cache.lineageParentId),
+      parserVersion = excluded.parserVersion
   `),
   cacheGetByParent: db.prepare('SELECT * FROM session_cache WHERE parentSessionId = ? ORDER BY created ASC'),
-  cacheGetByFolder: db.prepare('SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath, changeMarker FROM session_cache WHERE folder = ?'),
+  cacheGetByFolder: db.prepare('SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath, changeMarker, parserVersion FROM session_cache WHERE folder = ?'),
   cacheGetFolder: db.prepare('SELECT folder FROM session_cache WHERE sessionId = ?'),
   cacheGetSession: db.prepare('SELECT * FROM session_cache WHERE sessionId = ?'),
   cacheDeleteSession: db.prepare('DELETE FROM session_cache WHERE sessionId = ?'),
@@ -684,10 +732,15 @@ const stmts = {
   // Session metrics statements (per-(session,date,model) token/tool/message counts)
   metricsDeleteBySession: db.prepare('DELETE FROM session_metrics WHERE sessionId = ?'),
   metricsDeleteByFolder: db.prepare('DELETE FROM session_metrics WHERE sessionId IN (SELECT sessionId FROM session_cache WHERE folder = ?)'),
+  // One row per (date, hour, model) bucket. A parser emits each bucket ONCE (they all aggregate into a
+  // Map first), so a plain INSERT is the contract — `INSERT OR REPLACE` would quietly paper over a
+  // parser that double-counts, and an upsert that SUMS would have to COALESCE the two cost columns,
+  // turning "reported no cost" (NULL) into "cost nothing" (0). Both are lies we would never see.
   metricsInsert: db.prepare(`
     INSERT INTO session_metrics
-      (sessionId, date, model, messageCount, toolCallCount, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (sessionId, date, hour, model, messageCount, toolCallCount, inputTokens, outputTokens,
+       cacheReadTokens, cacheCreationTokens, estimatedCostUsd, actualCostUsd)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   // Cache meta statements
   metaGet: db.prepare('SELECT * FROM cache_meta WHERE folder = ?'),
@@ -1289,7 +1342,10 @@ const upsertCachedSessionsBatch = db.transaction((sessions) => {
       s.estimatedCostUsd == null ? null : Number(s.estimatedCostUsd),
       s.actualCostUsd == null ? null : Number(s.actualCostUsd),
       s.costStatus || null,
-      s.lineageParentId || null
+      s.lineageParentId || null,
+      // v14 (#152) — which parser wrote this row. The scan compares it to the parser that would read
+      // it now, so a bumped parser re-reads its own sessions instead of leaving stale metrics behind.
+      s.parserVersion == null ? null : Number(s.parserVersion)
     );
   }
 });
@@ -1301,10 +1357,17 @@ const replaceSessionMetricsBatch = db.transaction((sessionId, rows) => {
   stmts.metricsDeleteBySession.run(sessionId);
   for (const r of rows || []) {
     stmts.metricsInsert.run(
-      sessionId, r.date, r.model || '',
+      sessionId, r.date,
+      // -1 = "this backend cannot say when within the day". Kept out of the hour grid rather than
+      // guessed at; it still counts in every per-day chart.
+      Number.isInteger(r.hour) && r.hour >= 0 && r.hour <= 23 ? r.hour : -1,
+      r.model || '',
       r.messageCount | 0, r.toolCallCount | 0,
       r.inputTokens | 0, r.outputTokens | 0,
-      r.cacheReadTokens | 0, r.cacheCreationTokens | 0
+      r.cacheReadTokens | 0, r.cacheCreationTokens | 0,
+      // NULL, not 0: only Hermes reports money, and "no figure" must never render as "free".
+      r.estimatedCostUsd == null ? null : Number(r.estimatedCostUsd),
+      r.actualCostUsd == null ? null : Number(r.actualCostUsd)
     );
   }
 });
@@ -1326,7 +1389,7 @@ function upsertCachedSessions(sessions) {
 function getCachedByFolder(folder, scope) {
   if (!scope) return normalizeCacheRows(stmts.cacheGetByFolder.all(folder));
   const c = backendScopeClause(scope);
-  const sql = 'SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath, changeMarker'
+  const sql = 'SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath, changeMarker, parserVersion'
     + ' FROM session_cache WHERE folder = ?' + c.sql;
   return normalizeCacheRows(prepScoped(sql).all(folder, ...c.params));
 }
@@ -1631,41 +1694,37 @@ function getDailyActivity() {
 }
 
 // --- Session metrics aggregates (for the stats screen) ---
+//
+// The SQL itself lives in stats-queries.js — Electron-free, so it can be run against a real SQLite in a
+// unit test instead of being checked against a JS re-implementation of itself. Everything here is the
+// plumbing: prepare, memoize, reshape.
+//
+// Every aggregate takes an optional backendId ('all' / falsy = the whole corpus).
+const statsQueries = require('./stats-queries');
 
-// One row per day, summed across all models. Powers the heatmap + daily bars.
-// messageCount/toolCallCount/tokens come from session_metrics (bucketed by the
-// per-message timestamp, not the session mtime); sessionCount counts distinct
-// sessions active that day.
-// Stats statements are memoized on first use (the stats screen may never be
-// opened) instead of being re-parsed on every call.
-let dailyMetricsStmt;
-function getDailyMetrics() {
-  dailyMetricsStmt ??= db.prepare(`
-    SELECT date,
-           SUM(messageCount)            AS messageCount,
-           SUM(toolCallCount)           AS toolCallCount,
-           SUM(inputTokens + outputTokens) AS tokens,
-           COUNT(DISTINCT sessionId)    AS sessionCount
-    FROM session_metrics
-    GROUP BY date
-    ORDER BY date ASC
-  `);
-  return dailyMetricsStmt.all();
+// Statements are memoized on first use (the stats screen may never be opened) instead of being
+// re-parsed on every call — one variant per (query, filtered?) pair, so at most two each.
+const _statsStmts = new Map();
+function runStats(name, backendId) {
+  const only = backendId && backendId !== 'all' ? String(backendId) : null;
+  const cacheKey = name + (only ? ':one' : ':all');
+  let stmt = _statsStmts.get(cacheKey);
+  if (!stmt) {
+    stmt = db.prepare(statsQueries[name](only).sql);
+    _statsStmts.set(cacheKey, stmt);
+  }
+  return only ? stmt.all(only) : stmt.all();
 }
 
-// [{date, tokensByModel: {model: tokens}}] sorted by date. Excludes the '' model
-// bucket (synthetic / model-less assistant turns carry no tokens anyway).
-let dailyModelTokensStmt;
-function getDailyModelTokens() {
-  dailyModelTokensStmt ??= db.prepare(`
-    SELECT date, model, SUM(inputTokens + outputTokens) AS tokens
-    FROM session_metrics
-    WHERE model != ''
-    GROUP BY date, model
-  `);
-  const rows = dailyModelTokensStmt.all();
+// One row per day, summed across all models and hours. Powers the heatmap + daily bars.
+function getDailyMetrics(backendId) {
+  return runStats('dailyMetrics', backendId);
+}
+
+// [{date, tokensByModel: {model: tokens}}] sorted by date.
+function getDailyModelTokens(backendId) {
   const byDate = new Map();
-  for (const r of rows) {
+  for (const r of runStats('dailyModelTokens', backendId)) {
     let entry = byDate.get(r.date);
     if (!entry) {
       entry = { date: r.date, tokensByModel: {} };
@@ -1676,41 +1735,44 @@ function getDailyModelTokens() {
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// {model: {inputTokens, outputTokens}} across all time. Excludes '' model.
-let modelUsageStmt;
-function getModelUsage() {
-  modelUsageStmt ??= db.prepare(`
-    SELECT model,
-           SUM(inputTokens)  AS inputTokens,
-           SUM(outputTokens) AS outputTokens
-    FROM session_metrics
-    WHERE model != ''
-    GROUP BY model
-  `);
-  const rows = modelUsageStmt.all();
+// {model: {inputTokens, outputTokens}} across all time.
+function getModelUsage(backendId) {
   const out = {};
-  for (const r of rows) {
+  for (const r of runStats('modelUsage', backendId)) {
     out[r.model] = { inputTokens: r.inputTokens, outputTokens: r.outputTokens };
   }
   return out;
 }
 
-// {totalSessions, totalMessages, totalToolCalls, totalTokens}. totalSessions
-// counts ONLY parent (human) sessions — subagents would otherwise inflate it.
-let totalSessionsStmt, totalMetricsStmt;
-function getTotalCounts() {
-  totalSessionsStmt ??= db.prepare(
-    'SELECT COUNT(*) AS cnt FROM session_cache WHERE parentSessionId IS NULL'
-  );
-  totalMetricsStmt ??= db.prepare(`
-    SELECT
-      SUM(messageCount)            AS totalMessages,
-      SUM(toolCallCount)           AS totalToolCalls,
-      SUM(inputTokens + outputTokens) AS totalTokens
-    FROM session_metrics
-  `);
-  const sessions = totalSessionsStmt.get();
-  const metrics = totalMetricsStmt.get();
+// [{date, tokensByBackend: {backendId: tokens}}] sorted by date — the stacked daily bars.
+function getDailyBackendTokens(backendId) {
+  const byDate = new Map();
+  for (const r of runStats('dailyBackendTokens', backendId)) {
+    let entry = byDate.get(r.date);
+    if (!entry) {
+      entry = { date: r.date, tokensByBackend: {} };
+      byDate.set(r.date, entry);
+    }
+    entry.tokensByBackend[r.backendId] = r.tokens;
+  }
+  return Array.from(byDate.values());
+}
+
+// [{date, estimatedCostUsd, actualCostUsd}] — cost over time. The two figures stay separate: an
+// estimate is not a bill.
+function getDailyCost(backendId) {
+  return runStats('dailyCost', backendId);
+}
+
+// [{weekday 0-6 (Sun..Sat), hour 0-23, messageCount, tokens}] — the activity grid.
+function getHourlyActivity(backendId) {
+  return runStats('hourlyActivity', backendId);
+}
+
+// {totalSessions, totalMessages, totalToolCalls, totalTokens}.
+function getTotalCounts(backendId) {
+  const metrics = runStats('totals', backendId)[0] || {};
+  const sessions = runStats('totalSessions', backendId)[0] || {};
   return {
     totalSessions: sessions.cnt || 0,
     totalMessages: metrics.totalMessages || 0,
@@ -1749,6 +1811,7 @@ module.exports = {
   listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   getDailyActivity,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
+  getDailyBackendTokens, getDailyCost, getHourlyActivity,
   closeDb,
   // Exported so main.js can pass the resolved path to the search-query worker
   // without re-deriving the SWITCHBOARD_DATA_DIR logic in a second place.

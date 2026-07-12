@@ -22,8 +22,11 @@
 
 const fs = require('fs');
 const crypto = require('crypto');
+const { bucketFromIso, bucketKey } = require('../../metrics-bucket');
 
-const PARSER_SCHEMA_VERSION = 2;   // v2: the parse state carries per-(date, model) metrics (#154)
+//   v2: the parse state carries per-(date, model) metrics (#154)
+//   v3: per-(date, HOUR, model), bucketed in LOCAL time, with cost booked on the turn that spent it (#159)
+const PARSER_SCHEMA_VERSION = 3;
 
 const FINGERPRINT_BYTES = 64;
 
@@ -52,27 +55,34 @@ function createParseState() {
     // lifecycle events live only in --mode json, which excludes the TUI (T-6.3).
     lastStopReason: null,
 
-    // Per-(date, model) metrics -> session_metrics -> the Stats charts (#154). Pi reports usage per
-    // ASSISTANT MESSAGE, with a timestamp on the entry, so the buckets are exact — no estimation.
+    // Per-(date, hour, model) metrics -> session_metrics -> the Stats charts (#154, #159). Pi reports
+    // usage AND cost per ASSISTANT MESSAGE, with a timestamp on the entry, so its buckets are exact —
+    // tokens and money both land in the bucket they were actually spent in. Hermes cannot do this.
     // A plain object, because the incremental parse state is serialized.
     dailyMetrics: {},
   };
 }
 
-function dayOf(timestamp) {
-  if (typeof timestamp !== 'string' || timestamp.length < 10) return null;
-  return timestamp.slice(0, 10);
+/** The bucket an entry belongs in. Pi puts the timestamp on the entry; older lines had it on the message. */
+function entryBucket(entry, m) {
+  const at = bucketFromIso(entry && entry.timestamp, null);
+  if (at.date) return at;
+  return bucketFromIso(m && m.timestamp, null);
 }
 
-function metricBucket(st, date, model) {
-  const key = `${date}|${model || ''}`;
+function metricBucket(st, at, model) {
+  const key = bucketKey(at.date, at.hour, model);
   let b = st.dailyMetrics[key];
   if (!b) {
     b = {
-      date, model: model || '',
+      date: at.date, hour: at.hour, model: model || '',
       messageCount: 0, toolCallCount: 0,
       inputTokens: 0, outputTokens: 0,
       cacheReadTokens: 0, cacheCreationTokens: 0,
+      // Pi prices its own turns, so it DOES report money — but from its own price table, so it is an
+      // estimate and never a settled amount. It stays NULL until a turn actually reports one: a session
+      // whose turns all failed has no cost, which is not the same as costing nothing.
+      estimatedCostUsd: null, actualCostUsd: null,
     };
     st.dailyMetrics[key] = b;
   }
@@ -122,7 +132,7 @@ function applyEntry(st, entry) {
       if (!m || typeof m !== 'object') break;
       const text = messageText(m);
 
-      const day = dayOf(entry.timestamp) || dayOf(m.timestamp);
+      const at = entryBucket(entry, m);
 
       if (m.role === 'user') {
         st.messageCount++;
@@ -132,7 +142,7 @@ function applyEntry(st, entry) {
         if (!st.summary && text.trim()) st.summary = text.trim().slice(0, 200);
         if (text) st.textParts.push(text);
         // A user turn is a message, but carries no tokens and no model of its own.
-        if (day) metricBucket(st, day, st.model).messageCount++;
+        if (at.date) metricBucket(st, at, st.model).messageCount++;
         break;
       }
 
@@ -145,7 +155,7 @@ function applyEntry(st, entry) {
 
       // The bucket is keyed on the model of THIS turn — Pi switches provider mid-session, so booking a
       // turn under the session's final model would credit one provider with another's tokens.
-      const bucket = day ? metricBucket(st, day, m.model || st.model) : null;
+      const bucket = at.date ? metricBucket(st, at, m.model || st.model) : null;
       if (bucket) bucket.messageCount++;
 
       const u = m.usage;
@@ -170,6 +180,10 @@ function applyEntry(st, entry) {
         if (Number.isFinite(total) && total > 0) {
           st.estimatedCostUsd += total;
           st.hasCost = true;
+          // Pi is the one backend that can place money EXACTLY: it prices each turn, and the turn has a
+          // timestamp. So the cost lands in the bucket it was spent in — no booking a whole session onto
+          // the day it happened to end.
+          if (bucket) bucket.estimatedCostUsd = (bucket.estimatedCostUsd || 0) + total;
         }
       }
       break;

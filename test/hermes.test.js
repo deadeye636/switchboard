@@ -63,7 +63,7 @@ test('discoverSessions yields {kind:db} handles — only source=cli by default',
   const handles = reader.discoverSessions();
   const ids = handles.map(h => h.sessionId).sort();
   // sess-gateway-1 is source='gateway' -> a Telegram/cron chat, not a coding session -> excluded.
-  assert.deepStrictEqual(ids, ['sess-cli-1', 'sess-cli-2', 'sess-cli-nocwd', 'sess-running']);
+  assert.deepStrictEqual(ids, ['sess-cli-1', 'sess-cli-2', 'sess-cli-nocwd', 'sess-running', 'sess-zero-cost']);
   for (const h of handles) {
     assert.strictEqual(h.kind, 'db', 'db-mode handle, not a file handle');
     assert.ok(h.marker, 'carries a change marker (there is no file mtime to use)');
@@ -329,4 +329,58 @@ test('a Hermes session reports its user-message count (the handoff nudge depends
   useFixture();
   const row = reader.parseSession({ kind: 'db', sessionId: 'sess-cli-1' });
   assert.ok(row.userMessageCount >= 1, 'counted from the messages table, not assumed');
+});
+
+// --- #159: the metrics buckets Hermes feeds into the Stats charts.
+
+test('metrics: message counts are exact per bucket, tokens ride on the last active one', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-cli-1');
+  const row = reader.parseSession(h);
+  const buckets = row.dailyMetrics;
+  assert.ok(buckets.length, 'a session produces buckets');
+
+  // Hermes' message rows carry timestamps but NO per-message tokens (those live on the session row),
+  // so this is the honest split: the counts are exact, the totals are booked on the last active bucket.
+  assert.strictEqual(buckets.reduce((n, b) => n + b.messageCount, 0), 5, 'every message counted once');
+  assert.strictEqual(buckets.reduce((n, b) => n + b.inputTokens, 0), 1000, 'the session total, booked once');
+  assert.strictEqual(buckets.filter(b => b.inputTokens > 0).length, 1, 'on exactly ONE bucket, not spread');
+
+  // ...and that bucket is the one its last message fell in.
+  const carrier = buckets.find(b => b.inputTokens > 0);
+  const lastMessageAt = new Date((T0 + 590) * 1000);
+  assert.strictEqual(carrier.hour, lastMessageAt.getHours(), 'the LOCAL hour of the last message');
+  assert.strictEqual(carrier.estimatedCostUsd, 0.0123, 'the money rides along with the tokens');
+});
+
+test('metrics: every bucket knows its local hour', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-cli-1');
+  for (const b of reader.parseSession(h).dailyMetrics) {
+    assert.strictEqual(Number.isInteger(b.hour), true);
+    assert.ok(b.hour >= 0 && b.hour <= 23, `hour ${b.hour} is a real hour`);
+  }
+});
+
+// A ZERO estimate means Hermes had no price for that model — NOT that the work was free. Stored as 0 it
+// would draw a $0.00 bar in the cost chart, which is a fact nobody stated. Found on real data.
+test('metrics: a zero estimate is "no figure", not "it was free"', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-zero-cost');
+  const row = reader.parseSession(h);
+  assert.strictEqual(row.estimatedCostUsd, 0, 'the session row reports what Hermes said');
+  for (const b of row.dailyMetrics) {
+    assert.strictEqual(b.estimatedCostUsd, null, 'but no bucket claims a price');
+    assert.strictEqual(b.actualCostUsd, null);
+  }
+  // The tokens are real and must still be counted — it is the MONEY that is unknown, not the work.
+  assert.strictEqual(row.dailyMetrics.reduce((n, b) => n + b.inputTokens, 0), 400);
+});
+
+test('metrics: a settled cost survives, including a settled zero', () => {
+  useFixture();
+  const h = reader.discoverSessions().find(x => x.sessionId === 'sess-cli-2');
+  const carrier = reader.parseSession(h).dailyMetrics.find(b => b.inputTokens > 0);
+  assert.strictEqual(carrier.estimatedCostUsd, 0.004);
+  assert.strictEqual(carrier.actualCostUsd, 0.0038, 'the settled figure is its own number');
 });

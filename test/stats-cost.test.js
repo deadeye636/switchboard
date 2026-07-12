@@ -72,8 +72,12 @@ function hermesProjects() {
   }];
 }
 
+// The filter pills moved to the TOP of the page (#159) and now scope every chart, not just these cards
+// — so clicking one re-reads the whole page from the DB, which is not what this file is about. Set the
+// scope through the same mutator the pill uses and re-render the section under test.
 function selectBackend(window, id) {
-  window.document.querySelector(`.backend-filter-pill[data-backend="${id}"]`).click();
+  window.setStatsBackendFilter(id);
+  window.buildBackendBreakdown();
 }
 
 test('a backend that reports no cost shows an em dash, not $0.00', () => {

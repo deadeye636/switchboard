@@ -14,7 +14,7 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
-const { readSessionFile, enumerateSessionFiles } = require('../read-session-file');
+const { readSessionFile, enumerateSessionFiles, PARSER_SCHEMA_VERSION: readerVersion } = require('../read-session-file');
 
 // Claude's session store root. Defaults to ~/.claude/projects; main.js overrides it with its own
 // PROJECTS_DIR at init (and tests point it at a fixture) via setRoots().
@@ -157,6 +157,10 @@ function watchTargets() {
 module.exports = {
   id: 'claude',
   supportsFork,
+  // Claude's parser lives in read-session-file.js (it predates the backend registry); its version rides
+  // on the descriptor like every other backend's, so the scan's staleness gate (#152) is one rule for
+  // all of them and not a special case for the default backend.
+  PARSER_SCHEMA_VERSION: readerVersion,
   // How another agent can READ this session's transcript (the 'new session reads the old one' handoff
   // route). 'file' = it is a file on disk, hand over the path. 'export' = it lives in a store with no
   // file (Hermes), so Switchboard writes it out first. Declare it; do not let the code guess.

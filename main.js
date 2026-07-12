@@ -128,6 +128,7 @@ const {
   getSetting, setSetting, deleteSetting, listSettings,
   listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
+  getDailyBackendTokens, getDailyCost, getHourlyActivity,
   closeDb,
   DB_PATH,
 } = require('./db');
@@ -1640,9 +1641,9 @@ ipcMain.handle('get-stats', () => {
 // Builds a stats object from session_cache so the heatmap reflects real usage
 // including subagent sessions (which claude /stats silently ignores) and
 // periods where Claude already rotated the parent JSONL files off disk.
-ipcMain.handle('get-stats-from-db', () => {
+ipcMain.handle('get-stats-from-db', (_event, backendId) => {
   try {
-    return buildStatsFromDb();
+    return buildStatsFromDb(backendId);
   } catch (err) {
     log.error('Error building stats from DB:', err);
     return null;
@@ -1653,14 +1654,22 @@ ipcMain.handle('get-stats-from-db', () => {
 // session_metrics (per-(session,date,model) tokens/tool-calls/messages bucketed
 // by message timestamp) so tokens, tool calls, and per-model usage are all real
 // data — not the hardcoded {} the heatmap-only path used to return.
-function buildStatsFromDb() {
-  const daily = getDailyMetrics();       // [{date, messageCount, toolCallCount, tokens, sessionCount}]
-  const totals = getTotalCounts();
+// `backendId` (optional) scopes EVERY figure below to one backend — the page's filter (#159). Falsy or
+// 'all' means the whole corpus. It is resolved in SQL rather than in the renderer because the renderer
+// has no per-session daily data to filter: only the aggregates ever cross the IPC boundary.
+function buildStatsFromDb(backendId) {
+  const only = backendId && backendId !== 'all' ? String(backendId) : null;
+  const daily = getDailyMetrics(only);    // [{date, messageCount, toolCallCount, tokens, sessionCount}]
+  const totals = getTotalCounts(only);
   const lastComputedDate = new Date().toISOString().slice(0, 10);
   return {
+    backendId: only || 'all',            // what these numbers are ABOUT — the renderer labels with it
     dailyActivity: daily,
-    dailyModelTokens: getDailyModelTokens(),
-    modelUsage: getModelUsage(),
+    dailyModelTokens: getDailyModelTokens(only),
+    dailyBackendTokens: getDailyBackendTokens(only),
+    dailyCost: getDailyCost(only),
+    hourlyActivity: getHourlyActivity(only),
+    modelUsage: getModelUsage(only),
     totalMessages: totals.totalMessages,
     totalSessions: totals.totalSessions,
     totalToolCalls: totals.totalToolCalls,
@@ -1671,7 +1680,7 @@ function buildStatsFromDb() {
 }
 
 // --- IPC: refresh-stats (fetch /usage + build stats from DB; /stats PTY removed) ---
-ipcMain.handle('refresh-stats', async () => {
+ipcMain.handle('refresh-stats', async (_event, backendId) => {
   try {
     // /stats PTY call removed — heatmap is now sourced from session_cache via
     // get-stats-from-db. Only /usage is fetched here (rate-limits panel).
@@ -1681,7 +1690,7 @@ ipcMain.handle('refresh-stats', async () => {
     // at once and the renderer can update heatmap + usage in a single round-trip.
     let stats = null;
     try {
-      stats = buildStatsFromDb();
+      stats = buildStatsFromDb(backendId);
     } catch (dbErr) {
       log.error('Error building stats from DB in refresh-stats:', dbErr);
     }

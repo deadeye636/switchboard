@@ -3297,6 +3297,140 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   margin-left: 8px;
 }
 
+/* ===== Stats: the page filter + the charts added in #159 ===== */
+
+/* The page's one backend filter. It sits above everything and scopes the whole view. */
+.stats-filter-bar {
+  margin-bottom: 22px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.chart-subtitle {
+  font-size: 11px;
+  color: #6a6a80;
+  margin: -6px 0 12px;
+}
+
+/* Backend colours are the SAME values the sidebar badges and icons use (backend-icons.js) — a chart
+   whose colours disagreed with the badge next to it would be its own puzzle to solve. */
+.backend-seg-claude  { background: #d97757; }
+.backend-seg-codex   { background: #10a37f; }
+.backend-seg-hermes  { background: #8b5cf6; }
+.backend-seg-pi      { background: #f59e0b; }
+/* Any backend we don't know a colour for (a user profile, a future CLI) still gets a visible segment. */
+.stacked-seg, .chart-legend-swatch { background: rgba(128,136,255,0.55); }
+
+.stacked-bar {
+  width: 100%;
+  display: flex;
+  flex-direction: column-reverse;   /* first id at the bottom of the stack */
+  border-radius: 2px 2px 0 0;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.stacked-seg { width: 100%; min-height: 0; }
+
+.daily-chart-col:hover .stacked-bar { filter: brightness(1.25); }
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 10px;
+  color: #7a7a90;
+}
+
+.chart-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+
+.chart-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+/* Cost: green = the backend settled it, amber = the backend's own estimate. The colour carries the same
+   meaning as the `~` in the breakdown cards, so the two never contradict each other. */
+.cost-bar {
+  width: 100%;
+  background: rgba(62,207,90,0.55);
+  border-radius: 2px 2px 0 0;
+  min-height: 0;
+  transition: filter 0.15s;
+}
+
+.cost-bar.is-estimated { background: rgba(245,158,11,0.55); }
+
+.daily-chart-col:hover .cost-bar { filter: brightness(1.3); }
+
+/* When you work: weekday down, hour across. Reuses the heatmap's five levels on purpose. */
+.hour-grid {
+  display: grid;
+  grid-template-columns: 34px repeat(24, 1fr);
+  gap: 3px;
+  max-width: 900px;
+}
+
+.hour-grid-cell {
+  aspect-ratio: 1;
+  border-radius: 2px;
+  min-width: 0;
+}
+
+.hour-grid-corner { grid-column: 1; }
+
+.hour-grid-hour-label,
+.hour-grid-day-label {
+  font-size: 9px;
+  color: #6a6a80;
+  display: flex;
+  align-items: center;
+}
+
+.hour-grid-hour-label { justify-content: center; }
+.hour-grid-day-label { justify-content: flex-end; padding-right: 6px; }
+
+/* Tokens by model: a plain ranked bar list — a share is easier to read than a pie. */
+.model-bars { display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
+
+.model-bar-row {
+  display: grid;
+  grid-template-columns: 180px 1fr 110px;
+  align-items: center;
+  gap: 10px;
+}
+
+.model-bar-name {
+  font-size: 11px;
+  color: #b8b8c8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-bar-track {
+  height: 14px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.model-bar-fill {
+  height: 100%;
+  background: rgba(128,136,255,0.55);
+  border-radius: 3px;
+}
+
+.model-bar-value {
+  font-size: 11px;
+  color: #7a7a90;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .stats-notice {
   font-size: 12px;
   color: #606078;

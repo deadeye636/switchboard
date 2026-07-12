@@ -190,6 +190,30 @@ const SESSIONS = [
     title: 'Trace the flaky test',
   },
   {
+    // Hermes priced this one at ZERO — which means it had no price table for the model, not that the
+    // work was free. Reported as 0 it would draw a $0.00 bar in the cost chart: a made-up fact.
+    id: 'sess-zero-cost',
+    source: 'cli',
+    model: 'some-unpriced-model',
+    parent_session_id: null,
+    started_at: T0 + 4000,
+    ended_at: T0 + 4100,
+    end_reason: 'completed',
+    message_count: 2,
+    tool_call_count: 0,
+    input_tokens: 400,
+    output_tokens: 100,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    reasoning_tokens: 0,
+    cwd: 'D:\\Projekte\\demo',
+    estimated_cost_usd: 0,              // <- the point of this row
+    actual_cost_usd: null,
+    cost_status: 'n/a',
+    cost_source: null,
+    title: 'Unpriced model',
+  },
+  {
     id: 'sess-gateway-1',
     source: 'gateway',                  // not a coding session — excluded unless includeAll
     model: 'claude-opus-4.6',
@@ -236,6 +260,9 @@ const MESSAGES = [
 
   { session_id: 'sess-gateway-1', role: 'user',      timestamp: T0 + 3010, content: 'status?' },
   { session_id: 'sess-gateway-1', role: 'assistant', timestamp: T0 + 3050, content: 'All green.' },
+
+  { session_id: 'sess-zero-cost', role: 'user',      timestamp: T0 + 4010, content: 'Try the new model.' },
+  { session_id: 'sess-zero-cost', role: 'assistant', timestamp: T0 + 4090, content: 'Done.' },
 ];
 
 // --- build ---

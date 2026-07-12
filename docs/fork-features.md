@@ -414,7 +414,20 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   and target selection in the review dialog (extends inherited feature #03/#04).
 - **Per-session AFK timeout.**
 - **Attention inbox** made configurable — "Running" mode ("timed"), "Working" removed.
-- **Token/usage stats** — per-(session, date, model) token/tool/message metrics into the DB.
+- **Token/usage stats** — per-(session, date, hour, model) token/tool/message/cost metrics into the DB,
+  bucketed on the **local** clock so every backend's day means the same thing.
+- **Stats: one backend filter, and the charts to go with it** — a single *All / Claude / Codex / …*
+  control at the top of the page scopes every figure below it (heatmap, 30-day bars, summary tiles,
+  per-backend cards). It is resolved in SQL, not in the renderer: only aggregates cross IPC, so there is
+  nothing there to filter. New charts: **tokens per backend over time** (stacked — where the work goes),
+  **token share per model**, **cost over time**, and a **weekday × hour grid** of when you actually work.
+  Cost is never dressed up as a bill: an estimate is coloured and labelled as one, and a backend that
+  reports no money gets no chart instead of a row of free days. The rate-limit panel is deliberately
+  unfiltered — those are Claude's subscription limits, which no other CLI has.
+- **The cache invalidates itself when a parser changes** — a cached row records the parser version that
+  wrote it, and the scan re-reads a session whose parser has moved on, even though the file has not. Its
+  absence is why the charts sat stale for every existing user until they found the manual *Rebuild
+  session cache* button.
 - **Usage** as status-bar color-threshold progress bars.
 - **Search** — 3-char minimum + explicit reindex (Enter / refresh button); the sidebar search
   also matches **project names** (display name + path short-name), not just session content.

@@ -11,6 +11,15 @@ let loadStatsGen = 0;
 // render empty there and read as a bug.
 let statsBackendFilter = 'all';
 
+/** Change the page's backend scope. Returns false when it was already that — the caller then skips the
+ *  re-read. The only way this variable is written. */
+function setStatsBackendFilter(id) {
+  const next = id || 'all';
+  if (statsBackendFilter === next) return false;
+  statsBackendFilter = next;
+  return true;
+}
+
 // Local YYYY-MM-DD. NOT toISOString().slice(0,10): that formats a local-midnight
 // Date as UTC, so in TZ+n the day axis lands one calendar day off from where the
 // bulk of that day's activity is bucketed (issue #75).
@@ -36,17 +45,21 @@ async function loadStats() {
   spinner.innerHTML = `<div class="stats-spinner-icon"></div><span>Updating stats\u2026</span>`;
   statsViewerBody.appendChild(spinner);
 
+  // The filter goes to the DB, not to the renderer: only AGGREGATES cross the IPC boundary, so there is
+  // nothing here to filter after the fact (#159). 'all' = the whole corpus.
+  const scope = statsBackendFilter === 'all' ? null : statsBackendFilter;
+
   // Fetch stats from DB (instant) and usage from API (PTY) in parallel via
   // refresh-stats, which now skips the slow /stats PTY call entirely.
   let stats, usage;
   try {
-    const result = await window.api.refreshStats();
+    const result = await window.api.refreshStats(scope);
     stats = result?.stats;
     usage = result?.usage || {};
     cachedUsage = usage;
   } catch {
     // Fallback: read DB directly for heatmap, use last cached usage
-    stats = await window.api.getStatsFromDb();
+    stats = await window.api.getStatsFromDb(scope);
     usage = cachedUsage || {};
   }
 
@@ -55,8 +68,18 @@ async function loadStats() {
   if (myGen !== loadStatsGen) return;
   statsViewerBody.innerHTML = '';
 
+  // The filter bar is the FIRST thing on the page, and it is drawn even when there is nothing to show:
+  // "Codex has no sessions yet" is an answer, and a filter that disappears along with its own result set
+  // is a trap — the user would have no way back to All.
+  buildBackendFilterBar();
+
   if (!stats && !Object.keys(usage).length) {
-    statsViewerBody.innerHTML = '<div class="plans-empty">No stats data found. Run some Claude sessions first.</div>';
+    const empty = document.createElement('div');
+    empty.className = 'plans-empty';
+    empty.textContent = statsBackendFilter === 'all'
+      ? 'No stats data found. Run some sessions first.'
+      : `No ${backendLabelOf(statsBackendFilter)} sessions indexed yet.`;
+    statsViewerBody.appendChild(empty);
     return;
   }
 
@@ -75,13 +98,19 @@ async function loadStats() {
     }
     buildHeatmap(dailyMap);
     buildDailyBarChart(stats);
+    buildBackendTokensChart(stats);
+    buildCostChart(stats);
+    buildHourGrid(stats);
+    buildModelTokensChart(stats);
     buildStatsSummary(stats, dailyMap);
   }
 
-  // Per-backend breakdown + its filter bar (T-3.9).
+  // Per-backend breakdown (T-3.9). It follows the page filter now, like everything above it.
   buildBackendBreakdown();
 
-  // Build usage section below charts (from /usage output)
+  // Rate limits (from /usage). Deliberately NOT filtered: these are Claude's subscription limits, read
+  // from Claude's own API. The other CLIs have no such thing, so scoping this panel to "Codex" would
+  // put Claude's numbers under Codex's name.
   if (Object.keys(usage).length) {
     buildUsageSection(usage);
   }
@@ -90,9 +119,56 @@ async function loadStats() {
     const notice = document.createElement('div');
     notice.className = 'stats-notice';
     const lastDate = stats.lastComputedDate || 'unknown';
-    notice.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-2px;margin-right:6px;flex-shrink:0"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor" stroke="none"/></svg>Data sourced from Switchboard session cache — every backend (last updated ${escapeHtml(lastDate)}).`;
+    const scopeText = statsBackendFilter === 'all'
+      ? 'every backend'
+      : escapeHtml(backendLabelOf(statsBackendFilter)) + ' only';
+    notice.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-2px;margin-right:6px;flex-shrink:0"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor" stroke="none"/></svg>Data sourced from Switchboard session cache — ${scopeText} (last updated ${escapeHtml(lastDate)}). Hermes cannot attribute tokens or cost to a single message, so its totals are booked on the hour it was last active.`;
     statsViewerBody.appendChild(notice);
   }
+}
+
+/**
+ * The page's ONE filter (#159). It used to live in the "By backend" heading and scoped only those
+ * cards — so selecting Codex changed the cards and left the heatmap above them showing everybody. Now
+ * it is the first element on the page, and every figure below it is scoped in SQL.
+ */
+function buildBackendFilterBar() {
+  const launchable = typeof launchableBackends === 'function' ? launchableBackends() : [];
+  // A backend disabled AFTER it produced sessions keeps its history under "All" (disable is not erase)
+  // but gets no pill: it is not something you can launch into any more.
+  const pills = [{ id: 'all', label: 'All backends' }].concat(
+    launchable
+      .slice()
+      .sort((a, b) => (a.id === 'claude' ? -1 : b.id === 'claude' ? 1 : String(a.label).localeCompare(String(b.label))))
+      .map(b => ({ id: b.id, label: b.label, icon: b.icon || b.colour || b.id, monogram: b.monogram }))
+  );
+  if (!pills.some(p => p.id === statsBackendFilter)) statsBackendFilter = 'all';
+  if (pills.length < 2) return;   // Claude alone: a filter with one option is furniture, not a control
+
+  const bar = document.createElement('div');
+  bar.className = 'backend-filter-bar stats-filter-bar';
+  bar.setAttribute('role', 'group');
+  bar.setAttribute('aria-label', 'Filter stats by backend');
+
+  for (const pill of pills) {
+    const btn = document.createElement('button');
+    btn.className = 'backend-filter-pill' + (pill.id === statsBackendFilter ? ' active' : '');
+    btn.dataset.backend = pill.id;
+    btn.setAttribute('aria-pressed', pill.id === statsBackendFilter ? 'true' : 'false');
+    if (pill.icon && typeof renderBackendIcon === 'function') {
+      const icon = renderBackendIcon(pill.icon, 14, { monogram: pill.monogram });
+      icon.classList.add('backend-filter-icon');
+      btn.appendChild(icon);
+    }
+    btn.append(pill.label);
+    btn.onclick = () => {
+      // The whole page re-reads. These numbers live in SQL, not in the DOM — there is nothing here to
+      // re-filter, which is exactly why the old in-place re-render could only ever scope the cards.
+      if (setStatsBackendFilter(pill.id)) loadStats();
+    };
+    bar.appendChild(btn);
+  }
+  statsViewerBody.appendChild(bar);
 }
 
 function buildUsageSection(usage) {
@@ -320,19 +396,12 @@ function buildBackendBreakdown() {
   if (existing) existing.remove();
 
   const usage = collectBackendUsage();
-  if (!usage.size) return; // nothing indexed yet — an empty filter bar would just be noise
+  if (!usage.size) return; // nothing indexed yet
 
-  // Pills: All + every `ready && enabled` backend (§5.8). A backend that was disabled AFTER it
-  // produced sessions keeps its card under "All" (disable ≠ erase history) but gets no pill.
-  const launchable = typeof launchableBackends === 'function' ? launchableBackends() : [];
-  const pills = [{ id: 'all', label: 'All' }].concat(
-    launchable
-      .slice()
-      .sort((a, b) => (a.id === 'claude' ? -1 : b.id === 'claude' ? 1 : String(a.label).localeCompare(String(b.label))))
-      .map(b => ({ id: b.id, label: b.label, icon: b.icon || b.colour || b.id, monogram: b.monogram }))
-  );
-  if (!pills.some(p => p.id === statsBackendFilter)) statsBackendFilter = 'all';
-
+  // The pills that used to live in this heading are gone. They were the page's ONLY backend filter, and
+  // they scoped only these cards — which is why selecting Codex re-rendered the cards and left every
+  // chart above them showing everybody. The filter now sits at the top of the page and scopes the whole
+  // thing, this section included: one control, one meaning (#159).
   const container = document.createElement('div');
   container.className = 'backend-breakdown';
 
@@ -342,29 +411,6 @@ function buildBackendBreakdown() {
   title.className = 'daily-chart-title';
   title.textContent = 'By backend';
   titleRow.appendChild(title);
-
-  const bar = document.createElement('div');
-  bar.className = 'backend-filter-bar';
-  bar.setAttribute('role', 'group');
-  bar.setAttribute('aria-label', 'Filter stats by backend');
-  for (const pill of pills) {
-    const btn = document.createElement('button');
-    btn.className = 'backend-filter-pill' + (pill.id === statsBackendFilter ? ' active' : '');
-    btn.dataset.backend = pill.id;
-    btn.setAttribute('aria-pressed', pill.id === statsBackendFilter ? 'true' : 'false');
-    if (pill.icon && typeof renderBackendIcon === 'function') {
-      const icon = renderBackendIcon(pill.icon, 14, { monogram: pill.monogram });
-      icon.classList.add('backend-filter-icon');
-      btn.appendChild(icon);
-    }
-    btn.append(pill.label);
-    btn.onclick = () => {
-      statsBackendFilter = pill.id;
-      buildBackendBreakdown(); // re-render in place; the charts above are whole-corpus and stay put
-    };
-    bar.appendChild(btn);
-  }
-  titleRow.appendChild(bar);
   container.appendChild(titleRow);
 
   const fmtNum = (n) => {
@@ -772,4 +818,285 @@ function buildStatsSummary(stats, dailyMap) {
   }
 
   statsViewerBody.appendChild(summaryEl);
+}
+
+// --- The charts the page was missing (#159) -------------------------------------------------
+//
+// Hand-rolled DOM + CSS, like everything else here: the renderer has no charting library and does not
+// get one for four charts (CLAUDE.md — no new bundler or framework in the renderer).
+//
+// Every figure below is ALREADY scoped to the page's backend filter, because the scoping happens in SQL
+// (db.js). Nothing here re-filters.
+
+/** The last N local days, oldest first. The one place the day axis is defined. */
+function lastDays(n) {
+  const days = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    days.push(localDateKey(d));
+  }
+  return days;
+}
+
+function chartSection(titleText, subtitleText) {
+  const container = document.createElement('div');
+  container.className = 'daily-chart-container';
+  const title = document.createElement('div');
+  title.className = 'daily-chart-title';
+  title.textContent = titleText;
+  container.appendChild(title);
+  if (subtitleText) {
+    const sub = document.createElement('div');
+    sub.className = 'chart-subtitle';
+    sub.textContent = subtitleText;
+    container.appendChild(sub);
+  }
+  return container;
+}
+
+function fmtTokens(n) {
+  n = n || 0;
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+/**
+ * Tokens per backend over the last 30 days — one stacked bar per day.
+ *
+ * The chart the multi-LLM mockup promised and the page never got: where the work actually goes. With a
+ * single backend selected it collapses to one series, which is the right thing for a filtered page to
+ * show — so it is not hidden then, it just tells a simpler story.
+ */
+function buildBackendTokensChart(stats) {
+  const rows = stats.dailyBackendTokens || [];
+  if (!rows.length) return;
+
+  const byDate = new Map(rows.map(r => [r.date, r.tokensByBackend || {}]));
+  const days = lastDays(30);
+  const present = new Set();
+  for (const d of days) for (const id of Object.keys(byDate.get(d) || {})) present.add(id);
+  if (!present.size) return;   // nothing inside the window — an empty chart is worse than no chart
+
+  const ids = Array.from(present).sort((a, b) => (a === 'claude' ? -1 : b === 'claude' ? 1 : a.localeCompare(b)));
+  const totals = days.map(d => {
+    const t = byDate.get(d) || {};
+    return ids.reduce((sum, id) => sum + (t[id] || 0), 0);
+  });
+  const max = Math.max(...totals, 1);
+
+  const container = chartSection('Tokens by backend', 'Last 30 days');
+
+  const chart = document.createElement('div');
+  chart.className = 'daily-chart stacked-chart';
+  days.forEach((day, i) => {
+    const col = document.createElement('div');
+    col.className = 'daily-chart-col';
+
+    const stack = document.createElement('div');
+    stack.className = 'stacked-bar';
+    // The stack's height is the day's share of the busiest day; each segment then takes its share of
+    // that height. Two nested proportions, so a quiet day stays visibly quiet.
+    stack.style.height = `${(totals[i] / max) * 100}%`;
+
+    const t = byDate.get(day) || {};
+    const parts = [];
+    for (const id of ids) {
+      const value = t[id] || 0;
+      if (!value) continue;
+      const seg = document.createElement('div');
+      seg.className = `stacked-seg backend-seg-${id.replace(/[^a-z0-9_-]/gi, '')}`;
+      seg.style.height = `${(value / (totals[i] || 1)) * 100}%`;
+      stack.appendChild(seg);
+      parts.push(`${backendLabelOf(id)}: ${fmtTokens(value)} tokens`);
+    }
+    col.title = parts.length ? `${day}\n${parts.join('\n')}` : `${day}: no tokens`;
+    col.appendChild(stack);
+    chart.appendChild(col);
+  });
+  container.appendChild(chart);
+
+  const legend = document.createElement('div');
+  legend.className = 'chart-legend';
+  for (const id of ids) {
+    const item = document.createElement('span');
+    item.className = 'chart-legend-item';
+    const swatch = document.createElement('span');
+    swatch.className = `chart-legend-swatch backend-seg-${id.replace(/[^a-z0-9_-]/gi, '')}`;
+    item.appendChild(swatch);
+    item.append(backendLabelOf(id));
+    legend.appendChild(item);
+  }
+  container.appendChild(legend);
+
+  statsViewerBody.appendChild(container);
+}
+
+/**
+ * Cost over the last 30 days.
+ *
+ * Drawn ONLY once a backend has actually reported money. Claude and Codex report none, so a Claude-only
+ * user must never see a flat $0.00 line: that would state, falsely, that their work was free.
+ *
+ * An estimate is never rendered as a bill — the bar is amber wherever the figure is the backend's own
+ * estimate, and green only where the backend says it settled. Pi prices every turn, so its money lands
+ * in the hour it was spent; Hermes prices per session and cannot say which hour spent what, so its money
+ * lands on its last active bucket. The footer says so.
+ */
+function buildCostChart(stats) {
+  const rows = stats.dailyCost || [];
+  if (!rows.length) return;
+
+  const byDate = new Map(rows.map(r => [r.date, r]));
+  const days = lastDays(30);
+  const values = days.map(d => {
+    const r = byDate.get(d);
+    if (!r) return { usd: 0, estimated: false };
+    const actual = r.actualCostUsd == null ? 0 : Number(r.actualCostUsd);
+    const estimated = r.estimatedCostUsd == null ? 0 : Number(r.estimatedCostUsd);
+    // Prefer a settled figure where one exists; otherwise fall back to the estimate and SAY it is one.
+    return actual > 0
+      ? { usd: actual, estimated: false }
+      : { usd: estimated, estimated: estimated > 0 };
+  });
+  const max = Math.max(...values.map(v => v.usd), 0);
+  if (max <= 0) return;   // nobody priced anything in this window
+
+  const anyEstimated = values.some(v => v.estimated);
+  const container = chartSection(
+    'Cost',
+    anyEstimated
+      ? 'Last 30 days — amber is the backend’s own estimate, not a bill'
+      : 'Last 30 days — settled amounts reported by the backend'
+  );
+
+  const chart = document.createElement('div');
+  chart.className = 'daily-chart cost-chart';
+  days.forEach((day, i) => {
+    const col = document.createElement('div');
+    col.className = 'daily-chart-col';
+    const bar = document.createElement('div');
+    bar.className = 'cost-bar' + (values[i].estimated ? ' is-estimated' : '');
+    bar.style.height = `${(values[i].usd / max) * 100}%`;
+    col.title = values[i].usd > 0
+      ? `${day}: ${values[i].estimated ? '~' : ''}${formatUsd(values[i].usd)}`
+      : `${day}: no cost reported`;
+    col.appendChild(bar);
+    chart.appendChild(col);
+  });
+  container.appendChild(chart);
+  statsViewerBody.appendChild(container);
+}
+
+/**
+ * When you actually work: a 7 x 24 grid of messages — weekday down, hour of day across.
+ *
+ * Buckets whose backend could not say WHEN within the day (hour = -1) are not in this data at all;
+ * db.js excludes them. Dropping them at midnight instead would invent a working habit nobody has.
+ */
+function buildHourGrid(stats) {
+  const rows = stats.hourlyActivity || [];
+  if (!rows.length) return;
+
+  const counts = new Map();          // "weekday|hour" -> messages
+  let max = 0;
+  for (const r of rows) {
+    const key = `${r.weekday}|${r.hour}`;
+    const n = (counts.get(key) || 0) + Number(r.messageCount || 0);
+    counts.set(key, n);
+    if (n > max) max = n;
+  }
+  if (!max) return;
+
+  const container = chartSection('When you work', 'All time — messages by weekday and hour');
+
+  const grid = document.createElement('div');
+  grid.className = 'hour-grid';
+
+  // A blank corner, then the hour ruler. Only every third hour is labelled: 24 labels do not fit, and a
+  // cramped unreadable axis is worse than a sparse one.
+  const corner = document.createElement('div');
+  corner.className = 'hour-grid-corner';
+  grid.appendChild(corner);
+  for (let h = 0; h < 24; h++) {
+    const label = document.createElement('div');
+    label.className = 'hour-grid-hour-label';
+    label.textContent = h % 3 === 0 ? String(h) : '';
+    grid.appendChild(label);
+  }
+
+  const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  for (let d = 0; d < 7; d++) {
+    const label = document.createElement('div');
+    label.className = 'hour-grid-day-label';
+    label.textContent = DAY_NAMES[d];
+    grid.appendChild(label);
+
+    for (let h = 0; h < 24; h++) {
+      const n = counts.get(`${d}|${h}`) || 0;
+      const cell = document.createElement('div');
+      // The same five-step scale as the contribution heatmap, so the two grids read as one language.
+      const level = n === 0 ? 0 : Math.min(4, Math.ceil((n / max) * 4));
+      cell.className = `hour-grid-cell heatmap-level-${level}`;
+      cell.title = `${DAY_NAMES[d]} ${String(h).padStart(2, '0')}:00 — ${n} message${n === 1 ? '' : 's'}`;
+      grid.appendChild(cell);
+    }
+  }
+  container.appendChild(grid);
+  statsViewerBody.appendChild(container);
+}
+
+/**
+ * Token share per model, all time, biggest first.
+ *
+ * `getModelUsage()` has returned this data all along and nothing ever drew it. The summary tiles show a
+ * per-model token COUNT, which answers "how many" but not "compared to what" — and the share is the
+ * question people actually have.
+ */
+function buildModelTokensChart(stats) {
+  const usage = stats.modelUsage || {};
+  const models = Object.entries(usage)
+    .map(([model, u]) => ({ model, tokens: (u.inputTokens || 0) + (u.outputTokens || 0) }))
+    .filter(m => m.tokens > 0)
+    .sort((a, b) => b.tokens - a.tokens);
+  if (!models.length) return;
+
+  const total = models.reduce((sum, m) => sum + m.tokens, 0);
+  const max = models[0].tokens;
+  const container = chartSection('Tokens by model', 'All time');
+
+  const list = document.createElement('div');
+  list.className = 'model-bars';
+  for (const m of models) {
+    const row = document.createElement('div');
+    row.className = 'model-bar-row';
+
+    const name = document.createElement('span');
+    name.className = 'model-bar-name';
+    name.textContent = m.model;
+    name.title = m.model;
+    row.appendChild(name);
+
+    const track = document.createElement('div');
+    track.className = 'model-bar-track';
+    const fill = document.createElement('div');
+    fill.className = 'model-bar-fill';
+    fill.style.width = `${(m.tokens / max) * 100}%`;
+    track.appendChild(fill);
+    row.appendChild(track);
+
+    const value = document.createElement('span');
+    value.className = 'model-bar-value';
+    const share = total ? Math.round((m.tokens / total) * 100) : 0;
+    value.textContent = `${fmtTokens(m.tokens)} · ${share}%`;
+    row.appendChild(value);
+
+    list.appendChild(row);
+  }
+  container.appendChild(list);
+  statsViewerBody.appendChild(container);
 }

@@ -22,9 +22,14 @@
 
 const fs = require('fs');
 const crypto = require('crypto');
+const { bucketFromIso, bucketKey } = require('../../metrics-bucket');
 
-// Bump on ANY behavioural change to this parser — persisted parse-state keyed on it is then dropped.
-const PARSER_SCHEMA_VERSION = 2;   // v2: the parse state carries per-(date, model) metrics (#154)
+// Bump on ANY behavioural change to this parser — persisted parse-state keyed on it is then dropped,
+// and (since #152) every session this parser already wrote is re-read, so a change like v3 below
+// actually reaches the charts instead of waiting for someone to press Rebuild.
+//   v2: the parse state carries per-(date, model) metrics (#154)
+//   v3: per-(date, HOUR, model), bucketed in LOCAL time, with the two cost columns (#159)
+const PARSER_SCHEMA_VERSION = 3;
 
 // Bytes of the already-consumed tail we fingerprint to detect a rewritten/truncated file.
 const FINGERPRINT_BYTES = 64;
@@ -52,30 +57,27 @@ function createParseState() {
     // rollout tail state for busy/idle (deriveState reads these)
     lastTaskEvent: null, // 'task_started' | 'task_complete' | null
 
-    // Per-(date, model) metrics — what the Stats charts are built from (#154). Codex re-emits RUNNING
-    // totals, so a bucket gets the DELTA since the previous token_count, attributed to the day and
-    // model that were current when it arrived. Serializable (a plain object), because the incremental
-    // parse state is persisted.
-    dailyMetrics: {},                                   // "date|model" -> bucket
+    // Per-(date, hour, model) metrics — what the Stats charts are built from (#154, #159). Codex
+    // re-emits RUNNING totals, so a bucket gets the DELTA since the previous token_count, attributed to
+    // the bucket and model that were current when it arrived. Serializable (a plain object), because
+    // the incremental parse state is persisted.
+    dailyMetrics: {},                                   // "date|hour|model" -> bucket
     lastCumulative: { input: 0, output: 0, cacheRead: 0 },
-    lastDate: null,                                     // YYYY-MM-DD of the last entry seen
+    lastBucket: null,                                   // {date, hour} of the last entry seen (LOCAL)
   };
 }
 
-function dayOf(timestamp) {
-  if (typeof timestamp !== 'string' || timestamp.length < 10) return null;
-  return timestamp.slice(0, 10);
-}
-
-function metricBucket(st, date, model) {
-  const key = `${date}|${model || ''}`;
+function metricBucket(st, at, model) {
+  const key = bucketKey(at.date, at.hour, model);
   let b = st.dailyMetrics[key];
   if (!b) {
     b = {
-      date, model: model || '',
+      date: at.date, hour: at.hour, model: model || '',
       messageCount: 0, toolCallCount: 0,
       inputTokens: 0, outputTokens: 0,
       cacheReadTokens: 0, cacheCreationTokens: 0,
+      // Codex reports no USD. NULL = "no figure", which the cost chart skips — not a free day.
+      estimatedCostUsd: null, actualCostUsd: null,
     };
     st.dailyMetrics[key] = b;
   }
@@ -117,8 +119,8 @@ function applyEntry(st, entry) {
   if (typeof timestamp === 'string' && timestamp) {
     if (!st.startedAt) st.startedAt = timestamp;
     st.lastEntryAt = timestamp;
-    const d = dayOf(timestamp);
-    if (d) st.lastDate = d;
+    const at = bucketFromIso(timestamp, null);
+    if (at.date) st.lastBucket = at;
   }
   if (!payload || typeof payload !== 'object') return;
 
@@ -155,7 +157,7 @@ function applyEntry(st, entry) {
       // Keep the injected context OUT of the search body too: it is the same AGENTS.md text in every
       // Codex session of a project, so indexing it makes any term from that file match all of them.
       if (text && !injected) st.textParts.push(text);
-      if (st.lastDate) metricBucket(st, st.lastDate, st.model).messageCount++;
+      if (st.lastBucket) metricBucket(st, st.lastBucket, st.model).messageCount++;
       break;
     }
     case 'event_msg': {
@@ -173,8 +175,8 @@ function applyEntry(st, entry) {
 
           // The per-day bucket needs what was spent SINCE the last report, not the running total —
           // otherwise a session spanning midnight would book its whole history onto its last day.
-          if (st.lastDate) {
-            const b = metricBucket(st, st.lastDate, st.model);
+          if (st.lastBucket) {
+            const b = metricBucket(st, st.lastBucket, st.model);
             b.inputTokens += Math.max(0, st.usageTotals.inputTokens - st.lastCumulative.input);
             b.outputTokens += Math.max(0, st.usageTotals.outputTokens - st.lastCumulative.output);
             b.cacheReadTokens += Math.max(0, st.usageTotals.cacheReadTokens - st.lastCumulative.cacheRead);

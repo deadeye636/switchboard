@@ -6,8 +6,9 @@ contextBridge.exposeInMainWorld('api', {
   readPlan: (filename) => ipcRenderer.invoke('read-plan', filename),
   savePlan: (filePath, content) => ipcRenderer.invoke('save-plan', filePath, content),
   getStats: () => ipcRenderer.invoke('get-stats'),
-  getStatsFromDb: () => ipcRenderer.invoke('get-stats-from-db'),
-  refreshStats: () => ipcRenderer.invoke('refresh-stats'),
+  // backendId (optional): scope every figure to one backend. Omitted / 'all' = the whole corpus (#159).
+  getStatsFromDb: (backendId) => ipcRenderer.invoke('get-stats-from-db', backendId),
+  refreshStats: (backendId) => ipcRenderer.invoke('refresh-stats', backendId),
   getUsage: () => ipcRenderer.invoke('get-usage'),
   getMemories: () => ipcRenderer.invoke('get-memories'),
   readMemory: (filePath) => ipcRenderer.invoke('read-memory', filePath),

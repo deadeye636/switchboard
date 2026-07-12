@@ -3,7 +3,7 @@ const fs = require('fs');
 const { Worker } = require('worker_threads');
 const { getFolderIndexMtimeMs } = require('./folder-index-state');
 const { deriveProjectPath, resolveWorktreePath } = require('./derive-project-path');
-const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId } = require('./read-session-file');
+const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId, PARSER_SCHEMA_VERSION: CLAUDE_PARSER_VERSION } = require('./read-session-file');
 const { readFolderSessions } = require('./read-folder-sessions');
 const { encodeProjectPath } = require('./encode-project-path');
 const backends = require('./backends');
@@ -104,6 +104,8 @@ function stampClaudeProvenance(s) {
     s.backendId = ov.backendId;
     if (ov.profileId) s.profileId = ov.profileId;
   }
+  // Which parser produced this row (#152). The skip gate above compares it to the parser we have now.
+  s.parserVersion = CLAUDE_PARSER_VERSION;
   return s;
 }
 
@@ -205,6 +207,7 @@ function refreshFolder(folder, opts = {}) {
     const entry = {
       modified: row.modified,
       filePath: resolveRowFilePath(row),
+      parserVersion: row.parserVersion,   // #152 — the skip gate needs it, not just the mtime
     };
     cachedMap.set(row.sessionId, entry);
     cachedByFilePath.set(entry.filePath, { dbId: row.sessionId, entry });
@@ -234,8 +237,12 @@ function refreshFolder(folder, opts = {}) {
 
     if (cachedDbId !== null) currentIds.add(cachedDbId);
 
-    if (cachedEntry && cachedEntry.modified === fileMtime) {
-      continue; // unchanged, skip
+    // The staleness gate. An unchanged file is skipped — UNLESS the parser that wrote the cached row is
+    // not the parser that would read it now (#152). A parser change does not touch the file's mtime, so
+    // without this half a schema change lands in an empty table and stays there: exactly how the Stats
+    // charts came to be silently Claude-only-and-stale until someone found the Rebuild button.
+    if (cachedEntry && cachedEntry.modified === fileMtime && cachedEntry.parserVersion === CLAUDE_PARSER_VERSION) {
+      continue; // unchanged, and read by the parser we still have
     }
 
     // File is new or modified — re-read it. Drop any incremental per-file
@@ -573,13 +580,21 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
     // session, so the backend supplies its own marker on the handle (Hermes builds one from ended_at +
     // last message, because its schema has no updated_at). Either way it lands in the row's `modified`
     // -equivalent, so an unchanged session is never re-read.
+    //
+    // A marker match is not enough on its own: it says the SOURCE is unchanged, not that the row we
+    // wrote from it still reflects what our parser produces. Bumping a parser does not touch a file's
+    // mtime or a Hermes session's ended_at, so a row written by an older parser must be re-read even
+    // though nothing on the backend's side moved (#152).
+    const parserVersion = Number.isInteger(b.PARSER_SCHEMA_VERSION) ? b.PARSER_SCHEMA_VERSION : null;
+    const parserCurrent = (hit) => parserVersion == null || hit.parserVersion === parserVersion;
+
     let changeKey;
     let hit;
     if (isFile) {
       seenFiles.add(h.path);
       try { changeKey = fs.statSync(h.path).mtime.toISOString(); } catch { continue; }
       hit = cachedByFile.get(h.path);
-      if (!force && hit && hit.modified === changeKey) {
+      if (!force && hit && hit.modified === changeKey && parserCurrent(hit)) {
         seenIds.add(hit.sessionId);
         stats.skipped++;
         continue;
@@ -587,7 +602,7 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
     } else {
       changeKey = h.marker == null ? null : String(h.marker);
       hit = cachedById.get(h.sessionId);
-      if (!force && hit && changeKey && hit.changeMarker === changeKey) {
+      if (!force && hit && changeKey && hit.changeMarker === changeKey && parserCurrent(hit)) {
         seenIds.add(hit.sessionId);
         stats.skipped++;
         continue;
@@ -620,6 +635,7 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
     row.folder = encodeProjectPath(projectPath);   // the SAME key Claude's folder for this cwd carries
     row.projectPath = projectPath;
     row.backendId = row.backendId || backendId;    // the parser already knows (Axis B = own root)
+    row.parserVersion = parserVersion;             // which parser wrote it — the staleness gate above
     if (isFile) {
       row.filePath = h.path;                       // nothing to reconstruct it from — store it (v11)
       row.modified = changeKey;                    // keep the cache's change gate meaningful

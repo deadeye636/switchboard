@@ -1,5 +1,14 @@
 const path = require('path');
 const fs = require('fs');
+const { bucketFromIso, bucketKey } = require('./metrics-bucket');
+
+// Bump on ANY change to what this parser writes into a session row or its metrics. The scan compares
+// this to the version recorded on the cached row (#152) and re-reads the session when they differ —
+// which is the only reason a schema change ever reaches an existing user's charts without them being
+// told to press Rebuild. Every backend carries one; Claude's lives here, next to the parser it versions.
+//   v1: the original per-(date, model) metrics.
+//   v2: per-(date, HOUR, model), bucketed in LOCAL time, with the two cost columns (#159).
+const PARSER_SCHEMA_VERSION = 2;
 
 function contentToText(content) {
   if (typeof content === 'string') return content;
@@ -79,15 +88,18 @@ function isToolResultOnly(content) {
  */
 function extractDailyMetrics(lines, fallbackDate) {
   const map = new Map();
-  const bucket = (date, model) => {
-    const key = `${date}|${model}`;
+  const bucket = (date, hour, model) => {
+    const key = bucketKey(date, hour, model);
     let m = map.get(key);
     if (!m) {
       m = {
-        date, model,
+        date, hour, model,
         messageCount: 0, toolCallCount: 0,
         inputTokens: 0, outputTokens: 0,
         cacheReadTokens: 0, cacheCreationTokens: 0,
+        // Claude reports no USD at all — not a zero, an absence. NULL keeps it out of the cost chart
+        // instead of drawing a free day.
+        estimatedCostUsd: null, actualCostUsd: null,
       };
       map.set(key, m);
     }
@@ -99,9 +111,9 @@ function extractDailyMetrics(lines, fallbackDate) {
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
 
-    const ts = typeof entry.timestamp === 'string' && entry.timestamp.length >= 10
-      ? entry.timestamp.slice(0, 10)
-      : fallbackDate;
+    // LOCAL date + hour. This used to slice the ISO string, i.e. bucket by the UTC day — which put the
+    // same evening's work a column away from Hermes' localtime buckets in a chart that stacks both.
+    const { date, hour } = bucketFromIso(entry.timestamp, fallbackDate);
 
     const isAssistant = entry.type === 'assistant' ||
       (entry.type === 'message' && entry.role === 'assistant');
@@ -111,7 +123,7 @@ function extractDailyMetrics(lines, fallbackDate) {
     if (isAssistant) {
       let model = entry.message?.model || '';
       if (model === '<synthetic>') model = '';
-      const m = bucket(ts, model);
+      const m = bucket(date, hour, model);
       m.messageCount += 1;
       if (model) {
         const usage = entry.message?.usage || {};
@@ -128,7 +140,7 @@ function extractDailyMetrics(lines, fallbackDate) {
       }
     } else if (isUser) {
       if (isToolResultOnly(entry.message?.content)) continue;
-      bucket(ts, '').messageCount += 1;
+      bucket(date, hour, '').messageCount += 1;
     }
   }
 
@@ -472,4 +484,4 @@ function enumerateSessionFiles(folderPath) {
   return out;
 }
 
-module.exports = { readSessionFile, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly };
+module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly };
