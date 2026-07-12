@@ -2,30 +2,26 @@
 // Phase 5 — Hermes: the first NON-FILE backend. This is what proves the dual-mode discovery seam:
 // {kind:'db'} handles, a row-based parse, and a change marker that stands in for a file mtime.
 //
-// The fixture (test/fixtures/hermes-state.db) is built from the REAL schema dumped off a live install
-// (docs/plans/research/hermes-format.md) — the live DB itself has zero sessions, so there is nothing
-// real to read.
+// The fixture is BUILT (test/fixtures/hermes-fixture.js) from the REAL schema dumped off a live install
+// (docs/plans/research/hermes-format.md) — the live DB itself has zero sessions, so there is nothing real
+// to read. It used to be a checked-in `hermes-state.db`, which `.gitignore` (`*.db`) silently kept out of
+// the repo: the file existed only where it was made, and these tests failed on every clone (#158).
 const { test } = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
 const hermes = require('../backends/hermes');
 const reader = require('../backends/hermes/reader');
 const { deriveState, ACTIVITY_WINDOW_MS } = require('../backends/hermes/state');
+const { makeHermesHome, T0 } = require('./fixtures/hermes-fixture');
 
-const FIXTURE = path.join(__dirname, 'fixtures', 'hermes-state.db');
-
-// Point the reader at a HERMES_HOME containing the fixture as state.db.
+// Point the reader at a HERMES_HOME holding a freshly built state.db.
 function useFixture() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-home-'));
-  fs.copyFileSync(FIXTURE, path.join(home, 'state.db'));
+  const home = makeHermesHome();
   hermes.setHome(home);
   return home;
 }
-
-const T0 = 1780000000; // the fixture's fixed epoch, in seconds
 
 test('store root: %LOCALAPPDATA%\\hermes on Windows, never a hardcoded ~/.hermes', () => {
   hermes.setHome(null);
