@@ -44,6 +44,7 @@ function makeFakeDb(globalSettings = {}) {
   const search = new Map();       // sessionId -> entry
   const meta = new Map();         // sessionId -> { name }
   const folderMeta = new Map();   // folder -> { folder, projectPath, indexMtimeMs }
+  const metrics = new Map();      // sessionId -> per-(date, model) buckets
 
   const api = {
     _cache: cache,
@@ -84,7 +85,8 @@ function makeFakeDb(globalSettings = {}) {
     deleteCachedSession(id) { cache.delete(id); },
     deleteSearchSession(id) { search.delete(id); },
     upsertSearchEntries(entries) { for (const e of entries) search.set(e.id, e); },
-    replaceSessionMetrics() {},
+    _metrics: metrics,
+    replaceSessionMetrics(sessionId, rows) { metrics.set(sessionId, rows); },
     setFolderMeta(folder, projectPath, indexMtimeMs) { folderMeta.set(folder, { folder, projectPath, indexMtimeMs }); },
     getFolderMeta(folder) { return folderMeta.get(folder) || null; },
     getAllFolderMeta() { return folderMeta; },
@@ -671,4 +673,40 @@ test('a disabled Pi is never scanned, but keeps its cached rows (5.8)', () => {
     assert.equal(stats.scanned, 0, 'a disabled backend has its store left alone entirely');
     assert.ok(w.db._cache.get('pi-old'), 'disable is not erase');
   } finally { cleanup(w); }
+});
+
+test('the scanner stores EVERY backend\'s per-day metrics, not just Claude\'s (#154)', () => {
+  // The Stats charts are built from session_metrics. Only the Claude read path used to write it, so a
+  // Codex/Hermes/Pi user saw a heatmap that ignored their work — while the totals beside it counted it.
+  const w = setup({ enabledMap: { pi: true } });
+  try {
+    const piRoot = path.join(w.root, 'pi-sessions');
+    const dir = path.join(piRoot, '--proj--');
+    fs.mkdirSync(dir, { recursive: true });
+    const id = 'dddd4444-0000-4000-8000-000000000004';
+    fs.writeFileSync(path.join(dir, `2026-07-12T08-00-00-000Z_${id}.jsonl`), [
+      JSON.stringify({ type: 'session', version: 3, id, timestamp: '2026-07-12T08:00:00.000Z', cwd: w.projectCwd }),
+      JSON.stringify({ type: 'message', timestamp: '2026-07-12T08:00:10.000Z', message: { role: 'user', content: [{ type: 'text', text: 'hi' }] } }),
+      JSON.stringify({ type: 'message', timestamp: '2026-07-12T08:00:20.000Z', message: {
+        role: 'assistant', content: [{ type: 'text', text: 'hello' }], model: 'gpt-5.5',
+        stopReason: 'stop', usage: { input: 90, output: 12, totalTokens: 102, cost: { total: 0.001 } },
+      } }),
+    ].join('\n') + '\n', 'utf8');
+    pi.setRoot(piRoot);
+
+    sessionCache.refreshBackendSessions('pi');
+
+    const buckets = w.db._metrics.get(id);
+    assert.ok(buckets && buckets.length, 'the metrics reached the store');
+    assert.equal(buckets.reduce((n, b) => n + b.inputTokens, 0), 90, 'with the real numbers');
+    assert.equal(buckets.reduce((n, b) => n + b.messageCount, 0), 2, 'both turns counted');
+    assert.ok(buckets.every(b => b.date === '2026-07-12'), 'on the real day');
+
+    // A user turn carries no model, so it buckets under '' — the same convention Claude's reader uses
+    // (read-session-file.js). The tokens belong to the model that produced them.
+    const answered = buckets.find(b => b.model === 'gpt-5.5');
+    assert.ok(answered, 'the assistant turn is booked under its model');
+    assert.equal(answered.inputTokens, 90);
+    assert.equal(answered.outputTokens, 12);
+  } finally { pi.setRoot(null); cleanup(w); }
 });

@@ -90,7 +90,7 @@ async function loadStats() {
     const notice = document.createElement('div');
     notice.className = 'stats-notice';
     const lastDate = stats.lastComputedDate || 'unknown';
-    notice.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-2px;margin-right:6px;flex-shrink:0"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor" stroke="none"/></svg>Charts above cover Claude sessions (last updated ${escapeHtml(lastDate)}). Other backends appear in “By backend” below.`;
+    notice.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-2px;margin-right:6px;flex-shrink:0"><circle cx="8" cy="8" r="7"/><line x1="8" y1="5" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor" stroke="none"/></svg>Data sourced from Switchboard session cache — every backend (last updated ${escapeHtml(lastDate)}).`;
     statsViewerBody.appendChild(notice);
   }
 }
@@ -208,11 +208,9 @@ function buildUsageSection(usage) {
 // Sourced from the cached session rows the sidebar already holds: each carries the AUTHORITATIVE
 // `backendId` written by the scanner (§5.7), plus its message/token counters.
 //
-// The charts ABOVE (heatmap, daily bars, per-model tokens) come from `session_metrics`, which only the
-// CLAUDE read path writes — the backend scanners do not populate it. So they are not "whole-corpus"
-// figures, they are Claude's, and the footer now says so. THIS breakdown is the part that actually has
-// a backend dimension, which is why the filter scopes it. (Filling session_metrics for every backend is
-// filed separately — it needs each parser to emit per-date/model buckets.)
+// The charts ABOVE (heatmap, daily bars, per-model tokens) come from `session_metrics`, which EVERY
+// backend's parser now feeds (#154) — they are whole-corpus figures again, but they have no backend
+// dimension. THIS breakdown is the part that has one, which is why the filter scopes it.
 
 // Cost (T-5.5) is a metric a backend MAY report, not a first-class concept: Hermes reports USD from
 // its own state.db columns, Pi will aggregate it from its JSONL, and Claude/Codex/Axis-A report none

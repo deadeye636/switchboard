@@ -646,6 +646,13 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
     for (const r of rows) {
       markPersisted(r.sessionId);
       if (r.customTitle) setName(r.sessionId, r.customTitle);
+      // Per-(date, model) metrics feed the Stats charts (heatmap, daily bars, per-model tokens). Only
+      // the CLAUDE read path used to write them, so those charts silently covered Claude alone while
+      // the totals next to them counted every backend (#154). A parser that emits them now gets them
+      // stored, exactly like Claude's.
+      if (Array.isArray(r.dailyMetrics) && r.dailyMetrics.length) {
+        replaceSessionMetrics(r.sessionId, r.dailyMetrics);
+      }
     }
     for (const e of searchEntries) deleteSearchSession(e.id);
     upsertSearchEntries(searchEntries);

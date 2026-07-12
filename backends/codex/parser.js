@@ -24,7 +24,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 // Bump on ANY behavioural change to this parser — persisted parse-state keyed on it is then dropped.
-const PARSER_SCHEMA_VERSION = 1;
+const PARSER_SCHEMA_VERSION = 2;   // v2: the parse state carries per-(date, model) metrics (#154)
 
 // Bytes of the already-consumed tail we fingerprint to detect a rewritten/truncated file.
 const FINGERPRINT_BYTES = 64;
@@ -51,7 +51,35 @@ function createParseState() {
     contextWindow: 0,
     // rollout tail state for busy/idle (deriveState reads these)
     lastTaskEvent: null, // 'task_started' | 'task_complete' | null
+
+    // Per-(date, model) metrics — what the Stats charts are built from (#154). Codex re-emits RUNNING
+    // totals, so a bucket gets the DELTA since the previous token_count, attributed to the day and
+    // model that were current when it arrived. Serializable (a plain object), because the incremental
+    // parse state is persisted.
+    dailyMetrics: {},                                   // "date|model" -> bucket
+    lastCumulative: { input: 0, output: 0, cacheRead: 0 },
+    lastDate: null,                                     // YYYY-MM-DD of the last entry seen
   };
+}
+
+function dayOf(timestamp) {
+  if (typeof timestamp !== 'string' || timestamp.length < 10) return null;
+  return timestamp.slice(0, 10);
+}
+
+function metricBucket(st, date, model) {
+  const key = `${date}|${model || ''}`;
+  let b = st.dailyMetrics[key];
+  if (!b) {
+    b = {
+      date, model: model || '',
+      messageCount: 0, toolCallCount: 0,
+      inputTokens: 0, outputTokens: 0,
+      cacheReadTokens: 0, cacheCreationTokens: 0,
+    };
+    st.dailyMetrics[key] = b;
+  }
+  return b;
 }
 
 function countWords(text) {
@@ -89,6 +117,8 @@ function applyEntry(st, entry) {
   if (typeof timestamp === 'string' && timestamp) {
     if (!st.startedAt) st.startedAt = timestamp;
     st.lastEntryAt = timestamp;
+    const d = dayOf(timestamp);
+    if (d) st.lastDate = d;
   }
   if (!payload || typeof payload !== 'object') return;
 
@@ -125,6 +155,7 @@ function applyEntry(st, entry) {
       // Keep the injected context OUT of the search body too: it is the same AGENTS.md text in every
       // Codex session of a project, so indexing it makes any term from that file match all of them.
       if (text && !injected) st.textParts.push(text);
+      if (st.lastDate) metricBucket(st, st.lastDate, st.model).messageCount++;
       break;
     }
     case 'event_msg': {
@@ -139,6 +170,20 @@ function applyEntry(st, entry) {
           st.usageTotals.cacheReadTokens = Number(t.cached_input_tokens || 0);
           st.reasoningTokens = Number(t.reasoning_output_tokens || 0);
           st.totalTokens = Number(t.total_tokens || 0);
+
+          // The per-day bucket needs what was spent SINCE the last report, not the running total —
+          // otherwise a session spanning midnight would book its whole history onto its last day.
+          if (st.lastDate) {
+            const b = metricBucket(st, st.lastDate, st.model);
+            b.inputTokens += Math.max(0, st.usageTotals.inputTokens - st.lastCumulative.input);
+            b.outputTokens += Math.max(0, st.usageTotals.outputTokens - st.lastCumulative.output);
+            b.cacheReadTokens += Math.max(0, st.usageTotals.cacheReadTokens - st.lastCumulative.cacheRead);
+          }
+          st.lastCumulative = {
+            input: st.usageTotals.inputTokens,
+            output: st.usageTotals.outputTokens,
+            cacheRead: st.usageTotals.cacheReadTokens,
+          };
         }
         if (typeof info.model_context_window === 'number') st.contextWindow = info.model_context_window;
       } else if (payload.type === 'task_started' || payload.type === 'task_complete') {
@@ -230,6 +275,8 @@ function buildRow(st, filePath, opts = {}) {
     reasoningTokens: st.reasoningTokens,
     totalTokens: st.totalTokens,
     contextWindow: st.contextWindow,
+    // Feeds session_metrics -> the Stats heatmap / daily bars / per-model tokens (#154).
+    dailyMetrics: Object.values(st.dailyMetrics),
   };
 }
 

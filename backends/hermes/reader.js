@@ -207,6 +207,41 @@ function parseSession(handle) {
       if (last && last.t) lastMessageMs = Number(last.t) * 1000;
     } catch { /* leave it at 0 -> deriveState falls back to the session row's own timestamps */ }
 
+    // Per-(date, model) metrics for the Stats charts (#154).
+    //
+    // Hermes is the one backend that cannot do this exactly: its `messages` rows carry timestamps but
+    // NO per-message tokens — the token counts exist only on the session row. So the message counts are
+    // per day (asked over ALL messages, not the capped read), while the token totals are booked on the
+    // day of the session's last activity. For a session that spans midnight, the tokens land on the day
+    // it finished rather than being split. That is an approximation, and it is the honest one available:
+    // the alternative would be to invent a distribution.
+    const dailyMetrics = [];
+    try {
+      const perDay = db.all(
+        "SELECT strftime('%Y-%m-%d', timestamp, 'unixepoch', 'localtime') AS date, COUNT(*) AS n" +
+        ' FROM messages WHERE session_id = ? AND timestamp IS NOT NULL GROUP BY date',
+        handle.sessionId
+      );
+      const model = s.model || '';
+      const bookTokensOn = lastMessageMs
+        ? new Date(lastMessageMs).toISOString().slice(0, 10)
+        : (toIso(s.started_at) || '').slice(0, 10);
+
+      for (const row of perDay) {
+        if (!row.date) continue;
+        dailyMetrics.push({
+          date: row.date,
+          model,
+          messageCount: Number(row.n || 0),
+          toolCallCount: Number(s.tool_call_count || 0) && row.date === bookTokensOn ? Number(s.tool_call_count) : 0,
+          inputTokens: row.date === bookTokensOn ? Number(s.input_tokens || 0) : 0,
+          outputTokens: row.date === bookTokensOn ? Number(s.output_tokens || 0) : 0,
+          cacheReadTokens: row.date === bookTokensOn ? Number(s.cache_read_tokens || 0) : 0,
+          cacheCreationTokens: row.date === bookTokensOn ? Number(s.cache_write_tokens || 0) : 0,
+        });
+      }
+    } catch { /* metrics are a nice-to-have: never fail the session read over them */ }
+
     const summary = title || firstPrompt || '';
     const startedAt = toIso(s.started_at);
     // A RUNNING session has no `ended_at`. Falling back to `started_at` would freeze its `modified`
@@ -257,6 +292,9 @@ function parseSession(handle) {
       // IS the signal — a running turn has no `ended_at`, and its last message keeps moving.
       isEnded: s.ended_at != null,
       lastActivityMs: lastMessageMs || (s.started_at ? Number(s.started_at) * 1000 : 0),
+      // Feeds session_metrics -> the Stats charts (#154). See the note above: message counts are exact
+      // per day, token totals are booked on the session's last active day.
+      dailyMetrics,
       _marker: handle.marker || null,
     };
   } catch {

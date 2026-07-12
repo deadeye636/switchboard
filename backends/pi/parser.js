@@ -23,7 +23,7 @@
 const fs = require('fs');
 const crypto = require('crypto');
 
-const PARSER_SCHEMA_VERSION = 1;
+const PARSER_SCHEMA_VERSION = 2;   // v2: the parse state carries per-(date, model) metrics (#154)
 
 const FINGERPRINT_BYTES = 64;
 
@@ -51,7 +51,32 @@ function createParseState() {
     // Busy/idle input (state.js): the last assistant turn's stopReason. Pi emits no OSC and its
     // lifecycle events live only in --mode json, which excludes the TUI (T-6.3).
     lastStopReason: null,
+
+    // Per-(date, model) metrics -> session_metrics -> the Stats charts (#154). Pi reports usage per
+    // ASSISTANT MESSAGE, with a timestamp on the entry, so the buckets are exact — no estimation.
+    // A plain object, because the incremental parse state is serialized.
+    dailyMetrics: {},
   };
+}
+
+function dayOf(timestamp) {
+  if (typeof timestamp !== 'string' || timestamp.length < 10) return null;
+  return timestamp.slice(0, 10);
+}
+
+function metricBucket(st, date, model) {
+  const key = `${date}|${model || ''}`;
+  let b = st.dailyMetrics[key];
+  if (!b) {
+    b = {
+      date, model: model || '',
+      messageCount: 0, toolCallCount: 0,
+      inputTokens: 0, outputTokens: 0,
+      cacheReadTokens: 0, cacheCreationTokens: 0,
+    };
+    st.dailyMetrics[key] = b;
+  }
+  return b;
 }
 
 function countWords(text) {
@@ -97,6 +122,8 @@ function applyEntry(st, entry) {
       if (!m || typeof m !== 'object') break;
       const text = messageText(m);
 
+      const day = dayOf(entry.timestamp) || dayOf(m.timestamp);
+
       if (m.role === 'user') {
         st.messageCount++;
         st.userMessageCount++;
@@ -104,6 +131,8 @@ function applyEntry(st, entry) {
         if (words > st.largestUserPromptWords) st.largestUserPromptWords = words;
         if (!st.summary && text.trim()) st.summary = text.trim().slice(0, 200);
         if (text) st.textParts.push(text);
+        // A user turn is a message, but carries no tokens and no model of its own.
+        if (day) metricBucket(st, day, st.model).messageCount++;
         break;
       }
 
@@ -114,6 +143,11 @@ function applyEntry(st, entry) {
       if (typeof m.provider === 'string' && m.provider) st.provider = m.provider;
       st.lastStopReason = typeof m.stopReason === 'string' ? m.stopReason : null;
 
+      // The bucket is keyed on the model of THIS turn — Pi switches provider mid-session, so booking a
+      // turn under the session's final model would credit one provider with another's tokens.
+      const bucket = day ? metricBucket(st, day, m.model || st.model) : null;
+      if (bucket) bucket.messageCount++;
+
       const u = m.usage;
       if (u && typeof u === 'object') {
         st.inputTokens += Number(u.input || 0);
@@ -122,6 +156,12 @@ function applyEntry(st, entry) {
         st.cacheCreationTokens += Number(u.cacheWrite || 0);
         st.reasoningTokens += Number(u.reasoning || 0);
         st.totalTokens += Number(u.totalTokens || 0);
+        if (bucket) {
+          bucket.inputTokens += Number(u.input || 0);
+          bucket.outputTokens += Number(u.output || 0);
+          bucket.cacheReadTokens += Number(u.cacheRead || 0);
+          bucket.cacheCreationTokens += Number(u.cacheWrite || 0);
+        }
         // `cost` is an object with a `.total`; a number would be the plan's (wrong) shape — accept both
         // rather than silently reporting nothing if Pi ever changes it.
         const cost = u.cost;
@@ -219,6 +259,8 @@ function buildRow(st, filePath, opts = {}) {
     costStatus: st.hasCost ? 'estimated' : null,
     // Busy/idle input for state.js.
     lastStopReason: st.lastStopReason,
+    // Feeds session_metrics -> the Stats heatmap / daily bars / per-model tokens (#154).
+    dailyMetrics: Object.values(st.dailyMetrics),
   };
 }
 
