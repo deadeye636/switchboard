@@ -177,16 +177,21 @@ async function showHandoffReviewDialog(session, _unused, packet) {
   const hint = 'Review and edit the packet. “Start fresh session” launches a new, lean session in this '
     + 'project seeded with it (spends tokens; the old session is untouched). “Save for later” stores it '
     + 'in this project’s handoff library. If the agent is still writing, use “Refresh from session”.';
-  const saveBtn = '<button type="button" class="handoff-save-btn">Save for later</button>';
+  // `new-session-secondary-btn` carries the LOOK; the handoff-* class stays as the hook the code uses.
+  // A button with only a behaviour class inherits nothing in this renderer and lands as a raw white
+  // native control — which is exactly what these two were doing, right next to two styled ones.
+  const saveBtn = '<button type="button" class="new-session-secondary-btn handoff-save-btn">Save for later</button>';
   dialog.innerHTML = `
     <h3>Review Handoff Packet</h3>
     <div class="add-project-hint">${hint}</div>
-    <textarea id="handoff-packet-text" class="settings-input" spellcheck="false" style="width:100%;min-height:260px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;"></textarea>
-    <div class="new-session-actions">
+    <textarea id="handoff-packet-text" class="settings-input handoff-packet-text" spellcheck="false"></textarea>
+    <div class="new-session-actions handoff-actions">
       <button type="button" class="new-session-cancel-btn">Cancel</button>
-      <button type="button" class="handoff-refresh-btn">Refresh from session</button>
-      ${saveBtn}
-      <button type="button" class="new-session-start-btn">Start fresh session</button>
+      <div class="handoff-actions-main">
+        <button type="button" class="new-session-secondary-btn handoff-refresh-btn">Refresh from session</button>
+        ${saveBtn}
+        <button type="button" class="new-session-start-btn">Start fresh session</button>
+      </div>
     </div>
   `;
 
@@ -220,10 +225,33 @@ async function showHandoffReviewDialog(session, _unused, packet) {
       const value = textarea.value.trim();
       if (value) close({ action: 'start', text: value });
     };
-    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+    // A click BESIDE this dialog does nothing.
+    //
+    // It used to close it, like every other overlay in the app — and every other overlay is a question,
+    // where closing costs nothing. This one holds the packet an agent just spent minutes and tokens
+    // writing, and it cannot be got back: the session may already have been stopped again, and the
+    // producer will not write the same summary twice. A stray click is not an instruction to throw that
+    // away. The Cancel button is right there for people who mean it.
+    //
+    // Escape is the same reflex, so it asks first rather than acting.
+    async function discard() {
+      const value = textarea.value.trim();
+      if (!value) { close(null); return; }
+      const go = typeof showControlDialog === 'function'
+        ? await showControlDialog({
+            title: 'Discard this handoff?',
+            message: 'The packet the agent wrote is thrown away. It cannot be recovered — the agent would '
+              + 'have to be asked again, which costs another turn.',
+            confirmLabel: 'Discard it',
+            cancelLabel: 'Keep it open',
+            tone: 'danger',
+          })
+        : true;
+      if (go) close(null);
+    }
 
     function onKey(e) {
-      if (e.key === 'Escape') close(null);
+      if (e.key === 'Escape') { e.preventDefault(); discard(); }
     }
     document.addEventListener('keydown', onKey);
   });
@@ -326,17 +354,26 @@ async function askRunningAgentForHandoff(session, { waitForBoot = false } = {}) 
   const backendId = backendOfSession(session);
   const backend = (typeof getBackend === 'function' ? getBackend(backendId) : null) || { id: backendId };
 
-  // A resumed CLI has to be able to listen before we type into it (Hermes: ~12s of Python imports).
-  if (waitForBoot) {
-    await new Promise(resolve => setTimeout(resolve, (backend && backend.seedGraceMs) || 1500));
-  }
-
   // What it had already said. If that is still its last word afterwards, it produced nothing — and
-  // offering THAT as the packet is the silent wrongness this feature must never commit.
+  // offering THAT as the packet is the silent wrongness this feature must never commit. Read it BEFORE
+  // the prompt goes in.
   const before = await readLatestHandoffPacket(session);
   const requestPrompt = fillHandoffPrompt(resolveHandoffPrompt(backend, g, 'summarise'), session);
-  window.api.sendInput(session.sessionId, `[200~${requestPrompt}[201~
-`);
+
+  // Hand it to the SAME seeding primitive the other route uses (app.js `seedSessionWhenReady`).
+  //
+  // This one used to do its own thing: sleep a fixed grace, paste, and end with a LINE FEED. Enter is a
+  // CARRIAGE RETURN on a terminal — a line feed only moves the cursor down. So the prompt was pasted into
+  // the input and never submitted, while the code below sat polling for an answer that could only arrive
+  // once the user pressed Enter themselves. The app said "Asked the agent" and had asked nobody.
+  //
+  // The shared primitive also waits for the CLI to fall QUIET instead of for a fixed delay, so we never
+  // type into an agent that is still printing.
+  seedSessionWhenReady(session.sessionId, requestPrompt, {
+    graceMs: waitForBoot ? ((backend && backend.seedGraceMs) || 1500) : 0,
+    timelineLabel: 'Handoff requested',
+    timelineNote: 'Asked the agent to summarise the session into a handoff packet.',
+  });
   showControlToast({ message: 'Asked the agent for a handoff — the packet is offered for review when it answers.' });
 
   const packet = await waitForAgentAnswer(session, { before });

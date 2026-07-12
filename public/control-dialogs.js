@@ -29,6 +29,10 @@
       tertiaryLabel: String(options.tertiaryLabel || ''),
       tone: KNOWN_TONES.has(options.tone) ? options.tone : 'default',
       details: formatControlDialogDetails(options.details),
+      // Can a click on the backdrop dismiss this? For a "are you sure?" it is a convenience — nothing is
+      // lost by closing it. For a dialog holding WORK — a handoff packet an agent just spent tokens and
+      // minutes producing — a stray click beside it throws that away, unrecoverably. Those opt out.
+      dismissible: options.dismissible !== false,
     };
   }
 
@@ -84,7 +88,11 @@
       const confirmBtn = dialog.querySelector('.control-dialog-confirm');
 
       function onKey(event) {
-        if (event.key === 'Escape') closeControlDialog(overlay, onKey, false, resolve);
+        // Escape throws the dialog away exactly like a backdrop click does, so a dialog that holds work
+        // has to be safe from both. It is not "one is deliberate and the other is not": Escape is a
+        // reflex, and the packet it discards took an agent minutes and tokens to write. An explicit
+        // button is the only way out of those.
+        if (event.key === 'Escape' && normalized.dismissible) closeControlDialog(overlay, onKey, false, resolve);
         if (event.key === 'Enter' && !event.target.matches('textarea,input')) closeControlDialog(overlay, onKey, true, resolve);
       }
 
@@ -92,9 +100,11 @@
       if (secondaryBtn) secondaryBtn.addEventListener('click', () => closeControlDialog(overlay, onKey, 'secondary', resolve));
       if (tertiaryBtn) tertiaryBtn.addEventListener('click', () => closeControlDialog(overlay, onKey, 'tertiary', resolve));
       confirmBtn.addEventListener('click', () => closeControlDialog(overlay, onKey, true, resolve));
-      overlay.addEventListener('click', event => {
-        if (event.target === overlay) closeControlDialog(overlay, onKey, false, resolve);
-      });
+      if (normalized.dismissible) {
+        overlay.addEventListener('click', event => {
+          if (event.target === overlay) closeControlDialog(overlay, onKey, false, resolve);
+        });
+      }
       document.addEventListener('keydown', onKey);
       confirmBtn.focus();
     });

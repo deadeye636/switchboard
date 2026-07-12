@@ -2053,7 +2053,7 @@ async function launchNewSession(project, sessionOptions, seedText, groupId) {
 // so "the terminal went quiet" arrives long before the process can hear anything. Without the floor the
 // packet is pasted into a process with no input loop and is simply gone — on exactly the backend whose
 // handoff support this feature was extended for.
-function seedSessionWhenReady(sessionId, seedText, { graceMs = 0 } = {}) {
+function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, timelineLabel, timelineNote } = {}) {
   const SETTLE_MS = 700;
   const POLL_MS = 250;
   const MAX_WAIT_MS = 12000 + graceMs;
@@ -2075,9 +2075,18 @@ function seedSessionWhenReady(sessionId, seedText, { graceMs = 0 } = {}) {
 
     if (settled || timedOut) {
       seeded = true;
-      // Bracketed paste keeps the multi-line markdown packet intact, then submit.
+      // Bracketed paste keeps the multi-line text intact, then SUBMIT.
+      //
+      // The submit is a CARRIAGE RETURN (\r), not a newline (\n). Enter is 0x0D on a terminal; 0x0A only
+      // moves the cursor down. The handoff's other route sent \n and so pasted its prompt into the input
+      // and never submitted it — while the code that follows sat waiting for an answer the user had to
+      // press Enter to get. Both routes use this one function now, so they cannot drift apart again.
       window.api.sendInput(sessionId, `\x1b[200~${seedText}\x1b[201~\r`);
-      recordTimelineEvent(sessionId, 'started', 'Handoff seeded', 'Seeded fresh session with the handoff packet.');
+      recordTimelineEvent(
+        sessionId, 'started',
+        timelineLabel || 'Handoff seeded',
+        timelineNote || 'Seeded fresh session with the handoff packet.',
+      );
       return;
     }
     setTimeout(attempt, POLL_MS);

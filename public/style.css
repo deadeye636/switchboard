@@ -5635,6 +5635,50 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   color: #8888a0;
 }
 
+/* The middle ground of a dialog: a real action, but not THE action.
+   Without it a button falls back to the browser's native control — a white box with black text, which is
+   what "Refresh from session" and "Save for later" were, sitting between two styled buttons. */
+.new-session-secondary-btn {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #c8c8d8;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.new-session-secondary-btn:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.2);
+  color: #e6e6f0;
+}
+
+/* Cancel sits apart from the things that DO something — it is the way out, not a third choice. */
+.handoff-actions {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.handoff-actions-main {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.handoff-packet-text {
+  width: 100%;
+  min-height: 260px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
 .new-session-start-btn {
   background: rgba(62,207,90,0.12);
   border: 1px solid rgba(62,207,90,0.3);
