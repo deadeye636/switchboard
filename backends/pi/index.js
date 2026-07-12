@@ -225,8 +225,10 @@ function liveRefFor(sessionId) {
   return null;
 }
 
-function liveState(ref) {
-  return deriveStateFromFileTail(ref);
+// `ctx.lastOutputMs` = when this session's PTY last said anything (main.js). Used ONLY to keep a
+// silent-but-running turn from being declared idle — never to declare one busy.
+function liveState(ref, ctx = {}) {
+  return deriveStateFromFileTail(ref, Date.now(), ctx);
 }
 
 module.exports = {

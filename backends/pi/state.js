@@ -11,9 +11,16 @@
 //   last message is a USER prompt        -> the agent is working   (BUSY)
 //   last message is an assistant turn    -> the turn finished      (IDLE)
 //
-// This is weaker than Codex's explicit task_started/task_complete (a crashed pi leaves the last user
-// prompt dangling and reads as busy forever), so it is bounded by a staleness window: no write for
-// ACTIVITY_WINDOW_MS means idle, whatever the transcript's last line says.
+// That is Codex's model (read the store, not the terminal), one step weaker: Codex STATES its state
+// (`task_started`/`task_complete`), Pi's is INFERRED from which line exists. A crashed pi would leave
+// the last user prompt dangling and read as busy forever, so it is bounded by a staleness window.
+//
+// The staleness window alone, though, lies in the other direction: a long turn that writes nothing for
+// minutes (deep reasoning, a slow tool) would flip to idle while pi is still working. So the PTY stream
+// gets ONE job — to say "the process is still talking". It may keep a running turn alive; it may NEVER
+// declare one. That distinction is the whole point: generic PTY *activity* as a state source is what the
+// plan proposed and it is a bad signal (a spinner frame is activity, so is an echoed keystroke), but as
+// a LIVENESS signal it is exactly right — it is what Claude's spinner effectively gives us for free.
 'use strict';
 
 const fs = require('fs');
@@ -21,26 +28,36 @@ const fs = require('fs');
 const BUSY = 'busy';
 const IDLE = 'idle';
 
-// A turn that has produced nothing for this long is not running any more.
+// A turn that has written nothing for this long is over — unless the process is still producing output.
 const ACTIVITY_WINDOW_MS = 3 * 60 * 1000;
+
+// How recently the PTY must have said something for a silent turn to still count as running.
+const OUTPUT_LIVENESS_MS = 60 * 1000;
 
 const TAIL_BYTES = 64 * 1024;
 
 /**
- * Derive from a parsed row (or parse state): { lastStopReason, lastEntryAt } — plus `now` for tests.
- * A row whose last assistant turn has a stopReason is finished. A row whose last entry is a user
- * prompt is mid-turn, unless it has gone quiet.
+ * Derive from a row/parse state ({ lastRole | lastStopReason, lastEntryAt }).
+ *
+ * `opts.lastOutputMs` = when this session's PTY last produced output (main.js tracks it). It can only
+ * ever KEEP a turn busy past the staleness window, never start one.
  */
-function deriveState(row, now = Date.now()) {
+function deriveState(row, now = Date.now(), opts = {}) {
   if (!row) return null;
 
-  const lastMs = row.lastEntryAt ? Date.parse(row.lastEntryAt) : NaN;
-  if (Number.isFinite(lastMs) && now - lastMs > ACTIVITY_WINDOW_MS) return IDLE;
+  const running = row.lastRole === 'user'
+    || (row.lastRole !== 'assistant' && !row.lastStopReason);   // parse-state form: no answered turn yet
 
-  // `lastRole` is what the tail reader below reports; the parser reports lastStopReason instead.
-  if (row.lastRole === 'user') return BUSY;
-  if (row.lastRole === 'assistant') return IDLE;
-  return row.lastStopReason ? IDLE : BUSY;
+  const lastMs = row.lastEntryAt ? Date.parse(row.lastEntryAt) : NaN;
+  const stale = Number.isFinite(lastMs) && now - lastMs > ACTIVITY_WINDOW_MS;
+
+  if (!running) return IDLE;                                    // an answered turn is an answered turn
+  if (!stale) return BUSY;
+
+  // Silent for a while. Is the process still alive and talking?
+  const out = Number(opts.lastOutputMs || 0);
+  if (out && now - out <= OUTPUT_LIVENESS_MS) return BUSY;      // still working, just not writing
+  return IDLE;                                                  // gone quiet everywhere -> it is over
 }
 
 /**
@@ -65,7 +82,7 @@ function readTail(fd, size, len) {
   return buf.toString('utf8');
 }
 
-function deriveStateFromFileTail(filePath, now = Date.now()) {
+function deriveStateFromFileTail(filePath, now = Date.now(), opts = {}) {
   let fd;
   try { fd = fs.openSync(filePath, 'r'); } catch { return null; }
   try {
@@ -89,13 +106,16 @@ function deriveStateFromFileTail(filePath, now = Date.now()) {
         lastStopReason = entry.message.stopReason || null;
       }
 
-      if (lastRole) return deriveState({ lastRole, lastStopReason, lastEntryAt }, now);
+      if (lastRole) return deriveState({ lastRole, lastStopReason, lastEntryAt }, now, opts);
       if (len >= size) break;                    // the whole file was in view — widening won't help
     }
 
     // No complete line anywhere in view (one message longer than the cap). The file's own mtime is the
-    // honest last resort: quiet for the activity window = the turn is over.
-    return (now - stat.mtimeMs > ACTIVITY_WINDOW_MS) ? IDLE : null;
+    // honest last resort: quiet for the activity window = the turn is over — unless the process is
+    // still producing output, in which case it is simply mid-write.
+    if (now - stat.mtimeMs <= ACTIVITY_WINDOW_MS) return null;
+    const out = Number(opts.lastOutputMs || 0);
+    return (out && now - out <= OUTPUT_LIVENESS_MS) ? null : IDLE;
   } catch {
     return null;
   } finally {
@@ -103,4 +123,4 @@ function deriveStateFromFileTail(filePath, now = Date.now()) {
   }
 }
 
-module.exports = { deriveState, deriveStateFromFileTail, ACTIVITY_WINDOW_MS, BUSY, IDLE };
+module.exports = { deriveState, deriveStateFromFileTail, ACTIVITY_WINDOW_MS, OUTPUT_LIVENESS_MS, BUSY, IDLE };

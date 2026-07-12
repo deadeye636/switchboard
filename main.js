@@ -3570,6 +3570,12 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     if (appQuitting) return;
     const currentId = session.realSessionId || sessionId;
 
+    // LIVENESS, not state. A backend whose busy/idle comes from its store (Codex/Hermes/Pi) has one
+    // blind spot: a turn that runs long without writing anything looks finished. The PTY stream closes
+    // it — "the process is still talking" — so state derivation can refuse to call such a turn idle.
+    // It is deliberately NOT a busy signal: a spinner frame is output, and so is an echoed keystroke.
+    session._lastOutputAt = Date.now();
+
     // Parse OSC sequences (title changes, progress, notifications, etc.)
     if (data.includes('\x1b]')) {
       const oscMatches = data.matchAll(/\x1b\](\d+);([^\x07\x1b]*)(?:\x07|\x1b\\)/g);
@@ -4090,7 +4096,7 @@ function updateBackendLiveStates() {
 
     const liveId = session.realSessionId || sessionId;
     let state;
-    try { state = backend.liveState(ref); } catch { state = null; }
+    try { state = backend.liveState(ref, { lastOutputMs: session._lastOutputAt || 0 }); } catch { state = null; }
     if (state == null) continue;
 
     const busy = state === 'busy';

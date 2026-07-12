@@ -125,6 +125,39 @@ test('a dangling prompt goes idle once it has been quiet — a crashed pi must n
   assert.strictEqual(deriveState({ lastRole: 'user', lastEntryAt: last }, now), 'idle');
 });
 
+// The hybrid (D21, approved): the transcript decides the state; PTY output is a LIVENESS signal that may
+// only keep a running turn alive. Without it, a long turn that writes nothing (deep reasoning, a slow
+// tool) flips to idle while pi is still working — the one thing generic PTY-activity would have got right.
+test('a long SILENT turn stays busy while the process is still producing output', () => {
+  const last = '2026-07-12T08:00:00.000Z';
+  const now = Date.parse(last) + ACTIVITY_WINDOW_MS + 60_000;   // long past the staleness window
+  assert.strictEqual(
+    deriveState({ lastRole: 'user', lastEntryAt: last }, now, { lastOutputMs: now - 5000 }),
+    'busy',
+    'the transcript is quiet, but pi is clearly alive',
+  );
+  assert.strictEqual(
+    deriveState({ lastRole: 'user', lastEntryAt: last }, now, { lastOutputMs: now - 10 * 60_000 }),
+    'idle',
+    'output long ago is not liveness',
+  );
+});
+
+test('PTY output can never CREATE a busy state — only prevent a premature idle', () => {
+  // An answered turn is answered, however loudly the TUI repaints afterwards (it redraws its prompt,
+  // echoes keystrokes, blinks a cursor). Treating that as "busy" is exactly the trap generic
+  // PTY-activity falls into.
+  const now = Date.parse('2026-07-12T08:31:30.000Z');
+  assert.strictEqual(
+    deriveState(
+      { lastRole: 'assistant', lastStopReason: 'stop', lastEntryAt: '2026-07-12T08:31:25.000Z' },
+      now,
+      { lastOutputMs: now - 100 },
+    ),
+    'idle',
+  );
+});
+
 test('deriveStateFromFileTail reads the transcript tail', () => {
   const state = deriveStateFromFileTail(FIXTURE, Date.parse('2026-07-12T08:33:00.000Z'));
   assert.strictEqual(state, 'idle', 'the fixture ends on an answered assistant turn');
