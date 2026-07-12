@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (26 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-12
 
@@ -18,11 +18,9 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
 - [#145](https://github.com/deadeye636/switchboard/issues/145) Settings: export & import (global settings, JSON file) · _feature_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
-- [#147](https://github.com/deadeye636/switchboard/issues/147) Real git-worktree awareness — treat `git worktree add` worktrees as first-class projects · _bug_
 - [#148](https://github.com/deadeye636/switchboard/issues/148) Handoff: make it backend-generic, and ask which backend on handoff-resume · _feature_
 - [#149](https://github.com/deadeye636/switchboard/issues/149) Backend launch defaults: cascade per option, not as a whole block · _bug_
 - [#154](https://github.com/deadeye636/switchboard/issues/154) Stats: the time-series charts only cover Claude sessions · _bug_
-- [#156](https://github.com/deadeye636/switchboard/issues/156) Backend contract: the architecture doc describes hooks that don't exist, and omits the ones that do · _documentation_
 
 ## P3 — someday
 
@@ -36,10 +34,11 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#107](https://github.com/deadeye636/switchboard/issues/107) Evaluate: brianstanley cursor-ui-refresh · _feature, port, source:brianstanley_
 - [#113](https://github.com/deadeye636/switchboard/issues/113) Optional second tray icon showing Claude usage (live percentage) · _feature_
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
-- [#127](https://github.com/deadeye636/switchboard/issues/127) Persist incremental parse state so cold-start scans read only the delta · _feature_
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
 - [#150](https://github.com/deadeye636/switchboard/issues/150) Hermes: availability probe only checks the executable · _enhancement_
 - [#151](https://github.com/deadeye636/switchboard/issues/151) Hermes: no busy/idle signal when the DB is unreadable (no fallback) · _bug_
 - [#152](https://github.com/deadeye636/switchboard/issues/152) Incremental parse: change marker is not keyed on the parser schema version · _chore_
 - [#153](https://github.com/deadeye636/switchboard/issues/153) Multi-LLM: leftover gaps against the plan and the mockups · _chore_
 - [#155](https://github.com/deadeye636/switchboard/issues/155) Backend hot paths: avoidable per-event work (Hermes re-parse, Pi node probe, store walks) · _chore_
+- [#156](https://github.com/deadeye636/switchboard/issues/156) Backends: extract the shared file-store boilerplate (Codex and Pi duplicate it) · _chore_
+- [#157](https://github.com/deadeye636/switchboard/issues/157) A session that moved into a worktree still follows its original folder · _bug_
