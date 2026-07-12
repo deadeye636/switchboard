@@ -15,9 +15,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Node 22, not 20 — the test suite needs `node:sqlite` (added in 22.5).
+      #
+      # better-sqlite3 is compiled against ELECTRON's ABI (the postinstall rebuilds it for the app), so
+      # it cannot be loaded by a plain `node --test` process at all. Every SQLite-backed test therefore
+      # falls back to the built-in `node:sqlite` — which does not exist on Node 20. The Hermes suite was
+      # red on this runner from the day it was written, for that reason and no other, and nobody could
+      # see it because the fixture it wanted was missing too (#158).
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - uses: actions/setup-python@v6
