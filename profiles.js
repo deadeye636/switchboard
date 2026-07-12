@@ -34,7 +34,7 @@ function resolveFilePath() {
 // Built-in backend ids a user profile must never shadow. A profile with id 'claude' would appear
 // twice in backends.list() (built-in + profile) and corrupt every list keyed on id. The renderer's
 // slug generator avoids this, but the IPC handler is the real trust boundary — enforce it here.
-const RESERVED_IDS = new Set(['claude', 'codex', 'gemini', 'hermes', 'pi']);
+const RESERVED_IDS = new Set(['claude', 'codex', 'agy', 'hermes', 'pi']);
 
 // An env var whose NAME says "credential". Such a var must be a `$VAR` reference (or the empty
 // string, used to blank an inherited one) — any literal is a secret written to disk (§5.2). Being

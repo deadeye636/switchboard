@@ -113,11 +113,12 @@ test('descriptor shape: ready, configFields present, contract hooks exposed', ()
 
 // --- registry.
 
-test('registry: claude + codex + hermes are ready; the unbuilt Axis-B binaries are planned dummies', () => {
+test('registry: claude + codex + hermes + pi are ready; agy (Antigravity CLI) is still a planned dummy', () => {
   assert.strictEqual(backends.get('claude').status, 'ready');
   assert.strictEqual(backends.get('codex').status, 'ready');  // Phase 4 (file store)
   assert.strictEqual(backends.get('hermes').status, 'ready'); // Phase 5 (SQLite store)
-  for (const id of ['pi', 'gemini']) {
+  assert.strictEqual(backends.get('pi').status, 'ready');     // Phase 6 (file store again)
+  for (const id of ['agy']) {
     const d = backends.get(id);
     assert.ok(d, `${id} registered`);
     assert.strictEqual(d.status, 'planned', `${id} is a planned dummy until its phase builds it`);
@@ -125,12 +126,12 @@ test('registry: claude + codex + hermes are ready; the unbuilt Axis-B binaries a
 });
 
 test('registry: a planned dummy refuses to launch', () => {
-  assert.throws(() => backends.get('gemini').buildLaunch({}), /planned/);
+  assert.throws(() => backends.get('agy').buildLaunch({}), /planned/);
 });
 
 test('registry: list() includes claude + the planned dummies', () => {
   const ids = backends.list().map(d => d.id).sort();
-  assert.deepStrictEqual(ids, ['claude', 'codex', 'gemini', 'hermes', 'pi']);
+  assert.deepStrictEqual(ids, ['agy', 'claude', 'codex', 'hermes', 'pi']);
 });
 
 // --- T-2.1: unified list (built-ins ∪ user profiles), enabled flags, default launch target.
@@ -151,17 +152,17 @@ test('list(): only claude is enabled by default; planned are never enabled', () 
     const byId = Object.fromEntries(backends.list().map(b => [b.id, b]));
     assert.strictEqual(byId.claude.enabled, true);
     assert.strictEqual(byId.codex.enabled, false);
-    assert.strictEqual(byId.gemini.enabled, false);
+    assert.strictEqual(byId.agy.enabled, false);
   });
 });
 
 test('list(): backendEnabled.<id> flags are merged; planned can NEVER be enabled', () => {
-  withRegistry({ backendEnabled: { codex: true, gemini: true, claude: false } }, [], () => {
+  withRegistry({ backendEnabled: { codex: true, agy: true, claude: false } }, [], () => {
     const byId = Object.fromEntries(backends.list().map(b => [b.id, b]));
     assert.strictEqual(byId.claude.enabled, false, 'claude can be disabled by the user');
     assert.strictEqual(byId.codex.enabled, true, 'a ready backend the user enabled');
-    // gemini is a planned dummy -> the flag must not be able to activate it (§5.8)
-    assert.strictEqual(byId.gemini.enabled, false, 'planned stays off even when flagged');
+    // agy is a planned dummy -> the flag must not be able to activate it (§5.8)
+    assert.strictEqual(byId.agy.enabled, false, 'planned stays off even when flagged');
   });
 });
 
@@ -204,12 +205,12 @@ test('isLaunchable: the §5.8 gate — ready AND enabled only', () => {
   withRegistry({}, [], () => {
     assert.strictEqual(backends.isLaunchable('claude'), true, 'default backend is on');
     assert.strictEqual(backends.isLaunchable('codex'), false, 'ready but not enabled yet');
-    assert.strictEqual(backends.isLaunchable('gemini'), false, 'planned is never launchable');
+    assert.strictEqual(backends.isLaunchable('agy'), false, 'planned is never launchable');
     assert.strictEqual(backends.isLaunchable('ghost'), false, 'unknown id');
   });
-  withRegistry({ backendEnabled: { codex: true, gemini: true } }, [], () => {
+  withRegistry({ backendEnabled: { codex: true, agy: true } }, [], () => {
     assert.strictEqual(backends.isLaunchable('codex'), true, 'enabling a ready backend makes it launchable');
-    assert.strictEqual(backends.isLaunchable('gemini'), false, 'a planned backend can never be enabled');
+    assert.strictEqual(backends.isLaunchable('agy'), false, 'a planned backend can never be enabled');
   });
   withRegistry({ backendEnabled: { claude: false } }, [], () => {
     assert.strictEqual(backends.isLaunchable('claude'), false, 'a disabled backend cannot spawn');
@@ -232,7 +233,7 @@ test('getDefaultLaunchTarget: defaults to claude, honours a valid target, reject
     assert.strictEqual(backends.getDefaultLaunchTarget(), 'ds');
   });
   // a planned/disabled target falls back to claude
-  withRegistry({ defaultLaunchTarget: 'gemini' }, [], () => {
+  withRegistry({ defaultLaunchTarget: 'agy' }, [], () => {
     assert.strictEqual(backends.getDefaultLaunchTarget(), 'claude');
   });
   withRegistry({ defaultLaunchTarget: 'ghost' }, [], () => {

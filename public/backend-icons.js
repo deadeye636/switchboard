@@ -14,7 +14,7 @@
     codex: '#10a37f',
     hermes: '#8b5cf6',
     pi: '#f59e0b',
-    gemini: '#4285f4',
+    agy: '#4285f4',
     anthropic: '#d97757',
     deepseek: '#4d6bfe',
     glm: '#2f6df6',
@@ -24,7 +24,7 @@
 
   // Short glyph shown inside the badge, keyed by backend/preset id.
   var MONOGRAMS = {
-    claude: 'C', codex: 'Cx', hermes: 'H', pi: 'Pi', gemini: 'G',
+    claude: 'C', codex: 'Cx', hermes: 'H', pi: 'Pi', agy: 'Ag',
     anthropic: 'A', deepseek: 'DS', glm: 'GL', openrouter: 'OR',
   };
 

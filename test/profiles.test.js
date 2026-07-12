@@ -120,7 +120,7 @@ test('leak lint: a plain profile (no endpoint redirect) is unaffected', () => {
 
 test('a profile may not shadow a built-in backend id', () => {
   profiles._configureForTests({ filePath: tmpFile() });
-  for (const id of ['claude', 'codex', 'gemini', 'hermes', 'pi']) {
+  for (const id of ['claude', 'codex', 'agy', 'hermes', 'pi']) {
     const r = profiles.save({ id, name: 'Shadow', env: {} });
     assert.ok(!r.ok, `${id} must be rejected`);
     assert.match(r.error, /built-in/);
