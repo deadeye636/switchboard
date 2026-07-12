@@ -2066,10 +2066,11 @@ input:focus-visible {
 }
 
 /* The handoff button is always offered. When the session has grown expensive enough that a handoff is
-   RECOMMENDED, the button carries that signal — it is not what makes the feature reachable. */
+   RECOMMENDED, the button carries that signal — it is not what makes the feature reachable.
+   The signal is the brighter icon, not a filled background: a background made this the only button in
+   the row with a plate behind it, which read as a rendering fault rather than as emphasis. */
 .session-handoff-btn.recommended {
-  color: #f0a050;
-  background: rgba(240,160,80,0.12);
+  color: #ffb968;
 }
 .session-handoff-btn.recommended:hover {
   color: #ffb968;
@@ -4921,7 +4922,9 @@ mark.jsonl-search-hit-active {
   padding: 0;
   line-height: 0;
   transition: all 0.15s;
-  opacity: 0;
+  /* Muted, but always there. Hiding it until hover meant the one control that says
+     "this project matters to me" was the one you had to go looking for. */
+  opacity: 0.45;
 }
 .project-favorite-btn svg { display: block; }
 .project-header:hover .project-favorite-btn { opacity: 1; }
