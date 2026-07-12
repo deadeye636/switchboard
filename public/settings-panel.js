@@ -1409,6 +1409,10 @@
       window.backendsPanel.mount(backendsRoot, {
         isProject,
         settings: current,
+        // The project scope needs BOTH: what it overrides itself (`settings.backendDefaults`) and what
+        // it would inherit (`globalDefaults`) — the launch defaults cascade per OPTION, so a row must
+        // be able to show the inherited value while the project stores nothing for it (#149).
+        globalDefaults: (globalSettings || {}).backendDefaults || {},
         fieldValue,
         useGlobalCheckbox,
       }).catch(() => {
@@ -1442,17 +1446,6 @@
         if (input) input.disabled = cb.checked;
       });
     });
-
-    // The backendDefaults "use global default" checkbox arrives with the async-mounted section, so
-    // it is handled by delegation on that section (not the persistent viewer body, which would
-    // stack a listener per open) — and it gates a whole panel of controls, not a single input.
-    if (backendsRoot) {
-      backendsRoot.addEventListener('change', (e) => {
-        const cb = e.target.closest && e.target.closest('.use-global-cb');
-        if (!cb || cb.dataset.field !== 'backendDefaults') return;
-        backendsRoot.querySelectorAll('.backend-default-input').forEach(el => { el.disabled = cb.checked; });
-      });
-    }
 
     // Rebuild session cache (T-2.7) — the existing rebuild-cache IPC, behind a confirm.
     const rebuildBtn = settingsViewerBody.querySelector('#sv-rebuild-cache');
@@ -1703,11 +1696,6 @@
               // (Phase 3, T-3.7); 'inherit' means "use the CLI shell", so this is a no-op today.
               shellProfile: () => settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto',
               terminalShellProfile: () => settingsViewerBody.querySelector('#sv-terminal-shell-profile').value || 'inherit',
-              // Per-backend launch options (T-2.6): the whole blob is the overridable unit — the
-              // cascade merges settings at top-level key granularity.
-              backendDefaults: () => (window.backendsPanel
-                ? window.backendsPanel.readProjectDefaults(settingsViewerBody.querySelector('#sv-backends-root'))
-                : {}),
               // Custom launchers (T-3.10): the project stores only its OWN entries. The effective
               // list a launch menu shows is global ⊕ project (project wins by id) — merged at read
               // time in custom-launchers.js, NOT here, so the global list stays a live template.
@@ -1722,6 +1710,15 @@
         const dnInput = settingsViewerBody.querySelector('#sv-display-name');
         if (dnInput) settings.displayName = dnInput.value.trim();
         // Project tags (#98) persist to their own store, not the settings blob.
+        // Per-backend launch options cascade per OPTION (#149): the project stores ONLY what it
+        // overrides. There is no "use global" checkbox for the whole blob any more — each option has
+        // its own — so this is written unconditionally, and an empty object legitimately means "this
+        // project overrides nothing".
+        if (window.backendsPanel && settingsViewerBody.querySelector('#sv-backends-root')) {
+          settings.backendDefaults = window.backendsPanel.readProjectDefaults(
+            settingsViewerBody.querySelector('#sv-backends-root'));
+        }
+
         const chipsBox = settingsViewerBody.querySelector('#sv-project-tags-chips');
         if (chipsBox) {
           const tags = Array.from(chipsBox.querySelectorAll('.settings-tag-chip'))

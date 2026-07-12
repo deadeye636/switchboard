@@ -2797,14 +2797,32 @@ function effectiveSettings(projectPath) {
     if (global[key] !== undefined && global[key] !== null) effective[key] = global[key];
     if (project[key] !== undefined && project[key] !== null) effective[key] = project[key];
   }
-  // Per-backend launch defaults (§4a). NOT a SETTING_DEFAULTS key — it is a nested blob, and the
-  // Settings panel treats it as one unit ("use global default" is per project, not per option). It
-  // MUST be cascaded here: this IPC is where the renderer reads the defaults a plain launch uses, so
-  // leaving it out silently launched every backend with no defaults at all.
-  effective.backendDefaults = (project.backendDefaults && Object.keys(project.backendDefaults).length)
-    ? project.backendDefaults
-    : (global.backendDefaults || {});
+  // Per-backend launch defaults (§4a) cascade **per option**, like every other setting — not as one
+  // block. Taking the project's whole blob whenever it was non-empty meant a project that overrode a
+  // single Codex option FROZE every backend's defaults at the moment it was saved: later changes to the
+  // global defaults could never reach that project again (#149).
+  //
+  // A project therefore stores only the options it actually overrides.
+  effective.backendDefaults = mergeBackendDefaults(global.backendDefaults, project.backendDefaults);
   return effective;
+}
+
+/** global ⊕ project, per backend, per option. The project wins where it has a value of its own. */
+function mergeBackendDefaults(globalDefaults, projectDefaults) {
+  const g = globalDefaults && typeof globalDefaults === 'object' ? globalDefaults : {};
+  const p = projectDefaults && typeof projectDefaults === 'object' ? projectDefaults : {};
+  const out = {};
+  for (const id of new Set([...Object.keys(g), ...Object.keys(p)])) {
+    const gOpts = (g[id] && typeof g[id] === 'object') ? g[id] : {};
+    const pOpts = (p[id] && typeof p[id] === 'object') ? p[id] : {};
+    const merged = { ...gOpts };
+    for (const [opt, value] of Object.entries(pOpts)) {
+      if (value === undefined || value === null) continue;   // absent = "inherit this option"
+      merged[opt] = value;
+    }
+    out[id] = merged;
+  }
+  return out;
 }
 
 ipcMain.handle('get-shell-profiles', () => {

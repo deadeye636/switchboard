@@ -30,8 +30,10 @@
   // Launch defaults live on a per-backend page now, so at most one backend's inputs exist in the DOM.
   // `storedDefaults` = what this settings scope has on disk; `pendingDefaults` = what the user changed
   // since the panel mounted, on any page. Save reads stored ⊕ pending — never the DOM alone.
-  let storedDefaults = {};
-  let pendingDefaults = {};
+  let storedDefaults = {};      // what THIS scope has on disk
+  let inheritedDefaults = {};   // project scope only: what it would inherit from global
+  let pendingDefaults = {};     // edited since the panel mounted, on any page
+  let clearedDefaults = {};     // project scope: overrides the user handed back to the global default
 
   // One-line blurb per built-in backend (the descriptor carries no description).
   const BACKEND_BLURB = {
@@ -120,11 +122,37 @@
   // below). EVERY backend has one, Claude included (`backendDefaults.<id>.<opt>`, 00 §4a).
   //
   // The PROJECT scope has no gear pages — it is one short "what this project overrides" list, so there
-  // every backend's options are shown inline under its own heading. `disabled` = the project inherits
-  // the global defaults (its "use global default" checkbox is checked).
-  function inlineDefaultsSection(backend, defaults, disabled) {
-    const rows = defaultRows(backend, defaults, disabled);
-    if (!rows) return '';
+  // every backend's options are shown inline under its own heading.
+  //
+  // Each OPTION carries its own "Use global default" checkbox (#149). The defaults cascade per option:
+  // a project stores only what it actually overrides, so overriding one Codex option does not freeze
+  // every other backend's defaults at the value they happened to have that day.
+  function inlineDefaultsSection(backend, ownDefaults, globalDefaults) {
+    const fields = Array.isArray(backend.configFields) ? backend.configFields : [];
+    if (!fields.length) return '';
+    const own = (ownDefaults && ownDefaults[backend.id]) || {};
+    const inherited = (globalDefaults && globalDefaults[backend.id]) || {};
+
+    const rows = fields.map(f => {
+      const overridden = own[f.id] !== undefined && own[f.id] !== null;
+      const value = overridden ? own[f.id]
+        : (inherited[f.id] !== undefined ? inherited[f.id] : f.default);
+      return `
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <div class="settings-field-header">
+              <span class="settings-label">${esc(f.label || f.id)}</span>
+              <label class="settings-use-global">
+                <input type="checkbox" class="backend-inherit-cb" data-backend="${esc(backend.id)}" data-opt="${esc(f.id)}" ${overridden ? '' : 'checked'}>
+                Use global default
+              </label>
+            </div>
+            <div class="settings-description">Used when you start a ${esc(backend.label)} session in this project without opening its configure dialog.</div>
+          </div>
+          <div class="settings-field-control">${configFieldControl(backend.id, f, value, !overridden)}</div>
+        </div>`;
+    }).join('');
+
     return `
       <div class="settings-section">
         <div class="settings-section-title backend-inline-title">
@@ -133,22 +161,6 @@
         </div>
         ${rows}
       </div>`;
-  }
-
-  function defaultRows(backend, defaults, disabled) {
-    const fields = Array.isArray(backend.configFields) ? backend.configFields : [];
-    const stored = (defaults && defaults[backend.id]) || {};
-    return fields.map(f => {
-      const value = stored[f.id] !== undefined ? stored[f.id] : f.default;
-      return `
-        <div class="settings-field">
-          <div class="settings-field-info">
-            <span class="settings-label">${esc(f.label || f.id)}</span>
-            <div class="settings-description">Used when you start a ${esc(backend.label)} session without opening its configure dialog.</div>
-          </div>
-          <div class="settings-field-control">${configFieldControl(backend.id, f, value, disabled)}</div>
-        </div>`;
-    }).join('');
   }
 
   function launchDefaultsPage(backend, defaults, disabled, extraHtml) {
@@ -484,11 +496,17 @@
   async function mount(root, ctx) {
     if (!root) return;
     const isProject = !!ctx.isProject;
-    storedDefaults = ctx.fieldValue('backendDefaults', {}) || {};
+    // GLOBAL scope: the stored blob IS the effective one. PROJECT scope: the project stores ONLY the
+    // options it overrides (#149), so the panel needs its own blob to know what is overridden, and the
+    // global one to show what the rest inherits.
+    storedDefaults = isProject
+      ? ((ctx.settings || {}).backendDefaults || {})
+      : (ctx.fieldValue('backendDefaults', {}) || {});
+    inheritedDefaults = isProject ? (ctx.globalDefaults || {}) : {};
     // Edits are remembered across the per-backend pages WITHIN one settings session — but a settings
     // window that is closed without saving must not smuggle its abandoned edits into the next save.
     // `mount` runs when the panel opens (and on a fresh re-render), so that is where they are dropped.
-    if (!ctx.keepPending) pendingDefaults = {};
+    if (!ctx.keepPending) { pendingDefaults = {}; clearedDefaults = {}; }
     const backendDefaults = mergedDefaults();
 
     // Everything is rendered into a FRESH child element and the delegated listeners hang off it —
@@ -522,19 +540,28 @@
     if (isProject) {
       // "Use global default" is checked while the project stores no own backendDefaults — then the
       // controls show the inherited values, disabled (same convention as the other project fields).
-      const own = (ctx.settings || {}).backendDefaults;
-      const inherit = own === undefined || own === null;
       box.innerHTML = `
         <div class="settings-section">
           <div class="settings-section-title backend-defaults-head">
             <span>Launch defaults</span>
-            ${ctx.useGlobalCheckbox('backendDefaults')}
           </div>
-          <div class="settings-hint">Per-backend launch options for this project. Enabling a backend and the default launch target stay global.</div>
+          <div class="settings-hint">Per-backend launch options for this project. Each option falls back to the global default unless you override it here. Enabling a backend and the default launch target stay global.</div>
         </div>
-        ${readyBackends.map(b => inlineDefaultsSection(b, backendDefaults, inherit)).join('')}`;
+        ${readyBackends.map(b => inlineDefaultsSection(b, mergedOwnDefaults(), inheritedDefaults)).join('')}`;
       box.addEventListener('input', (e) => recordDefault(e.target));
-      box.addEventListener('change', (e) => recordDefault(e.target));
+      box.addEventListener('change', (e) => {
+        // Un-checking "use global default" starts an override at the value currently shown; re-checking
+        // it drops the override, so the option follows the global default again from now on.
+        const cb = e.target.closest && e.target.closest('.backend-inherit-cb');
+        if (cb) {
+          const input = box.querySelector(`.backend-default-input[data-backend="${CSS.escape(cb.dataset.backend)}"][data-opt="${CSS.escape(cb.dataset.opt)}"]`);
+          if (input) input.disabled = cb.checked;
+          if (cb.checked) clearOverride(cb.dataset.backend, cb.dataset.opt);
+          else if (input) recordDefault(input);
+          return;
+        }
+        recordDefault(e.target);
+      });
       root.replaceChildren(box);
       paintIcons(box);
       return;
@@ -759,7 +786,7 @@
     };
   }
 
-  // backendDefaults.<backendId>.<optionId>.
+  // backendDefaults.<backendId>.<optionId> — the GLOBAL scope's blob.
   //
   // The DOM only ever holds ONE backend's page, so it is not the source of truth: the stored blob is,
   // with the edits made in this settings session merged over it. Reading the DOM alone would drop every
@@ -770,12 +797,56 @@
       root.querySelectorAll('.backend-default-input').forEach(el => {
         const bid = el.dataset.backend;
         const opt = el.dataset.opt;
-        if (!bid || !opt) return;
+        if (!bid || !opt || el.disabled) return;   // a disabled input is an INHERITED option (project scope)
         if (!merged[bid]) merged[bid] = {};
         merged[bid][opt] = valueOfInput(el);
       });
     }
     return merged;
+  }
+
+  // The PROJECT scope's blob: ONLY the options this project overrides (#149). Everything else must stay
+  // absent, or the project would freeze a copy of today's global defaults and never see them change again.
+  function readProjectDefaults(root) {
+    const own = mergedOwnDefaults();
+    if (root) {
+      root.querySelectorAll('.backend-inherit-cb').forEach(cb => {
+        const bid = cb.dataset.backend;
+        const opt = cb.dataset.opt;
+        if (!bid || !opt) return;
+        if (cb.checked) {                              // inherits -> the project stores nothing for it
+          if (own[bid]) delete own[bid][opt];
+          return;
+        }
+        const input = root.querySelector(`.backend-default-input[data-backend="${CSS.escape(bid)}"][data-opt="${CSS.escape(opt)}"]`);
+        if (!input) return;
+        if (!own[bid]) own[bid] = {};
+        own[bid][opt] = valueOfInput(input);
+      });
+    }
+    for (const [bid, opts] of Object.entries(own)) {
+      if (!opts || !Object.keys(opts).length) delete own[bid];
+    }
+    return own;
+  }
+
+  /** The project's OWN overrides ⊕ what was edited in this settings session. */
+  function mergedOwnDefaults() {
+    const out = {};
+    for (const [bid, opts] of Object.entries(storedDefaults || {})) out[bid] = { ...opts };
+    for (const [bid, opts] of Object.entries(pendingDefaults || {})) out[bid] = { ...(out[bid] || {}), ...opts };
+    for (const [bid, opts] of Object.entries(clearedDefaults || {})) {
+      for (const opt of Object.keys(opts)) if (out[bid]) delete out[bid][opt];
+    }
+    return out;
+  }
+
+  /** Mark an option as "inherit again" — it must be REMOVED from the project's blob, not set to ''. */
+  function clearOverride(backendId, opt) {
+    if (!backendId || !opt) return;
+    if (pendingDefaults[backendId]) delete pendingDefaults[backendId][opt];
+    if (!clearedDefaults[backendId]) clearedDefaults[backendId] = {};
+    clearedDefaults[backendId][opt] = true;
   }
 
   function valueOfInput(el) {
@@ -789,6 +860,7 @@
     const bid = el.dataset.backend;
     const opt = el.dataset.opt;
     if (!bid || !opt) return;
+    if (clearedDefaults[bid]) delete clearedDefaults[bid][opt];   // editing it overrides it again
     if (!pendingDefaults[bid]) pendingDefaults[bid] = {};
     pendingDefaults[bid][opt] = valueOfInput(el);
   }
@@ -801,5 +873,5 @@
     return out;
   }
 
-  window.backendsPanel = { mount, readGlobal, readProjectDefaults: readDefaults, openEditor };
+  window.backendsPanel = { mount, readGlobal, readProjectDefaults, openEditor };
 })();

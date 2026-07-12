@@ -31,6 +31,64 @@ test('effectiveSettings cascades backendDefaults (not just the SETTING_DEFAULTS 
   assert.match(body, /project\.backendDefaults/, 'and the project scope must be able to override them');
 });
 
+// #149 — the cascade is PER OPTION, not per blob.
+//
+// It used to take the project's whole `backendDefaults` object whenever it was non-empty. So a project
+// that overrode one Codex option silently froze a copy of every backend's defaults as they were that
+// day: later changes to the global defaults could never reach that project again. The merge lives in
+// main.js (Electron), so it is exercised here through the same source the app runs.
+function loadMergeBackendDefaults() {
+  const src = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+  const start = src.indexOf('function mergeBackendDefaults(');
+  assert.ok(start > 0, 'main.js must expose the per-option merge');
+  const rest = src.slice(start);
+  const body = rest.slice(0, rest.indexOf('\n}') + 2);
+  // eslint-disable-next-line no-new-func
+  return new Function(`${body}; return mergeBackendDefaults;`)();
+}
+
+test('a project override of ONE option leaves every other option inheriting', () => {
+  const merge = loadMergeBackendDefaults();
+  const global = {
+    codex: { model: 'gpt-5.5', sandbox: 'workspace-write', approvalMode: 'on-request' },
+    claude: { permissionMode: 'plan' },
+  };
+  const project = { codex: { sandbox: 'read-only' } };   // the project overrides exactly one option
+
+  const eff = merge(global, project);
+  assert.equal(eff.codex.sandbox, 'read-only', "the project's own value wins");
+  assert.equal(eff.codex.model, 'gpt-5.5', 'the other Codex options still come from global');
+  assert.equal(eff.codex.approvalMode, 'on-request');
+  assert.equal(eff.claude.permissionMode, 'plan', 'and another backend is untouched entirely');
+});
+
+test('a later change to a global default reaches a project that overrides a different option', () => {
+  const merge = loadMergeBackendDefaults();
+  const project = { codex: { sandbox: 'read-only' } };
+
+  const before = merge({ codex: { model: 'gpt-5.5', sandbox: 'workspace-write' } }, project);
+  const after = merge({ codex: { model: 'gpt-6', sandbox: 'workspace-write' } }, project);
+
+  assert.equal(before.codex.model, 'gpt-5.5');
+  assert.equal(after.codex.model, 'gpt-6', 'the project is not frozen at the values of the day it saved');
+  assert.equal(after.codex.sandbox, 'read-only', 'while its own override still stands');
+});
+
+test('an option the project stores nothing for follows the global default, including a false', () => {
+  const merge = loadMergeBackendDefaults();
+  const eff = merge({ claude: { mcpEmulation: false, permissionMode: 'plan' } }, { claude: { permissionMode: 'acceptEdits' } });
+  assert.equal(eff.claude.mcpEmulation, false, 'an inherited OFF stays off (a false is a value)');
+  assert.equal(eff.claude.permissionMode, 'acceptEdits');
+});
+
+test('a project with no overrides at all sees exactly the global defaults', () => {
+  const merge = loadMergeBackendDefaults();
+  const global = { codex: { model: 'gpt-5.5' } };
+  assert.deepEqual(merge(global, {}), global);
+  assert.deepEqual(merge(global, undefined), global);
+  assert.deepEqual(merge(undefined, undefined), {});
+});
+
 test("Claude's launch options are no longer top-level settings keys (one home: backendDefaults.claude)", () => {
   const src = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
   const defaults = src.slice(src.indexOf('const SETTING_DEFAULTS = {'));
