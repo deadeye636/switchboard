@@ -1988,6 +1988,14 @@ function rebindSidebarEvents(projects) {
       };
     }
 
+    const tagsBtn = item.querySelector('.session-tags-btn');
+    if (tagsBtn) {
+      tagsBtn.onclick = (e) => {
+        e.stopPropagation();
+        window.bookmarksTags?.openTagPicker(session, tagsBtn);
+      };
+    }
+
     const timelineBtn = item.querySelector('.session-timeline-btn');
     if (timelineBtn) {
       timelineBtn.onclick = (e) => {
@@ -2257,6 +2265,11 @@ function buildSessionItem(session) {
   if (assignedGroup) groupBtn.style.setProperty('--user-group-color', assignedGroup.color);
   groupBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 
+  const tagsBtn = document.createElement('button');
+  tagsBtn.className = 'session-tags-btn';
+  tagsBtn.title = 'Edit tags';
+  tagsBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.2" fill="currentColor" stroke="none"/></svg>';
+
   const timelineBtn = document.createElement('button');
   timelineBtn.className = 'session-timeline-btn';
   timelineBtn.title = 'View timeline';
@@ -2275,6 +2288,9 @@ function buildSessionItem(session) {
   actions.appendChild(stopBtn);
   actions.appendChild(copyIdBtn);
   actions.appendChild(groupBtn);
+  // Tags hang on the sessionId, which a terminal row has too — so this sits with the other
+  // labelling actions, above the guard, not with the ones that open a transcript.
+  actions.appendChild(tagsBtn);
   if (session.type !== 'terminal') {
     // Always offered. It used to appear only once the session was judged unhealthy, which meant you
     // discovered the feature the day the app started nagging you — and could not reach it at the moment

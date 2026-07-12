@@ -225,6 +225,8 @@
   <script src="sidebar.js"></script>
   <script src="plans-memory-view.js"></script>
   <script src="session-tabs.js"></script>
+  <!-- session-tags-logic.js (pure picker helpers) must load before bookmarks-tags.js. -->
+  <script src="session-tags-logic.js"></script>
   <!-- bookmarks-tags.js wires window._decorateJsonlEntry / _decorateSessionItem /
        window.bookmarksTags — must load after sidebar.js + jsonl-viewer.js (whose
        render loops call the hooks) and before app.js (keydown dispatcher). -->

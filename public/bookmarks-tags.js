@@ -67,84 +67,134 @@
       const chip = document.createElement('span');
       chip.className = 'session-tag-chip';
       chip.textContent = t.tag;
-      if (t.color) { chip.style.borderColor = t.color; chip.style.color = t.color; }
+      // A tag def only carries a colour once someone picked one in the settings. Until
+      // then the deterministic hue stands in — the same one the settings list and the
+      // picker show, so a tag looks the same everywhere from the moment it exists.
+      const color = t.color || pickColor(t.tag);
+      chip.style.borderColor = color;
+      chip.style.color = color;
       chip.title = 'Edit tags';
-      chip.addEventListener('click', (e) => { e.stopPropagation(); editTags(session); });
+      chip.addEventListener('click', (e) => { e.stopPropagation(); openTagPicker(session, chip); });
       wrap.appendChild(chip);
     }
     info.appendChild(wrap);
   }
 
-  // --- Tag editing (Electron has no window.prompt → small inline dialog) ---
+  // --- Tag picker ---
+  //
+  // The one way to tag a session. Reached from the tags button in the session's
+  // action row and from an existing chip — a chip alone used to be the only entry
+  // point, which meant a session with no tags had no clickable thing and the first
+  // tag could never be added (#99).
+  //
+  // It offers the CATALOGUE (Settings → Session tags), not a free-text field: a
+  // typo in a text field silently creates a tag def that then sits in the settings
+  // forever. Typing a name is still possible, at the bottom, where it reads as
+  // "make a new tag" rather than as "spell this one right".
 
-  function showTagDialog(current) {
-    return new Promise((resolve) => {
-      const overlay = document.createElement('div');
-      overlay.className = 'bm-dialog-overlay';
-      const box = document.createElement('div');
-      box.className = 'bm-dialog popover';
-      box.innerHTML = '<div class="bm-dialog-title">Session tags</div>'
-        + '<div class="bm-dialog-hint">Comma-separated, e.g. <code>bug, review</code></div>';
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'bm-dialog-input';
-      input.value = current;
-      const row = document.createElement('div');
-      row.className = 'bm-dialog-buttons';
-      const cancel = document.createElement('button');
-      cancel.className = 'popover-option';
-      cancel.textContent = 'Cancel';
-      const save = document.createElement('button');
-      save.className = 'popover-option bm-dialog-save';
-      save.textContent = 'Save';
-      row.appendChild(cancel);
-      row.appendChild(save);
-      box.appendChild(input);
-      box.appendChild(row);
-      overlay.appendChild(box);
-      document.body.appendChild(overlay);
-      input.focus();
-      input.select();
-
-      function close(value) { overlay.remove(); resolve(value); }
-      cancel.addEventListener('click', () => close(null));
-      save.addEventListener('click', () => close(input.value));
-      overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(null); });
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); close(input.value); }
-        else if (e.key === 'Escape') { e.preventDefault(); close(null); }
-      });
-    });
+  let tagPopover = null;
+  function closeTagPicker() {
+    if (tagPopover) { tagPopover.remove(); tagPopover = null; }
   }
 
-  async function editTags(session) {
-    // Read the real assignments, not the chip cache: that one drops disabled tags
-    // (#138), and saving from it would silently unassign them.
-    let assigned = [];
-    try { assigned = (await window.api.sessionTagsGet(session.sessionId)) || []; } catch { assigned = getTags(session.sessionId); }
+  async function openTagPicker(session, anchorEl) {
+    const sessionId = session && session.sessionId;
+    if (!sessionId || !anchorEl) return;
+    closeTagPicker();
 
-    // Colours belong to the tag definition now. Keep a known tag's colour; leave a
-    // brand-new one at null so the def picks up the deterministic hue on render.
-    const knownColors = new Map();
-    try {
-      for (const d of (await window.api.tagDefsList('session').then(r => (r && r.ok ? r.tags : []))) || []) {
-        knownColors.set(d.name, d.color || null);
-      }
-    } catch { /* fall back to no known colours */ }
+    let defs = await loadTagDefs();
+    // Read the assignments from the database, not the chip cache: the cache drops
+    // disabled tags (#138) and every save writes the whole set back, so saving from
+    // the cache would silently unassign them.
+    let selected;
+    try { selected = ((await window.api.sessionTagsGet(sessionId)) || []).map(t => t.tag); }
+    catch { selected = getTags(sessionId).map(t => t.tag); }
 
-    const input = await showTagDialog(assigned.map(t => t.tag).join(', '));
-    if (input === null) return;
+    const pop = document.createElement('div');
+    pop.className = 'new-session-popover session-tag-popover';
 
-    const seen = new Set();
-    const tags = [];
-    for (const raw of input.split(',')) {
-      const tag = raw.trim();
-      if (!tag || seen.has(tag)) continue;
-      seen.add(tag);
-      tags.push({ tag, color: knownColors.has(tag) ? knownColors.get(tag) : null });
+    async function save() {
+      // A name that has no def yet gets one on the way in (db.setSessionTags), so
+      // "new tag" needs no separate create call.
+      try { await window.api.sessionTagsSet(sessionId, selected.map(tag => ({ tag }))); } catch { return; }
+      await loadTagCache();
     }
-    try { await window.api.sessionTagsSet(session.sessionId, tags); } catch { return; }
-    await loadTagCache();
+
+    function render() {
+      pop.innerHTML = '';
+      const options = sessionTagOptions(defs, selected);
+      if (!options.length) {
+        const empty = document.createElement('div');
+        empty.className = 'session-tag-popover-empty';
+        empty.textContent = 'No session tags yet.';
+        pop.appendChild(empty);
+      }
+      for (const opt of options) {
+        const btn = document.createElement('button');
+        btn.className = 'popover-option' + (opt.assigned ? ' active' : '');
+        const dot = document.createElement('span');
+        dot.className = 'session-tag-dot';
+        dot.style.background = opt.color || pickColor(opt.name);
+        const name = document.createElement('span');
+        name.className = 'session-tag-option-name';
+        name.textContent = opt.name;
+        btn.appendChild(dot);
+        btn.appendChild(name);
+        if (opt.assigned) {
+          const check = document.createElement('span');
+          check.className = 'session-tag-check';
+          check.textContent = '✓';
+          btn.appendChild(check);
+        }
+        // Stays open on click: tagging is usually two or three tags in a row.
+        btn.addEventListener('click', async () => {
+          selected = toggleSessionTag(selected, opt.name);
+          render();
+          await save();
+        });
+        pop.appendChild(btn);
+      }
+      pop.appendChild(newTagRow());
+    }
+
+    function newTagRow() {
+      const row = document.createElement('div');
+      row.className = 'session-tag-new';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'session-tag-new-input';
+      input.placeholder = 'New tag…';
+      input.setAttribute('aria-label', 'New session tag');
+      input.addEventListener('keydown', async (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); closeTagPicker(); return; }
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        const value = input.value.trim();
+        if (!value) return;
+        // Creating a tag here is an act of tagging THIS session, not of curating the
+        // catalogue — so it goes on straight away.
+        if (!selected.includes(value)) selected = selected.concat([value]);
+        await save();
+        defs = await loadTagDefs();
+        render();
+        const next = pop.querySelector('.session-tag-new-input');
+        if (next) next.focus();
+      });
+      row.appendChild(input);
+      return row;
+    }
+
+    render();
+    tagPopover = pop;
+    // Shares the sidebar's popover placement (anchor, flip, click-outside).
+    positionPopover(pop, anchorEl);
+  }
+
+  async function loadTagDefs() {
+    try {
+      const res = await window.api.tagDefsList('session');
+      return (res && res.ok && res.tags) || [];
+    } catch { return []; }
   }
 
   // --- Bookmarks in the transcript viewer ---
@@ -562,6 +612,9 @@
   window.bookmarksTags = {
     handleBookmarkShortcut,
     createTaskFromSelection,
+    // The sidebar's tags button opens the picker (#99) — the module keeps the
+    // tag cache, so the picker lives here and the sidebar only anchors it.
+    openTagPicker,
     openOverlay,
     openSessionAt,
     scrollToJsonlEntry,
