@@ -18,6 +18,7 @@ const { JSDOM } = require('jsdom');
 
 const ROOT = path.join(__dirname, '..');
 const claude = require('../backends/claude');
+const codex = require('../backends/codex');
 
 // --- main-process half: the cascade must carry backendDefaults ------------------------------------
 
@@ -191,28 +192,33 @@ test('an Axis-A profile inherits CLAUDE\'s options — it runs the claude binary
 // descriptor. These tests pin both halves — that an unset option follows a CHANGED default, and that a
 // deliberately set one does not.
 
-test('an option nobody set follows the backend default — including after we change it', async () => {
-  const before = { id: 'codex', label: 'Codex', axis: 'B', configFields: [
+// An option nobody set is NOT SENT — so the CLI keeps its own.
+//
+// A `configFields` default describes what the CLI does anyway. It is what a control SHOWS when nobody
+// has said otherwise; it is not a value to put on the command line. Seeding it did exactly that: a plain
+// Codex launch carried `-a on-request -s workspace-write` although the user had never chosen either,
+// silently overruling whatever they had configured in Codex' own config.toml. It went unnoticed because
+// Claude has a sentinel its buildLaunch throws away ('default') and Codex and Hermes do not.
+test('an option nobody set is not sent at all — the CLI keeps its own default', async () => {
+  const codexDesc = { id: 'codex', label: 'Codex', axis: 'B', configFields: [
+    { id: 'model', type: 'text', default: '' },
     { id: 'sandbox', type: 'select', default: 'workspace-write' },
   ] };
   // The user saved SOMETHING for codex, but never touched `sandbox`.
-  const effective = { backendDefaults: { codex: { model: 'gpt-5.5' } } };
+  const window = loadDialogs({ backendDefaults: { codex: { model: 'gpt-5.5' } } }, { codex: codexDesc });
+  const options = await window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'codex');
 
-  let window = loadDialogs(effective, { codex: { ...before, configFields: [
-    { id: 'model', type: 'text', default: '' }, ...before.configFields,
-  ] } });
-  let options = await window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'codex');
-  assert.equal(options.sandbox, 'workspace-write', 'today it is the shipped default');
+  assert.equal('sandbox' in options, false,
+    'our descriptor default must not become a flag on a CLI the user configured themselves');
+  assert.equal(options.model, 'gpt-5.5', 'and what they DID set is sent');
+});
 
-  // Ship a safer default. The user's blob is unchanged — and the new default must reach them.
-  const after = { id: 'codex', label: 'Codex', axis: 'B', configFields: [
-    { id: 'model', type: 'text', default: '' },
-    { id: 'sandbox', type: 'select', default: 'read-only' },
-  ] };
-  window = loadDialogs(effective, { codex: after });
-  options = await window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'codex');
-  assert.equal(options.sandbox, 'read-only', 'the improved default arrives, because nobody pinned it');
-  assert.equal(options.model, 'gpt-5.5', 'and what they DID set still wins');
+test('...so the bare launch is a bare command line', async () => {
+  const codexDesc = { id: 'codex', label: 'Codex', axis: 'B', configFields: codex.configFields };
+  const window = loadDialogs({ backendDefaults: {} }, { codex: codexDesc });
+  const options = await window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'codex');
+  const argv = codex.buildLaunch({ cwd: '/p', sessionId: 's1', options }).args;
+  assert.deepEqual(argv, [], 'nobody chose anything, so we tell Codex nothing');
 });
 
 test('an option the user set does NOT follow a changed backend default', async () => {
@@ -237,8 +243,71 @@ test('a stored `false` survives the cascade (an option with an ON default can be
   const options = await window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'claude');
   assert.equal(options.mcpEmulation, false, 'stored false must not be read as "not set"');
 
-  // ...and with nothing stored, the ON default still applies.
+  // With nothing stored, the option is ABSENT — and main.js reads an absent mcpEmulation as ON, which is
+  // Claude's own default. The behaviour is the same; we simply stop asserting it on the command line.
   const plain = loadDialogs({ backendDefaults: {} }, { claude: CLAUDE_DESC });
   const untouched = await plain.resolveLaunchOptionsFor({ projectPath: '/p' }, 'claude');
-  assert.equal(untouched.mcpEmulation, true);
+  assert.equal('mcpEmulation' in untouched, false);
+  assert.notEqual(untouched.mcpEmulation, false, 'and it must never read as "switched off"');
+});
+
+// --- the Configure dialog: it SHOWS the truth, it SENDS only what says something -------------------
+//
+// The dialog is prefilled with the effective value, which is right — it must not lie about what will
+// happen. But it used to SEND every field it displayed, so opening it and pressing Start without
+// touching anything put `-a on-request -s workspace-write` on Codex' command line: a choice nobody made,
+// from a dialog nobody filled in.
+//
+// The rule: send a field when the user moved it away from what the CLI does anyway, or when they had
+// already stored a value for it (an explicit choice, even one that equals the default).
+
+function loadDecider(effective, backends) {
+  const window = loadDialogs(effective, backends);
+  return {
+    shouldSend: window.shouldSendField,
+    displayValue: window.displayValueOf,
+    stored: window.storedDefaultsFor(effective, backends[Object.keys(backends)[0]]),
+  };
+}
+
+const SANDBOX = { id: 'sandbox', type: 'select', default: 'workspace-write' };
+const MODEL = { id: 'model', type: 'text', default: '' };
+const IDE = { id: 'mcpEmulation', type: 'toggle', default: true };
+const CODEX2 = { id: 'codex', label: 'Codex', axis: 'B', configFields: [MODEL, SANDBOX] };
+
+test('the dialog shows the effective value, so it never lies about what will happen', () => {
+  const { displayValue, stored } = loadDecider(
+    { backendDefaults: { codex: { sandbox: 'read-only' } } }, { codex: CODEX2 });
+  assert.equal(displayValue(SANDBOX, stored), 'read-only', "the user's stored choice");
+  assert.equal(displayValue(MODEL, stored), '', 'and the CLI\'s own default where they chose nothing');
+});
+
+test('an untouched field is not sent — pressing Start changes nothing', () => {
+  const { shouldSend, stored } = loadDecider({ backendDefaults: {} }, { codex: CODEX2 });
+  assert.equal(shouldSend(SANDBOX, 'workspace-write', stored), false,
+    'the value shown is what Codex does anyway — putting it on the argv overrules its own config');
+  assert.equal(shouldSend(MODEL, '', stored), false, 'an empty text field is "not set"');
+});
+
+test('a field the user MOVED is sent', () => {
+  const { shouldSend, stored } = loadDecider({ backendDefaults: {} }, { codex: CODEX2 });
+  assert.equal(shouldSend(SANDBOX, 'read-only', stored), true);
+  assert.equal(shouldSend(MODEL, 'gpt-5.5', stored), true);
+});
+
+// A stored value is an explicit choice even when it happens to equal the descriptor default. Dropping it
+// because "it looks like the default" would mean the user's decision quietly stops being sent the day we
+// change our mind about what the default is.
+test('a stored value is sent even when it equals the default', () => {
+  const { shouldSend, stored } = loadDecider(
+    { backendDefaults: { codex: { sandbox: 'workspace-write' } } }, { codex: CODEX2 });
+  assert.equal(shouldSend(SANDBOX, 'workspace-write', stored), true);
+});
+
+// The `false` case, again: an option whose default is ON can only be turned off by SENDING the false.
+test('switching an ON-by-default option off is a difference, and is sent', () => {
+  const claudeDesc = { id: 'claude', label: 'Claude Code', axis: null, configFields: [IDE] };
+  const { shouldSend, stored } = loadDecider({ backendDefaults: {} }, { claude: claudeDesc });
+  assert.equal(shouldSend(IDE, false, stored), true, 'false !== true is a difference like any other');
+  assert.equal(shouldSend(IDE, true, stored), false, 'leaving it on says nothing');
 });

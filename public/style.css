@@ -5520,7 +5520,32 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   padding: 24px;
   width: 540px;
   max-width: 90vw;
+  /* Never taller than the screen. A dialog that grows past the bottom takes its own buttons with it —
+     which is what the Configure dialog did once a backend declared enough options (#160). */
+  max-height: 88vh;
   box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+}
+
+/* The generated Configure dialog: the OPTIONS scroll, the title and the actions stay put. Capping the
+   frame alone would only move the problem — the buttons would scroll away inside it. */
+.new-session-dialog-scroll {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.new-session-dialog-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  flex: 1 1 auto;
+  /* Room for the scrollbar, so it never sits on top of a control. */
+  padding-right: 6px;
+  margin-right: -6px;
+}
+
+.new-session-dialog-scroll .new-session-actions {
+  flex: 0 0 auto;
 }
 
 .new-session-dialog h3 {

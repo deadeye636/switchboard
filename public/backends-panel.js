@@ -509,6 +509,27 @@
           <button class="settings-save-btn" id="be-save">Save template</button>
         </div>`;
 
+      // The editor grew with the backends (#160/#161): base, name, icon, endpoint fields, the base's full
+      // option set, the env rows. On a short screen it ran past the bottom and took its own Save button
+      // with it. Cap the frame, scroll the MIDDLE, and pin the title and the buttons — done here by DOM
+      // surgery rather than by threading a wrapper through the template, so the markup above stays
+      // readable and no field can be forgotten in the move.
+      dialog.classList.add('new-session-dialog-scroll');
+      {
+        const body = document.createElement('div');
+        body.className = 'new-session-dialog-body';
+        // Pinned: the title, the ERROR box (an error you have to scroll to find is an error you miss),
+        // and the buttons. Everything else scrolls.
+        for (const child of [...dialog.children]) {
+          if (child.tagName === 'H3') continue;
+          if (child.classList.contains('settings-btn-row')) continue;
+          if (child.classList.contains('backend-editor-error')) continue;
+          body.appendChild(child);
+        }
+        const errorBoxEl = dialog.querySelector('.backend-editor-error');
+        dialog.insertBefore(body, errorBoxEl || dialog.querySelector('.settings-btn-row'));
+      }
+
       document.body.appendChild(overlay);
       paintIcons(dialog);
 

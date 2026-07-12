@@ -133,6 +133,13 @@ prefix), the Axis-B backends start argv (no shell — Windows shell quoting mang
 option is universal now, and setting one drops **that session** to the shell path; argv stays the default
 for everyone who sets nothing.
 
+**A field's `default` is documentation, not a value we send.** It is what the control shows when nobody
+has said otherwise — i.e. what the CLI would do on its own. It must never reach the argv: the launch used
+to seed every non-empty default, so a plain Codex session carried `-a on-request -s workspace-write`
+although the user had chosen neither, overruling their own `config.toml` without telling them. Only what
+somebody actually chose is sent (a stored setting, or a value moved in the Configure dialog). So write a
+default that **matches what the CLI already does** — it is a description of that CLI, not a wish.
+
 Two markers a field may carry, because two honest exceptions exist and both must be **declared** rather
 than discovered by a puzzled reader:
 

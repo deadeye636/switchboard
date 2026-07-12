@@ -68,25 +68,55 @@ function storedDefaultsFor(effective, backend) {
   return { ...(all[backend.id] || {}) };
 }
 
-// The effective launch options for ONE backend: seed the descriptor's declared defaults, then let the
-// user's saved ones win. (Without the seed, a plain row-click and an untouched "Start" in the gear
-// dialog would launch differently — the dialog pre-fills the descriptor defaults and sends them, while
-// the bare click sent nothing.) `backendId` rides along so main.js routes the spawn.
+// The launch options for ONE backend: ONLY what somebody actually chose.
+//
+// A `configFields` default describes what the CLI does ANYWAY. It is documentation for the UI — the value
+// a control shows when nobody has said otherwise — and it must not be written onto the command line.
+//
+// It used to be. Every non-empty default was seeded into the options and translated into a flag, so a
+// plain Codex launch carried `-a on-request -s workspace-write` even though the user had never set
+// either — silently overruling whatever they had configured in Codex' own `config.toml`. It went
+// unnoticed because Claude has a sentinel (`permissionMode: 'default'`, which its buildLaunch throws
+// away) and Codex and Hermes do not: for them a default becomes a real flag.
+//
+// Not to be confused with #163, which is the other half of the same idea one layer up: what gets
+// STORED. The settings blob was clean already; the argv was not.
+//
+// `backendId` rides along so main.js routes the spawn.
 async function resolveLaunchOptionsFor(project, backendId) {
   const backend = window.getBackend ? window.getBackend(backendId) : null;
-  const schema = schemaBackendOf(backend);
 
   const effective = await window.api.getEffectiveSettings(project.projectPath);
   const options = {};
-  for (const f of ((schema && schema.configFields) || [])) {
-    if (f.default !== '' && f.default != null && f.default !== false) options[f.id] = f.default;
-  }
   applyBackendDefaultsToOptions(options, storedDefaultsFor(effective, backend));
 
   options.backendId = backendId;
   // A profile is a user-created Axis-A backend; record it in the overlay as the profile too (§5.7).
   if (backend && backend.isProfile) options.profileId = backendId;
   return options;
+}
+
+/**
+ * What the CONFIGURE dialog shows for a field: the effective value, so the dialog tells the truth
+ * (backend default → global → project → template). Showing it is not the same as sending it.
+ */
+function displayValueOf(field, stored) {
+  return stored[field.id] !== undefined ? stored[field.id] : field.default;
+}
+
+/**
+ * Should the dialog SEND this field?
+ *
+ * Only if it says something: the user changed it away from what the CLI would do anyway, or they had
+ * already stored a value for it (an explicit choice, even one that happens to equal the default).
+ *
+ * This is what keeps a plain row-click and an untouched "Start" identical — both send nothing — while
+ * still letting the dialog be a real per-session override.
+ */
+function shouldSendField(field, value, stored) {
+  if (value === '') return false;                      // an empty text field is "not set"
+  if (stored[field.id] !== undefined) return true;     // an explicit choice, default-valued or not
+  return value !== field.default;                      // otherwise: only if it differs from the CLI's own
 }
 
 // Claude's effective launch defaults, WITHOUT a backendId — for the paths that must not force a backend
@@ -513,9 +543,18 @@ async function showGeneratedConfigDialog(project, groupId, backend) {
       </div>`;
   }).join('');
 
+  // The OPTIONS scroll, the title and the buttons do not.
+  //
+  // This dialog is generated from the backend's configFields, and those grew (#160): Codex went from
+  // three options to nine, so the dialog simply grew past the bottom of the screen — taking Start and
+  // Cancel with it. A dialog whose only way out is off-screen is not a dialog. Nothing here caps its
+  // own height, so the cap belongs to the frame, not to whichever backend happens to declare the most.
+  dialog.classList.add('new-session-dialog-scroll');
   dialog.innerHTML = `
     <h3>New ${escapeHtml(backend.label)} Session — ${escapeHtml(project.projectPath.split(/[\\/]/).filter(Boolean).slice(-2).join('/'))}</h3>
-    ${body || '<div class="settings-description">This backend has no launch options.</div>'}
+    <div class="new-session-dialog-body">
+      ${body || '<div class="settings-description">This backend has no launch options.</div>'}
+    </div>
     <div class="new-session-actions">
       <button class="new-session-cancel-btn">Cancel</button>
       <button class="new-session-start-btn">Start</button>
@@ -534,11 +573,17 @@ async function showGeneratedConfigDialog(project, groupId, backend) {
       const el = dialog.querySelector(`#gcd-${i}`);
       if (!el) return;
       const v = f.type === 'toggle' ? el.checked : el.value.trim();
-      // An empty text field means "not set". A `false` toggle does NOT — it means the user turned the
-      // option OFF, and for an option whose default is ON (Claude's IDE emulation) dropping the false is
-      // the difference between honouring their choice and silently overriding it. Same rule the stored
-      // defaults follow (applyBackendDefaultsToOptions).
-      if (v === '') return;
+      // The dialog SHOWS the effective value, but it only SENDS what actually says something: a value the
+      // user moved away from what the CLI does anyway, or one they had already stored.
+      //
+      // It used to send every field it displayed. So opening the dialog and pressing Start without
+      // touching anything put `-a on-request -s workspace-write` on Codex' command line and overruled the
+      // user's own config.toml — a choice nobody made, from a dialog they had not filled in.
+      //
+      // A `false` toggle is NOT "not set": for an option whose default is ON (Claude's IDE emulation) it
+      // is the user turning it off, and dropping it would silently restore the default. `shouldSendField`
+      // keeps that straight, because `false !== true` is a difference like any other.
+      if (!shouldSendField(f, v, saved)) return;
       options[f.id] = v;
     });
     close();

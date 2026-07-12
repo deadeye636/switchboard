@@ -137,6 +137,16 @@ The ones that will look wrong to someone tidying up later:
    — after which no improved default could ever reach them, and nothing said so, because the frozen value
    still looked right. A template is the top layer for the options it names and falls through for the
    rest, which is what keeps it from becoming a second home for the same setting.
+
+   **And a `configFields` default is never SENT.** It describes what the CLI does anyway — it is what a
+   control shows when nobody has said otherwise, not a value to put on the command line. The launch used
+   to seed every non-empty default into the options, so a plain Codex session carried
+   `-a on-request -s workspace-write` although the user had chosen neither, silently overruling whatever
+   they had configured in Codex' own `config.toml`. It hid behind Claude, which has a sentinel its
+   `buildLaunch` throws away (`permissionMode: 'default'`) — Codex and Hermes have none, so for them a
+   default became a real flag. **Nothing anybody chose, nothing on the argv.** The Configure dialog still
+   *shows* the effective value (it must not lie about what will happen) and sends a field only when the
+   user moved it away from the CLI's own default, or had already stored one.
 4. **Availability informs and refuses; it does not hide.** A failed `probe()` shows the reason in Settings
    and refuses the spawn with it. It does **not** filter the backend out of the picker: a probe is a
    heuristic, and a false negative must never make a working backend vanish with no explanation.
