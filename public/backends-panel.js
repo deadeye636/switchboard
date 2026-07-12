@@ -37,6 +37,14 @@
   let storedHandoffPrompts = {};  // handoffPromptByBackend on disk
   let pendingHandoffPrompts = {}; // ...edited in this settings session
 
+  // The global scope's two list-level values. They live HERE and not in the DOM, because opening a
+  // backend's gear page replaces the list — including the enable toggles and the default-target select.
+  // Reading them off the DOM at save time therefore found nothing whenever a gear page was open, and the
+  // save silently dropped EVERY backend setting the user had just made on that page (#163).
+  let mountedGlobal = false;      // has the global section been rendered in this settings session?
+  let liveEnabled = {};           // backendId -> bool, as last shown in the list
+  let liveLaunchTarget = 'claude';
+
   // One-line blurb per built-in backend (the descriptor carries no description).
   const BACKEND_BLURB = {
     claude: 'Anthropic — the default backend, always available.',
@@ -165,18 +173,37 @@
       </div>`;
   }
 
+  // The GLOBAL scope's page for one backend. Each option carries its own "Use the backend's default"
+  // checkbox — the same marker the project scope has had since #149, for the same reason one level up
+  // (#163): without it, saving this page pinned EVERY option of this backend at whatever happened to be
+  // in the box, including options the user never touched. A better default shipped later then never
+  // reached them, and nothing said so, because the frozen value still looked right.
+  //
+  // Ticked = this backend decides (the option is absent from the blob and follows `configFields.default`).
+  // Unticked = YOU decide, and the value is stored — including an empty string or a `false`, which are
+  // values, not absences (§ decision 3: an option whose default is ON can only be switched off by
+  // storing the `false`).
   function launchDefaultsPage(backend, defaults, disabled, extraHtml) {
     const fields = Array.isArray(backend.configFields) ? backend.configFields : [];
     const stored = (defaults && defaults[backend.id]) || {};
     const rows = fields.map(f => {
-      const value = stored[f.id] !== undefined ? stored[f.id] : f.default;
+      const set = stored[f.id] !== undefined;              // undefined = not set; '' / false ARE set
+      const value = set ? stored[f.id] : f.default;
       return `
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">${esc(f.label || f.id)}</span>
-            <div class="settings-description">Used when you start a ${esc(backend.label)} session without opening its configure dialog.</div>
+            <div class="settings-field-header">
+              <span class="settings-label">${esc(f.label || f.id)}</span>
+              ${disabled ? '' : `
+                <label class="settings-use-global">
+                  <input type="checkbox" class="backend-inherit-cb" data-backend="${esc(backend.id)}" data-opt="${esc(f.id)}" ${set ? '' : 'checked'}>
+                  Use the backend's default
+                </label>`}
+            </div>
+            <div class="settings-description">${esc(f.description || `Used when you start a ${backend.label} session without opening its configure dialog.`)}</div>
+            ${f.more ? `<div class="settings-more">${esc(f.more)}</div>` : ''}
           </div>
-          <div class="settings-field-control">${configFieldControl(backend.id, f, value, disabled)}</div>
+          <div class="settings-field-control">${configFieldControl(backend.id, f, value, disabled || !set)}</div>
         </div>`;
     }).join('');
 
@@ -545,7 +572,7 @@
     // Edits are remembered across the per-backend pages WITHIN one settings session — but a settings
     // window that is closed without saving must not smuggle its abandoned edits into the next save.
     // `mount` runs when the panel opens (and on a fresh re-render), so that is where they are dropped.
-    if (!ctx.keepPending) { pendingDefaults = {}; clearedDefaults = {}; pendingHandoffPrompts = {}; }
+    if (!ctx.keepPending) { pendingDefaults = {}; clearedDefaults = {}; pendingHandoffPrompts = {}; mountedGlobal = false; }
     storedHandoffPrompts = {
       summarise: ctx.fieldValue('handoffPromptByBackend', {}) || {},
       read: ctx.fieldValue('handoffReadPromptByBackend', {}) || {},
@@ -744,7 +771,21 @@
         if (e.target.closest('[data-act="back"]')) mount(root, { ...ctx, keepPending: true });
       });
       page.addEventListener('input', (e) => { recordDefault(e.target); recordHandoffPrompt(e.target); });
-      page.addEventListener('change', (e) => { recordDefault(e.target); recordHandoffPrompt(e.target); });
+      page.addEventListener('change', (e) => {
+        // Same rule as the project scope (#149), one level up (#163): un-ticking "use the backend's
+        // default" starts an override at the value currently shown; re-ticking it REMOVES the option
+        // from the blob, so it follows the backend's own default again — now and after we change it.
+        const cb = e.target.closest && e.target.closest('.backend-inherit-cb');
+        if (cb) {
+          const input = page.querySelector(`.backend-default-input[data-backend="${CSS.escape(cb.dataset.backend)}"][data-opt="${CSS.escape(cb.dataset.opt)}"]`);
+          if (input) input.disabled = cb.checked;
+          if (cb.checked) clearOverride(cb.dataset.backend, cb.dataset.opt);
+          else if (input) recordDefault(input);
+          return;
+        }
+        recordDefault(e.target);
+        recordHandoffPrompt(e.target);
+      });
     }
 
     box.addEventListener('click', (e) => {
@@ -772,10 +813,20 @@
       if (cb) return cb.checked;
       return b.isProfile ? true : isEnabled(b);
     }
+    // Snapshot the list-level values into module state on every change, so a save that happens while a
+    // gear page is open (i.e. with this list not in the DOM) still knows them.
+    function snapshotList() {
+      liveEnabled = {};
+      box.querySelectorAll('.backend-enable').forEach(cb => { liveEnabled[cb.dataset.id] = !!cb.checked; });
+      liveLaunchTarget = select.value || defaultLaunchTarget || 'claude';
+      mountedGlobal = true;
+    }
+
     rebuildSelect();
-    select.addEventListener('change', rebuildSelect);
+    snapshotList();
+    select.addEventListener('change', () => { rebuildSelect(); snapshotList(); });
     box.addEventListener('change', (e) => {
-      if (e.target.classList && e.target.classList.contains('backend-enable')) rebuildSelect();
+      if (e.target.classList && e.target.classList.contains('backend-enable')) { rebuildSelect(); snapshotList(); }
     });
 
     const refresh = () => mount(root, { ...ctx, keepPending: true });
@@ -825,13 +876,27 @@
 
   // Read the global-only keys back at save time. Returns null when the section never mounted, so a
   // save can't clobber the stored values with an empty object.
+  // Read the global-only keys back at save time. Returns null when the Backends section was never
+  // rendered in this settings session, so a save cannot clobber the stored values with an empty object.
+  //
+  // It used to decide that by looking for the default-target select IN THE DOM — but opening a backend's
+  // gear page REPLACES the list, select and all. So hitting Save while a gear page was open returned
+  // null, and settings-panel.js skipped every backend key: the option the user had just changed on that
+  // page was silently discarded unless they happened to click "Backends" first. The panel's own state is
+  // the source of truth now; the DOM is only where the current page's edits are read from (#163).
   function readGlobal(root) {
-    if (!root || !root.querySelector('#sv-default-launch-target')) return null;
+    if (!mountedGlobal) return null;
     const backendEnabled = {};
-    root.querySelectorAll('.backend-enable').forEach(cb => { backendEnabled[cb.dataset.id] = !!cb.checked; });
+    const fromDom = root ? root.querySelectorAll('.backend-enable') : [];
+    if (fromDom.length) {
+      fromDom.forEach(cb => { backendEnabled[cb.dataset.id] = !!cb.checked; });
+    } else {
+      Object.assign(backendEnabled, liveEnabled);   // the list is off-screen: use what it last showed
+    }
+    const select = root && root.querySelector('#sv-default-launch-target');
     return {
       backendEnabled,
-      defaultLaunchTarget: root.querySelector('#sv-default-launch-target').value || 'claude',
+      defaultLaunchTarget: (select && select.value) || liveLaunchTarget || 'claude',
       backendDefaults: readDefaults(root),
       handoffPromptByBackend: readHandoffPrompts(root, 'summarise'),
       handoffReadPromptByBackend: readHandoffPrompts(root, 'read'),
@@ -862,16 +927,42 @@
   // The DOM only ever holds ONE backend's page, so it is not the source of truth: the stored blob is,
   // with the edits made in this settings session merged over it. Reading the DOM alone would drop every
   // backend the user did not happen to have open when they hit Save.
+  // Store ONLY what the user actually decided (#163). This used to write every option on the open page,
+  // which pinned the shipped defaults into the user's settings the first time they hit Save — after
+  // which no improved default could ever reach them again. Now an option with its "use the backend's
+  // default" box ticked is REMOVED from the blob and resolved from `configFields.default` at launch.
+  //
+  // Values already on disk are left alone. They are indistinguishable from deliberate choices, and
+  // silently dropping someone's settings is worse than carrying a few redundant ones.
   function readDefaults(root) {
     const merged = mergedDefaults();
     if (root) {
+      root.querySelectorAll('.backend-inherit-cb').forEach(cb => {
+        const bid = cb.dataset.backend;
+        const opt = cb.dataset.opt;
+        if (!bid || !opt) return;
+        if (cb.checked) {                                  // follows the backend's default -> store nothing
+          if (merged[bid]) delete merged[bid][opt];
+          return;
+        }
+        const input = root.querySelector(`.backend-default-input[data-backend="${CSS.escape(bid)}"][data-opt="${CSS.escape(opt)}"]`);
+        if (!input) return;
+        if (!merged[bid]) merged[bid] = {};
+        merged[bid][opt] = valueOfInput(input);            // '' and false are VALUES — stored as such
+      });
+      // A page rendered without the checkboxes (a read-only/disabled view) must not silently drop the
+      // options it is showing.
       root.querySelectorAll('.backend-default-input').forEach(el => {
         const bid = el.dataset.backend;
         const opt = el.dataset.opt;
-        if (!bid || !opt || el.disabled) return;   // a disabled input is an INHERITED option (project scope)
+        if (!bid || !opt || el.disabled) return;
+        if (root.querySelector(`.backend-inherit-cb[data-backend="${CSS.escape(bid)}"][data-opt="${CSS.escape(opt)}"]`)) return;
         if (!merged[bid]) merged[bid] = {};
         merged[bid][opt] = valueOfInput(el);
       });
+    }
+    for (const [bid, opts] of Object.entries(merged)) {
+      if (!opts || !Object.keys(opts).length) delete merged[bid];
     }
     return merged;
   }
@@ -945,11 +1036,16 @@
     pendingDefaults[bid][opt] = valueOfInput(el);
   }
 
-  /** stored (this scope) ⊕ everything edited since the panel mounted. */
+  /** stored (this scope) ⊕ everything edited since the panel mounted, MINUS what was handed back. */
   function mergedDefaults() {
     const out = {};
     for (const [bid, opts] of Object.entries(storedDefaults || {})) out[bid] = { ...opts };
     for (const [bid, opts] of Object.entries(pendingDefaults || {})) out[bid] = { ...(out[bid] || {}), ...opts };
+    // #163: handing an option back to the backend's default must REMOVE it here too — otherwise a
+    // re-ticked box would still be saved from the stored blob, and the option would never come loose.
+    for (const [bid, opts] of Object.entries(clearedDefaults || {})) {
+      for (const opt of Object.keys(opts)) if (out[bid]) delete out[bid][opt];
+    }
     return out;
   }
 

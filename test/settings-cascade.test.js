@@ -180,3 +180,65 @@ test('an Axis-A profile inherits CLAUDE\'s options — it runs the claude binary
   assert.equal(options.backendId, 'deepseek', 'but it still launches as the profile (§5.7)');
   assert.equal(options.profileId, 'deepseek');
 });
+
+// --- #163: the global scope must not FREEZE the shipped defaults ----------------------------------
+//
+// The global page used to write every option of whatever backend page was open, so the first Save
+// pinned the defaults the user never touched. A better default shipped later could never reach them,
+// and nothing said so — the frozen value still looked right, because that day it WAS the default.
+//
+// The rule now: an option the user did not set is absent from the blob and resolves from the
+// descriptor. These tests pin both halves — that an unset option follows a CHANGED default, and that a
+// deliberately set one does not.
+
+test('an option nobody set follows the backend default — including after we change it', async () => {
+  const before = { id: 'codex', label: 'Codex', axis: 'B', configFields: [
+    { id: 'sandbox', type: 'select', default: 'workspace-write' },
+  ] };
+  // The user saved SOMETHING for codex, but never touched `sandbox`.
+  const effective = { backendDefaults: { codex: { model: 'gpt-5.5' } } };
+
+  let window = loadDialogs(effective, { codex: { ...before, configFields: [
+    { id: 'model', type: 'text', default: '' }, ...before.configFields,
+  ] } });
+  let options = await window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'codex');
+  assert.equal(options.sandbox, 'workspace-write', 'today it is the shipped default');
+
+  // Ship a safer default. The user's blob is unchanged — and the new default must reach them.
+  const after = { id: 'codex', label: 'Codex', axis: 'B', configFields: [
+    { id: 'model', type: 'text', default: '' },
+    { id: 'sandbox', type: 'select', default: 'read-only' },
+  ] };
+  window = loadDialogs(effective, { codex: after });
+  options = await window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'codex');
+  assert.equal(options.sandbox, 'read-only', 'the improved default arrives, because nobody pinned it');
+  assert.equal(options.model, 'gpt-5.5', 'and what they DID set still wins');
+});
+
+test('an option the user set does NOT follow a changed backend default', async () => {
+  const after = { id: 'codex', label: 'Codex', axis: 'B', configFields: [
+    { id: 'sandbox', type: 'select', default: 'read-only' },   // we changed our mind
+  ] };
+  const window = loadDialogs(
+    { backendDefaults: { codex: { sandbox: 'danger-full-access' } } },   // they chose this on purpose
+    { codex: after },
+  );
+  const options = await window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'codex');
+  assert.equal(options.sandbox, 'danger-full-access', 'a deliberate choice is not overwritten by ours');
+});
+
+// The reason the marker has to exist at all: `false` is a value. Claude's IDE emulation defaults to ON,
+// so the only way to turn it off is to STORE the false — a dropped one restores the default.
+test('a stored `false` survives the cascade (an option with an ON default can be switched off)', async () => {
+  const window = loadDialogs(
+    { backendDefaults: { claude: { mcpEmulation: false } } },
+    { claude: CLAUDE_DESC },
+  );
+  const options = await window.resolveLaunchOptionsFor({ projectPath: '/p' }, 'claude');
+  assert.equal(options.mcpEmulation, false, 'stored false must not be read as "not set"');
+
+  // ...and with nothing stored, the ON default still applies.
+  const plain = loadDialogs({ backendDefaults: {} }, { claude: CLAUDE_DESC });
+  const untouched = await plain.resolveLaunchOptionsFor({ projectPath: '/p' }, 'claude');
+  assert.equal(untouched.mcpEmulation, true);
+});
