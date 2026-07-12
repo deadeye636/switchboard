@@ -24,16 +24,18 @@ function setRoots(roots) {
   if (Array.isArray(roots) && roots.length) _roots = roots.slice();
 }
 
-// The per-CLI launch-option schema (00 §4a) — drives the generated Configure dialog (T-3.8) and the
-// per-backend "Launch defaults" panel (T-2.6). Declarative only in Phase 1; buildLaunch below keeps
-// today's exact two-field permission logic for byte-identical Claude behaviour.
-// Claude's launch options — the schema the Settings "Launch defaults" panel and the Configure dialog
-// are both generated from (§4a). These option ids are the ones the spawn path already speaks, so a
-// stored default and a one-off override are the same vocabulary.
+// Claude can fork a session (`--resume <id> --fork-session`). The sidebar's Fork button is gated on
+// this: a backend that cannot fork must not OFFER it, because "cannot fork" degrades silently into
+// "launch an unrelated empty session" — which is what Codex and Hermes did until the final review.
+const supportsFork = true;
+
+// Claude's launch options — the schema the Settings "Launch defaults" panel and the generated Configure
+// dialog are both built from (§4a). These option ids are the ones the spawn path already speaks, so a
+// stored default and a one-off override share one vocabulary.
 //
-// `dangerously-skip` is a CHOICE of permissionMode here rather than a separate boolean: they are
-// mutually exclusive in the CLI (`--dangerously-skip-permissions` wins over `--permission-mode`), and
-// two controls for one decision is how you end up with a UI that can express "plan AND skip".
+// `dangerously-skip` is a CHOICE of permissionMode rather than a separate boolean: the two are mutually
+// exclusive in the CLI (the skip flag wins), and two controls for one decision is how you end up with a
+// UI that can express "plan AND skip".
 const configFields = [
   // The full set the CLI accepts (as offered by the old Sessions & CLI form), plus the skip flag as a
   // mutually-exclusive choice. 'default' = send no --permission-mode at all.
@@ -154,6 +156,7 @@ function watchTargets() {
 
 module.exports = {
   id: 'claude',
+  supportsFork,
   label: 'Claude Code',
   binary: 'claude',  // the executable name, for callers that build their own argv (the schedule runner)
   tier: 1,

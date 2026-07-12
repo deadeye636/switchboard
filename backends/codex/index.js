@@ -75,6 +75,36 @@ function buildLaunch({ cwd, resume, sessionId, options } = {}) {
   return { command: 'codex', args, env, cwd, spawnMode: 'argv' };
 }
 
+/** Is codex actually installed? (npm ships it as a .cmd shim on Windows — that counts.) */
+function findExecutable() {
+  const exts = process.platform === 'win32'
+    ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').map(e => e.trim()).filter(Boolean)
+    : [''];
+  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
+    for (const ext of exts) {
+      const p = path.join(dir, 'codex' + ext);
+      try { if (fs.statSync(p).isFile()) return p; } catch { /* keep looking */ }
+    }
+  }
+  return null;
+}
+
+/**
+ * { ok, reason }. Without this, an enabled-but-not-installed Codex is offered in the picker and the
+ * launch drops a raw `'codex' is not recognized...` into the tab — the exact failure the availability
+ * gate exists to prevent (D15), which had been implemented for Hermes and Pi but not here.
+ */
+function probe() {
+  const exe = findExecutable();
+  if (!exe) {
+    return {
+      ok: false,
+      reason: 'The codex executable was not found. Install Codex (npm i -g @openai/codex), or add it to PATH.',
+    };
+  }
+  return { ok: true, exe };
+}
+
 /** Recursively collect rollout-*.jsonl under the date-bucketed sessions tree. */
 function walkRollouts(dir, out) {
   let entries;
@@ -168,8 +198,14 @@ module.exports = {
   status: 'ready',
   monogram: 'Cx',
   colour: 'codex',
+  // Codex has no confirmed fork flag. Declaring false HIDES the Fork button for its sessions — the
+  // alternative is what shipped before: the button stays, `forkFrom` is dropped in buildLaunch, and the
+  // user gets a brand-new empty session that has nothing to do with the one they forked.
+  supportsFork: false,
   configFields,
   buildLaunch,
+  probe,
+  findExecutable,
   discoverSessions,
   parseSession: parser.parseSession,
   parseSessionIncremental: parser.parseSessionIncremental,

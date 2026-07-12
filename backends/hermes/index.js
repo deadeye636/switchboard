@@ -119,11 +119,19 @@ function liveRefFor(sessionId) {
   return row && row.sessionId ? row.sessionId : null;
 }
 
-/** Busy/idle for a live session: re-read its row (the watcher fires on every WAL commit). */
-function liveState(ref) {
+/**
+ * Busy/idle for a live session: re-read its row (the watcher fires on every WAL commit).
+ *
+ * `ctx.lastOutputMs` matters here too (D21). Hermes states only that a session ENDED (`ended_at`); it
+ * never says "I am working". Busy is inferred from "no end + recent messages", so a turn that thinks or
+ * runs a tool for longer than the activity window without writing a message would read as idle while it
+ * works. The PTY stream says whether the process is still talking — used only to keep such a turn out of
+ * idle, never to declare one busy.
+ */
+function liveState(ref, ctx = {}) {
   const row = reader.parseSession({ kind: 'db', sessionId: ref });
   if (!row) return null;
-  return deriveState(row);
+  return deriveState(row, Date.now(), ctx);
 }
 
 module.exports = {
@@ -134,6 +142,7 @@ module.exports = {
   status: 'ready',
   monogram: 'H',
   colour: 'hermes',
+  supportsFork: false,   // no confirmed fork flag — do not offer what we cannot do (see codex/index.js)
   // Hermes loads a heavy Python stack before its TUI paints — measured at ~12s on a warm machine
   // (T-5.0). Said out loud, because a silent black tab for 12 seconds reads as a crash.
   startupHint: 'Starting Hermes — its TUI takes about 10-15 seconds to appear.',

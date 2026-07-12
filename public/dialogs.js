@@ -76,8 +76,12 @@ async function resolveDefaultSessionOptions(project) {
   return options;
 }
 
+// Fork = a NEW session seeded from an existing one, so it runs on THAT session's backend with THAT
+// backend's launch options. Resolving Claude's defaults here (as this did) would hand a Claude model to
+// `pi --fork` — the same class of bug as the reattach path.
 async function forkSession(session, project) {
-  const options = await resolveDefaultSessionOptions(project);
+  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || 'claude';
+  const options = await resolveLaunchOptionsFor(project, backendId);
   options.forkFrom = session.sessionId;
   launchNewSession(project, options);
 }
@@ -484,7 +488,11 @@ async function showGeneratedConfigDialog(project, groupId, backend) {
       const el = dialog.querySelector(`#gcd-${i}`);
       if (!el) return;
       const v = f.type === 'toggle' ? el.checked : el.value.trim();
-      if (v === '' || v === false) return;
+      // An empty text field means "not set". A `false` toggle does NOT — it means the user turned the
+      // option OFF, and for an option whose default is ON (Claude's IDE emulation) dropping the false is
+      // the difference between honouring their choice and silently overriding it. Same rule the stored
+      // defaults follow (applyBackendDefaultsToOptions).
+      if (v === '') return;
       options[f.id] = v;
     });
     close();
@@ -566,7 +574,11 @@ async function showGeneratedResumeDialog(session, backend) {
       const el = dialog.querySelector(`#grd-${i}`);
       if (!el) return;
       const v = f.type === 'toggle' ? el.checked : el.value.trim();
-      if (v === '' || v === false) return;
+      // An empty text field means "not set". A `false` toggle does NOT — it means the user turned the
+      // option OFF, and for an option whose default is ON (Claude's IDE emulation) dropping the false is
+      // the difference between honouring their choice and silently overriding it. Same rule the stored
+      // defaults follow (applyBackendDefaultsToOptions).
+      if (v === '') return;
       options[f.id] = v;
     });
     close();

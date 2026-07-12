@@ -45,26 +45,42 @@ function deriveState(input) {
 const fs = require('fs');
 const TAIL_BYTES = 64 * 1024;
 
+// The window GROWS. A busy turn writes reasoning, tool calls and output into the rollout, so
+// `task_started` scrolls out of a fixed 64 KB tail long before `task_complete` arrives — and the old
+// code then returned IDLE, actively pushing the wrong edge while Codex was working. (The same class of
+// bug the Pi gate found; Codex was never re-checked.)
+const TAIL_WINDOWS = [TAIL_BYTES, 8 * TAIL_BYTES, 64 * TAIL_BYTES];   // 64 KB → 512 KB → 4 MB
+
+function scanWindow(fd, size, len) {
+  const buf = Buffer.alloc(len);
+  fs.readSync(fd, buf, 0, len, size - len);
+  const lines = buf.toString('utf8').split('\n');
+  // Walk backwards to the most recent task event; the window's first line may be truncated.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    const t = entry && entry.payload && entry.payload.type;
+    if (t === 'task_started') return BUSY;
+    if (t === 'task_complete') return IDLE;
+  }
+  return null;   // no lifecycle event in view — say NOTHING rather than guess IDLE
+}
+
 function deriveStateFromFileTail(filePath) {
   let fd;
   try {
     fd = fs.openSync(filePath, 'r');
     const size = fs.fstatSync(fd).size;
-    const len = Math.min(TAIL_BYTES, size);
-    const buf = Buffer.alloc(len);
-    fs.readSync(fd, buf, 0, len, size - len);
-    const lines = buf.toString('utf8').split('\n');
-    // Walk backwards to the most recent task event; the first line of the window may be truncated.
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      let entry;
-      try { entry = JSON.parse(line); } catch { continue; }
-      const t = entry && entry.payload && entry.payload.type;
-      if (t === 'task_started') return BUSY;
-      if (t === 'task_complete') return IDLE;
+    for (const window of TAIL_WINDOWS) {
+      const len = Math.min(window, size);
+      const state = scanWindow(fd, size, len);
+      if (state) return state;
+      if (len >= size) break;   // the whole file was in view — a wider window cannot help
     }
-    return IDLE;
+    // Nothing anywhere: leave the state alone instead of claiming the session is idle.
+    return null;
   } catch {
     return null; // unreadable -> caller leaves the state untouched
   } finally {
@@ -72,4 +88,4 @@ function deriveStateFromFileTail(filePath) {
   }
 }
 
-module.exports = { deriveState, deriveStateFromFileTail, BUSY, IDLE };
+module.exports = { deriveState, deriveStateFromFileTail, TAIL_WINDOWS, BUSY, IDLE };

@@ -2277,7 +2277,18 @@ function buildSessionItem(session) {
   actions.appendChild(groupBtn);
   if (session.type !== 'terminal') {
     if (health.state !== 'healthy') actions.appendChild(handoffBtn);
-    actions.appendChild(forkBtn);
+    // Only offer Fork where the backend can actually do it. Offering it anyway does NOT degrade into
+    // "nothing happens" — it launches a fresh, empty session that has no relation to the one the user
+    // forked, which is worse than not offering it at all.
+    const sessionBackend = typeof getBackend === 'function'
+      ? getBackend(typeof sessionBackendId === 'function' ? sessionBackendId(session) : 'claude')
+      : null;
+    // A profile runs the claude binary, so it forks like Claude. An unknown backend (a row from a
+    // backend that is no longer registered) is assumed not to fork.
+    const canFork = sessionBackend
+      ? (sessionBackend.isProfile ? true : sessionBackend.supportsFork === true)
+      : false;
+    if (canFork) actions.appendChild(forkBtn);
     actions.appendChild(timelineBtn);
     actions.appendChild(jsonlBtn);
     actions.appendChild(archiveBtn);

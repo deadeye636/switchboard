@@ -239,6 +239,7 @@ module.exports = {
   status: 'ready',
   monogram: 'Pi',
   colour: 'pi',
+  supportsFork: true,     // `pi --fork <id>`
   // Shown on the backend's settings page. Pi is the only backend where injecting a key can appear to
   // work and quietly do nothing: a stored `pi /login` OAuth session takes PRIORITY over the env vars we
   // pass, with no error. A user chasing "why is it still on the old account" has no way to see that from

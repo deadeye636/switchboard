@@ -485,6 +485,10 @@
     if (!root) return;
     const isProject = !!ctx.isProject;
     storedDefaults = ctx.fieldValue('backendDefaults', {}) || {};
+    // Edits are remembered across the per-backend pages WITHIN one settings session — but a settings
+    // window that is closed without saving must not smuggle its abandoned edits into the next save.
+    // `mount` runs when the panel opens (and on a fresh re-render), so that is where they are dropped.
+    if (!ctx.keepPending) pendingDefaults = {};
     const backendDefaults = mergedDefaults();
 
     // Everything is rendered into a FRESH child element and the delegated listeners hang off it —
@@ -660,7 +664,7 @@
       paintIcons(page);
 
       page.addEventListener('click', (e) => {
-        if (e.target.closest('[data-act="back"]')) mount(root, ctx);
+        if (e.target.closest('[data-act="back"]')) mount(root, { ...ctx, keepPending: true });
       });
       page.addEventListener('input', (e) => recordDefault(e.target));
       page.addEventListener('change', (e) => recordDefault(e.target));
@@ -697,7 +701,7 @@
       if (e.target.classList && e.target.classList.contains('backend-enable')) rebuildSelect();
     });
 
-    const refresh = () => mount(root, ctx);
+    const refresh = () => mount(root, { ...ctx, keepPending: true });
 
     // Templates → editor (pre-filled name + icon + env bundle).
     box.querySelector('#sv-backend-templates').addEventListener('click', async (e) => {

@@ -636,17 +636,21 @@ function renderJsonlEntry(entry, toolResultMap) {
   let role = null;
   let contentBlocks = null;
 
-  // The role sits at the top level for Claude/Codex, but INSIDE the payload for Pi
-  // ({type:'message', message:{role, content:[…]}}) — read both, or a Pi transcript renders as a blank
-  // panel behind a button we happily offer on its rows.
-  const entryRole = entry.role || entry.message?.role || null;
+  // Every backend nests the turn differently, and getting this wrong renders a BLANK panel behind a
+  // button we cheerfully offer on the row:
+  //   Claude  {type:'user'|'assistant', message:{content}}
+  //   Pi      {type:'message',      message:{role, content:[…]}}
+  //   Codex   {type:'response_item', payload:{type:'message', role, content:[…]}}
+  const entryRole = entry.role || entry.message?.role || entry.payload?.role || null;
+  const isCodexMessage = entry.type === 'response_item' && entry.payload?.type === 'message';
+  const nested = entry.message?.content || entry.payload?.content || entry.content;
 
-  if (entry.type === 'user' || (entry.type === 'message' && entryRole === 'user')) {
+  if (entry.type === 'user' || ((entry.type === 'message' || isCodexMessage) && entryRole === 'user')) {
     role = 'user';
-    contentBlocks = entry.message?.content || entry.content;
-  } else if (entry.type === 'assistant' || (entry.type === 'message' && entryRole === 'assistant')) {
+    contentBlocks = nested;
+  } else if (entry.type === 'assistant' || ((entry.type === 'message' || isCodexMessage) && entryRole === 'assistant')) {
     role = 'assistant';
-    contentBlocks = entry.message?.content || entry.content;
+    contentBlocks = nested;
   } else {
     return null;
   }

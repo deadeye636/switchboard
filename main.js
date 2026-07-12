@@ -1118,16 +1118,24 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
     });
 
     function afterRemove() {
-      // Clean up DB cache: delete all sessions whose projectPath matches worktreePath
+      // Clean up the DB cache for the deleted worktree — CLAUDE's rows only.
+      //
+      // Deleting the worktree removed Claude's transcripts (they live under the worktree path). It did
+      // NOT remove Codex's rollouts, Hermes' DB rows or Pi's transcripts: those live in each backend's
+      // own store, keyed on the cwd. Wiping them here would delete rows whose data is still on disk —
+      // they would simply come back on the next scan, or stay invisible until then. The scoped folder
+      // cleanup below had this right; this per-row loop did not.
       let removed = 0;
       try {
-        const allRows = getAllCached();
-        for (const row of allRows) {
-          if (row.projectPath === normalizedPath) {
-            deleteCachedSession(row.sessionId);
-            deleteSearchSession(row.sessionId);
-            removed++;
-          }
+        // The scope is expressed as "everything EXCEPT these backends" (Claude + its Axis-A profiles
+        // share one store), so a row survives when its backend is in that exception list.
+        const foreign = new Set(sessionCache.claudeStoreScope().except || []);
+        for (const row of getAllCached()) {
+          if (row.projectPath !== normalizedPath) continue;
+          if (foreign.has(row.backendId || 'claude')) continue;
+          deleteCachedSession(row.sessionId);
+          deleteSearchSession(row.sessionId);
+          removed++;
         }
       } catch (dbErr) {
         log.warn('[delete-worktree] DB cleanup error:', dbErr.message);
@@ -2121,6 +2129,18 @@ ipcMain.handle('get-setting', (_event, key) => {
 });
 
 ipcMain.handle('set-setting', (_event, key, value) => {
+  // Custom launchers (Tier-3) carry an env block, and the settings blob goes to DISK. A profile's env is
+  // guarded at exactly this boundary (profiles.save rejects a literal key); the launchers promised "the
+  // same hygiene" in their own comment and never had it — a pasted key was written out verbatim. Strip
+  // it here, at the trust boundary, rather than in the renderer that can be bypassed.
+  try {
+    const stripped = stripLauncherSecrets(value);
+    if (stripped.removed.length) {
+      log.warn(`[launchers] refused to persist literal secret(s): ${stripped.removed.join(', ')} — use a $VAR reference`);
+      value = stripped.value;
+    }
+  } catch { /* never block a settings save on this */ }
+
   setSetting(key, value);
   // Enabling/disabling a backend changes which stores must be watched and scanned. Re-arm here so
   // the change takes effect immediately instead of only after a restart (§5.8: a newly-enabled
@@ -2690,6 +2710,33 @@ const scheduleIpc = require('./schedule-ipc');
 // mcpEmulation, afkTimeoutSec, …) are NOT here. They are a backend's launch options like any other
 // backend's and live under `backendDefaults.claude` (§4a) — see migrateClaudeLaunchDefaults below.
 // What remains here is what belongs to the app, not to a CLI.
+/**
+ * A settings blob may carry `customLaunchers[].env` (Tier-3, T-3.10). Those values follow the same rule
+ * as a profile's: a `$VAR` reference (resolved at spawn) or a plain literal — but NEVER a raw key. This
+ * drops any value that looks like one, so a pasted token cannot reach the disk.
+ * Returns { value, removed[] }; `value` is the original object when nothing was stripped.
+ */
+function stripLauncherSecrets(blob) {
+  const removed = [];
+  if (!blob || typeof blob !== 'object' || !Array.isArray(blob.customLaunchers)) return { value: blob, removed };
+
+  const launchers = blob.customLaunchers.map(l => {
+    if (!l || typeof l !== 'object' || !l.env || typeof l.env !== 'object') return l;
+    const env = {};
+    for (const [k, v] of Object.entries(l.env)) {
+      if (typeof v === 'string' && profiles.looksLikeRawSecret(v, k)) {
+        removed.push(`${l.name || l.id || 'launcher'}.${k}`);
+        continue;   // dropped: an unresolved $VAR is dropped at spawn too, so this fails visibly, not silently
+      }
+      env[k] = v;
+    }
+    return { ...l, env };
+  });
+
+  if (!removed.length) return { value: blob, removed };
+  return { value: { ...blob, customLaunchers: launchers }, removed };
+}
+
 const SETTING_DEFAULTS = {
   visibleSessionCount: 5,
   sidebarWidth: 340,
@@ -2986,6 +3033,9 @@ ipcMain.handle('backends-list', () => {
       // Is the binary actually installed? Settings shows the reason instead of letting the user enable
       // a backend whose first launch then dies with a raw shell error.
       available: b.available !== false, unavailableReason: b.unavailableReason || null,
+      // Can this backend fork a session? The sidebar hides the Fork button when it cannot — offering
+      // it launches an unrelated empty session, which is worse than not offering it.
+      supportsFork: b.supportsFork === true || (!!b.isProfile),
       // A standing gotcha the user cannot see from inside the app (Pi: a stored OAuth login silently
       // beats an injected key). Rendered on the backend's settings page.
       caveat: b.caveat || null,
