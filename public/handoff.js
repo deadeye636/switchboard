@@ -14,9 +14,15 @@ async function showHandoffPrompt(session) {
   const canAskRunningSession = activePtyIds.has(session.sessionId) && session.type !== 'terminal';
   const project = findProjectForSession(session);
   const handoffLibrary = !!((await window.api.getSetting('global'))?.handoffLibrary);
+  // The button is offered on EVERY session now, so the copy must not assume the session is in trouble:
+  // handing over at a clean breakpoint is a normal thing to do, not an emergency.
+  const recommended = health.state !== 'healthy';
   const evidence = health.reasons.length
     ? health.reasons.map(reason => reason.label).join(', ')
-    : 'This session is still within healthy bounds.';
+    : '';
+  const why = recommended
+    ? `This session is becoming expensive: ${evidence}.`
+    : 'This session is still within healthy bounds — handing over now is simply a clean break.';
   const tone = health.tier === 'strong' || health.tier === 'warning' ? 'warning' : 'default';
   const details = {
     Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
@@ -36,7 +42,7 @@ async function showHandoffPrompt(session) {
   if (actions.mode === 'running') {
     const action = await showControlDialog({
       title: 'Hand Off Session',
-      message: `This session is becoming expensive: ${evidence}. The guided handoff asks the running agent for a summary (spends tokens), then starts a fresh, lean session in the same project seeded with it. You'll review the packet before anything new is started. Or copy a local starter packet instead.`,
+      message: `${why} The guided handoff asks the running agent for a summary (spends tokens), then starts a fresh, lean session in the same project seeded with it. You'll review the packet before anything new is started. Or copy a local starter packet instead.`,
       confirmLabel: actions.confirm,
       secondaryLabel: actions.secondary || undefined,
       tertiaryLabel: actions.tertiary || undefined,
@@ -59,7 +65,7 @@ async function showHandoffPrompt(session) {
   // with the Integrated Handoff System on, "Save to library".
   const action = await showControlDialog({
     title: 'Create Handoff',
-    message: `This session is becoming expensive: ${evidence}. Copy a short handoff packet and start fresh when you reach a natural breakpoint.${actions.secondary ? ' Or save it to this project to resume later.' : ''}`,
+    message: `${why} Copy a short handoff packet and start fresh when you reach a natural breakpoint.${actions.secondary ? ' Or save it to this project to resume later.' : ''}`,
     confirmLabel: actions.confirm,
     secondaryLabel: actions.secondary || undefined,
     tertiaryLabel: actions.tertiary || undefined,

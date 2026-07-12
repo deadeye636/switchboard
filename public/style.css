@@ -2055,6 +2055,17 @@ input:focus-visible {
   background: rgba(240,160,80,0.1);
 }
 
+/* The handoff button is always offered. When the session has grown expensive enough that a handoff is
+   RECOMMENDED, the button carries that signal — it is not what makes the feature reachable. */
+.session-handoff-btn.recommended {
+  color: #f0a050;
+  background: rgba(240,160,80,0.12);
+}
+.session-handoff-btn.recommended:hover {
+  color: #ffb968;
+  background: rgba(240,160,80,0.2);
+}
+
 .session-archive-btn:hover {
   color: #8088ff;
   background: rgba(120,130,255,0.1);

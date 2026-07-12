@@ -2276,7 +2276,17 @@ function buildSessionItem(session) {
   actions.appendChild(copyIdBtn);
   actions.appendChild(groupBtn);
   if (session.type !== 'terminal') {
-    if (health.state !== 'healthy') actions.appendChild(handoffBtn);
+    // Always offered. It used to appear only once the session was judged unhealthy, which meant you
+    // discovered the feature the day the app started nagging you — and could not reach it at the moment
+    // it is worth most: deliberately handing over at a clean breakpoint, before a session gets expensive.
+    // The RECOMMENDATION still shows, as emphasis on the button (and in the health chip beside it); the
+    // button's existence was never the signal.
+    if (health.state !== 'healthy') handoffBtn.classList.add('recommended');
+    handoffBtn.title = health.state !== 'healthy'
+      ? `Create handoff — ${health.label}`
+      : 'Create handoff';
+    actions.appendChild(handoffBtn);
+
     // Only offer Fork where the backend can actually do it. Offering it anyway does NOT degrade into
     // "nothing happens" — it launches a fresh, empty session that has no relation to the one the user
     // forked, which is worse than not offering it at all.
