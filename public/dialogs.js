@@ -477,9 +477,15 @@ async function showGeneratedConfigDialog(project, groupId, backend) {
       const t = f.type === 'number' ? 'text' : 'text';
       control = `<input type="${t}" class="settings-input" id="${id}" value="${escapeHtml(val == null ? '' : String(val))}">`;
     }
+    // A backend's own quirks belong on screen (#160): the description comes from the descriptor, so a
+    // CLI's caveat ("at your own risk", "only applies with the local provider above") reaches the user
+    // where the decision is made, instead of living in a comment nobody reads.
     return `
-      <div class="settings-field settings-field-wide">
-        <div class="settings-field-info"><span class="settings-label">${escapeHtml(f.label || f.id)}</span></div>
+      <div class="settings-field settings-field-wide" ${f.requires ? `data-requires="${escapeHtml(f.requires)}"` : ''}>
+        <div class="settings-field-info">
+          <span class="settings-label">${escapeHtml(f.label || f.id)}</span>
+          ${f.description ? `<div class="settings-description">${escapeHtml(f.description)}</div>` : ''}
+        </div>
         <div class="settings-field-control">${control}</div>
       </div>`;
   }).join('');
@@ -561,9 +567,15 @@ async function showGeneratedResumeDialog(session, backend) {
     } else {
       control = `<input type="text" class="settings-input" id="${id}" value="${escapeHtml(val == null ? '' : String(val))}">`;
     }
+    // A backend's own quirks belong on screen (#160): the description comes from the descriptor, so a
+    // CLI's caveat ("at your own risk", "only applies with the local provider above") reaches the user
+    // where the decision is made, instead of living in a comment nobody reads.
     return `
-      <div class="settings-field settings-field-wide">
-        <div class="settings-field-info"><span class="settings-label">${escapeHtml(f.label || f.id)}</span></div>
+      <div class="settings-field settings-field-wide" ${f.requires ? `data-requires="${escapeHtml(f.requires)}"` : ''}>
+        <div class="settings-field-info">
+          <span class="settings-label">${escapeHtml(f.label || f.id)}</span>
+          ${f.description ? `<div class="settings-description">${escapeHtml(f.description)}</div>` : ''}
+        </div>
         <div class="settings-field-control">${control}</div>
       </div>`;
   }).join('');

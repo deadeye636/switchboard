@@ -110,6 +110,40 @@ carried over as an assumption. Recon it against a real install before building i
 
 ---
 
+## What each CLI accepts on its command line (#160)
+
+Read off each binary's **own `--help`** on a real install. The Settings page and the Configure dialog are
+**generated** from `configFields`, so this list *is* the configuration surface — an option missing here
+is an option the user cannot set at all. Until #160, Pi and Hermes declared **one** field each (model),
+which meant they were, in practice, not configurable from Switchboard.
+
+| Backend | Declared | Deliberately left out, and why |
+|---|---|---|
+| **Claude** | `permissionMode`, `model`, `worktree` (+`worktreeName`), `chrome`, `addDirs`, `preLaunchCmd`, `mcpEmulation`, `afkTimeoutSec` | — |
+| **Codex** | `model`, `approvalMode`, `sandbox`, `profile` (Codex' *own* config profile), `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` (`-c key=value`) | `--dangerously-bypass-approvals-and-sandbox` — its own help calls it "EXTREMELY DANGEROUS… solely for externally sandboxed environments". `sandbox: danger-full-access` already lets a user drop the sandbox on purpose; a single toggle that removes approvals *and* the sandbox is a different thing. `-C/--cd` (we own the cwd). |
+| **Hermes** | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo` | `--cli`/`--tui` (we run it in a PTY — interactive is the point), `-q`/`-Q` (non-interactive), anything that moves its session store. |
+| **Pi** | `model`, `provider`, `thinking`, `tools`, `excludeTools`, `appendSystemPrompt`, `noContextFiles` | **`--api-key`** — it would put a raw key on the COMMAND LINE, readable in any process listing. Pi reads its key from the environment; a template's `$VAR` env bundle (resolved at spawn, never on disk) is the only route we offer. Also `--mode json/rpc` and `--print` (non-interactive), `--session-dir`/`--no-session` (they move or suppress the store we watch). |
+
+Two markers a field may carry, because two honest exceptions exist and both must be **declared** rather
+than discovered by a puzzled reader:
+
+- **`appliesAt: 'spawn'`** — the option is real, but it is not in the argv `buildLaunch` returns. main.js
+  applies it at the spawn site: Claude's `preLaunchCmd` *prefixes* the command line, `mcpEmulation`
+  starts the MCP bridge and appends `--ide`, `afkTimeoutSec` becomes an env var.
+- **`requires: '<otherOption>'`** — the option only means anything while another one is on (a worktree's
+  branch name).
+
+`test/backend-config-fields.test.js` enforces the contract: **every declared option must change the
+command line**, unless it declares one of those two reasons — and a `spawn`-applied one must actually be
+read by main.js. A control that does nothing is the exact bug this file exists to prevent.
+
+**Hermes corrects an earlier claim of ours.** The old comment on its `configFields` said the list was
+"deliberately small" because its model/provider config lives in its own `config.yaml`. Half true, wholly
+misleading: Hermes self-authenticates (we inject no env, and that stays), but it takes a dozen meaningful
+**flags**. "No env" was read as "nothing to configure", and it made the backend unconfigurable.
+
+---
+
 ## The recurring lessons
 
 1. **Read the format from a real install.** The plan was wrong twice (Hermes' `cwd` column, Pi's cost

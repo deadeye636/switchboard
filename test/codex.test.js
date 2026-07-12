@@ -162,8 +162,13 @@ test('descriptor: codex is Axis-B, ready, monogram Cx, with its own configFields
   assert.strictEqual(codex.axis, 'B');
   assert.strictEqual(codex.status, 'ready');
   assert.strictEqual(codex.monogram, 'Cx');
+  // The full set Codex' own `--help` offers and we consider safe per session (#160). Pinned as a list
+  // so that dropping one is a decision, not an accident — the Settings page is generated from it.
   const ids = codex.configFields.map(f => f.id);
-  assert.deepStrictEqual(ids.sort(), ['approvalMode', 'model', 'sandbox']);
+  assert.deepStrictEqual(ids.sort(), [
+    'addDirs', 'approvalMode', 'configOverrides', 'localProvider', 'model', 'oss', 'profile',
+    'sandbox', 'search',
+  ]);
 });
 
 test('buildLaunch: new session uses argv spawnMode (no shell string)', () => {

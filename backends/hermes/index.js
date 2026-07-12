@@ -20,10 +20,35 @@ const path = require('path');
 const reader = require('./reader');
 const { deriveState } = require('./state');
 
-// Hermes' own launch options. Deliberately small: its model/provider config lives in its own
-// config.yaml, and we do not want to fight it.
+// Hermes' own launch options — taken from its real `--help` (#160), not from its docs.
+//
+// The old comment here claimed the list was "deliberately small" because Hermes' config lives in its own
+// config.yaml. That was half true and wholly misleading: Hermes self-authenticates and we inject no env,
+// but it takes a dozen meaningful FLAGS, and declaring one of them meant a user could not configure it
+// from Switchboard at all. Everything below is a top-level flag Hermes accepts on the interactive path.
+//
+// Deliberately NOT here: `--cli` / `--tui` (we run it in a PTY — its interactive mode is the whole
+// point), `-q/--query` and `-Q/--quiet` (non-interactive modes), and anything that moves its session
+// store (we would then be watching the wrong place).
 const configFields = [
-  { id: 'model', label: 'Model', type: 'text', default: '' },
+  { id: 'model', label: 'Model', type: 'text', default: '',
+    description: 'Model to use, e.g. anthropic/claude-sonnet-4. Empty = Hermes decides (config.yaml).' },
+  { id: 'provider', label: 'Provider', type: 'text', default: '',
+    description: 'Inference provider. Built-in, or a name you defined under `providers:` in Hermes\' config.yaml. Empty = auto.' },
+  { id: 'toolsets', label: 'Toolsets', type: 'text', default: '',
+    description: 'Comma-separated toolsets to enable for the session.' },
+  { id: 'skills', label: 'Skills', type: 'text', default: '',
+    description: 'Preload one or more skills, comma-separated.' },
+  { id: 'worktree', label: 'Git worktree', type: 'toggle', default: false,
+    description: 'Run in an isolated git worktree — for several agents on the same repo at once.' },
+  { id: 'checkpoints', label: 'Checkpoints', type: 'toggle', default: false,
+    description: 'Snapshot files before destructive operations, so /rollback can undo them.' },
+  { id: 'safeMode', label: 'Safe mode', type: 'toggle', default: false,
+    description: 'Hermes\' own restricted mode.' },
+  { id: 'acceptHooks', label: 'Auto-accept hooks', type: 'toggle', default: false,
+    description: 'Approve unseen shell hooks from config.yaml without prompting. Only for hooks you trust.' },
+  { id: 'yolo', label: 'Bypass approvals (yolo)', type: 'toggle', default: false,
+    description: 'Runs dangerous commands without asking. Hermes calls this "at your own risk", and so do we.' },
 ];
 
 /**
@@ -66,6 +91,14 @@ function buildLaunch({ cwd, resume, sessionId, options } = {}) {
 
   if (resume && sessionId) args.push('-r', String(sessionId));
   if (opts.model) args.push('--model', String(opts.model));
+  if (opts.provider) args.push('--provider', String(opts.provider));
+  if (opts.toolsets) args.push('--toolsets', String(opts.toolsets));
+  if (opts.skills) args.push('--skills', String(opts.skills));
+  if (opts.worktree) args.push('--worktree');
+  if (opts.checkpoints) args.push('--checkpoints');
+  if (opts.safeMode) args.push('--safe-mode');
+  if (opts.acceptHooks) args.push('--accept-hooks');
+  if (opts.yolo) args.push('--yolo');
 
   const exe = findExecutable();
 

@@ -53,12 +53,19 @@ const configFields = [
     default: 'default' },
   { id: 'model', label: 'Model', type: 'text', default: '' },
   { id: 'worktree', label: 'Git worktree', type: 'toggle', default: false },
-  { id: 'worktreeName', label: 'Worktree branch name', type: 'text', default: '' },
+  // `requires`: this option only means anything while another one is on. Declared, so the generated UI
+  // and the contract test both know it — an option that silently does nothing on its own is exactly the
+  // kind of dead control #160 exists to prevent.
+  { id: 'worktreeName', label: 'Worktree branch name', type: 'text', default: '', requires: 'worktree' },
   { id: 'chrome', label: 'Chrome', type: 'toggle', default: false },
   { id: 'addDirs', label: 'Additional directories', type: 'text', default: '' },
-  { id: 'preLaunchCmd', label: 'Pre-launch command', type: 'text', default: '' },
-  { id: 'mcpEmulation', label: 'IDE emulation (MCP bridge)', type: 'toggle', default: true },
-  { id: 'afkTimeoutSec', label: 'AskUserQuestion timeout (s)', type: 'number', default: '' },
+  // `appliesAt: 'spawn'`: NOT part of the argv this function builds. main.js applies these at the spawn
+  // site — preLaunchCmd PREFIXES the command line, mcpEmulation starts the MCP bridge and appends
+  // `--ide`, and afkTimeoutSec becomes an env var. They are still this backend's options and still
+  // cascade like any other; they just do not land in `args`. Say so, rather than let a test discover it.
+  { id: 'preLaunchCmd', label: 'Pre-launch command', type: 'text', default: '', appliesAt: 'spawn' },
+  { id: 'mcpEmulation', label: 'IDE emulation (MCP bridge)', type: 'toggle', default: true, appliesAt: 'spawn' },
+  { id: 'afkTimeoutSec', label: 'AskUserQuestion timeout (s)', type: 'number', default: '', appliesAt: 'spawn' },
 ];
 
 // Build the Claude argv exactly as main.js:3052-3086 does today. Returns a clean argv array (the

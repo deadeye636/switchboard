@@ -157,7 +157,7 @@
                 Use global default
               </label>
             </div>
-            <div class="settings-description">Used when you start a ${esc(backend.label)} session in this project without opening its configure dialog.</div>
+            <div class="settings-description">${esc(f.description || `Used when you start a ${backend.label} session in this project without opening its configure dialog.`)}</div>
           </div>
           <div class="settings-field-control">${configFieldControl(backend.id, f, value, !overridden)}</div>
         </div>`;

@@ -41,9 +41,32 @@ function setRoot(dir) {
   _root = dir || null;
 }
 
-// Pi's own launch options (§4a). Kept to what the CLI is known to accept; more can be added as data.
+// Pi's own launch options (§4a) — taken from its real `--help` (#160).
+//
+// Deliberately NOT here:
+//   `--api-key` — it would put a raw key on the COMMAND LINE, where every process listing on the machine
+//     can read it. Pi reads its key from the environment; a template's env bundle ($VAR, resolved at
+//     spawn, never written to disk) is the route for that, and the only one we will offer.
+//   `--mode json|rpc`, `--print` — non-interactive modes; we run Pi in a terminal.
+//   `--session-dir`, `--no-session`, `--session*` — they move or suppress the session store we watch.
 const configFields = [
-  { id: 'model', label: 'Model', type: 'text', default: '' },
+  { id: 'model', label: 'Model', type: 'text', default: '',
+    description: 'Model pattern or id — supports "provider/id" and an optional ":<thinking>" suffix.' },
+  { id: 'provider', label: 'Provider', type: 'text', default: '',
+    description: 'Provider name. Empty = Pi\'s own default.' },
+  { id: 'thinking', label: 'Thinking level', type: 'select',
+    choices: ['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+    choiceLabels: { '': 'Pi\'s default' },
+    default: '',
+    description: 'How hard the model thinks before answering.' },
+  { id: 'tools', label: 'Tools (allowlist)', type: 'text', default: '',
+    description: 'Comma-separated tool names to enable. Empty = all of them.' },
+  { id: 'excludeTools', label: 'Tools (denylist)', type: 'text', default: '',
+    description: 'Comma-separated tool names to disable. Applies to built-in, extension and custom tools.' },
+  { id: 'appendSystemPrompt', label: 'Append to system prompt', type: 'text', default: '',
+    description: 'Text (or a file path) appended to Pi\'s system prompt.' },
+  { id: 'noContextFiles', label: 'Ignore AGENTS.md / CLAUDE.md', type: 'toggle', default: false,
+    description: 'Do not load the project\'s context files for this session.' },
 ];
 
 /** Is pi actually installed? */
@@ -149,6 +172,12 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
   if (fork) args.push('--fork', String(fork));
   else if (resume && sessionId) args.push('--session', String(sessionId));
   if (opts.model) args.push('--model', String(opts.model));
+  if (opts.provider) args.push('--provider', String(opts.provider));
+  if (opts.thinking) args.push('--thinking', String(opts.thinking));
+  if (opts.tools) args.push('--tools', String(opts.tools));
+  if (opts.excludeTools) args.push('--exclude-tools', String(opts.excludeTools));
+  if (opts.appendSystemPrompt) args.push('--append-system-prompt', String(opts.appendSystemPrompt));
+  if (opts.noContextFiles) args.push('--no-context-files');
 
   // $VAR refs only — resolved at spawn, dropped when unset. We never read Pi's own credential files.
   // NOTE: a stored `pi /login` OAuth session takes priority over these, so an injected key can be

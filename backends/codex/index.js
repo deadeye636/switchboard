@@ -40,12 +40,35 @@ function sessionsRoot() {
 
 // Codex's own launch options (00 §4a) — NOT interchangeable with Claude's (a permission mode means
 // nothing here). Drives the generated Configure dialog + the per-backend Launch-defaults panel.
+// Codex' own launch options — taken from its real `--help` (#160).
+//
+// Deliberately NOT here: `-C/--cd` (we own the working directory), `--print`-style non-interactive
+// subcommands, and `--dangerously-bypass-approvals-and-sandbox`, whose own help calls it "EXTREMELY
+// DANGEROUS… intended solely for environments that are externally sandboxed". `sandbox:
+// danger-full-access` already lets a user turn the sandbox off deliberately; a one-click toggle that
+// removes approvals AND the sandbox at once is a different thing, and Switchboard is not that place.
 const configFields = [
-  { id: 'model', label: 'Model', type: 'text', default: '' },
+  { id: 'model', label: 'Model', type: 'text', default: '',
+    description: 'Model the agent should use. Empty = Codex\' own default.' },
   { id: 'approvalMode', label: 'Approval', type: 'select',
-    choices: ['untrusted', 'on-failure', 'on-request', 'never'], default: 'on-request' },
+    choices: ['untrusted', 'on-failure', 'on-request', 'never'], default: 'on-request',
+    description: 'When Codex asks before running a command.' },
   { id: 'sandbox', label: 'Sandbox', type: 'select',
-    choices: ['read-only', 'workspace-write', 'danger-full-access'], default: 'workspace-write' },
+    choices: ['read-only', 'workspace-write', 'danger-full-access'], default: 'workspace-write',
+    description: 'What model-generated commands may touch.' },
+  { id: 'profile', label: 'Codex config profile', type: 'text', default: '',
+    description: 'Codex\' OWN profile: layers $CODEX_HOME/<name>.config.toml over its base config. Not a Switchboard template.' },
+  { id: 'search', label: 'Web search', type: 'toggle', default: false,
+    description: 'Give the model Codex\' native web-search tool (no per-call approval).' },
+  { id: 'oss', label: 'Local (open-source) provider', type: 'toggle', default: false,
+    description: 'Run against a local model instead of the hosted one.' },
+  { id: 'localProvider', label: 'Local provider', type: 'select',
+    choices: ['', 'lmstudio', 'ollama'], choiceLabels: { '': 'Codex decides' }, default: '',
+    description: 'Which local runtime to use. Only applies with the local provider above.' },
+  { id: 'addDirs', label: 'Additional directories', type: 'text', default: '',
+    description: 'Comma-separated extra directories Codex may write to, alongside the project.' },
+  { id: 'configOverrides', label: 'Config overrides', type: 'text', default: '',
+    description: 'Codex `-c key=value` overrides, comma-separated (e.g. reasoning.effort=high). Dotted paths address nested values.' },
 ];
 
 /**
@@ -54,6 +77,11 @@ const configFields = [
  *   new:    `codex`                      (interactive TUI; -C/--cd sets the root)
  *   resume: `codex resume <sessionId>`   (binary-bound, §5.11 — no cross-binary resume)
  */
+/** A comma-separated text field -> a list. Empty entries are dropped, not passed as empty flags. */
+function splitList(value) {
+  return String(value || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
 function buildLaunch({ cwd, resume, sessionId, options } = {}) {
   const opts = options || {};
   const args = [];
@@ -65,6 +93,14 @@ function buildLaunch({ cwd, resume, sessionId, options } = {}) {
   if (opts.model) args.push('-m', String(opts.model));
   if (opts.approvalMode) args.push('-a', String(opts.approvalMode));
   if (opts.sandbox) args.push('-s', String(opts.sandbox));
+  if (opts.profile) args.push('--profile', String(opts.profile));
+  if (opts.search) args.push('--search');
+  if (opts.oss) args.push('--oss');
+  if (opts.localProvider) args.push('--local-provider', String(opts.localProvider));
+  // Repeatable flags: one occurrence per value. Splitting on the comma is what makes a single text box
+  // able to express a list — the same shape Claude's `addDirs` already uses.
+  for (const dir of splitList(opts.addDirs)) args.push('--add-dir', dir);
+  for (const kv of splitList(opts.configOverrides)) args.push('-c', kv);
 
   // Auth as $VAR refs only — resolved at spawn by env-refs, dropped if unset. Never read auth.json.
   const env = {
