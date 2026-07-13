@@ -69,6 +69,23 @@ for (const namespace of ['db', 'cache']) {
   });
 }
 
+test('the backend registry really has every function projects.js reads off it', () => {
+  // `backends` is handed over whole, not as an allow-list literal — so the gap here is a different one:
+  // read `ctx.backends.somethingTheRegistryDoesNotExport` and it is `undefined` at runtime, in an IPC
+  // handler, where the user sees "an error occurred". The registry loads under plain node (it is the
+  // descriptors, not the database), so this can be checked against the real thing.
+  const registry = require('../backends');
+  const needed = keysReadFrom('backends');
+
+  assert.ok(needed.size > 0, 'projects.js should read something off ctx.backends');
+  assert.match(read('main.js').slice(read('main.js').indexOf('projects.init(')), /\bbackends\b/,
+    'main.js must pass the registry to projects.init()');
+
+  const missing = [...needed].filter(k => typeof registry[k] !== 'function').sort();
+  assert.deepEqual(missing, [],
+    `projects.js calls ctx.backends.${missing.join(', ')} — the registry does not export it`);
+});
+
 test('projects.js stays free of Electron, or it cannot be tested at all', () => {
   const src = read('projects.js');
   assert.ok(!/require\(['"]electron['"]\)/.test(src),
