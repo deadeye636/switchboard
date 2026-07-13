@@ -774,6 +774,40 @@ test('a subagent transcript goes with its project — it has no filePath to foll
   } finally { t.cleanup(); }
 });
 
+test('a subagent the cache never saw still goes with its parent — files, sidecar and all', () => {
+  // Found by mutation testing: the line that removes a parent's `subagents/` directory was held by NO
+  // test. The test above only looked like it covered this — its subagent had a cached ROW, so its file was
+  // in the delete list on its own account and would have gone with or without that line.
+  //
+  // A subagent with no row is not exotic: it has not been scanned yet, or it was written by a parser
+  // version whose rows were dropped. Delete the project's history and its transcript would sit on disk for
+  // ever, orphaned — belonging to a project that no longer exists, and reachable by nothing.
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    const folder = encodeProjectPath(projectPath);
+    const subDir = path.join(t.store, folder, 'parent-1', 'subagents');
+    fs.mkdirSync(subDir, { recursive: true });
+
+    const parent = path.join(t.store, folder, 'parent-1.jsonl');
+    const parentMeta = path.join(t.store, folder, 'parent-1.meta.json');
+    const orphanSub = path.join(subDir, 'agent-9.jsonl');
+    const orphanMeta = path.join(subDir, 'agent-9.meta.json');
+    for (const f of [parent, parentMeta, orphanSub, orphanMeta]) fs.writeFileSync(f, '{}');
+
+    // ONLY the parent is in the cache. The subagent is on disk and nowhere else.
+    t.setCachedRows([{ sessionId: 'parent-1', folder, projectPath, filePath: null, backendId: 'claude' }]);
+
+    const res = projects.deleteProjectSessions(projectPath, ['claude']);
+
+    assert.strictEqual(fs.existsSync(parent), false);
+    assert.strictEqual(fs.existsSync(parentMeta), false, 'the sidecar goes with the transcript');
+    assert.strictEqual(fs.existsSync(orphanSub), false, 'and so does the subagent nobody had indexed');
+    assert.strictEqual(fs.existsSync(subDir), false, 'its directory with it');
+    assert.deepStrictEqual(res.deleted, { claude: 1 }, 'counted as the one session it is — the parent');
+  } finally { t.cleanup(); }
+});
+
 test('clearing one backend keeps the project\'s tags while another backend still has sessions', () => {
   // pruneProjectIfGone wipes a project's tags, handoffs and favourites, and it only ever looked in
   // CLAUDE's store. Clearing the Claude history of a project that also has Codex sessions therefore read

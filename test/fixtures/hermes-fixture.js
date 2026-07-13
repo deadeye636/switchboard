@@ -431,10 +431,25 @@ function writeHermesDb(file) {
   return file;
 }
 
-/** A throwaway HERMES_HOME containing a freshly built `state.db`. */
+// BUILD ONCE, COPY MANY.
+//
+// The fixture is deterministic — that is the whole idea — so building it is the same 260 ms of SQLite
+// work every single time. `hermes.test.js` asked for a fresh home 35 times and spent nine seconds
+// rebuilding a file it already had, byte for byte. That is not thoroughness, it is a loop.
+//
+// Every caller still gets its OWN COPY, so a test that writes to the store cannot reach another's.
+let templateDb = null;
+function template() {
+  if (templateDb && fs.existsSync(templateDb)) return templateDb;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-template-'));
+  templateDb = writeHermesDb(path.join(dir, 'state.db'));
+  return templateDb;
+}
+
+/** A throwaway HERMES_HOME containing its own copy of the fixture store. */
 function makeHermesHome() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-home-'));
-  writeHermesDb(path.join(home, 'state.db'));
+  fs.copyFileSync(template(), path.join(home, 'state.db'));
   return home;
 }
 
