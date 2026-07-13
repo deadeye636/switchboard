@@ -23,13 +23,15 @@
 const fs = require('fs');
 const crypto = require('crypto');
 const { bucketFromIso, bucketKey } = require('../../metrics-bucket');
+const { threadName } = require('./thread-names');
 
 // Bump on ANY behavioural change to this parser — persisted parse-state keyed on it is then dropped,
 // and (since #152) every session this parser already wrote is re-read, so a change like v3 below
 // actually reaches the charts instead of waiting for someone to press Rebuild.
 //   v2: the parse state carries per-(date, model) metrics (#154)
 //   v3: per-(date, HOUR, model), bucketed in LOCAL time, with the two cost columns (#159)
-const PARSER_SCHEMA_VERSION = 3;
+//   v4: the title prefers the user's thread name from session_index.jsonl, where there is one (#153)
+const PARSER_SCHEMA_VERSION = 4;
 
 // Bytes of the already-consumed tail we fingerprint to detect a rewritten/truncated file.
 const FINGERPRINT_BYTES = 64;
@@ -248,7 +250,17 @@ function readFrom(filePath, st, startOffset) {
 /** Build the normalised row session-cache consumes (same shape as read-session-file's). */
 function buildRow(st, filePath, opts = {}) {
   if (!st.sessionId || st.messageCount < 1) return null;
-  const summary = st.summary || st.fallbackSummary || '';
+
+  // The title: the name the user gave the thread, if they gave it one — otherwise their first real
+  // prompt, which is what it always was. Codex keeps thread names in a side file, not in the rollout
+  // (see thread-names.js), and on a real install only a minority of sessions have one. So this is an
+  // OVERLAY on the prompt, never a replacement for it: no name, no change.
+  //
+  // It deliberately does NOT go through `customTitle`. That field is promoted into `session_meta.name`
+  // by the scan, which would overwrite a rename the user made in Switchboard, on every rescan. A Codex
+  // thread name is a label, not a claim on the name column.
+  const prompt = st.summary || st.fallbackSummary || '';
+  const summary = threadName(st.sessionId) || prompt;
   let stat;
   try { stat = fs.statSync(filePath); } catch { return null; }
   const activeMinutes = st.startedAt && st.lastEntryAt
@@ -261,7 +273,7 @@ function buildRow(st, filePath, opts = {}) {
     folder: opts.folder != null ? opts.folder : null,
     projectPath: opts.projectPath != null ? opts.projectPath : null,
     summary,
-    firstPrompt: summary,
+    firstPrompt: prompt,   // the prompt stays the prompt — the thread name only titles it
     created: st.startedAt || stat.birthtime.toISOString(),
     modified: st.lastEntryAt || stat.mtime.toISOString(),
     messageCount: st.messageCount,

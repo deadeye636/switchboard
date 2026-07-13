@@ -322,13 +322,25 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
   // `planned` or disabled one is never offered.
   await (window.refreshBackendCaches ? window.refreshBackendCaches() : Promise.resolve());
   const backendList = window.launchableBackends ? window.launchableBackends() : [];
-  // Claude first, then the other built-ins, then user profiles — a stable, predictable order.
+  // The DEFAULT first, then the other built-ins, then user profiles — a stable, predictable order.
+  // It used to be "Claude first", which is the same thing only as long as Claude is the default: a user
+  // who set another one got their default buried under Claude, unmarked, in a list of equals (#153).
+  const defaultId = window._defaultBackendId || 'claude';
   backendList.sort((a, b) => {
-    if (a.id === 'claude') return -1;
-    if (b.id === 'claude') return 1;
+    if (a.id === defaultId) return -1;
+    if (b.id === defaultId) return 1;
     if (!!a.isProfile !== !!b.isProfile) return a.isProfile ? 1 : -1;
     return String(a.label).localeCompare(String(b.label));
   });
+
+  // The group label the mockup asks for. Only when there is something under it: a heading over an empty
+  // list is worse than no heading (every backend can be disabled — §5.8).
+  if (backendList.length) {
+    const cliLabel = document.createElement('div');
+    cliLabel.className = 'popover-group-label';
+    cliLabel.textContent = 'CLI backends';
+    popover.appendChild(cliLabel);
+  }
 
   for (const backend of backendList) {
     const row = document.createElement('div');
@@ -348,6 +360,18 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
     } else {
       launchBtn.textContent = backend.label;
     }
+
+    // Say which one a plain click on the project's + button would start. Nothing marked it before — not a
+    // class, not a tooltip — so the default was indistinguishable from the rest.
+    if (backend.id === defaultId) {
+      const tag = document.createElement('span');
+      tag.className = 'popover-option-tag';
+      tag.textContent = 'default';
+      tag.title = 'Started by the + button, and by the keyboard shortcut';
+      launchBtn.appendChild(tag);
+      launchBtn.title = `Start a ${backend.label} session with the current defaults (this is the default backend)`;
+    }
+
     launchBtn.onclick = async () => {
       popover.remove();
       launchNewSession(project, await resolveLaunchOptionsFor(project, backend.id), undefined, groupId);

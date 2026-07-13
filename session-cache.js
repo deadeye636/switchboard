@@ -613,6 +613,7 @@ function storeExists(b) {
 
 function refreshBackendSessions(backendId, { force = false } = {}) {
   const stats = { scanned: 0, upserted: 0, skipped: 0, deleted: 0 };
+  const startedMs = Date.now();   // how long a store takes to walk (#153) — a number, not a hand-timed guess
 
   const b = backends.list().find(d => d.id === backendId);
   if (!b) return stats;
@@ -776,8 +777,9 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
     stats.deleted++;
   }
 
+  stats.elapsedMs = Date.now() - startedMs;
   if (stats.upserted || stats.deleted) {
-    log.info(`[scan] ${backendId}: ${stats.scanned} sessions (${stats.upserted} indexed, ${stats.skipped} unchanged, ${stats.deleted} removed)`);
+    log.info(`[scan] ${backendId}: ${stats.scanned} sessions (${stats.upserted} indexed, ${stats.skipped} unchanged, ${stats.deleted} removed) in ${stats.elapsedMs} ms`);
   }
   return stats;
 }
@@ -1086,6 +1088,15 @@ function populateCacheViaWorker() {
   if (populatePromise) return populatePromise;
   sendStatus('Scanning projects\u2026', 'active');
 
+  // TIME IT (#153). The cold scan's duration was measured once, by hand, and never again \u2014 so a
+  // regression in it would go unnoticed, and it is the one thing standing between the user and a window
+  // with nothing in it. The point has grown: #157 added a path that re-reads the WHOLE store on a parser
+  // bump, and nobody would notice that doubling.
+  //
+  // `info`, not `debug`: packaged builds default to info, and a number nobody can see cannot be compared
+  // against anything. It is one line per cold start, not per event.
+  const startedMs = Date.now();
+
   populatePromise = new Promise((resolve) => {
     let settled = false;
     const settle = () => {
@@ -1161,6 +1172,13 @@ function populateCacheViaWorker() {
       }
       setFolderMeta(folder, projectPath, indexMtimeMs);
     }
+
+    const elapsedMs = Date.now() - startedMs;
+    const perSession = sessionCount ? Math.round(elapsedMs / sessionCount) : 0;
+    log.info(
+      `[scan] cold scan: ${sessionCount} sessions across ${msg.results.length} projects in ${elapsedMs} ms`
+      + (sessionCount ? ` (${perSession} ms/session)` : '')
+    );
 
     sendStatus(`Indexed ${sessionCount} sessions across ${msg.results.length} projects`, 'done');
     // Clear status after a few seconds

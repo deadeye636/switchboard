@@ -9806,6 +9806,22 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
   border-top: 1px solid rgba(255,255,255,0.08);
   margin-top: 4px;
 }
+/* "default" on the backend the + button actually starts (#153). Quiet — it labels a row, it is not a
+   second thing to click. The first group label in the popover has no top border, or the menu opens with
+   a rule across its head. */
+.popover-group-label:first-child { border-top: none; margin-top: 0; }
+.popover-option-tag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.09);
+  color: #8a8aa0;
+  vertical-align: middle;
+}
 /* A saved tool's name can be long — keep the popover from growing sideways (the row stays a flex
    container; only the label truncates). */
 .popover-option-launcher { max-width: 320px; }

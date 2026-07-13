@@ -44,6 +44,27 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
 - Windows: `codex` on PATH is an npm **`.cmd` shim**, which `CreateProcess` cannot execute → argv spawn
   falls back to the shell.
 
+### The thread-name side file (#153)
+
+A session's **title is not in its own transcript.** Codex keeps the names the user gave their threads in a
+separate append-only file next to the store:
+
+```
+(CODEX_HOME | ~/.codex)/session_index.jsonl
+
+{"id":"019daeed-…","thread_name":"Rework the permission system","updated_at":"2026-04-21T07:25:57.4155311Z"}
+```
+
+- `id` is the same uuid as `session_meta.payload.id` — this is the join.
+- **It is an overlay, not a title source.** Measured on a real install: **four entries against nine
+  rollout files**, last written three months ago. An entry exists only for a thread the user bothered to
+  name, and Codex does not backfill the rest. So a session with no entry is the **common case**, and the
+  first real user prompt stays the title. A per-session fallback is mandatory, not polish.
+- The parser reads it once, memoised on the file's mtime (`backends/codex/thread-names.js`).
+- It does **not** go through `customTitle`: that field is promoted into `session_meta.name` by the scan,
+  which would overwrite a rename the user made in Switchboard, on every rescan. A thread name is a label,
+  not a claim on the name column.
+
 ## Hermes — SQLite
 
 ```
