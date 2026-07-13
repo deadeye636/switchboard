@@ -125,6 +125,45 @@ test('a long SILENT turn stays busy on every store-derived backend while its PTY
   assert.equal(hermes.deriveState({ isEnded: true, lastActivityMs: now }, now, { lastOutputMs: now }), 'idle');
 });
 
+test('...but the terminal cannot hold a turn busy FOR EVER — every net has a ceiling (#166)', () => {
+  // `lastOutputMs` is refreshed on every PTY data chunk, and that includes a spinner frame, a clock, an
+  // echoed keystroke, a repaint. So a session STUCK in the running-turn branch — a store row that never
+  // got its closing message: a crash, a lost write, a state we misread — stayed at "working" for ever, as
+  // long as its TUI twitched once a minute. That is the "permanently working" failure this repo has
+  // already shipped twice, through a third door.
+  //
+  // Past the ceiling the STORE is the state. Output was only ever the tie-breaker.
+  const hermes = require('../backends/hermes/state');
+  const pi = require('../backends/pi/state');
+  const now = Date.now();
+
+  for (const [name, mod] of [['hermes', hermes], ['pi', pi]]) {
+    const ceiling = mod.OUTPUT_LIVENESS_CEILING_MS;
+    assert.ok(ceiling > mod.ACTIVITY_WINDOW_MS,
+      `${name}: a ceiling at or below the activity window would cancel the net it is bounding`);
+    assert.ok(ceiling > mod.OUTPUT_LIVENESS_MS, `${name}: and it must outlive the liveness window itself`);
+  }
+
+  // A turn silent for just under the ceiling, with a chatty terminal: still busy — this is the case the
+  // net exists for.
+  const justUnder = now - (hermes.OUTPUT_LIVENESS_CEILING_MS - 30_000);
+  assert.equal(
+    hermes.deriveState({ isEnded: false, lastRole: 'user', lastActivityMs: justUnder }, now, { lastOutputMs: now }),
+    'busy');
+  assert.equal(
+    pi.deriveState({ lastRole: 'user', lastEntryAt: new Date(justUnder).toISOString() }, now, { lastOutputMs: now }),
+    'busy');
+
+  // Past it — and the terminal is STILL talking, right now. Idle anyway.
+  const past = now - (hermes.OUTPUT_LIVENESS_CEILING_MS + 1000);
+  assert.equal(
+    hermes.deriveState({ isEnded: false, lastRole: 'user', lastActivityMs: past }, now, { lastOutputMs: now }),
+    'idle', 'hermes: a wedged session must heal itself, whatever its TUI is painting');
+  assert.equal(
+    pi.deriveState({ lastRole: 'user', lastEntryAt: new Date(past).toISOString() }, now, { lastOutputMs: now }),
+    'idle', 'pi: same rule, same reason — fix one, check its sibling');
+});
+
 test('a backend that names its own sessions can say whether it knows one yet', () => {
   // The fork bug: Codex, Hermes and Pi name their own sessions, and we only adopt that name once they
   // have written their store record — after the agent's first answer. Fork a session before that, and

@@ -66,6 +66,22 @@ const ACTIVITY_WINDOW_MS = 3 * 60 * 1000;
 const OUTPUT_LIVENESS_MS = 60 * 1000;
 
 /**
+ * The CEILING on that net (#166). The terminal may keep a turn out of idle for a while; it may not do so
+ * for ever.
+ *
+ * `lastOutputMs` is refreshed on every PTY data chunk, and that includes a spinner frame, a clock, an
+ * echoed keystroke, a repaint. So a session STUCK in the running-turn branch — a store row that never got
+ * its closing message: a crash, a lost write, a state we misread — sat at "working" indefinitely, as long
+ * as its TUI twitched once a minute. This is the "permanently working" failure this repo has already
+ * shipped twice, reachable through a third door.
+ *
+ * Five activity windows: long enough for the case the net exists for (a real turn thinking, or running a
+ * long tool without writing a message), short enough that a wedged session heals itself well inside a
+ * working session. Past it, the STORE is the state — output was only ever the tie-breaker.
+ */
+const OUTPUT_LIVENESS_CEILING_MS = 5 * ACTIVITY_WINDOW_MS;   // 15 minutes
+
+/**
  * Derive state from a parsed Hermes row. `nowMs` is injectable for tests.
  * `opts.lastOutputMs` = when this session's PTY last produced output (main.js). Liveness only.
  */
@@ -86,10 +102,13 @@ function deriveState(row, nowMs = Date.now(), opts = {}) {
   if (!Number.isFinite(last) || last <= 0) return IDLE;
   if ((nowMs - last) < ACTIVITY_WINDOW_MS) return BUSY;
 
+  // Silent for longer than the ceiling: over, whatever the terminal is doing. The store is the state.
+  if ((nowMs - last) >= OUTPUT_LIVENESS_CEILING_MS) return IDLE;
+
   // Running, but nothing written for a long time: still working, or dead? The terminal knows — and it may
   // only keep this turn out of idle, never declare one busy (D21).
   const out = Number(opts.lastOutputMs || 0);
   return (out && nowMs - out <= OUTPUT_LIVENESS_MS) ? BUSY : IDLE;
 }
 
-module.exports = { deriveState, BUSY, IDLE, ACTIVITY_WINDOW_MS, OUTPUT_LIVENESS_MS };
+module.exports = { deriveState, BUSY, IDLE, ACTIVITY_WINDOW_MS, OUTPUT_LIVENESS_MS, OUTPUT_LIVENESS_CEILING_MS };

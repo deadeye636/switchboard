@@ -34,6 +34,16 @@ const ACTIVITY_WINDOW_MS = 3 * 60 * 1000;
 // How recently the PTY must have said something for a silent turn to still count as running.
 const OUTPUT_LIVENESS_MS = 60 * 1000;
 
+/**
+ * The CEILING on that net (#166) — the same rule, and the same reason, as Hermes'.
+ *
+ * `lastOutputMs` is refreshed on every PTY data chunk: a spinner frame, a clock, an echoed keystroke, a
+ * repaint. Without an outer bound, a session stuck in the running-turn branch stays "working" for ever as
+ * long as its TUI twitches once a minute. Five activity windows — long enough for a real turn that is
+ * thinking, short enough that a wedged one heals itself. Past it, the STORE is the state.
+ */
+const OUTPUT_LIVENESS_CEILING_MS = 5 * ACTIVITY_WINDOW_MS;   // 15 minutes
+
 const TAIL_BYTES = 64 * 1024;
 
 /**
@@ -53,6 +63,9 @@ function deriveState(row, now = Date.now(), opts = {}) {
 
   if (!running) return IDLE;                                    // an answered turn is an answered turn
   if (!stale) return BUSY;
+
+  // Silent for longer than the ceiling: over, whatever the terminal is doing (#166).
+  if (Number.isFinite(lastMs) && now - lastMs >= OUTPUT_LIVENESS_CEILING_MS) return IDLE;
 
   // Silent for a while. Is the process still alive and talking?
   const out = Number(opts.lastOutputMs || 0);
@@ -123,4 +136,8 @@ function deriveStateFromFileTail(filePath, now = Date.now(), opts = {}) {
   }
 }
 
-module.exports = { deriveState, deriveStateFromFileTail, ACTIVITY_WINDOW_MS, OUTPUT_LIVENESS_MS, BUSY, IDLE };
+module.exports = {
+  deriveState, deriveStateFromFileTail,
+  ACTIVITY_WINDOW_MS, OUTPUT_LIVENESS_MS, OUTPUT_LIVENESS_CEILING_MS,
+  BUSY, IDLE,
+};
