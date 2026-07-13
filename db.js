@@ -1867,21 +1867,30 @@ function getDailyActivity() {
 // unit test instead of being checked against a JS re-implementation of itself. Everything here is the
 // plumbing: prepare, memoize, reshape.
 //
-// Every aggregate takes an optional backendId ('all' / falsy = the whole corpus).
+// Every aggregate takes an optional backend filter ('all' / falsy = the whole corpus).
+//
+// THE FILTER IS A LIST, not one id (#168). "Codex" means "everything that ran the Codex binary": the
+// backend itself, plus every template on it — a session launched from a template records the TEMPLATE's
+// id as its provenance (§5.7), because that is what the user chose. main.js expands the id
+// (`backendFilterIds`) and stats-queries.js emits one `?` per id. This function used to flatten the whole
+// thing back with `String(backendId)`, binding the literal `"codex,test-1"` against a column that holds
+// neither — so the moment ONE template ran on a backend, filtering by that backend reported zero
+// sessions and the Stats page came back blank. Claude only escaped it because no template ran on Claude.
 const statsQueries = require('./stats-queries');
 
-// Statements are memoized on first use (the stats screen may never be opened) instead of being
-// re-parsed on every call — one variant per (query, filtered?) pair, so at most two each.
+// Statements are memoized on first use (the stats screen may never be opened) instead of being re-parsed
+// on every call. What to run, what to bind and what to cache it under is decided by `statsQueries.plan()`
+// — a pure function, in a module a test can load. Nothing about the filter is decided here any more: this
+// file cannot be loaded in a test, and a decision made where nothing can check it is where #168 hid.
 const _statsStmts = new Map();
 function runStats(name, backendId) {
-  const only = backendId && backendId !== 'all' ? String(backendId) : null;
-  const cacheKey = name + (only ? ':one' : ':all');
+  const { sql, params, cacheKey } = statsQueries.plan(name, backendId);
   let stmt = _statsStmts.get(cacheKey);
   if (!stmt) {
-    stmt = db.prepare(statsQueries[name](only).sql);
+    stmt = db.prepare(sql);
     _statsStmts.set(cacheKey, stmt);
   }
-  return only ? stmt.all(only) : stmt.all();
+  return stmt.all(...params);
 }
 
 // One row per day, summed across all models and hours. Powers the heatmap + daily bars.

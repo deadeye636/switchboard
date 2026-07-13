@@ -177,7 +177,37 @@ function totalSessions(backend) {
   };
 }
 
+/**
+ * Everything db.js needs to run one of these: the SQL, the values to bind, and the key to cache the
+ * prepared statement under.
+ *
+ * It lives HERE because db.js cannot be loaded in a test (better-sqlite3 is built for Electron's ABI), so
+ * anything decided in db.js is decided where nothing can check it — and that is exactly where #168 hid.
+ * The SQL layer was correct and tested; the plumbing above it flattened the id LIST into the string
+ * `"codex,test-1"` and bound it against a column that holds neither, so filtering by a backend that had
+ * even one template on it reported zero sessions and the Stats page came back blank.
+ *
+ * `cacheKey` carries the id COUNT, because that is what the SQL is shaped by — one `?` per id. Keyed on
+ * "filtered or not", a statement prepared for two ids would be handed three, which is a different query.
+ * The old bug hid that too: with the ids flattened to one string there was never more than one `?`.
+ *
+ * @param {string} name              a query in this module
+ * @param {string|string[]|null} backend  a backend id, the LIST it expands to (backend + its templates),
+ *                                        or null / 'all' for the whole corpus
+ */
+function plan(name, backend) {
+  const query = module.exports[name];
+  if (typeof query !== 'function') throw new Error(`unknown stats query: ${name}`);
+
+  const raw = backend && backend !== 'all' ? backend : null;
+  const ids = idList(raw) || [];
+  const { sql, params } = query(ids.length ? ids : null);
+
+  return { sql, params, cacheKey: `${name}:${ids.length}` };
+}
+
 module.exports = {
   dailyMetrics, dailyModelTokens, modelUsage, dailyBackendTokens,
   dailyCost, hourlyActivity, totals, totalSessions,
+  idList, plan,
 };

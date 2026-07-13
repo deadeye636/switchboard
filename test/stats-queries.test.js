@@ -73,6 +73,7 @@ function seed() {
       ('c1',  NULL, 'claude'),
       ('sub', 'c1', 'claude'),
       ('x1',  NULL, 'codex'),
+      ('tpl', NULL, 'test-1'),        -- a TEMPLATE that runs the Codex binary: its provenance is the template
       ('h1',  NULL, 'hermes'),
       ('old', NULL, NULL);            -- indexed before backends existed: NULL means Claude
   `);
@@ -93,6 +94,8 @@ function seed() {
       ('old', '${MONDAY}',   9,  'opus',   1, 0,   7,   3, 0, 0, NULL, NULL),
       -- Codex: also no money.
       ('x1',  '${MONDAY}',   9,  'gpt',    2, 1, 200,  60, 0, 0, NULL, NULL),
+      -- ...and a session run from a TEMPLATE on Codex. Filtering by "Codex" has to find this too.
+      ('tpl', '${MONDAY}',   11, 'gpt',    7, 3, 500, 100, 0, 0, NULL, NULL),
       -- Hermes: money. One bucket is an ESTIMATE, one is SETTLED. And one bucket has no hour at all,
       -- because Hermes cannot always say when within the day — it must still count per day.
       ('h1',  '${MONDAY}',   20, 'sonnet', 6, 0, 300,  90, 0, 0, 0.02, NULL),
@@ -111,9 +114,9 @@ test('unfiltered, the daily figures cover every backend', () => {
   try {
     const rows = run(db, q.dailyMetrics(null));
     const monday = rows.find(r => r.date === MONDAY);
-    // 4+2+3 (claude) + 5 (subagent) + 1 (legacy NULL) + 2 (codex) + 6 (hermes)
-    assert.equal(monday.messageCount, 23);
-    assert.equal(monday.sessionCount, 5, 'five distinct sessions were active that day');
+    // 4+2+3 (claude) + 5 (subagent) + 1 (legacy NULL) + 2 (codex) + 7 (a template ON codex) + 6 (hermes)
+    assert.equal(monday.messageCount, 30);
+    assert.equal(monday.sessionCount, 6, 'six distinct sessions were active that day');
   } finally { db.close(); }
 });
 
@@ -154,12 +157,67 @@ test('an orphan metrics row is not counted into a filtered chart', () => {
   } finally { db.close(); }
 });
 
+// --- the filter is a LIST: the backend, plus every template that runs on it (#168) ---------------
+//
+// The bug: db.js took the expanded list and flattened it with `String(backendId)`, binding the literal
+// `"codex,test-1"` against a column that holds neither. So the moment ONE template ran on a backend,
+// filtering by that backend reported ZERO sessions and the whole Stats page came back blank — no
+// heatmap, no bars, no cost. Claude only escaped it because no template ran on Claude.
+//
+// The SQL was right and tested all along. The decision that was wrong lived in db.js, which no test can
+// load (better-sqlite3 is built for Electron's ABI) — so it now lives in `plan()`, here.
+
+test('filtering by a backend finds the sessions its TEMPLATES ran, too', () => {
+  const db = seed();
+  try {
+    // What main.js hands down: "Codex" expands to the backend plus every template on it.
+    const spec = q.plan('dailyMetrics', ['codex', 'test-1']);
+    assert.deepEqual(spec.params, ['codex', 'test-1'], 'one bound value per id — not one flattened string');
+
+    const monday = run(db, spec).find(r => r.date === MONDAY);
+    assert.equal(monday.messageCount, 9, '2 from the plain Codex session + 7 from the one run on the template');
+    assert.equal(monday.sessionCount, 2);
+
+    const total = run(db, q.plan('totalSessions', ['codex', 'test-1']))[0];
+    assert.equal(total.cnt, 2, 'and the page does not report zero sessions while two are plainly there');
+  } finally { db.close(); }
+});
+
+test('the statement cache is keyed on HOW MANY ids, because that is what the SQL is shaped by', () => {
+  // One `?` per id. A cache keyed on "filtered or not" would hand a statement prepared for two ids to a
+  // filter with three — a different query, silently. The old bug hid this: with the ids flattened into
+  // one string there was never more than one placeholder to get wrong.
+  const one = q.plan('dailyMetrics', ['codex']);
+  const two = q.plan('dailyMetrics', ['codex', 'test-1']);
+  const none = q.plan('dailyMetrics', 'all');
+
+  assert.notEqual(one.cacheKey, two.cacheKey);
+  assert.notEqual(one.cacheKey, none.cacheKey);
+  assert.equal((one.sql.match(/\?/g) || []).length, 1);
+  assert.equal((two.sql.match(/\?/g) || []).length, 2);
+  assert.deepEqual(none.params, [], 'no filter binds nothing');
+});
+
+test('plan() takes a bare id as readily as a list, and "all" as no filter at all', () => {
+  const db = seed();
+  try {
+    assert.deepEqual(q.plan('dailyMetrics', 'hermes').params, ['hermes']);
+    assert.deepEqual(q.plan('dailyMetrics', null).params, []);
+    assert.deepEqual(q.plan('dailyMetrics', 'all').params, []);
+    assert.equal(run(db, q.plan('totalSessions', null))[0].cnt, 5, 'unfiltered still means everything');
+  } finally { db.close(); }
+});
+
+test('an unknown query name is an error, not an empty page', () => {
+  assert.throws(() => q.plan('nonesuch', 'codex'), /unknown stats query/);
+});
+
 // --- totals -------------------------------------------------------------------------------------
 
 test('the session count excludes subagents — they are work, not sessions', () => {
   const db = seed();
   try {
-    assert.equal(run(db, q.totalSessions(null))[0].cnt, 4, 'c1, x1, h1, old — NOT sub');
+    assert.equal(run(db, q.totalSessions(null))[0].cnt, 5, 'c1, x1, tpl, h1, old — NOT sub');
     assert.equal(run(db, q.totalSessions('claude'))[0].cnt, 2, 'c1 and the legacy row');
     assert.equal(run(db, q.totalSessions('hermes'))[0].cnt, 1);
     assert.equal(run(db, q.totalSessions('pi'))[0].cnt, 0, 'a backend with no sessions is 0, not an error');
@@ -170,7 +228,7 @@ test('the totals follow the filter too', () => {
   const db = seed();
   try {
     const all = run(db, q.totals(null))[0];
-    assert.equal(all.totalTokens, 100 + 40 + 50 + 10 + 10 + 5 + 20 + 10 + 7 + 3 + 200 + 60 + 300 + 90 + 10 + 5);
+    assert.equal(all.totalTokens, 100 + 40 + 50 + 10 + 10 + 5 + 20 + 10 + 7 + 3 + 200 + 60 + 500 + 100 + 300 + 90 + 10 + 5);
     const codex = run(db, q.totals('codex'))[0];
     assert.equal(codex.totalTokens, 260);
     assert.equal(codex.totalToolCalls, 1);
