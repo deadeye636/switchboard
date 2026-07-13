@@ -116,7 +116,10 @@ contextBridge.exposeInMainWorld('api', {
   unhideProject: (projectPath) => ipcRenderer.invoke('unhide-project', projectPath),
   remapProject: (oldPath, newPath) => ipcRenderer.invoke('remap-project', oldPath, newPath),
   getProjectsAdmin: () => ipcRenderer.invoke('get-projects-admin'),
-  setProjectTrust: (projectPath, trusted) => ipcRenderer.invoke('set-project-trust', projectPath, trusted),
+  // Trust is per BACKEND (#171): Claude keeps it in ~/.claude.json, Codex in its own config.toml, and
+  // Pi/Hermes have no such gate at all. The backend that owns the answer writes it.
+  setProjectTrust: (projectPath, backendId, trusted) =>
+    ipcRenderer.invoke('set-project-trust', projectPath, backendId, trusted),
   deleteProjectSessions: (projectPath) => ipcRenderer.invoke('delete-project-sessions', projectPath),
   removeProjectConfig: (projectPath) => ipcRenderer.invoke('remove-project-config', projectPath),
   getZoomLevel: () => ipcRenderer.invoke('get-zoom-level'),

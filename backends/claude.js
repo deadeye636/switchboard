@@ -164,9 +164,34 @@ function watchTargets() {
   return _roots.map(p => ({ kind: 'dir', path: p }));
 }
 
+// Per-project TRUST, and how to move a transcript to a new project path (#171). Both are the backend's
+// own business — Claude keeps trust in ~/.claude.json and writes `cwd` on every line; Codex keeps trust
+// in its config.toml and writes cwd once, in its header. A backend that has neither declares neither,
+// and the project manager stops pretending it speaks for everyone.
+const claudeConfig = require('../claude-config');
+const { rewriteTranscript, claudeLine } = require('./rewrite-cwd');
+
+const projectTrust = {
+  get: (projectPath) => {
+    try {
+      const map = claudeConfig.getProjectTrustMap();
+      const norm = claudeConfig.normalizeClaudePath(projectPath);
+      return map.has(norm) ? map.get(norm) : null;
+    } catch { return null; }
+  },
+  set: (projectPath, trusted) => claudeConfig.setProjectTrust(projectPath, trusted),
+};
+
+/** Rewrite this session's transcript so it belongs to `newPath`. Returns whether it changed anything. */
+function rewriteProjectPath(filePath, oldPath, newPath) {
+  return rewriteTranscript(filePath, oldPath, newPath, claudeLine);
+}
+
 module.exports = {
   id: 'claude',
   supportsFork,
+  projectTrust,
+  rewriteProjectPath,
   // Claude's parser lives in read-session-file.js (it predates the backend registry); its version rides
   // on the descriptor like every other backend's, so the scan's staleness gate (#152) is one rule for
   // all of them and not a special case for the default backend.

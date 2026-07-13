@@ -24,6 +24,7 @@ const { execFileSync } = require('child_process');
 
 const parser = require('./parser');
 const { createFileStore, findOnPath } = require('../file-store');
+const { rewriteTranscript, piLine } = require('../rewrite-cwd');
 const { deriveState, deriveStateFromFileTail } = require('./state');
 
 let _root = null;
@@ -249,6 +250,13 @@ module.exports = {
   matchLiveSession: store.matchLiveSession,
   liveRefFor: store.liveRefFor,
   liveState,
+
+  // Pi writes its cwd ONCE, on the header line — so a remap has to touch that one line, and Pi's
+  // transcripts move with the project like everyone else's (#171).
+  rewriteProjectPath: (filePath, oldPath, newPath) =>
+    rewriteTranscript(filePath, oldPath, newPath, piLine),
+  // No `projectTrust`: Pi has no per-project trust gate (checked against a real install — its
+  // settings.json carries none). The project manager shows that honestly rather than inventing one.
 
   sessionsRoot,
   setRoot,

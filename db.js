@@ -1394,6 +1394,39 @@ function getCachedByFolder(folder, scope) {
   return normalizeCacheRows(prepScoped(sql).all(folder, ...c.params));
 }
 
+/**
+ * Every cached session of a project, whatever backend wrote it — with the path to its transcript (#171).
+ *
+ * A remap has to move a project's sessions, and they do not all live in Claude's store: a project's
+ * Codex rollouts sit in a date-bucketed tree, Pi's under a cwd-encoded folder. `filePath` is on the row
+ * (v11) precisely because there is nothing to reconstruct it from.
+ */
+function getCachedByProjectPath(projectPath) {
+  if (!projectPath) return [];
+  return db.prepare(
+    "SELECT sessionId, folder, projectPath, filePath, COALESCE(backendId, 'claude') AS backendId"
+    + ' FROM session_cache WHERE projectPath = ?'
+  ).all(projectPath);
+}
+
+/**
+ * projectPath -> the backends that actually have sessions in it (#171). `backendId` is the authoritative
+ * provenance, and NULL means Claude (rows written before the column existed, and every scheduled run).
+ */
+function getBackendsByProjectPath() {
+  const map = new Map();
+  const rows = db.prepare(
+    "SELECT projectPath, COALESCE(backendId, 'claude') AS backendId, COUNT(*) AS n"
+    + ' FROM session_cache WHERE projectPath IS NOT NULL'
+    + ' GROUP BY projectPath, COALESCE(backendId, \'claude\') ORDER BY n DESC'
+  ).all();
+  for (const r of rows) {
+    if (!map.has(r.projectPath)) map.set(r.projectPath, []);
+    map.get(r.projectPath).push(r.backendId);
+  }
+  return map;
+}
+
 function getCachedFolder(sessionId) {
   const row = stmts.cacheGetFolder.get(sessionId);
   return row ? row.folder : null;
@@ -1801,7 +1834,7 @@ module.exports = {
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
-  isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
+  isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedByProjectPath, getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder,
   replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,

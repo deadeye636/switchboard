@@ -12,6 +12,7 @@
 
   let data = [];         // rows from get-projects-admin
   let autoAdd = true;    // whether project auto-add is on (allowlist irrelevant then)
+  let trustable = [];    // the backends that HAVE a per-project trust gate (#171): Claude, Codex — not Pi/Hermes
   let filter = '';       // search substring (lowercased)
 
   function shortName(p) {
@@ -46,13 +47,40 @@
       || (row.projectPath || '').toLowerCase().includes(filter);
   }
 
+  // Trust is per BACKEND (#171). It used to be one button that said "Trusted" and wrote Claude's config
+  // — so Codex, which has its own "Do you trust this directory?" gate in its own config, kept asking.
+  // One chip per backend that HAS such a gate; Pi and Hermes have none and appear here at all.
   function trustCell(row) {
-    if (row.trusted == null) {
-      return '<span class="pa-trust-na" title="No entry in ~/.claude.json">—</span>';
-    }
-    const cls = row.trusted ? 'pa-trust-on' : 'pa-trust-off';
-    const label = row.trusted ? 'Trusted' : 'Untrusted';
-    return `<button class="pa-toggle ${cls}" data-action="trust" title="Toggle trust (~/.claude.json)">${label}</button>`;
+    if (!trustable.length) return '<span class="pa-trust-na">—</span>';
+    return trustable.map(b => {
+      const state = row.trust ? row.trust[b.id] : null;
+      const cls = state === true ? 'pa-trust-on' : (state === false ? 'pa-trust-off' : 'pa-trust-na');
+      const label = state === true ? 'Trusted' : (state === false ? 'Untrusted' : 'Not asked');
+      return `<button class="pa-toggle pa-trust-chip ${cls}" data-action="trust" data-backend="${escapeHtml(b.id)}"`
+        + ` title="${escapeHtml(b.label)}: ${label} — click to toggle">${escapeHtml(monogramOf(b.id))}</button>`;
+    }).join('');
+  }
+
+  // Which backends actually have sessions in this project. The manager showed a Claude-and-Codex project
+  // exactly like a Claude one — `session_cache.backendId` knew all along.
+  function backendsCell(row) {
+    const ids = row.backends || [];
+    if (!ids.length) return '<span class="pa-trust-na">—</span>';
+    return ids.map(id =>
+      `<span class="pa-backend-badge backend-${escapeHtml(id)}" title="${escapeHtml(labelOf(id))}">${escapeHtml(monogramOf(id))}</span>`
+    ).join('');
+  }
+
+  function backendMeta(id) {
+    try { return (window._backendsById || {})[id] || null; } catch { return null; }
+  }
+  function monogramOf(id) {
+    const b = backendMeta(id);
+    return (b && b.monogram) || String(id).slice(0, 2);
+  }
+  function labelOf(id) {
+    const b = backendMeta(id);
+    return (b && b.label) || id;
   }
 
   function boolToggle(action, on, onLabel, offLabel, title) {
@@ -89,6 +117,7 @@
           </div>
         </td>
         <td class="pa-center">${row.sessionCount || 0}</td>
+        <td class="pa-center">${backendsCell(row)}</td>
         <td class="pa-nowrap">${escapeHtml(fmtDate(row.lastActivity))}</td>
         <td class="pa-center">${trustCell(row)}</td>
         <td class="pa-center">${boolToggle('hidden', !!row.hidden, 'Hidden', 'Visible', 'Toggle hidden in sidebar')}${row.hidden && row.autoHidden ? '<span class="pa-auto-badge" title="Hidden automatically by inactivity">auto</span>' : ''}</td>
@@ -110,7 +139,7 @@
     const rows = data.filter(matches);
     return rows.length
       ? rows.map(rowHtml).join('')
-      : `<tr><td colspan="10" class="pa-empty">No projects match.</td></tr>`;
+      : `<tr><td colspan="11" class="pa-empty">No projects match.</td></tr>`;
   }
 
   function render() {
@@ -127,8 +156,8 @@
         <table class="pa-table">
           <thead>
             <tr>
-              <th>Project</th><th>Sessions</th><th>Last activity</th>
-              <th>Trust</th><th>Hidden</th><th>Favorite</th>${allowHeader}
+              <th>Project</th><th>Sessions</th><th title="Which backends have sessions in this project">Backends</th><th>Last activity</th>
+              <th title="Trust is per backend — Claude keeps it in ~/.claude.json, Codex in its own config">Trust</th><th>Hidden</th><th>Favorite</th>${allowHeader}
               <th>Info</th><th>Actions</th>
             </tr>
           </thead>
@@ -159,6 +188,7 @@
       }
       data = res.projects || [];
       autoAdd = res.autoAdd !== false;
+      trustable = res.trustable || [];
       render();
     } catch (err) {
       viewer.innerHTML = `<div class="pa-loading">Error: ${escapeHtml(err.message)}</div>`;
@@ -244,7 +274,7 @@
     return data.find(r => r.projectPath === path);
   }
 
-  async function handleAction(action, path, tr) {
+  async function handleAction(action, path, tr, trustBackendId) {
     const row = findRow(path);
     try {
       if (action === 'recheck') {
@@ -253,20 +283,25 @@
       }
       if (action === 'trust') {
         if (!row) return;
-        const next = !row.trusted;
+        // WHICH backend's trust — the chip says so (#171). Claude and Codex each keep their own answer,
+        // in their own config; granting one has never granted the other, and the single button used to
+        // hide that.
+        const bid = trustBackendId || 'claude';
+        const label = labelOf(bid);
+        const next = !(row.trust && row.trust[bid] === true);
         if (next) {
-          // Setting trust to TRUE bypasses Claude Code's security gate — warn first.
+          // Granting trust bypasses that CLI's own security gate — warn first, and name the CLI.
           const ok = await showControlDialog({
             tone: 'danger',
-            title: 'Grant trust to this project?',
-            message: 'Trusting a project lets Claude Code run its tools, hooks and commands without asking. Only do this for code you know and control.',
-            details: [{ label: 'Project', value: shortName(path) }],
+            title: `Grant trust to this project — for ${label}?`,
+            message: `Trusting a project lets ${label} run its tools, hooks and commands without asking. Only do this for code you know and control. It applies to ${label} alone.`,
+            details: [{ label: 'Project', value: shortName(path) }, { label: 'Backend', value: label }],
             confirmLabel: 'Grant trust',
             cancelLabel: 'Cancel',
           });
           if (!ok) return;
         }
-        const res = await window.api.setProjectTrust(path, next);
+        const res = await window.api.setProjectTrust(path, bid, next);
         if (res && res.error) { toast('Trust: ' + res.error); return; }
       } else if (action === 'hidden') {
         if (row && row.hidden) await window.api.unhideProject(path);
@@ -353,7 +388,9 @@
     const path = tr ? tr.dataset.path : null;
     if (action === 'refresh' || action === 'add') { handleAction(action, null, null); return; }
     if (!path) return;
-    handleAction(action, path, tr);
+    // A trust chip carries the backend it speaks for (#171) — there is one per backend that has a
+    // trust gate, so the click has to say WHICH.
+    handleAction(action, path, tr, btn.dataset.backend || null);
   });
 
   // Public entry point, called from the tab handler in app.js.

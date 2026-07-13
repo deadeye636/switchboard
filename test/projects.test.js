@@ -10,6 +10,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const projects = require('../projects');
+const backends = require('../backends');
 const { encodeProjectPath } = require('../encode-project-path');
 
 // A context in the shape main.js hands over. Everything is observable: what was written, what was
@@ -21,13 +22,19 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
   const autoHidden = new Set();
   const calls = { refreshed: [], deletedFolders: [], deletedSearch: [], notified: 0, favorites: new Map() };
   let adminRows = [];
+  let cachedRows = [];             // session_cache rows for the project being remapped (#171)
 
   const ctx = {
     PROJECTS_DIR: store,
     activeSessions: new Map(),
     log: { info() {}, warn() {}, error() {} },
     showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+    // The REAL registry: remap and trust are backend business (#171), and a fake one would only prove
+    // that the fake works.
+    backends,
     db: {
+      getCachedByProjectPath: (p) => cachedRows.filter(r => r.projectPath === p),
+      getBackendsByProjectPath: () => new Map(),
       getSetting: (k) => settings.get(k),
       setSetting: (k, v) => settings.set(k, v),
       deleteSetting: (k) => settings.delete(k),
@@ -63,6 +70,7 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
     ctx, store, calls, autoHidden, meta,
     settings: () => settings.get('global'),
     setAdminRows: (rows) => { adminRows = rows; },
+    setCachedRows: (rows) => { cachedRows = rows; },
     cleanup: () => fs.rmSync(store, { recursive: true, force: true }),
   };
 }
@@ -257,30 +265,51 @@ test('auto-hide is throttled — an unforced pass right after another does nothi
 
 // --- remap ------------------------------------------------------------------------------------------
 
-test('remapProject rewrites the cwd in every transcript, and moves the project state with it', () => {
+test('remapProject moves EVERY backend\'s sessions, not just Claude\'s', () => {
+  // The bug, reproduced against a real install before this was written: remapping a project that had
+  // Claude AND Codex sessions moved Claude's and left Codex' behind — so one project became two, and the
+  // phantom at the old path held the user's Codex history.
   const t = makeCtx({ global: { hiddenProjects: ['D:\\old'], addedProjects: ['D:\\old', 'D:\\keep'] } });
   const newDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-'));
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-store-'));
   try {
     const oldPath = 'D:\\old';
     const folder = encodeProjectPath(oldPath);
     const folderPath = path.join(t.store, folder);
     fs.mkdirSync(folderPath, { recursive: true });
 
-    // Two sessions, and a line that is NOT this project's (it must be left alone).
-    fs.writeFileSync(path.join(folderPath, 'a.jsonl'),
+    // Claude: cwd on every line. A line from another cwd must be left alone.
+    // NOTE the file NAME: a Claude row carries NO filePath in the cache (the column exists for the
+    // backends whose transcript location cannot be reconstructed — a date-bucketed Codex rollout). Its
+    // path follows from the folder and the session id. The first cut of this skipped rows without a
+    // filePath, so Claude quietly stayed behind while Codex moved. The fake must therefore lie about
+    // nothing: the row below has filePath: null.
+    const claudeFile = path.join(folderPath, 'a.jsonl');
+    fs.writeFileSync(claudeFile,
       JSON.stringify({ type: 'user', cwd: oldPath, message: { role: 'user', content: 'one' } }) + '\n' +
-      JSON.stringify({ type: 'assistant', cwd: oldPath, message: { role: 'assistant', content: 'two' } }) + '\n');
-    fs.writeFileSync(path.join(folderPath, 'b.jsonl'),
+      JSON.stringify({ type: 'assistant', cwd: oldPath, message: { role: 'assistant', content: 'two' } }) + '\n' +
       JSON.stringify({ type: 'user', cwd: 'D:\\somewhere-else', message: { role: 'user', content: 'not mine' } }) + '\n');
+
+    // Codex: cwd once, in the session_meta header — and in a completely different store.
+    const codexFile = path.join(codexDir, 'rollout-2026-07-13T12-00-00-x.jsonl');
+    fs.writeFileSync(codexFile,
+      JSON.stringify({ type: 'session_meta', payload: { id: 'x', cwd: oldPath } }) + '\n');
+
+    t.setCachedRows([
+      { sessionId: 'a', folder, projectPath: oldPath, filePath: null, backendId: 'claude' },
+      { sessionId: 'x', folder, projectPath: oldPath, filePath: codexFile, backendId: 'codex' },
+    ]);
 
     const res = projects.remapProject(oldPath, newDir);
     assert.strictEqual(res.ok, true);
+    assert.deepStrictEqual(res.moved, { claude: 1, codex: 1 }, 'both backends were told');
 
-    const a = fs.readFileSync(path.join(folderPath, 'a.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
-    assert.deepStrictEqual(a.map(l => l.cwd), [newDir, newDir], 'every line of the session moves');
+    const a = fs.readFileSync(claudeFile, 'utf8').trim().split('\n').map(JSON.parse);
+    assert.deepStrictEqual(a.map(l => l.cwd), [newDir, newDir, 'D:\\somewhere-else'],
+      'Claude moves, and a line belonging to another cwd is untouched');
 
-    const b = JSON.parse(fs.readFileSync(path.join(folderPath, 'b.jsonl'), 'utf8').trim());
-    assert.strictEqual(b.cwd, 'D:\\somewhere-else', 'a line belonging to another cwd is untouched');
+    const c = JSON.parse(fs.readFileSync(codexFile, 'utf8').trim());
+    assert.strictEqual(c.payload.cwd, newDir, 'and Codex comes along instead of staying behind');
 
     // The folder memo must be re-pointed BEFORE the refresh, or the folder keeps resolving to the old
     // path (folderProjectPath short-circuits while the old directory still exists) and the project
@@ -290,6 +319,71 @@ test('remapProject rewrites the cwd in every transcript, and moves the project s
     // The user's own lists follow the rename — otherwise a remapped project silently un-hides itself.
     assert.deepStrictEqual(t.settings().hiddenProjects, [newDir]);
     assert.deepStrictEqual(t.settings().addedProjects, [newDir, 'D:\\keep']);
+  } finally {
+    t.cleanup();
+    fs.rmSync(newDir, { recursive: true, force: true });
+    fs.rmSync(codexDir, { recursive: true, force: true });
+  }
+});
+
+test('a project with NO Claude sessions is remappable — it used to be refused outright', () => {
+  const t = makeCtx();
+  const newDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-codex-'));
+  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-store2-'));
+  try {
+    const oldPath = 'D:\\codex-only';
+    const file = path.join(store, 'rollout-x.jsonl');
+    fs.writeFileSync(file, JSON.stringify({ type: 'session_meta', payload: { id: 'x', cwd: oldPath } }) + '\n');
+    t.setCachedRows([{ sessionId: 'x', projectPath: oldPath, filePath: file, backendId: 'codex' }]);
+
+    // There is no ~/.claude/projects folder for this project at all. That used to be the end of it:
+    // "No session data found for this project".
+    const res = projects.remapProject(oldPath, newDir);
+    assert.strictEqual(res.ok, true);
+    assert.deepStrictEqual(res.moved, { codex: 1 });
+    assert.strictEqual(JSON.parse(fs.readFileSync(file, 'utf8').trim()).payload.cwd, newDir);
+  } finally {
+    t.cleanup();
+    fs.rmSync(newDir, { recursive: true, force: true });
+    fs.rmSync(store, { recursive: true, force: true });
+  }
+});
+
+test('remapProject says which backend it could NOT move', () => {
+  // Hermes keeps its cwd in a column of a database we may only read (#2914). Its sessions stay at the old
+  // path, and the user is told — rather than discovering a phantom project later.
+  const t = makeCtx();
+  const newDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-h-'));
+  try {
+    t.setCachedRows([{ sessionId: 'h1', projectPath: 'D:\\old', filePath: null, backendId: 'hermes' }]);
+    const res = projects.remapProject('D:\\old', newDir);
+
+    assert.strictEqual(res.ok, true);
+    assert.deepStrictEqual(res.moved, {}, 'nothing moved');
+    assert.deepStrictEqual(res.cannotMove, ['Hermes'], 'and it says so, by name');
+  } finally { t.cleanup(); fs.rmSync(newDir, { recursive: true, force: true }); }
+});
+
+test('a remapped project is not auto-hidden out from under the rename', () => {
+  // Found in the running app, not in a test: between the rewrite and the next scan the project at the
+  // NEW path is momentarily EMPTY — its sessions have not been re-attributed yet. Auto-hide reads "no
+  // activity, ever", and no activity is stale by definition. It hides the project. And the scan SKIPS a
+  // hidden project — so the sessions never arrive, and the rename stays broken forever.
+  const t = makeCtx({ autoHideDays: 10, global: { hiddenProjects: ['D:\\target'] } });
+  const newDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-ah-'));
+  try {
+    // The target path is ALREADY auto-hidden (a previous life, or the auto-hide pass that just ran).
+    t.autoHidden.add(newDir);
+    const g = t.settings();
+    g.hiddenProjects = [newDir];
+
+    t.setCachedRows([]);
+    fs.mkdirSync(path.join(t.store, encodeProjectPath('D:\\old')), { recursive: true });
+    projects.remapProject('D:\\old', newDir);
+
+    assert.deepStrictEqual(t.settings().hiddenProjects, [],
+      'an AUTO hide on the target is cleared — the user is plainly moving a project here');
+    assert.ok(t.meta.get(newDir).autoHideResetAt, 'and the grace timer restarts, like an add or an unhide');
   } finally { t.cleanup(); fs.rmSync(newDir, { recursive: true, force: true }); }
 });
 
@@ -301,9 +395,7 @@ test('remapProject refuses a target that is not a directory, and a project it ca
     assert.match(projects.remapProject('D:\\old', file).error, /not a directory/i);
 
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'remap2-'));
-    // A project with no store folder at all. NOTE: this is exactly the case #171 has to fix — a project
-    // whose sessions are Codex' rather than Claude's is refused here, because only Claude's store is
-    // consulted.
+    // No sessions anywhere, no store folder: there is genuinely nothing to remap.
     assert.match(projects.remapProject('D:\\never-seen', dir).error, /No session data/i);
     fs.rmSync(dir, { recursive: true, force: true });
   } finally { t.cleanup(); }

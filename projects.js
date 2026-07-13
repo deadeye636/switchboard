@@ -19,6 +19,7 @@ const crypto = require('crypto');
 
 const { encodeProjectPath } = require('./encode-project-path');
 const { deriveProjectPath } = require('./derive-project-path');
+const { resolveJsonlPath } = require('./read-session-file');
 const claudeConfig = require('./claude-config');
 
 let ctx = null;
@@ -301,35 +302,79 @@ function setProjectAutoAdd(enabled) {
   }
 }
 
+/**
+ * Move a project's sessions to a new path — ALL of them, not just Claude's (#171).
+ *
+ * A remap used to rewrite `~/.claude/projects/**` and stop there, which split a mixed project in two:
+ * Claude's history followed the rename and Codex' stayed behind as a phantom at the old path. And a
+ * project with only Codex sessions could not be remapped at all — the handler looked for them in
+ * Claude's store and reported "No session data found".
+ *
+ * Each backend declares how to rewrite its own transcript (`rewriteProjectPath`). One that cannot —
+ * Hermes keeps its cwd in a database we may only read (#2914) — is reported, not silently skipped.
+ *
+ * @returns {{moved: object, cannotMove: string[]}} sessions rewritten per backend, and the backends
+ *          whose sessions had to stay behind.
+ */
+function rewriteSessionPaths(oldPath, newPath) {
+  const moved = {};
+  const cannotMove = [];
+
+  // The rows are the map of where a project's sessions actually live — every backend, every file.
+  let rows = [];
+  try { rows = ctx.db.getCachedByProjectPath(oldPath) || []; } catch { rows = []; }
+
+  const byBackend = new Map();
+  for (const row of rows) {
+    const id = row.backendId || 'claude';
+    if (!byBackend.has(id)) byBackend.set(id, []);
+    byBackend.get(id).push(row);
+  }
+
+  for (const [backendId, backendRows] of byBackend) {
+    const backend = ctx.backends.get(backendId);
+    // A template runs its base backend's binary and writes into its store, so it rewrites like the base.
+    const rewrite = backend && typeof backend.rewriteProjectPath === 'function'
+      ? backend.rewriteProjectPath
+      : null;
+
+    if (!rewrite) {
+      // Hermes: its cwd is a column in a database we may not write. Say so.
+      cannotMove.push(backend ? (backend.label || backendId) : backendId);
+      continue;
+    }
+
+    let count = 0;
+    for (const row of backendRows) {
+      // `filePath` is stored for the backends that need it (v11) — there is nothing to reconstruct a
+      // date-bucketed Codex rollout from. CLAUDE's rows carry none: its transcript's location follows
+      // from the folder and the session id, and that is exactly what resolveJsonlPath knows (subagents
+      // included). Skipping a row without a filePath is what left Claude behind on the first cut.
+      const file = row.filePath || resolveJsonlPath(ctx.PROJECTS_DIR, row);
+      if (!file) continue;
+      try { if (rewrite(file, oldPath, newPath)) count++; } catch (err) {
+        ctx.log.warn(`[remap] ${backendId}: ${file}: ${err.message}`);
+      }
+    }
+    if (count) moved[backendId] = count;
+  }
+
+  return { moved, cannotMove };
+}
+
 function remapProject(oldPath, newPath) {
   try {
     const stat = fs.statSync(newPath);
     if (!stat.isDirectory()) return { error: 'Path is not a directory' };
 
-    // Find the folder key for the old project path
+    // Every backend's sessions, not only Claude's. A project with no Claude sessions at all is a normal
+    // project and must be remappable — it used to be refused outright.
+    const { moved, cannotMove } = rewriteSessionPaths(oldPath, newPath);
     const folder = encodeProjectPath(oldPath);
     const folderPath = path.join(ctx.PROJECTS_DIR, folder);
-    if (!fs.existsSync(folderPath)) return { error: 'No session data found for this project' };
 
-    // Rewrite cwd in all session JSONL files so CLI --resume also works
-    const jsonlFiles = fs.readdirSync(folderPath).filter(f => f.endsWith('.jsonl'));
-    for (const file of jsonlFiles) {
-      const filePath = path.join(folderPath, file);
-      const content = fs.readFileSync(filePath, 'utf8');
-      const updated = content.split('\n').map(line => {
-        if (!line) return line;
-        try {
-          const parsed = JSON.parse(line);
-          if (parsed.cwd === oldPath) {
-            parsed.cwd = newPath;
-            return JSON.stringify(parsed);
-          }
-        } catch { /* a truncated line — leave it alone */ }
-        return line;
-      }).join('\n');
-      const tmp = filePath + '.tmp';
-      fs.writeFileSync(tmp, updated);
-      fs.renameSync(tmp, filePath);
+    if (!Object.keys(moved).length && !cannotMove.length && !fs.existsSync(folderPath)) {
+      return { error: 'No session data found for this project' };
     }
 
     // Re-point the folder→projectPath cache before refreshing. folderProjectPath() short-circuits
@@ -361,19 +406,71 @@ function remapProject(oldPath, newPath) {
       ctx.log.warn('[remap] global project lists move failed: ' + err.message);
     }
 
+    // A remapped project must not be auto-hidden out from under the rename (#171).
+    //
+    // Between the rewrite and the next scan the project at the NEW path is momentarily empty — its
+    // sessions have not been re-attributed yet. Auto-hide reads "no activity, ever", and no activity is
+    // stale BY DEFINITION (`shouldAutoHide(0, …)` is true). It hides the project — and the scan SKIPS a
+    // hidden project, so the sessions never arrive and the rename stays broken. Observed in the running
+    // app: after a remap the project sat there with only its Codex row, at the old path, for good.
+    //
+    // Adding or unhiding a project already restarts this grace timer (#57). A remap is the same kind of
+    // act: the user just touched this project.
+    try {
+      const wasAutoHidden = ctx.db.getAutoHiddenProjects().has(newPath);
+      ctx.db.resetProjectAutoHide(newPath);
+      if (wasAutoHidden) {
+        const g = ctx.db.getSetting('global') || {};
+        if (Array.isArray(g.hiddenProjects) && g.hiddenProjects.includes(newPath)) {
+          // It was hidden by the machine, not by the user — and the user is plainly moving a project
+          // here. A hide the user made themselves rides along with the old path above, and stays.
+          g.hiddenProjects = g.hiddenProjects.filter(p => p !== newPath);
+          ctx.db.setSetting('global', g);
+        }
+      }
+    } catch (err) {
+      ctx.log.warn('[remap] auto-hide reset failed: ' + err.message);
+    }
+
     // Move the project's ~/.claude.json entry (trust/MCP/cost) to the new path so it survives the
     // remap. Non-fatal: the session cwd rewrite above already succeeded.
     try {
-      const moved = claudeConfig.renameProjectEntry(oldPath, newPath);
-      if (moved && moved.error) ctx.log.warn('[remap] ~/.claude.json move failed: ' + moved.error);
+      const res = claudeConfig.renameProjectEntry(oldPath, newPath);
+      if (res && res.error) ctx.log.warn('[remap] ~/.claude.json move failed: ' + res.error);
     } catch (err) {
       ctx.log.warn('[remap] ~/.claude.json move threw: ' + err.message);
     }
 
+    // ...and every OTHER backend's per-project trust with it, so a renamed project does not have to be
+    // trusted all over again (#171).
+    for (const backend of listBackendsWithTrust()) {
+      if (backend.id === 'claude') continue;   // handled above, together with its MCP/cost entry
+      try {
+        const was = backend.projectTrust.get(oldPath);
+        if (was === true) {
+          backend.projectTrust.set(newPath, true);
+          backend.projectTrust.set(oldPath, false);
+        }
+      } catch (err) {
+        ctx.log.warn(`[remap] ${backend.id} trust move failed: ${err.message}`);
+      }
+    }
+
     ctx.cache.notifyRendererProjectsChanged();
-    return { ok: true };
+    // The renderer tells the user what actually moved — and what could not (Hermes' store is read-only
+    // to us, so its sessions keep the old path and would re-form a project there).
+    return { ok: true, moved, cannotMove };
   } catch (err) {
     return { error: err.message };
+  }
+}
+
+/** Every enabled backend that has a per-project trust gate at all (Claude, Codex — not Pi, not Hermes). */
+function listBackendsWithTrust() {
+  try {
+    return ctx.backends.launchable().filter(b => b.projectTrust && typeof b.projectTrust.get === 'function');
+  } catch {
+    return [];
   }
 }
 
@@ -421,9 +518,33 @@ function getProjectsAdmin() {
       byNorm.set(norm, r);
     }
 
+    // Which backends actually have sessions in each project (#171). `session_cache.backendId` is the
+    // authoritative provenance, so this is a GROUP BY, not a new concept — and it is what makes the
+    // manager stop showing a Claude-and-Codex project as if it were a Claude one.
+    let backendsByPath = new Map();
+    try { backendsByPath = ctx.db.getBackendsByProjectPath() || new Map(); } catch { /* leave it empty */ }
+
+    // The backends that HAVE a per-project trust gate. Claude keeps it in ~/.claude.json, Codex in its
+    // own config.toml; Pi and Hermes have none, and the UI says so rather than inventing one.
+    const trustBackends = listBackendsWithTrust();
+
     for (const r of rows) {
       const norm = claudeConfig.normalizeClaudePath(r.projectPath);
+      // Kept for compatibility: `trusted` is CLAUDE's trust, and always was.
       r.trusted = trustMap.has(norm) ? trustMap.get(norm) : null;
+
+      // ...and now the truth, per backend: { claude: true, codex: null, ... }. null = never asked.
+      r.trust = {};
+      for (const b of trustBackends) {
+        try {
+          r.trust[b.id] = b.id === 'claude'
+            ? (trustMap.has(norm) ? trustMap.get(norm) : null)   // reuse the single parse above
+            : b.projectTrust.get(r.projectPath);
+        } catch { r.trust[b.id] = null; }
+      }
+
+      r.backends = backendsByPath.get(r.projectPath) || [];
+
       const m = metaMap.get(norm) || {};
       r.mcpServersCount = m.mcpServersCount || 0;
       r.allowedToolsCount = m.allowedToolsCount || 0;
@@ -434,19 +555,35 @@ function getProjectsAdmin() {
       r.inAllowlist = allowed ? allowed.has(r.projectPath) : true;
     }
 
-    return { ok: true, autoAdd, projects: rows };
+    // What the renderer needs to draw the trust controls: which backends can be trusted at all.
+    const trustable = trustBackends.map(b => ({ id: b.id, label: b.label || b.id }));
+    return { ok: true, autoAdd, trustable, projects: rows };
   } catch (err) {
     return { error: err.message };
   }
 }
 
 /**
- * Atomic RMW on ~/.claude.json, only the `hasTrustDialogAccepted` field. Setting it to true is a
- * security decision (the renderer gates it behind a warning confirm).
+ * Trust a project — FOR A BACKEND (#171).
+ *
+ * It used to write Claude's `hasTrustDialogAccepted` and nothing else, while the column said "Trusted"
+ * as if it spoke for all of them. Codex has its own gate ("Do you trust this directory?") in its own
+ * config, and it kept asking. Now the backend that owns the answer writes it.
+ *
+ * `backendId` defaults to claude, so an older renderer keeps working. Setting trust to true is a
+ * security decision — the renderer gates it behind a warning confirm.
  */
-function setProjectTrust(projectPath, trusted) {
-  const result = claudeConfig.setProjectTrust(projectPath, trusted);
-  if (result.ok) ctx.cache.notifyRendererProjectsChanged();
+function setProjectTrust(projectPath, backendId, trusted) {
+  // Tolerate the old two-argument shape: (projectPath, trusted).
+  if (typeof backendId === 'boolean') { trusted = backendId; backendId = 'claude'; }
+
+  const backend = ctx.backends.get(backendId || 'claude');
+  if (!backend || !backend.projectTrust || typeof backend.projectTrust.set !== 'function') {
+    return { ok: false, error: `${backend ? (backend.label || backend.id) : backendId} has no project trust setting.` };
+  }
+
+  const result = backend.projectTrust.set(projectPath, trusted);
+  if (result && result.ok) ctx.cache.notifyRendererProjectsChanged();
   return result;
 }
 
@@ -512,7 +649,7 @@ function registerIpc(ipcMain) {
   ipcMain.handle('set-project-auto-add', (_e, enabled) => setProjectAutoAdd(enabled));
   ipcMain.handle('remap-project', (_e, oldPath, newPath) => remapProject(oldPath, newPath));
   ipcMain.handle('get-projects-admin', () => getProjectsAdmin());
-  ipcMain.handle('set-project-trust', (_e, projectPath, trusted) => setProjectTrust(projectPath, trusted));
+  ipcMain.handle('set-project-trust', (_e, projectPath, backendId, trusted) => setProjectTrust(projectPath, backendId, trusted));
   ipcMain.handle('delete-project-sessions', (_e, projectPath) => deleteProjectSessions(projectPath));
   ipcMain.handle('remove-project-config', (_e, projectPath) => removeProjectConfig(projectPath));
   ipcMain.handle('toggle-project-favorite', (_e, projectPath) => toggleFavorite(projectPath));

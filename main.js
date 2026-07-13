@@ -121,7 +121,7 @@ const {
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
-  isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedFolder, getCachedSession, upsertCachedSessions,
+  isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedByProjectPath, getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
@@ -667,11 +667,15 @@ projects.init({
     properties: ['openDirectory', 'createDirectory'],
     title: 'Select Project Folder',
   }),
+  // The backend registry — trust and remap are BACKEND business now (#171): each declares whether it has
+  // a project-trust gate and how to move its own transcripts. No backend id is named in projects.js.
+  backends,
   db: {
     getSetting, setSetting, deleteSetting,
     deleteCachedFolder, deleteSearchFolder,
     getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
     renameProjectRefs, deleteProjectRefs, setFolderMeta, toggleProjectFavorite,
+    getCachedByProjectPath, getBackendsByProjectPath,
   },
   cache: {
     refreshFolder, buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide,

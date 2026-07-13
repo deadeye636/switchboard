@@ -18,7 +18,9 @@ const os = require('os');
 const path = require('path');
 
 const parser = require('./parser');
+const trust = require('./trust');
 const { createFileStore, findOnPath } = require('../file-store');
+const { rewriteTranscript, codexLine } = require('../rewrite-cwd');
 const { deriveState, deriveStateFromFileTail } = require('./state');
 
 // CODEX_HOME overrides the whole dir; default ~/.codex. Resolved lazily so an env change (or a test)
@@ -180,6 +182,16 @@ module.exports = {
   matchLiveSession: store.matchLiveSession,
   liveRefFor: store.liveRefFor,
   liveState,
+
+  // Codex has its OWN trust gate — "Do you trust this directory?" on a fresh cwd — and it remembers the
+  // answer in its config.toml, not in Claude's config (#171). Ticking "Trusted" in the project manager
+  // used to write Claude's file and nothing else, so the column said trusted and Codex asked anyway.
+  projectTrust: { get: trust.get, set: trust.set },
+
+  // Codex writes its cwd ONCE, in the session_meta header. A remap that only rewrote Claude's
+  // transcripts left Codex' sessions behind at the old path, as a phantom project.
+  rewriteProjectPath: (filePath, oldPath, newPath) =>
+    rewriteTranscript(filePath, oldPath, newPath, codexLine),
 
   setHome,
   sessionsRoot,

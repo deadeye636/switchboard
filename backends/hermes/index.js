@@ -203,6 +203,11 @@ module.exports = {
   liveState,
   PARSER_SCHEMA_VERSION: reader.PARSER_SCHEMA_VERSION,
 
+  // No `projectTrust` (its config.yaml has no per-project trust gate — `trust_recent_files` is about
+  // files, not projects) and no `rewriteProjectPath`: a Hermes session's cwd is a COLUMN in state.db,
+  // which we open read-only and may never write (#2914). A remap therefore cannot move its sessions, and
+  // the project manager says so instead of silently leaving them behind (#171).
+
   // Sessions with no cwd (gateway/cron chats — a general agent genuinely has no working dir) group into
   // a backend-scoped bucket rather than being forced under a project (§5.9). The store root is a real
   // path, so the Projects view handles it like any other.
