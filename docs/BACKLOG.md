@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (18 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (14 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-13
 
@@ -17,14 +17,11 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
-- [#168](https://github.com/deadeye636/switchboard/issues/168) Stats: a backend filter shows an empty page as soon as a template runs on that backend · _bug_
-- [#169](https://github.com/deadeye636/switchboard/issues/169) An unset $VAR disappears silently at launch — the check exists, it just fires at the wrong moment · _bug_
 
 ## P3 — someday
 
 - [#40](https://github.com/deadeye636/switchboard/issues/40) Remote repo over SSH (treat like local) · _feature, source:supacode_
 - [#43](https://github.com/deadeye636/switchboard/issues/43) Detect subagent spawn via .meta.json (not only .jsonl) · _feature_
-- [#50](https://github.com/deadeye636/switchboard/issues/50) Per-session API key override · _port, source:brianstanley_
 - [#84](https://github.com/deadeye636/switchboard/issues/84) Make the terminal LRU cap configurable · _feature_
 - [#104](https://github.com/deadeye636/switchboard/issues/104) Evaluate: multi-sidebar panes · _feature, port_
 - [#105](https://github.com/deadeye636/switchboard/issues/105) Evaluate: local Whisper voice input · _feature, port_
@@ -33,4 +30,3 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
 - [#164](https://github.com/deadeye636/switchboard/issues/164) Session tags: filter the sidebar by session tag · _feature_
-- [#166](https://github.com/deadeye636/switchboard/issues/166) PTY liveness can hold a session busy forever — it has no ceiling · _bug_
