@@ -74,25 +74,14 @@ Fixed sections, fixed order. Leave out a section that would be empty — never p
 private project names — not in the notes, not in a screenshot attached to them. The guard hook blocks a
 leak, but the point is not to write one.
 
-**The build has to have been INSTALLED.** A release whose installer was never run is not tested. Download
-the artifact from the draft, install it, start it — and if the release carries a migration, point it at a
-COPY of a real database and check the sidebar looks the same afterwards.
+**The build has to have been INSTALLED.** A release whose installer was never run is not tested: install
+it, start it, and — if the release carries a migration — point it at a COPY of a real database and check
+the sidebar looks the same afterwards. (Where the installer goes and how to fetch it: CLAUDE.md,
+"Release artifacts".)
 
-Download it **into `dist/`**, next to the ones `npm run build:win` produces — that is where the installers
-live, it is gitignored, and every version is then in one place:
-
-```
-gh release download v<version> --pattern "Switchboard.Setup.<version>.exe" --dir dist
-```
-
-Never into a scratch or temp directory. An installer dropped somewhere else is one more thing scattered
-across the disk that nobody will remember to delete.
-
-This is not a formality. `build.files` in `package.json` is an allow-list, and `*.js` in it matches the
-top level only — so 0.7.5's first draft shipped without `backends/` and the app died on its first
+This is not a formality. 0.7.5's first draft shipped without `backends/` and the app died on its first
 `require`. The repo ran, `npm start` ran, 1244 tests passed; only the installer was missing anything, and
-nobody had ever installed their own build. A test now walks the require graph against that allow-list
-(`test/packaged-files.test.js`), but the habit is the real guard.
+nobody had ever installed their own build.
 
 ### 5. Show it, then write it
 

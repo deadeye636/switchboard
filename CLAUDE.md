@@ -138,6 +138,24 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 - `npm run start:debug` — the same, with the DevTools port open, so the app can be **driven from the CLI** (below).
 - `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe`.
 
+### Release artifacts
+
+**Every installer lives in `dist/`** — the ones `build:win` produces and the ones you download from a
+release. It is gitignored, and it is where the previous versions already are, so one look tells you what
+exists. Downloading a build into a scratch or temp directory just scatters a 110 MB file somewhere nobody
+will remember to delete.
+
+```
+gh release download v<version> --pattern "Switchboard.Setup.<version>.exe" --dir dist
+```
+
+**Install the build before releasing it.** `build.files` in `package.json` is an **allow-list**, and
+`*.js` in it matches the **top level only** — so a new directory of modules is silently left out of the
+package unless it is added there. 0.7.5's first draft shipped without `backends/` and died on its first
+`require`: the repo ran, `npm start` ran, the whole suite was green, and only the installer was missing
+anything. `test/packaged-files.test.js` now walks the real require graph against that allow-list, but a
+test is not a substitute for starting the thing you are about to hand someone.
+
 ## Where the data actually is
 
 **Two databases.** Look at the wrong one and you will "verify" against a store that has not moved in weeks —
