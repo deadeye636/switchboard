@@ -140,18 +140,33 @@
     return `<button type="button" class="${cls}" data-action="hidden" title="${escapeHtml(title)}" aria-label="${escapeHtml(label)}">${icon}</button>`;
   }
 
-  function rowHtml(row) {
-    const name = row.displayName || shortName(row.projectPath);
-    // On the list, or not — in BOTH modes (#167). It used to appear only in manual mode, because the list
-    // was a derivation and this was a subtractive filter over it; a project with a config but no sessions
-    // was badged `config-only` and there was no control anywhere to put it in the sidebar.
-    const listedTitle = row.inAllowlist
+  // On the list, or not — in BOTH modes (#167). It used to appear only in manual mode, because the list
+  // was a derivation and this was a subtractive filter over it; a project with a config but no sessions
+  // was badged `config-only` and there was no control anywhere to put it in the sidebar.
+  //
+  // A tick, filled or hollow — the same shape either way, exactly as Favorite is ★ and ☆. It said "On" /
+  // "Off" before, which is a switch with no subject: on WHAT? Every other column in this row shows a
+  // STATE (a star, an eye, a backend's initial); this one showed that something, somewhere, was enabled.
+  const TICK_ON = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.2 14.6L6.6 12.4 8 11l2.8 2.8L16 8.6l1.4 1.4-6.6 6.6z"/></svg>';
+  const TICK_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg>';
+
+  function listedCell(row) {
+    const on = !!row.inAllowlist;
+    const title = on
       ? 'On Switchboard\'s project list.\n\nClick to REMOVE it: it leaves the list and its cached sessions '
         + 'are cleared. No transcript is deleted — they stay on disk. A NEW session in this folder brings '
         + 'the project back, with all of its history. The old sessions alone do not.'
       : 'NOT on the list, so Switchboard ignores it.\n\nClick to add it — even if it has no sessions at all '
         + '(a project you are about to start work in).';
-    const allowCol = `<td class="pa-center">${boolToggle('allowlist', !!row.inAllowlist, 'On', 'Off', listedTitle)}</td>`;
+    const label = on ? 'On the list — click to remove' : 'Not on the list — click to add';
+    const cls = on ? 'pa-toggle pa-tick pa-tick-on' : 'pa-toggle pa-tick pa-tick-off';
+
+    return `<button type="button" class="${cls}" data-action="allowlist" title="${escapeHtml(title)}" aria-label="${escapeHtml(label)}">${on ? TICK_ON : TICK_OFF}</button>`;
+  }
+
+  function rowHtml(row) {
+    const name = row.displayName || shortName(row.projectPath);
+    const allowCol = `<td class="pa-center">${listedCell(row)}</td>`;
     const info = [
       row.mcpServersCount ? row.mcpServersCount + ' MCP' : '',
       row.allowedToolsCount ? row.allowedToolsCount + ' tools' : '',
@@ -173,7 +188,9 @@
         <td class="pa-info">${escapeHtml(info)}</td>
         <td class="pa-center">${trustCell(row)}</td>
         <td class="pa-center">${hiddenCell(row)}</td>
-        <td class="pa-center">${boolToggle('favorite', !!row.favorite, '★', '☆', 'Toggle favorite')}</td>
+        <td class="pa-center">${boolToggle('favorite', !!row.favorite, '★', '☆', row.favorite
+          ? 'A favourite: it sits at the top of the sidebar, ahead of every other project.\n\nClick to remove it from the favourites.'
+          : 'Click to make it a favourite — favourites are pinned to the top of the sidebar, ahead of every other project.')}</td>
         ${allowCol}
         <td class="pa-actions">
           <button data-action="rename" title="Rename (display name)">Rename</button>
@@ -215,7 +232,7 @@
             <tr>
               <th>Project</th><th>Sessions</th><th title="Which backends have sessions in this project">Backends</th><th>Last activity</th>
               <th title="What ~/.claude.json knows about this project: MCP servers, allowed tools, and what its last session cost">Info</th>
-              <th title="Trust is per backend — Claude keeps it in ~/.claude.json, Codex in its own config">Trust</th><th title="Do you want to SEE this project? It stays on the list either way, and its sessions keep being indexed — hiding is about the sidebar, not about the data.&#10;&#10;A hide you make yourself STAYS: new sessions here do not bring it back, only you do.&#10;&#10;A dashed, blue eye means the app hid it because it went stale — that one un-hides itself as soon as you work in the project again.">Hidden</th><th>Favorite</th>${allowHeader}
+              <th title="Trust is per backend — Claude keeps it in ~/.claude.json, Codex in its own config">Trust</th><th title="Do you want to SEE this project? It stays on the list either way, and its sessions keep being indexed — hiding is about the sidebar, not about the data.&#10;&#10;A hide you make yourself STAYS: new sessions here do not bring it back, only you do.&#10;&#10;A dashed, blue eye means the app hid it because it went stale — that one un-hides itself as soon as you work in the project again.">Hidden</th><th title="A favourite is pinned to the top of the sidebar, ahead of every other project — however old it is.">Favorite</th>${allowHeader}
               <th>Actions</th>
             </tr>
           </thead>

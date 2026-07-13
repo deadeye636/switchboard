@@ -8427,6 +8427,17 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .pa-eye-auto   { background: #24243a; border-color: #4a4a78; color: #9aa2ff; }       /* the app did */
 .pa-eye-auto svg { stroke-dasharray: 3 2; }   /* ...and it will un-hide it again on its own */
 
+/* Listed: the same tick, filled or hollow — exactly as Favorite is ★ and ☆. It read "On"/"Off" before,
+   which is a switch with no subject: on WHAT? Every other control in the row shows a STATE. */
+.pa-tick {
+  padding: 3px 8px;
+  line-height: 0;
+}
+.pa-tick svg { width: 15px; height: 15px; display: block; }
+.pa-tick-on  { background: #1e3a24; border-color: #3a6a44; color: #8fd8a0; }   /* on the list */
+.pa-tick-off { background: #2a2a34; color: #6a6a7c; }                          /* not on it */
+.pa-tick-off:hover { color: #9a9aac; }
+
 /* "Not applicable here" — a project that is not on the list cannot be hidden (#167). Muted, so it reads
    as an absence rather than as a control that does nothing. */
 .pa-dash { color: #5a5a6a; cursor: default; }
