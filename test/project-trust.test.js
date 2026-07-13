@@ -94,23 +94,48 @@ test('the same directory in two spellings is one project', () => {
   }
 });
 
-test('set() writes atomically, keeps a .bak, and updates every spelling of the path', () => {
+test('set() writes atomically, keeps a .bak, and leaves the rest of the config alone', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-trust2-'));
   const prev = process.env.CODEX_HOME;
   process.env.CODEX_HOME = home;
   const file = path.join(home, 'config.toml');
   try {
-    // Two tables for the same directory, as a real config has.
+    fs.writeFileSync(file, "model = \"x\"\n\n[projects.'d:\\p']\ntrust_level = \"trusted\"\n");
+
+    assert.deepStrictEqual(trust.set('d:\\p', false), { ok: true });
+
+    const after = fs.readFileSync(file, 'utf8');
+    assert.strictEqual(trust.parseTrust(after).size, 0, 'the project is no longer trusted');
+    assert.ok(after.includes('model = "x"'), 'the rest of the config survives');
+    assert.ok(fs.existsSync(file + '.bak'), 'a backup of somebody else\'s config, before we touch it');
+    assert.ok(!fs.existsSync(file + '.tmp'), 'no temp file left behind');
+  } finally {
+    if (prev === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = prev;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('set() updates EVERY spelling of the path — on the platform where they are one directory', () => {
+  // A real Windows config carries the same directory twice (`d:\projekte\x` and `D:\Projekte\x`) — Codex
+  // writes whatever cwd it was started with. Untrusting only the spelling the user happened to click
+  // would leave the project trusted through the other one.
+  //
+  // On a case-SENSITIVE filesystem those are two different directories, and treating them as one would
+  // be the bug. So this is asserted where it is true, and the platform decides which that is — which is
+  // exactly what `norm()` does.
+  if (process.platform !== 'win32') return;
+
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-trust3-'));
+  const prev = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = home;
+  const file = path.join(home, 'config.toml');
+  try {
     fs.writeFileSync(file, "model = \"x\"\n\n[projects.'d:\\p']\ntrust_level = \"trusted\"\n\n[projects.'D:\\P']\ntrust_level = \"trusted\"\n");
 
     assert.deepStrictEqual(trust.set('D:\\p', false), { ok: true });
 
-    const after = fs.readFileSync(file, 'utf8');
-    assert.strictEqual(trust.parseTrust(after).size, 0,
+    assert.strictEqual(trust.parseTrust(fs.readFileSync(file, 'utf8')).size, 0,
       'BOTH spellings are untrusted — leaving one behind would keep the project trusted for Codex');
-    assert.ok(after.includes('model = "x"'), 'the rest of the config survives');
-    assert.ok(fs.existsSync(file + '.bak'), 'a backup of somebody else\'s config, before we touch it');
-    assert.ok(!fs.existsSync(file + '.tmp'), 'no temp file left behind');
   } finally {
     if (prev === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = prev;
     fs.rmSync(home, { recursive: true, force: true });
