@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (20 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-13
 
@@ -20,8 +20,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#167](https://github.com/deadeye636/switchboard/issues/167) The project list should be a list — a registry, not a derivation · _feature_
 - [#168](https://github.com/deadeye636/switchboard/issues/168) Stats: a backend filter shows an empty page as soon as a template runs on that backend · _bug_
 - [#169](https://github.com/deadeye636/switchboard/issues/169) An unset $VAR disappears silently at launch — the check exists, it just fires at the wrong moment · _bug_
-- [#170](https://github.com/deadeye636/switchboard/issues/170) Extract project management out of main.js so it can be tested · _chore_
-- [#171](https://github.com/deadeye636/switchboard/issues/171) The project manager is still single-backend: trust, remap, and no backend badges · _bug_
 
 ## P3 — someday
 
