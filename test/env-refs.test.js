@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { resolveEnv, isEnvRef, refVarName } = require('../env-refs');
+const { resolveEnv, resolveEnvRefs, missingRefsMessage, isEnvRef, refVarName } = require('../env-refs');
 
 test('literal values are kept verbatim', () => {
   const host = {};
@@ -31,6 +31,77 @@ test('${VAR} braced form resolves', () => {
 test('missing $VAR is dropped, never leaks the literal "$VAR"', () => {
   const out = resolveEnv({ ANTHROPIC_AUTH_TOKEN: '$NOT_SET' }, {});
   assert.ok(!('ANTHROPIC_AUTH_TOKEN' in out), 'unresolved ref must be dropped');
+});
+
+// --- and it is SAID (#169) -------------------------------------------------------------------------
+//
+// The drop above is right and stays. What was wrong is that it happened in SILENCE: a template pointed at
+// another provider whose key is not set launched happily, the key simply absent, and the user was left
+// with a provider auth error that named nothing. The check existed — it just ran in the EDITOR, where
+// nothing is at stake, and said nothing at the spawn, where it costs a session.
+
+test('a dropped ref is REPORTED — the key it was for, and the variable that was missing', () => {
+  const { env, missing } = resolveEnvRefs({
+    ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic',   // literal: fine
+    ANTHROPIC_AUTH_TOKEN: '$ZAI_KEY',                        // set: resolves
+    OPENAI_API_KEY: '$NOT_SET',                              // unset: dropped, and named
+    EMPTY_ONE: '$BLANK',                                     // empty is unset
+  }, { ZAI_KEY: 'secret', BLANK: '' });
+
+  assert.deepStrictEqual(env, {
+    ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic',
+    ANTHROPIC_AUTH_TOKEN: 'secret',
+  });
+  assert.deepStrictEqual(missing, [
+    { key: 'OPENAI_API_KEY', varName: 'NOT_SET' },
+    { key: 'EMPTY_ONE', varName: 'BLANK' },
+  ]);
+});
+
+test('nothing missing is nothing to say', () => {
+  assert.deepStrictEqual(resolveEnvRefs({ A: 'literal' }, {}).missing, []);
+  assert.strictEqual(missingRefsMessage([], 'Template'), null);
+  assert.strictEqual(missingRefsMessage(null, 'Template'), null);
+});
+
+test('the message names the variable AND whose bundle it was — three templates can want three keys', () => {
+  const one = missingRefsMessage([{ key: 'OPENAI_API_KEY', varName: 'OPENAI_KEY' }], 'GLM 4.6');
+  assert.match(one, /GLM 4\.6/, 'without the source, "OPENAI_KEY is not set" is a riddle');
+  assert.match(one, /\$OPENAI_KEY/);
+  assert.match(one, /is not set/);
+  assert.match(one, /authenticate/, 'and it says what will go wrong, not just what happened');
+
+  const two = missingRefsMessage(
+    [{ key: 'A', varName: 'ONE' }, { key: 'B', varName: 'TWO' }], 'Launcher');
+  assert.match(two, /\$ONE, \$TWO are not set/);
+});
+
+test('the same variable referenced twice is named once', () => {
+  const msg = missingRefsMessage(
+    [{ key: 'A', varName: 'KEY' }, { key: 'B', varName: 'KEY' }], 'T');
+  assert.strictEqual((msg.match(/\$KEY/g) || []).length, 1);
+});
+
+test('resolveEnv still returns just the env — the callers that have nothing to say are unchanged', () => {
+  assert.deepStrictEqual(resolveEnv({ A: '$X', B: 'lit' }, { X: 'v' }), { A: 'v', B: 'lit' });
+});
+
+test('no spawn path in main.js resolves an env bundle in silence', () => {
+  // There were THREE of them — the external launcher, the in-app launcher, the backend PTY — and all
+  // three called resolveEnv() bare and inspected nothing. A fourth would be added the same way. So: in
+  // main.js, the resolution goes through resolveSpawnEnv(), which says what it dropped.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+
+  const bare = src.split('\n')
+    .map((line, i) => ({ line, n: i + 1 }))
+    .filter(({ line }) => /(?<!function\s)\bresolveEnv\s*\(/.test(line))
+    .filter(({ line }) => !line.trim().startsWith('//') && !line.trim().startsWith('*'));
+
+  assert.deepStrictEqual(bare.map(b => `main.js:${b.n} ${b.line.trim()}`), [],
+    'a spawn that drops a $VAR without saying so leaves the user with an auth error that names nothing');
+  assert.match(src, /function resolveSpawnEnv\(/);
 });
 
 test('empty host value is treated as unset -> dropped', () => {

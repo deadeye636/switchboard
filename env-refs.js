@@ -31,30 +31,65 @@ function refVarName(value) {
   return m ? (m[1] || m[2]) : null;
 }
 
-// Resolve an env bundle against a host env (defaults to process.env).
-// Returns a NEW object; the input is not mutated.
-//   - literal (incl. "")        -> kept verbatim
-//   - `$VAR` with host value set -> host value
-//   - `$VAR` unset/empty in host -> KEY dropped entirely (no leak)
-// Non-string values are coerced to string literals (defensive; bundles should be strings).
-function resolveEnv(bundle, hostEnv) {
+/**
+ * Resolve an env bundle against a host env (defaults to process.env) — AND SAY WHAT WAS DROPPED (#169).
+ *
+ * Returns a NEW object; the input is not mutated.
+ *   - literal (incl. "")         -> kept verbatim
+ *   - `$VAR` with host value set  -> host value
+ *   - `$VAR` unset/empty in host  -> KEY dropped entirely (no leak), and reported in `missing`
+ *
+ * The drop itself is right and stays: emitting the literal `"$VAR"` would leak the ref text into the
+ * child and, worse, mask a missing credential behind a value that looks like one. What was wrong is that
+ * it happened in SILENCE. A template pointed at another provider whose `$OPENAI_API_KEY` is not set
+ * launched happily, the key simply absent, and the user was left with a provider auth error that named
+ * nothing. The app could always explain it — it just did so in the editor, where nothing is at stake,
+ * and said nothing at the spawn, where it costs a session.
+ *
+ * Non-string values are coerced to string literals (defensive; bundles should be strings).
+ *
+ * @returns {{env: object, missing: Array<{key: string, varName: string}>}}
+ */
+function resolveEnvRefs(bundle, hostEnv) {
   const host = hostEnv || process.env;
-  const out = {};
-  if (!bundle || typeof bundle !== 'object') return out;
+  const env = {};
+  const missing = [];
+  if (!bundle || typeof bundle !== 'object') return { env, missing };
+
   for (const [key, value] of Object.entries(bundle)) {
     if (isEnvRef(value)) {
-      const name = refVarName(value);
-      const resolved = host[name];
-      // Drop when the host var is missing or empty — never leak "$VAR".
+      const varName = refVarName(value);
+      const resolved = host[varName];
       if (typeof resolved === 'string' && resolved !== '') {
-        out[key] = resolved;
+        env[key] = resolved;
+      } else {
+        missing.push({ key, varName });
       }
       continue;
     }
     // Literal (including "" to clear a var). Coerce non-strings defensively.
-    out[key] = typeof value === 'string' ? value : String(value);
+    env[key] = typeof value === 'string' ? value : String(value);
   }
-  return out;
+  return { env, missing };
 }
 
-module.exports = { resolveEnv, isEnvRef, refVarName };
+/** The env alone, for callers that have nothing to say about what was dropped. */
+function resolveEnv(bundle, hostEnv) {
+  return resolveEnvRefs(bundle, hostEnv).env;
+}
+
+/**
+ * What to tell the user, in one line. `source` names the thing that carries the bundle — the template,
+ * the backend, the launcher — because "OPENAI_API_KEY is not set" without it is a riddle when three
+ * templates reference three different keys.
+ */
+function missingRefsMessage(missing, source) {
+  if (!missing || !missing.length) return null;
+  const vars = [...new Set(missing.map(m => '$' + m.varName))].join(', ');
+  const what = missing.length === 1 ? 'is not set' : 'are not set';
+  return `${source ? source + ': ' : ''}${vars} ${what} in the environment — `
+    + `${missing.length === 1 ? 'that variable was' : 'those variables were'} left out of the session. `
+    + 'If the CLI needs it, it will fail to authenticate.';
+}
+
+module.exports = { resolveEnv, resolveEnvRefs, missingRefsMessage, isEnvRef, refVarName };

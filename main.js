@@ -22,7 +22,8 @@ const backends = require('./backends');
 const sessionBackends = require('./session-backends');
 const profiles = require('./profiles');
 const settingsTransfer = require('./settings-transfer');
-const { resolveEnv } = require('./env-refs');
+// Every spawn path goes through resolveSpawnEnv() below — an unresolved $VAR is dropped AND said (#169).
+const { resolveEnvRefs, missingRefsMessage } = require('./env-refs');
 // Tier-3 custom launchers (T-3.10): the entry shape + cascade live in one module shared with the
 // renderer; main only re-validates what the renderer hands it before spawning.
 const { normalizeLauncher } = require('./public/custom-launchers');
@@ -973,7 +974,7 @@ ipcMain.handle('run-custom-launcher', (_event, payload) => {
 
   const cmd = composeLauncherCommand(shellPath, launcher);
   if (!cmd) return { ok: false, error: 'empty command' };
-  const env = { ...process.env, ...resolveEnv(launcher.env) };
+  const env = { ...process.env, ...resolveSpawnEnv(launcher.env, launcher.name || 'Launcher') };
 
   try {
     const { spawn } = require('child_process');
@@ -1308,6 +1309,34 @@ ipcMain.handle('get-stats-from-db', (_event, backendId) => {
  * work went, and the answer is the backend. So a backend filter expands to the backend plus every
  * template that runs on it.
  */
+/**
+ * Resolve an env bundle for a SPAWN, and say out loud what it had to drop (#169).
+ *
+ * An unresolved `$VAR` is dropped — that is right, and it stays: emitting the literal would leak the ref
+ * text into the child and mask a missing credential behind something that looks like one. What was wrong
+ * is that it happened in silence: a template pointed at another provider whose key is not set launched
+ * happily, and the user got a provider auth error that named nothing.
+ *
+ * Warn, do not refuse. Not every dropped reference is fatal — a bundle may carry an optional variable —
+ * and refusing a launch on that guess would be its own bug. But it is SAID: named, in the log at `info`
+ * level so a packaged build shows it, and as a toast on the session so the user connects the failure to
+ * its cause instead of hunting a provider error.
+ *
+ * The editor already had this check. It ran where nothing was at stake, and a save-time check can never
+ * replace a launch-time one anyway: the variable can vanish BETWEEN the save and the launch.
+ */
+function resolveSpawnEnv(bundle, source, sessionId) {
+  const { env, missing } = resolveEnvRefs(bundle);
+  if (!missing.length) return env;
+
+  const message = missingRefsMessage(missing, source);
+  log.warn('[env] ' + message);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('session-notice', sessionId || null, message);
+  }
+  return env;
+}
+
 function backendFilterIds(backendId) {
   if (!backendId || backendId === 'all') return null;
   const base = String(backendId);
@@ -3304,9 +3333,11 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       // for PowerShell/cmd, so don't set them there.
       if (isBashLike) { env.ENV = bashShim; env.BASH_ENV = bashShim; }
 
-      // A custom launcher's env: `$VAR` refs resolved at spawn (an unresolved one is dropped —
-      // never a literal secret on disk, §5.2). It must be in place BEFORE the shell starts.
-      if (launcher && launcher.env) Object.assign(env, resolveEnv(launcher.env));
+      // A custom launcher's env: `$VAR` refs resolved at spawn (an unresolved one is dropped — never a
+      // literal secret on disk, §5.2 — and SAID, #169). It must be in place BEFORE the shell starts.
+      if (launcher && launcher.env) {
+        Object.assign(env, resolveSpawnEnv(launcher.env, launcher.name || 'Launcher', sessionId));
+      }
 
       ptyProcess = pty.spawn(shell, ptyShellArgs(shell, undefined, shellExtraArgs), {
         name: 'xterm-256color',
@@ -3545,11 +3576,13 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
         const baseEnv = { ...(launch.env || {}) };
         for (const key of Object.keys(templateEnv)) delete baseEnv[key];
 
-        Object.assign(ptyEnv, resolveEnv({
+        // The template's name, not the backend's: three templates can reference three different keys,
+        // and "OPENAI_API_KEY is not set" without saying WHOSE is a riddle (#169).
+        Object.assign(ptyEnv, resolveSpawnEnv({
           ...baseEnv,
           ...(allEnv[baseId] || {}),
           ...templateEnv,
-        }));
+        }, backend.label || backend.id, sessionId));
       }
       const effectiveProfileId = sessionOptions?.profileId != null ? sessionOptions.profileId : (recorded?.profileId || null);
       sessionBackends.record(sessionId, backend.id, effectiveProfileId);
