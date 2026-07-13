@@ -135,7 +135,50 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 - `npm test` — runs `node --test` over `test/*.test.js`. No Electron needed. Keep it green (run it for the current pass count — don't rely on a hardcoded number here).
   (Takes ~20 s. `trigger-watcher.test.js` uses real `fs.watch`/timers and is the slowest file at ~19 s, which sets the wall clock since files run in parallel.)
 - `npm start` — bundles CodeMirror, then launches Electron.
+- `npm run start:debug` — the same, with the DevTools port open, so the app can be **driven from the CLI** (below).
 - `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe`.
+
+## Where the data actually is
+
+**Two databases.** Look at the wrong one and you will "verify" against a store that has not moved in weeks —
+including a schema the migrations never touched (`no such column: parserVersion` is what that looks like).
+
+| Running as | `DATA_DIR` | DB |
+|---|---|---|
+| `npm start` / `npm run start:debug` (dev, unpackaged) | `~/.switchboard-dev` | `~/.switchboard-dev/switchboard.db` |
+| the installed app (packaged) | `~/.switchboard` | `~/.switchboard/switchboard.db` |
+| a test sandbox / agent run | `$SWITCHBOARD_DATA_DIR` | there |
+
+Set in `main.js` (~L82): unpackaged **and** no explicit `SWITCHBOARD_DATA_DIR` → `~/.switchboard-dev`, so a dev
+instance never races the installed app on `session_cache`. `db.js` resolves `DATA_DIR` at module load, so the
+env var must be set **before** anything requires it.
+
+**A fix confirmed under `npm start` is confirmed in the DEV database only.** The installed app runs its own
+migration + reindex the next time *it* starts.
+
+The **source** stores are shared by both (they belong to the CLIs, not to us): `~/.claude/projects/**`,
+`%LOCALAPPDATA%\hermes\state.db`, `(CODEX_HOME|~/.codex)/sessions`, `~/.pi/agent/sessions`.
+
+## Driving the app (no clicking required)
+
+Electron speaks the same DevTools protocol Chrome does, so the running app can be scripted. This is the missing
+half of "run it and look": a test cannot see a sidebar, and a green suite has twice hidden a feature that was
+plainly broken on screen (Codex stuck at "working"; a Save that discarded every backend setting).
+
+```
+npm run start:debug                                   # app + DevTools port 9222
+node scripts/drive-app.js eval "<js>"                 # run JS in the renderer, print the result
+node scripts/drive-app.js text "<selector>"           # innerText of the first match
+node scripts/drive-app.js count "<selector>"          # how many match
+node scripts/drive-app.js click "<selector>"          # click the first match
+node scripts/drive-app.js clicktext "<sel>" "<text>"  # click the first match containing <text>
+node scripts/drive-app.js shot out.png                # screenshot the window
+```
+
+No dependency (Node 22 ships a global `WebSocket`; CDP is JSON over one). `window.api.*` is reachable from
+`eval`, so the app's own IPC can be exercised directly — e.g. `await window.api.getProjects(false)` to read what
+the sidebar would render, or `await window.api.unhideProject(path)` to do what a click would do. Give the
+renderer a second after launch; a query fired too early answers about an empty page.
 
 ### Windows build gotchas (this machine, VS 2026)
 
