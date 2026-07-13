@@ -17,7 +17,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
-- [#167](https://github.com/deadeye636/switchboard/issues/167) The project registry cannot add a project — it can only filter one away · _feature_
+- [#167](https://github.com/deadeye636/switchboard/issues/167) The project list should be a list — a registry, not a derivation · _feature_
 - [#168](https://github.com/deadeye636/switchboard/issues/168) Stats: a backend filter shows an empty page as soon as a template runs on that backend · _bug_
 - [#169](https://github.com/deadeye636/switchboard/issues/169) An unset $VAR disappears silently at launch — the check exists, it just fires at the wrong moment · _bug_
 
