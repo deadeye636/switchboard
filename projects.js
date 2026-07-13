@@ -126,6 +126,22 @@ function projectHasSessionsOnDisk(projectPath) {
   }
 }
 
+/**
+ * Is there ANY session left in this project — from any backend?
+ *
+ * `projectHasSessionsOnDisk` only ever looked in Claude's store, and the prune below is what wipes a
+ * project's tags, handoffs and favourites. So clearing just the Claude history of a project that also has
+ * Codex or Pi sessions counted as "nothing left" and threw all of that away, while the other backends'
+ * sessions carried on being listed. The cache is the honest answer here: a hard delete removes the rows of
+ * the backends the user picked and no others, so a row that is still there is a session that is still there.
+ */
+function projectHasSessionsLeft(projectPath) {
+  try {
+    if ((ctx.db.getCachedByProjectPath(projectPath) || []).length) return true;
+  } catch { /* fall through to the store */ }
+  return projectHasSessionsOnDisk(projectPath);
+}
+
 function projectIsInClaudeConfig(projectPath) {
   try {
     const cfg = claudeConfig.readClaudeConfig();
@@ -147,7 +163,7 @@ function projectIsInClaudeConfig(projectPath) {
  */
 function pruneProjectIfGone(projectPath) {
   if (!projectPath) return false;
-  if (projectHasSessionsOnDisk(projectPath) || projectIsInClaudeConfig(projectPath)) return false;
+  if (projectHasSessionsLeft(projectPath) || projectIsInClaudeConfig(projectPath)) return false;
 
   try { ctx.db.deleteProjectRefs(projectPath); } catch (err) {
     ctx.log.warn('[prune] project refs delete failed: ' + err.message);
@@ -528,6 +544,17 @@ function getProjectsAdmin() {
     // own config.toml; Pi and Hermes have none, and the UI says so rather than inventing one.
     const trustBackends = listBackendsWithTrust();
 
+    // Ask each backend ONCE, for every project at a time. `projectTrust.get` opens and parses that
+    // backend's config file on every call, so asking per row meant re-reading Codex' config.toml once per
+    // project just to draw one table. A backend that has no batch answer is still asked the slow way —
+    // and which backend that is, is not this file's business to know.
+    const allPaths = rows.map(r => r.projectPath);
+    const trustOf = new Map();
+    for (const b of trustBackends) {
+      if (typeof b.projectTrust.getMany !== 'function') continue;
+      try { trustOf.set(b.id, b.projectTrust.getMany(allPaths)); } catch { /* fall back to per-row */ }
+    }
+
     for (const r of rows) {
       const norm = claudeConfig.normalizeClaudePath(r.projectPath);
       // Kept for compatibility: `trusted` is CLAUDE's trust, and always was.
@@ -536,9 +563,9 @@ function getProjectsAdmin() {
       // ...and now the truth, per backend: { claude: true, codex: null, ... }. null = never asked.
       r.trust = {};
       for (const b of trustBackends) {
+        const batch = trustOf.get(b.id);
         try {
-          r.trust[b.id] = b.id === 'claude'
-            ? (trustMap.has(norm) ? trustMap.get(norm) : null)   // reuse the single parse above
+          r.trust[b.id] = batch ? (batch.has(r.projectPath) ? batch.get(r.projectPath) : null)
             : b.projectTrust.get(r.projectPath);
         } catch { r.trust[b.id] = null; }
       }
@@ -610,8 +637,9 @@ function deletableBackends(projectPath) {
       label: backend ? (backend.label || id) : id,
       sessions,
       deletable,
-      // Hermes: its sessions are rows in a database we open read-only and may never write (#2914).
-      reason: deletable ? null : 'its history lives in a database Switchboard may only read',
+      // A backend that cannot hand over its history says WHY itself — the reason belongs to the backend,
+      // not to a sentence here that happened to describe Hermes and was then shown for everything else.
+      reason: deletable ? null : ((backend && backend.deleteBlockedReason) || 'Switchboard cannot delete its history'),
     });
   }
   return out;
@@ -651,8 +679,8 @@ function deleteProjectSessions(projectPath, backendIds) {
         continue;
       }
 
-      const files = rows
-        .filter(r => (r.backendId || 'claude') === backendId)
+      const mine = rows.filter(r => (r.backendId || 'claude') === backendId);
+      const files = mine
         .map(r => r.filePath || resolveJsonlPath(ctx.PROJECTS_DIR, r))
         .filter(Boolean);
 
@@ -668,19 +696,13 @@ function deleteProjectSessions(projectPath, backendIds) {
       deleted[backendId] = res.removed;
       removed += res.removed;
 
-      // The rows go with the files — and ONLY this backend's rows. The folder key is shared (it is
-      // derived from the cwd), so an unscoped delete would take the other backends' sessions with it,
-      // sessions whose files are still on disk and would simply reappear on the next scan.
-      const folder = encodeProjectPath(projectPath);
-      const scope = { only: [backendId] };
-      try { ctx.db.deleteCachedFolder(folder, scope); } catch { /* best effort */ }
-      try { ctx.db.deleteSearchFolder(folder, scope); } catch { /* best effort */ }
-      // Claude's own rows can sit under a legacy folder name too — clear those the old way.
-      if (backendId === 'claude') {
-        for (const r of rows.filter(x => (x.backendId || 'claude') === 'claude' && x.folder && x.folder !== folder)) {
-          try { ctx.db.deleteCachedFolder(r.folder, ctx.cache.claudeStoreScope()); } catch { /* best effort */ }
-          try { ctx.db.deleteSearchFolder(r.folder, ctx.cache.claudeStoreScope()); } catch { /* best effort */ }
-        }
+      // The rows go with the files, ROW BY ROW. Clearing them by folder would repeat the mistake the
+      // folder delete itself was: a store folder is keyed on the cwd a session started from, so since
+      // #157 it can hold rows belonging to other projects — and they would disappear from the cache
+      // while their transcripts sat untouched on disk, which no rescan would necessarily put back.
+      for (const r of mine) {
+        try { ctx.db.deleteCachedSession(r.sessionId); } catch { /* best effort */ }
+        try { ctx.db.deleteSearchSession(r.sessionId); } catch { /* best effort */ }
       }
     }
 

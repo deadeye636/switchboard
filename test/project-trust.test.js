@@ -74,6 +74,29 @@ test('setTrust on a project that is not there, with trusted=false, changes nothi
   assert.strictEqual(trust.setTrust(REAL, 'D:\\never-seen', false), REAL);
 });
 
+test('a directory whose name contains an apostrophe does not corrupt somebody else\'s config', () => {
+  // A TOML literal string cannot contain a single quote and has no escapes at all, so writing the table
+  // header verbatim produced `[projects.'D:\Bob's stuff']` — not merely a wrong key, but INVALID TOML in
+  // the middle of Codex' own config, which then fails to parse as a whole and takes every other setting
+  // with it. Such a path goes in a basic string, where the backslashes are doubled.
+  const p = "D:\\Bob's stuff";
+  const next = trust.setTrust(REAL, p, true);
+
+  assert.ok(!/\[projects\.'[^'\n]*'[^\]\n]/.test(next), 'no half-closed literal table header');
+  assert.match(next, /\[projects\."D:\\\\Bob's stuff"\]/, 'a basic string, with the backslashes escaped');
+
+  // And it reads back as the path it started as — not as the escaped text.
+  assert.strictEqual(trust.parseTrust(next).get(p), 'trusted');
+
+  // Flipping it finds the table it wrote, rather than appending a second one.
+  const off = trust.setTrust(next, p, false);
+  assert.strictEqual(trust.parseTrust(off).has(p), false);
+  assert.strictEqual((off.match(/\[projects\."D:/g) || []).length, 1, 'no duplicate table');
+
+  // Everything that was already in the file is still there.
+  assert.strictEqual(trust.parseTrust(next).get('d:\\projekte\\example'), 'trusted');
+});
+
 test('the same directory in two spellings is one project', () => {
   // A real config carries BOTH `d:\projekte\x` and `D:\Projekte\x` — Codex writes whatever cwd it was
   // started with. Reading has to be case-insensitive on Windows, or a trusted project reads as untrusted
@@ -163,4 +186,23 @@ test('every FILE backend can move a session to a new project path — and the db
   }
   assert.strictEqual(backends.get('hermes').rewriteProjectPath, undefined,
     'Hermes cannot be moved, and must not claim it can');
+});
+
+test('a template inherits its base backend\'s remap and delete — its sessions live in the base\'s store', () => {
+  // An Axis-A template runs the base binary, which writes the base's format into the base's store. So the
+  // base is also what can move those sessions and delete them. The template descriptor declared neither,
+  // and the project manager therefore treated every template like Hermes: the remap left its sessions
+  // behind at the old path, and the Remove dialog offered no switch for them while blaming a read-only
+  // database that does not exist.
+  const profile = { id: 'tpl-test', name: 'Test template', backendId: 'claude', options: {}, env: {} };
+  const tpl = backends.profileToDescriptor(profile);
+  const base = backends.get('claude');
+
+  assert.strictEqual(tpl.rewriteProjectPath, base.rewriteProjectPath, 'the base moves the template\'s sessions');
+  assert.strictEqual(tpl.deleteSessions, base.deleteSessions, 'and deletes them');
+
+  // A template on a base that declares neither must not invent them.
+  const onHermes = backends.profileToDescriptor({ id: 'tpl-h', name: 'On Hermes', backendId: 'hermes' });
+  assert.strictEqual(onHermes.rewriteProjectPath, undefined);
+  assert.strictEqual(onHermes.deleteSessions, undefined);
 });

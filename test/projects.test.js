@@ -20,7 +20,10 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
   const settings = new Map([['global', { autoHideDays, ...initialGlobal }]]);
   const meta = new Map();          // projectPath -> { autoHideResetAt, autoHidden }
   const autoHidden = new Set();
-  const calls = { refreshed: [], deletedFolders: [], deletedSearch: [], notified: 0, favorites: new Map() };
+  const calls = {
+    refreshed: [], deletedFolders: [], deletedSearch: [], notified: 0, favorites: new Map(),
+    deletedSessions: [], deletedSearchSessions: [], prunedProjects: [],
+  };
   let adminRows = [];
   let cachedRows = [];             // session_cache rows for the project being remapped (#171)
 
@@ -40,12 +43,19 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
       deleteSetting: (k) => settings.delete(k),
       deleteCachedFolder: (folder, scope) => calls.deletedFolders.push({ folder, scope }),
       deleteSearchFolder: (folder, scope) => calls.deletedSearch.push({ folder, scope }),
+      // The row really goes, so a later getCachedByProjectPath tells the truth — the prune decides on it.
+      deleteCachedSession: (sid) => {
+        calls.deletedSessions.push(sid);
+        cachedRows = cachedRows.filter(r => r.sessionId !== sid);
+      },
+      deleteSearchSession: (sid) => calls.deletedSearchSessions.push(sid),
       getProjectMeta: (p) => meta.get(p) || null,
       setProjectAutoHidden: (p, on) => { if (on) autoHidden.add(p); else autoHidden.delete(p); },
       resetProjectAutoHide: (p) => { meta.set(p, { autoHideResetAt: new Date().toISOString() }); autoHidden.delete(p); },
       getAutoHiddenProjects: () => autoHidden,
       renameProjectRefs: () => {},
-      deleteProjectRefs: (p) => { meta.delete(p); },
+      // This is what the prune calls — it takes the project's tags, handoffs and favourites with it.
+      deleteProjectRefs: (p) => { calls.prunedProjects.push(p); meta.delete(p); },
       setFolderMeta: () => {},
       toggleProjectFavorite: (p) => {
         const next = !calls.favorites.get(p);
@@ -455,14 +465,99 @@ test('deleting one backend\'s history leaves the others\' alone — files AND ro
     assert.strictEqual(res.ok, true);
     assert.deepStrictEqual(res.deleted, { claude: 1 });
 
-    assert.strictEqual(fs.existsSync(folderPath), false, 'Claude\'s folder is gone');
-    assert.strictEqual(fs.existsSync(codexFile), true, 'and Codex\' rollout is NOT — it was not asked for');
+    assert.strictEqual(fs.existsSync(claudeFile), false, 'Claude\'s transcript is gone');
+    assert.strictEqual(fs.existsSync(folderPath), false, 'and the folder with it — nothing was left in it');
+    assert.strictEqual(fs.existsSync(codexFile), true, 'Codex\' rollout is NOT — it was not asked for');
 
-    // The rows go the same way: scoped to the backend that was cleared. An unscoped delete would take
-    // Codex' row with it — and its file is still on disk, so the row would simply come back on the next
-    // scan, which is exactly why the scope rule exists.
-    assert.deepStrictEqual(t.calls.deletedFolders, [{ folder, scope: { only: ['claude'] } }]);
-    assert.deepStrictEqual(t.calls.deletedSearch, [{ folder, scope: { only: ['claude'] } }]);
+    // The rows go the same way, one by one: only the sessions whose files were deleted. Clearing the
+    // cache BY FOLDER would take Codex' row with it — and its file is still on disk.
+    assert.deepStrictEqual(t.calls.deletedSessions, ['a']);
+    assert.deepStrictEqual(t.calls.deletedSearchSessions, ['a']);
+    assert.deepStrictEqual(t.calls.deletedFolders, [], 'the hard delete does not clear the cache by folder');
+  } finally {
+    t.cleanup();
+    fs.rmSync(codexStore, { recursive: true, force: true });
+  }
+});
+
+test('a session that MOVED into another project is not destroyed with this one', () => {
+  // The one that hurt. Claude's store folder is keyed on the cwd a session STARTED from, and since #157 a
+  // session belongs to the tree it WORKS in — so one folder can hold sessions of two projects. Deleting
+  // the project by removing its folders took the other project's transcripts with it: never counted,
+  // never offered, and not recoverable.
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    const folder = encodeProjectPath(projectPath);
+    const folderPath = path.join(t.store, folder);
+    fs.mkdirSync(folderPath, { recursive: true });
+
+    const mine = path.join(folderPath, 'a.jsonl');
+    const movedOut = path.join(folderPath, 'b.jsonl');       // same folder, now belongs to D:\other
+    fs.writeFileSync(mine, '{}');
+    fs.writeFileSync(movedOut, '{}');
+
+    t.setCachedRows([
+      { sessionId: 'a', folder, projectPath, filePath: null, backendId: 'claude' },
+      { sessionId: 'b', folder, projectPath: 'D:\\other', filePath: null, backendId: 'claude' },
+    ]);
+
+    const res = projects.deleteProjectSessions(projectPath, ['claude']);
+    assert.deepStrictEqual(res.deleted, { claude: 1 }, 'one session — the one that is actually this project\'s');
+    assert.strictEqual(fs.existsSync(mine), false);
+    assert.strictEqual(fs.existsSync(movedOut), true, 'the session that moved to another project survives');
+    assert.strictEqual(fs.existsSync(folderPath), true, 'and its folder with it — it is not empty');
+    assert.deepStrictEqual(t.calls.deletedSessions, ['a'], 'and the other project keeps its row');
+  } finally { t.cleanup(); }
+});
+
+test('a subagent transcript goes with its project — it has no filePath to follow', () => {
+  // A Claude row carries no `filePath`; the transcript is reconstructed from folder + session id, and a
+  // subagent's file sits under the parent's directory. Without parentSessionId/agentId on the row that
+  // path came out wrong, so the subagent was silently left behind.
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    const folder = encodeProjectPath(projectPath);
+    const subDir = path.join(t.store, folder, 'parent-1', 'subagents');
+    fs.mkdirSync(subDir, { recursive: true });
+    const parent = path.join(t.store, folder, 'parent-1.jsonl');
+    const sub = path.join(subDir, 'agent-7.jsonl');
+    fs.writeFileSync(parent, '{}');
+    fs.writeFileSync(sub, '{}');
+
+    t.setCachedRows([
+      { sessionId: 'parent-1', folder, projectPath, filePath: null, backendId: 'claude' },
+      { sessionId: 'sub:parent-1:7', folder, projectPath, filePath: null, backendId: 'claude', parentSessionId: 'parent-1', agentId: '7' },
+    ]);
+
+    projects.deleteProjectSessions(projectPath, ['claude']);
+    assert.strictEqual(fs.existsSync(sub), false, 'the subagent transcript is gone too');
+    assert.strictEqual(fs.existsSync(parent), false);
+  } finally { t.cleanup(); }
+});
+
+test('clearing one backend keeps the project\'s tags while another backend still has sessions', () => {
+  // pruneProjectIfGone wipes a project's tags, handoffs and favourites, and it only ever looked in
+  // CLAUDE's store. Clearing the Claude history of a project that also has Codex sessions therefore read
+  // as "nothing left" and threw all of that away — while the Codex sessions carried on being listed.
+  const t = makeCtx();
+  const codexStore = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-keep-'));
+  try {
+    const projectPath = 'D:\\p';
+    const folder = encodeProjectPath(projectPath);
+    fs.mkdirSync(path.join(t.store, folder), { recursive: true });
+    fs.writeFileSync(path.join(t.store, folder, 'a.jsonl'), '{}');
+    const codexFile = path.join(codexStore, 'rollout-x.jsonl');
+    fs.writeFileSync(codexFile, '{}');
+
+    t.setCachedRows([
+      { sessionId: 'a', folder, projectPath, filePath: null, backendId: 'claude' },
+      { sessionId: 'x', folder, projectPath, filePath: codexFile, backendId: 'codex' },
+    ]);
+
+    projects.deleteProjectSessions(projectPath, ['claude']);
+    assert.deepStrictEqual(t.calls.prunedProjects, [], 'the project is not forgotten — Codex is still in it');
   } finally {
     t.cleanup();
     fs.rmSync(codexStore, { recursive: true, force: true });

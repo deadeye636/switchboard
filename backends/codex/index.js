@@ -187,7 +187,7 @@ module.exports = {
   // Codex has its OWN trust gate — "Do you trust this directory?" on a fresh cwd — and it remembers the
   // answer in its config.toml, not in Claude's config (#171). Ticking "Trusted" in the project manager
   // used to write Claude's file and nothing else, so the column said trusted and Codex asked anyway.
-  projectTrust: { get: trust.get, set: trust.set },
+  projectTrust: { get: trust.get, getMany: trust.getMany, set: trust.set },
 
   // Codex writes its cwd ONCE, in the session_meta header. A remap that only rewrote Claude's
   // transcripts left Codex' sessions behind at the old path, as a phantom project.

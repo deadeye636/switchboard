@@ -169,8 +169,6 @@ function watchTargets() {
 // in its config.toml and writes cwd once, in its header. A backend that has neither declares neither,
 // and the project manager stops pretending it speaks for everyone.
 const claudeConfig = require('../claude-config');
-const { encodeProjectPath } = require('../encode-project-path');
-const { deriveProjectPath } = require('../derive-project-path');
 const { rewriteTranscript, claudeLine } = require('./rewrite-cwd');
 
 const projectTrust = {
@@ -181,6 +179,19 @@ const projectTrust = {
       return map.has(norm) ? map.get(norm) : null;
     } catch { return null; }
   },
+  // Many projects at once — the Projects admin asks for every row it renders, and `get` reads and parses
+  // the config file each time it is called. The normalisation stays in here: only this backend knows how
+  // its own config spells a path.
+  getMany: (projectPaths) => {
+    const out = new Map();
+    let map;
+    try { map = claudeConfig.getProjectTrustMap(); } catch { return out; }
+    for (const p of projectPaths) {
+      const norm = claudeConfig.normalizeClaudePath(p);
+      out.set(p, map.has(norm) ? map.get(norm) : null);
+    }
+    return out;
+  },
   set: (projectPath, trusted) => claudeConfig.setProjectTrust(projectPath, trusted),
 };
 
@@ -190,31 +201,58 @@ function rewriteProjectPath(filePath, oldPath, newPath) {
 }
 
 /**
- * Hand over this project's transcripts. Claude's store is organised BY project — one folder per encoded
- * cwd, and legacy encodings mean there can be several that resolve to the same project — so the honest
- * unit here is the folder, not the file list. The caller passes the file paths for the other backends;
- * Claude ignores them and removes the folders that belong to this project, exactly as it always did.
+ * Hand over this project's transcripts — THE FILES ON THE ROWS, not the folder they happen to sit in.
+ *
+ * This used to remove every store folder that resolved to the project, and that was safe only while a
+ * folder and a project were the same thing. Since #157 they are not: a session is attributed to the tree
+ * it works in, so a folder created from one cwd can hold sessions that now belong to somewhere else. A
+ * recursive folder delete took those with it — sessions of a DIFFERENT project, that the Remove dialog
+ * had never counted and never offered. It also removed the transcripts of Axis-A templates, whose rows
+ * are not Claude's and therefore survived, leaving rows pointing at files that no longer existed.
+ *
+ * So: delete exactly the transcripts the caller names (they come from this project's cached rows), plus
+ * what belongs to each of them — the `.meta.json` sidecar and, for a parent session, its `subagents/`
+ * directory. A folder left with nothing in it is then removed as the empty shell it is.
  */
-function deleteSessions(_filePaths, { projectPath, projectsDir } = {}) {
-  if (!projectPath || !projectsDir) return { removed: 0, failed: [] };
-  const encoded = encodeProjectPath(projectPath);
+function deleteSessions(filePaths, { projectsDir } = {}) {
+  if (!projectsDir || !Array.isArray(filePaths) || !filePaths.length) return { removed: 0, failed: [] };
+  const root = path.resolve(projectsDir) + path.sep;
+
   let removed = 0;
   const failed = [];
-  let dirs;
-  try {
-    dirs = fs.readdirSync(projectsDir, { withFileTypes: true }).filter(d => d.isDirectory() && d.name !== '.git');
-  } catch { return { removed: 0, failed: [] }; }
+  const touched = new Set();
 
-  for (const d of dirs) {
-    const folderPath = path.join(projectsDir, d.name);
-    // A legacy encoding can leave several folders pointing at the same project, so resolve rather than
-    // trust the name — and never step outside the store.
-    if (d.name !== encoded && deriveProjectPath(folderPath) !== projectPath) continue;
-    const resolved = path.resolve(folderPath);
-    if (!resolved.startsWith(path.resolve(projectsDir) + path.sep)) continue;
-    try { fs.rmSync(resolved, { recursive: true, force: true }); removed++; } catch { failed.push(folderPath); }
+  for (const file of filePaths) {
+    if (!file) continue;
+    const resolved = path.resolve(file);
+    if (!resolved.startsWith(root)) continue;   // never step outside the store
+    // A subagent's file is listed on its own row, so it may already be gone with its parent. Only a file
+    // that was really there counts as removed — the dialog reports this number.
+    const existed = fs.existsSync(resolved);
+    try {
+      fs.rmSync(resolved, { force: true });
+      fs.rmSync(resolved.replace(/\.jsonl$/, '.meta.json'), { force: true });
+      fs.rmSync(resolved.replace(/\.jsonl$/, ''), { recursive: true, force: true });  // subagents/, if any
+      if (existed) removed++;
+      touched.add(path.dirname(resolved));
+    } catch {
+      failed.push(file);
+    }
   }
-  return { removed, failed, folders: true };
+
+  for (let dir of touched) {
+    // Up from the transcript, dropping every directory that is now empty. `root` carries a trailing
+    // separator, so the store folder itself never satisfies this and is never removed.
+    while (path.resolve(dir).startsWith(root)) {
+      let entries;
+      try { entries = fs.readdirSync(dir); } catch { break; }
+      if (entries.length) break;
+      try { fs.rmdirSync(dir); } catch { break; }
+      dir = path.dirname(dir);
+    }
+  }
+
+  return { removed, failed };
 }
 
 module.exports = {

@@ -144,6 +144,13 @@ function profileToDescriptor(p) {
     PARSER_SCHEMA_VERSION: base ? base.PARSER_SCHEMA_VERSION : undefined,
     supportsFork: base ? base.supportsFork : false,
     transcriptAccess: base ? base.transcriptAccess : undefined,
+    // A template's sessions are written by the base binary, into the base's store, in the base's format —
+    // so the base is also the one that can move them and delete them. Without these two the project
+    // manager treated every template like Hermes: the remap left its sessions behind at the old path, and
+    // the Remove dialog offered no switch for them and blamed a read-only database that does not exist.
+    // Absent on a base that declares neither (Hermes), which is the honest answer, not a silent no-op.
+    ...(base && typeof base.rewriteProjectPath === 'function' ? { rewriteProjectPath: base.rewriteProjectPath } : {}),
+    ...(base && typeof base.deleteSessions === 'function' ? { deleteSessions: base.deleteSessions } : {}),
     buildLaunch(ctx) {
       if (!usable) throw new Error(`Template '${p.name}' runs on '${baseId}', which is not available.`);
       const launch = base.buildLaunch(ctx);

@@ -339,9 +339,14 @@
         if (choice.deleteBackends && choice.deleteBackends.length) {
           const r = await window.api.deleteProjectSessions(path, choice.deleteBackends);
           if (r && r.error) { toast('Delete sessions: ' + r.error); }
-          else if (r && r.deleted) {
-            const what = Object.entries(r.deleted).map(([id, n]) => `${labelOf(id)}: ${n}`).join(', ');
-            if (what) toast('Deleted — ' + what);
+          else if (r) {
+            const what = Object.entries(r.deleted || {}).map(([id, n]) => `${labelOf(id)}: ${n}`).join(', ');
+            // What did NOT go has to be said too. A backend that cannot hand over its history was dropped
+            // in silence, and the toast then read as "all of it is gone" when some of it was still there.
+            const kept = (r.refused || []).join(', ');
+            if (what && kept) toast(`Deleted — ${what}. Kept: ${kept} (its history cannot be deleted).`);
+            else if (what) toast('Deleted — ' + what);
+            else if (kept) toast(`Nothing deleted — ${kept} cannot be deleted.`);
           }
         }
         await window.api.removeProject(path); // always: hide + clear Switchboard cache
@@ -354,6 +359,13 @@
         if (!newPath) return;
         const res = await window.api.remapProject(path, newPath);
         if (res && res.error) { toast('Remap: ' + res.error); return; }
+        // A backend whose store Switchboard may only read keeps its sessions at the OLD path. The handler
+        // has always reported that; nobody showed it, so the project simply looked half-moved afterwards.
+        const stuck = (res && res.cannotMove) || [];
+        if (stuck.length) {
+          const n = Object.values((res && res.moved) || {}).reduce((a, b) => a + b, 0);
+          toast(`Remapped ${n} session(s). ${stuck.join(', ')} could not be moved — those sessions stay at the old path.`);
+        }
       } else if (action === 'rename') {
         startRename(path, tr);
         return; // rename refreshes itself on save

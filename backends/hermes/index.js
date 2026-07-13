@@ -173,6 +173,10 @@ module.exports = {
   monogram: 'H',
   colour: 'hermes',
   supportsFork: false,   // no confirmed fork flag — do not offer what we cannot do (see codex/index.js)
+  // No `deleteSessions` and no `rewriteProjectPath`: its sessions are rows in a database Switchboard
+  // opens read-only and may never write (#2914). The Remove dialog offers no switch for Hermes and shows
+  // this sentence instead of a control that could not do anything.
+  deleteBlockedReason: 'its history lives in a database Switchboard may only read',
   // Its history is in SQLite: there IS no file another agent could open. Switchboard exports the
   // messages to a temp file when a fresh agent is asked to read this session. Any future db-backed
   // backend declares the same and gets the same treatment.

@@ -47,6 +47,9 @@ function keysPassedIn(namespace) {
 
   return new Set(
     src.slice(open + 1, end)
+      // Comments first: the literal is allowed to explain itself, and a `// …, …` line would otherwise
+      // be split at its own commas and swallow the key that follows it.
+      .replace(/\/\/[^\n]*/g, '')
       .split(',')
       .map(s => s.trim().split(':')[0].trim())
       .filter(Boolean)

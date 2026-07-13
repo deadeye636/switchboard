@@ -51,10 +51,27 @@ for (const file of ['main.js', 'projects.js']) {
   });
 }
 
-test('the project handlers still delete a folder, and still scope it', () => {
-  // remove-project + delete-project-sessions, both in projects.js since #170.
+test('remove-project still clears the folder, and still scopes it', () => {
+  // "Remove" is a HIDE: it clears the project's cached rows so the sidebar lets go of it, and the folder
+  // is the right unit for that — the transcripts stay on disk and a rescan brings them all back.
   const calls = folderDeleteCalls(read('projects.js')).filter(c => c.args !== '');
-  assert.ok(calls.length >= 4, 'expected the remove-project and delete-project-sessions calls');
+  assert.ok(calls.length >= 2, 'remove-project must still clear the project\'s cached rows');
+});
+
+test('the hard delete clears the cache row by row, never by folder', () => {
+  // A store folder is keyed on the cwd a session STARTED from, so since #157 it can hold rows belonging
+  // to other projects. Deleting this project's history by folder would drop those rows too — while their
+  // transcripts sat untouched on disk, which no rescan is guaranteed to notice.
+  const src = read('projects.js');
+  const from = src.indexOf('function deleteProjectSessions');
+  assert.ok(from !== -1, 'deleteProjectSessions must exist');
+  const rest = src.slice(from + 1);
+  const fn = rest.slice(0, rest.indexOf('\nfunction ') === -1 ? rest.length : rest.indexOf('\nfunction '));
+
+  assert.doesNotMatch(fn, /delete(Cached|Search)Folder\s*\(/,
+    'the hard delete must not clear the cache by folder — the folder is shared with other projects');
+  assert.match(fn, /deleteCachedSession\s*\(/, 'it must delete the cached rows one by one');
+  assert.match(fn, /deleteSearchSession\s*\(/, 'and their search rows with them');
 });
 
 test('the scoped deletes use the same scope the scanner uses', () => {

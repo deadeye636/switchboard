@@ -1403,8 +1403,13 @@ function getCachedByFolder(folder, scope) {
  */
 function getCachedByProjectPath(projectPath) {
   if (!projectPath) return [];
+  // parentSessionId + agentId ride along because Claude's rows carry no `filePath`: their transcript is
+  // reconstructed from folder + session id, and a SUBAGENT's file sits under the parent's directory.
+  // Without these two columns every subagent transcript resolved to a path that does not exist, so the
+  // remap skipped them and the delete missed them.
   return db.prepare(
-    "SELECT sessionId, folder, projectPath, filePath, COALESCE(backendId, 'claude') AS backendId"
+    "SELECT sessionId, folder, projectPath, filePath, parentSessionId, agentId,"
+    + " COALESCE(backendId, 'claude') AS backendId"
     + ' FROM session_cache WHERE projectPath = ?'
   ).all(projectPath);
 }

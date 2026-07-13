@@ -673,6 +673,9 @@ projects.init({
   db: {
     getSetting, setSetting, deleteSetting,
     deleteCachedFolder, deleteSearchFolder,
+    // Row-by-row, for the hard delete: a store folder can hold sessions of more than one project (#157),
+    // so the folder is the wrong unit to clear the cache by.
+    deleteCachedSession, deleteSearchSession,
     getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
     renameProjectRefs, deleteProjectRefs, setFolderMeta, toggleProjectFavorite,
     getCachedByProjectPath, getBackendsByProjectPath,

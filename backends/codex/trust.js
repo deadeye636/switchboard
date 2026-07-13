@@ -26,10 +26,34 @@ function configPath() {
   return path.join(codexHome(), 'config.toml');
 }
 
-// A TOML table header for a project path. Codex writes it single-quoted (a literal string), which is
-// what makes a Windows path with backslashes safe to store verbatim.
+// A TOML table header for a project path. Codex writes it single-quoted (a literal string), which is what
+// makes a Windows path with backslashes safe to store verbatim — and we match that whenever we can.
+//
+// But a literal string cannot contain a single quote and has no escape at all, so a directory named with
+// an apostrophe (`D:\Bob's stuff`) produced `[projects.'D:\Bob's stuff']`: not merely wrong, but INVALID
+// TOML in the middle of somebody else's config, which then fails to parse as a whole. Such a path goes in
+// a basic string instead, where the backslashes have to be doubled.
 function tableHeader(projectPath) {
-  return `[projects.'${projectPath}']`;
+  const p = String(projectPath);
+  if (!/['\r\n]/.test(p)) return `[projects.'${p}']`;
+  const escaped = p
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n');
+  return `[projects."${escaped}"]`;
+}
+
+// The two spellings above, read back. A basic string carries escapes; a literal one is verbatim.
+const HEADER_RE = /^\s*\[projects\.(?:'([^']*)'|"((?:[^"\\]|\\.)*)")\]\s*$/;
+const BASIC_ESCAPES = { n: '\n', r: '\r', t: '\t', '"': '"', '\\': '\\' };
+
+/** The project path a `[projects.…]` header names, or null if the line is not one. */
+function headerPath(line) {
+  const m = String(line).match(HEADER_RE);
+  if (!m) return null;
+  if (m[1] != null) return m[1];                                   // literal string: what you see
+  return m[2].replace(/\\(.)/g, (_, c) => (c in BASIC_ESCAPES ? BASIC_ESCAPES[c] : c));
 }
 
 /**
@@ -41,18 +65,38 @@ function tableHeader(projectPath) {
  */
 function parseTrust(toml) {
   const out = new Map();
-  const re = /^\s*\[projects\.(?:'([^']*)'|"([^"]*)")\]\s*$/;
   const lines = String(toml || '').split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(re);
-    if (!m) continue;
-    const project = m[1] != null ? m[1] : m[2];
+    const project = headerPath(lines[i]);
+    if (project == null) continue;
     // Read the table's body until the next table header.
     for (let j = i + 1; j < lines.length; j++) {
       if (/^\s*\[/.test(lines[j])) break;
       const t = lines[j].match(/^\s*trust_level\s*=\s*["']([^"']*)["']/);
       if (t) { out.set(project, t[1]); break; }
     }
+  }
+  return out;
+}
+
+/**
+ * The same answer for many projects, reading and parsing the config ONCE.
+ *
+ * The Projects admin asks for every row it renders, and `get` opens config.toml each time — so a machine
+ * with fifty projects parsed the file fifty times to draw one table.
+ */
+function getMany(projectPaths) {
+  const out = new Map();
+  let toml;
+  try { toml = fs.readFileSync(configPath(), 'utf8'); } catch {
+    for (const p of projectPaths) out.set(p, null);
+    return out;
+  }
+  const levels = new Map();
+  for (const [p, level] of parseTrust(toml)) levels.set(norm(p), level);
+  for (const p of projectPaths) {
+    const level = levels.get(norm(p));
+    out.set(p, level === undefined ? null : level === 'trusted');
   }
   return out;
 }
@@ -69,11 +113,12 @@ function setTrust(toml, projectPath, trusted) {
   const src = String(toml || '');
   const lines = src.split(/\r?\n/);
   const header = tableHeader(projectPath);
-  const headerRe = new RegExp(`^\\s*\\[projects\\.(?:'${escapeRe(projectPath)}'|"${escapeRe(projectPath)}")\\]\\s*$`);
 
+  // Find the table by the path it NAMES, not by the text it is written with — the same path can be
+  // spelled as a literal or as an escaped basic string, and matching the raw line would miss the other.
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (headerRe.test(lines[i])) { start = i; break; }
+    if (headerPath(lines[i]) === projectPath) { start = i; break; }
   }
 
   // No table yet: append one (only when there is something to say).
@@ -92,10 +137,6 @@ function setTrust(toml, projectPath, trusted) {
   if (trusted) body.unshift('trust_level = "trusted"');
 
   return [...lines.slice(0, start + 1), ...body, ...lines.slice(end)].join('\n');
-}
-
-function escapeRe(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // --- file access ---
@@ -150,4 +191,4 @@ function norm(p) {
   return process.platform === 'win32' ? t.toLowerCase() : t;
 }
 
-module.exports = { get, set, parseTrust, setTrust, configPath };
+module.exports = { get, getMany, set, parseTrust, setTrust, configPath };
