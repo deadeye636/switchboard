@@ -66,6 +66,7 @@
     "beforePack": "scripts/ensure-conpty-dll.js",
     "files": [
       "*.js",
+      "backends/**/*",
       "build-info.json",
       "workers/**/*",
       "public/**/*",
