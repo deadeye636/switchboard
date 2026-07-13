@@ -32,50 +32,6 @@ function extractCwdFromJsonl(filePath) {
   return null;
 }
 
-// The LAST cwd in the transcript, i.e. where the session is ACTUALLY working now (#147).
-//
-// A session can move working directory mid-flight — most commonly parent repo -> git worktree. Its
-// JSONL then carries BOTH cwds, and reading only the head attributes the whole session to the tree
-// it merely started in. So we read the file's TAIL and take the last cwd we see.
-//
-// Bounded like the head scan for the same reason (a 338 MB transcript must not be read whole): one
-// extra windowed read, never the middle of the file.
-function extractCurrentCwdFromJsonl(filePath) {
-  let fd;
-  try {
-    fd = fs.openSync(filePath, 'r');
-    const size = fs.fstatSync(fd).size;
-    if (size <= CWD_SCAN_BYTES) {
-      // Small file: the head scan already saw everything — just take the last cwd in it.
-      const buf = Buffer.alloc(size);
-      fs.readSync(fd, buf, 0, size, 0);
-      return lastCwdIn(buf.toString('utf8'), false);
-    }
-    const buf = Buffer.alloc(CWD_SCAN_BYTES);
-    fs.readSync(fd, buf, 0, CWD_SCAN_BYTES, size - CWD_SCAN_BYTES);
-    // The first line of a tail window is almost certainly truncated — drop it.
-    return lastCwdIn(buf.toString('utf8'), true);
-  } catch {
-    return null;
-  } finally {
-    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
-  }
-}
-
-function lastCwdIn(text, dropFirstLine) {
-  const lines = text.split('\n');
-  if (dropFirstLine) lines.shift();
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (!line) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed.cwd) return parsed.cwd;
-    } catch { /* truncated/partial line — keep walking backwards */ }
-  }
-  return null;
-}
-
 // Is this path a REAL git worktree (created by `git worktree add`)? Such a worktree has its own
 // top-level but SHARES the parent's git dir, and its `.git` is a FILE ("gitdir: …/.git/worktrees/x"),
 // not a directory. It is a project in its own right — its files and its sessions are not the parent's
@@ -107,17 +63,80 @@ function resolveWorktreePath(cwd) {
   return cwd;
 }
 
-// A single session's ACTUAL working directory: where it works now, falling back to where it started.
+// --- Per-session attribution (#157) ---
 //
-// NOTE — deliberately NOT used by deriveProjectPath below. A Claude project FOLDER is keyed on the
-// cwd it was created from, and deriveProjectPath assigns one project to the whole folder from the
-// first transcript it finds. Deriving that from a session's *current* cwd would let a single session
-// that moved (parent repo -> worktree) drag every sibling session in the folder with it, depending on
-// readdir order. Per-session attribution needs a per-session project column; until then the folder
-// keeps its stable head-cwd identity. The real #147 fix — a real worktree is never collapsed into its
-// parent — lives in resolveWorktreePath and applies at folder granularity, where it is correct.
-function sessionCwd(filePath) {
-  return extractCurrentCwdFromJsonl(filePath) || extractCwdFromJsonl(filePath);
+// A session's CURRENT working directory is not read from the file here. #147 added a pair of helpers to
+// do that (a windowed tail read, to find the last cwd), and they were never wired to anything — the
+// parser already walks every line, so it now simply remembers the last cwd it saw (read-session-file.js,
+// `st.lastCwd`). No second read of a file we are already reading.
+//
+// The FOLDER's identity (deriveProjectPath, below) deliberately still reads the HEAD cwd: a folder is
+// keyed on the directory it was created from, and deriving that from one session's current cwd would let
+// a moved session drag every sibling in the folder with it, depending on readdir order.
+
+// Windows says D:\x and d:\X are the same directory. A real store carries both spellings of the same
+// path, and compared naively they become two projects.
+function samePath(a, b) {
+  if (!a || !b) return false;
+  const norm = (p) => {
+    const trimmed = String(p).replace(/[\\/]+$/, '');
+    return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed;
+  };
+  return norm(a) === norm(b);
+}
+
+// dir -> its project root (or null). A scan asks this for every session, and the answer for a given
+// directory cannot change while the app runs — so it is worth remembering.
+const _rootCache = new Map();
+
+/**
+ * The PROJECT ROOT of a directory: the nearest ancestor (the directory itself included) that holds a
+ * `.git` — a directory (an ordinary repo) or a file (a worktree). Returns null when there is none.
+ *
+ * This is what makes per-session attribution safe, and it is not optional. A Claude transcript's `cwd`
+ * is the SHELL's working directory, not the session's project: measured on a real store, 38 of 180
+ * sessions change it, and nearly all of them merely `cd` into a subdirectory — `…/build/logs`,
+ * `…/.claude/scratchpad`, `…/node_modules/node-pty/deps/winpty/src`. One session visited 19 distinct
+ * cwds. Attributing a session to its raw current cwd (which is what the issue originally asked for)
+ * would scatter those into phantom projects. Their ROOT, on the other hand, never moved.
+ */
+function projectRootOf(dir) {
+  if (!dir) return null;
+  const key = process.platform === 'win32' ? dir.toLowerCase() : dir;
+  if (_rootCache.has(key)) return _rootCache.get(key);
+
+  let current;
+  try { current = path.resolve(dir); } catch { _rootCache.set(key, null); return null; }
+  let root = null;
+  // Bounded by the filesystem: path.dirname() of a drive/mount root returns itself.
+  for (let guard = 0; guard < 64; guard++) {
+    try { if (fs.existsSync(path.join(current, '.git'))) { root = current; break; } } catch { /* keep walking */ }
+    const parent = path.dirname(current);
+    if (!parent || parent === current) break;
+    current = parent;
+  }
+  _rootCache.set(key, root);
+  return root;
+}
+
+/**
+ * Where a SESSION belongs, given the cwd it is working in now and the project its folder stands for.
+ *
+ * The folder's value wins whenever the session has not genuinely left it — including the case where the
+ * cwd has no project root at all (a directory outside any repo). Never guess: an unrecognised move keeps
+ * the session where it was, which is at worst the old behaviour.
+ */
+function sessionProjectPath(currentCwd, folderProjectPath) {
+  if (!currentCwd) return folderProjectPath || null;
+
+  const root = projectRootOf(currentCwd);
+  if (!root) return folderProjectPath || resolveWorktreePath(currentCwd);
+
+  const resolved = resolveWorktreePath(root);
+  // The same project, spelled differently (case, a trailing separator): keep the folder's exact string,
+  // because that string IS the grouping key — a second spelling would render a second project.
+  if (folderProjectPath && samePath(resolved, folderProjectPath)) return folderProjectPath;
+  return resolved;
 }
 
 function deriveProjectPath(folderPath) {
@@ -157,5 +176,7 @@ function deriveProjectPath(folderPath) {
 
 module.exports = {
   deriveProjectPath, resolveWorktreePath,
-  extractCwdFromJsonl, extractCurrentCwdFromJsonl, sessionCwd, isRealGitWorktree,
+  extractCwdFromJsonl, isRealGitWorktree,
+  projectRootOf, sessionProjectPath, samePath,
+  _resetRootCache: () => _rootCache.clear(),
 };

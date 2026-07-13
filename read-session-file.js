@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { bucketFromIso, bucketKey } = require('./metrics-bucket');
+const { sessionProjectPath } = require('./derive-project-path');
 
 // Bump on ANY change to what this parser writes into a session row or its metrics. The scan compares
 // this to the version recorded on the cached row (#152) and re-reads the session when they differ —
@@ -8,7 +9,10 @@ const { bucketFromIso, bucketKey } = require('./metrics-bucket');
 // told to press Rebuild. Every backend carries one; Claude's lives here, next to the parser it versions.
 //   v1: the original per-(date, model) metrics.
 //   v2: per-(date, HOUR, model), bucketed in LOCAL time, with the two cost columns (#159).
-const PARSER_SCHEMA_VERSION = 2;
+//   v3: projectPath is decided PER SESSION, from the project root of the cwd it is working in (#157).
+//       Without this bump the fix would land in an empty table: a session that moved wrote its last cwd
+//       long ago, so its mtime never moves again and the scan would skip it forever.
+const PARSER_SCHEMA_VERSION = 3;
 
 function contentToText(content) {
   if (typeof content === 'string') return content;
@@ -172,6 +176,10 @@ function createParseState() {
     },
     agentId: null,
     sidechainSeen: false,
+    // The last cwd seen — where this session is working NOW, which is not necessarily where it started
+    // (#157). Tracked in the parse, so it costs no extra read, and it keeps working on the incremental
+    // path: the appended lines are the newest ones.
+    lastCwd: null,
   };
 }
 
@@ -190,6 +198,7 @@ function applyEntryLine(st, line) {
       if (!st.lastEntryAt || timestamp > new Date(st.lastEntryAt)) st.lastEntryAt = iso;
     }
   }
+  if (entry.cwd) st.lastCwd = entry.cwd;
   if (entry.slug && !st.slug) st.slug = entry.slug;
   if (entry.agentId && !st.agentId) st.agentId = entry.agentId;
   if (entry.isSidechain) st.sidechainSeen = true;
@@ -230,6 +239,13 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
   const fileBase = path.basename(filePath, '.jsonl');
   const isSubagent = Boolean(opts.parentSessionId);
   if (!st.summary || st.messageCount < 1) return null;
+
+  // Which project this SESSION belongs to — not which project its folder stands for (#157). A session
+  // that moved into a git worktree (or into another repo) follows the tree it is working in; one that
+  // merely `cd`-ed into a subdirectory does not move at all, because the subdirectory's project root is
+  // the same project. The folder keeps its own stable identity either way, so no sibling is dragged
+  // along — which is what sank the first attempt at this.
+  const rowProjectPath = sessionProjectPath(st.lastCwd, projectPath);
   const activeMinutes = st.startedAt && st.lastEntryAt
     ? Math.max(0, Math.round((new Date(st.lastEntryAt) - new Date(st.startedAt)) / 60000))
     : 0;
@@ -250,7 +266,7 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
     const description = meta.description || null;
     return {
       sessionId: subagentSessionId(opts.parentSessionId, agentId),
-      folder, projectPath,
+      folder, projectPath: rowProjectPath,
       summary: description || st.summary,
       firstPrompt: st.summary,
       created: stat.birthtime.toISOString(),
@@ -267,7 +283,7 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
   }
 
   return {
-    sessionId: fileBase, folder, projectPath,
+    sessionId: fileBase, folder, projectPath: rowProjectPath,
     summary: st.summary, firstPrompt: st.summary,
     created: stat.birthtime.toISOString(),
     modified: stat.mtime.toISOString(),

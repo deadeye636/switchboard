@@ -628,7 +628,27 @@ sessionCache.init({
 const { readSessionFile, readFolderFromFilesystem, refreshFolder, refreshFile, reconcileCacheFromFilesystem,
         buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker,
         refreshAllBackendSessions } = sessionCache;
-const { resolveJsonlPath } = require('./read-session-file');
+const { resolveJsonlPath, PARSER_SCHEMA_VERSION: CLAUDE_PARSER_VERSION } = require('./read-session-file');
+
+// A bumped Claude parser has to re-read the sessions it changed — and that re-read must happen on the
+// WORKER thread, not here.
+//
+// The per-row staleness gate (#152) lives inside refreshFolder, and refreshFolder is itself gated on the
+// folder's index mtime: a folder whose files have not changed is never opened, so the row gate behind it
+// never runs. For a change like #157 — which re-attributes sessions that MOVED, and a session that moved
+// did so in the past — that means every existing misattribution would stand forever.
+//
+// Wiping the folder memo would open that gate, but it would route the whole re-read through the
+// SYNCHRONOUS reconcile on the main process (the cache is not empty, so the worker path is skipped) — the
+// exact thing derive-project-path's header warns about: a store's worth of transcripts, read on the UI
+// thread. So instead: notice the bump, and take the path the Rebuild button already takes.
+function claudeParserBumped() {
+  try { return Number(getSetting('claudeParserVersion')) !== CLAUDE_PARSER_VERSION; } catch { return false; }
+}
+
+function markClaudeParserRead() {
+  try { setSetting('claudeParserVersion', CLAUDE_PARSER_VERSION); } catch { /* it will simply run again */ }
+}
 const claudeConfig = require('./claude-config');
 
 
@@ -1505,7 +1525,12 @@ ipcMain.handle('unwatch-file', (_event, filePath) => {
 // populateCacheViaWorker's internal Promise.
 ipcMain.handle('rebuild-cache', async () => {
   try {
+    // A project root is remembered for the life of the process (derive-project-path). Someone rebuilding
+    // the cache is telling us the answers are wrong — so drop what we think we know first, or a directory
+    // that has become a repo since startup (a fresh `git init`, a new worktree) keeps its stale "no root".
+    try { require('./derive-project-path')._resetRootCache(); } catch { /* best effort */ }
     await populateCacheViaWorker();
+    markClaudeParserRead();
     // A rebuild must cover EVERY backend's roots, not just Claude's (T-2.7 + T-4.2) — otherwise
     // "Rebuild session cache" would silently drop the user's Codex/other-backend history. And it must
     // FORCE the re-read: the reason to rebuild is that a row is wrong, and a wrong row's change marker
@@ -1520,7 +1545,9 @@ ipcMain.handle('rebuild-cache', async () => {
 
 ipcMain.handle('get-projects', async (_event, showArchived) => {
   try {
-    const needsPopulate = !isCachePopulated() || !isSearchIndexPopulated();
+    // ...and a bumped parser counts as "needs populating": the rows are there, but they were written by a
+    // parser that no longer describes them (#157). This runs the worker exactly once per bump.
+    const needsPopulate = !isCachePopulated() || !isSearchIndexPopulated() || claudeParserBumped();
 
     if (needsPopulate) {
       // First call after a migration that clears session_cache (e.g. v4) finds
@@ -1530,6 +1557,7 @@ ipcMain.handle('get-projects', async (_event, showArchived) => {
       // avoid that race, await the scan here so the response carries the
       // freshly-populated cache. Concurrent callers share the same Promise.
       await populateCacheViaWorker();
+      markClaudeParserRead();
     }
 
     // Pick up folders changed while the app was closed, or never indexed by an
