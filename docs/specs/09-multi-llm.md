@@ -114,7 +114,7 @@ never had.
 |---|---|---|
 | Claude | **states** it in the terminal (OSC title: spinner = busy, `✳` = idle) | — |
 | Codex | **states** it in its transcript (`task_started` / `task_complete`) | a busy turn out-writes a fixed tail window long before it completes → the window must **grow** |
-| Hermes | states only that a turn **ended** (`ended_at`) | busy is inferred → a long silent turn reads idle |
+| Hermes | the **last message row**: a trailing user prompt = a turn is running; an assistant row whose `finish_reason` is not a tool one = it is answered | `ended_at` is **never written** — it reads null on every session, answered or not, so a rule built on it says "working" for three minutes after every reply (#165) |
 | Pi | states nothing; inferred from which line exists (a trailing user prompt = a turn is running) | same, plus: one message is one JSONL line, and a large answer can fill the whole window |
 
 For the inferred ones, terminal output is used as a **liveness** signal (`ctx.lastOutputMs`): it may keep

@@ -28,8 +28,9 @@ const { deriveState } = require('./state');
 // from Switchboard at all. Everything below is a top-level flag Hermes accepts on the interactive path.
 //
 // Deliberately NOT here: `--cli` / `--tui` (we run it in a PTY — its interactive mode is the whole
-// point), `-q/--query` and `-Q/--quiet` (non-interactive modes), and anything that moves its session
-// store (we would then be watching the wrong place).
+// point), `-z <prompt>` (the non-interactive one-shot; an earlier note here called it `-q/--query`, which
+// its real `--help` does not have), and anything that moves its session store (we would then be watching
+// the wrong place).
 const configFields = [
   { id: 'model', label: 'Model', type: 'text', default: '',
     description: 'Model to use, e.g. anthropic/claude-sonnet-4. Empty = Hermes decides (config.yaml).' },

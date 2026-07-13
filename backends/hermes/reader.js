@@ -221,6 +221,9 @@ function parseSession(handle) {
       if (last && last.t) lastMessageMs = Number(last.t) * 1000;
     } catch { /* leave it at 0 -> deriveState falls back to the session row's own timestamps */ }
 
+    // Who spoke last, and did they finish — the busy/idle signal (#165).
+    const lastRow = lastMessage(db, handle.sessionId);
+
     // Per-(date, hour, model) metrics for the Stats charts (#154, #159).
     //
     // Hermes is the one backend that cannot do this exactly: its `messages` rows carry timestamps but NO
@@ -344,10 +347,14 @@ function parseSession(handle) {
       // Lineage.
       parentSessionId: s.parent_session_id || null,
       toolCallCount: Number(s.tool_call_count || 0),
-      // Busy/idle inputs (state.js): Hermes has no OSC title and no shipped status file, so the DB row
-      // IS the signal — a running turn has no `ended_at`, and its last message keeps moving.
+      // Busy/idle inputs (state.js). `ended_at` sounded like the signal and is not — on a real store it is
+      // null on every session, finished or not (#165). What says whose turn it is, is the LAST row: an
+      // unanswered user prompt means a turn is running; an assistant row with a `finish_reason` means it
+      // is answered. Same facts the live path reads, so a cached row and a live one cannot disagree.
       isEnded: s.ended_at != null,
       lastActivityMs: lastMessageMs || (s.started_at ? Number(s.started_at) * 1000 : 0),
+      lastRole: lastRow ? lastRow.role : null,
+      lastFinishReason: lastRow ? lastRow.finishReason : null,
       // Feeds session_metrics -> the Stats charts (#154). See the note above: message counts are exact
       // per day, token totals are booked on the session's last active day.
       dailyMetrics,
@@ -361,12 +368,42 @@ function parseSession(handle) {
 }
 
 /**
- * The two facts busy/idle is made of — and nothing else.
+ * The LAST row of a session's transcript — who spoke, and whether they finished.
+ *
+ * This is what busy/idle actually rides on (#165). `ended_at` sounded like the signal and is not: on a
+ * real store it is null on EVERY session, including ones finished the day before, so the only branch that
+ * could ever say "idle" never fired and the state fell through to "wrote something recently → busy". The
+ * agent's own answer is something written recently — so a session sat at "working" for the whole activity
+ * window after every reply, while plainly waiting at its prompt.
+ *
+ * `finish_reason` is the fact that was there all along: `stop` on every assistant row, null on every user
+ * row. Ordered by `id`, i.e. by insertion, so this is the newest row and not the newest timestamp.
+ */
+function lastMessage(db, sessionId) {
+  try {
+    const m = db.get(
+      'SELECT role, finish_reason AS finishReason, timestamp FROM messages'
+      + ' WHERE session_id = ? ORDER BY id DESC LIMIT 1',
+      sessionId
+    );
+    if (!m) return null;
+    return {
+      role: m.role || null,
+      finishReason: m.finishReason || null,
+      timestampMs: m.timestamp ? Number(m.timestamp) * 1000 : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The few facts busy/idle is made of — and nothing else.
  *
  * `liveState` runs on every WAL commit of a live session, i.e. several times a minute while the agent
  * works. It used to go through `parseSession`, which reads the whole session to build a cache row: 500
  * messages of text for our FTS index, a per-bucket metrics GROUP BY, a user-message count. All of it
- * thrown away to answer "is this turn still running?" (#155). Two columns is the honest cost.
+ * thrown away to answer "is this turn still running?" (#155). Two small reads is the honest cost.
  */
 function readLiveState(sessionId) {
   if (!sessionId) return null;
@@ -374,17 +411,21 @@ function readLiveState(sessionId) {
   if (!db) return null;
   try {
     const s = db.get(
-      'SELECT s.ended_at AS endedAt, s.started_at AS startedAt,'
+      'SELECT s.ended_at AS endedAt,'
       + ' (SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id) AS lastTs'
       + ' FROM sessions s WHERE s.id = ?',
       sessionId
     );
     if (!s) return null;
-    // Same fallback parseSession applies: no messages yet -> the session's own start time.
-    const lastActivityMs = s.lastTs
-      ? Number(s.lastTs) * 1000
-      : (s.startedAt ? Number(s.startedAt) * 1000 : 0);
-    return { isEnded: s.endedAt != null, lastActivityMs };
+    const last = lastMessage(db, sessionId);
+    return {
+      isEnded: s.endedAt != null,
+      // No messages -> no activity. NOT the session's start time: a session nobody has spoken to yet has
+      // not been active, and reading it as such is what made a freshly launched Hermes look busy.
+      lastActivityMs: s.lastTs ? Number(s.lastTs) * 1000 : 0,
+      lastRole: last ? last.role : null,
+      lastFinishReason: last ? last.finishReason : null,
+    };
   } catch {
     return null;
   } finally {

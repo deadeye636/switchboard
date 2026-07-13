@@ -97,7 +97,11 @@ CREATE TABLE messages (
 //   sess-cli-2       an ACTUAL cost alongside the estimate, and lineage (parent_session_id).
 //   sess-cli-nocwd   no cwd at all (a gateway/cron-style agent). Must parse, must NOT be dropped, and
 //                    must not be mistaken for a session launched in a project.
-//   sess-running     ended_at IS NULL — the busy signal. Its last message is what moves.
+//   sess-running     mid-turn: the prompt is in, the answer is not. THAT is what running looks like.
+//   sess-answered    answered, and still open (ended_at null — as every real session is). The row that
+//                    used to read "working" for three minutes after every reply (#165).
+//   sess-tool-turn   a tool-using turn, copied row for row off a real run: user → EMPTY assistant row with
+//                    finish_reason 'tool_calls' → a `tool` row per result → the answer, with 'stop'.
 //   sess-no-messages a row with no message rows and a null message_count — the change marker's join has
 //                    no partner here, and both of its COALESCEs have to earn their keep.
 //   sess-gateway-1   source='gateway' — a Telegram/cron chat. Default ingest must leave it out.
@@ -216,6 +220,56 @@ const SESSIONS = [
     title: 'Unpriced model',
   },
   {
+    // A TOOL-USING turn, copied row for row off a real run (#165). This is the shape the state rule has to
+    // walk without flinching: Hermes writes an EMPTY assistant row with `finish_reason: 'tool_calls'` the
+    // moment it reaches for a tool, then a `tool` row per result, then the real answer with `stop`.
+    id: 'sess-tool-turn',
+    source: 'cli',
+    model: 'claude-opus-4.6',
+    parent_session_id: null,
+    started_at: T0 + 7000,
+    ended_at: null,
+    end_reason: null,
+    message_count: 5,
+    tool_call_count: 2,
+    input_tokens: 900,
+    output_tokens: 120,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    reasoning_tokens: 0,
+    cwd: 'D:\\Projekte\\demo',
+    estimated_cost_usd: 0.003,
+    actual_cost_usd: null,
+    cost_status: 'estimated',
+    cost_source: 'pricing-table',
+    title: 'List the files',
+  },
+  {
+    // The shape EVERY session in a real store has: `ended_at` is null — Hermes never writes it, not even
+    // for a session finished the day before — and yet the turn is plainly answered. This is the row that
+    // used to read "working" for three minutes after every reply (#165); only the last message says so.
+    id: 'sess-answered',
+    source: 'cli',
+    model: 'claude-opus-4.6',
+    parent_session_id: null,
+    started_at: T0 + 6000,
+    ended_at: null,                     // <- the point of this row
+    end_reason: null,
+    message_count: 2,
+    tool_call_count: 0,
+    input_tokens: 300,
+    output_tokens: 80,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+    reasoning_tokens: 0,
+    cwd: 'D:\\Projekte\\demo',
+    estimated_cost_usd: 0.002,
+    actual_cost_usd: null,
+    cost_status: 'estimated',
+    cost_source: 'pricing-table',
+    title: 'Answered, and still open',
+  },
+  {
     // A session with NO message rows at all — Hermes writes the row when the session starts, so this is
     // simply one that was opened and never spoken to. It exists to keep the change marker honest (#155):
     // the marker gets the last message time from a GROUPED JOIN, and this is the row that HAS no join
@@ -268,29 +322,48 @@ const SESSIONS = [
 // `role` is 'tool' for scaffolding. It carries text (so it reaches our FTS body, which indexes every
 // message), but it is NOT a conversation turn — readMessages must not hand it to the viewer or let the
 // handoff mistake it for the packet the agent wrote.
+// `finish_reason` is what says a turn is OVER: on a real store it is `stop` on every assistant row and
+// null on every user row (#165). It is the busy/idle signal — `ended_at`, which sounded like it, is null
+// on every session there, finished or not. So every assistant row here carries one, and the one session
+// that is meant to be MID-TURN ends on an unanswered user prompt, which is what mid-turn looks like.
 const MESSAGES = [
   // sess-cli-1 — the last turn is an assistant one, and it is the packet a handoff pre-fills from.
   { session_id: 'sess-cli-1', role: 'user',      timestamp: T0 + 10,  content: 'Refactor the auth middleware and add tests' },
-  { session_id: 'sess-cli-1', role: 'assistant', timestamp: T0 + 100, content: 'Looking at the middleware now.' },
+  { session_id: 'sess-cli-1', role: 'assistant', timestamp: T0 + 100, content: 'Looking at the middleware now.', finish_reason: 'stop' },
   { session_id: 'sess-cli-1', role: 'tool',      timestamp: T0 + 200, content: 'read_file(src/auth.js)', tool_name: 'read_file' },
   { session_id: 'sess-cli-1', role: 'user',      timestamp: T0 + 300, content: 'Keep the public signature stable.' },
-  { session_id: 'sess-cli-1', role: 'assistant', timestamp: T0 + 590, content: 'Done — I extracted the token check into its own function and covered it with tests.' },
+  { session_id: 'sess-cli-1', role: 'assistant', timestamp: T0 + 590, content: 'Done — I extracted the token check into its own function and covered it with tests.', finish_reason: 'stop' },
 
   { session_id: 'sess-cli-2', role: 'user',      timestamp: T0 + 1010, content: 'Now cover the refresh path.' },
-  { session_id: 'sess-cli-2', role: 'assistant', timestamp: T0 + 1190, content: 'Added a test for the refresh path.' },
+  { session_id: 'sess-cli-2', role: 'assistant', timestamp: T0 + 1190, content: 'Added a test for the refresh path.', finish_reason: 'stop' },
 
   { session_id: 'sess-cli-nocwd', role: 'user',      timestamp: T0 + 2010, content: 'What does a JWT nonce protect against?' },
-  { session_id: 'sess-cli-nocwd', role: 'assistant', timestamp: T0 + 2090, content: 'Replay of a captured token.' },
+  { session_id: 'sess-cli-nocwd', role: 'assistant', timestamp: T0 + 2090, content: 'Replay of a captured token.', finish_reason: 'stop' },
 
-  // sess-running — no ended_at, so its LAST message is the activity signal the state derivation reads.
-  { session_id: 'sess-running', role: 'user',      timestamp: T0 + 950,  content: 'Why does this test fail every third run?' },
-  { session_id: 'sess-running', role: 'assistant', timestamp: T0 + 1001, content: 'Reproducing it now…' },
+  // sess-running — a turn IS running: the prompt is in, the answer is not. That is what the store looks
+  // like mid-turn, and it is the only thing that distinguishes it from a session waiting at its prompt
+  // (`ended_at` is null in both cases — it is null in every case).
+  { session_id: 'sess-running', role: 'assistant', timestamp: T0 + 900,  content: 'Earlier answer.', finish_reason: 'stop' },
+  { session_id: 'sess-running', role: 'user',      timestamp: T0 + 1001, content: 'Why does this test fail every third run?' },
 
   { session_id: 'sess-gateway-1', role: 'user',      timestamp: T0 + 3010, content: 'status?' },
-  { session_id: 'sess-gateway-1', role: 'assistant', timestamp: T0 + 3050, content: 'All green.' },
+  { session_id: 'sess-gateway-1', role: 'assistant', timestamp: T0 + 3050, content: 'All green.', finish_reason: 'stop' },
 
   { session_id: 'sess-zero-cost', role: 'user',      timestamp: T0 + 4010, content: 'Try the new model.' },
-  { session_id: 'sess-zero-cost', role: 'assistant', timestamp: T0 + 4090, content: 'Done.' },
+  { session_id: 'sess-zero-cost', role: 'assistant', timestamp: T0 + 4090, content: 'Done.', finish_reason: 'stop' },
+
+  // sess-answered — answered, and the session is still open (ended_at null, as it always is).
+  { session_id: 'sess-answered', role: 'user',      timestamp: T0 + 6010, content: 'What time is it in Tokyo?' },
+  { session_id: 'sess-answered', role: 'assistant', timestamp: T0 + 6020, content: 'Just past nine in the evening.', finish_reason: 'stop' },
+
+  // sess-tool-turn — a real tool-using turn, row for row as Hermes writes it. The empty assistant row with
+  // `finish_reason: 'tool_calls'` is the one that matters: read as "finished", the session would flash idle
+  // at every single tool call, which for a coding agent is most of what it does.
+  { session_id: 'sess-tool-turn', role: 'user',      timestamp: T0 + 7010, content: 'List the files here and read one.txt.' },
+  { session_id: 'sess-tool-turn', role: 'assistant', timestamp: T0 + 7020, content: '', finish_reason: 'tool_calls', tool_calls: '[{"id":"c1","name":"search_files"}]' },
+  { session_id: 'sess-tool-turn', role: 'tool',      timestamp: T0 + 7030, content: '{"total_count": 2, "files": ["one.txt", "two.txt"]}', tool_name: 'search_files', tool_call_id: 'c1' },
+  { session_id: 'sess-tool-turn', role: 'tool',      timestamp: T0 + 7040, content: '{"content": "alpha", "total_lines": 1}', tool_name: 'read_file', tool_call_id: 'c2' },
+  { session_id: 'sess-tool-turn', role: 'assistant', timestamp: T0 + 7050, content: 'Two files. one.txt says: alpha', finish_reason: 'stop' },
 ];
 
 // --- build ---

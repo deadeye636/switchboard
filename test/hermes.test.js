@@ -63,8 +63,10 @@ test('discoverSessions yields {kind:db} handles — only source=cli by default',
   const handles = reader.discoverSessions();
   const ids = handles.map(h => h.sessionId).sort();
   // sess-gateway-1 is source='gateway' -> a Telegram/cron chat, not a coding session -> excluded.
-  assert.deepStrictEqual(ids,
-    ['sess-cli-1', 'sess-cli-2', 'sess-cli-nocwd', 'sess-no-messages', 'sess-running', 'sess-zero-cost']);
+  assert.deepStrictEqual(ids, [
+    'sess-answered', 'sess-cli-1', 'sess-cli-2', 'sess-cli-nocwd',
+    'sess-no-messages', 'sess-running', 'sess-tool-turn', 'sess-zero-cost',
+  ]);
   for (const h of handles) {
     assert.strictEqual(h.kind, 'db', 'db-mode handle, not a file handle');
     assert.ok(h.marker, 'carries a change marker (there is no file mtime to use)');
@@ -430,4 +432,105 @@ test('readLiveState answers busy/idle from two columns, and agrees with the full
 test('readLiveState degrades to null when the store is unreachable', () => {
   hermes.setHome(path.join(os.tmpdir(), 'hermes-gone-' + process.pid));
   assert.strictEqual(reader.readLiveState('sess-cli-1'), null);
+});
+
+// --- #165: "working" for three minutes after every answer -----------------------------------------
+
+test('an ANSWERED turn is idle at once — not once the activity window has lapsed', () => {
+  useFixture();
+  // The bug, exactly: `ended_at` is null on every Hermes session (the real store has never set it), so
+  // the only branch that could say "idle" never fired, and state fell through to "wrote recently → busy".
+  // The agent's own ANSWER is something written recently. So a session sat at "working" for three minutes
+  // after every reply, while waiting at its prompt.
+  const row = reader.parseSession({ kind: 'db', sessionId: 'sess-answered' });
+  assert.strictEqual(row.isEnded, false, 'no ended_at — like every real Hermes session, answered or not');
+  assert.strictEqual(row.lastRole, 'assistant');
+  assert.strictEqual(row.lastFinishReason, 'stop', 'the turn finished, and the store says so');
+
+  const oneSecondLater = (T0 + 6020) * 1000 + 1000;
+  assert.strictEqual(deriveState(row, oneSecondLater), 'idle',
+    'answered a second ago = idle, not busy-for-another-three-minutes');
+});
+
+test('a session nobody has spoken to yet is idle, not busy', () => {
+  useFixture();
+  // It used to read its own start time as "activity", so a freshly launched Hermes looked busy for the
+  // whole window without anyone having asked it anything.
+  const row = reader.readLiveState('sess-no-messages');
+  assert.strictEqual(row.lastRole, null);
+  assert.strictEqual(row.lastActivityMs, 0, 'no messages is no activity — not "the session started"');
+  assert.strictEqual(deriveState(row, Date.now()), 'idle');
+});
+
+test('a finish_reason ends the turn unless it says the model stopped to CALL something', () => {
+  // The hole this closes: `finish_reason` is an OpenAI-convention field (the schema carries `tool_calls`
+  // and `tool_call_id` beside it), and there `tool_calls` is the reason written when the model reaches for
+  // a tool — the turn CONTINUES. Read as "finished", a tool-using session would flash idle the moment the
+  // agent picks up a tool, which for a coding agent is most turns.
+  //
+  // And the denylist is the right way round, which the first cut got wrong. `finish_reason` says why
+  // generation stopped, and almost every answer to that means the message is COMPLETE — Gemini alone says
+  // `SAFETY`, `RECITATION`, `OTHER`. An allowlist of "over" reasons would read those as still-running, and
+  // a still-running turn can be held busy indefinitely by the PTY-liveness net while the TUI repaints. Only
+  // the continuation vocabulary is small and stable, because every provider copied it from the last one.
+  const now = 1_800_000_000_000;
+  const withReason = (reason) => deriveState(
+    { isEnded: false, lastRole: 'assistant', lastFinishReason: reason, lastActivityMs: now - 1000 }, now);
+
+  for (const over of ['stop', 'end_turn', 'length', 'max_tokens', 'content_filter', 'STOP', 'SAFETY', 'whatever-comes-next']) {
+    assert.strictEqual(withReason(over), 'idle', `"${over}" ends the message, so the turn is over`);
+  }
+  for (const running of ['tool_calls', 'tool_use', 'function_call', 'TOOL_CALLS', ' tool_calls ']) {
+    assert.strictEqual(withReason(running), 'busy', `"${running}" means it stopped to call a tool`);
+  }
+  // No reason at all: still generating, or a stream that was cut off. Either way, not an answer.
+  for (const none of [null, '', undefined]) {
+    assert.strictEqual(withReason(none), 'busy', 'no finish_reason is not a finished turn');
+  }
+});
+
+test('a tool result as the last row is a running turn, not an answer', () => {
+  const now = 1_800_000_000_000;
+  assert.strictEqual(
+    deriveState({ isEnded: false, lastRole: 'tool', lastFinishReason: null, lastActivityMs: now - 1000 }, now),
+    'busy', 'a tool just answered the agent — the agent has not yet answered the user');
+});
+
+test('a REAL tool-using turn stays busy from the first tool call to the answer', () => {
+  useFixture();
+  // sess-tool-turn is copied row for row off a real Hermes run. Walk it as the watcher does — one state
+  // per row, as each is written — and the session must not blink idle anywhere in the middle. The empty
+  // assistant row carrying `finish_reason: 'tool_calls'` is the one that would have done it.
+  const db = reader.openDb();
+  const rows = db.all(
+    'SELECT role, finish_reason AS finishReason, timestamp FROM messages WHERE session_id = ? ORDER BY id',
+    'sess-tool-turn'
+  );
+  db.close();
+
+  const expected = ['busy', 'busy', 'busy', 'busy', 'idle'];
+  assert.strictEqual(rows.length, expected.length);
+  rows.forEach((r, i) => {
+    const oneSecondLater = Number(r.timestamp) * 1000 + 1000;
+    const state = deriveState({
+      isEnded: false,
+      lastRole: r.role,
+      lastFinishReason: r.finishReason,
+      lastActivityMs: Number(r.timestamp) * 1000,
+    }, oneSecondLater);
+    assert.strictEqual(state, expected[i],
+      `after row ${i + 1} (${r.role}/${r.finishReason || 'no reason'}) the session must read ${expected[i]}`);
+  });
+});
+
+test('liveState reports the corrected state end to end', () => {
+  useFixture();
+  // sess-running ends on an unanswered user prompt, but that prompt is long in the fixture's past and the
+  // terminal is silent — so it reads idle rather than spinning forever. The safety net still holds.
+  assert.strictEqual(hermes.liveState('sess-running'), 'idle');
+  // ...and it IS busy while that prompt is fresh.
+  const freshly = (T0 + 1001) * 1000 + 1000;
+  const row = reader.readLiveState('sess-running');
+  assert.strictEqual(row.lastRole, 'user', 'mid-turn: asked, not yet answered');
+  assert.strictEqual(deriveState(row, freshly), 'busy');
 });

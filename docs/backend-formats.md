@@ -64,8 +64,50 @@ The only backend whose history is **not** in files — the reason the discovery 
 - Timestamps are REAL epoch seconds.
 - Read it **read-only, `PRAGMA query_only`, short-lived connections**, and watch the `-wal` file as well as
   the DB: a WAL commit can leave the main file's mtime untouched.
-- State: Hermes states only that a turn **ended** (`ended_at IS NULL` = still open). Busy is inferred from
-  recent message activity, so a long silent turn needs the terminal-liveness signal.
+- **State — corrects the plan (#165):** `ended_at` looked like the signal and is **not**. On a real store it
+  is **null on every session**, including ones finished the day before; Hermes simply never writes it. So a
+  rule of "not ended + wrote recently → busy" reads the agent's own ANSWER as activity, and the session sits
+  at "working" for the whole activity window after every reply.
+
+  The signal is the **last message row**: `messages.finish_reason` is `stop` on every assistant row and
+  null on every user row.
+
+  | last row | state |
+  |---|---|
+  | `user` | **busy** — asked, not yet answered |
+  | `assistant`, `finish_reason` ∈ {`tool_calls`, `tool_use`, `function_call`} | **busy** — it stopped in order to *call* something |
+  | `assistant`, no `finish_reason` | **busy** — still generating, or a cut-off stream |
+  | `assistant`, any other `finish_reason` | **idle** — the message is complete, so the turn is over |
+  | `tool` | **busy** — a tool answered the agent; the agent has not yet answered the user |
+  | none | **idle** — nobody has asked anything |
+
+  The tool set is a **denylist**, and the direction is the whole point. `finish_reason` says *why generation
+  stopped*, and nearly every answer means the message is **complete** — `stop`, `end_turn`, `length`,
+  `content_filter`, and each provider's own additions (Gemini says `SAFETY`, `RECITATION`, `OTHER`). Only the
+  tool family means the turn continues, and that vocabulary is small and stable because every provider copied
+  it from the last one. An allowlist of "over" reasons would read an unknown *terminal* reason as still-running
+  — and a still-running turn can be held busy indefinitely by the PTY-liveness net while the TUI repaints. That
+  is the "permanently working" bug, through a different door.
+
+  The activity window stays as a **ceiling** (a "running" turn that has written nothing for minutes and whose
+  terminal is silent is crashed, not working), and terminal output remains a liveness signal only: it may keep
+  a long silent turn out of idle, never declare one busy.
+- **A tool-using turn, row for row off a real run** (this is what the state rule has to walk):
+
+  | # | role | `finish_reason` | note |
+  |---|---|---|---|
+  | 1 | `user` | — | the prompt |
+  | 2 | `assistant` | **`tool_calls`** | **content is EMPTY**; `tool_calls` holds the request |
+  | 3 | `tool` | — | one row per result (`tool_name`, `tool_call_id`) |
+  | 4 | `tool` | — | …and another |
+  | 5 | `assistant` | `stop` | the actual answer |
+
+  Row 2 is why the state rule is a denylist: it is a `finish_reason` on an assistant row that does **not** end
+  the turn.
+- `messages` also carries `tool_name`, `tool_calls`, `tool_call_id`, `token_count`, `reasoning*`, `observed`,
+  `active`, `compacted`.
+- The non-interactive flag is **`-z PROMPT`** (`hermes -z "…"`), not `-q`/`--query`. Useful for reading what
+  the store really writes without driving the TUI.
 - Auth: Hermes self-authenticates from its own `.env` / OAuth. Switchboard **injects nothing** and never
   reads its credential files.
 - The TUI takes ≈ 12 s to paint (a heavy Python import) — a fresh tab looks dead until then, so the

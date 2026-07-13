@@ -108,10 +108,13 @@ test('a long SILENT turn stays busy on every store-derived backend while its PTY
   const now = Date.now();
   const longAgo = now - 10 * 60 * 1000;   // well past every activity window
 
-  // Hermes: the session never ended, but wrote nothing for ten minutes.
-  assert.equal(hermes.deriveState({ isEnded: false, lastActivityMs: longAgo }, now), 'idle');
-  assert.equal(hermes.deriveState({ isEnded: false, lastActivityMs: longAgo }, now, { lastOutputMs: now - 5000 }), 'busy',
-    'Hermes states only that a turn ENDED — a silent long turn needs the liveness signal too');
+  // Hermes: a turn IS running (the prompt is unanswered), but nothing has been written for ten minutes.
+  // The row has to SAY the turn is running — "not ended" never meant that, because `ended_at` is null on
+  // every Hermes session, answered or not (#165). The trailing user prompt is what says it.
+  const running = { isEnded: false, lastRole: 'user', lastActivityMs: longAgo };
+  assert.equal(hermes.deriveState(running, now), 'idle');
+  assert.equal(hermes.deriveState(running, now, { lastOutputMs: now - 5000 }), 'busy',
+    'Hermes never states that a turn is RUNNING — a silent long turn needs the liveness signal too');
 
   // Pi: same shape, from the transcript side.
   const last = new Date(longAgo).toISOString();
