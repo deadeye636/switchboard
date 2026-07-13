@@ -149,7 +149,7 @@ test('sessionProjectPath never guesses: no cwd, or a cwd in no repo at all, keep
 });
 
 test('sessionProjectPath keeps the folder\'s exact spelling for the same directory', () => {
-  // A real store carries both `d:\Privat\x` and `D:\Privat\x`. Compared naively they become two projects
+  // A real store carries both `d:\Projekte\x` and `D:\Projekte\x`. Compared naively they become two projects
   // — the grouping key is the projectPath STRING.
   _resetRootCache();
   const root = tmpDir('sp5-');
