@@ -5,7 +5,7 @@
 
 Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (19 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-12
+**As of:** 2026-07-13
 
 
 ## P1 — next up
@@ -31,7 +31,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
 - [#150](https://github.com/deadeye636/switchboard/issues/150) Hermes: availability probe only checks the executable · _enhancement_
-- [#151](https://github.com/deadeye636/switchboard/issues/151) Hermes: no busy/idle signal when the DB is unreadable (no fallback) · _bug_
 - [#153](https://github.com/deadeye636/switchboard/issues/153) Multi-LLM: leftover gaps against the plan and the mockups · _chore_
 - [#157](https://github.com/deadeye636/switchboard/issues/157) A session that moved into a worktree still follows its original folder · _bug_
 - [#164](https://github.com/deadeye636/switchboard/issues/164) Session tags: filter the sidebar by session tag · _feature_
+- [#166](https://github.com/deadeye636/switchboard/issues/166) PTY liveness can hold a session busy forever — it has no ceiling · _bug_
