@@ -401,6 +401,110 @@ test('remapProject refuses a target that is not a directory, and a project it ca
   } finally { t.cleanup(); }
 });
 
+// --- deleting a project's sessions, per backend (#171) ----------------------------------------------
+
+test('deletableBackends lists what the project has — and what cannot be deleted, with the reason', () => {
+  const t = makeCtx();
+  try {
+    t.setCachedRows([
+      { sessionId: 'a', folder: 'f', projectPath: 'D:\\p', filePath: null, backendId: 'claude' },
+      { sessionId: 'b', folder: 'f', projectPath: 'D:\\p', filePath: 'x.jsonl', backendId: 'codex' },
+      { sessionId: 'c', folder: 'f', projectPath: 'D:\\p', filePath: 'y.jsonl', backendId: 'codex' },
+      { sessionId: 'd', folder: 'f', projectPath: 'D:\\p', filePath: null, backendId: 'hermes' },
+    ]);
+
+    const list = projects.deletableBackends('D:\\p');
+    const byId = Object.fromEntries(list.map(b => [b.id, b]));
+
+    assert.strictEqual(byId.claude.sessions, 1);
+    assert.strictEqual(byId.codex.sessions, 2);
+    assert.strictEqual(byId.claude.deletable, true);
+    assert.strictEqual(byId.codex.deletable, true);
+
+    // Hermes keeps its sessions in a database we open read-only and may never write (#2914). It is shown
+    // — with the reason — rather than offered a switch that would do nothing.
+    assert.strictEqual(byId.hermes.deletable, false);
+    assert.match(byId.hermes.reason, /only read/i);
+  } finally { t.cleanup(); }
+});
+
+test('deleting one backend\'s history leaves the others\' alone — files AND rows', () => {
+  // The bug: "delete session history" cleared `~/.claude/projects` and nothing else, so a project's Codex
+  // rollouts survived — invisible only because the project got hidden in the same breath, and back the
+  // day it was unhidden.
+  const t = makeCtx();
+  const codexStore = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-del-'));
+  try {
+    const projectPath = 'D:\\p';
+    const folder = encodeProjectPath(projectPath);
+    const folderPath = path.join(t.store, folder);
+    fs.mkdirSync(folderPath, { recursive: true });
+    const claudeFile = path.join(folderPath, 'a.jsonl');
+    fs.writeFileSync(claudeFile, JSON.stringify({ type: 'user', cwd: projectPath, message: { role: 'user', content: 'x' } }) + '\n');
+
+    const codexFile = path.join(codexStore, 'rollout-x.jsonl');
+    fs.writeFileSync(codexFile, JSON.stringify({ type: 'session_meta', payload: { id: 'x', cwd: projectPath } }) + '\n');
+
+    t.setCachedRows([
+      { sessionId: 'a', folder, projectPath, filePath: null, backendId: 'claude' },
+      { sessionId: 'x', folder, projectPath, filePath: codexFile, backendId: 'codex' },
+    ]);
+
+    // Delete ONLY Claude's.
+    const res = projects.deleteProjectSessions(projectPath, ['claude']);
+    assert.strictEqual(res.ok, true);
+    assert.deepStrictEqual(res.deleted, { claude: 1 });
+
+    assert.strictEqual(fs.existsSync(folderPath), false, 'Claude\'s folder is gone');
+    assert.strictEqual(fs.existsSync(codexFile), true, 'and Codex\' rollout is NOT — it was not asked for');
+
+    // The rows go the same way: scoped to the backend that was cleared. An unscoped delete would take
+    // Codex' row with it — and its file is still on disk, so the row would simply come back on the next
+    // scan, which is exactly why the scope rule exists.
+    assert.deepStrictEqual(t.calls.deletedFolders, [{ folder, scope: { only: ['claude'] } }]);
+    assert.deepStrictEqual(t.calls.deletedSearch, [{ folder, scope: { only: ['claude'] } }]);
+  } finally {
+    t.cleanup();
+    fs.rmSync(codexStore, { recursive: true, force: true });
+  }
+});
+
+test('a backend that cannot delete is refused by name, not silently skipped', () => {
+  const t = makeCtx();
+  try {
+    t.setCachedRows([{ sessionId: 'h', folder: 'f', projectPath: 'D:\\p', filePath: null, backendId: 'hermes' }]);
+
+    const res = projects.deleteProjectSessions('D:\\p', ['hermes']);
+    assert.strictEqual(res.ok, true);
+    assert.deepStrictEqual(res.deleted, {}, 'nothing was deleted');
+    assert.deepStrictEqual(res.refused, ['Hermes'], 'and the user is told which, by name');
+  } finally { t.cleanup(); }
+});
+
+test('a delete never leaves the store it belongs to', () => {
+  // The paths come from cached rows. A row is data, and data can be wrong — a stale or tampered
+  // filePath must not turn "delete this project's Codex history" into "delete that file over there".
+  const { deleteTranscripts } = require('../backends/delete-sessions');
+  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'store-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-'));
+  try {
+    const inside = path.join(store, 'mine.jsonl');
+    const stranger = path.join(outside, 'not-mine.jsonl');
+    fs.writeFileSync(inside, '{}');
+    fs.writeFileSync(stranger, '{}');
+
+    const res = deleteTranscripts([inside, stranger], store);
+
+    assert.strictEqual(res.removed, 1);
+    assert.deepStrictEqual(res.failed, [stranger], 'and it says which it refused');
+    assert.strictEqual(fs.existsSync(inside), false);
+    assert.strictEqual(fs.existsSync(stranger), true, 'a file outside the store is never touched');
+  } finally {
+    fs.rmSync(store, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 // --- prune (#55) -----------------------------------------------------------------------------------
 
 test('pruneProjectIfGone keeps a project that still has sessions on disk', () => {

@@ -169,6 +169,8 @@ function watchTargets() {
 // in its config.toml and writes cwd once, in its header. A backend that has neither declares neither,
 // and the project manager stops pretending it speaks for everyone.
 const claudeConfig = require('../claude-config');
+const { encodeProjectPath } = require('../encode-project-path');
+const { deriveProjectPath } = require('../derive-project-path');
 const { rewriteTranscript, claudeLine } = require('./rewrite-cwd');
 
 const projectTrust = {
@@ -187,11 +189,40 @@ function rewriteProjectPath(filePath, oldPath, newPath) {
   return rewriteTranscript(filePath, oldPath, newPath, claudeLine);
 }
 
+/**
+ * Hand over this project's transcripts. Claude's store is organised BY project — one folder per encoded
+ * cwd, and legacy encodings mean there can be several that resolve to the same project — so the honest
+ * unit here is the folder, not the file list. The caller passes the file paths for the other backends;
+ * Claude ignores them and removes the folders that belong to this project, exactly as it always did.
+ */
+function deleteSessions(_filePaths, { projectPath, projectsDir } = {}) {
+  if (!projectPath || !projectsDir) return { removed: 0, failed: [] };
+  const encoded = encodeProjectPath(projectPath);
+  let removed = 0;
+  const failed = [];
+  let dirs;
+  try {
+    dirs = fs.readdirSync(projectsDir, { withFileTypes: true }).filter(d => d.isDirectory() && d.name !== '.git');
+  } catch { return { removed: 0, failed: [] }; }
+
+  for (const d of dirs) {
+    const folderPath = path.join(projectsDir, d.name);
+    // A legacy encoding can leave several folders pointing at the same project, so resolve rather than
+    // trust the name — and never step outside the store.
+    if (d.name !== encoded && deriveProjectPath(folderPath) !== projectPath) continue;
+    const resolved = path.resolve(folderPath);
+    if (!resolved.startsWith(path.resolve(projectsDir) + path.sep)) continue;
+    try { fs.rmSync(resolved, { recursive: true, force: true }); removed++; } catch { failed.push(folderPath); }
+  }
+  return { removed, failed, folders: true };
+}
+
 module.exports = {
   id: 'claude',
   supportsFork,
   projectTrust,
   rewriteProjectPath,
+  deleteSessions,
   // Claude's parser lives in read-session-file.js (it predates the backend registry); its version rides
   // on the descriptor like every other backend's, so the scan's staleness gate (#152) is one rule for
   // all of them and not a special case for the default backend.

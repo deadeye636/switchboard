@@ -120,7 +120,13 @@ contextBridge.exposeInMainWorld('api', {
   // Pi/Hermes have no such gate at all. The backend that owns the answer writes it.
   setProjectTrust: (projectPath, backendId, trusted) =>
     ipcRenderer.invoke('set-project-trust', projectPath, backendId, trusted),
-  deleteProjectSessions: (projectPath) => ipcRenderer.invoke('delete-project-sessions', projectPath),
+  // Deleting a project's history is per BACKEND (#171): a project's Codex and Pi transcripts used to
+  // survive a "delete sessions" untouched, because only Claude's store was cleared.
+  deleteProjectSessions: (projectPath, backendIds) =>
+    ipcRenderer.invoke('delete-project-sessions', projectPath, backendIds),
+  // Which backends this project has sessions from, and which of them can be cleared at all (Hermes'
+  // store is read-only to us). The Remove dialog is built from this.
+  projectDeletableBackends: (projectPath) => ipcRenderer.invoke('project-deletable-backends', projectPath),
   removeProjectConfig: (projectPath) => ipcRenderer.invoke('remove-project-config', projectPath),
   getZoomLevel: () => ipcRenderer.invoke('get-zoom-level'),
   nudgeZoom: (delta) => ipcRenderer.invoke('nudge-zoom', delta),

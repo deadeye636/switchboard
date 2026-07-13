@@ -25,6 +25,7 @@ const { execFileSync } = require('child_process');
 const parser = require('./parser');
 const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, piLine } = require('../rewrite-cwd');
+const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromFileTail } = require('./state');
 
 let _root = null;
@@ -255,6 +256,10 @@ module.exports = {
   // transcripts move with the project like everyone else's (#171).
   rewriteProjectPath: (filePath, oldPath, newPath) =>
     rewriteTranscript(filePath, oldPath, newPath, piLine),
+
+  // ...and they are deleted with it. "Delete this project's sessions" used to clear Claude's store only,
+  // so Pi's transcripts survived and came back the day the project was unhidden.
+  deleteSessions: (filePaths) => deleteTranscripts(filePaths, sessionsRoot()),
   // No `projectTrust`: Pi has no per-project trust gate (checked against a real install — its
   // settings.json carries none). The project manager shows that honestly rather than inventing one.
 

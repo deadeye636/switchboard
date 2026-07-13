@@ -21,6 +21,7 @@ const parser = require('./parser');
 const trust = require('./trust');
 const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, codexLine } = require('../rewrite-cwd');
+const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromFileTail } = require('./state');
 
 // CODEX_HOME overrides the whole dir; default ~/.codex. Resolved lazily so an env change (or a test)
@@ -192,6 +193,11 @@ module.exports = {
   // transcripts left Codex' sessions behind at the old path, as a phantom project.
   rewriteProjectPath: (filePath, oldPath, newPath) =>
     rewriteTranscript(filePath, oldPath, newPath, codexLine),
+
+  // "Delete this project's sessions" used to mean Claude's, and only Claude's — a project's rollouts
+  // survived it and reappeared the day the project was unhidden. Codex' transcripts are files, so they
+  // can be handed over; the guard keeps a delete inside the store it belongs to.
+  deleteSessions: (filePaths) => deleteTranscripts(filePaths, sessionsRoot()),
 
   setHome,
   sessionsRoot,

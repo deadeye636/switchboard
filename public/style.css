@@ -8558,6 +8558,20 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
   cursor: pointer;
 }
 .pa-check-row input { cursor: pointer; }
+
+/* The Remove dialog lists one row per backend that has sessions in the project (#171). A backend whose
+   store we may only read (Hermes) is shown DISABLED with the reason — not hidden, and not offered a
+   switch that would do nothing. */
+.pa-check-disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.pa-check-disabled input { cursor: default; }
+.pa-check-note {
+  margin-left: 6px;
+  font-size: 11px;
+  color: #8a8a9c;
+}
 .pa-check-row code {
   background: #23232c;
   padding: 1px 5px;

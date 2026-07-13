@@ -224,7 +224,18 @@
 
   // Remove dialog with two opt-in hard-delete checkboxes (reuses control-dialog CSS).
   // Resolves to { deleteDisk, deleteConfig } on confirm, or null on cancel.
-  function confirmRemove(path) {
+  // The Remove dialog asks WHICH backends' history to delete (#171).
+  //
+  // It used to offer one checkbox — "delete session history on disk" — and clear `~/.claude/projects`.
+  // A project's Codex rollouts and Pi transcripts survived it untouched; the user simply stopped seeing
+  // them, because the project was hidden in the same breath, and they came back the day it was unhidden.
+  //
+  // A backend that CANNOT be cleared (Hermes keeps its sessions in a database we may only read) is shown
+  // and disabled, with the reason — rather than offered a switch that does nothing.
+  async function confirmRemove(path) {
+    let backends = [];
+    try { backends = await window.api.projectDeletableBackends(path) || []; } catch { backends = []; }
+
     return new Promise((resolve) => {
       const overlay = document.createElement('div');
       overlay.className = 'control-dialog-overlay';
@@ -232,19 +243,28 @@
       dialog.className = 'control-dialog control-dialog-danger';
       dialog.setAttribute('role', 'dialog');
       dialog.setAttribute('aria-modal', 'true');
+
+      const backendRows = backends.length
+        ? backends.map(b => (b.deletable
+          ? `<label class="pa-check-row"><input type="checkbox" class="pa-del-backend" data-backend="${escapeHtml(b.id)}">
+               Delete ${escapeHtml(b.label)}'s session history <span class="pa-check-note">${b.sessions} session${b.sessions === 1 ? '' : 's'}</span></label>`
+          : `<label class="pa-check-row pa-check-disabled"><input type="checkbox" disabled>
+               ${escapeHtml(b.label)}'s history cannot be deleted <span class="pa-check-note">${escapeHtml(b.reason || '')}</span></label>`
+        )).join('')
+        : '<div class="pa-check-note">This project has no cached sessions.</div>';
+
       dialog.innerHTML = `
         <div class="control-dialog-kicker">Destructive Action</div>
         <h3>Remove project</h3>
-        <p>Always hides the project and clears its Switchboard cache. Optionally also delete
-        its data from Claude — these are irreversible.</p>
+        <p>Always hides the project and clears its Switchboard cache. Deleting a backend's session
+        history removes those transcripts from disk — that is irreversible.</p>
         <div class="control-dialog-details">
           <div class="control-dialog-detail-row">
             <span class="control-dialog-detail-label">Project</span>
             <span class="control-dialog-detail-value">${escapeHtml(shortName(path))}</span>
           </div>
         </div>
-        <label class="pa-check-row"><input type="checkbox" id="pa-del-disk">
-          Delete session history on disk (<code>~/.claude/projects</code>)</label>
+        ${backendRows}
         <label class="pa-check-row"><input type="checkbox" id="pa-del-config">
           Delete entry in <code>~/.claude.json</code> (trust, MCP, cost)</label>
         <div class="control-dialog-actions">
@@ -262,7 +282,7 @@
       function onKey(e) { if (e.key === 'Escape') close(null); }
       dialog.querySelector('.control-dialog-cancel').addEventListener('click', () => close(null));
       dialog.querySelector('.control-dialog-confirm').addEventListener('click', () => close({
-        deleteDisk: dialog.querySelector('#pa-del-disk').checked,
+        deleteBackends: [...dialog.querySelectorAll('.pa-del-backend:checked')].map(c => c.dataset.backend),
         deleteConfig: dialog.querySelector('#pa-del-config').checked,
       }));
       overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
@@ -314,11 +334,17 @@
       } else if (action === 'remove') {
         const choice = await confirmRemove(path);
         if (!choice) return;
-        await window.api.removeProject(path); // always: hide + clear Switchboard cache
-        if (choice.deleteDisk) {
-          const r = await window.api.deleteProjectSessions(path);
-          if (r && r.error) { toast('Delete disk: ' + r.error); }
+        // The order matters: delete the transcripts BEFORE removing the project, because the delete
+        // reads the project's cached rows to find them — and removing the project clears those rows.
+        if (choice.deleteBackends && choice.deleteBackends.length) {
+          const r = await window.api.deleteProjectSessions(path, choice.deleteBackends);
+          if (r && r.error) { toast('Delete sessions: ' + r.error); }
+          else if (r && r.deleted) {
+            const what = Object.entries(r.deleted).map(([id, n]) => `${labelOf(id)}: ${n}`).join(', ');
+            if (what) toast('Deleted — ' + what);
+          }
         }
+        await window.api.removeProject(path); // always: hide + clear Switchboard cache
         if (choice.deleteConfig) {
           const r = await window.api.removeProjectConfig(path);
           if (r && r.error) { toast('Delete config: ' + r.error); }

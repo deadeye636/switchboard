@@ -588,34 +588,105 @@ function setProjectTrust(projectPath, backendId, trusted) {
 }
 
 /**
- * Hard-delete a project's on-disk session history: every ~/.claude/projects/<folder> that resolves to
- * this projectPath (legacy encodings can leave several), plus its DB cache + search index. Session
- * .jsonl files are gone afterwards. Guards each target to stay strictly inside PROJECTS_DIR.
+ * Which backends a project has sessions from, and whether each one's history can be deleted at all.
+ * The renderer builds the Remove dialog from this — a switch that cannot do anything is not offered.
  */
-function deleteProjectSessions(projectPath) {
+function deletableBackends(projectPath) {
+  let rows = [];
+  try { rows = ctx.db.getCachedByProjectPath(projectPath) || []; } catch { rows = []; }
+
+  const counts = new Map();
+  for (const r of rows) {
+    const id = r.backendId || 'claude';
+    counts.set(id, (counts.get(id) || 0) + 1);
+  }
+
+  const out = [];
+  for (const [id, sessions] of counts) {
+    const backend = ctx.backends.get(id);
+    const deletable = !!(backend && typeof backend.deleteSessions === 'function');
+    out.push({
+      id,
+      label: backend ? (backend.label || id) : id,
+      sessions,
+      deletable,
+      // Hermes: its sessions are rows in a database we open read-only and may never write (#2914).
+      reason: deletable ? null : 'its history lives in a database Switchboard may only read',
+    });
+  }
+  return out;
+}
+
+/**
+ * Hard-delete a project's session history — FOR THE BACKENDS THE USER PICKED (#171).
+ *
+ * It used to mean `~/.claude/projects/<folder>` and nothing else. A project's Codex rollouts and Pi
+ * transcripts survived it untouched; the user simply stopped seeing them, because the project was hidden
+ * in the same breath, and they came back the day it was unhidden.
+ *
+ * Each backend hands over its own: Claude removes the folders that resolve to this project (its store is
+ * organised BY project, and a legacy encoding can leave several), the file backends remove the
+ * transcripts named on their rows. Hermes cannot, and is not offered.
+ *
+ * @param {string} projectPath
+ * @param {string[]} [backendIds]  which backends to clear. Omitted = Claude only, the old behaviour, so
+ *                                 an older renderer keeps working.
+ */
+function deleteProjectSessions(projectPath, backendIds) {
   try {
     if (!projectPath) return { error: 'No project path' };
-    const encoded = encodeProjectPath(projectPath);
+    const wanted = Array.isArray(backendIds) && backendIds.length ? backendIds : ['claude'];
+
+    let rows = [];
+    try { rows = ctx.db.getCachedByProjectPath(projectPath) || []; } catch { rows = []; }
+
+    const deleted = {};
+    const refused = [];
     let removed = 0;
-    const dirs = fs.readdirSync(ctx.PROJECTS_DIR, { withFileTypes: true })
-      .filter(d => d.isDirectory() && d.name !== '.git');
-    for (const d of dirs) {
-      const folderPath = path.join(ctx.PROJECTS_DIR, d.name);
-      const pp = deriveProjectPath(folderPath);
-      if (pp !== projectPath && d.name !== encoded) continue;
-      // Safety: never remove anything outside PROJECTS_DIR.
-      const resolved = path.resolve(folderPath);
-      if (!resolved.startsWith(path.resolve(ctx.PROJECTS_DIR) + path.sep)) continue;
-      fs.rmSync(resolved, { recursive: true, force: true });
-      // Scoped: only Claude's transcripts were deleted above. Another backend's rows for this project
-      // must stay — their session files still exist, so wiping the rows would just resurrect them.
-      try { ctx.db.deleteCachedFolder(d.name, ctx.cache.claudeStoreScope()); } catch { /* best effort */ }
-      try { ctx.db.deleteSearchFolder(d.name, ctx.cache.claudeStoreScope()); } catch { /* best effort */ }
-      removed++;
+
+    for (const backendId of wanted) {
+      const backend = ctx.backends.get(backendId);
+      if (!backend || typeof backend.deleteSessions !== 'function') {
+        refused.push(backend ? (backend.label || backendId) : backendId);
+        continue;
+      }
+
+      const files = rows
+        .filter(r => (r.backendId || 'claude') === backendId)
+        .map(r => r.filePath || resolveJsonlPath(ctx.PROJECTS_DIR, r))
+        .filter(Boolean);
+
+      let res;
+      try {
+        res = backend.deleteSessions(files, { projectPath, projectsDir: ctx.PROJECTS_DIR });
+      } catch (err) {
+        ctx.log.warn(`[delete] ${backendId}: ${err.message}`);
+        continue;
+      }
+      if (!res || !res.removed) continue;
+
+      deleted[backendId] = res.removed;
+      removed += res.removed;
+
+      // The rows go with the files — and ONLY this backend's rows. The folder key is shared (it is
+      // derived from the cwd), so an unscoped delete would take the other backends' sessions with it,
+      // sessions whose files are still on disk and would simply reappear on the next scan.
+      const folder = encodeProjectPath(projectPath);
+      const scope = { only: [backendId] };
+      try { ctx.db.deleteCachedFolder(folder, scope); } catch { /* best effort */ }
+      try { ctx.db.deleteSearchFolder(folder, scope); } catch { /* best effort */ }
+      // Claude's own rows can sit under a legacy folder name too — clear those the old way.
+      if (backendId === 'claude') {
+        for (const r of rows.filter(x => (x.backendId || 'claude') === 'claude' && x.folder && x.folder !== folder)) {
+          try { ctx.db.deleteCachedFolder(r.folder, ctx.cache.claudeStoreScope()); } catch { /* best effort */ }
+          try { ctx.db.deleteSearchFolder(r.folder, ctx.cache.claudeStoreScope()); } catch { /* best effort */ }
+        }
+      }
     }
+
     pruneProjectIfGone(projectPath);
     ctx.cache.notifyRendererProjectsChanged();
-    return { ok: true, removed };
+    return { ok: true, removed, deleted, refused };
   } catch (err) {
     return { error: err.message };
   }
@@ -650,7 +721,8 @@ function registerIpc(ipcMain) {
   ipcMain.handle('remap-project', (_e, oldPath, newPath) => remapProject(oldPath, newPath));
   ipcMain.handle('get-projects-admin', () => getProjectsAdmin());
   ipcMain.handle('set-project-trust', (_e, projectPath, backendId, trusted) => setProjectTrust(projectPath, backendId, trusted));
-  ipcMain.handle('delete-project-sessions', (_e, projectPath) => deleteProjectSessions(projectPath));
+  ipcMain.handle('delete-project-sessions', (_e, projectPath, backendIds) => deleteProjectSessions(projectPath, backendIds));
+  ipcMain.handle('project-deletable-backends', (_e, projectPath) => deletableBackends(projectPath));
   ipcMain.handle('remove-project-config', (_e, projectPath) => removeProjectConfig(projectPath));
   ipcMain.handle('toggle-project-favorite', (_e, projectPath) => toggleFavorite(projectPath));
 }
@@ -660,8 +732,8 @@ module.exports = {
   registerIpc,
   // operations (exported for tests, and for main.js where it calls them directly)
   browseFolder, addProject, removeProject, getHiddenProjects, unhideProject, setProjectAutoAdd,
-  remapProject, getProjectsAdmin, setProjectTrust, deleteProjectSessions, removeProjectConfig,
-  toggleFavorite,
+  remapProject, getProjectsAdmin, setProjectTrust, deleteProjectSessions, deletableBackends,
+  removeProjectConfig, toggleFavorite,
   // helpers main.js still calls on other paths (a spawn adds the project; the app start hides stale ones)
   ensureProjectAdded, applyAutoHide,
   projectHasSessionsOnDisk, projectIsInClaudeConfig, pruneProjectIfGone,
