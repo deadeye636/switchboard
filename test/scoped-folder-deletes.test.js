@@ -51,11 +51,17 @@ for (const file of ['main.js', 'projects.js']) {
   });
 }
 
-test('remove-project still clears the folder, and still scopes it', () => {
-  // "Remove" is a HIDE: it clears the project's cached rows so the sidebar lets go of it, and the folder
-  // is the right unit for that — the transcripts stay on disk and a rescan brings them all back.
+test('projects.js clears the cache BY ROW, never by folder', () => {
+  // The folder is the wrong unit for anything keyed on a project. It is derived from the cwd a session
+  // STARTED from, so since #157 one store folder can hold rows of several projects — and since #167 a
+  // "remove" is a real removal, not a hide, so what it clears it clears for good. Both of this file's
+  // purges (remove-project and the hard delete) therefore go row by row, from the project's own rows.
   const calls = folderDeleteCalls(read('projects.js')).filter(c => c.args !== '');
-  assert.ok(calls.length >= 2, 'remove-project must still clear the project\'s cached rows');
+  assert.deepStrictEqual(calls.map(c => `projects.js:${c.line} ${c.fn}(${c.args})`), []);
+
+  const src = read('projects.js');
+  assert.match(src, /deleteCachedSession\s*\(/, 'it deletes the cached rows one by one');
+  assert.match(src, /deleteSearchSession\s*\(/, 'and their search rows with them');
 });
 
 test('the hard delete clears the cache row by row, never by folder', () => {
@@ -75,12 +81,11 @@ test('the hard delete clears the cache row by row, never by folder', () => {
 });
 
 test('the scoped deletes use the same scope the scanner uses', () => {
-  // Each scoped call must pass claudeStoreScope() (directly or via the injected ctx), not an ad-hoc
-  // literal that could drift from session-cache.js's definition.
+  // A folder-wide delete must pass claudeStoreScope() (directly or via the injected ctx), not an ad-hoc
+  // literal that could drift from session-cache.js's definition. main.js still has such deletes (the
+  // store sweeps); projects.js no longer does any — see the row-by-row test above.
   assert.match(read('main.js'), /sessionCache\.claudeStoreScope/,
     'main.js must reuse session-cache.js claudeStoreScope() rather than redefining the scope');
-  assert.match(read('projects.js'), /ctx\.cache\.claudeStoreScope\(\)/,
-    'projects.js must use the scope handed to it, not one of its own');
 });
 
 test('session-cache.js exports claudeStoreScope so main.js can share it', () => {

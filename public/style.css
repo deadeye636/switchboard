@@ -8421,6 +8421,9 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
   color: #9aa2ff;
   vertical-align: middle;
 }
+/* "Not applicable here" — a project that is not on the list cannot be hidden (#167). Muted, so it reads
+   as an absence rather than as a control that does nothing. */
+.pa-dash { color: #5a5a6a; cursor: default; }
 .pa-nowrap { white-space: nowrap; color: #9a9aac; }
 /* Name cell is two stacked lines (name + path). Flex so the missing-project icon
    centres against the pair rather than sitting on the first line (#135). */

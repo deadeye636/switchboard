@@ -8,15 +8,27 @@
 // on the way in (main.js `stripLauncherSecrets`, at the same trust boundary a normal save
 // crosses) — an import must not be a back door around that guard.
 //
-// The blob still carries machine-local values by design (absolute project paths in
-// `hiddenProjects`/`addedProjects`, a `preLaunchCmd`, a launcher's `cwd`). Those are the
-// point of the export — a restore that dropped them would arrive with broken launchers —
-// so they are exported as-is, and the UI says so. Only values that could not mean anything
-// on another machine are stripped; see NON_PORTABLE_KEYS.
+// The blob still carries machine-local values by design (a `preLaunchCmd`, a launcher's
+// `cwd`). Those are the point of the export — a restore that dropped them would arrive with
+// broken launchers — so they are exported as-is, and the UI says so. Only values that could
+// not mean anything on another machine are stripped; see NON_PORTABLE_KEYS.
+//
+// THE PROJECT LIST IS NOT IN THE BLOB (#167). It used to be — `hiddenProjects` and
+// `addedProjects` — and it rode along for free. It is a table now (`project_meta`), so it has
+// to be carried explicitly, or an export would silently drop the whole list: a restore would
+// arrive with every hidden project visible again and, in manual mode, with no projects at all.
+// Hence `projects` alongside `global`. A file written before that section existed still
+// imports: its legacy `addedProjects`/`hiddenProjects` are folded into the register instead.
 'use strict';
 
 const EXPORT_VERSION = 1;
 const APP_MARKER = 'switchboard';
+
+// The register columns that mean something on another machine. `removedAt` deliberately does
+// NOT ride along: a tombstone is about transcripts on THIS disk, and carrying it over would
+// suppress a project on a machine whose sessions were never removed. `autoHidden` is a local
+// staleness verdict and re-derives itself.
+const PROJECT_KEYS = ['projectPath', 'registered', 'hidden'];
 
 // Dropped on export AND ignored on import. `windowBounds` are screen coordinates for a
 // monitor layout the target machine does not have. `db_version` is the schema marker and
@@ -42,13 +54,50 @@ function stripNonPortable(blob) {
  * The file we write. `exportedAt` is passed in rather than read from the clock so the
  * payload is a pure function of its inputs (and the test can assert on it).
  */
-function buildExportPayload(globalBlob, exportedAt) {
+function buildExportPayload(globalBlob, exportedAt, projectStates) {
   return {
     app: APP_MARKER,
     version: EXPORT_VERSION,
     exportedAt: String(exportedAt || ''),
     global: stripNonPortable(globalBlob),
+    projects: exportProjects(projectStates),
   };
+}
+
+/** The register, as a portable list. Takes a Map<projectPath, row> (or anything iterable of rows). */
+function exportProjects(projectStates) {
+  const rows = [];
+  const iterable = projectStates instanceof Map ? projectStates.values() : (projectStates || []);
+  for (const row of iterable) {
+    if (!row || !row.projectPath) continue;
+    if (!row.registered) continue;               // only what is on the list; a tombstone is local
+    rows.push({ projectPath: row.projectPath, registered: 1, hidden: row.hidden ? 1 : 0 });
+  }
+  return rows;
+}
+
+/**
+ * The project list an import should apply. Prefers the file's own `projects` section; falls back to a
+ * legacy file's `addedProjects`/`hiddenProjects`, which is where the list used to live.
+ *
+ * Returns [] when the file carries neither — an older export that predates both, or a file from a user
+ * who never had a project. Importing [] must then change NOTHING, or restoring settings would wipe the
+ * list on the target machine.
+ */
+function importProjects(parsed) {
+  if (Array.isArray(parsed && parsed.projects)) {
+    return parsed.projects
+      .filter(r => isPlainObject(r) && typeof r.projectPath === 'string' && r.projectPath)
+      .map(r => ({ projectPath: r.projectPath, registered: 1, hidden: r.hidden ? 1 : 0 }));
+  }
+
+  const blob = isPlainObject(parsed && parsed.global) ? parsed.global : {};
+  const added = Array.isArray(blob.addedProjects) ? blob.addedProjects : [];
+  const hidden = new Set(Array.isArray(blob.hiddenProjects) ? blob.hiddenProjects : []);
+  const paths = new Set([...added, ...hidden]);
+  return [...paths]
+    .filter(p => typeof p === 'string' && p)
+    .map(p => ({ projectPath: p, registered: 1, hidden: hidden.has(p) ? 1 : 0 }));
 }
 
 /**
@@ -90,6 +139,9 @@ function mergeImport(currentBlob, incoming) {
 }
 
 module.exports = {
+  PROJECT_KEYS,
+  exportProjects,
+  importProjects,
   EXPORT_VERSION,
   APP_MARKER,
   NON_PORTABLE_KEYS,

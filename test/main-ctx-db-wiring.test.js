@@ -34,7 +34,9 @@ function mainCtxDbKeys() {
     else if (src[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
   }
   assert.ok(end !== -1, 'db: { ... } literal should be balanced');
-  const body = src.slice(open + 1, end);
+  // Comments first: the literal is allowed to explain itself, and a `// …, …` line would otherwise be
+  // split at its own commas — swallowing the key that follows it, and reporting it as never wired.
+  const body = src.slice(open + 1, end).replace(/\/\/[^\n]*/g, '');
   // Shorthand keys: bare identifiers separated by commas/newlines (ignore any value parts).
   return new Set(
     body

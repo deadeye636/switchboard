@@ -46,6 +46,7 @@ function makeFakeDb(globalSettings = {}) {
   const meta = new Map();         // sessionId -> { name }
   const folderMeta = new Map();   // folder -> { folder, projectPath, indexMtimeMs }
   const metrics = new Map();      // sessionId -> per-(date, model) buckets
+  const projectStates = new Map();// projectPath -> the project_meta row (the register, #167)
 
   const api = {
     _cache: cache,
@@ -99,6 +100,18 @@ function makeFakeDb(globalSettings = {}) {
     getFavoritedProjects() { return new Set(); },
     getProjectDisplayNames() { return new Map(); },
     getAutoHiddenProjects() { return new Set(); },
+    // The register (#167). session-cache does not write to it — projects.js does — so what this fake has
+    // to stand in for is "auto mode, and the sync has run": every project with a session is on the list.
+    // A state seeded explicitly (a removal) wins over that, which is the whole point of the tombstone.
+    _states: projectStates,
+    getProjectMeta(p) { return projectStates.get(p) || null; },
+    getProjectStates() {
+      const out = new Map(projectStates);
+      for (const row of cache.values()) {
+        if (row.projectPath && !out.has(row.projectPath)) out.set(row.projectPath, { registered: 1 });
+      }
+      return out;
+    },
   };
   return api;
 }
@@ -392,30 +405,48 @@ test('refreshBackendSessions is a no-op for Claude and for Axis-A profiles', () 
 
 // --- hidden projects ---
 
-test('a hidden project is not re-indexed but its cached Codex rows are left alone', () => {
+test('a REMOVED project is not indexed back in — and its transcript is still seen by the sweep', () => {
+  // Removing a project purges its rows; the scan must not put them straight back, or the removal would
+  // last exactly until the next refresh. Hiding does NOT do this (see the test below) — the two used to
+  // be the same act, and that is the confusion #167 takes apart.
   const w = setup();
+  const id = 'bbbbbbbb-0000-4000-8000-000000000002';
   try {
-    writeCodexRollout(w.codexHome, w.projectCwd, 'bbbbbbbb-0000-4000-8000-000000000002');
+    writeCodexRollout(w.codexHome, w.projectCwd, id);
     sessionCache.refreshBackendSessions('codex');
-    assert.ok(w.db._cache.has('bbbbbbbb-0000-4000-8000-000000000002'));
+    assert.ok(w.db._cache.has(id));
 
-    // Hide the project, then re-sweep: the row must survive (hiding is a view decision).
-    const w2 = { ...w };
-    sessionCache.init({
-      PROJECTS_DIR: w.projectsDir,
-      activeSessions: new Map(),
-      getMainWindow: () => null,
-      log: { info() {}, debug() {}, silly() {} },
-      db: Object.assign(w2.db, { getSetting: () => ({ hiddenProjects: [w.projectCwd] }) }),
-    });
-    // Touch the rollout so the mtime gate does not short-circuit the hidden-project branch.
-    const rollout = w.db._cache.get('bbbbbbbb-0000-4000-8000-000000000002').filePath;
-    fs.utimesSync(rollout, new Date(Date.now() + 2000), new Date(Date.now() + 2000));
+    const rollout = w.db._cache.get(id).filePath;
+    w.db._cache.delete(id);                                        // what removeProject does to the rows
+    w.db._states.set(w.projectCwd, { registered: 0, removedAt: new Date().toISOString() });
+    fs.utimesSync(rollout, new Date(Date.now() + 2000), new Date(Date.now() + 2000));   // beat the mtime gate
 
     const stats = sessionCache.refreshBackendSessions('codex');
-    assert.equal(stats.upserted, 0, 'hidden project is not re-indexed');
-    assert.equal(stats.deleted, 0, 'and its rows are not swept away');
-    assert.ok(w.db._cache.has('bbbbbbbb-0000-4000-8000-000000000002'));
+    assert.equal(stats.upserted, 0, 'a removed project is not indexed back in');
+    assert.strictEqual(w.db._cache.has(id), false);
+
+    // ...but the scan SAW the transcript, and says so. The tombstone sweep may not be blind to it: with
+    // no cached row and no store sighting, it would forget the removal and the next scan would resurrect
+    // the project off this very file.
+    assert.ok(sessionCache.getStoreProjectPaths().has(w.projectCwd),
+      'the store still holds a session for it, and the sweep has to know');
+  } finally { cleanup(w); }
+});
+
+test('a HIDDEN project keeps being indexed — hiding is a view decision, not a delete', () => {
+  const w = setup();
+  const id = 'bbbbbbbb-0000-4000-8000-000000000003';
+  try {
+    w.db._states.set(w.projectCwd, { registered: 1, hidden: 1 });
+    writeCodexRollout(w.codexHome, w.projectCwd, id);
+
+    const stats = sessionCache.refreshBackendSessions('codex');
+    assert.equal(stats.upserted, 1, 'its sessions are indexed as normal');
+    assert.ok(w.db._cache.has(id), 'so unhiding shows them at once, with no rescan to wait for');
+
+    // It is simply not SHOWN.
+    const shown = sessionCache.buildProjectsFromCache(false).map(p => p.projectPath);
+    assert.strictEqual(shown.includes(w.projectCwd), false);
   } finally { cleanup(w); }
 });
 

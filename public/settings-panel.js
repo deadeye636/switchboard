@@ -499,7 +499,8 @@
       <div class="settings-btn-row">
         <button class="settings-cancel-btn" id="sv-cancel-btn">Cancel</button>
         <button class="settings-save-btn" id="sv-save-btn">Save Settings</button>
-        ${isProject ? '<button class="settings-remove-btn" id="sv-remove-btn">Hide Project</button>' : ''}
+        ${isProject ? '<button class="settings-remove-btn" id="sv-remove-btn" title="Keep it on the project list, but stop showing it. New sessions do not bring it back.">Hide Project</button>' : ''}
+        ${isProject ? '<button class="settings-remove-btn" id="sv-remove-project-btn" title="Take it off the project list and clear its cached sessions. The transcripts stay on disk; a new session there brings the project back.">Remove Project</button>' : ''}
       </div>`;
 
     // Small building blocks for the global two-pane layout.
@@ -2074,25 +2075,45 @@
       closeSettingsViewer();
     });
 
-    // Remove project button
-    const removeBtn = settingsViewerBody.querySelector('#sv-remove-btn');
-    if (removeBtn) {
-      removeBtn.addEventListener('click', async () => {
+    // Hide and Remove are different things (#167), so the project page offers both. It used to have one
+    // button that said "Hide" and called removeProject — back when they were the same act.
+    const closeAfterProjectAction = () => {
+      settingsViewer.style.display = 'none';
+      document.getElementById('placeholder').style.display = 'flex';
+      if (typeof loadProjects === 'function') loadProjects();
+    };
+
+    const hideBtn = settingsViewerBody.querySelector('#sv-remove-btn');
+    if (hideBtn) {
+      hideBtn.addEventListener('click', async () => {
         const confirmed = await showControlDialog({
           title: 'Hide Project',
-          message: 'This hides the project from Switchboard. Your session files are not deleted.',
+          message: 'The project stays on the list, Switchboard just stops showing it. New sessions do not bring it back — restore it from the hidden list. No files are deleted.',
           confirmLabel: 'Hide Project',
           tone: 'warning',
-          details: {
-            Project: shortName,
-            Path: projectPath,
-          },
+          details: { Project: shortName, Path: projectPath },
         });
         if (!confirmed) return;
-        await window.api.removeProject(projectPath);
-        settingsViewer.style.display = 'none';
-        document.getElementById('placeholder').style.display = 'flex';
-        if (typeof loadProjects === 'function') loadProjects();
+        const res = await window.api.hideProject(projectPath);
+        if (res && res.error) { if (typeof toast === 'function') toast('Hide: ' + res.error); return; }
+        closeAfterProjectAction();
+      });
+    }
+
+    const removeProjectBtn = settingsViewerBody.querySelector('#sv-remove-project-btn');
+    if (removeProjectBtn) {
+      removeProjectBtn.addEventListener('click', async () => {
+        const confirmed = await showControlDialog({
+          title: 'Remove Project',
+          message: 'The project comes off the list and its cached sessions are cleared. Your transcripts stay on disk: the old ones will not bring it back, but a NEW session in this folder will. To delete the history itself, use Remove in Settings → Projects.',
+          confirmLabel: 'Remove Project',
+          tone: 'warning',
+          details: { Project: shortName, Path: projectPath },
+        });
+        if (!confirmed) return;
+        const res = await window.api.removeProject(projectPath);
+        if (res && res.error) { if (typeof toast === 'function') toast('Remove: ' + res.error); return; }
+        closeAfterProjectAction();
       });
     }
   }

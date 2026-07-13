@@ -96,11 +96,23 @@
     return '<button type="button" class="pa-missing-icon" data-action="recheck" title="Unavailable — click to re-check (e.g. after mounting the drive)" aria-label="Unavailable — re-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>';
   }
 
+  // Hiding is a property of a LISTED project. A project that is not on the list is not hidden — it is
+  // simply not there, and offering the toggle would write a flag that nothing shows and nothing clears
+  // (and that would ambush the user the day discovery registers the project). Use the "Listed" toggle.
+  function hiddenCell(row) {
+    if (!row.registered) return '<span class="pa-dash" title="Not on the project list — see Listed">—</span>';
+    const auto = row.autoHidden
+      ? '<span class="pa-auto-badge" title="Hidden automatically by inactivity">auto</span>'
+      : '';
+    return boolToggle('hidden', !!(row.hidden || row.autoHidden), 'Hidden', 'Visible', 'Toggle hidden in sidebar') + auto;
+  }
+
   function rowHtml(row) {
     const name = row.displayName || shortName(row.projectPath);
-    const allowCol = autoAdd
-      ? ''
-      : `<td class="pa-center">${boolToggle('allowlist', !!row.inAllowlist, 'On', 'Off', 'Manual-mode allowlist (Off also hides)')}</td>`;
+    // On the list, or not — in BOTH modes (#167). It used to appear only in manual mode, because the list
+    // was a derivation and this was a subtractive filter over it; a project with a config but no sessions
+    // was badged `config-only` and there was no control anywhere to put it in the sidebar.
+    const allowCol = `<td class="pa-center">${boolToggle('allowlist', !!row.inAllowlist, 'On', 'Off', 'On the project list (off removes it from the sidebar)')}</td>`;
     const info = [
       row.mcpServersCount ? row.mcpServersCount + ' MCP' : '',
       row.allowedToolsCount ? row.allowedToolsCount + ' tools' : '',
@@ -120,14 +132,14 @@
         <td class="pa-center">${backendsCell(row)}</td>
         <td class="pa-nowrap">${escapeHtml(fmtDate(row.lastActivity))}</td>
         <td class="pa-center">${trustCell(row)}</td>
-        <td class="pa-center">${boolToggle('hidden', !!row.hidden, 'Hidden', 'Visible', 'Toggle hidden in sidebar')}${row.hidden && row.autoHidden ? '<span class="pa-auto-badge" title="Hidden automatically by inactivity">auto</span>' : ''}</td>
+        <td class="pa-center">${hiddenCell(row)}</td>
         <td class="pa-center">${boolToggle('favorite', !!row.favorite, '★', '☆', 'Toggle favorite')}</td>
         ${allowCol}
         <td class="pa-info">${escapeHtml(info)}</td>
         <td class="pa-actions">
           <button data-action="rename" title="Rename (display name)">Rename</button>
           <button data-action="remap" title="Remap to another folder">Remap</button>
-          <button data-action="remove" class="pa-danger" title="Remove (hide + clear cache)">Remove</button>
+          <button data-action="remove" class="pa-danger" title="Remove from Switchboard (off the list, cached sessions cleared)">Remove</button>
         </td>
       </tr>`;
   }
@@ -143,7 +155,7 @@
   }
 
   function render() {
-    const allowHeader = autoAdd ? '' : '<th>Allowlist</th>';
+    const allowHeader = '<th>Listed</th>';
     viewer.innerHTML = `
       <div class="pa-header">
         <span class="pa-title">Projects</span>
@@ -324,12 +336,15 @@
         const res = await window.api.setProjectTrust(path, bid, next);
         if (res && res.error) { toast('Trust: ' + res.error); return; }
       } else if (action === 'hidden') {
-        if (row && row.hidden) await window.api.unhideProject(path);
-        else await window.api.removeProject(path);
+        // Hide means hide now (#167). It used to call removeProject, because the two were the same act.
+        if (row && (row.hidden || row.autoHidden)) await window.api.unhideProject(path);
+        else await window.api.hideProject(path);
       } else if (action === 'favorite') {
         await window.api.toggleProjectFavorite(path);
       } else if (action === 'allowlist') {
-        if (row && row.inAllowlist) await window.api.removeProject(path); // off also hides
+        // On the list, or not. This is what "add a project" finally means — a project with no sessions
+        // can be on it, and adding one used to do nothing at all unless discovery had already found it.
+        if (row && row.registered) await window.api.removeProject(path);
         else await window.api.addProject(path);
       } else if (action === 'remove') {
         const choice = await confirmRemove(path);
@@ -349,7 +364,7 @@
             else if (kept) toast(`Nothing deleted — ${kept} cannot be deleted.`);
           }
         }
-        await window.api.removeProject(path); // always: hide + clear Switchboard cache
+        await window.api.removeProject(path); // always: off the list + clear Switchboard's cache
         if (choice.deleteConfig) {
           const r = await window.api.removeProjectConfig(path);
           if (r && r.error) { toast('Delete config: ' + r.error); }

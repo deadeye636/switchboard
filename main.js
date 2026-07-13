@@ -114,6 +114,7 @@ const {
   getMeta, getAllMeta, toggleStar, setName, setArchived,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
+  setProjectState, getProjectStates, getProjectTombstones,
   renameProjectRefs, deleteProjectRefs,
   toggleBookmark, removeBookmark, listBookmarks,
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
@@ -623,6 +624,9 @@ sessionCache.init({
     deleteSearchFolder, deleteSearchSession, upsertSearchEntries,
     setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
     getFavoritedProjects, getProjectDisplayNames, getAutoHiddenProjects,
+    // The register (#167): what the sidebar is built FROM, and the one predicate the scan needs — is
+    // this project removed, and therefore not to be indexed back in.
+    getProjectMeta, getProjectStates,
   },
 });
 const { readSessionFile, readFolderFromFilesystem, refreshFolder, refreshFile, reconcileCacheFromFilesystem,
@@ -659,6 +663,25 @@ function markClaudeParserRead() {
 // here is `undefined` at runtime, not inherited (test/projects-wiring.test.js checks it against the real
 // module).
 const projects = require('./projects');
+const projectRegistry = require('./project-registry');
+
+/**
+ * The projects that are SHOWN — on the list, not hidden, not auto-hidden (#167).
+ *
+ * One answer for every view. The Memories and Work-files tabs each used to carry their own copy of the
+ * rule ("everything on disk, minus `hiddenProjects`"), which is how a project could be absent from the
+ * sidebar and present in two other tabs.
+ */
+function visibleProjectPaths() {
+  const set = new Set();
+  try {
+    for (const [projectPath, state] of getProjectStates()) {
+      if (projectRegistry.isVisible(state)) set.add(projectPath);
+    }
+  } catch { /* an empty set would blank every view — better to show than to vanish */ }
+  return set;
+}
+
 projects.init({
   PROJECTS_DIR,
   activeSessions,
@@ -679,10 +702,18 @@ projects.init({
     getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
     renameProjectRefs, deleteProjectRefs, setFolderMeta, toggleProjectFavorite,
     getCachedByProjectPath, getBackendsByProjectPath,
+    // The register (#167): the project list is a stored list, not a derivation.
+    setProjectState, getProjectStates, getProjectTombstones,
+    // Discovery reads the cached rows directly (one pass, no store readdir), and a project can own more
+    // than one store folder — re-registering it has to index every one of them.
+    getAllCached, getAllFolderMeta,
   },
   cache: {
     refreshFolder, buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide,
     claudeStoreScope: sessionCache.claudeStoreScope, notifyRendererProjectsChanged,
+    // What the scan saw in the stores — including projects it deliberately did not index, which is
+    // exactly what the tombstone sweep may not be blind to.
+    getStoreProjectPaths: sessionCache.getStoreProjectPaths,
   },
 });
 projects.registerIpc(ipcMain);
@@ -750,13 +781,11 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
         log.warn('[delete-worktree] DB cleanup error:', dbErr.message);
       }
 
-      // Remove from hiddenProjects if present
+      // The worktree is gone from disk, so take it off the list — but leave NO tombstone (#167). A
+      // tombstone exists to stop old sessions from re-registering a project the user removed; this
+      // directory is simply not there any more, and if it ever comes back it should come back.
       try {
-        const global = getSetting('global') || {};
-        if (Array.isArray(global.hiddenProjects) && global.hiddenProjects.includes(normalizedPath)) {
-          global.hiddenProjects = global.hiddenProjects.filter(p => p !== normalizedPath);
-          setSetting('global', global);
-        }
+        setProjectState(normalizedPath, { registered: 0, hidden: 0, autoHidden: 0, removedAt: null });
       } catch {}
 
       // Also clean up folder meta. Scoped to Claude's store — the worktree removal above only took
@@ -1149,6 +1178,10 @@ ipcMain.handle('get-projects', async (_event, showArchived) => {
     // backend is never enumerated, and Claude/Axis-A profiles are a no-op here (they live in the
     // Claude store the reconcile above already covered). mtime-gated, so it is cheap when idle.
     try { refreshAllBackendSessions(); } catch (err) { log.warn('[scan] backend scan failed:', err?.message || err); }
+    // #167: the scans above have just told us which projects have sessions. Put the new ones ON THE LIST
+    // (in auto mode) and sweep the tombstones that no longer guard anything — before the list is built,
+    // so a project discovered a moment ago is in this very render.
+    projects.syncRegistry();
     // #57: apply auto-hide before building the response so freshly-hidden projects
     // drop out of this render. Internally throttled, so it's cheap on rapid calls.
     projects.applyAutoHide();
@@ -1447,8 +1480,7 @@ function scanMdFiles(dir) {
 }
 
 ipcMain.handle('get-memories', () => {
-  const global = getSetting('global') || {};
-  const hiddenProjects = new Set(global.hiddenProjects || []);
+  const visible = visibleProjectPaths();
   const projectDisplayNames = getProjectDisplayNames();
 
   // --- Global files ---
@@ -1465,7 +1497,7 @@ ipcMain.handle('get-memories', () => {
       for (const folder of folders) {
         const folderPath = path.join(PROJECTS_DIR, folder);
         const projectPath = deriveProjectPath(folderPath);
-        if (projectPath && hiddenProjects.has(projectPath)) continue;
+        if (projectPath && !visible.has(projectPath)) continue;
 
         // Use same 2-deep short path as Sessions tab (e.g. "dev/MyClaude")
         const shortName = projectPath
@@ -1636,8 +1668,7 @@ function walkWorkFiles(dir, baseDir, results) {
 }
 
 ipcMain.handle('get-work-files', () => {
-  const global = getSetting('global') || {};
-  const hiddenProjects = new Set(global.hiddenProjects || []);
+  const visible = visibleProjectPaths();
   const projectDisplayNames = getProjectDisplayNames();
   const projects = [];
 
@@ -1651,7 +1682,7 @@ ipcMain.handle('get-work-files', () => {
         const folderPath = path.join(PROJECTS_DIR, folder);
         const projectPath = deriveProjectPath(folderPath);
         if (!projectPath) continue;
-        if (hiddenProjects.has(projectPath)) continue;
+        if (!visible.has(projectPath)) continue;
 
         const workFilesDir = path.join(projectPath, '.work-files');
         if (!fs.existsSync(workFilesDir)) continue;
@@ -1848,7 +1879,8 @@ ipcMain.handle('export-settings', async (event) => {
   });
   if (result.canceled || !result.filePath) return { ok: false, canceled: true };
   try {
-    const payload = settingsTransfer.buildExportPayload(getSetting('global'), new Date().toISOString());
+    // The project list rides along explicitly now — it is a table, not a settings key (#167).
+    const payload = settingsTransfer.buildExportPayload(getSetting('global'), new Date().toISOString(), getProjectStates());
     fs.writeFileSync(result.filePath, JSON.stringify(payload, null, 2), 'utf8');
     log.info(`[settings] exported ${Object.keys(payload.global).length} global key(s)`);
     return { ok: true, filePath: result.filePath, keys: Object.keys(payload.global).length };
@@ -1878,10 +1910,18 @@ ipcMain.handle('import-settings', async (event) => {
 
     // Through the same door a normal save uses: secrets scrubbed, backends re-armed.
     persistSettingsBlob('global', settingsTransfer.mergeImport(getSetting('global'), check.global));
+
+    // The project list (#167). A file that carries none — an older export, or a machine that never had a
+    // project — leaves the list here ALONE: importing "nothing" must not mean "wipe it".
+    const incoming = settingsTransfer.importProjects(parsed);
+    for (const row of incoming) {
+      setProjectState(row.projectPath, { registered: 1, hidden: row.hidden, removedAt: null });
+    }
+
     broadcastSettingsChanged();   // main-initiated: every window re-applies, incl. the sender
     const keys = Object.keys(check.global).length;
-    log.info(`[settings] imported ${keys} global key(s)`);
-    return { ok: true, keys };
+    log.info(`[settings] imported ${keys} global key(s), ${incoming.length} project(s)`);
+    return { ok: true, keys, projects: incoming.length };
   } catch (err) {
     log.error('[settings] import failed:', err);
     return { ok: false, error: err.message };
@@ -3122,9 +3162,11 @@ ipcMain.handle('archive-session', (_event, sessionId, archived) => {
 ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, sessionOptions) => {
   if (!mainWindow) return { ok: false, error: 'no window' };
 
-  // Manual project mode: a session launched from Switchboard means the user is
-  // actively using this project → add it to the allowlist so it shows.
-  if (projectPath && getSetting('global')?.projectAutoAdd === false) projects.ensureProjectAdded(projectPath);
+  // Starting a session here is an explicit act, so the project goes on the list — in BOTH modes (#167).
+  // The mode governs DISCOVERY (may a session that merely turned up in a store register its project?),
+  // not the user. This used to fire in manual mode only, which read the setting as "I cannot start
+  // anything anywhere new", and in auto mode the project appeared only once the transcript existed.
+  if (projectPath) projects.ensureProjectAdded(projectPath);
 
   // Reattach to existing session. `exited` is set the moment stop-session issues
   // the kill (#130), so between that and ptyProcess.onExit the entry still exists
@@ -4425,6 +4467,11 @@ if (!gotSingleInstanceLock) {
         if (typeof onDone === 'function') onDone(new Error('Claude Code is disabled — scheduled runs need it.'));
         return;
       }
+
+      // A scheduled run is a session the user asked for, so its project goes on the list (#167) — in both
+      // modes, like any other launch. Without this, a schedule pointed at a project the user has not added
+      // writes transcripts that never show up anywhere: real sessions, invisible, with no way to find them.
+      if (cwd) { try { projects.ensureProjectAdded(cwd); } catch { /* the scan will get it in auto mode */ } }
 
       // The binary name comes from the backend descriptor, not a literal (T-1.7) — so no `'claude '`
       // command build survives outside backends/.

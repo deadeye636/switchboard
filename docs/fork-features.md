@@ -359,6 +359,14 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 ### Projects & sidebar
 - **Projects tab** — dedicated project management: add manually vs. automatically, hide /
   restore, rename, and a per-project `.work-files/` browser (view, delete, JSON/JSONL export).
+- **The project list is a stored list, not a derivation** (#167) — it used to be read out of the
+  transcripts on disk, so a project without one could not exist however often you added it (the
+  old "add" wrote a **fake transcript** to fake one up), and "remove" could not be implemented at
+  all — the next scan derived the project straight back, so it was faked as a permanent hide.
+  Now: `project_meta` carries the register, **hide** and **remove** are different acts (hide keeps
+  it listed and unseen; remove takes it off and leaves a tombstone, so the sessions on disk do not
+  resurrect it — a *new* session does), a project with **no sessions** can be on the list, and
+  discovery registers from **any** backend's store. Design record: `docs/specs/10-project-registry.md`.
 - **Sidebar** — favorite projects, project sorting, an own favorites list, and a
   startup-collapse setting.
 - **Project tags + tag filter** — tag projects in the project settings via a chip editor

@@ -1720,7 +1720,9 @@ function rebindSidebarEvents(projects) {
           },
         });
         if (!confirmed) return;
-        await window.api.removeProject(wtProject.projectPath);
+        // The dialog says "Hide", so it hides (#167). It used to call removeProject — which, back when
+        // hiding and removing were the same act, was the only thing it could do.
+        await window.api.hideProject(wtProject.projectPath);
         loadProjects();
       };
     }

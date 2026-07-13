@@ -18,8 +18,16 @@ const { encodeProjectPath } = require('../encode-project-path');
 function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
   const store = fs.mkdtempSync(path.join(os.tmpdir(), 'proj-store-'));
   const settings = new Map([['global', { autoHideDays, ...initialGlobal }]]);
-  const meta = new Map();          // projectPath -> { autoHideResetAt, autoHidden }
   const autoHidden = new Set();
+  // ONE store, because there is one table: project_meta holds the favourite, the auto-hide timer AND the
+  // register (#167). Two maps here would let a test pass while the real code read a column the other map
+  // had written — the fake would be lying about the shape of the thing it stands in for.
+  const states = new Map();        // projectPath -> the project_meta row
+  // What the scan SAW in the stores: projectPath -> newest session. A Set would have been a lie by
+  // omission — without the timestamp, a new session in a removed project cannot be told from an old one,
+  // and "removed" silently becomes "banned for good".
+  const storePaths = new Map();
+  const folderMeta = new Map();    // folder -> { projectPath } — a project can own several (legacy encodings)
   const calls = {
     refreshed: [], deletedFolders: [], deletedSearch: [], notified: 0, favorites: new Map(),
     deletedSessions: [], deletedSearchSessions: [], prunedProjects: [],
@@ -38,6 +46,10 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
     db: {
       getCachedByProjectPath: (p) => cachedRows.filter(r => r.projectPath === p),
       getBackendsByProjectPath: () => new Map(),
+      // Discovery reads the rows straight (one pass), not through buildProjectsAdmin — that one also
+      // readdirs the store and stats every project, on every sidebar render.
+      getAllCached: () => cachedRows.map(r => ({ ...r })),
+      getAllFolderMeta: () => folderMeta,
       getSetting: (k) => settings.get(k),
       setSetting: (k, v) => settings.set(k, v),
       deleteSetting: (k) => settings.delete(k),
@@ -49,13 +61,32 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
         cachedRows = cachedRows.filter(r => r.sessionId !== sid);
       },
       deleteSearchSession: (sid) => calls.deletedSearchSessions.push(sid),
-      getProjectMeta: (p) => meta.get(p) || null,
-      setProjectAutoHidden: (p, on) => { if (on) autoHidden.add(p); else autoHidden.delete(p); },
-      resetProjectAutoHide: (p) => { meta.set(p, { autoHideResetAt: new Date().toISOString() }); autoHidden.delete(p); },
+      getProjectMeta: (p) => states.get(p) || null,
+      setProjectAutoHidden: (p, on) => {
+        if (on) autoHidden.add(p); else autoHidden.delete(p);
+        states.set(p, { ...(states.get(p) || {}), autoHidden: on ? 1 : 0 });
+      },
+      resetProjectAutoHide: (p) => {
+        autoHidden.delete(p);
+        states.set(p, { ...(states.get(p) || {}), autoHidden: 0, autoHideResetAt: new Date().toISOString() });
+      },
       getAutoHiddenProjects: () => autoHidden,
+      // Only the keys given are written — "not mentioned" is not "set to null", or registering a project
+      // would wipe its favourite.
+      setProjectState: (p, patch) => {
+        const next = { ...(states.get(p) || {}), ...patch };
+        states.set(p, next);
+        if (next.autoHidden) autoHidden.add(p); else autoHidden.delete(p);
+      },
+      getProjectStates: () => new Map(states),
+      getProjectTombstones: () => {
+        const out = new Map();
+        for (const [p, s] of states) if (s.removedAt) out.set(p, s.removedAt);
+        return out;
+      },
       renameProjectRefs: () => {},
       // This is what the prune calls — it takes the project's tags, handoffs and favourites with it.
-      deleteProjectRefs: (p) => { calls.prunedProjects.push(p); meta.delete(p); },
+      deleteProjectRefs: (p) => { calls.prunedProjects.push(p); states.delete(p); autoHidden.delete(p); },
       setFolderMeta: () => {},
       toggleProjectFavorite: (p) => {
         const next = !calls.favorites.get(p);
@@ -71,129 +102,319 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
       shouldAutoHide: (effMs, now, days) => (now - effMs) > days * 86400000,
       claudeStoreScope: () => ({ except: ['codex', 'hermes', 'pi'] }),
       notifyRendererProjectsChanged: () => { calls.notified++; },
+      getStoreProjectPaths: () => storePaths,
     },
   };
 
   projects.init(ctx);
   projects._resetAutoHideThrottle();
   return {
-    ctx, store, calls, autoHidden, meta,
+    ctx, store, calls, autoHidden, states,
     settings: () => settings.get('global'),
     setAdminRows: (rows) => { adminRows = rows; },
     setCachedRows: (rows) => { cachedRows = rows; },
+    setFolderMeta: (folder, projectPath) => { folderMeta.set(folder, { folder, projectPath }); },
+    // `[path, newestSessionIso]` pairs, or a bare path when the time does not matter to the test.
+    setStorePaths: (paths) => {
+      storePaths.clear();
+      for (const p of paths) {
+        if (Array.isArray(p)) storePaths.set(p[0], p[1]);
+        else storePaths.set(p, null);
+      }
+    },
+    state: (p) => states.get(p) || null,
     cleanup: () => fs.rmSync(store, { recursive: true, force: true }),
   };
 }
 
 // --- add / remove / unhide -------------------------------------------------------------------------
 
-test('addProject seeds a store folder so the project can be derived at all', () => {
+test('addProject puts the project ON THE LIST — and forges no session to do it', () => {
   const t = makeCtx();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proj-'));
   try {
     const res = projects.addProject(dir);
     assert.strictEqual(res.ok, true);
 
-    // A project with no transcript cannot be derived (derive-project-path reads the cwd out of one), so
-    // adding one writes a seed line. Without it the project would be invisible — which is exactly the
-    // hole #167 is about.
-    const folder = path.join(t.store, encodeProjectPath(dir));
-    const files = fs.readdirSync(folder).filter(f => f.endsWith('.jsonl'));
-    assert.strictEqual(files.length, 1, 'a seed transcript is written');
-    const seed = JSON.parse(fs.readFileSync(path.join(folder, files[0]), 'utf8').trim());
-    assert.strictEqual(seed.cwd, dir, 'and it carries the cwd, which is what makes the project derivable');
+    const state = t.state(dir);
+    assert.strictEqual(state.registered, 1, 'it is on the register — that is what makes it exist (#167)');
+    assert.ok(state.registeredAt, 'and when');
 
-    assert.deepStrictEqual(t.settings().addedProjects, [dir], 'an explicit add reaches the allowlist');
-    assert.deepStrictEqual(t.calls.refreshed, [encodeProjectPath(dir)], 'and the folder is indexed at once');
+    // It used to create the store folder and write a FAKE transcript into it ("New project", a session
+    // that never happened), because a project the app could not DERIVE from a transcript could not exist.
+    assert.strictEqual(fs.existsSync(path.join(t.store, encodeProjectPath(dir))), false,
+      'no store folder is conjured up');
   } finally { t.cleanup(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('addProject refuses a file, and unhides a project that was hidden', () => {
-  const t = makeCtx({ global: { hiddenProjects: ['D:\\hidden'] } });
+test('addProject refuses a file, and brings back a project that was removed', () => {
+  const t = makeCtx();
   const file = path.join(t.store, 'not-a-dir.txt');
   fs.writeFileSync(file, 'x');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proj-'));
   try {
     assert.match(projects.addProject(file).error, /not a directory/i);
 
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proj-'));
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.mkdirSync(dir);
-    // Re-adding a hidden project must bring it back — otherwise "add" silently does nothing.
-    const t2 = makeCtx({ global: { hiddenProjects: [dir] } });
     projects.addProject(dir);
-    assert.deepStrictEqual(t2.settings().hiddenProjects, [], 'adding a hidden project unhides it');
-    t2.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    projects.removeProject(dir);
+    assert.strictEqual(t.state(dir).registered, 0);
+    assert.ok(t.state(dir).removedAt, 'a tombstone');
+
+    // Adding it again is an explicit act: it goes back on the list, VISIBLE, and the tombstone is buried
+    // — otherwise the old sessions on disk would be ignored forever and the project would stay empty.
+    projects.addProject(dir);
+    assert.strictEqual(t.state(dir).registered, 1);
+    assert.strictEqual(t.state(dir).hidden, 0);
+    assert.strictEqual(t.state(dir).removedAt, null, 'the tombstone is buried');
+  } finally { t.cleanup(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('hide keeps the project on the list; remove takes it off and tombstones it', () => {
+  const t = makeCtx();
+  try {
+    projects.ensureProjectAdded('D:\\a');
+    // Two backends in the same project. "Remove from Switchboard" must clear BOTH — a removal that leaves
+    // the Codex rows in the cache, the search index and the stats has removed a sidebar row, not a project.
+    t.setCachedRows([
+      { sessionId: 'c1', folder: encodeProjectPath('D:\\a'), projectPath: 'D:\\a', backendId: 'claude' },
+      { sessionId: 'x1', folder: encodeProjectPath('D:\\a'), projectPath: 'D:\\a', backendId: 'codex' },
+    ]);
+
+    projects.hideProject('D:\\a');
+    assert.strictEqual(t.state('D:\\a').registered, 1, 'hiding does not remove it');
+    assert.strictEqual(t.state('D:\\a').hidden, 1);
+    assert.deepStrictEqual(t.calls.deletedFolders, [], 'and it does not purge anything — unhide must be instant');
+
+    projects.removeProject('D:\\a');
+    assert.strictEqual(t.state('D:\\a').registered, 0, 'removing takes it off the list');
+    assert.ok(t.state('D:\\a').removedAt, 'and remembers when, or the next scan would put it straight back');
+    assert.strictEqual(t.state('D:\\a').hidden, 0,
+      'the hide flag goes: it qualifies a LISTED project, and this one is not on the list any more');
+
+    // EVERY backend's rows, and ROW BY ROW. Not by folder: a store folder is keyed on the cwd a session
+    // started from, so since #157 it can hold rows of other projects, and clearing by folder would drop
+    // those while their transcripts sat on disk. And not Claude-only: a removal that leaves the Codex rows
+    // behind has removed a sidebar row, not a project — search would still find them.
+    assert.deepStrictEqual(t.calls.deletedSessions, ['c1', 'x1']);
+    assert.deepStrictEqual(t.calls.deletedSearchSessions, ['c1', 'x1']);
+    assert.deepStrictEqual(t.calls.deletedFolders, [], 'and no folder-wide delete anywhere');
   } finally { t.cleanup(); }
 });
 
-test('removeProject hides, drops the allowlist entry, and scopes its deletes to Claude', () => {
-  const t = makeCtx({ global: { hiddenProjects: [], addedProjects: ['D:\\a', 'D:\\b'] } });
+test('unhideProject clears BOTH hide flags, or the next pass hides it straight back', () => {
+  const t = makeCtx();
   try {
-    const res = projects.removeProject('D:\\a');
-    assert.strictEqual(res.ok, true);
-
-    assert.deepStrictEqual(t.settings().hiddenProjects, ['D:\\a']);
-    assert.deepStrictEqual(t.settings().addedProjects, ['D:\\b'], 'gone from the allowlist too');
-
-    // The folder key is shared with the other backends (it is derived from the cwd), so an unscoped
-    // delete would take a project's Codex rows with it — rows whose files are still on disk.
-    const folder = encodeProjectPath('D:\\a');
-    assert.deepStrictEqual(t.calls.deletedFolders, [{ folder, scope: { except: ['codex', 'hermes', 'pi'] } }]);
-    assert.deepStrictEqual(t.calls.deletedSearch, [{ folder, scope: { except: ['codex', 'hermes', 'pi'] } }]);
-  } finally { t.cleanup(); }
-});
-
-test('unhideProject clears the auto-hide flag, or the next pass hides it straight back', () => {
-  const t = makeCtx({ global: { hiddenProjects: ['D:\\a'] } });
-  try {
+    projects.ensureProjectAdded('D:\\a');
+    projects.hideProject('D:\\a');
     t.autoHidden.add('D:\\a');
+
     projects.unhideProject('D:\\a');
 
-    assert.deepStrictEqual(t.settings().hiddenProjects, []);
-    assert.strictEqual(t.autoHidden.has('D:\\a'), false, 'the auto flag is cleared (#57)');
-    assert.ok(t.meta.get('D:\\a').autoHideResetAt, 'and the grace timer restarts');
+    assert.strictEqual(t.state('D:\\a').hidden, 0);
+    assert.strictEqual(t.autoHidden.has('D:\\a'), false, 'the auto flag too (#57)');
+    assert.ok(t.state('D:\\a').autoHideResetAt, 'and the grace timer restarts');
     assert.deepStrictEqual(t.calls.refreshed, [encodeProjectPath('D:\\a')], 're-indexed so it reappears');
   } finally { t.cleanup(); }
 });
 
-test('getHiddenProjects flags which ones auto-hide did', () => {
-  const t = makeCtx({ global: { hiddenProjects: ['D:\\manual', 'D:\\auto'] } });
+test('getHiddenProjects lists what is on the list but unseen, and says which one staleness did', () => {
+  const t = makeCtx();
   try {
-    t.autoHidden.add('D:\\auto');
+    projects.ensureProjectAdded('D:\\manual');
+    projects.ensureProjectAdded('D:\\auto');
+    projects.ensureProjectAdded('D:\\shown');
+    projects.hideProject('D:\\manual');
+    t.ctx.db.setProjectAutoHidden('D:\\auto', 1);
+
     assert.deepStrictEqual(projects.getHiddenProjects(), [
       { path: 'D:\\manual', autoHidden: false },
       { path: 'D:\\auto', autoHidden: true },
-    ]);
+    ], 'a shown project is not in the hidden list, and a removed one is not either');
   } finally { t.cleanup(); }
 });
 
-// --- the allowlist ---------------------------------------------------------------------------------
+// --- the register ----------------------------------------------------------------------------------
 
-test('ensureProjectAdded is idempotent and restarts the auto-hide grace timer', () => {
+test('ensureProjectAdded registers, is idempotent, and restarts the auto-hide grace timer', () => {
   const t = makeCtx();
   try {
     projects.ensureProjectAdded('D:\\x');
+    const first = t.state('D:\\x').registeredAt;
     projects.ensureProjectAdded('D:\\x');
-    assert.deepStrictEqual(t.settings().addedProjects, ['D:\\x'], 'listed once, not twice');
+
+    assert.strictEqual(t.state('D:\\x').registered, 1);
+    assert.ok(first, 'registered once, with a timestamp');
     // #57: a just-added project must not be auto-hidden on the very next pass for being "stale".
-    assert.ok(t.meta.get('D:\\x').autoHideResetAt);
+    assert.ok(t.state('D:\\x').autoHideResetAt);
   } finally { t.cleanup(); }
 });
 
-test('switching to manual mode freezes the visible projects into the allowlist', () => {
+test('switching to manual mode changes WHO writes to the list, not the list', () => {
   const t = makeCtx();
   try {
-    t.setAdminRows([{ projectPath: 'D:\\a' }, { projectPath: 'D:\\b' }]);
+    projects.ensureProjectAdded('D:\\a');
+    projects.ensureProjectAdded('D:\\b');
+
     projects.setProjectAutoAdd(false);
-
     assert.strictEqual(t.settings().projectAutoAdd, false);
-    assert.deepStrictEqual(t.settings().addedProjects, ['D:\\a', 'D:\\b'],
-      'nothing may disappear the moment the switch is flipped');
+    // It used to SNAPSHOT the visible projects into an allowlist, because manual mode was a filter over a
+    // derivation and without the snapshot the sidebar went blank. The list is the list now.
+    assert.strictEqual(t.settings().addedProjects, undefined, 'no allowlist is frozen any more');
+    assert.strictEqual(t.state('D:\\a').registered, 1, 'and nothing falls off the list');
+    assert.strictEqual(t.state('D:\\b').registered, 1);
 
-    // Turning it back on ignores the allowlist entirely (everything is discovered again).
     projects.setProjectAutoAdd(true);
     assert.strictEqual(t.settings().projectAutoAdd, true);
+  } finally { t.cleanup(); }
+});
+
+test('discovery registers a project it finds a session in — in auto mode only', () => {
+  const t = makeCtx();
+  try {
+    t.setCachedRows([{ sessionId: 's1', projectPath: 'D:\\found', modified: '2026-07-01T00:00:00.000Z' }]);
+
+    // Manual mode: nobody but the user writes to the list.
+    projects.setProjectAutoAdd(false);
+    projects.syncRegistry();
+    assert.strictEqual(t.state('D:\\found'), null, 'manual mode: discovery may not add it');
+
+    projects.setProjectAutoAdd(true);
+    projects.syncRegistry();
+    assert.strictEqual(t.state('D:\\found').registered, 1, 'auto mode: it goes on the list');
+  } finally { t.cleanup(); }
+});
+
+test('discovery does NOT resurrect a removed project from the sessions it left behind', () => {
+  // The whole reason "remove" was never implemented: the transcripts stay on disk, so the very next scan
+  // would find them and put the project straight back. Only a session NEWER than the removal counts.
+  const t = makeCtx();
+  try {
+    projects.ensureProjectAdded('D:\\gone');
+    projects.removeProject('D:\\gone');
+    const removedAt = t.state('D:\\gone').removedAt;
+
+    const older = new Date(new Date(removedAt).getTime() - 60_000).toISOString();
+    t.setCachedRows([{ sessionId: 'o1', projectPath: 'D:\\gone', modified: older }]);
+    projects.syncRegistry();
+    assert.strictEqual(t.state('D:\\gone').registered, 0, 'the old sessions do not bring it back');
+
+    const newer = new Date(new Date(removedAt).getTime() + 60_000).toISOString();
+    t.setCachedRows([{ sessionId: 'n1', projectPath: 'D:\\gone', modified: newer }]);
+    projects.syncRegistry();
+    assert.strictEqual(t.state('D:\\gone').registered, 1, 'a session that happened AFTER it does');
+    assert.strictEqual(t.state('D:\\gone').removedAt, null, 'and the tombstone is buried');
+  } finally { t.cleanup(); }
+});
+
+test('a NEW session in a removed project brings it back — the scan sees it, the cache never would', () => {
+  // The bug this test exists for: a removed project is deliberately not indexed, so a new session in it
+  // produces NO cached row. Discovery that only looks at the cache therefore never hears about it, and
+  // "removed" quietly means "banned for good" — the project can never come back, whatever you do in it.
+  // Found by starting a session in a removed project in the running app; every unit test was green.
+  const t = makeCtx();
+  try {
+    projects.ensureProjectAdded('D:\\p');
+    projects.removeProject('D:\\p');
+    const removedAt = t.state('D:\\p').removedAt;
+
+    // The scan sees the store — no cached rows, because it does not index a removed project.
+    t.setCachedRows([]);
+
+    const older = new Date(new Date(removedAt).getTime() - 60_000).toISOString();
+    t.setStorePaths([['D:\\p', older]]);
+    projects.syncRegistry();
+    assert.strictEqual(t.state('D:\\p').registered, 0, 'the transcripts it left behind do not bring it back');
+
+    const newer = new Date(new Date(removedAt).getTime() + 60_000).toISOString();
+    t.setStorePaths([['D:\\p', newer]]);
+    projects.syncRegistry();
+    assert.strictEqual(t.state('D:\\p').registered, 1, 'but a session that happened AFTER the removal does');
+    assert.strictEqual(t.state('D:\\p').removedAt, null);
+
+    // ...and it comes back with its sessions. While it was removed the scan skipped its folder and
+    // stamped the mtime memo as up to date on the way past, so nothing would ever have indexed it again:
+    // the project would sit in the sidebar EMPTY, its transcripts on disk, with no way to bring them in.
+    assert.deepStrictEqual(t.calls.refreshed, [encodeProjectPath('D:\\p')], 'its folder is indexed at once');
+  } finally { t.cleanup(); }
+});
+
+test('hiding a project that is not on the list is refused, not written invisibly', () => {
+  // The silent swallow, one door further along. `hidden` qualifies a LISTED project; setting it on one
+  // that is not on the list writes a flag nothing shows and nothing can clear — and the day discovery
+  // registers that project, it arrives already hidden, for a reason nobody can see.
+  const t = makeCtx();
+  try {
+    const res = projects.hideProject('D:\\not-listed');
+    assert.match(res.error, /not on the list/i);
+    assert.strictEqual(t.state('D:\\not-listed'), null, 'and nothing is written');
+
+    // Same after a removal — a hide must not re-arm what the removal just cleared.
+    projects.ensureProjectAdded('D:\\p');
+    projects.removeProject('D:\\p');
+    assert.match(projects.hideProject('D:\\p').error, /not on the list/i);
+    assert.strictEqual(t.state('D:\\p').hidden, 0);
+  } finally { t.cleanup(); }
+});
+
+test('re-adding indexes EVERY store folder of the project, not just the canonical one', () => {
+  // Claude's folder-name encoding has changed over time, so one project can own several store folders.
+  // While it was removed, each of those had its mtime memo stamped up to date on the way past — so
+  // refreshing only the canonical name leaves the others skipped by the reconcile gate, their sessions
+  // gone from the cache and their files on disk, until something happens to touch them.
+  const t = makeCtx();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proj-multi-'));
+  try {
+    t.setFolderMeta('legacy-encoding-of-the-same-project', dir);
+
+    projects.addProject(dir);
+
+    assert.deepStrictEqual(
+      [...t.calls.refreshed].sort(),
+      [encodeProjectPath(dir), 'legacy-encoding-of-the-same-project'].sort(),
+      'both folders are indexed'
+    );
+  } finally { t.cleanup(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a tombstone is not missed because Windows spells the path differently', () => {
+  // A real store carries the same directory in two casings (#157). A tombstone looked up under the wrong
+  // spelling is a tombstone that is not there — and a missed tombstone means a resurrected project.
+  if (process.platform !== 'win32') return;
+  const t = makeCtx();
+  try {
+    projects.ensureProjectAdded('D:\\Projekte\\Thing');
+    projects.removeProject('D:\\Projekte\\Thing');
+    const removedAt = t.state('D:\\Projekte\\Thing').removedAt;
+
+    const older = new Date(new Date(removedAt).getTime() - 60_000).toISOString();
+    t.setStorePaths([['d:\\projekte\\thing', older]]);     // the same directory, as Codex spelled it
+    projects.syncRegistry();
+
+    assert.strictEqual(t.state('d:\\projekte\\thing'), null, 'the other spelling is not registered behind its back');
+    assert.strictEqual(t.state('D:\\Projekte\\Thing').registered, 0, 'and the removal holds');
+  } finally { t.cleanup(); }
+});
+
+test('the tombstone sweep is blind to nothing: a transcript on disk keeps the removal alive', () => {
+  // The trap. A removed project is deliberately NOT indexed, so the CACHE is empty for it by
+  // construction. Believe the cache and the sweep drops the tombstone on the next pass — and the scan
+  // after that resurrects the project from the very transcripts the removal was meant to forget.
+  const t = makeCtx();
+  const ancient = new Date(Date.now() - 400 * 86400000).toISOString();
+  try {
+    projects.ensureProjectAdded('D:\\old');
+    projects.removeProject('D:\\old');
+    t.ctx.db.setProjectState('D:\\old', { removedAt: ancient });   // long past any grace period
+    t.setCachedRows([]);                                           // no cached rows: it is not indexed
+
+    t.setStorePaths(['D:\\old']);                                  // ...but the scan still SEES it on disk
+    projects.syncRegistry();
+    assert.strictEqual(t.state('D:\\old').removedAt, ancient, 'the tombstone stays while a session exists');
+
+    t.setStorePaths([]);                                           // now the transcripts are really gone
+    projects.syncRegistry();
+    assert.strictEqual(t.state('D:\\old').removedAt, null,
+      'with nothing left to guard, the tombstone is swept — a NEW session there should register it again');
   } finally { t.cleanup(); }
 });
 
@@ -212,13 +433,29 @@ test('auto-hide hides a stale project and leaves a fresh one alone', () => {
   const t = makeCtx({ autoHideDays: 30 });
   try {
     t.setAdminRows([
-      { projectPath: 'D:\\stale', lastActivity: new Date(Date.now() - 60 * 86400000).toISOString() },
-      { projectPath: 'D:\\fresh', lastActivity: new Date(Date.now() - 1 * 86400000).toISOString() },
+      { projectPath: 'D:\\stale', registered: true, lastActivity: new Date(Date.now() - 60 * 86400000).toISOString() },
+      { projectPath: 'D:\\fresh', registered: true, lastActivity: new Date(Date.now() - 1 * 86400000).toISOString() },
     ]);
     projects.applyAutoHide(true);
 
-    assert.deepStrictEqual(t.settings().hiddenProjects, ['D:\\stale']);
-    assert.strictEqual(t.autoHidden.has('D:\\stale'), true, 'flagged as auto, so the restore UI can say so');
+    // ONLY the flag. It used to also push the path onto `hiddenProjects` — the same list a manual hide
+    // wrote to — which made the two states one, and an auto-hidden project could then never come back by
+    // itself on activity, the one thing that tells it apart from a hide (#167).
+    assert.strictEqual(t.autoHidden.has('D:\\stale'), true);
+    assert.strictEqual(t.state('D:\\stale').autoHidden, 1);
+    assert.strictEqual(t.state('D:\\stale').hidden, undefined, 'it is not HIDDEN — it is auto-hidden');
+    assert.strictEqual(t.autoHidden.has('D:\\fresh'), false);
+  } finally { t.cleanup(); }
+});
+
+test('auto-hide passes over a project that is not on the list at all', () => {
+  const t = makeCtx({ autoHideDays: 30 });
+  try {
+    t.setAdminRows([
+      { projectPath: 'D:\\unlisted', registered: false, lastActivity: new Date(Date.now() - 60 * 86400000).toISOString() },
+    ]);
+    projects.applyAutoHide(true);
+    assert.strictEqual(t.autoHidden.has('D:\\unlisted'), false, 'nothing to hide — it is not shown anyway');
   } finally { t.cleanup(); }
 });
 
@@ -226,17 +463,17 @@ test('auto-hide never touches a project with a running session', () => {
   const t = makeCtx({ autoHideDays: 30 });
   try {
     // Ancient by every measure — but somebody is working in it right now.
-    t.setAdminRows([{ projectPath: 'D:\\live', lastActivity: '2020-01-01T00:00:00.000Z' }]);
+    t.setAdminRows([{ projectPath: 'D:\\live', registered: true, lastActivity: '2020-01-01T00:00:00.000Z' }]);
     t.ctx.activeSessions.set('s1', { exited: false, projectPath: 'D:\\live' });
 
     projects.applyAutoHide(true);
-    assert.deepStrictEqual(t.settings().hiddenProjects, undefined, 'a live session is activity');
+    assert.strictEqual(t.autoHidden.has('D:\\live'), false, 'a live session is activity');
 
     // ...and an EXITED session is not.
     t.ctx.activeSessions.set('s1', { exited: true, projectPath: 'D:\\live' });
     projects._resetAutoHideThrottle();
     projects.applyAutoHide(true);
-    assert.deepStrictEqual(t.settings().hiddenProjects, ['D:\\live']);
+    assert.strictEqual(t.autoHidden.has('D:\\live'), true);
   } finally { t.cleanup(); }
 });
 
@@ -246,7 +483,7 @@ test('auto-hide respects the grace timer, not just the last session', () => {
     // Its sessions are ancient, but it was added/unhidden yesterday — the grace timer is what counts,
     // otherwise re-adding a stale project would hide it again immediately (#57).
     t.setAdminRows([{ projectPath: 'D:\\readded', lastActivity: '2020-01-01T00:00:00.000Z' }]);
-    t.meta.set('D:\\readded', { autoHideResetAt: new Date(Date.now() - 86400000).toISOString() });
+    t.ctx.db.setProjectState('D:\\readded', { autoHideResetAt: new Date(Date.now() - 86400000).toISOString() });
 
     projects.applyAutoHide(true);
     assert.deepStrictEqual(t.settings().hiddenProjects, undefined, 'the reset stamp wins over old sessions');
@@ -256,20 +493,20 @@ test('auto-hide respects the grace timer, not just the last session', () => {
 test('auto-hide is throttled — an unforced pass right after another does nothing', () => {
   const t = makeCtx({ autoHideDays: 30 });
   try {
-    t.setAdminRows([{ projectPath: 'D:\\a', lastActivity: '2020-01-01T00:00:00.000Z' }]);
+    t.setAdminRows([{ projectPath: 'D:\\a', registered: true, lastActivity: '2020-01-01T00:00:00.000Z' }]);
     projects.applyAutoHide(true);
-    assert.deepStrictEqual(t.settings().hiddenProjects, ['D:\\a']);
+    assert.deepStrictEqual([...t.autoHidden], ['D:\\a']);
 
     // A second stale project appears, but the throttle window has not passed: an unforced pass is a no-op.
     t.setAdminRows([
-      { projectPath: 'D:\\a', lastActivity: '2020-01-01T00:00:00.000Z' },
-      { projectPath: 'D:\\b', lastActivity: '2020-01-01T00:00:00.000Z' },
+      { projectPath: 'D:\\a', registered: true, autoHidden: true, lastActivity: '2020-01-01T00:00:00.000Z' },
+      { projectPath: 'D:\\b', registered: true, lastActivity: '2020-01-01T00:00:00.000Z' },
     ]);
     projects.applyAutoHide();
-    assert.deepStrictEqual(t.settings().hiddenProjects, ['D:\\a'], 'throttled');
+    assert.deepStrictEqual([...t.autoHidden], ['D:\\a'], 'throttled');
 
     projects.applyAutoHide(true);
-    assert.deepStrictEqual(t.settings().hiddenProjects, ['D:\\a', 'D:\\b'], 'forced runs anyway');
+    assert.deepStrictEqual([...t.autoHidden], ['D:\\a', 'D:\\b'], 'forced runs anyway');
   } finally { t.cleanup(); }
 });
 
@@ -279,7 +516,7 @@ test('remapProject moves EVERY backend\'s sessions, not just Claude\'s', () => {
   // The bug, reproduced against a real install before this was written: remapping a project that had
   // Claude AND Codex sessions moved Claude's and left Codex' behind — so one project became two, and the
   // phantom at the old path held the user's Codex history.
-  const t = makeCtx({ global: { hiddenProjects: ['D:\\old'], addedProjects: ['D:\\old', 'D:\\keep'] } });
+  const t = makeCtx();
   const newDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-'));
   const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-store-'));
   try {
@@ -326,9 +563,10 @@ test('remapProject moves EVERY backend\'s sessions, not just Claude\'s', () => {
     // vanishes from the sidebar.
     assert.deepStrictEqual(t.calls.refreshed, [folder], 'and the folder is re-indexed');
 
-    // The user's own lists follow the rename — otherwise a remapped project silently un-hides itself.
-    assert.deepStrictEqual(t.settings().hiddenProjects, [newDir]);
-    assert.deepStrictEqual(t.settings().addedProjects, [newDir, 'D:\\keep']);
+    // The project keeps its place on the list at the new path — and carries NO tombstone that might have
+    // been sitting there, or it would vanish again on the next scan with nothing to say why (#167).
+    assert.strictEqual(t.state(newDir).registered, 1);
+    assert.strictEqual(t.state(newDir).removedAt, null);
   } finally {
     t.cleanup();
     fs.rmSync(newDir, { recursive: true, force: true });
@@ -379,21 +617,20 @@ test('a remapped project is not auto-hidden out from under the rename', () => {
   // NEW path is momentarily EMPTY — its sessions have not been re-attributed yet. Auto-hide reads "no
   // activity, ever", and no activity is stale by definition. It hides the project. And the scan SKIPS a
   // hidden project — so the sessions never arrive, and the rename stays broken forever.
-  const t = makeCtx({ autoHideDays: 10, global: { hiddenProjects: ['D:\\target'] } });
+  const t = makeCtx({ autoHideDays: 10 });
   const newDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-ah-'));
   try {
     // The target path is ALREADY auto-hidden (a previous life, or the auto-hide pass that just ran).
-    t.autoHidden.add(newDir);
-    const g = t.settings();
-    g.hiddenProjects = [newDir];
+    t.ctx.db.setProjectAutoHidden(newDir, 1);
 
     t.setCachedRows([]);
     fs.mkdirSync(path.join(t.store, encodeProjectPath('D:\\old')), { recursive: true });
     projects.remapProject('D:\\old', newDir);
 
-    assert.deepStrictEqual(t.settings().hiddenProjects, [],
+    assert.strictEqual(t.autoHidden.has(newDir), false,
       'an AUTO hide on the target is cleared — the user is plainly moving a project here');
-    assert.ok(t.meta.get(newDir).autoHideResetAt, 'and the grace timer restarts, like an add or an unhide');
+    assert.ok(t.state(newDir).autoHideResetAt, 'and the grace timer restarts, like an add or an unhide');
+    assert.strictEqual(t.state(newDir).registered, 1, 'and the project is on the list at its new path');
   } finally { t.cleanup(); fs.rmSync(newDir, { recursive: true, force: true }); }
 });
 
@@ -616,16 +853,19 @@ test('pruneProjectIfGone keeps a project that still has sessions on disk', () =>
 });
 
 test('pruneProjectIfGone forgets a project with nothing left to restore', () => {
-  const t = makeCtx({ global: { hiddenProjects: ['D:\\gone'], addedProjects: ['D:\\gone', 'D:\\other'] } });
+  const t = makeCtx();
   try {
-    t.meta.set('D:\\gone', { autoHideResetAt: 'x' });
+    projects.ensureProjectAdded('D:\\gone');
+    projects.ensureProjectAdded('D:\\other');
+    projects.hideProject('D:\\gone');
 
     assert.strictEqual(projects.projectHasSessionsOnDisk('D:\\gone'), false);
     assert.strictEqual(projects.pruneProjectIfGone('D:\\gone'), true);
 
-    assert.strictEqual(t.meta.has('D:\\gone'), false, 'its per-project row goes');
-    assert.deepStrictEqual(t.settings().hiddenProjects, [], 'and it leaves both global lists');
-    assert.deepStrictEqual(t.settings().addedProjects, ['D:\\other'], 'without taking the neighbours');
+    // The register row IS the project_meta row (#167), so the entry, the hide flag and any tombstone go
+    // with it — one delete, not a settings blob to comb through.
+    assert.strictEqual(t.states.has('D:\\gone'), false, 'its per-project row goes');
+    assert.strictEqual(t.states.has('D:\\other'), true, 'without taking the neighbours');
   } finally { t.cleanup(); }
 });
 

@@ -8,6 +8,7 @@ const { readFolderSessions } = require('./read-folder-sessions');
 const { encodeProjectPath } = require('./encode-project-path');
 const backends = require('./backends');
 const sessionBackends = require('./session-backends');
+const registry = require('./project-registry');
 
 /**
  * Session cache module.
@@ -18,6 +19,7 @@ let deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSes
 let deleteSearchFolder, deleteSearchSession, upsertSearchEntries;
 let setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName;
 let getFavoritedProjects, getProjectDisplayNames, getAutoHiddenProjects;
+let getProjectMeta, getProjectStates;
 
 function init(ctx) {
   PROJECTS_DIR = ctx.PROJECTS_DIR;
@@ -44,6 +46,8 @@ function init(ctx) {
   getFavoritedProjects = ctx.db.getFavoritedProjects;
   getProjectDisplayNames = ctx.db.getProjectDisplayNames;
   getAutoHiddenProjects = ctx.db.getAutoHiddenProjects;
+  getProjectMeta = ctx.db.getProjectMeta;
+  getProjectStates = ctx.db.getProjectStates;
 }
 
 // --- backend provenance + scoping (multi-LLM T-4.2) ---
@@ -153,8 +157,56 @@ function folderProjectPath(folder, folderPath) {
   return deriveProjectPath(folderPath);
 }
 
-function isHiddenProject(projectPath) {
-  return ((getSetting('global') || {}).hiddenProjects || []).includes(projectPath);
+/**
+ * Don't index this project back in — it was REMOVED (#167).
+ *
+ * This used to ask "is it hidden", because hiding and removing were the same act. They are not: a hidden
+ * project is still ON the list and only unseen, so its sessions go on being indexed and unhiding shows
+ * them at once. A REMOVED project is off the list and its rows were purged — re-indexing them would put
+ * it back into search and undo half the removal.
+ *
+ * A single-row lookup by primary key, called per session in the scan loop. (The predicate it replaces
+ * parsed the whole global settings blob on every call.)
+ */
+/**
+ * What the STORES hold, for projects the cache cannot speak for: projectPath -> the newest session seen.
+ *
+ * A REMOVED project is deliberately not indexed, so its rows are gone while its transcripts are not. Two
+ * things then depend on this map, and both would be wrong without it (#167):
+ *
+ *   - The tombstone sweep may only forget a removal once no session for that path is left ANYWHERE. Ask
+ *     the cache and it says "none" by construction — the sweep would drop the tombstone, and the next
+ *     scan would resurrect the project off the very transcripts the removal was meant to forget.
+ *   - A NEW session in a removed project has to bring it back. That is the entire difference between
+ *     "removed" and "banned". Ask the cache and it never even hears about it.
+ */
+const storeProjectPaths = new Map();
+function noteStoreProject(projectPath, at) {
+  if (!projectPath) return;
+  const prev = storeProjectPaths.get(projectPath) || null;
+  storeProjectPaths.set(projectPath, at && (!prev || at > prev) ? at : prev);
+}
+function getStoreProjectPaths() {
+  return storeProjectPaths;
+}
+
+/** The newest `modified` in a batch of parsed sessions — what a removed project is judged by. */
+function newestSessionAt(sessions) {
+  let newest = null;
+  for (const s of sessions || []) {
+    const at = s.lastEntryAt || s.modified || null;
+    if (at && (!newest || at > newest)) newest = at;
+  }
+  return newest;
+}
+
+function isRemovedProject(projectPath) {
+  try {
+    const m = getProjectMeta(projectPath);
+    return !!(m && m.removedAt && !m.registered);
+  } catch {
+    return false;
+  }
 }
 
 // Title precedence: user rename (session_meta.name) > JSONL custom-title (Claude
@@ -211,12 +263,18 @@ function refreshFolder(folder, opts = {}) {
     return;
   }
 
-  // Hidden/removed project: don't re-index its folder back into the cache. The
-  // folder stays on disk after a "Remove", so the reconcile sweep would otherwise
-  // re-add the very sessions the user just cleared (and churn the DB). Record the
-  // current mtime so the sweep treats the folder as up-to-date and skips it until
-  // it is un-hidden (unhideProject forces a fresh refresh).
-  if (isHiddenProject(projectPath)) {
+  // REMOVED project: don't index its folder back into the cache. The store folder stays on disk after a
+  // Remove, so the reconcile sweep would otherwise re-add the very sessions the user just cleared (and
+  // churn the DB). Record the current mtime so the sweep treats the folder as up to date and skips it
+  // until the project is registered again — which forces a fresh refresh.
+  //
+  // A HIDDEN project is indexed as normal: it is still on the list, only unseen (#167).
+  if (isRemovedProject(projectPath)) {
+    // What the folder holds, and how recent it is, still has to be REPORTED — the sweep must not forget a
+    // removal while its transcripts are there, and a session NEWER than the removal has to bring the
+    // project back. Skipping the folder in silence would make "removed" mean "banned for good".
+    const newestMs = getFolderIndexMtimeMs(folderPath);
+    noteStoreProject(projectPath, newestMs ? new Date(newestMs).toISOString() : null);
     setFolderMeta(folder, projectPath, stampMtimeMs());
     return;
   }
@@ -390,8 +448,8 @@ function refreshFile(folder, relFilename, opts = {}) {
 
   const projectPath = folderProjectPath(folder, folderPath);
   if (!projectPath) return;
-  // Hidden/removed project: don't re-index its folder back into the cache.
-  if (isHiddenProject(projectPath)) {
+  // REMOVED project: don't index its folder back into the cache (a hidden one still is — #167).
+  if (isRemovedProject(projectPath)) {
     cancelReindex(filePath);
     setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
     return;
@@ -656,9 +714,12 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
     if (!cwd) continue;
     const projectPath = resolveWorktreePath(cwd);
     if (!projectPath) continue;
-    // Hidden/removed project: don't re-index it back in (mirrors refreshFolder). The row, if one
-    // already exists, is left alone — hiding is a view decision, not a delete.
-    if (isHiddenProject(projectPath)) {
+    // Recorded BEFORE the removal check below — this is the only place a removed project's sessions are
+    // ever seen, and both the sweep and "a new session brings it back" hang off it (#167).
+    noteStoreProject(projectPath, row.lastEntryAt || row.modified || null);
+    // REMOVED project: don't index it back in (mirrors refreshFolder). The row, if one already exists,
+    // is left alone. A hidden project is indexed as normal — hiding is a view decision, not a delete.
+    if (isRemovedProject(projectPath)) {
       if (hit) seenIds.add(hit.sessionId);
       continue;
     }
@@ -741,12 +802,22 @@ function refreshAllBackendSessions({ force = false } = {}) {
   return out;
 }
 
-/** Build projects response from cached data */
+/**
+ * Build the sidebar's projects from THE REGISTER (#167), with the cached sessions layered onto it.
+ *
+ * It used to be the other way round: the list was derived from the transcripts, so a project without one
+ * could not appear however often you added it, and "remove" could only ever be faked as a permanent
+ * hide. Now the register says which projects exist and which are shown; the sessions are what is IN them.
+ */
 function buildProjectsFromCache(showArchived) {
   const metaMap = getAllMeta();
   const cachedRows = getAllCached();
-  const global = getSetting('global') || {};
-  const hiddenProjects = new Set(global.hiddenProjects || []);
+  const states = typeof getProjectStates === 'function' ? getProjectStates() : new Map();
+  // A project is shown when it is on the list and neither hidden by the user nor auto-hidden by staleness.
+  const visible = new Set();
+  for (const [projectPath, state] of states) {
+    if (registry.isVisible(state)) visible.add(projectPath);
+  }
 
   // Group by projectPath, not on-disk folder name. Multiple ~/.claude/projects/<folder>/
   // directories can resolve to the same projectPath (Claude Code's folder-name encoding
@@ -763,7 +834,9 @@ function buildProjectsFromCache(showArchived) {
   const lastActivityByPath = new Map();
   for (const row of cachedRows) {
     if (!row.projectPath) continue;
-    if (hiddenProjects.has(row.projectPath)) continue;
+    // Not on the list, or on it and not shown: its sessions belong to no visible group. (A session of an
+    // unregistered project is what the sync step registers — it does not paint itself into the sidebar.)
+    if (!visible.has(row.projectPath)) continue;
     if (row.modified) {
       const prev = lastActivityByPath.get(row.projectPath);
       if (!prev || row.modified > prev) lastActivityByPath.set(row.projectPath, row.modified);
@@ -828,42 +901,31 @@ function buildProjectsFromCache(showArchived) {
     projectMap.get(row.projectPath).sessions.push(s);
   }
 
-  // Include empty project directories (no sessions yet). Resolve folder→projectPath
-  // through cache_meta (populated by the indexer) instead of re-reading a JSONL off
-  // disk for every directory on every render. Fall back to deriveProjectPath only
-  // for folders the indexer hasn't seen yet, and backfill cache_meta so subsequent
-  // renders are pure DB reads.
-  try {
-    const folderMeta = getAllFolderMeta();
-    const dirs = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
-      .filter(d => d.isDirectory() && d.name !== '.git');
-    for (const d of dirs) {
-      let projectPath = folderMeta.get(d.name)?.projectPath;
-      if (!projectPath) {
-        projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name));
-        if (projectPath) setFolderMeta(d.name, projectPath, 0);
-      }
-      if (!projectPath) continue;
-      if (hiddenProjects.has(projectPath)) continue;
-      if (!projectMap.has(projectPath)) {
-        projectMap.set(projectPath, {
-          folder: encodeProjectPath(projectPath),
-          projectPath,
-          missing: !fs.existsSync(projectPath),
-          sessions: [],
-          // null for genuinely never-used folders; an ISO date when the folder's
-          // sessions exist but are all archived (so it sorts by real recency).
-          lastActivity: lastActivityByPath.get(projectPath) || null,
-        });
-      }
-    }
-  } catch {}
+  // Every REGISTERED project that has no session to show — the one the user just added and has never
+  // run anything in, and the one whose sessions are all archived. This is where the list stops being a
+  // derivation: it used to be a readdir of the Claude store, so a project with no transcript could not
+  // be here at all, however often it was added.
+  for (const projectPath of visible) {
+    if (projectMap.has(projectPath)) continue;
+    const state = states.get(projectPath) || {};
+    projectMap.set(projectPath, {
+      folder: encodeProjectPath(projectPath),
+      projectPath,
+      missing: !fs.existsSync(projectPath),
+      sessions: [],
+      // Its recency: the last real activity when its sessions are merely archived; otherwise the moment
+      // it was put on the list. Without the second, a project you just added would sort below every
+      // never-used folder and you would go looking for it (#167 Q2).
+      lastActivity: lastActivityByPath.get(projectPath) || state.registeredAt || null,
+    });
+  }
 
-  // Inject active plain terminal sessions so they participate in sorting
+  // Inject active plain terminal sessions so they participate in sorting. A terminal open in a project
+  // the user has hidden stays hidden — starting one is not an unhide.
   for (const [sessionId, session] of activeSessions) {
     if (session.exited || !session.isPlainTerminal) continue;
     if (!session.projectPath) continue;
-    if (hiddenProjects.has(session.projectPath)) continue;
+    if (!visible.has(session.projectPath)) continue;
     if (!projectMap.has(session.projectPath)) {
       projectMap.set(session.projectPath, {
         folder: encodeProjectPath(session.projectPath),
@@ -911,17 +973,10 @@ function buildProjectsFromCache(showArchived) {
     return new Date(bDate) - new Date(aDate);
   });
 
-  // Manual project mode (projectAutoAdd === false): only show projects on the
-  // explicit allowlist (addedProjects), so newly-discovered ~/.claude/projects
-  // folders (e.g. from Claude sessions started outside Switchboard) don't appear.
-  // The allowlist is seeded with the current set when the user switches to manual
-  // (see the set-project-auto-add IPC); a missing/invalid list falls back to
-  // showing everything so we never blank the sidebar unexpectedly.
-  if (global.projectAutoAdd === false && Array.isArray(global.addedProjects)) {
-    const added = new Set(global.addedProjects);
-    return projects.filter(p => added.has(p.projectPath));
-  }
-
+  // No allowlist filter any more. Manual mode used to be a SUBTRACTIVE filter applied here — which is
+  // why adding a project by hand did nothing unless discovery had already found it. The mode now decides
+  // who may WRITE to the register (see project-registry.js); by the time we get here, the register is
+  // the list, in both modes.
   return projects;
 }
 
@@ -932,11 +987,12 @@ function buildProjectsFromCache(showArchived) {
 // Returns lightweight rows (counts only, no per-session objects). Trust + ~/.claude.json
 // extra meta are layered on by the main-process IPC.
 function buildProjectsAdmin() {
-  const global = getSetting('global') || {};
-  const hiddenProjects = new Set(global.hiddenProjects || []);
+  // The admin sees the register AND what is not on it: a project with sessions or a store folder but no
+  // entry is exactly what the "add to sidebar" action is for, and it could not be offered if this view
+  // only listed registered projects.
+  const states = typeof getProjectStates === 'function' ? getProjectStates() : new Map();
   const favorited = typeof getFavoritedProjects === 'function' ? getFavoritedProjects() : new Set();
   const displayNames = typeof getProjectDisplayNames === 'function' ? getProjectDisplayNames() : new Map();
-  const autoHiddenSet = typeof getAutoHiddenProjects === 'function' ? getAutoHiddenProjects() : new Set();
 
   const map = new Map(); // projectPath -> { sessionCount, lastActivity }
   const ensure = (projectPath) => {
@@ -967,8 +1023,15 @@ function buildProjectsAdmin() {
     }
   } catch {}
 
+  // ...and every registered project, including one that has neither sessions nor a store folder — the
+  // whole point of the register is that such a project exists.
+  for (const [projectPath, state] of states) {
+    if (state.registered) ensure(projectPath);
+  }
+
   const rows = [];
   for (const [projectPath, e] of map) {
+    const state = states.get(projectPath) || {};
     rows.push({
       projectPath,
       folder: encodeProjectPath(projectPath),
@@ -976,8 +1039,11 @@ function buildProjectsAdmin() {
       sessionCount: e.sessionCount,
       lastActivity: e.lastActivity,
       missing: !fs.existsSync(projectPath),
-      hidden: hiddenProjects.has(projectPath),
-      autoHidden: autoHiddenSet.has(projectPath),
+      // On the list at all — what tells "hidden" (on it, unseen) apart from "not added" (not on it).
+      registered: !!state.registered,
+      hidden: !!state.hidden,
+      autoHidden: !!state.autoHidden,
+      removedAt: state.removedAt || null,
       favorite: favorited.has(projectPath),
     });
   }
@@ -1057,6 +1123,17 @@ function populateCacheViaWorker() {
     // unscoped wipe would drop the Codex rows that share this folder key (multi-LLM T-4.2).
     const scope = claudeStoreScope();
     for (const { folder, projectPath, sessions, indexMtimeMs } of msg.results) {
+      // A REMOVED project is not indexed — and this is a WRITE path like any other (#167). The worker
+      // walks the whole store and knows nothing about the register, so without this a "Rebuild session
+      // cache" (or any cold start that takes the worker path) would put a removed project's sessions
+      // back into the cache, the search index and the stats. The sidebar would still hide it — the
+      // register does that — so it would come back as an invisible, searchable zombie that nothing ever
+      // purges again, because the tombstone stops it from ever being listed and swept.
+      if (projectPath && isRemovedProject(projectPath)) {
+        noteStoreProject(projectPath, newestSessionAt(sessions));
+        setFolderMeta(folder, projectPath, indexMtimeMs);
+        continue;
+      }
       // Search first: the scoped FTS delete resolves the backend through session_cache, so the rows
       // it reads must still be there.
       deleteSearchFolder(folder, scope);
@@ -1142,6 +1219,7 @@ module.exports = {
   reconcileCacheFromFilesystem,
   buildProjectsFromCache,
   buildProjectsAdmin,
+  getStoreProjectPaths,
   shouldAutoHide,
   notifyRendererProjectsChanged,
   sendStatus,

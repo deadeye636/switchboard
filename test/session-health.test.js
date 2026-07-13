@@ -194,6 +194,11 @@ test('buildProjectsFromCache exposes health metrics on renderer session rows', (
       }],
       getSetting: () => null,
       setFolderMeta: () => {},
+      // The sidebar is built from the register now (#167): a project that is not on it is not shown, so a
+      // fake that knows nothing about it renders an empty list and the assertions below have nothing to
+      // read. This one is on it.
+      getProjectMeta: () => null,
+      getProjectStates: () => new Map([[projectPath, { registered: 1 }]]),
     },
   });
 

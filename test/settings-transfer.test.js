@@ -6,6 +6,7 @@ const {
   buildExportPayload,
   validateImportPayload,
   mergeImport,
+  importProjects,
 } = require('../settings-transfer');
 
 // --- export ---
@@ -41,8 +42,55 @@ test('export keeps the paths the user configured', () => {
   assert.deepStrictEqual(payload.global, blob);
 });
 
+// --- the project list (#167) ---
+//
+// It used to live in the blob (`hiddenProjects`/`addedProjects`) and rode along for free. It is a TABLE
+// now, so it has to be carried on purpose — or an export silently drops the whole list, and a restore
+// arrives with every hidden project visible again and, in manual mode, with no projects at all.
+
+test('the project list is exported alongside the blob', () => {
+  const states = new Map([
+    ['D:\\a', { projectPath: 'D:\\a', registered: 1, hidden: 0 }],
+    ['D:\\b', { projectPath: 'D:\\b', registered: 1, hidden: 1 }],
+    ['D:\\gone', { projectPath: 'D:\\gone', registered: 0, removedAt: '2026-07-01T00:00:00.000Z' }],
+  ]);
+  const payload = buildExportPayload({}, 'now', states);
+
+  assert.deepStrictEqual(payload.projects, [
+    { projectPath: 'D:\\a', registered: 1, hidden: 0 },
+    { projectPath: 'D:\\b', registered: 1, hidden: 1 },
+  ], 'what is on the list, and whether it is hidden — a REMOVED project is not on it');
+});
+
+test('a tombstone does not travel: it is about the transcripts on THIS disk', () => {
+  const states = new Map([['D:\\gone', { projectPath: 'D:\\gone', registered: 0, removedAt: 'now' }]]);
+  const payload = buildExportPayload({}, 'now', states);
+  assert.deepStrictEqual(payload.projects, [],
+    'carrying it over would suppress a project on a machine whose sessions were never removed');
+});
+
+test('an import reads the list — and a legacy file\'s allowlist counts as one', () => {
+  assert.deepStrictEqual(
+    importProjects({ projects: [{ projectPath: 'D:\\a', hidden: 1 }, { projectPath: 'D:\\b' }] }),
+    [{ projectPath: 'D:\\a', registered: 1, hidden: 1 }, { projectPath: 'D:\\b', registered: 1, hidden: 0 }]
+  );
+
+  // A file written before the register existed. Its list is in the blob, where the list used to live.
+  assert.deepStrictEqual(
+    importProjects({ global: { addedProjects: ['D:\\a', 'D:\\b'], hiddenProjects: ['D:\\b'] } }),
+    [{ projectPath: 'D:\\a', registered: 1, hidden: 0 }, { projectPath: 'D:\\b', registered: 1, hidden: 1 }]
+  );
+});
+
+test('importing a file with no list at all changes nothing', () => {
+  // An older export, or a machine that never had a project. Importing "nothing" must not mean "wipe it".
+  assert.deepStrictEqual(importProjects({ global: { sidebarWidth: 400 } }), []);
+  assert.deepStrictEqual(importProjects({}), []);
+});
+
 test('export of a missing blob is an empty one, not a crash', () => {
   assert.deepStrictEqual(buildExportPayload(null, 'now').global, {});
+  assert.deepStrictEqual(buildExportPayload(null, 'now').projects, []);
   assert.deepStrictEqual(buildExportPayload(undefined, 'now').global, {});
 });
 

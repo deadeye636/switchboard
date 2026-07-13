@@ -110,6 +110,8 @@ contextBridge.exposeInMainWorld('api', {
 
   browseFolder: () => ipcRenderer.invoke('browse-folder'),
   addProject: (projectPath) => ipcRenderer.invoke('add-project', projectPath),
+  // Hide: on the list, unseen. Remove: off the list, cached rows purged, tombstoned (#167).
+  hideProject: (projectPath) => ipcRenderer.invoke('hide-project', projectPath),
   removeProject: (projectPath) => ipcRenderer.invoke('remove-project', projectPath),
   setProjectAutoAdd: (enabled) => ipcRenderer.invoke('set-project-auto-add', enabled),
   getHiddenProjects: () => ipcRenderer.invoke('get-hidden-projects'),

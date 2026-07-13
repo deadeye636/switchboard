@@ -122,7 +122,11 @@ db.exec(`
     projectPath TEXT PRIMARY KEY,
     favorited INTEGER DEFAULT 0,
     autoHidden INTEGER DEFAULT 0,
-    autoHideResetAt TEXT
+    autoHideResetAt TEXT,
+    registered INTEGER DEFAULT 0,
+    registeredAt TEXT,
+    hidden INTEGER DEFAULT 0,
+    removedAt TEXT
   )
 `);
 // Idempotently add the auto-hide columns to project_meta tables created before
@@ -131,6 +135,15 @@ db.exec(`
 // autoHideResetAt restarts the inactivity timer (grace after unhide / re-add).
 try { db.exec('ALTER TABLE project_meta ADD COLUMN autoHidden INTEGER DEFAULT 0'); } catch {}
 try { db.exec('ALTER TABLE project_meta ADD COLUMN autoHideResetAt TEXT'); } catch {}
+// The project REGISTER (#167). The sidebar's project list used to be derived from the transcripts on
+// disk, so a project without one could not exist — and "remove" had to be faked as a permanent hide,
+// because the very next scan would have derived the project straight back. These four make the list a
+// list: `registered` says it is on it, `hidden` is the user's manual hide OF a listed project, and
+// `removedAt` is the tombstone that stops the sessions still on disk from re-registering it.
+try { db.exec('ALTER TABLE project_meta ADD COLUMN registered INTEGER DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE project_meta ADD COLUMN registeredAt TEXT'); } catch {}
+try { db.exec('ALTER TABLE project_meta ADD COLUMN hidden INTEGER DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE project_meta ADD COLUMN removedAt TEXT'); } catch {}
 
 // Bookmarks — flag individual transcript messages, anchored by {sessionId, entryIndex}.
 // deadeye JSONL has no per-message uuid, so the position index is the stable anchor;
@@ -480,6 +493,80 @@ const migrations = [
       db.exec('ALTER TABLE session_cache ADD COLUMN parserVersion INTEGER');
     } catch {}
   },
+  // Seed the project REGISTER from the list that was implicit until now (#167).
+  //
+  // ONE RULE: the sidebar must show exactly what it showed the day before. The old list was not one list
+  // but two, and which one you got depended on the mode:
+  //
+  //   auto mode   -> everything derivable from the store, minus hiddenProjects
+  //   manual mode -> `addedProjects`, and nothing else (it was a SUBTRACTIVE filter over the derivation)
+  //
+  // So the seed depends on the mode too. Seeding a manual-mode install from the derivation would flood
+  // its sidebar with every project it had spent months not showing.
+  //
+  //   hidden = hiddenProjects, EXCEPT the ones that are only hidden because they went stale — those
+  //            already carry autoHidden, and conflating the two is the bug this feature fixes.
+  //
+  // `registeredAt` is left NULL for a seeded project. It is the recency an EMPTY project sorts by, and
+  // stamping it with the migration time would send every session-less project — every empty store folder,
+  // every stale cache_meta mapping — to the top of the sidebar as if it were brand new. A project that is
+  // put on the list from here on gets a real one; these were already there.
+  //
+  // No tombstones: nothing has been removed yet under the new meaning of the word.
+  (db) => {
+    try {
+      const seed = db.prepare(
+        'INSERT INTO project_meta (projectPath, registered) VALUES (?, 1)'
+        + ' ON CONFLICT(projectPath) DO UPDATE SET registered = 1'
+      );
+
+      let global = {};
+      try {
+        const row = db.prepare("SELECT value FROM settings WHERE key = 'global'").get();
+        if (row && row.value) global = JSON.parse(row.value) || {};
+      } catch { global = {}; }
+
+      const paths = new Set();
+      if (global.projectAutoAdd === false && Array.isArray(global.addedProjects)) {
+        // Manual mode: the allowlist WAS the list.
+        for (const p of global.addedProjects) paths.add(p);
+      } else {
+        // Auto mode: everything the sidebar could derive — sessions in the cache, plus the store folders
+        // that resolve to a path (cache_meta is exactly that mapping). A folder that has since been
+        // deleted leaves its cache_meta row behind, and seeding it would resurrect the project as a
+        // `missing` row that was not in yesterday's sidebar; so only folders that are still there.
+        for (const r of db.prepare('SELECT DISTINCT projectPath FROM session_cache WHERE projectPath IS NOT NULL').all()) {
+          paths.add(r.projectPath);
+        }
+        // Claude's store — the same path main.js derives, spelled out here because db.js is loaded before
+        // it and must not depend on it.
+        const store = path.join(os.homedir(), '.claude', 'projects');
+        for (const r of db.prepare('SELECT folder, projectPath FROM cache_meta WHERE projectPath IS NOT NULL').all()) {
+          try {
+            if (fs.existsSync(path.join(store, r.folder))) paths.add(r.projectPath);
+          } catch { /* unreadable store: leave it out rather than invent a project */ }
+        }
+        // ...and anything explicitly added by hand, whichever mode it was added in.
+        for (const p of global.addedProjects || []) paths.add(p);
+      }
+
+      for (const p of paths) seed.run(p);
+
+      // The manual hides. An auto-hidden project stays merely auto-hidden: it is on the list and comes
+      // back by itself on activity, which a manual hide must never do.
+      const autoHidden = new Set(
+        db.prepare('SELECT projectPath FROM project_meta WHERE autoHidden = 1').all().map(r => r.projectPath)
+      );
+      const hide = db.prepare(
+        'INSERT INTO project_meta (projectPath, hidden, registered) VALUES (?, 1, 1)'
+        + ' ON CONFLICT(projectPath) DO UPDATE SET hidden = 1'
+      );
+      for (const p of global.hiddenProjects || []) {
+        if (autoHidden.has(p)) continue;
+        hide.run(p);
+      }
+    } catch {}
+  },
 ];
 
 const currentDbVersion = (() => {
@@ -577,6 +664,10 @@ const stmts = {
     ON CONFLICT(projectPath) DO UPDATE SET autoHidden = 0, autoHideResetAt = excluded.autoHideResetAt
   `),
   projectMetaAutoHidden: db.prepare('SELECT projectPath FROM project_meta WHERE autoHidden = 1'),
+  // The register (#167). One row per project, and the row IS the list — `projectMetaAll` is what the
+  // sidebar builds from, instead of deriving the list from the transcripts on disk.
+  projectMetaAll: db.prepare('SELECT * FROM project_meta'),
+  projectMetaTombstones: db.prepare('SELECT projectPath, removedAt FROM project_meta WHERE removedAt IS NOT NULL'),
   settingsByPrefix: db.prepare('SELECT key, value FROM settings WHERE key LIKE ?'),
   // Bookmarks (toggle by {sessionId, entryIndex} anchor)
   bookmarkGet: db.prepare('SELECT id FROM bookmarks WHERE sessionId = ? AND entryIndex = ?'),
@@ -900,6 +991,45 @@ function getAutoHiddenProjects() {
   const set = new Set();
   for (const row of stmts.projectMetaAutoHidden.all()) set.add(row.projectPath);
   return set;
+}
+
+// --- The register (#167) ---
+
+// The columns a caller may patch. An allow-list, because the patch is built from a plain object and
+// this is the one place a typo would silently write nothing — or, worse, something else.
+const PROJECT_STATE_COLUMNS = ['registered', 'registeredAt', 'hidden', 'autoHidden', 'autoHideResetAt', 'removedAt'];
+
+/**
+ * Write part of a project's state. Only the keys given are touched — "not mentioned" is not "set to
+ * null", or registering a project would wipe its favourite.
+ */
+function setProjectState(projectPath, patch) {
+  if (!projectPath || !patch) return;
+  const keys = Object.keys(patch).filter(k => PROJECT_STATE_COLUMNS.includes(k));
+  if (!keys.length) return;
+
+  const cols = ['projectPath', ...keys];
+  const sql = `INSERT INTO project_meta (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
+    + ` ON CONFLICT(projectPath) DO UPDATE SET ${keys.map(k => `${k} = excluded.${k}`).join(', ')}`;
+  const values = [projectPath, ...keys.map(k => {
+    const v = patch[k];
+    return typeof v === 'boolean' ? (v ? 1 : 0) : v;
+  })];
+  runWithBusyRetry(() => db.prepare(sql).run(...values));
+}
+
+/** Every project the app knows about: projectPath -> its row. THIS IS THE LIST. */
+function getProjectStates() {
+  const map = new Map();
+  for (const row of stmts.projectMetaAll.all()) map.set(row.projectPath, row);
+  return map;
+}
+
+/** projectPath -> removedAt, for the tombstone sweep. */
+function getProjectTombstones() {
+  const map = new Map();
+  for (const row of stmts.projectMetaTombstones.all()) map.set(row.projectPath, row.removedAt);
+  return map;
 }
 
 // Map projectPath -> custom displayName (only non-empty), from the per-project
@@ -1832,6 +1962,7 @@ module.exports = {
   getMeta, getAllMeta, setName, toggleStar, setArchived,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
+  setProjectState, getProjectStates, getProjectTombstones,
   renameProjectRefs, deleteProjectRefs,
   toggleBookmark, removeBookmark, listBookmarks,
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,

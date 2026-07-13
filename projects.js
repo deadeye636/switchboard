@@ -21,6 +21,7 @@ const { encodeProjectPath } = require('./encode-project-path');
 const { deriveProjectPath } = require('./derive-project-path');
 const { resolveJsonlPath } = require('./read-session-file');
 const claudeConfig = require('./claude-config');
+const registry = require('./project-registry');
 
 let ctx = null;
 
@@ -43,20 +44,19 @@ function init(context) {
 // --- helpers ---
 
 /**
- * Add a projectPath to the `addedProjects` allowlist (used only when projectAutoAdd === false).
- * Idempotent; persists to the global settings blob.
+ * Put a project ON THE LIST (#167) — because the user did something explicit: added it by hand, or
+ * started a session in it. Both modes: manual mode means "nobody but me writes to the list", not "I
+ * cannot start a session anywhere".
+ *
+ * It buries any tombstone and comes back VISIBLE, and it restarts the auto-hide grace timer so a
+ * just-added stale project is not immediately hidden again on the next pass (#57).
  */
 function ensureProjectAdded(projectPath) {
   if (!projectPath) return;
-  // #57: adding / re-adding a project restarts its auto-hide grace timer so a just-added stale project
-  // isn't immediately auto-hidden again on the next pass.
-  try { ctx.db.resetProjectAutoHide(projectPath); } catch { /* best effort */ }
-  const global = ctx.db.getSetting('global') || {};
-  const added = Array.isArray(global.addedProjects) ? global.addedProjects : [];
-  if (!added.includes(projectPath)) {
-    added.push(projectPath);
-    global.addedProjects = added;
-    ctx.db.setSetting('global', global);
+  try {
+    ctx.db.setProjectState(projectPath, registry.registrationState(new Date().toISOString()));
+  } catch (err) {
+    ctx.log.warn('[registry] register failed: ' + err.message);
   }
 }
 
@@ -84,28 +84,26 @@ function applyAutoHide(force) {
       if (session.projectPath) runningPaths.add(session.projectPath);
     }
 
-    const hidden = new Set(global.hiddenProjects || []);
     let changed = false;
     // buildProjectsAdmin returns every project (hidden included) with lastActivity.
     for (const row of ctx.cache.buildProjectsAdmin()) {
-      if (hidden.has(row.projectPath)) continue;        // already hidden (manual or auto)
+      if (!row.registered) continue;                    // not on the list — nothing to hide
+      if (row.hidden || row.autoHidden) continue;       // already hidden, by hand or by staleness
       if (runningPaths.has(row.projectPath)) continue;  // has a running session
       const meta = ctx.db.getProjectMeta(row.projectPath);
       const activityMs = row.lastActivity ? new Date(row.lastActivity).getTime() : 0;
       const resetMs = meta && meta.autoHideResetAt ? new Date(meta.autoHideResetAt).getTime() : 0;
       const eff = Math.max(activityMs, resetMs);
       if (ctx.cache.shouldAutoHide(eff, now, days)) {
-        hidden.add(row.projectPath);
+        // ONLY the flag. It used to also push the path onto `hiddenProjects` — the same list a manual
+        // hide wrote to — so the two became one state, and an auto-hidden project could never come back
+        // by itself, which is the one thing that separates it from a hide (#167).
         try { ctx.db.setProjectAutoHidden(row.projectPath, 1); } catch { /* best effort */ }
         changed = true;
       }
     }
 
-    if (changed) {
-      global.hiddenProjects = [...hidden];
-      ctx.db.setSetting('global', global);
-      ctx.cache.notifyRendererProjectsChanged();
-    }
+    if (changed) ctx.cache.notifyRendererProjectsChanged();
   } catch (err) {
     ctx.log.error('[auto-hide] applyAutoHide failed:', err && err.message);
   }
@@ -124,6 +122,33 @@ function projectHasSessionsOnDisk(projectPath) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Index EVERY store folder that belongs to this project — not just the one its path encodes to.
+ *
+ * Claude's folder-name encoding has changed over time, so one project can own several store folders
+ * (session-cache.js merges them into one sidebar group for exactly that reason). While the project was
+ * removed each of those folders had its mtime memo stamped up to date on the way past, so refreshing only
+ * the canonical name would leave the others skipped by the reconcile gate — their sessions gone from the
+ * cache, their files on disk, and nothing to bring them back until something happens to touch them.
+ */
+function refreshProjectFolders(projectPath) {
+  const folders = new Set([encodeProjectPath(projectPath)]);
+  try {
+    for (const [folder, meta] of ctx.db.getAllFolderMeta()) {
+      if (meta && meta.projectPath === projectPath) folders.add(folder);
+    }
+  } catch { /* the canonical folder alone is better than nothing */ }
+  for (const folder of folders) {
+    try { ctx.cache.refreshFolder(folder); } catch { /* the reconcile sweep will get it */ }
+  }
+}
+
+/** Windows spells the same directory two ways, and a missed tombstone means a resurrected project. */
+function samePathKey(p) {
+  const t = String(p || '').replace(/[\\/]+$/, '');
+  return process.platform === 'win32' ? t.toLowerCase() : t;
 }
 
 /**
@@ -165,20 +190,10 @@ function pruneProjectIfGone(projectPath) {
   if (!projectPath) return false;
   if (projectHasSessionsLeft(projectPath) || projectIsInClaudeConfig(projectPath)) return false;
 
+  // The project_meta row goes, and the register row IS that row (#167) — so the entry, the hide flags and
+  // the tombstone go with it. There is nothing left to guard: no sessions anywhere, no config entry.
   try { ctx.db.deleteProjectRefs(projectPath); } catch (err) {
     ctx.log.warn('[prune] project refs delete failed: ' + err.message);
-  }
-  try {
-    const global = ctx.db.getSetting('global') || {};
-    let touched = false;
-    for (const key of ['hiddenProjects', 'addedProjects']) {
-      if (!Array.isArray(global[key]) || !global[key].includes(projectPath)) continue;
-      global[key] = global[key].filter(p => p !== projectPath);
-      touched = true;
-    }
-    if (touched) ctx.db.setSetting('global', global);
-  } catch (err) {
-    ctx.log.warn('[prune] global project lists cleanup failed: ' + err.message);
   }
   ctx.log.info('[prune] forgot project (no sessions, no config entry): ' + projectPath);
   return true;
@@ -192,103 +207,115 @@ async function browseFolder() {
   return result.filePaths[0];
 }
 
+/**
+ * Put a project on the list (#167).
+ *
+ * This used to create `~/.claude/projects/<encoded>/` and write a FAKE transcript into it — a session
+ * that never happened, saying "New project" — because a project the app could not derive from a
+ * transcript could not exist. It exists now because it is on the list, so the forgery is gone.
+ */
 function addProject(projectPath) {
   try {
     const stat = fs.statSync(projectPath);
     if (!stat.isDirectory()) return { error: 'Path is not a directory' };
 
-    // Unhide if previously hidden
-    const global = ctx.db.getSetting('global') || {};
-    if (global.hiddenProjects && global.hiddenProjects.includes(projectPath)) {
-      global.hiddenProjects = global.hiddenProjects.filter(p => p !== projectPath);
-      ctx.db.setSetting('global', global);
-    }
-
-    // Create the corresponding folder in ~/.claude/projects/ so it persists
-    const folder = encodeProjectPath(projectPath);
-    const folderPath = path.join(ctx.PROJECTS_DIR, folder);
-    if (!fs.existsSync(folderPath)) {
-      fs.mkdirSync(folderPath, { recursive: true });
-    }
-
-    // Seed a minimal .jsonl so deriveProjectPath can read the cwd
-    if (!fs.readdirSync(folderPath).some(f => f.endsWith('.jsonl'))) {
-      const seedId = crypto.randomUUID();
-      const seedFile = path.join(folderPath, seedId + '.jsonl');
-      const now = new Date().toISOString();
-      const line = JSON.stringify({
-        type: 'user', cwd: projectPath, sessionId: seedId, uuid: crypto.randomUUID(),
-        timestamp: now, message: { role: 'user', content: 'New project' },
-      });
-      fs.writeFileSync(seedFile, line + '\n');
-    }
-
-    // Explicit add → allowlist, so it shows in manual project mode too.
     ensureProjectAdded(projectPath);
 
-    // Index the new folder immediately so it is in the cache before the renderer paints.
-    ctx.cache.refreshFolder(folder);
+    // If the store already holds sessions for it (a project that was removed, or one Claude has been used
+    // in outside Switchboard), index them NOW — all of them, from every folder that belongs to it — so
+    // they are there before the renderer paints. "Re-adding brings all its sessions back" is a promise.
+    refreshProjectFolders(projectPath);
     ctx.cache.notifyRendererProjectsChanged();
 
-    return { ok: true, folder, projectPath };
+    return { ok: true, folder: encodeProjectPath(projectPath), projectPath };
   } catch (err) {
     return { error: err.message };
   }
 }
 
+/**
+ * HIDE: on the list, not shown. Reversible, and new sessions do NOT bring it back — that is the whole
+ * point of saying "hide". Its sessions keep being indexed, so unhiding shows them at once.
+ */
+function hideProject(projectPath) {
+  try {
+    if (!projectPath) return { error: 'No project path' };
+
+    // Hiding is a property OF A LISTED PROJECT. Setting it on one that is not on the list writes a flag
+    // nothing shows and nothing can clear — and the day discovery registers that project, it arrives
+    // already hidden, for a reason nobody can see. That is the silent swallow this whole issue exists to
+    // kill, so refuse instead: there is nothing to hide.
+    const state = ctx.db.getProjectMeta(projectPath);
+    if (!state || !state.registered) return { error: 'This project is not on the list, so there is nothing to hide' };
+
+    ctx.db.setProjectState(projectPath, { hidden: 1 });
+    ctx.cache.notifyRendererProjectsChanged();
+    return { ok: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/**
+ * REMOVE: off the list, cached rows purged — and a tombstone, or it would not stick.
+ *
+ * The sessions that put the project on the list stay on disk. Without a memory of WHEN it was removed,
+ * the very next scan would find them and register it straight back, so removing would be a no-op in auto
+ * mode — which is exactly why the old code turned "remove" into a permanent hide instead. Only a session
+ * NEWER than the tombstone brings the project back.
+ */
 function removeProject(projectPath) {
   try {
-    // Add to hidden projects list
-    const global = ctx.db.getSetting('global') || {};
-    const hidden = global.hiddenProjects || [];
-    if (!hidden.includes(projectPath)) hidden.push(projectPath);
-    global.hiddenProjects = hidden;
-    // Also drop from the manual-mode allowlist so it stays gone in manual mode.
-    if (Array.isArray(global.addedProjects)) {
-      global.addedProjects = global.addedProjects.filter(p => p !== projectPath);
-    }
-    ctx.db.setSetting('global', global);
+    if (!projectPath) return { error: 'No project path' };
+    ctx.db.setProjectState(projectPath, registry.removalState(new Date().toISOString()));
 
-    // Clean up DB cache and search index for this folder. SCOPED to Claude's store: a project folder
-    // key is derived from the cwd and is therefore shared with the other backends, but this action only
-    // removes Claude's data — another backend's rows must survive (its session files are still on disk,
-    // so an unscoped wipe would only make them reappear on the next scan anyway).
-    const folder = encodeProjectPath(projectPath);
-    const claudeScope = ctx.cache.claudeStoreScope();
-    ctx.db.deleteCachedFolder(folder, claudeScope);
-    ctx.db.deleteSearchFolder(folder, claudeScope);
+    // Purge the cached rows — THIS PROJECT'S, from EVERY backend, row by row.
+    //
+    // Two things this deliberately is not. It is not folder-scoped: a store folder is keyed on the cwd a
+    // session started from, so since #157 it can hold rows of OTHER projects, and clearing by folder
+    // would drop those while their transcripts sat on disk. And it is not Claude-only: "remove from
+    // Switchboard" that leaves a project's Codex and Pi sessions in the cache, the search index and the
+    // stats has not removed it — the sidebar row goes and every other view keeps it.
+    //
+    // No session FILE is touched. Deleting the history is a separate act (deleteProjectSessions).
+    let rows = [];
+    try { rows = ctx.db.getCachedByProjectPath(projectPath) || []; } catch { rows = []; }
+    for (const r of rows) {
+      try { ctx.db.deleteCachedSession(r.sessionId); } catch { /* best effort */ }
+      try { ctx.db.deleteSearchSession(r.sessionId); } catch { /* best effort */ }
+    }
     ctx.db.deleteSetting('project:' + projectPath);
 
     ctx.cache.notifyRendererProjectsChanged();
-    return { ok: true };
+    return { ok: true, cleared: rows.length };
   } catch (err) {
     return { error: err.message };
   }
 }
 
-/** The projectPaths the user has hidden, flagged with whether auto-hide did it (for the restore UI). */
+/** The projects that are on the list but not shown, flagged with whether auto-hide did it. */
 function getHiddenProjects() {
-  const global = ctx.db.getSetting('global') || {};
-  const auto = ctx.db.getAutoHiddenProjects();
-  return (global.hiddenProjects || []).map(p => ({ path: p, autoHidden: auto.has(p) }));
+  const out = [];
+  for (const [projectPath, state] of ctx.db.getProjectStates()) {
+    if (!state.registered) continue;
+    if (!state.hidden && !state.autoHidden) continue;
+    out.push({ path: projectPath, autoHidden: !!state.autoHidden });
+  }
+  return out;
 }
 
 /**
- * Take a project off the hidden list and re-index its folder so it reappears. The on-disk
- * ~/.claude/projects folder still exists (removeProject only cleared the DB cache), so a refresh
- * repopulates it.
+ * Show it again — whether it was hidden by hand or by staleness. Both flags go, and the auto-hide grace
+ * timer restarts, or a stale project would be hidden again on the very next pass (#57).
  */
 function unhideProject(projectPath) {
   try {
-    const global = ctx.db.getSetting('global') || {};
-    global.hiddenProjects = (global.hiddenProjects || []).filter(p => p !== projectPath);
-    ctx.db.setSetting('global', global);
-    // #57: restart the grace timer + clear the auto flag so an unhidden stale project isn't re-hidden
-    // on the next auto-hide pass.
+    if (!projectPath) return { error: 'No project path' };
+    // An unhide of a project that is somehow not on the list puts it on it: the user is asking to see it.
+    ctx.db.setProjectState(projectPath, { hidden: 0, registered: 1 });
     try { ctx.db.resetProjectAutoHide(projectPath); } catch { /* best effort */ }
 
-    const folder = encodeProjectPath(projectPath);
-    try { ctx.cache.refreshFolder(folder); } catch { /* the reconcile sweep will get it */ }
+    refreshProjectFolders(projectPath);
     ctx.cache.notifyRendererProjectsChanged();
     return { ok: true };
   } catch (err) {
@@ -297,24 +324,104 @@ function unhideProject(projectPath) {
 }
 
 /**
- * Toggle automatic project discovery. When turning OFF (manual mode), freeze the currently-visible
- * projects into the allowlist so nothing disappears; folders discovered afterwards won't appear unless
- * added explicitly. Turning ON again ignores the allowlist (everything is discovered as before).
+ * Toggle automatic project discovery — that is, WHO MAY WRITE TO THE LIST (#167).
+ *
+ * auto:   discovery registers a project it finds a session in, in any backend's store. The user may
+ *         still add one by hand.
+ * manual: only the user does. Nothing that turns up in a store on its own gets on the list.
+ *
+ * Flipping the switch no longer has to snapshot anything: the list is already the list. It used to
+ * freeze the currently-visible projects into an allowlist, because manual mode was a FILTER over a
+ * derivation and without that snapshot the sidebar would have gone blank.
  */
 function setProjectAutoAdd(enabled) {
   try {
     const global = ctx.db.getSetting('global') || {};
-    if (!enabled) {
-      // Snapshot the current (auto-discovered) set before flipping the flag.
-      const visible = ctx.cache.buildProjectsFromCache(false).map(p => p.projectPath);
-      global.addedProjects = [...new Set(visible)];
-    }
     global.projectAutoAdd = !!enabled;
     ctx.db.setSetting('global', global);
     ctx.cache.notifyRendererProjectsChanged();
     return { ok: true };
   } catch (err) {
     return { error: err.message };
+  }
+}
+
+/**
+ * Discovery: put the projects the scan found on the list — and sweep the tombstones that guard nothing.
+ *
+ * Called from `get-projects`, after the scans and before the list is built, so what a scan just found is
+ * on the list by the time the sidebar paints it. It is the ONLY place discovery writes to the register,
+ * and it is deliberately backend-blind: a Codex or Pi session in an unknown path registers its project
+ * exactly like a Claude one. The old code could only ever discover Claude projects, because the list was
+ * read out of Claude's store.
+ */
+function syncRegistry() {
+  try {
+    const global = ctx.db.getSetting('global') || {};
+    const autoAdd = global.projectAutoAdd !== false;
+    const states = ctx.db.getProjectStates();
+
+    // The newest session per project, across every backend. The tombstone is compared against it, so it
+    // has to include the projects the CACHE cannot speak for: a removed project is not indexed, and if
+    // discovery only looked at cached rows, a brand-new session in it would never be noticed and
+    // "removed" would quietly mean "banned for good". The scan reports what it saw in the stores.
+    //
+    // ONE pass over the cached rows, not `buildProjectsAdmin()` — that also readdirs the store and stats
+    // every project path, and this runs on every sidebar render.
+    const newest = new Map();
+    for (const [projectPath, at] of ctx.cache.getStoreProjectPaths()) newest.set(projectPath, at || null);
+    for (const row of ctx.db.getAllCached()) {
+      if (!row.projectPath) continue;
+      const at = row.modified || null;
+      const known = newest.get(row.projectPath);
+      if (!newest.has(row.projectPath) || (at && (!known || at > known))) {
+        newest.set(row.projectPath, at || known || null);
+      }
+    }
+
+    // The same directory can be spelled two ways on Windows, and a state looked up under the wrong
+    // spelling is a state that is not there — which for a tombstone means the project resurrects itself.
+    const byKey = new Map();
+    for (const [p, s] of states) byKey.set(samePathKey(p), s);
+
+    const now = new Date().toISOString();
+    let changed = false;
+
+    for (const [projectPath, sessionAt] of newest) {
+      const state = states.get(projectPath) || byKey.get(samePathKey(projectPath));
+      if (!registry.shouldRegister(state, { source: 'scan', autoAdd, sessionAt })) continue;
+      // Registering does NOT unhide: `registrationState` is for an explicit act by the user. Discovery
+      // only puts it on the list, and a project the user hid stays hidden while its sessions pile up.
+      ctx.db.setProjectState(projectPath, { registered: 1, registeredAt: now, removedAt: null });
+      changed = true;
+
+      // Index it NOW — every folder of it. While it was removed the scan skipped those folders, and
+      // stamped each one's mtime memo as up to date on the way past, so the next reconcile would skip
+      // them too: the project would sit in the sidebar empty, its sessions on disk, nothing to bring
+      // them in.
+      if (state && state.removedAt) refreshProjectFolders(projectPath);
+    }
+
+    // The sweep. A tombstone whose sessions are all gone guards nothing — a genuinely new session at that
+    // path SHOULD register the project again — so it is only in the way. The grace period is the safety
+    // belt: an unmounted network drive looks exactly like a deleted one.
+    //
+    // "Has sessions" must be asked of the STORES, not of the cache. A removed project is not indexed, so
+    // the cache is empty for it BY CONSTRUCTION — believing the cache would sweep every tombstone on the
+    // next pass and resurrect the project off the transcripts still on disk. So: the cache, plus what the
+    // scan actually saw in the backend stores, plus Claude's store on disk.
+    const seen = new Set([...newest.keys()].map(samePathKey));
+    const nowMs = Date.now();
+    for (const [projectPath, removedAt] of ctx.db.getProjectTombstones()) {
+      const hasSessions = seen.has(samePathKey(projectPath)) || projectHasSessionsOnDisk(projectPath);
+      if (!registry.shouldDropTombstone({ removedAt }, { hasSessions, now: nowMs })) continue;
+      ctx.db.setProjectState(projectPath, { removedAt: null });
+      ctx.log.info('[registry] tombstone swept (no sessions left anywhere): ' + projectPath);
+    }
+
+    if (changed) ctx.cache.notifyRendererProjectsChanged();
+  } catch (err) {
+    ctx.log.warn('[registry] sync failed: ' + (err && err.message));
   }
 }
 
@@ -408,18 +515,15 @@ function remapProject(oldPath, newPath) {
     try { ctx.db.renameProjectRefs(oldPath, newPath); } catch (err) {
       ctx.log.warn('[remap] project refs move failed: ' + err.message);
     }
+    // The register moves with the project (#167). `renameProjectRefs` above already carries the
+    // project_meta row over, hide flag and all — a hide the user made themselves is about the PROJECT,
+    // and the project is what just moved. What must not survive is a TOMBSTONE sitting on the new path:
+    // the user is plainly putting a project there, and a stale removal would make it vanish on the next
+    // scan with no control anywhere that says why.
     try {
-      const global = ctx.db.getSetting('global') || {};
-      let touched = false;
-      for (const key of ['hiddenProjects', 'addedProjects']) {
-        if (!Array.isArray(global[key]) || !global[key].includes(oldPath)) continue;
-        // Rewrite in place, and never end up with the path listed twice.
-        global[key] = [...new Set(global[key].map(p => (p === oldPath ? newPath : p)))];
-        touched = true;
-      }
-      if (touched) ctx.db.setSetting('global', global);
+      ctx.db.setProjectState(newPath, { registered: 1, registeredAt: new Date().toISOString(), removedAt: null });
     } catch (err) {
-      ctx.log.warn('[remap] global project lists move failed: ' + err.message);
+      ctx.log.warn('[remap] register move failed: ' + err.message);
     }
 
     // A remapped project must not be auto-hidden out from under the rename (#171).
@@ -433,17 +537,11 @@ function remapProject(oldPath, newPath) {
     // Adding or unhiding a project already restarts this grace timer (#57). A remap is the same kind of
     // act: the user just touched this project.
     try {
-      const wasAutoHidden = ctx.db.getAutoHiddenProjects().has(newPath);
+      // Clearing the auto-hide is now exactly one call: the flag IS the state (#167). It used to also
+      // have to pull the path out of `hiddenProjects` — the same list a manual hide wrote to — while
+      // taking care not to undo a hide the user had made themselves. The two are separate columns now,
+      // so that whole dance is gone: a manual hide rides along with the project, the machine's does not.
       ctx.db.resetProjectAutoHide(newPath);
-      if (wasAutoHidden) {
-        const g = ctx.db.getSetting('global') || {};
-        if (Array.isArray(g.hiddenProjects) && g.hiddenProjects.includes(newPath)) {
-          // It was hidden by the machine, not by the user — and the user is plainly moving a project
-          // here. A hide the user made themselves rides along with the old path above, and stays.
-          g.hiddenProjects = g.hiddenProjects.filter(p => p !== newPath);
-          ctx.db.setSetting('global', g);
-        }
-      }
     } catch (err) {
       ctx.log.warn('[remap] auto-hide reset failed: ' + err.message);
     }
@@ -501,7 +599,6 @@ function getProjectsAdmin() {
   try {
     const global = ctx.db.getSetting('global') || {};
     const autoAdd = global.projectAutoAdd !== false;
-    const allowed = Array.isArray(global.addedProjects) ? new Set(global.addedProjects) : null;
 
     // Parse ~/.claude.json once (~160 KB) and derive all three views from it, instead of each helper
     // re-reading + re-parsing the file.
@@ -526,7 +623,11 @@ function getProjectsAdmin() {
         sessionCount: 0,
         lastActivity: null,
         missing: !fs.existsSync(projectPath),
-        hidden: (global.hiddenProjects || []).includes(projectPath),
+        // A project known only to ~/.claude.json: it has trust and a cost history, and it is NOT on the
+        // list — which is what the "Listed" toggle is now for. It used to be badged `config-only` and
+        // that was the end of it: no control anywhere could put it in the sidebar (#167).
+        hidden: false,
+        registered: false,
         favorite: false,
         configOnly: true,
       };
@@ -578,8 +679,9 @@ function getProjectsAdmin() {
       r.lastCost = m.lastCost != null ? m.lastCost : null;
       r.inputTokens = m.inputTokens != null ? m.inputTokens : null;
       r.outputTokens = m.outputTokens != null ? m.outputTokens : null;
-      // In manual mode, whether the project is on the explicit allowlist.
-      r.inAllowlist = allowed ? allowed.has(r.projectPath) : true;
+      // Kept under its old name for the renderer's column: it now means "on the register", which is what
+      // the allowlist was always trying to be — except that it could only ever subtract (#167).
+      r.inAllowlist = !!r.registered;
     }
 
     // What the renderer needs to draw the trust controls: which backends can be trusted at all.
@@ -736,6 +838,9 @@ function toggleFavorite(projectPath) {
 function registerIpc(ipcMain) {
   ipcMain.handle('browse-folder', () => browseFolder());
   ipcMain.handle('add-project', (_e, projectPath) => addProject(projectPath));
+  // Hide and remove are different things now (#167): hide keeps the project on the list and unseen;
+  // remove takes it off, purges its cached rows and leaves a tombstone.
+  ipcMain.handle('hide-project', (_e, projectPath) => hideProject(projectPath));
   ipcMain.handle('remove-project', (_e, projectPath) => removeProject(projectPath));
   ipcMain.handle('get-hidden-projects', () => getHiddenProjects());
   ipcMain.handle('unhide-project', (_e, projectPath) => unhideProject(projectPath));
@@ -753,11 +858,11 @@ module.exports = {
   init,
   registerIpc,
   // operations (exported for tests, and for main.js where it calls them directly)
-  browseFolder, addProject, removeProject, getHiddenProjects, unhideProject, setProjectAutoAdd,
+  browseFolder, addProject, hideProject, removeProject, getHiddenProjects, unhideProject, setProjectAutoAdd,
   remapProject, getProjectsAdmin, setProjectTrust, deleteProjectSessions, deletableBackends,
   removeProjectConfig, toggleFavorite,
   // helpers main.js still calls on other paths (a spawn adds the project; the app start hides stale ones)
-  ensureProjectAdded, applyAutoHide,
+  ensureProjectAdded, applyAutoHide, syncRegistry,
   projectHasSessionsOnDisk, projectIsInClaudeConfig, pruneProjectIfGone,
   AUTO_HIDE_THROTTLE_MS,
   _resetAutoHideThrottle: () => { lastAutoHideAt = 0; },
