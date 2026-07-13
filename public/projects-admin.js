@@ -96,15 +96,48 @@
     return '<button type="button" class="pa-missing-icon" data-action="recheck" title="Unavailable — click to re-check (e.g. after mounting the drive)" aria-label="Unavailable — re-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>';
   }
 
+  // An eye, like Favorite's star — a glyph, not a sentence. The cell used to spell out "Hidden"/"Visible"
+  // and hang an "auto" badge next to it: three words in a column that answers a yes/no question, in a
+  // table that already says everything else in one symbol.
+  //
+  // Auto-hidden is a THIRD state, not a footnote on the second (#167): the machine hid it because it went
+  // stale, and activity brings it back by itself — which a hide the user made never does. So it gets its
+  // own eye (dashed, dimmer), not a badge bolted onto the same one.
+  const EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
   // Hiding is a property of a LISTED project. A project that is not on the list is not hidden — it is
   // simply not there, and offering the toggle would write a flag that nothing shows and nothing clears
   // (and that would ambush the user the day discovery registers the project). Use the "Listed" toggle.
   function hiddenCell(row) {
-    if (!row.registered) return '<span class="pa-dash" title="Not on the project list — see Listed">—</span>';
-    const auto = row.autoHidden
-      ? '<span class="pa-auto-badge" title="Hidden automatically by inactivity">auto</span>'
-      : '';
-    return boolToggle('hidden', !!(row.hidden || row.autoHidden), 'Hidden', 'Visible', 'Toggle hidden in sidebar') + auto;
+    if (!row.registered) {
+      return '<span class="pa-dash" title="Not on the project list, so there is nothing to hide. Put it on the list first — see Listed.">—</span>';
+    }
+
+    // The same pill the Favorite and Listed toggles sit in — only the content is a glyph instead of a
+    // word. Each state says what it MEANS, not just what it is: what brings the project back is the
+    // whole difference between the three, and it is the thing a user cannot guess.
+    let cls = 'pa-toggle pa-eye pa-eye-shown';
+    let icon = EYE;
+    let title = 'Shown in the sidebar.\n\nClick to hide it: it stays on the list and its sessions keep being '
+      + 'indexed, you just stop seeing it. Useful for a project you are done with but do not want to remove.';
+    let label = 'Shown — click to hide';
+
+    if (row.autoHidden) {
+      cls = 'pa-toggle pa-eye pa-eye-auto';
+      icon = EYE_OFF;
+      title = 'Hidden AUTOMATICALLY — nothing has happened here for a while (Settings → auto-hide).\n\n'
+        + 'It un-hides itself the moment you work in it again. Click to bring it back now.';
+      label = 'Hidden automatically (inactive) — click to show';
+    } else if (row.hidden) {
+      cls = 'pa-toggle pa-eye pa-eye-hidden';
+      icon = EYE_OFF;
+      title = 'Hidden BY YOU — and it stays hidden: new sessions here do NOT bring it back. That is the '
+        + 'point of hiding.\n\nClick to show it again.';
+      label = 'Hidden — click to show';
+    }
+
+    return `<button type="button" class="${cls}" data-action="hidden" title="${escapeHtml(title)}" aria-label="${escapeHtml(label)}">${icon}</button>`;
   }
 
   function rowHtml(row) {
@@ -112,7 +145,13 @@
     // On the list, or not — in BOTH modes (#167). It used to appear only in manual mode, because the list
     // was a derivation and this was a subtractive filter over it; a project with a config but no sessions
     // was badged `config-only` and there was no control anywhere to put it in the sidebar.
-    const allowCol = `<td class="pa-center">${boolToggle('allowlist', !!row.inAllowlist, 'On', 'Off', 'On the project list (off removes it from the sidebar)')}</td>`;
+    const listedTitle = row.inAllowlist
+      ? 'On Switchboard\'s project list.\n\nClick to REMOVE it: it leaves the list and its cached sessions '
+        + 'are cleared. No transcript is deleted — they stay on disk. A NEW session in this folder brings '
+        + 'the project back, with all of its history. The old sessions alone do not.'
+      : 'NOT on the list, so Switchboard ignores it.\n\nClick to add it — even if it has no sessions at all '
+        + '(a project you are about to start work in).';
+    const allowCol = `<td class="pa-center">${boolToggle('allowlist', !!row.inAllowlist, 'On', 'Off', listedTitle)}</td>`;
     const info = [
       row.mcpServersCount ? row.mcpServersCount + ' MCP' : '',
       row.allowedToolsCount ? row.allowedToolsCount + ' tools' : '',
@@ -131,11 +170,11 @@
         <td class="pa-center">${row.sessionCount || 0}</td>
         <td class="pa-center">${backendsCell(row)}</td>
         <td class="pa-nowrap">${escapeHtml(fmtDate(row.lastActivity))}</td>
+        <td class="pa-info">${escapeHtml(info)}</td>
         <td class="pa-center">${trustCell(row)}</td>
         <td class="pa-center">${hiddenCell(row)}</td>
         <td class="pa-center">${boolToggle('favorite', !!row.favorite, '★', '☆', 'Toggle favorite')}</td>
         ${allowCol}
-        <td class="pa-info">${escapeHtml(info)}</td>
         <td class="pa-actions">
           <button data-action="rename" title="Rename (display name)">Rename</button>
           <button data-action="remap" title="Remap to another folder">Remap</button>
@@ -155,7 +194,13 @@
   }
 
   function render() {
-    const allowHeader = '<th>Listed</th>';
+    // The two columns answer DIFFERENT questions, and confusing them is what this feature was built to
+    // stop (#167): "Listed" is whether the project exists for Switchboard at all; "Hidden" is whether you
+    // want to look at it. So each header says what the column is FOR, not what it toggles.
+    const allowHeader = '<th title="Is this project on Switchboard\'s list at all?'
+      + '&#10;&#10;Off = removed: it leaves the list and its cached sessions are cleared — but no transcript is deleted.'
+      + ' A NEW session in that folder brings the project back with its full history; the old sessions alone do not.'
+      + '&#10;&#10;A project can be on the list with NO sessions at all — add one before you start working in it.">Listed</th>';
     viewer.innerHTML = `
       <div class="pa-header">
         <span class="pa-title">Projects</span>
@@ -169,8 +214,9 @@
           <thead>
             <tr>
               <th>Project</th><th>Sessions</th><th title="Which backends have sessions in this project">Backends</th><th>Last activity</th>
-              <th title="Trust is per backend — Claude keeps it in ~/.claude.json, Codex in its own config">Trust</th><th>Hidden</th><th>Favorite</th>${allowHeader}
-              <th>Info</th><th>Actions</th>
+              <th title="What ~/.claude.json knows about this project: MCP servers, allowed tools, and what its last session cost">Info</th>
+              <th title="Trust is per backend — Claude keeps it in ~/.claude.json, Codex in its own config">Trust</th><th title="Do you want to SEE this project? It stays on the list either way, and its sessions keep being indexed — hiding is about the sidebar, not about the data.&#10;&#10;A hide you make yourself STAYS: new sessions here do not bring it back, only you do.&#10;&#10;A dashed, blue eye means the app hid it because it went stale — that one un-hides itself as soon as you work in the project again.">Hidden</th><th>Favorite</th>${allowHeader}
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
