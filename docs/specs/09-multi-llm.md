@@ -121,6 +121,24 @@ For the inferred ones, terminal output is used as a **liveness** signal (`ctx.la
 a running-but-silent turn out of idle, and may **never** declare one busy. Activity is a bad state signal
 (a spinner frame is activity, so is an echoed keystroke) and a fine liveness signal.
 
+**When the store says nothing at all, the app says so** (`live-record-notice.js`, #151). A store-derived
+backend can only report a state once the live session is paired with its store record. Hermes has a
+degraded mode — it writes sessions as JSON when it cannot open its own database, and our reader *is* that
+database — so a session running in front of the user may have no record we can see. The tab then shows no
+state, forever, with nothing to explain it. A session left unpaired past a grace window (60 s; Hermes alone
+needs ~12 s just to paint) raises a one-time notice naming the backend.
+
+Which means the slow re-check tick must run **while a session is unpaired**, not only while one is busy.
+The store-changed watcher cannot fire when the store does not exist, and an unpaired session can never be
+busy — so gating the tick on "something is busy" would have left the one case this exists for permanently
+silent. It stops counting a session once the notice has gone out: the tick's job was to reach that point,
+and `matchLiveSession` walks a file backend's entire store. A record that turns up afterwards is still
+claimed — the watcher fires the moment anything is written, which is exactly when it would.
+
+The original plan called for falling back to PTY activity here. That is exactly what rule 4 below forbids,
+and it is how "permanently working" shipped twice: a TUI that repaints at rest would read as busy for good.
+The state stays **unknown** — and the user is told that it is unknown, and why.
+
 ### Settings and launch, end to end
 
 `backendDefaults.<id>.<opt>` (settings blob, global → project cascade) → `get-effective-settings` →

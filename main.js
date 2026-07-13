@@ -11,6 +11,7 @@ const attentionSource = require('./public/attention-source');
 // getFolderIndexMtimeMs moved to session-cache.js
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
 const { decideOsc94 } = require('./osc-busy');
+const { shouldNoticeMissingRecord, missingRecordMessage } = require('./live-record-notice');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rekeyMcpServer, cleanStaleLockFiles } = require('./mcp-bridge');
 const { fetchAndTransformUsage } = require('./claude-auth');
 const { withMainProcessUsageCache } = require('./usage-cache');
@@ -4518,10 +4519,24 @@ function updateBackendLiveStates() {
       continue;   // Claude & Axis-A: they report state through OSC and own their session id already.
     }
 
-    const ref = claimLiveRecord(sessionId, session, backend);
-    if (!ref) continue;
-
     const liveId = session.realSessionId || sessionId;
+    const ref = claimLiveRecord(sessionId, session, backend);
+    if (!ref) {
+      // No record, and the session is plainly running in front of the user — so the tab will show no
+      // state at all, forever. Hermes' degraded mode (it writes JSON when it cannot open its own DB) puts
+      // it here. Say so once, rather than leaving a blank indicator the user cannot explain (#151). We do
+      // NOT fabricate a state from PTY output: output is liveness, never busy (D21).
+      if (shouldNoticeMissingRecord({ openedAt: session._openedAt, alreadyNoticed: session._noRecordNoticed })) {
+        session._noRecordNoticed = true;
+        const message = missingRecordMessage(backend.label || backend.id);
+        log.warn(`[${backend.id}] session=${liveId} has no store record — reporting no busy/idle state`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('session-notice', liveId, message);
+        }
+      }
+      continue;
+    }
+
     let state;
     try { state = backend.liveState(ref, { lastOutputMs: session._lastOutputAt || 0 }); } catch { state = null; }
     if (state == null) continue;
@@ -4633,20 +4648,50 @@ function startBackendWatchers() {
   // Busy/idle for these backends is derived from their STORE, and the store only tells us something
   // when it changes. A backend that hangs mid-turn writes nothing more — so the last edge we pushed
   // (BUSY) would stand forever, and every backend's state logic has a staleness rule that never gets a
-  // chance to run. This slow tick gives it one: it re-evaluates only while something is actually marked
-  // busy, so an idle app does no work at all.
+  // chance to run. This slow tick gives it one.
+  //
+  // It also has to run for a session we have NOT paired with a record yet, and that is not a nicety: the
+  // store-changed watcher cannot fire when the store does not exist. Hermes in degraded mode (it writes
+  // JSON because it could not open its own database) never touches state.db, so nothing changes, so
+  // nothing ticks — and gating this on "something is busy" made it worse, because an unpaired session can
+  // never BE busy. One Hermes session on a broken store would then sit there in silence, which is exactly
+  // the condition #151 exists to speak up about. So: tick while anything is busy, OR while anything is
+  // still unpaired. An app with no live backend session does no work either way.
   if (!backendBusyTicker) {
     backendBusyTicker = setInterval(() => {
       if (appQuitting) return;
       let anyBusy = false;
       for (const busy of liveBusy.values()) if (busy) { anyBusy = true; break; }
-      if (!anyBusy) return;
+      if (!anyBusy && !hasUnclaimedStoreSession()) return;
       try { updateBackendLiveStates(); } catch (err) {
         log.warn(`[backends] busy re-check failed: ${err?.message || err}`);
       }
     }, 30000);
     if (backendBusyTicker.unref) backendBusyTicker.unref();
   }
+}
+
+// Is any live session still waiting to be paired with its backend's store record? Only store-derived
+// backends count — Claude owns its session id and reports state through the terminal, so it is never
+// "unpaired" in this sense.
+//
+// A session we have ALREADY spoken up about stops counting. This tick exists to get us to that notice,
+// and matchLiveSession is not free: on a file backend it walks the whole store and parses every candidate.
+// Left counting, a session that can never be paired (a store that moved, a cwd that will not correlate)
+// would drive that walk every 30 seconds for the life of the app. The record can still turn up later —
+// the store watcher fires the moment anything is written, which is exactly when it would.
+function hasUnclaimedStoreSession() {
+  for (const [sessionId, session] of activeSessions) {
+    if (session.exited || session.isPlainTerminal || session._noRecordNoticed) continue;
+    const liveId = session.realSessionId || sessionId;
+    if (liveStoreRef.has(sessionId) || liveStoreRef.has(liveId)) continue;
+    const mapped = sessionBackends.get(liveId);
+    if (!mapped) continue;
+    const backend = backends.get(mapped.backendId);
+    if (!backend || typeof backend.matchLiveSession !== 'function' || typeof backend.liveState !== 'function') continue;
+    return true;
+  }
+  return false;
 }
 
 function stopBackendWatchers() {

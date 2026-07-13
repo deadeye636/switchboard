@@ -164,6 +164,12 @@ contextBridge.exposeInMainWorld('api', {
   onCliBusyState: (callback) => {
     ipcRenderer.on('cli-busy-state', (_event, sessionId, busy) => callback(sessionId, busy));
   },
+  // A statement about the session itself, not from the CLI's output — today: "this backend has no record
+  // of this session, so there is no busy/idle to show" (#151). NOT an attention signal: nothing is
+  // waiting for the user, so it must not go through onTerminalNotification, which would light the row up.
+  onSessionNotice: (callback) => {
+    ipcRenderer.on('session-notice', (_event, sessionId, message) => callback(sessionId, message));
+  },
   onAttentionSignal: (callback) => {
     ipcRenderer.on('attention-signal', (_event, signal) => callback(signal));
   },

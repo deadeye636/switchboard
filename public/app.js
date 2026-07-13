@@ -1207,6 +1207,17 @@ window.api.onTerminalNotification((sessionId, message) => {
   }
 });
 
+// --- Session notices (#151) ---
+// Something the app knows about the session that the session itself cannot say — today: its backend has
+// no record of it, so no busy/idle state can be shown. Deliberately a toast and NOT an attention signal:
+// nothing is waiting for the user, and lighting the row up would be a lie of a different kind.
+window.api.onSessionNotice((sessionId, message) => {
+  if (!message || typeof showControlToast !== 'function') return;
+  const session = sessionMap.get(sessionId);
+  const name = session ? (session.name || session.aiTitle || session.summary || '') : '';
+  showControlToast({ message: name ? `${name}: ${message}` : message, timeoutMs: 8000 });
+});
+
 // --- Structured attention signals from Claude Code hooks (spec 05) ---
 // main.js already normalized the raw hook JSON via attention-source.js; trust it.
 window.api.onAttentionSignal((signal) => {
