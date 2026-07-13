@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (19 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (18 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-13
 
@@ -32,6 +32,5 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#113](https://github.com/deadeye636/switchboard/issues/113) Optional second tray icon showing Claude usage (live percentage) · _feature_
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
-- [#153](https://github.com/deadeye636/switchboard/issues/153) Multi-LLM: leftover gaps against the plan and the mockups · _chore_
 - [#164](https://github.com/deadeye636/switchboard/issues/164) Session tags: filter the sidebar by session tag · _feature_
 - [#166](https://github.com/deadeye636/switchboard/issues/166) PTY liveness can hold a session busy forever — it has no ceiling · _bug_
