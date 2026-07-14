@@ -8235,6 +8235,9 @@ body.grid-dragging .grid-card-header {
   padding: 0 10px 6px;
 }
 .project-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   line-height: 1.5;
   padding: 1px 9px;
@@ -8245,6 +8248,20 @@ body.grid-dragging .grid-card-header {
 }
 .project-tag-chip:hover { filter: brightness(1.15); }
 .project-tag-chip.active { font-weight: 600; }
+
+/* What KIND of tag a chip is (#164). The two are not the same thing — a project chip drops whole
+   projects, a session chip drops session rows — and the same word can be both, so position alone must
+   not carry the distinction. Quiet enough that the tag's colour is still what you read first. */
+.tag-chip-glyph { flex-shrink: 0; opacity: 0.75; }
+.tag-chip-hash { font-weight: 700; font-size: 10px; line-height: 1; }
+
+/* Only rendered when it has something to separate. */
+.tag-filter-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 1px 3px;
+  background: rgba(255,255,255,0.14);
+}
 
 /* Bookmark overlay + tag dialog */
 .bm-dialog-overlay {

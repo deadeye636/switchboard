@@ -322,6 +322,11 @@ let showFavoritedProjectsOnly = false;
 // holds the selected tags; projectTagMap is projectPath -> Set<tag> for matching.
 let activeProjectTagFilter = new Set();
 let projectTagMap = new Map();
+// Session tag filter (#164), in the SAME chip bar. A project tag drops whole projects; a session tag
+// drops session rows and a project disappears as a consequence. Selected together they AND across the
+// two kinds — "sessions tagged bug IN projects tagged kunde" — which is the reason they share one bar.
+let activeSessionTagFilter = new Set();
+let sessionTagMap = new Map();
 let cachedProjects = [];
 let cachedAllProjects = [];
 let loadProjectsGen = 0; // bumped per loadProjects() call; stale responses bail (issue #75)
@@ -1297,52 +1302,94 @@ function refreshSidebar({ resort = false } = {}) {
     projects = filterProjectsByTags(projects, projectTagMap, activeProjectTagFilter);
   }
 
+  // Session tag filter (#164): one axis down — keep the sessions carrying every selected session tag,
+  // and drop the projects left with none. Applied AFTER the project filter, so the two AND together.
+  if (activeSessionTagFilter.size > 0 && typeof filterProjectSessionsByTags === 'function') {
+    projects = filterProjectSessionsByTags(projects, sessionTagMap, activeSessionTagFilter);
+  }
+
   renderProjects(projects, resort);
   if (typeof updateCollapseAllToggle === 'function') updateCollapseAllToggle();
 }
 
-// --- Project tag filter chip bar (#98) ---
-// Loads all project tags, builds the projectPath->tags map used by refreshSidebar,
-// and renders the colored filter chips. Called on init and whenever tags change.
-async function _refreshProjectTagFilter() {
-  let rows = [];
-  try { rows = await window.api.projectTagsAll(); } catch { rows = []; }
-  // Tag state (#138): a *disabled* tag renders no chip anywhere, so it leaves the
-  // per-project map too. A *hidden* tag keeps its chips but drops out of the filter
-  // bar — it is still attached, just not something you filter by any more.
+// --- The tag filter chip bar (#98 project tags, #164 session tags) ---
+//
+// ONE bar, two kinds: project chips, a separator, session chips. They are not the same thing — a project
+// chip drops whole PROJECTS, a session chip drops session ROWS and a project disappears only as a
+// consequence — and their names live in separate namespaces, so the same word can be both. A separator
+// alone would leave two identical-looking chips doing different things, with position carrying the whole
+// distinction; each chip therefore says what it is (a folder glyph, or a #).
+//
+// Selected together they AND across the kinds: "sessions tagged bug IN projects tagged kunde". That cross
+// filter is exactly why both live in one bar instead of behind a Projects/Sessions switch.
+const TAG_KIND_GLYPH = {
+  // A folder for the project kind, a # for the session kind. Deliberately small — the tag's colour is
+  // still what you read first.
+  project: '<svg class="tag-chip-glyph" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.6a1 1 0 0 1 .8.4l1.2 1.6H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  session: '<span class="tag-chip-glyph tag-chip-hash">#</span>',
+};
+
+// Tag state (#138): a *disabled* tag renders no chip anywhere, so it leaves the matching map too. A
+// *hidden* tag keeps its chips on the cards but drops out of the filter bar — it is still attached, just
+// not something you filter by any more.
+function _tagBarSlice(rows, activeSet) {
   const assigned = (rows || []).filter(r => r && r.tag && !r.disabled);
-  projectTagMap = (typeof buildProjectTagMap === 'function') ? buildProjectTagMap(assigned) : new Map();
-  const allTags = [...new Set(assigned.filter(r => !r.hidden).map(r => r.tag))].sort();
-  // Drop selections whose tag is gone, hidden or disabled — otherwise a filter stays
-  // active with no chip to switch it off.
-  for (const t of [...activeProjectTagFilter]) {
-    if (!allTags.includes(t)) activeProjectTagFilter.delete(t);
+  const tags = [...new Set(assigned.filter(r => !r.hidden).map(r => r.tag))].sort();
+  // Drop selections whose tag is gone, hidden or disabled — otherwise a filter stays active with no chip
+  // left to switch it off.
+  for (const t of [...activeSet]) {
+    if (!tags.includes(t)) activeSet.delete(t);
   }
-  if (!projectTagFilters) return;
-  if (allTags.length === 0) {
-    projectTagFilters.innerHTML = '';
-    applyProjectTagFilterVisibility();
-    return;
-  }
-  const pickColor = (window.bookmarksTags && typeof window.bookmarksTags.pickColor === 'function')
-    ? window.bookmarksTags.pickColor
-    : () => '#61afef';
-  // Prefer each tag's stored color (user may have recolored it); fall back to the
-  // deterministic hue. First non-empty color wins if it varies across projects.
-  // Colour now comes from the tag def (#138), so every row for a tag carries the
-  // same value — no "first one wins" ambiguity left to resolve.
+  // Colour comes from the tag def (#138), so every row for a tag carries the same value.
   const colorByTag = new Map();
   for (const r of assigned) {
     if (r.color && !colorByTag.has(r.tag)) colorByTag.set(r.tag, r.color);
   }
-  projectTagFilters.innerHTML = allTags.map(tag => {
+  return { assigned, tags, colorByTag };
+}
+
+function _tagChipsHtml(kind, tags, colorByTag, activeSet) {
+  const pickColor = (window.bookmarksTags && typeof window.bookmarksTags.pickColor === 'function')
+    ? window.bookmarksTags.pickColor
+    : () => '#61afef';
+  return tags.map(tag => {
     const color = colorByTag.get(tag) || pickColor(tag);
-    const active = activeProjectTagFilter.has(tag);
+    const active = activeSet.has(tag);
     const style = active
       ? `background:${color};border-color:${color};color:#1a1a1a`
       : `background:${color}1a;border-color:${color};color:${color}`;
-    return `<button type="button" class="project-tag-chip${active ? ' active' : ''}" data-tag="${escapeHtml(tag)}" style="${style}" aria-pressed="${active}">${escapeHtml(tag)}</button>`;
+    return `<button type="button" class="project-tag-chip${active ? ' active' : ''}" data-kind="${kind}"`
+      + ` data-tag="${escapeHtml(tag)}" style="${style}" aria-pressed="${active}"`
+      + ` title="${kind === 'project' ? 'Project tag — filters projects' : 'Session tag — filters sessions'}">`
+      + `${TAG_KIND_GLYPH[kind]}<span>${escapeHtml(tag)}</span></button>`;
   }).join('');
+}
+
+async function _refreshProjectTagFilter() {
+  let projectRows = [];
+  let sessionRows = [];
+  try { projectRows = await window.api.projectTagsAll(); } catch { projectRows = []; }
+  try { sessionRows = await window.api.sessionTagsAll(); } catch { sessionRows = []; }
+
+  const proj = _tagBarSlice(projectRows, activeProjectTagFilter);
+  const sess = _tagBarSlice(sessionRows, activeSessionTagFilter);
+
+  projectTagMap = (typeof buildProjectTagMap === 'function') ? buildProjectTagMap(proj.assigned) : new Map();
+  sessionTagMap = (typeof buildSessionTagMap === 'function') ? buildSessionTagMap(sess.assigned) : new Map();
+
+  if (!projectTagFilters) return;
+  if (proj.tags.length === 0 && sess.tags.length === 0) {
+    projectTagFilters.innerHTML = '';
+    applyProjectTagFilterVisibility();
+    return;
+  }
+
+  // The separator only exists when it separates something.
+  const sep = (proj.tags.length > 0 && sess.tags.length > 0) ? '<span class="tag-filter-sep" aria-hidden="true"></span>' : '';
+  projectTagFilters.innerHTML =
+    _tagChipsHtml('project', proj.tags, proj.colorByTag, activeProjectTagFilter)
+    + sep
+    + _tagChipsHtml('session', sess.tags, sess.colorByTag, activeSessionTagFilter);
   applyProjectTagFilterVisibility();
 }
 window._refreshProjectTagFilter = _refreshProjectTagFilter;
@@ -1362,8 +1409,10 @@ if (projectTagFilters) {
     const chip = e.target.closest('.project-tag-chip');
     if (!chip) return;
     const tag = chip.dataset.tag;
-    if (activeProjectTagFilter.has(tag)) activeProjectTagFilter.delete(tag);
-    else activeProjectTagFilter.add(tag);
+    // The chip says which kind it is; the two selections are separate sets and AND together (#164).
+    const active = chip.dataset.kind === 'session' ? activeSessionTagFilter : activeProjectTagFilter;
+    if (active.has(tag)) active.delete(tag);
+    else active.add(tag);
     _refreshProjectTagFilter();
     refreshSidebar({ resort: true });
   });
