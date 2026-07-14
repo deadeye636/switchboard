@@ -1296,14 +1296,13 @@ function showSession(sessionId) {
       focusGridCard(sessionId);
     } else if (entry) {
       // Session isn't in the grid yet (e.g. opened from the attention inbox while
-      // the grid group filter hides it). Rebuild the grid so the card lands in
-      // its correct region instead of being appended loose to #terminals — the
-      // ad-hoc wrap ignored grouping/filters and mis-placed grouped sessions.
-      // If the active group filter would hide it, reset the filter so the click
-      // still reveals the session in its own region (never changes membership).
+      // the status filter hides it). Rebuild the grid rather than appending the card
+      // loose to #terminals — the ad-hoc wrap ignored the filters and mis-placed it.
+      // If the active filter would hide it, reset the filter so the click still
+      // reveals the session (never changes membership).
       if (typeof getGridAllowedSessionIds === 'function' && !getGridAllowedSessionIds().has(sessionId)) {
-        gridGroupFilter = 'all';
-        localStorage.setItem('gridGroupFilter', gridGroupFilter);
+        gridStatusFilter = 'all';
+        localStorage.setItem('gridStatusFilter', gridStatusFilter);
       }
       showGridView();
       requestAnimationFrame(() => focusGridCard(sessionId));

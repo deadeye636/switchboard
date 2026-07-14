@@ -1,8 +1,15 @@
 # Spec 07 — Session groups (visual folders)
 
+> **Deprecated — the feature was removed (#185).** Groups and the folder-first layout are gone; nothing
+> in `public/` implements this any more. Session tags do the job on a better model (many per session,
+> their own table, central management) and the tag filter (#164) selects the same set a group section
+> drew. Existing group assignments were **not migrated** — the `groups` settings blob is simply no longer
+> read, so anyone who had groups re-tags those sessions by hand. This document stays as the design record:
+> it is why the feature existed, and why it did not last.
+
 > Read `docs/specs/README.md` first.
 
-**Status:** Implemented · **Roadmap:** Opportunity #7a (Phase 5A) · **Independent:** Yes · **Blocks:** Spec 08
+**Status:** Removed (#185) · **Roadmap:** Opportunity #7a (Phase 5A) · **Independent:** Yes · **Blocks:** Spec 08
 
 ## Problem & goal
 

@@ -201,24 +201,20 @@ context switch. Each feature has a full design doc under `docs/specs/`.
   **Mark all ready as seen** (with Undo), and **Stop all running** (destructive →
   confirmation listing names). Target computation is pure and tested.
 
-### 07 — Session groups (visual folders)
-`public/groups-model.js`, `public/sidebar.js`, `public/grid-view.js`
+### 07 — Session groups (visual folders) — **removed (#185)**
 
-- User-defined, named, **colored groups** ("folders") for sessions — beyond the
-  automatic project/slug grouping.
-- Collapsible group sections in the sidebar and bounded, labeled group regions in
-  the grid, with **rolled-up attention counts** on group headers and a grid group
-  filter. Membership/collapse persist across restarts.
-- Includes a one-click **"Launch all"** for a group (`getSessionsToLaunch` skips
-  already-open members so nothing double-opens).
+Shipped, then taken back out. Session tags carry the same idea on a better model
+(many per session, their own table, central management) and the tag filter (#164)
+selects the same set a group section drew — so groups, the folder-first sidebar
+layout and the grid's group regions were deleted rather than maintained twice.
+The design record survives in `docs/specs/07-session-groups.md`.
 
 ### 08 — Flexible grid layout (resize / drag)
 `public/grid-layout.js`, `public/grid-view.js`
 
 - **Resize** grid cards to span columns/rows (snap presets 1×1 / 2×1 / 1×2 / 2×2 /
-  full width; up to 3 rows via the keyboard move mode) and
-  **drag to reorder** them (and into/out of groups), with a live FLIP reflow
-  preview and snap-layout popover.
+  full width; up to 3 rows via the keyboard move mode) and **drag to reorder**
+  them, with a live FLIP reflow preview and snap-layout popover.
 - Per-session span + order persist across restarts; a "reset layout" affordance
   restores the uniform grid. Geometry math is pure and tested.
 

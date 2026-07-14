@@ -18,7 +18,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
-- [#185](https://github.com/deadeye636/switchboard/issues/185) Replace user groups and the folder-first layout with grouping by session tag · _feature_
+- [#185](https://github.com/deadeye636/switchboard/issues/185) Remove user groups and the folder-first sidebar layout · _feature_
 - [#188](https://github.com/deadeye636/switchboard/issues/188) The core reads Claude directly instead of through its descriptor · _chore_
 
 ## P3 — someday

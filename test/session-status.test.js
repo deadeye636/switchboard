@@ -8,7 +8,6 @@ const {
   getStatusCounts,
   getFilteredSessionsByStatus,
   getGridAutoOpenSessionIds,
-  getSessionsToLaunch,
 } = require('../public/session-status');
 
 function state(overrides = {}) {
@@ -245,40 +244,4 @@ test('grid auto-open opens all running sessions when none are mounted yet', () =
 test('grid auto-open tolerates a missing runtime', () => {
   assert.deepEqual(getGridAutoOpenSessionIds(), []);
   assert.deepEqual(getGridAutoOpenSessionIds({}), []);
-});
-
-test('group launch targets every member that is not already mounted', () => {
-  const runtime = state({
-    openSessions: new Map([
-      ['m1', { closed: false }], // open → skip
-      ['m3', { closed: true }],  // closed entry → relaunch
-    ]),
-  });
-
-  // Both running (m2) and stopped (m4) members are launched — only the open one
-  // is skipped. The selector deliberately ignores activePtyIds.
-  assert.deepEqual(
-    getSessionsToLaunch(['m1', 'm2', 'm3', 'm4'], runtime),
-    ['m2', 'm3', 'm4'],
-  );
-});
-
-test('group launch de-dupes member ids and ignores falsy entries', () => {
-  assert.deepEqual(
-    getSessionsToLaunch(['a', 'a', null, 'b', undefined, 'b'], state()),
-    ['a', 'b'],
-  );
-});
-
-test('group launch returns nothing when every member is already open', () => {
-  const runtime = state({
-    openSessions: new Map([['a', { closed: false }], ['b', { closed: false }]]),
-  });
-  assert.deepEqual(getSessionsToLaunch(['a', 'b'], runtime), []);
-});
-
-test('group launch tolerates empty or missing member lists', () => {
-  assert.deepEqual(getSessionsToLaunch([], state()), []);
-  assert.deepEqual(getSessionsToLaunch(undefined, state()), []);
-  assert.deepEqual(getSessionsToLaunch(['a']), ['a']);
 });

@@ -22,7 +22,7 @@ Switchboard is a desktop app that gives you a unified view of all your Claude Co
 - **Attention Inbox** — A prioritized queue of every session that needs you, with a "Focus next" jump and a keyboard shortcut
 - **Native Notifications** — OS notifications, dock/taskbar badge, and a tray icon when an agent needs you — even when Switchboard is in the background
 - **Session Health & Handoff** — Flags long/expensive sessions and turns "Handoff Recommended" into a one-click fresh-start with a context packet
-- **Session Groups** — User-defined colored folders for organising agents, with a flexible resize/drag grid layout
+- **Flexible Grid Layout** — Resize and drag-reorder the session cards in the grid overview; the layout persists
 - **Usage Monitoring** — Live Claude usage limits (5h / weekly / Opus / Sonnet / quota) with a durable cache
 - **Fork & Resume** — Branch off from any point in a session's history
 - **Full-Text Search** — Find any session by what was discussed, not just when it happened
@@ -77,21 +77,12 @@ Open the grid overview via the overview button (or `Cmd/Ctrl+Shift+G`) for a bir
 
 - **Live terminals** — Every open session renders its full terminal in a card, so you can monitor multiple Claude agents simultaneously.
 - **Status at a glance** — Each card shows a status chip (Needs You / Ready / Working / Running / Exited / Idle), an indicator dot, and last-activity timestamp.
-- **Status filters** — Filter the grid to All / Needs You / Ready / Running, with live per-project and per-group counts.
+- **Status filters** — Filter the grid to All / Needs You / Ready / Running, with live counts.
 - **Bulk actions** — Step through the attention queue, mark all ready sessions as seen (with undo), or stop all running sessions (with a confirmation listing what's affected).
 - **Auto-open running sessions** — Sessions with a live process surface in the grid automatically by reattaching — never by spawning a new `claude`.
 - **Flexible layout** — Resize cards (snap-to-grid spans) and drag to reorder them; the layout persists across restarts. A "reset layout" restores the uniform grid.
 - **Click to focus, double-click to expand** — Click a card header to focus it; double-click to switch back to single-terminal view for that session.
 - **Persistent** — Grid preference is saved across restarts.
-
-## Session Groups
-
-Organise agents into user-defined, named, colored **groups** ("folders") — beyond the automatic project and slug grouping.
-
-- **Collapsible sections** in the sidebar and bounded, labeled **regions** in the grid.
-- **Rolled-up counts** — A collapsed group still shows how many of its sessions need you.
-- **Group filter** in the grid, and a one-click **"Launch all"** that opens every member (skipping ones already open).
-- **Persistent** — Group membership and collapse state are saved across restarts.
 
 ## File Preview Side Panel & Claude IDE MCP Emulator
 

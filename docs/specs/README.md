@@ -16,7 +16,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 04 | [One-click handoff](04-one-click-handoff.md) | #4 | Yes |
 | 05 | [Hook-based attention detection](05-hook-attention-detection.md) | #5 | Yes |
 | 06 | [Bulk actions from grid](06-grid-bulk-actions.md) | #6 | Yes |
-| 07 | [Session groups (visual folders)](07-session-groups.md) | #7a | Yes |
+| 07 | [Session groups (visual folders)](07-session-groups.md) — **removed (#185)**, kept as a design record | #7a | Yes |
 | 08 | [Flexible grid layout (resize/drag)](08-flexible-grid-layout.md) | #7b | Depends on 07 |
 | 09 | [Multi-LLM backends](09-multi-llm.md) | #142 | No — touches spawn/scan/settings |
 | 10 | [The project list is a list](10-project-registry.md) | #167 | No — touches the scan + the sidebar |

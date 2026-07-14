@@ -406,7 +406,7 @@ async function waitForAgentAnswer(session, { before = '', deadlineMs = 5 * 60 * 
 
 // Picker for the Handoff library: list a project's saved handoffs (with delete),
 // and seed a fresh session from the chosen one.
-async function showHandoffResumePicker(project, groupId) {
+async function showHandoffResumePicker(project) {
   let handoffs = [];
   try { handoffs = (await window.api.listHandoffs(project.projectPath)) || []; } catch {}
 
@@ -478,7 +478,7 @@ async function showHandoffResumePicker(project, groupId) {
           const backendId = select.value || 'claude';
           close();
           const opts = await resolveLaunchOptionsFor(project, backendId);
-          await launchNewSession(project, opts, h.content, groupId);
+          await launchNewSession(project, opts, h.content);
         };
         row.querySelector('.handoff-del').onclick = async () => {
           // Confirm first, and keep the entry if the delete actually fails —

@@ -87,11 +87,7 @@ const gridViewer = document.getElementById('grid-viewer');
 const gridViewerCount = document.getElementById('grid-viewer-count');
 const appLiveRegion = document.getElementById('app-live-region');
 let gridViewActive = localStorage.getItem('gridViewActive') === '1';
-const viewModeToggle = document.getElementById('view-mode-toggle');
-// Sidebar layout: 'directory' (project dir first) or 'folder' (user groups first,
-// split by project dir within, ungrouped below). Persisted across restarts.
-let sidebarViewMode = localStorage.getItem('sidebarViewMode') === 'folder' ? 'folder' : 'directory';
-// Project sorting (#17). Persisted in localStorage, render-synchronous like sidebarViewMode.
+// Project sorting (#17). Persisted in localStorage, render-synchronous.
 //
 // Two layers since #181. The SAVED value comes from Settings and is the fallback and the source of
 // truth; the View menu in the sidebar sets an OVERRIDE that lives for this run of the app only — it is
@@ -184,133 +180,6 @@ function setProjectCollapsed(projectPath, collapsed) {
   const s = getProjectCollapseState();
   s[projectPath] = !!collapsed;
   try { localStorage.setItem('projectCollapseState', JSON.stringify(s)); } catch { /* ignore */ }
-}
-// User-defined session groups (spec 07). State is restored from the `groups`
-// settings blob on startup and persisted on every mutation.
-let groupsState = createGroupsState();
-// Collapse state for user groups persists across restarts via localStorage
-// (keyed by the stable group DOM id), tracking which groups are collapsed.
-function getCollapsedGroups() {
-  return new Set(readLsJson('collapsedGroups', '[]'));
-}
-function saveCollapsedGroups() {
-  const collapsed = [];
-  document.querySelectorAll('.user-group.collapsed').forEach(g => { if (g.id) collapsed.push(g.id); });
-  localStorage.setItem('collapsedGroups', JSON.stringify(collapsed));
-}
-function persistGroupsState() {
-  return window.api.setSetting('groups', serialize(groupsState));
-}
-// Mutation helpers used by sidebar/grid assignment UI. Each persists and
-// refreshes the affected views.
-function assignSessionToGroup(sessionId, groupId) {
-  assignSession(groupsState, sessionId, groupId);
-  persistGroupsState();
-  refreshSidebar();
-  if (gridViewActive) showGridView();
-}
-function createGroupForSession(sessionId, { name, color } = {}) {
-  const { group } = addGroup(groupsState, { name, color });
-  if (sessionId) assignSession(groupsState, sessionId, group.id);
-  persistGroupsState();
-  refreshSidebar();
-  if (gridViewActive) showGridView();
-  return group;
-}
-function renameUserGroup(groupId, name) {
-  renameGroup(groupsState, groupId, name);
-  persistGroupsState();
-  refreshSidebar();
-  if (gridViewActive) showGridView();
-}
-function recolorUserGroup(groupId, color) {
-  recolorGroup(groupsState, groupId, color);
-  persistGroupsState();
-  refreshSidebar();
-  if (gridViewActive) showGridView();
-}
-function removeUserGroup(groupId) {
-  removeGroup(groupsState, groupId);
-  persistGroupsState();
-  refreshSidebar();
-  if (gridViewActive) showGridView();
-}
-
-// All session ids currently assigned to a group (independent of sidebar filters,
-// open state, or whether their metadata is loaded). Returned in assignment order.
-function getGroupMemberSessionIds(groupId) {
-  if (!groupId || typeof groupsState === 'undefined' || !groupsState.assignments) return [];
-  return Object.keys(groupsState.assignments).filter(sid => groupsState.assignments[sid] === groupId);
-}
-
-// Best-guess project for a (cross-project) group: the project that the most
-// members belong to. Used when launching a new session from a group folder so
-// the session lands in a sensible working directory before being assigned.
-// Returns a project object ({ folder, projectPath, sessions }) or null.
-function getProjectForGroup(groupId) {
-  const memberIds = getGroupMemberSessionIds(groupId);
-  const counts = new Map();
-  for (const sid of memberIds) {
-    const s = sessionMap.get(sid);
-    if (s && s.projectPath) counts.set(s.projectPath, (counts.get(s.projectPath) || 0) + 1);
-  }
-  let bestPath = null;
-  let bestCount = -1;
-  for (const [path, count] of counts) {
-    if (count > bestCount) { bestCount = count; bestPath = path; }
-  }
-  if (!bestPath) return null;
-  const proj = [...cachedProjects, ...cachedAllProjects].find(p => p.projectPath === bestPath);
-  return proj || { folder: encodeProjectPath(bestPath), projectPath: bestPath, sessions: [] };
-}
-
-// One-click "Launch all" for a user group. Explicit user intent, so — unlike the
-// grid auto-open which only re-attaches already-running PTYs — this opens EVERY
-// member that isn't already mounted: running members re-attach, stopped members
-// resume/start. attachRunningSession() handles both transparently (its
-// openTerminal call re-attaches when the PTY is live, otherwise resumes), so we
-// reuse it for all members and batch the mounts into a single view refresh + fit
-// pass instead of N re-renders. Already-open members are skipped (no double-open).
-async function launchAllInGroup(groupId) {
-  const memberIds = getGroupMemberSessionIds(groupId);
-  const toLaunch = (typeof getSessionsToLaunch === 'function'
-    ? getSessionsToLaunch(memberIds, { openSessions })
-    : memberIds.filter(sid => { const e = openSessions.get(sid); return !e || e.closed; }))
-    .map(sid => sessionMap.get(sid))
-    .filter(Boolean);
-
-  if (toLaunch.length === 0) {
-    if (typeof showControlToast === 'function') {
-      showControlToast({ message: 'All sessions in this group are already open.', timeoutMs: 3000 });
-    }
-    return 0;
-  }
-
-  // Batch the mounts (no per-session view switch), then refresh views once.
-  let launched = 0;
-  for (const session of toLaunch) {
-    if (await attachRunningSession(session)) launched++;
-  }
-  // Some members may have been freshly spawned — refresh active PTY tracking.
-  pollActiveSessions();
-
-  const openedIds = toLaunch
-    .map(s => s.sessionId)
-    .filter(sid => { const e = openSessions.get(sid); return e && !e.closed; });
-
-  // Multiple sessions → show them all at once in the grid. A single launch just
-  // opens in the current view so we don't yank the user into the grid needlessly.
-  // In tabs mode the view is single-only, so just focus the first one as a tab.
-  if (openedIds.length >= 2 && !document.body.classList.contains('display-mode-tabs')) {
-    showGridView(); // sets/keeps grid active and rebuilds once with the new cards
-    const focusId = openedIds[0];
-    requestAnimationFrame(() => { if (typeof focusGridCard === 'function') focusGridCard(focusId); });
-  } else if (openedIds.length >= 1) {
-    if (gridViewActive) showGridView();
-    else showSession(openedIds[0]);
-  }
-  refreshSidebar();
-  return launched;
 }
 let showArchived = false;
 let showStarredOnly = false;
@@ -1478,34 +1347,6 @@ function updateFavoriteToggleVisibility() {
 }
 updateFavoriteToggleVisibility();
 
-// --- Sidebar view mode toggle (directory-first <-> folder-first) ---
-const VIEW_MODE_ICONS = {
-  // Stacked folders: signals "folder-first" is active.
-  folder: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.6a1 1 0 0 1 .8.4l1.2 1.6H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
-  // Directory tree: signals "directory-first" is active.
-  directory: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><line x1="4" y1="6" x2="4.01" y2="6"/><line x1="4" y1="12" x2="4.01" y2="12"/><line x1="4" y1="18" x2="4.01" y2="18"/></svg>',
-};
-function updateViewModeToggle() {
-  if (!viewModeToggle) return;
-  const folderFirst = sidebarViewMode === 'folder';
-  viewModeToggle.classList.toggle('active', folderFirst);
-  viewModeToggle.title = folderFirst
-    ? 'Folder-first layout (click for directory-first)'
-    : 'Directory-first layout (click for folder-first)';
-  viewModeToggle.setAttribute('aria-label', viewModeToggle.title);
-  viewModeToggle.setAttribute('data-tooltip', viewModeToggle.title);
-  viewModeToggle.innerHTML = folderFirst ? VIEW_MODE_ICONS.folder : VIEW_MODE_ICONS.directory;
-}
-if (viewModeToggle) {
-  updateViewModeToggle();
-  viewModeToggle.addEventListener('click', () => {
-    sidebarViewMode = sidebarViewMode === 'folder' ? 'directory' : 'folder';
-    localStorage.setItem('sidebarViewMode', sidebarViewMode);
-    updateViewModeToggle();
-    refreshSidebar({ resort: true });
-  });
-}
-
 // --- Project sort settings (#17) ---
 // projectSortMode + favoritesOwnList live in the global settings blob (chosen in
 // the Session Display settings). Mirror them into the render-time vars (+ a
@@ -1577,11 +1418,11 @@ resortBtn.addEventListener('click', () => {
 
 // --- Collapse / expand all ---
 // Operates on every collapsible section in the session overview: project and
-// worktree headers, auto slug groups, and user groups. They all share the
-// `.collapsed` class, so "collapse all" adds it everywhere and "expand all"
-// removes it. Slug/user-group collapse state is persisted via their existing
-// helpers; project/worktree headers persist across re-renders via morphdom.
-const COLLAPSIBLE_SECTION_SELECTOR = '.project-header, .worktree-header, .slug-group, .user-group, .ff-project-header';
+// worktree headers, and auto slug groups. They all share the `.collapsed` class,
+// so "collapse all" adds it everywhere and "expand all" removes it. Slug collapse
+// state is persisted via its existing helpers; project/worktree headers persist
+// across re-renders via morphdom.
+const COLLAPSIBLE_SECTION_SELECTOR = '.project-header, .worktree-header, .slug-group';
 
 function getCollapsibleSections() {
   return Array.from(sidebarContent.querySelectorAll(COLLAPSIBLE_SECTION_SELECTOR));
@@ -1612,7 +1453,6 @@ function applyCollapseDefault(mode) {
   const collapse = mode === 'collapsed';
   for (const section of sections) section.classList.toggle('collapsed', collapse);
   saveExpandedSlugs();
-  saveCollapsedGroups();
   if (typeof updateCollapseAllToggle === 'function') updateCollapseAllToggle();
 }
 
@@ -1623,7 +1463,6 @@ function toggleCollapseAllSections() {
   const collapse = sections.some(s => !s.classList.contains('collapsed'));
   for (const section of sections) section.classList.toggle('collapsed', collapse);
   saveExpandedSlugs();
-  saveCollapsedGroups();
   updateCollapseAllToggle();
 }
 
@@ -2139,7 +1978,7 @@ async function refreshUnlistedNotice() {
 // rebindSidebarEvents, buildSessionItem, startRename) → sidebar.js
 
 
-async function launchNewSession(project, sessionOptions, seedText, groupId) {
+async function launchNewSession(project, sessionOptions, seedText) {
   const sessionId = crypto.randomUUID();
   const projectPath = project.projectPath;
   const session = {
@@ -2176,13 +2015,7 @@ async function launchNewSession(project, sessionOptions, seedText, groupId) {
     }
     proj.sessions.unshift(session);
   }
-  // Launched from a group folder → assign before first paint so it appears in
-  // the right group immediately (assignSessionToGroup persists + re-renders).
-  if (groupId && typeof assignSessionToGroup === 'function') {
-    assignSessionToGroup(sessionId, groupId);
-  } else {
-    refreshSidebar();
-  }
+  refreshSidebar();
 
   const entry = createTerminalEntry(session);
 
@@ -2978,12 +2811,6 @@ setTimeout(() => {
     if (typeof window._applyProjectSortSettings === 'function') window._applyProjectSortSettings(global);
   }
 
-  // Restore user-defined session groups (spec 07).
-  try {
-    groupsState = deserialize(await window.api.getSetting('groups'));
-  } catch {
-    groupsState = createGroupsState();
-  }
   refreshSidebar();
 })();
 

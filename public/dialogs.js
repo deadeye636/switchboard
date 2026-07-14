@@ -232,7 +232,7 @@ async function effectiveCustomLaunchers(projectPath, globalSettings) {
 
 // Run one launcher: 'in-app' → a monitored PTY tab (the plain-terminal spawn path); 'external' →
 // the OS, launch-and-forget. Tier 3 either way: no backend, no session file, no badge.
-async function runCustomLauncher(project, launcher, groupId) {
+async function runCustomLauncher(project, launcher) {
   if (launcher.runMode === 'external') {
     const res = await window.api.runCustomLauncher(launcher, project.projectPath)
       .catch(err => ({ ok: false, error: String((err && err.message) || err) }));
@@ -247,12 +247,12 @@ async function runCustomLauncher(project, launcher, groupId) {
     }
     return;
   }
-  launchTerminalSession(project, groupId, launcher);
+  launchTerminalSession(project, launcher);
 }
 
 // The ad-hoc "Custom command…" (T-3.5): one command, typed now, run in a terminal tab. Same spawn
 // path as an in-app launcher — it is just a launcher that was never saved.
-function showCustomCommandDialog(project, groupId) {
+function showCustomCommandDialog(project) {
   const overlay = document.createElement('div');
   overlay.className = 'new-session-overlay';
   const dialog = document.createElement('div');
@@ -286,7 +286,7 @@ function showCustomCommandDialog(project, groupId) {
     const command = input.value.trim();
     if (!command) { input.focus(); return; }
     close();
-    launchTerminalSession(project, groupId, {
+    launchTerminalSession(project, {
       id: 'ad-hoc',
       name: command,
       command,
@@ -303,7 +303,7 @@ function showCustomCommandDialog(project, groupId) {
   document.addEventListener('keydown', onKey);
 }
 
-async function showNewSessionPopover(project, anchorEl, { groupId = null } = {}) {
+async function showNewSessionPopover(project, anchorEl) {
   // Remove any existing popover
   document.querySelectorAll('.new-session-popover').forEach(el => el.remove());
 
@@ -374,7 +374,7 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
 
     launchBtn.onclick = async () => {
       popover.remove();
-      launchNewSession(project, await resolveLaunchOptionsFor(project, backend.id), undefined, groupId);
+      launchNewSession(project, await resolveLaunchOptionsFor(project, backend.id));
     };
 
     const gearBtn = document.createElement('button');
@@ -382,7 +382,7 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
     gearBtn.title = `Configure this ${backend.label} session`;
     gearBtn.setAttribute('aria-label', `Configure ${backend.label}`);
     gearBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
-    gearBtn.onclick = () => { popover.remove(); showNewSessionDialog(project, groupId, backend.id); };
+    gearBtn.onclick = () => { popover.remove(); showNewSessionDialog(project, backend.id); };
 
     row.appendChild(launchBtn);
     row.appendChild(gearBtn);
@@ -392,7 +392,7 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
   const termBtn = document.createElement('button');
   termBtn.className = 'popover-option popover-option-terminal';
   termBtn.innerHTML = TERMINAL_POPOVER_ICON + ' Terminal';
-  termBtn.onclick = () => { popover.remove(); launchTerminalSession(project, groupId); };
+  termBtn.onclick = () => { popover.remove(); launchTerminalSession(project); };
 
   // "Resume from handoff" — only in Handoff-library mode. Disabled+greyed when the
   // project has no saved handoffs (visible, not hidden).
@@ -402,7 +402,7 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
     resumeBtn.innerHTML = '<svg class="popover-option-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg> Resume from handoff';
     resumeBtn.disabled = true;
     resumeBtn.title = 'Checking saved handoffs…';
-    resumeBtn.onclick = () => { popover.remove(); showHandoffResumePicker(project, groupId); };
+    resumeBtn.onclick = () => { popover.remove(); showHandoffResumePicker(project); };
     popover.appendChild(resumeBtn);
     // Enable once we know the project has at least one saved handoff.
     window.api.listHandoffs(project.projectPath).then(list => {
@@ -437,7 +437,7 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
   customCmdBtn.className = 'popover-option popover-option-terminal';
   customCmdBtn.innerHTML = TERMINAL_POPOVER_ICON + ' Custom command…';
   customCmdBtn.title = 'Run any command once in a terminal tab';
-  customCmdBtn.onclick = () => { popover.remove(); showCustomCommandDialog(project, groupId); };
+  customCmdBtn.onclick = () => { popover.remove(); showCustomCommandDialog(project); };
   popover.appendChild(customCmdBtn);
 
   // Saved launchers (T-3.10) — the effective global ⊕ project list for THIS project.
@@ -449,7 +449,7 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
     btn.title = launcher.runMode === 'external'
       ? `${launcher.command} — runs in an external window (not monitored)`
       : `${launcher.command} — runs in a terminal tab`;
-    btn.onclick = () => { popover.remove(); runCustomLauncher(project, launcher, groupId); };
+    btn.onclick = () => { popover.remove(); runCustomLauncher(project, launcher); };
     popover.appendChild(btn);
   }
 
@@ -487,7 +487,7 @@ async function showNewSessionPopover(project, anchorEl, { groupId = null } = {})
 // spawns the SAME monitored PTY tab as a plain terminal — main just types the command into the
 // shell once it is up. The session stays a terminal session: no transcript, so nothing downstream
 // (scanner, cache, badge) has anything to trip over.
-async function launchTerminalSession(project, groupId, launcher = null) {
+async function launchTerminalSession(project, launcher = null) {
   const sessionId = crypto.randomUUID();
   const projectPath = project.projectPath;
   const session = {
@@ -511,11 +511,7 @@ async function launchTerminalSession(project, groupId, launcher = null) {
   // Inject into cached project data
   sessionMap.set(sessionId, session);
   injectPendingSession(session, projectPath, folder);
-  if (groupId && typeof assignSessionToGroup === 'function') {
-    assignSessionToGroup(sessionId, groupId);
-  } else {
-    refreshSidebar();
-  }
+  refreshSidebar();
 
   const entry = createTerminalEntry(session);
 
@@ -538,7 +534,7 @@ async function launchTerminalSession(project, groupId, launcher = null) {
 // Owns the mode list, grid HTML, selection state, and click handling; callers
 // embed html() in their dialog markup, bind() the mounted grid element, and
 // applyTo() the launch options on confirm.
-async function showGeneratedConfigDialog(project, groupId, backend) {
+async function showGeneratedConfigDialog(project, backend) {
   const effective = await window.api.getEffectiveSettings(project.projectPath);
   const saved = storedDefaultsFor(effective, backend);
   const fields = (schemaBackendOf(backend) || {}).configFields || [];
@@ -656,7 +652,7 @@ async function showGeneratedConfigDialog(project, groupId, backend) {
     });
 
     close();
-    launchNewSession(project, options, undefined, groupId);
+    launchNewSession(project, options);
   }
   function onKey(e) {
     if (e.key === 'Escape') close();
@@ -672,11 +668,11 @@ async function showGeneratedConfigDialog(project, groupId, backend) {
 // backend (00 §4a) — Claude used to have a purpose-built form here; its fields ARE its configFields
 // now, so the generic dialog shows them all, plus the ones the old form silently omitted (Model, IDE
 // emulation). A new backend needs no dialog code: it declares its schema.
-async function showNewSessionDialog(project, groupId, backendId) {
+async function showNewSessionDialog(project, backendId) {
   const backend = (backendId && window.getBackend ? window.getBackend(backendId) : null)
     || (window.getBackend ? window.getBackend('claude') : null);
   if (!backend) return;
-  return showGeneratedConfigDialog(project, groupId, backend);
+  return showGeneratedConfigDialog(project, backend);
 }
 
 async function showGeneratedResumeDialog(session, backend) {

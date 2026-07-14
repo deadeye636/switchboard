@@ -2,9 +2,11 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Implemented · **Roadmap:** Opportunity #7b (Phase 5B) · **Depends on:** Spec 07 (groups) for grouped layout; can ship standalone for ungrouped if 07 isn't ready.
+**Status:** Implemented · **Roadmap:** Opportunity #7b (Phase 5B)
 
 > **As built:** on top of the mouse interactions below, a keyboard move mode (Ctrl+Shift+M, `gridMoveMode` in `public/shortcuts.js`) allows resizing/reordering cards without the mouse; spans go up to 3 rows (`MAX_GRID_ROWS` in `public/grid-layout.js`).
+>
+> **Superseded in part (#185):** everything below that couples this spec to Spec 07 — the grouped layout, the group regions, and dropping a card into another group — is **gone**. Groups were removed; the grid is a single flat card grid, and a drag only ever reorders. Read those passages as history, not as the contract.
 
 ## Problem & goal
 

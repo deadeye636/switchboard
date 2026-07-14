@@ -11,7 +11,6 @@
 let gridCards = new Map(); // sessionId → card wrapper element
 let gridFocusedSessionId = null;
 let gridStatusFilter = localStorage.getItem('gridStatusFilter') || 'all';
-let gridGroupFilter = localStorage.getItem('gridGroupFilter') || 'all'; // 'all' | 'ungrouped' | groupId
 // True while a drag-reorder or resize gesture is in progress. Status ticks must
 // not tear down and rebuild the grid mid-gesture (it would detach the card the
 // user is holding), so refreshGridView() bails out while this is set.
@@ -82,20 +81,8 @@ function getGridOpenSessions() {
   return sessions;
 }
 
-function getGridGroupForSession(sessionId) {
-  if (typeof getGroupForSession !== 'function' || typeof groupsState === 'undefined') return null;
-  return getGroupForSession(groupsState, sessionId);
-}
-
 function getGridAllowedSessionIds() {
-  let filtered = getFilteredSessionsByStatus(getGridOpenSessions(), getGridRuntimeState(), gridStatusFilter);
-  if (gridGroupFilter && gridGroupFilter !== 'all') {
-    filtered = filtered.filter(session => {
-      const group = getGridGroupForSession(session.sessionId);
-      if (gridGroupFilter === 'ungrouped') return !group;
-      return group && group.id === gridGroupFilter;
-    });
-  }
+  const filtered = getFilteredSessionsByStatus(getGridOpenSessions(), getGridRuntimeState(), gridStatusFilter);
   return new Set(filtered.map(session => session.sessionId));
 }
 
@@ -126,13 +113,9 @@ function renderGridStatusFilters() {
     });
     container.appendChild(btn);
   }
-
-  renderGridGroupFilters(container);
 }
 
 // --- Bulk actions (Spec 06) ---
-// Keep this block self-contained so it integrates cleanly alongside Spec 07's
-// header (group filter) edits.
 
 function gridSessionLabel(sessionId) {
   const entry = openSessions.get(sessionId);
@@ -181,16 +164,6 @@ function renderGridBulkActions() {
   stopBtn.addEventListener('click', () => stopAllRunning(targets.runningToStop));
   container.appendChild(stopBtn);
 
-  // Collapse/expand-all-groups toggle lives at the right end of the bulk bar.
-  // It's region-scoped, so updateGridCollapseAllBtn() hides it when the grid
-  // isn't grouped and flips its icon/label based on collapse state.
-  const collapseAllBtn = document.createElement('button');
-  collapseAllBtn.type = 'button';
-  collapseAllBtn.id = 'grid-collapse-all-btn';
-  collapseAllBtn.title = 'Collapse all groups';
-  collapseAllBtn.addEventListener('click', toggleGridCollapseAll);
-  container.appendChild(collapseAllBtn);
-  updateGridCollapseAllBtn();
 }
 
 // Step ▶ — focus the next attention/ready session relative to the focused card,
@@ -250,226 +223,6 @@ async function stopAllRunning(runningToStop) {
   }
   refreshSidebar();
   if (gridViewActive) showGridView();
-}
-
-// Group filter segment (spec 07): a divider plus an "All groups" / per-group /
-// "Ungrouped" control rendered alongside the status filters.
-function renderGridGroupFilters(container) {
-  if (typeof groupsState === 'undefined' || !groupsState.groups || groupsState.groups.length === 0) {
-    return;
-  }
-
-  const openSessionList = getGridOpenSessions();
-  const groupCounts = new Map();
-  let ungroupedCount = 0;
-  for (const session of openSessionList) {
-    const group = getGridGroupForSession(session.sessionId);
-    if (group) groupCounts.set(group.id, (groupCounts.get(group.id) || 0) + 1);
-    else ungroupedCount++;
-  }
-
-  const divider = document.createElement('span');
-  divider.className = 'grid-filter-divider';
-  divider.setAttribute('aria-hidden', 'true');
-  container.appendChild(divider);
-
-  const options = [['all', 'All groups', openSessionList.length]];
-  for (const group of [...groupsState.groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
-    options.push([group.id, group.name, groupCounts.get(group.id) || 0, group.color]);
-  }
-  if (ungroupedCount > 0) options.push(['ungrouped', 'Ungrouped', ungroupedCount]);
-
-  for (const [key, label, count, color] of options) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'grid-group-filter' + (gridGroupFilter === key ? ' active' : '');
-    btn.dataset.group = key;
-    if (color) {
-      const dot = document.createElement('span');
-      dot.className = 'grid-group-filter-dot';
-      dot.style.background = color;
-      btn.appendChild(dot);
-    }
-    const text = document.createElement('span');
-    text.textContent = `${label} ${count}`;
-    btn.appendChild(text);
-    btn.disabled = key !== 'all' && count === 0;
-    btn.addEventListener('click', () => {
-      gridGroupFilter = key;
-      localStorage.setItem('gridGroupFilter', gridGroupFilter);
-      showGridView();
-    });
-    container.appendChild(btn);
-  }
-}
-
-// Collapse state for grid group regions persists across renders/restart via
-// localStorage, keyed by group id ('ungrouped' for the ungrouped pool) — mirrors
-// the sidebar user-group collapse (collapsedGroups) and gridGroupFilter.
-function getCollapsedGridGroups() {
-  try { return new Set(JSON.parse(localStorage.getItem('collapsedGridGroups') || '[]')); } catch { return new Set(); }
-}
-function saveCollapsedGridGroups(set) {
-  try { localStorage.setItem('collapsedGridGroups', JSON.stringify([...set])); } catch { /* storage unavailable */ }
-}
-function gridRegionCollapseKey(group) {
-  return group ? group.id : 'ungrouped';
-}
-
-// Toggle a grid region's collapsed state, persist it, keep aria-expanded in sync,
-// and re-fit the revealed terminals on expand (hidden terminals can't be sized).
-function toggleGridRegionCollapse(region) {
-  if (!region) return;
-  const key = region.dataset.collapseKey;
-  const willCollapse = !region.classList.contains('collapsed');
-  region.classList.toggle('collapsed', willCollapse);
-  const btn = region.querySelector('.grid-region-expand');
-  if (btn) btn.setAttribute('aria-expanded', String(!willCollapse));
-  const set = getCollapsedGridGroups();
-  if (willCollapse) set.add(key); else set.delete(key);
-  saveCollapsedGridGroups(set);
-  if (!willCollapse) {
-    for (const cardEl of region.querySelectorAll('.grid-card')) {
-      const entry = openSessions.get(cardEl.dataset.sessionId);
-      if (entry) fitAndScroll(entry);
-    }
-  }
-  updateGridCollapseAllBtn();
-}
-
-// Reflect the current grid-region collapse state on the header's collapse-all
-// button: hidden when there are no regions (flat grid), and its icon/label flip
-// to "Expand all" once every region is collapsed.
-function updateGridCollapseAllBtn() {
-  const btn = document.getElementById('grid-collapse-all-btn');
-  if (!btn) return;
-  const regions = terminalsEl.querySelectorAll('.grid-region');
-  if (regions.length === 0) {
-    btn.style.display = 'none';
-    return;
-  }
-  btn.style.display = '';
-  const allCollapsed = [...regions].every(r => r.classList.contains('collapsed'));
-  btn.classList.toggle('all-collapsed', allCollapsed);
-  btn.title = allCollapsed ? 'Expand all groups' : 'Collapse all groups';
-  btn.setAttribute('aria-label', btn.title);
-  btn.innerHTML = allCollapsed
-    ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 5 12 11 18 5"/><polyline points="6 13 12 19 18 13"/></svg>'
-    : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 11 12 5 18 11"/><polyline points="6 19 12 13 18 19"/></svg>';
-}
-
-// Collapse every grid region at once, or expand them all when already fully
-// collapsed. Persists via the shared collapsedGridGroups set and re-fits any
-// terminals revealed by expanding (hidden terminals can't be measured).
-function toggleGridCollapseAll() {
-  const regions = [...terminalsEl.querySelectorAll('.grid-region')];
-  if (regions.length === 0) return;
-  const collapse = regions.some(r => !r.classList.contains('collapsed'));
-  const set = getCollapsedGridGroups();
-  for (const region of regions) {
-    region.classList.toggle('collapsed', collapse);
-    const expandBtn = region.querySelector('.grid-region-expand');
-    if (expandBtn) expandBtn.setAttribute('aria-expanded', String(!collapse));
-    const key = region.dataset.collapseKey;
-    if (key) { if (collapse) set.add(key); else set.delete(key); }
-  }
-  saveCollapsedGridGroups(set);
-  if (!collapse) {
-    for (const cardEl of terminalsEl.querySelectorAll('.grid-region .grid-card')) {
-      const entry = openSessions.get(cardEl.dataset.sessionId);
-      if (entry) fitAndScroll(entry);
-    }
-  }
-  updateGridCollapseAllBtn();
-}
-
-// Build a labeled grid region for a group (or the ungrouped pool). Appends the
-// region to #terminals and returns its inner cards container.
-function buildGridRegion(group, sessions) {
-  const counts = getStatusCounts(sessions, getGridRuntimeState());
-
-  const region = document.createElement('div');
-  region.className = 'grid-region' + (group ? '' : ' ungrouped');
-  region.dataset.groupId = group ? group.id : '';
-  const collapseKey = gridRegionCollapseKey(group);
-  region.dataset.collapseKey = collapseKey;
-  const collapsed = getCollapsedGridGroups().has(collapseKey);
-  if (collapsed) region.classList.add('collapsed');
-  if (group) region.style.setProperty('--user-group-color', group.color);
-
-  const header = document.createElement('div');
-  header.className = 'grid-region-header';
-
-  const regionLabel = group ? group.name : 'Ungrouped';
-  const expand = document.createElement('button');
-  expand.type = 'button';
-  expand.className = 'grid-region-expand';
-  expand.setAttribute('aria-expanded', String(!collapsed));
-  expand.setAttribute('aria-label', `Toggle ${regionLabel} region`);
-  expand.innerHTML = '<span class="arrow" aria-hidden="true">&#9654;</span>';
-  header.appendChild(expand);
-
-  // Click anywhere on the header (or keyboard-activate the caret button) to
-  // collapse/expand the region.
-  header.addEventListener('click', () => toggleGridRegionCollapse(region));
-
-  const dot = document.createElement('span');
-  dot.className = 'grid-region-dot';
-  header.appendChild(dot);
-
-  const name = document.createElement('span');
-  name.className = 'grid-region-name';
-  name.textContent = group ? group.name : 'Ungrouped';
-  header.appendChild(name);
-
-  const count = document.createElement('span');
-  count.className = 'grid-region-count';
-  count.textContent = `${sessions.length} session${sessions.length === 1 ? '' : 's'}`;
-  header.appendChild(count);
-
-  if (counts.attention > 0) {
-    const chip = document.createElement('span');
-    chip.className = 'grid-region-chip status-needs-attention';
-    chip.textContent = String(counts.attention);
-    chip.title = `${counts.attention} need${counts.attention === 1 ? 's' : ''} attention`;
-    header.appendChild(chip);
-  }
-  if (counts.ready > 0) {
-    const chip = document.createElement('span');
-    chip.className = 'grid-region-chip status-response-ready';
-    chip.textContent = String(counts.ready);
-    chip.title = `${counts.ready} ready`;
-    header.appendChild(chip);
-  }
-
-  // "Launch all" for real user groups (not the ungrouped pool). Opens every
-  // group member — including ones not yet surfaced in the grid — via the shared
-  // launchAllInGroup() path. stopPropagation so it doesn't toggle the region.
-  if (group && typeof launchAllInGroup === 'function') {
-    const launchBtn = document.createElement('button');
-    launchBtn.type = 'button';
-    launchBtn.className = 'grid-region-launch-btn';
-    const memberCount = (typeof getGroupMemberSessionIds === 'function')
-      ? getGroupMemberSessionIds(group.id).length
-      : sessions.length;
-    const launchLabel = `Launch all ${memberCount} session${memberCount === 1 ? '' : 's'} in ${group.name}`;
-    launchBtn.title = launchLabel;
-    launchBtn.setAttribute('aria-label', launchLabel);
-    launchBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
-    launchBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      launchAllInGroup(group.id);
-    });
-    header.appendChild(launchBtn);
-  }
-
-  const cardsEl = document.createElement('div');
-  cardsEl.className = 'grid-region-cards';
-
-  region.appendChild(header);
-  region.appendChild(cardsEl);
-  terminalsEl.appendChild(region);
-  return cardsEl;
 }
 
 function wrapInGridCard(sessionId, parent, layout) {
@@ -621,14 +374,11 @@ function wrapInGridCard(sessionId, parent, layout) {
   // rebuild O(N²) (it iterates all cards each time) (#80).
 }
 
-// ===== Flexible layout: resize, drag-reorder, group drop (spec 08) =====
+// ===== Flexible layout: resize, drag-reorder (spec 08) =====
 
 function getContainerColumnCount(container) {
   if (!container) return 1;
-  // Primary: count the resolved track list from computed style (works for the
-  // flat #terminals grid). For grouped regions (.grid-region-cards) this can
-  // resolve to a single track / 'none' before updateGridColumns() has applied a
-  // template, which would clamp every resize to 1 column. Fall back to the same
+  // Count the resolved track list from computed style, falling back to the same
   // width-based calc updateGridColumns() uses so resize/snap clamp to the real
   // number of columns the container actually offers.
   const tracks = getComputedStyle(container).gridTemplateColumns;
@@ -644,8 +394,8 @@ function getContainerColumnCount(container) {
   return 1;
 }
 
-// Persist the current visual order (DOM order across all regions) plus each
-// card's span into the gridLayout map.
+// Persist the current visual order (DOM order) plus each card's span into the
+// gridLayout map.
 function persistGridOrder() {
   let order = 0;
   for (const card of terminalsEl.querySelectorAll('.grid-card')) {
@@ -664,8 +414,6 @@ function persistGridOrder() {
 function clearGridDropTargets() {
   terminalsEl.querySelectorAll('.grid-card.drop-before, .grid-card.drop-after')
     .forEach(c => c.classList.remove('drop-before', 'drop-after'));
-  terminalsEl.querySelectorAll('.grid-region.drop-region')
-    .forEach(r => r.classList.remove('drop-region'));
 }
 
 function getGridDropInfo(card, x, y) {
@@ -674,7 +422,6 @@ function getGridDropInfo(card, x, y) {
   const targetCard = el.closest('.grid-card');
   return {
     targetCard: targetCard && targetCard !== card ? targetCard : null,
-    region: el.closest('.grid-region'),
   };
 }
 
@@ -682,14 +429,6 @@ function updateGridDropTarget(card, x, y) {
   clearGridDropTargets();
   const info = getGridDropInfo(card, x, y);
   if (!info) return;
-  // Hovering a different group region → highlight it as a reassignment target.
-  if (info.region && terminalsEl.classList.contains('grid-grouped')) {
-    const sourceRegion = card.closest('.grid-region');
-    if (info.region !== sourceRegion) {
-      info.region.classList.add('drop-region');
-      return;
-    }
-  }
   if (info.targetCard) {
     const r = info.targetCard.getBoundingClientRect();
     const after = (x - r.left) > r.width / 2;
@@ -780,10 +519,9 @@ function flipMovePlaceholder(container, placeholder, refNode, exclude) {
   });
 }
 
-// Single shared drag system: dragging a card's header reorders it (with a live
-// FLIP preview of the surrounding tiles), or — when 07's group regions are
-// present — drops it into a different group (assignSession). Honors
-// prefers-reduced-motion by falling back to the static drop indicators.
+// Dragging a card's header reorders it, with a live FLIP preview of the
+// surrounding tiles. Honors prefers-reduced-motion by falling back to the static
+// drop indicators.
 function startCardDrag(sessionId, card, e) {
   if (e.button !== 0) return;
   if (e.target.closest('button, .grid-card-resize-handle')) return;
@@ -839,18 +577,6 @@ function startCardDrag(sessionId, card, e) {
     clearGridDropTargets();
     const container = placeholder.parentElement;
     if (!container) return;
-    const grouped = terminalsEl.classList.contains('grid-grouped');
-    const sourceRegion = card.closest('.grid-region');
-
-    // Hovering a different group region previews reassignment (no reorder).
-    if (grouped) {
-      const el = document.elementFromPoint(lastX, lastY);
-      const region = el && el.closest ? el.closest('.grid-region') : null;
-      if (region && region !== sourceRegion) {
-        region.classList.add('drop-region');
-        return;
-      }
-    }
 
     // Only reorder while the cursor is within the active container's box.
     const cRect = container.getBoundingClientRect();
@@ -920,23 +646,11 @@ function startCardDrag(sessionId, card, e) {
   document.addEventListener('pointerup', onUp);
 }
 
-// Commit a finished drag: reassign across group regions, or land the card in the
-// previewed slot (the placeholder position). Falls back to the original
-// before/after reorder when reduced-motion left no placeholder.
+// Commit a finished drag: land the card in the previewed slot (the placeholder
+// position). Falls back to the original before/after reorder when reduced-motion
+// left no placeholder.
 function commitCardDrag(sessionId, card, placeholder, reduced, x, y) {
   const info = getGridDropInfo(card, x, y);
-
-  // Drop into a different group region → reassign via 07's groups-model.
-  if (info && info.region && terminalsEl.classList.contains('grid-grouped')) {
-    const sourceRegion = card.closest('.grid-region');
-    if (info.region !== sourceRegion) {
-      const targetGroupId = info.region.dataset.groupId || null;
-      if (typeof assignSessionToGroup === 'function') {
-        assignSessionToGroup(sessionId, targetGroupId); // persists + re-renders grid
-      }
-      return;
-    }
-  }
 
   // Live-preview path: land the card exactly where the placeholder previewed.
   if (!reduced && placeholder && placeholder.parentElement) {
@@ -1264,7 +978,7 @@ function unwrapGridCards() {
     const entry = openSessions.get(sid);
     if (entry) {
       entry.element.classList.remove('grid-mode', 'visible');
-      // Move terminal container back to #terminals (out of card/region)
+      // Move terminal container back to #terminals (out of the card)
       terminalsEl.appendChild(entry.element);
     }
     card.remove();
@@ -1273,12 +987,9 @@ function unwrapGridCards() {
   // No cards → nothing is off-screen; a stale entry would silently freeze the
   // session's writes in single/tabs view.
   gridOffscreenSessions.clear();
-  // Remove any group region containers and reset grouped layout
-  terminalsEl.querySelectorAll('.grid-region').forEach(el => el.remove());
-  terminalsEl.classList.remove('grid-grouped');
 }
 
-function focusGridCard(sessionId, { reveal = true } = {}) {
+function focusGridCard(sessionId) {
   // Focus moved off the card being moved (nav shortcut, click, inbox jump) —
   // the mode belongs to that one card, so it ends here.
   if (isGridMoveModeActive() && gridMoveModeSessionId !== sessionId) exitGridMoveMode();
@@ -1300,13 +1011,6 @@ function focusGridCard(sessionId, { reveal = true } = {}) {
   document.querySelectorAll('.grid-card').forEach(c => c.classList.remove('focused'));
   const card = gridCards.get(sessionId);
   if (card) {
-    // An explicit focus (click/keyboard nav/step/inbox) should reveal the card
-    // if its group region is collapsed. The passive end-of-render focus passes
-    // reveal:false so it doesn't fight the user's persisted collapse state.
-    if (reveal) {
-      const region = card.closest('.grid-region.collapsed');
-      if (region) toggleGridRegionCollapse(region);
-    }
     card.classList.add('focused');
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
@@ -1331,27 +1035,18 @@ function gridDesiredSids() {
   return ids;
 }
 
-// Decide whether the grid must be fully rebuilt (membership or group placement
-// changed) versus just updated in place. Card ORDER and spans are intentionally
-// not treated as rebuild triggers — they're owned by the user's drag/resize and
-// must survive status ticks.
+// Decide whether the grid must be fully rebuilt (membership changed) versus just
+// updated in place. Card ORDER and spans are intentionally not treated as rebuild
+// triggers — they're owned by the user's drag/resize and must survive status ticks.
 function gridNeedsRebuild() {
   const desired = gridDesiredSids();
   if (desired.length !== gridCards.size) return true;
-  for (const sid of desired) {
-    const card = gridCards.get(sid);
-    if (!card) return true;
-    const group = getGridGroupForSession(sid);
-    const region = card.closest('.grid-region');
-    const renderedGroupId = region ? (region.dataset.groupId || '') : '';
-    if ((group ? group.id : '') !== renderedGroupId) return true;
-  }
-  return false;
+  return desired.some(sid => !gridCards.get(sid));
 }
 
 // Refresh the grid in response to a status tick. Never rebuilds mid-gesture;
 // otherwise updates card status/dots/chips in place and only does a full
-// rebuild when the rendered session set or grouping actually changed.
+// rebuild when the rendered session set actually changed.
 function refreshGridView() {
   if (!gridViewActive) return;
   if (gridInteracting) return;
@@ -1362,7 +1057,6 @@ function refreshGridView() {
   updateGridCardStatuses();
   renderGridStatusFilters();
   renderGridBulkActions();
-  updateGridRegionCounts();
 }
 
 // Update each rendered grid card's status/health visuals in place — no teardown,
@@ -1405,33 +1099,6 @@ function updateGridCardStatuses() {
     if (footer && footer.children[0]) footer.children[0].textContent = status.label;
     const stopBtn = card.querySelector('.grid-card-stop-btn');
     if (stopBtn) stopBtn.style.display = running ? '' : 'none';
-  }
-}
-
-// Recompute the rolled-up attention/ready chips on each group region header
-// without rebuilding the regions.
-function updateGridRegionCounts() {
-  for (const region of terminalsEl.querySelectorAll('.grid-region')) {
-    const sids = [...region.querySelectorAll('.grid-card')].map(c => c.dataset.sessionId);
-    const sessions = sids.map(sid => sessionMap.get(sid) || openSessions.get(sid)?.session).filter(Boolean);
-    const counts = getStatusCounts(sessions, getGridRuntimeState());
-    const setChip = (cls, value, label) => {
-      let chip = region.querySelector(`.grid-region-chip.${cls}`);
-      if (value > 0) {
-        if (!chip) {
-          chip = document.createElement('span');
-          chip.className = `grid-region-chip ${cls}`;
-          const countEl = region.querySelector('.grid-region-count');
-          if (countEl) countEl.after(chip); else region.querySelector('.grid-region-header')?.appendChild(chip);
-        }
-        chip.textContent = String(value);
-        chip.title = label(value);
-      } else if (chip) {
-        chip.remove();
-      }
-    };
-    setChip('status-needs-attention', counts.attention, (n) => `${n} need${n === 1 ? 's' : ''} attention`);
-    setChip('status-response-ready', counts.ready, (n) => `${n} ready`);
   }
 }
 
@@ -1508,13 +1175,6 @@ function showGridView() {
     allowedSet = getGridAllowedSessionIds();
     renderGridStatusFilters();
   }
-  if (gridGroupFilter !== 'all' && allowedSet.size === 0) {
-    gridGroupFilter = 'all';
-    localStorage.setItem('gridGroupFilter', gridGroupFilter);
-    allowedSet = getGridAllowedSessionIds();
-    renderGridStatusFilters();
-    renderGridBulkActions();
-  }
 
   // Hide all terminals first, then collect allowed session ids in sidebar order.
   document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('visible'));
@@ -1526,48 +1186,13 @@ function showGridView() {
     orderedSids.push(sid);
   }
 
-  // Partition into user-group buckets (preserving sidebar order). When any
-  // open session belongs to a group, render bounded labeled regions; otherwise
-  // fall back to the flat grid to preserve the original layout.
-  const sessionFor = (sid) => sessionMap.get(sid) || openSessions.get(sid)?.session;
-  const groupBuckets = new Map();
-  const ungroupedSids = [];
-  for (const sid of orderedSids) {
-    const group = getGridGroupForSession(sid);
-    if (group) {
-      if (!groupBuckets.has(group.id)) groupBuckets.set(group.id, []);
-      groupBuckets.get(group.id).push(sid);
-    } else {
-      ungroupedSids.push(sid);
-    }
-  }
-
-  // Apply persisted order + spans (spec 08) within each container.
+  // Apply persisted order + spans (spec 08).
   const gridWidth = terminalsEl.clientWidth;
   const sessionIds = [];
-  const renderBucket = (sids, cardsEl) => {
-    const cols = calculateGridColumnCount({ width: gridWidth, cardCount: sids.length });
-    for (const item of applyLayout(sids, gridLayout, cols)) {
-      wrapInGridCard(item.sessionId, cardsEl, item);
-      sessionIds.push(item.sessionId);
-    }
-  };
-
-  if (groupBuckets.size > 0) {
-    terminalsEl.classList.add('grid-grouped');
-    const orderedGroups = [...groupsState.groups].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    for (const group of orderedGroups) {
-      const bucket = groupBuckets.get(group.id);
-      if (!bucket || bucket.length === 0) continue;
-      const cardsEl = buildGridRegion(group, bucket.map(sessionFor).filter(Boolean));
-      renderBucket(bucket, cardsEl);
-    }
-    if (ungroupedSids.length > 0) {
-      const cardsEl = buildGridRegion(null, ungroupedSids.map(sessionFor).filter(Boolean));
-      renderBucket(ungroupedSids, cardsEl);
-    }
-  } else {
-    renderBucket(orderedSids, terminalsEl);
+  const cols = calculateGridColumnCount({ width: gridWidth, cardCount: orderedSids.length });
+  for (const item of applyLayout(orderedSids, gridLayout, cols)) {
+    wrapInGridCard(item.sessionId, terminalsEl, item);
+    sessionIds.push(item.sessionId);
   }
 
   // Set initial card statuses once for the whole render (see wrapInGridCard).
@@ -1576,7 +1201,6 @@ function showGridView() {
   // Show grid header bar with session count
   gridViewer.style.display = 'block';
   gridViewerCount.textContent = sessionIds.length + ' session' + (sessionIds.length !== 1 ? 's' : '');
-  updateGridCollapseAllBtn();
 
   const btn = document.getElementById('grid-toggle-btn');
   if (btn) {
@@ -1588,45 +1212,27 @@ function showGridView() {
 
   updateGridColumns();
 
-  // Fit all terminals after layout resolves (skip cards hidden in a collapsed
-  // region — a display:none terminal can't be measured/fit). Grid cards also
-  // drop to the thumbnail scrollback budget: xterm trims the buffer immediately
-  // when the new limit is below the current row count, so content scrolled past
-  // SCROLLBACK_GRID rows is lost on entering the grid — accepted trade-off, the
-  // full budget is restored (for future output) when a session returns to
-  // single view (see showSession).
+  // Fit all terminals after layout resolves. Grid cards drop to the thumbnail
+  // scrollback budget: xterm trims the buffer immediately when the new limit is
+  // below the current row count, so content scrolled past SCROLLBACK_GRID rows is
+  // lost on entering the grid — accepted trade-off, the full budget is restored
+  // (for future output) when a session returns to single view (see showSession).
   for (const sid of sessionIds) {
     const entry = openSessions.get(sid);
     if (!entry) continue;
-    const card = gridCards.get(sid);
-    if (card && card.closest('.grid-region.collapsed')) continue;
     entry.terminal.options.scrollback = SCROLLBACK_GRID;
     fitAndScroll(entry);
   }
-  // Focus active or first (deferred so fitAndScroll's rAF runs first). This
-  // passive focus must not auto-expand a collapsed region the user persisted.
+  // Focus active or first (deferred so fitAndScroll's rAF runs first).
   requestAnimationFrame(() => {
     const toFocus = activeSessionId && sessionIds.includes(activeSessionId) ? activeSessionId : sessionIds[0];
-    if (toFocus) focusGridCard(toFocus, { reveal: false });
+    if (toFocus) focusGridCard(toFocus);
   });
 }
 
 function updateGridColumns() {
   if (!gridViewActive) return;
   const width = terminalsEl.clientWidth;
-
-  // Grouped layout: each region container holds its own card grid.
-  if (terminalsEl.classList.contains('grid-grouped')) {
-    terminalsEl.style.gridTemplateColumns = '';
-    terminalsEl.classList.remove('grid-few-cards', 'grid-single-card');
-    for (const cardsEl of terminalsEl.querySelectorAll('.grid-region-cards')) {
-      const cardCount = cardsEl.querySelectorAll('.grid-card').length;
-      const cols = calculateGridColumnCount({ width, cardCount });
-      cardsEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-      cardsEl.classList.toggle('grid-single-card', cardCount === 1);
-    }
-    return;
-  }
 
   const cardCount = terminalsEl.querySelectorAll('.grid-card').length;
   const cols = calculateGridColumnCount({ width, cardCount });

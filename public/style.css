@@ -1030,7 +1030,6 @@ input:focus-visible {
    present so the clear button isn't overlapped (Enter still triggers a reindex). */
 #search-bar.has-query #search-refresh-btn { display: none; }
 
-
 /* ---- Scrollable content ---- */
 #sidebar-content {
   flex: 1;
@@ -1960,7 +1959,6 @@ input:focus-visible {
   background: rgba(62,207,90,0.14);
 }
 
-
 .status-exited .session-status-chip {
   color: #c0a0ff;
   background: rgba(160,130,255,0.13);
@@ -1996,7 +1994,6 @@ input:focus-visible {
 .session-fork-btn,
 .session-jsonl-btn,
 .session-copy-id-btn,
-.session-group-btn,
 .session-tags-btn,
 .session-timeline-btn,
 .session-handoff-btn,
@@ -2289,7 +2286,6 @@ input:focus-visible {
 .session-item.needs-attention .session-summary::before {
   display: none;
 }
-
 
 /* ========== MAIN AREA ========== */
 #main {
@@ -2607,7 +2603,6 @@ body.restoring-sessions #restore-progress { display: flex; }
   padding: 6px 0 6px 6px;
 }
 
-
 .terminal-container.visible {
   display: block;
 }
@@ -2850,23 +2845,15 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   cursor: default;
   flex-shrink: 0;
   /* Pin the header to the top of the grid scroll viewport while the card body
-     scrolls past (mirrors the sticky group/region headers). Sits under the
-     region header (z-index 5) when grouped — see the .grid-region offset below.
-     Negative top pulls it up into the grid container's 10px top padding so it
-     pins a touch higher instead of leaving a gap (still fully visible — the
-     scroll clip is at the padding-box edge). */
+     scrolls past. Negative top pulls it up into the grid container's 10px top
+     padding so it pins a touch higher instead of leaving a gap (still fully
+     visible — the scroll clip is at the padding-box edge). */
   position: sticky;
   top: -14px;
   z-index: 4;
   border-radius: 8px 8px 0 0;
   /* Header doubles as the drag handle — no touch scrolling from it. */
   touch-action: none;
-}
-
-/* Inside a group region the region header is itself sticky at top:0, so tuck the
-   card header just beneath it rather than letting them overlap. */
-.grid-region .grid-card-header {
-  top: 30px;
 }
 
 .grid-card-dot {
@@ -3116,7 +3103,6 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   /* Carries the card's bottom rounding now that the card itself is overflow:visible. */
   border-radius: 0 0 8px 8px;
 }
-
 
 /* ========== SCROLLBAR ========== */
 #sidebar-content::-webkit-scrollbar, #plans-content::-webkit-scrollbar { width: 5px; }
@@ -6173,9 +6159,8 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
 }
 
 /* The terminal right-click menu uses the bare `popover` class as its container,
-   which (unlike .new-session-popover / .group-assign-popover) had no panel
-   styling of its own — the menu rendered with a transparent background. Give it
-   the standard popover surface. */
+   which (unlike .new-session-popover) had no panel styling of its own — the menu
+   rendered with a transparent background. Give it the standard popover surface. */
 .terminal-context-menu {
   position: fixed;
   z-index: 1001;
@@ -6302,7 +6287,6 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   min-width: 280px;
   border-left: 1px solid rgba(255,255,255,0.06);
 }
-
 
 .fp-toolbar-btn {
   background: transparent;
@@ -6674,252 +6658,8 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   text-decoration: underline;
 }
 
-/* ===== Session groups (spec 07) ===== */
+/* ===== Sidebar drag (project reorder, #17) ===== */
 
-/* --- Per-session "Add to group" action --- */
-.session-group-btn {
-  color: #7a7a90;
-}
-.session-group-btn:hover {
-  color: #8088ff;
-  background: rgba(120,130,255,0.1);
-}
-.session-group-btn.assigned {
-  color: var(--user-group-color, #8088ff);
-  opacity: 1;
-}
-
-/* --- Sidebar user-group section --- */
-.user-group {
-  --user-group-color: #8088ff;
-}
-.user-group-header {
-  padding: 0 9px;
-  cursor: pointer;
-  user-select: none;
-}
-.user-group-header .user-group-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  transition: background 0.12s;
-}
-.user-group-header:hover .user-group-row {
-  background: rgba(255,255,255,0.06);
-}
-
-/* Caret is a quiet, neutral toggle — the folder icon carries the colour. */
-.user-group-expand {
-  flex-shrink: 0;
-  width: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 7px;
-}
-.user-group-expand .arrow {
-  font-size: 8px;
-  color: #6a6a82;
-  transition: transform 0.18s, color 0.12s;
-  display: inline-block;
-}
-.user-group:not(.collapsed) .user-group-expand .arrow { transform: rotate(90deg); }
-.user-group-header:hover .user-group-expand .arrow { color: #9a9ab0; }
-
-/* Folder glyph: the group's accent colour, tastefully tinted, with a faint
-   glow. Closed vs open variant is swapped purely via the collapsed class. */
-.user-group-folder {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  margin-top: 4px;
-  color: var(--user-group-color, #8088ff);
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--user-group-color, #8088ff) 30%, transparent));
-}
-.user-group-folder .folder-closed,
-.user-group-folder .folder-open { display: none; align-items: center; }
-.user-group.collapsed .user-group-folder .folder-closed { display: inline-flex; }
-.user-group:not(.collapsed) .user-group-folder .folder-open { display: inline-flex; }
-
-.user-group-info {
-  flex: 1;
-  min-width: 0;
-}
-.user-group-name {
-  font-size: 13px;
-  color: #cdcde0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.4;
-  font-weight: 600;
-}
-/* Session count de-emphasised: plain muted text, no saturated pill. */
-.user-group-meta {
-  font-size: 11px;
-  color: #6a6a80;
-  margin-top: 2px;
-  font-weight: 450;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.user-group-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  display: none;
-}
-.user-group-status-dot.running {
-  display: inline-block;
-  background: #3ecf5a;
-  box-shadow: 0 0 6px rgba(62,207,90,0.5);
-  animation: pulse-dot 2s ease-in-out infinite;
-}
-.user-group-count {
-  font-size: 11px;
-  color: #6a6a80;
-  font-weight: 450;
-}
-/* Roll-up status chips: compact, readable, right-aligned in the header. */
-.user-group-chips {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  margin-top: 4px;
-}
-.user-group-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 17px;
-  height: 16px;
-  padding: 0 5px;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  border-radius: 8px;
-}
-.user-group-chip.status-needs-attention {
-  color: #ffd6a0;
-  background: rgba(240,160,80,0.18);
-}
-.user-group-chip.status-response-ready {
-  color: #9ee4ff;
-  background: rgba(79,195,247,0.18);
-}
-.user-group-menu-btn {
-  background: transparent;
-  border: 1px solid #555570;
-  color: #808098;
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  flex-shrink: 0;
-  transition: all 0.15s;
-  opacity: 0;
-  margin-top: 2px;
-}
-.user-group-header:hover .user-group-menu-btn {
-  opacity: 1;
-}
-.user-group-menu-btn:hover {
-  background: rgba(120,130,255,0.1);
-  color: #8088ff;
-}
-.user-group-launch-btn {
-  background: transparent;
-  border: 1px solid #555570;
-  color: #808098;
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  flex-shrink: 0;
-  transition: all 0.15s;
-  opacity: 0;
-  margin-top: 2px;
-}
-.user-group-header:hover .user-group-launch-btn {
-  opacity: 1;
-}
-.user-group-launch-btn:hover {
-  background: rgba(62,207,90,0.12);
-  color: #3ecf5a;
-  border-color: rgba(62,207,90,0.5);
-}
-.user-group-launch-btn:focus-visible {
-  opacity: 1;
-  outline: 2px solid rgba(62,207,90,0.7);
-  outline-offset: 1px;
-}
-.user-group-new-btn {
-  background: transparent;
-  border: 1px solid #555570;
-  color: #808098;
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  flex-shrink: 0;
-  transition: all 0.15s;
-  opacity: 0;
-  margin-top: 2px;
-}
-.user-group-header:hover .user-group-new-btn {
-  opacity: 1;
-}
-.user-group-new-btn:hover {
-  background: rgba(120,130,255,0.1);
-  color: #8088ff;
-  border-color: rgba(120,130,255,0.5);
-}
-.user-group-new-btn:focus-visible {
-  opacity: 1;
-  outline: 2px solid rgba(120,130,255,0.7);
-  outline-offset: 1px;
-}
-
-/* Inline group-name rename, mirroring the session rename input. */
-.group-rename-input {
-  font-size: 13px;
-  font-weight: 600;
-  color: #d0d0e8;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(120,130,255,0.4);
-  border-radius: 5px;
-  padding: 1px 6px;
-  width: 100%;
-  outline: none;
-  font-family: inherit;
-  line-height: 1.4;
-  box-shadow: 0 0 0 3px rgba(120,130,255,0.08);
-}
-
-/* Drag-to-assign: highlight the group folder the dragged session would drop into. */
-.user-group.drop-target > .user-group-header .user-group-row {
-  background: color-mix(in srgb, var(--user-group-color, #8088ff) 22%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--user-group-color, #8088ff) 55%, transparent);
-}
-.session-item.dragging {
-  opacity: 0.45;
-}
 body.sidebar-session-dragging,
 body.sidebar-session-dragging * {
   cursor: grabbing !important;
@@ -6979,206 +6719,6 @@ body.sidebar-session-dragging * {
 .project-group.drop-target-before { box-shadow: inset 0 2px 0 0 rgba(120,130,255,0.8); }
 .project-group.drop-target-after { box-shadow: inset 0 -2px 0 0 rgba(120,130,255,0.8); }
 
-.user-group.collapsed .user-group-sessions { display: none; }
-/* Nested sessions hang off a slim accent connector that fades downward,
-   aligned under the folder glyph so the hierarchy reads at a glance. */
-.user-group-sessions {
-  position: relative;
-  margin-left: 20px;
-  padding-left: 8px;
-  border-left: none;
-}
-.user-group-sessions::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 1px;
-  bottom: 6px;
-  width: 1.5px;
-  border-radius: 2px;
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--user-group-color, #8088ff) 34%, transparent),
-    color-mix(in srgb, var(--user-group-color, #8088ff) 12%, transparent)
-  );
-  transition: background 0.15s;
-}
-.user-group:hover > .user-group-sessions::before {
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--user-group-color, #8088ff) 48%, transparent),
-    color-mix(in srgb, var(--user-group-color, #8088ff) 18%, transparent)
-  );
-}
-.user-group-header:focus-visible {
-  outline: 2px solid rgba(128,136,255,0.85);
-  outline-offset: -2px;
-}
-
-/* --- Sidebar view-mode toggle (directory-first <-> folder-first) --- */
-#view-mode-toggle {
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.08);
-  color: #7a7a90;
-  font-size: 11px;
-  padding: 0;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-family: inherit;
-  font-weight: 500;
-  line-height: 1;
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-#view-mode-toggle:hover {
-  background: rgba(255,255,255,0.04);
-  border-color: rgba(255,255,255,0.12);
-  color: #888;
-}
-#view-mode-toggle.active {
-  background: rgba(128,136,255,0.12);
-  border-color: rgba(128,136,255,0.3);
-  color: #8088ff;
-}
-
-/* --- Folder-first: project sub-sections inside a folder --- */
-.ff-project { margin: 0; }
-.ff-project-header {
-  padding: 5px 8px 5px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #9a9ab2;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  user-select: none;
-  transition: color 0.15s, background 0.15s;
-  border-radius: 5px;
-}
-.ff-project-header:hover {
-  color: #c8c8e0;
-  background: rgba(255,255,255,0.03);
-}
-.ff-project-header .arrow {
-  font-size: 8px;
-  transition: transform 0.2s;
-  display: inline-block;
-  color: var(--user-group-color, #8088ff);
-}
-.ff-project-header.collapsed .arrow {
-  transform: rotate(-90deg);
-}
-.ff-project-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ff-project-count {
-  font-size: 10px;
-  color: #6a6a82;
-  font-weight: 500;
-}
-.ff-project-new-btn { opacity: 0; }
-.ff-project-header:hover .ff-project-new-btn { opacity: 1; }
-.ff-project-header.collapsed + .ff-project-sessions { display: none; }
-.ff-project.missing { opacity: 0.55; }
-.ff-project.missing:hover { opacity: 0.8; }
-
-/* --- Folder-first: "Ungrouped" divider above the loose project list --- */
-.ff-ungrouped-heading {
-  padding: 12px 10px 4px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #6a6a82;
-}
-
-/* --- Group editor dialog --- */
-.group-editor-dialog .group-editor-name {
-  width: 100%;
-  box-sizing: border-box;
-  margin-top: 12px;
-  padding: 8px 10px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 6px;
-  color: #e0e0f0;
-  font-size: 13px;
-  font-family: inherit;
-}
-.group-editor-dialog .group-editor-name:focus {
-  outline: none;
-  border-color: rgba(128,136,255,0.6);
-}
-.group-editor-swatches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-.group-editor-swatch {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  border: 2px solid transparent;
-  cursor: pointer;
-  padding: 0;
-  transition: transform 0.12s, border-color 0.12s;
-}
-.group-editor-swatch:hover { transform: scale(1.1); }
-.group-editor-swatch.selected {
-  border-color: #ffffff;
-  box-shadow: 0 0 0 2px rgba(0,0,0,0.4);
-}
-
-/* --- Group assignment / menu popover --- */
-.group-assign-popover .popover-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.group-assign-popover .popover-option.active {
-  background: rgba(120,130,255,0.12);
-}
-.group-assign-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  flex-shrink: 0;
-}
-.group-assign-dot-new {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(120,130,255,0.18);
-  color: #8088ff;
-  font-weight: 700;
-  font-size: 12px;
-  line-height: 1;
-}
-.group-assign-name {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.group-assign-check {
-  color: #8088ff;
-  font-weight: 700;
-}
-.group-assign-remove .group-assign-name {
-  color: #e08098;
-}
-
 /* --- Session tag picker (#99) --- */
 /* Sits on .new-session-popover for the panel; only the row layout is its own. */
 .session-tag-popover {
@@ -7235,186 +6775,6 @@ body.sidebar-session-dragging * {
   border-color: rgba(120,130,255,0.5);
 }
 
-/* --- Grid group filter --- */
-.grid-filter-divider {
-  width: 1px;
-  height: 16px;
-  background: rgba(255,255,255,0.12);
-  margin: 0 4px;
-  flex-shrink: 0;
-}
-.grid-group-filter {
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.03);
-  color: #8a8aa0;
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 10.5px;
-  font-weight: 700;
-  cursor: pointer;
-  font-family: inherit;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-.grid-group-filter:hover:not(:disabled),
-.grid-group-filter:focus-visible {
-  color: #d0d0e8;
-  border-color: rgba(128,136,255,0.35);
-  outline: none;
-}
-.grid-group-filter.active {
-  color: #ffffff;
-  background: rgba(128,136,255,0.18);
-  border-color: rgba(128,136,255,0.4);
-}
-.grid-group-filter:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.grid-group-filter-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 3px;
-  flex-shrink: 0;
-}
-
-/* --- Grid group regions --- */
-#terminals.grid-layout.grid-grouped {
-  display: block;
-  grid-template-columns: none !important;
-  grid-auto-rows: auto;
-  /* Sticky region headers provide their own top spacing; a top padding here
-     would leave a transparent strip above the first sticky header that content
-     bleeds through while scrolling. */
-  padding-top: 0;
-}
-.grid-region {
-  --user-group-color: #6a6a80;
-  margin-bottom: 18px;
-}
-.grid-region-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  /* Collapsible (mirrors the sidebar user-group caret) — header is a click target. */
-  cursor: pointer;
-  user-select: none;
-  /* Full-bleed sticky bar: negative margins span #terminals' horizontal padding
-     (10px left / 16px right) so the solid background covers the entire strip and
-     nothing behind shows through above or beside the header while scrolling. */
-  margin: 0 -16px 8px -10px;
-  padding: 12px 18px 8px 12px;
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: #111118;
-}
-.grid-region-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 3px;
-  background: var(--user-group-color, #6a6a80);
-  flex-shrink: 0;
-}
-.grid-region.ungrouped .grid-region-dot {
-  background: transparent;
-  border: 1px dashed #6a6a80;
-}
-.grid-region-name {
-  font-size: 12.5px;
-  font-weight: 650;
-  color: #c4c4d8;
-}
-.grid-region-count {
-  font-size: 10.5px;
-  color: #707088;
-  font-weight: 500;
-}
-.grid-region-chip {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 999px;
-}
-.grid-region-chip.status-needs-attention {
-  color: #ffd6a0;
-  background: rgba(240,160,80,0.2);
-}
-.grid-region-chip.status-response-ready {
-  color: #9ee4ff;
-  background: rgba(79,195,247,0.2);
-}
-.grid-region-cards {
-  display: grid;
-  gap: 10px;
-  align-content: start;
-  grid-auto-rows: minmax(460px, min(58vh, 620px));
-}
-.grid-region-cards.grid-single-card {
-  grid-template-columns: 1fr !important;
-}
-
-/* Collapsible grid group regions (mirror the sidebar user-group caret) */
-.grid-region-expand {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: var(--user-group-color, #6a6a80);
-}
-.grid-region-expand .arrow {
-  font-size: 8px;
-  display: inline-block;
-  transition: transform 0.2s;
-}
-.grid-region:not(.collapsed) .grid-region-expand .arrow {
-  transform: rotate(90deg);
-}
-.grid-region-expand:focus-visible {
-  outline: 2px solid rgba(128,136,255,0.85);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-.grid-region-launch-btn {
-  margin-left: auto;
-  flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: transparent;
-  border: 1px solid #44445a;
-  border-radius: 5px;
-  cursor: pointer;
-  color: #808098;
-  transition: all 0.15s;
-}
-.grid-region-launch-btn:hover {
-  background: rgba(62,207,90,0.12);
-  color: #3ecf5a;
-  border-color: rgba(62,207,90,0.5);
-}
-.grid-region-launch-btn:focus-visible {
-  outline: 2px solid rgba(62,207,90,0.7);
-  outline-offset: 2px;
-}
-.grid-region.collapsed .grid-region-cards {
-  display: none;
-}
-.grid-region.collapsed {
-  margin-bottom: 10px;
-}
-
 /* ===== Flexible grid layout: resize / drag / reset (spec 08) ===== */
 
 #grid-reset-layout-btn {
@@ -7436,40 +6796,6 @@ body.sidebar-session-dragging * {
   border-color: rgba(128,136,255,0.4);
   background: rgba(128,136,255,0.12);
   outline: none;
-}
-
-/* Pushed to the right end of the bulk-actions bar, away from the session
-   bulk buttons. */
-#grid-bulk-actions #grid-collapse-all-btn {
-  margin-left: auto;
-}
-
-#grid-collapse-all-btn {
-  border: 1px solid rgba(255,255,255,0.1);
-  background: rgba(255,255,255,0.03);
-  color: #9a9ab0;
-  border-radius: 6px;
-  padding: 0;
-  width: 26px;
-  height: 24px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-#grid-collapse-all-btn:hover,
-#grid-collapse-all-btn:focus-visible {
-  color: #e0e0f0;
-  border-color: rgba(128,136,255,0.4);
-  background: rgba(128,136,255,0.12);
-  outline: none;
-}
-#grid-collapse-all-btn.all-collapsed {
-  color: #8088ff;
-  border-color: rgba(128,136,255,0.3);
-  background: rgba(128,136,255,0.1);
 }
 
 .grid-card-resize-handle {
@@ -7536,13 +6862,6 @@ body.grid-dragging .grid-card-header {
 }
 .grid-card.drop-after {
   box-shadow: inset -3px 0 0 #8088ff;
-}
-
-/* Group region highlighted as a drop target for reassignment */
-.grid-region.drop-region {
-  outline: 2px dashed color-mix(in srgb, var(--user-group-color, #8088ff) 70%, transparent);
-  outline-offset: 2px;
-  border-radius: 8px;
 }
 
 /* ===== Snap layouts (Windows 11-style preset sizes, spec 08) ===== */
@@ -8480,7 +7799,6 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .about-kv { display: flex; gap: 10px; font-size: 12px; }
 .about-kv span { min-width: 90px; color: #8a8a9a; }
 .about-kv code { color: #d0d0d8; }
-
 
 /* --- Handoff library (#03): capture bar + resume picker --- */
 .handoff-capture-bar {
@@ -9902,6 +9220,7 @@ details.settings-adv.backend-defaults > summary { color: #b0b0c4; }
 
 /* ---- Profile editor modal (reuses .new-session-overlay / .new-session-dialog) ---- */
 .backend-editor { width: 620px; max-height: 86vh; overflow-y: auto; }
+
 .backend-editor .settings-btn-row { position: static; padding-top: 16px; }
 .backend-editor .settings-field-wide { display: block; }
 .backend-editor .settings-field-wide .settings-field-control { margin-top: 10px; }
