@@ -2,10 +2,11 @@
 
 > **Lineage.** This repo (codename *deadeye*) is a downstream fork of a fork:
 > `doctly/switchboard` (original) → `HaydnG/switchboard` (base) →
-> `JeanBaptisteRenard/switchboard` (feature source) → **this fork**. Nearly all of the
-> work and credit belongs to the upstream authors. **Waves 1–3 below document what the
-> HaydnG base adds over upstream `doctly`** (inherited by this fork). **Wave 4 documents
-> what *this* fork adds on top of HaydnG.**
+> `JeanBaptisteRenard/switchboard` (feature source) → **this fork**. The foundation is
+> upstream work and the credit for it belongs to its authors; it has since been
+> substantially rewritten here. **Waves 1–3 below document what the HaydnG base adds over
+> upstream `doctly`** (inherited by this fork). **Wave 4 documents what *this* fork adds on
+> top of HaydnG.**
 
 Everything in the HaydnG base fork (`HaydnG/switchboard`) that is **not** in the upstream
 project (`doctly/switchboard`). The base fork takes upstream `v0.0.30` to `v0.1.0`,

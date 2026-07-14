@@ -1433,9 +1433,12 @@
                   <b>entirely at your own risk</b>. Builds are unsigned — prefer building from source.
                 </div>
                 <div class="settings-description">
-                  Nearly all of the work and credit belongs to the upstream authors
-                  (<code>haydng</code>, <code>jbr</code>, <code>doctly</code>); this fork only adds a
-                  thin layer on top.
+                  Built on upstream work (<code>doctly</code> → <code>haydng</code> → <code>jbr</code>),
+                  whose authors deserve the credit for the foundation. It has since been substantially
+                  rewritten. New here: multi-LLM backends, the tabbed layout, project and session tags,
+                  a rebuilt settings surface. Much of the rest — the attention inbox, handoff,
+                  scheduling, the grid overview, usage — was extended rather than replaced. See
+                  <code>docs/fork-features.md</code>.
                 </div>
               </div>
 

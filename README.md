@@ -8,7 +8,7 @@ Switchboard is a desktop app that gives you a unified view of all your Claude Co
 >
 > This repository (codename **deadeye**) is a **personal, unofficial downstream fork**, maintained for our own use.
 >
-> - **Almost all of the software — and all of the credit — belongs to the upstream authors** ([Doctly](https://github.com/doctly/switchboard), [HaydnG](https://github.com/HaydnG/switchboard), and [JeanBaptisteRenard](https://github.com/JeanBaptisteRenard/switchboard)). This fork only adds a thin layer of our own features on top. See [Credits](#license--credits).
+> - **Built on upstream work** ([Doctly](https://github.com/doctly/switchboard) → [HaydnG](https://github.com/HaydnG/switchboard) → [JeanBaptisteRenard](https://github.com/JeanBaptisteRenard/switchboard)), whose authors deserve the credit for the foundation. **It has since been substantially rewritten.** New here: multi-LLM backends, the tabbed layout, project and session tags, and a rebuilt settings surface. Much of what was already there — the attention inbox, handoff, scheduling, the grid overview, usage — has been extended rather than replaced. See [What this fork adds](#what-this-fork-adds) and [Credits](#license--credits).
 > - **This is not an official product.** It is **not affiliated with, endorsed by, or supported by** Anthropic, Doctly, or any upstream author.
 > - **No warranty. No support. No liability.** The software is provided *"as is"* under the MIT license, with **no guarantees of any kind**. You use it **entirely at your own risk**. Neither this fork's maintainer nor the upstream authors are liable for any damage, data loss, security incident, or other consequence arising from its use.
 > - **Builds are unsigned.** For anything you care about, **build it yourself from source** and run the code you audited — see [Security & Trust](#security--trust).
@@ -299,10 +299,12 @@ Licensed under the **MIT License** — see [`LICENSE`](LICENSE). MIT includes an
 
 **Credits.** Switchboard was created by **[Doctly](https://github.com/doctly/switchboard)** and
 substantially extended by **[HaydnG](https://github.com/HaydnG/switchboard)** and
-**[JeanBaptisteRenard](https://github.com/JeanBaptisteRenard/switchboard)**. **Nearly all of the
-work and merit belongs to them.** This fork (deadeye) only adds a small set of our own features on
-top and repackages the app for our own use. Some of those additions are themselves ports of other
-community forks (brianstanley, kreaddis), credited in the commit history.
+**[JeanBaptisteRenard](https://github.com/JeanBaptisteRenard/switchboard)**. **The foundation is
+theirs, and so is the credit for it** — this fork exists because they built the thing worth forking,
+and much of what it does today (the attention inbox, handoff, scheduling, the grid overview, usage)
+started with them and was extended here rather than replaced. It has since been substantially
+rewritten (deadeye); some of those additions are themselves ports of other community forks
+(brianstanley, kreaddis), credited in the commit history.
 
 This fork is **not affiliated with, endorsed by, or supported by** Anthropic, Doctly, or any of the
 upstream authors.
