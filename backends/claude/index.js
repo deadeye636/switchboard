@@ -1,8 +1,10 @@
-// backends/claude.js — the Claude Code backend descriptor (the default; status 'ready').
+// backends/claude/index.js — the Claude Code backend descriptor (the default; status 'ready').
 //
-// A THIN ADAPTER (00 §4, 02-file-map): Claude's heavy parse/state/discovery logic already lives in
-// the existing hot-path modules that the other forks rewrote, so we do NOT move them into a folder
-// (pure merge pain). This descriptor just points at them:
+// A THIN ADAPTER (00 §4, 02-file-map): Claude's heavy parse/state/discovery logic still lives in the
+// hot-path modules at the repo root — read-session-file.js and friends — because the CORE imports them
+// directly (session-cache.js does not go through this descriptor the way it goes through Codex's or Pi's).
+// That is the real asymmetry, and a folder does not fix it; moving the readers in here before the core is
+// routed through the descriptor would only hide it. This descriptor just points at them:
 //   - buildLaunch  reproduces the inline claude-arg logic (main.js:3052-3086) byte-identically.
 //   - discoverSessions  = FILE mode over ~/.claude/projects (reuses enumerateSessionFiles).
 //   - parseSession({kind:'file'})  delegates to read-session-file.js.
@@ -14,7 +16,7 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
-const { readSessionFile, enumerateSessionFiles, PARSER_SCHEMA_VERSION: readerVersion } = require('../read-session-file');
+const { readSessionFile, enumerateSessionFiles, PARSER_SCHEMA_VERSION: readerVersion } = require('../../read-session-file');
 
 // Claude's session store root. Defaults to ~/.claude/projects; main.js overrides it with its own
 // PROJECTS_DIR at init (and tests point it at a fixture) via setRoots().
@@ -168,8 +170,8 @@ function watchTargets() {
 // own business — Claude keeps trust in ~/.claude.json and writes `cwd` on every line; Codex keeps trust
 // in its config.toml and writes cwd once, in its header. A backend that has neither declares neither,
 // and the project manager stops pretending it speaks for everyone.
-const claudeConfig = require('../claude-config');
-const { rewriteTranscript, claudeLine } = require('./rewrite-cwd');
+const claudeConfig = require('../../claude-config');
+const { rewriteTranscript, claudeLine } = require('../rewrite-cwd');
 
 const projectTrust = {
   get: (projectPath) => {

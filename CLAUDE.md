@@ -79,10 +79,11 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 - **Session data**: read from `~/.claude/projects/**/*.jsonl` (`read-session-file.js`,
   `derive-project-path.js`, `workers/scan-projects.js`, `session-cache.js`, `session-transitions.js`).
 - **Backends** (`backends/`): the app runs **several coding CLIs** (Claude, Codex, Hermes, Pi; `agy`
-  planned), not just Claude. One descriptor per backend — `backends/index.js` (registry) + `claude.js`
-  (thin adapter over the modules above) + a folder per Axis-B binary. **Everything else derives from the
-  descriptor**: spawn routing, scanning, the watcher, the launch menu, the generated settings page and
-  Configure dialog, the sidebar badge, search, stats, resume.
+  planned), not just Claude. One folder per backend — `backends/index.js` (registry) + `claude/`
+  (a **thin adapter** over the modules above: the core still imports Claude's readers directly instead of
+  going through the descriptor, which is why they are not in that folder) + a folder per Axis-B binary.
+  **Everything else derives from the descriptor**: spawn routing, scanning, the watcher, the launch menu,
+  the generated settings page and Configure dialog, the sidebar badge, search, stats, resume.
 
 ### Working on backends
 

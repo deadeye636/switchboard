@@ -33,7 +33,7 @@ test('it is declared ONCE, centrally — not copied into four descriptors to dri
   const src = fs.readFileSync(path.join(__dirname, '..', 'backends', 'index.js'), 'utf8');
   assert.match(src, /const UNIVERSAL_FIELDS = \[/,
     'an option that belongs to Switchboard rather than to a CLI is added by the registry');
-  const claude = fs.readFileSync(path.join(__dirname, '..', 'backends', 'claude.js'), 'utf8');
+  const claude = fs.readFileSync(path.join(__dirname, '..', 'backends', 'claude', 'index.js'), 'utf8');
   const fields = claude.slice(claude.indexOf('const configFields = ['), claude.indexOf('\n];'));
   assert.ok(!/id: 'preLaunchCmd'/.test(fields),
     'Claude must not declare it too, or a backend would carry the field twice');

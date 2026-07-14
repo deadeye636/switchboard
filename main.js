@@ -3438,7 +3438,7 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       // Route the launch through the backend registry (Phase 1, T-1.2). `claude` is the default
       // backend and reproduces today's exact argv/command; an Axis-A profile additionally supplies
       // an env bundle (merged into ptyEnv further down). Claude behaviour is byte-identical — the
-      // arg logic now lives in backends/claude.js buildLaunch.
+      // arg logic now lives in backends/claude/index.js buildLaunch.
       // Resume is backend-bound (§5.11): when resuming/forking WITHOUT an explicit backend choice,
       // keep the session's recorded backend/profile from the overlay instead of clobbering it with
       // the `claude` default. In Phase 1 the overlay is empty for pre-existing sessions, so this is
