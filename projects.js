@@ -624,6 +624,42 @@ function listBackendsWithTrust() {
 }
 
 /**
+ * The projects that HAVE sessions and are not on the list (#183).
+ *
+ * Their sessions are indexed and searchable, and the sidebar paints none of them: the register decides
+ * what is shown, and in manual mode discovery may not write to it. That is the correct behaviour and it
+ * is also a silent one — nothing anywhere says "there is work here you cannot see", so a session you were
+ * in an hour ago is simply not in the list and there is nothing to click. This is what the sidebar's
+ * notice counts, and what the project manager can filter down to.
+ *
+ * The list is exactly what AUTO-ADD would have taken, tombstone included: a project the user REMOVED is
+ * not offered back until a session newer than the removal turns up — the same rule, asked of the same
+ * function, so the offer can never contradict what the register would do.
+ */
+function unlistedProjects() {
+  try {
+    const states = ctx.db.getProjectStates();
+    const out = [];
+    for (const row of ctx.cache.buildProjectsAdmin()) {
+      if (row.registered) continue;
+      if (!row.sessionCount) continue;                 // nothing to miss
+      const state = states.get(row.projectPath) || null;
+      if (!registry.shouldRegister(state, { source: 'scan', autoAdd: true, sessionAt: row.lastActivity })) continue;
+      out.push({
+        projectPath: row.projectPath,
+        sessionCount: row.sessionCount,
+        lastActivity: row.lastActivity || null,
+      });
+    }
+    out.sort((a, b) => new Date(b.lastActivity || 0) - new Date(a.lastActivity || 0));
+    return { ok: true, projects: out, sessionCount: out.reduce((n, p) => n + (p.sessionCount || 0), 0) };
+  } catch (err) {
+    ctx.log.warn('[projects] unlistedProjects failed: ' + (err && err.message));
+    return { ok: false, projects: [], sessionCount: 0 };
+  }
+}
+
+/**
  * Aggregated per-project admin view (#32): cache-derived rows (all projects incl. hidden) layered with
  * trust state + read-only ~/.claude.json meta (MCP/allowedTools/cost/tokens), plus any project that only
  * exists in ~/.claude.json (so trust can still be managed).
@@ -882,6 +918,7 @@ function registerIpc(ipcMain) {
   ipcMain.handle('set-project-auto-add', (_e, enabled) => setProjectAutoAdd(enabled));
   ipcMain.handle('remap-project', (_e, oldPath, newPath) => remapProject(oldPath, newPath));
   ipcMain.handle('get-projects-admin', () => getProjectsAdmin());
+  ipcMain.handle('get-unlisted-projects', () => unlistedProjects());
   ipcMain.handle('set-project-trust', (_e, projectPath, backendId, trusted) => setProjectTrust(projectPath, backendId, trusted));
   ipcMain.handle('delete-project-sessions', (_e, projectPath, backendIds) => deleteProjectSessions(projectPath, backendIds));
   ipcMain.handle('project-deletable-backends', (_e, projectPath) => deletableBackends(projectPath));
@@ -894,7 +931,7 @@ module.exports = {
   registerIpc,
   // operations (exported for tests, and for main.js where it calls them directly)
   browseFolder, addProject, hideProject, removeProject, getHiddenProjects, unhideProject, setProjectAutoAdd,
-  remapProject, getProjectsAdmin, setProjectTrust, deleteProjectSessions, deletableBackends,
+  remapProject, getProjectsAdmin, unlistedProjects, setProjectTrust, deleteProjectSessions, deletableBackends,
   removeProjectConfig, toggleFavorite,
   // helpers main.js still calls on other paths (a spawn adds the project; the app start hides stale ones)
   ensureProjectAdded, applyAutoHide, syncRegistry,

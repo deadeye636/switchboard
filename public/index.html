@@ -46,6 +46,9 @@
     <!-- Project tag filter (#98): colored chips, AND multi-select. Hidden when no project has tags. -->
     <div id="project-tag-filters" role="toolbar" aria-label="Filter projects by tag" style="display:none;"></div>
     <div id="sidebar-content" class="sticky-inbox"></div>
+    <!-- #183: sessions exist in projects that are not on the list. They are indexed and searchable and
+         the sidebar paints none of them — without this line, nothing anywhere says so. -->
+    <button id="unlisted-notice" style="display:none;" type="button"></button>
     <div id="plans-content" style="display:none;"></div>
     <div id="stats-content" style="display:none;">
       <div class="plans-empty">Click the Stats tab to view activity heatmap.</div>

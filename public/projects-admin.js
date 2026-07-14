@@ -14,6 +14,7 @@
   let autoAdd = true;    // whether project auto-add is on (allowlist irrelevant then)
   let trustable = [];    // the backends that HAVE a per-project trust gate (#171): Claude, Codex — not Pi/Hermes
   let filter = '';       // search substring (lowercased)
+  let unlistedOnly = false;  // show only projects that have sessions but are not on the list (#183)
 
   function shortName(p) {
     return String(p || '').split(/[\\/]/).filter(Boolean).slice(-2).join('/') || p || '';
@@ -42,6 +43,9 @@
   }
 
   function matches(row) {
+    // Opened from the sidebar's "not on your list" notice (#183): show only those projects, so the one
+    // the user came here for is not a needle in the full table.
+    if (unlistedOnly && (row.inAllowlist || !row.sessionCount)) return false;
     if (!filter) return true;
     return (row.displayName || '').toLowerCase().includes(filter)
       || (row.projectPath || '').toLowerCase().includes(filter);
@@ -222,6 +226,7 @@
       <div class="pa-header">
         <span class="pa-title">Projects</span>
         <input type="text" class="pa-search" placeholder="Filter projects…" value="${escapeHtml(filter)}">
+        ${unlistedOnly ? '<button type="button" class="pa-chip" data-action="clear-unlisted" title="Showing only projects that have sessions but are not on the list. Click the tick under “Listed” to add one.">Not on the list &times;</button>' : ''}
         <span class="pa-mode">${autoAdd ? 'Auto-add: on' : 'Manual mode'}</span>
         <button class="pa-add" data-action="add">+ Add project</button>
         <button class="pa-refresh" data-action="refresh" title="Reload">⟳</button>
@@ -254,6 +259,12 @@
   }
 
   async function load() {
+    // Set by the sidebar's "not on your list" notice (#183) right before it switches to this tab.
+    // Consumed once: opening the manager again shows everything, as it always did.
+    if (window._paUnlistedOnly) {
+      unlistedOnly = true;
+      window._paUnlistedOnly = false;
+    }
     viewer.innerHTML = '<div class="pa-loading">Loading projects…</div>';
     try {
       const res = await window.api.getProjectsAdmin();
@@ -502,6 +513,7 @@
     const action = btn.dataset.action;
     const tr = btn.closest('tr');
     const path = tr ? tr.dataset.path : null;
+    if (action === 'clear-unlisted') { unlistedOnly = false; render(); return; }   // #183
     if (action === 'refresh' || action === 'add') { handleAction(action, null, null); return; }
     if (!path) return;
     // A trust chip carries the backend it speaks for (#171) — there is one per backend that has a

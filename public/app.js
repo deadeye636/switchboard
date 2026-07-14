@@ -1984,6 +1984,38 @@ async function loadProjects({ resort = false } = {}) {
     if (name && !headerRenaming) terminalHeaderName.textContent = name;
   }
   renderDefaultStatus();
+  refreshUnlistedNotice();
+}
+
+// #183: what the sidebar is NOT showing. A session in a project that is not on the list is indexed and
+// searchable and painted nowhere — correct (the register decides, and in manual mode discovery may not
+// write to it), and silent, which is not: the session you were in an hour ago is simply not there, with
+// nothing to click and no reason given. This says how much is being withheld, and opens the manager on
+// exactly those projects, where one click puts one on the list. It adds nothing by itself.
+async function refreshUnlistedNotice() {
+  const el = document.getElementById('unlisted-notice');
+  if (!el || typeof window.api.getUnlistedProjects !== 'function') return;
+  let res;
+  try { res = await window.api.getUnlistedProjects(); } catch { return; }
+  const projects = (res && res.projects) || [];
+  if (projects.length === 0) { el.style.display = 'none'; return; }
+
+  const sessions = res.sessionCount || 0;
+  const s = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  el.textContent = `${s(sessions, 'session')} in ${s(projects.length, 'project')} not on your list`;
+  el.title = projects.map(p => `${p.projectPath} — ${s(p.sessionCount, 'session')}`).join('\n')
+    + '\n\nClick to see them in the project manager, where you can put one on the list.';
+  el.style.display = '';
+}
+
+{
+  const el = document.getElementById('unlisted-notice');
+  if (el) {
+    el.addEventListener('click', () => {
+      window._paUnlistedOnly = true;                       // the manager opens filtered to them
+      document.querySelector('.sidebar-tab[data-tab="projects"]')?.click();
+    });
+  }
 }
 
 // Sidebar rendering (slugId, folderId, buildSlugGroup, renderProjects,
@@ -2433,6 +2465,9 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
 
     // Hide all sidebar content areas
     sidebarContent.style.display = 'none';
+    // The "not on your list" notice belongs to the session list it stands under (#183).
+    const unlistedNotice = document.getElementById('unlisted-notice');
+    if (unlistedNotice) unlistedNotice.style.display = 'none';
     plansContent.style.display = 'none';
     statsContent.style.display = 'none';
     memoryContent.style.display = 'none';
@@ -2448,6 +2483,7 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       searchBar.style.display = '';
       searchInput.placeholder = 'Search...';
       sidebarContent.style.display = '';
+      refreshUnlistedNotice();   // #183 — it hangs under this list, and only under it
       // Restore terminal area
       returnToTerminal();
       // Catch up on changes that happened while on another tab

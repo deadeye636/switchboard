@@ -998,3 +998,46 @@ test('#184: switching auto-hide off gives back every project it was holding', ()
     assert.strictEqual(t.state('D:\a').autoHidden, 0);
   } finally { t.cleanup(); }
 });
+
+// --- what the sidebar is NOT showing (#183) ---------------------------------------------------------
+//
+// A session in a project that is not on the list is indexed and searchable and painted nowhere. That is
+// correct — the register decides, and in manual mode discovery may not write to it — and it is silent,
+// which is not: the session you were in an hour ago is simply not there. `unlistedProjects` is what the
+// sidebar's notice counts, and it must never offer something the register itself would refuse.
+
+test('#183: unlistedProjects lists the projects that have sessions and are not on the list', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    t.setAdminRows([
+      { projectPath: 'D:\\listed', registered: true, sessionCount: 3, lastActivity: '2026-07-01T10:00:00.000Z' },
+      { projectPath: 'D:\\unlisted', registered: false, sessionCount: 2, lastActivity: '2026-07-02T10:00:00.000Z' },
+      { projectPath: 'D:\\empty', registered: false, sessionCount: 0, lastActivity: null },
+    ]);
+
+    const res = projects.unlistedProjects();
+    assert.deepStrictEqual(res.projects.map(p => p.projectPath), ['D:\\unlisted'],
+      'a listed project is shown anyway; one with no sessions has nothing to miss');
+    assert.strictEqual(res.sessionCount, 2, 'and it says how many sessions are being withheld');
+  } finally { t.cleanup(); }
+});
+
+test('#183: a project the user REMOVED is not offered back — until a session newer than the removal', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    const removedAt = '2026-07-01T00:00:00.000Z';
+    t.ctx.db.setProjectState('D:\\removed', { registered: 0, removedAt });
+    t.setAdminRows([
+      { projectPath: 'D:\\removed', registered: false, sessionCount: 5, lastActivity: '2026-06-01T00:00:00.000Z' },
+    ]);
+    assert.deepStrictEqual(projects.unlistedProjects().projects, [],
+      'the sessions that were already there when it was removed are exactly what the tombstone ignores');
+
+    // Work happens there again, after the removal.
+    t.setAdminRows([
+      { projectPath: 'D:\\removed', registered: false, sessionCount: 6, lastActivity: '2026-07-05T00:00:00.000Z' },
+    ]);
+    assert.deepStrictEqual(projects.unlistedProjects().projects.map(p => p.projectPath), ['D:\\removed'],
+      'a NEW session is a reason to offer it again — the same rule auto-add follows');
+  } finally { t.cleanup(); }
+});

@@ -934,6 +934,38 @@ input:focus-visible {
   padding: 0 0 12px;
 }
 
+/* What the sidebar is NOT showing (#183): sessions in projects that are not on the list. Sits under the
+   project list, out of the way, and only exists when there is something to say. */
+#unlisted-notice {
+  flex-shrink: 0;
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: rgba(217,119,87,0.06);
+  color: #b08060;
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+#unlisted-notice:hover { background: rgba(217,119,87,0.12); color: #d97757; }
+
+/* The chip the project manager wears while it is filtered to those projects. */
+.pa-chip {
+  padding: 5px 10px;
+  background: rgba(217,119,87,0.12);
+  border: 1px solid rgba(217,119,87,0.35);
+  border-radius: 6px;
+  color: #d97757;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pa-chip:hover { background: rgba(217,119,87,0.2); }
+
 /* ---- Project groups ---- */
 .attention-inbox {
   margin: 4px 6px 8px;

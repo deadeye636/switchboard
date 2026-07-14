@@ -123,6 +123,8 @@ contextBridge.exposeInMainWorld('api', {
   unhideProject: (projectPath) => ipcRenderer.invoke('unhide-project', projectPath),
   remapProject: (oldPath, newPath) => ipcRenderer.invoke('remap-project', oldPath, newPath),
   getProjectsAdmin: () => ipcRenderer.invoke('get-projects-admin'),
+  // Projects that have sessions and are not on the list — indexed, searchable, painted nowhere (#183).
+  getUnlistedProjects: () => ipcRenderer.invoke('get-unlisted-projects'),
   // Trust is per BACKEND (#171): Claude keeps it in ~/.claude.json, Codex in its own config.toml, and
   // Pi/Hermes have no such gate at all. The backend that owns the answer writes it.
   setProjectTrust: (projectPath, backendId, trusted) =>
