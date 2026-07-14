@@ -7810,8 +7810,14 @@ body.grid-dragging .grid-card-header {
   text-decoration: line-through;
 }
 
+/* Anchors the colour popover. It must sit BESIDE the swatch, not inside it: a
+   popover appended into a <button> receives no interaction (#174). */
+.settings-tagdef-color-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
 .settings-tagdef-color {
-  position: relative; /* anchors the colour popover */
   width: 18px;
   height: 18px;
   border-radius: 50%;

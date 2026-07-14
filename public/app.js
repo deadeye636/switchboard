@@ -2625,6 +2625,13 @@ async function reapplyGlobalSettings() {
   if (g.shortcuts && typeof setAppShortcuts === 'function') setAppShortcuts(g.shortcuts);
   window._applySessionDisplaySettings?.(g);
   window._applyProjectSortSettings?.(g);
+  // Tag definitions (name, colour, hidden/disabled) are edited in the same window
+  // and are committed without a Save, so re-read them here: from the standalone
+  // settings window this broadcast is the only thing that reaches the chips in the
+  // sidebar and on the session cards (#174).
+  window._refreshProjectTagFilter?.();
+  window.bookmarksTags?.reloadTags?.();
+  refreshSidebar?.();
 }
 
 // --- Grid view toggle button (next to resort button in sidebar filters) ---

@@ -105,7 +105,7 @@
           const state = [t.hidden ? 'hidden' : '', t.disabled ? 'disabled' : ''].filter(Boolean).join(' ');
           return `
             <div class="settings-tagdef-row ${state}" data-name="${escapeHtml(t.name)}" data-color="${escapeHtml(c)}">
-              <button type="button" class="settings-tagdef-color" style="background:${c}" title="Change color" aria-label="Change color of ${escapeHtml(t.name)}"></button>
+              <span class="settings-tagdef-color-wrap"><button type="button" class="settings-tagdef-color" style="background:${c}" title="Change color" aria-label="Change color of ${escapeHtml(t.name)}"></button></span>
               <span class="settings-tagdef-name">${escapeHtml(t.name)}</span>
               <span class="settings-tagdef-usage">${usageLabel(t.usageCount)}</span>
               <div class="settings-tagdef-actions">
@@ -191,11 +191,17 @@
       }
 
       // Colour: live preview on the swatch, persisted when the popover closes.
+      // Anchored on the wrapper NEXT TO the swatch, never inside it: the swatch is
+      // a <button>, and a popover appended into a button gets no interaction at all
+      // — the button is the activation target, so its nested slider, hex input and
+      // swatch buttons were dead on arrival (#174). The chips in the project dialog
+      // anchor on a <span>, which is why the same picker works there.
       function openColor(row, name) {
         closePalette();
         const btn = row.querySelector('.settings-tagdef-color');
+        const anchor = row.querySelector('.settings-tagdef-color-wrap') || btn;
         let picked = row.dataset.color;
-        palette = buildColorPopover(btn, picked, (hex) => {
+        palette = buildColorPopover(anchor, picked, (hex) => {
           picked = hex;
           btn.style.background = hex;
         });
@@ -215,7 +221,7 @@
         const name = row.dataset.name;
 
         if (e.target.closest('.settings-tagdef-color')) {
-          const reopen = palette && palette.parentElement === row.querySelector('.settings-tagdef-color');
+          const reopen = palette && palette.parentElement === row.querySelector('.settings-tagdef-color-wrap');
           if (reopen) { const p = palette; closePalette(); p._commit?.(); return; }
           openColor(row, name);
           return;
@@ -252,6 +258,12 @@
         window.bookmarksTags.reloadTags();
       }
       if (typeof refreshSidebar === 'function') refreshSidebar();
+      // In the standalone settings window none of the above exists — the chips it
+      // recolours live in the main window. A tag edit there is committed on the
+      // spot (no Save), so tell the other windows right away (#174).
+      if (window.__SETTINGS_WINDOW__ && typeof window.api.notifySettingsChanged === 'function') {
+        window.api.notifySettingsChanged();
+      }
     }
 
     // In-app HSV colour picker (#134), shared by the project-tag chips and the tag
