@@ -62,19 +62,34 @@
   }
 
   /**
-   * Mixed-mode decision. `sessions` = the currently known sessions.
-   *   0 distinct backends            -> no badges
-   *   >= 2 distinct backends         -> badge everything (you need to tell them apart)
-   *   exactly 1, and it IS the default-> no badges (a single-backend user sees an unchanged app)
-   *   exactly 1, and it is NOT default-> badge it (it is not what you'd assume)
+   * Mixed-mode decision: does EVERY session row carry a provider badge?
+   *
+   * It follows the backends you RUN — the ones that are ready and enabled — not the sessions that happen
+   * to be on screen. Deriving it from the visible sessions made the badges come and go with the list: a
+   * user running Claude and Codex saw them vanish the moment the Codex rows were filtered out, scrolled
+   * past the fold, or simply not started yet, and the remaining Claude rows then looked like the rows of a
+   * single-backend app. If you run more than one CLI, you always need to know which one you are looking at.
+   *
+   *   >= 2 enabled backends           -> badge everything (you need to tell them apart)
+   *   exactly 1, and it IS the default -> no badges (a single-backend user sees an unchanged app)
+   *   exactly 1, and it is NOT default -> badge it (it is not what you would assume)
+   *
+   * `sessions` is only the fallback for the moment before the backend probes have answered: with nothing
+   * known about the backends, what the sessions say is all there is. A session whose backend is not the
+   * default is badged individually anyway (see buildSessionItem), so nothing is ever unlabelled.
    */
   function computeShowAllBadges(sessions) {
-    const distinct = new Set();
-    for (const s of sessions || []) distinct.add(sessionBackendId(s));
+    const enabled = launchableBackends();
     let show;
-    if (distinct.size === 0) show = false;
-    else if (distinct.size >= 2) show = true;
-    else show = !distinct.has(window._defaultBackendId);
+    if (enabled.length >= 2) {
+      show = true;
+    } else if (enabled.length === 1) {
+      show = enabled[0].id !== window._defaultBackendId;
+    } else {
+      const distinct = new Set();
+      for (const s of sessions || []) distinct.add(sessionBackendId(s));
+      show = distinct.size >= 2 || (distinct.size === 1 && !distinct.has(window._defaultBackendId));
+    }
     window._showAllBadges = show;
     return show;
   }

@@ -2153,6 +2153,12 @@ async function launchNewSession(project, sessionOptions, seedText, groupId) {
     messageCount: 0,
     modified: new Date().toISOString(),
     created: new Date().toISOString(),
+    // The provenance of a session that does not exist on disk yet. Without it the row falls through
+    // sessionBackendId() to the launch overlay — which the renderer only loads at start-up, so it has
+    // never heard of the session being launched right now — and lands on the 'claude' default. A Codex
+    // session therefore wore Claude's badge for as long as it took the cache to catch up. We are the ones
+    // launching it; we know what it is.
+    backendId: (sessionOptions && sessionOptions.backendId) || window._defaultBackendId || 'claude',
   };
 
   // Track as pending (no .jsonl yet)
