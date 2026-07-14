@@ -609,10 +609,16 @@ function processProjectSessions(project, resort) {
         : { sections: [], ungrouped: filtered };
 
     // Skip a project that has nothing to show — but keep it alive when a user
-    // group is being held visible under "running only" (#102).
-    if (filtered.length === 0 && !project._projectMatchedOnly
-        && (project.sessions.length > 0 || anyFilterActive)
-        && userGroups.length === 0) return null;
+    // group is being held visible under "running only" (#102). Counted over the
+    // top-level sessions only, or a project whose payload is all subagent rows
+    // disappears entirely (#173) — see projectHasNothingToRender.
+    if (typeof projectHasNothingToRender === 'function' && projectHasNothingToRender({
+      filteredCount: filtered.length,
+      topLevelCount: project.sessions.filter(s => !s.parentSessionId).length,
+      anyFilterActive,
+      projectMatchedOnly: !!project._projectMatchedOnly,
+      userGroupCount: userGroups.length,
+    })) return null;
 
     // Slug grouping (over sessions not claimed by a user group)
     const slugMap = new Map();

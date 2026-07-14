@@ -1,8 +1,44 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { shouldRenderProjectGroup, sessionsForGroupVisibility, userGroupSections } = require('../public/sidebar-state');
+const { shouldRenderProjectGroup, projectHasNothingToRender, sessionsForGroupVisibility, userGroupSections } = require('../public/sidebar-state');
 const { groupSessions } = require('../public/groups-model');
+
+test('#173: a project left with only subagent rows keeps its empty placeholder row', () => {
+  // Every top-level session archived, but the payload still carries subagent rows
+  // (a subagent whose parent lives in another project survives the archive drop).
+  // Weighed against the raw payload this project was skipped outright and vanished
+  // from the sidebar, though it is neither hidden nor auto-hidden.
+  assert.equal(projectHasNothingToRender({
+    filteredCount: 0,
+    topLevelCount: 0,
+    anyFilterActive: false,
+  }), false);
+});
+
+test('#173: a project whose top-level sessions are all filtered out is still skipped', () => {
+  // Sessions exist at the top level, none survives the filter (e.g. a disabled
+  // backend, no active filter): unchanged behaviour, the project is dropped.
+  assert.equal(projectHasNothingToRender({
+    filteredCount: 0,
+    topLevelCount: 4,
+    anyFilterActive: false,
+  }), true);
+  // Under an active filter a project that matches nothing stays skipped even when
+  // its payload holds nothing at all.
+  assert.equal(projectHasNothingToRender({
+    filteredCount: 0,
+    topLevelCount: 0,
+    anyFilterActive: true,
+  }), true);
+});
+
+test('#173: anything left to render keeps the project', () => {
+  assert.equal(projectHasNothingToRender({ filteredCount: 2, topLevelCount: 2 }), false);
+  assert.equal(projectHasNothingToRender({ filteredCount: 0, topLevelCount: 3, anyFilterActive: true, projectMatchedOnly: true }), false);
+  // A user group held visible under "running only" (#102) outranks the skip.
+  assert.equal(projectHasNothingToRender({ filteredCount: 0, topLevelCount: 3, anyFilterActive: true, userGroupCount: 1 }), false);
+});
 
 test('#54: sidebar renders a non-hidden project whose sessions are all folded away', () => {
   // All sessions older than the fold threshold (visibleCount 0, olderCount > 0):

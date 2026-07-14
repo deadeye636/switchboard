@@ -23,6 +23,30 @@
     return projectMatchedOnly || visibleCount > 0 || olderCount > 0 || emptyPlaceholder;
   }
 
+  // Whether a project has nothing left to render and should be dropped from the
+  // sidebar before any DOM is built.
+  //
+  // `topLevelCount` is the number of NON-SUBAGENT sessions in the payload, and it
+  // has to be: subagents are rendered nested under their parent (or in the orphan
+  // section), never in the flat list, so they are stripped before `filteredCount`
+  // is counted. Weighing an empty filtered list against the RAW payload therefore
+  // dropped a project whose payload held nothing but subagent rows — one whose
+  // top-level sessions were all archived — while a project with a genuinely empty
+  // payload kept its placeholder row. Same situation, two outcomes (#173).
+  //
+  // With no filter active and nothing top-level left, the project stays on as an
+  // empty row: only the explicit hide / auto-hide actions (#57) remove a project.
+  function projectHasNothingToRender({
+    filteredCount = 0,
+    topLevelCount = 0,
+    anyFilterActive = false,
+    projectMatchedOnly = false,
+    userGroupCount = 0,
+  } = {}) {
+    if (filteredCount > 0 || projectMatchedOnly || userGroupCount > 0) return false;
+    return topLevelCount > 0 || anyFilterActive;
+  }
+
   // Sessions that still count toward a user group's membership under an active
   // filter — a stopped session still belongs to its group; archived and subagent
   // sessions never form a top-level group. (#102)
@@ -58,5 +82,5 @@
     return { sections, ungrouped: gs.ungrouped };
   }
 
-  return { shouldRenderProjectGroup, sessionsForGroupVisibility, userGroupSections };
+  return { shouldRenderProjectGroup, projectHasNothingToRender, sessionsForGroupVisibility, userGroupSections };
 });

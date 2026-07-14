@@ -828,6 +828,19 @@ function buildProjectsFromCache(showArchived) {
   // Only insert a project entry once we have a session that survives the archive filter —
   // otherwise folders whose sessions are all archived would appear in the sidebar as
   // undismissable phantom entries.
+  // Which sessions the store knows, and which of them the sidebar is actually going to
+  // show. A subagent is weighed against these below (#173): it is nested under its
+  // parent, so a parent that is not on screen leaves it hanging.
+  const knownIds = new Set();
+  const shownIds = new Set();
+  for (const row of cachedRows) {
+    if (!row.projectPath) continue;
+    knownIds.add(row.sessionId);
+    if (!visible.has(row.projectPath)) continue;
+    if (!showArchived && metaMap.get(row.sessionId)?.archived) continue;
+    shownIds.add(row.sessionId);
+  }
+
   const projectMap = new Map();
   // Track the newest session activity per projectPath across ALL cached rows
   // (archived included). Used to sort a project whose only sessions are archived
@@ -891,7 +904,16 @@ function buildProjectsFromCache(showArchived) {
     // otherwise outlive its archived parent as an orphan in the sidebar. Deriving it
     // here (rather than cascading the write) also covers subagents indexed after the
     // parent was archived.
-    if (!showArchived && s.parentSessionId && metaMap.get(s.parentSessionId)?.archived) continue;
+    //
+    // Asked as "did the parent make it into the sidebar?" rather than "does the meta
+    // row say archived?" (#173): the meta lookup answers only for a parent it can
+    // resolve, so a subagent whose parent is in the store but is not being shown — its
+    // meta row gone, its project hidden, its row belonging to another project — slipped
+    // through and was painted as an orphan under a parent nobody could see. Whatever
+    // keeps the parent out keeps the child out with it. A parent the store has never
+    // heard of is a different thing: that subagent is a genuine orphan and still shows.
+    if (!showArchived && s.parentSessionId
+        && knownIds.has(s.parentSessionId) && !shownIds.has(s.parentSessionId)) continue;
     if (!projectMap.has(row.projectPath)) {
       projectMap.set(row.projectPath, {
         folder: encodeProjectPath(row.projectPath),
