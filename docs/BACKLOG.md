@@ -18,7 +18,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
-- [#182](https://github.com/deadeye636/switchboard/issues/182) A session that moves into a nested repo inside its own project is attributed away from it · _bug_
+- [#184](https://github.com/deadeye636/switchboard/issues/184) An auto-hidden project is never brought back by activity · _bug_
 
 ## P3 — someday
 
