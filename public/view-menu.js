@@ -57,14 +57,11 @@
         <span class="view-menu-hint">${s.hint}</span>
       </button>`).join('');
 
+    // Sort only. "Favourites in their own list" is a presentation decision, not an order, and it belongs
+    // where the rest of them are (Settings) — in here it read as a fourth way to sort.
     menu.innerHTML = `
       <div class="view-menu-head">Sort projects</div>
       ${rows}
-      <div class="view-menu-sep"></div>
-      <label class="view-menu-check">
-        <input type="checkbox" id="view-menu-fav" ${view.favoritesOwnList ? 'checked' : ''}>
-        <span>Favourites in their own list</span>
-      </label>
       ${view.overridden
         // Only when what you are looking at is not what Settings holds. The button carries a dot for the
         // same reason: an order you cannot tell from the saved one is how you end up "fixing" a setting
@@ -80,8 +77,6 @@
         window._setSortOverride({ projectSortMode: el.dataset.sort });   // re-renders through applyEffectiveSort
       });
     });
-    const fav = menu.querySelector('#view-menu-fav');
-    if (fav) fav.addEventListener('change', () => window._setSortOverride({ favoritesOwnList: fav.checked }));
     const reset = menu.querySelector('[data-reset]');
     if (reset) reset.addEventListener('click', () => window._resetSortOverride());
   }

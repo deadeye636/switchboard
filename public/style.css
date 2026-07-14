@@ -811,25 +811,6 @@ input:focus-visible {
   text-overflow: ellipsis;
 }
 
-.view-menu-sep {
-  height: 1px;
-  margin: 5px 4px;
-  background: rgba(255,255,255,0.07);
-}
-
-.view-menu-check {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  color: #c0c0d0;
-  cursor: pointer;
-}
-.view-menu-check:hover { background: rgba(255,255,255,0.05); }
-.view-menu-check input { cursor: pointer; }
-
 /* Only rendered while an override is in effect (#181). */
 .view-menu-foot {
   display: flex;
