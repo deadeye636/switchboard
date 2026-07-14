@@ -1468,7 +1468,10 @@ window._persistProjectOrder = (arr) => {
   localStorage.setItem('projectOrder', JSON.stringify(projectOrder));
 };
 
-// --- Re-sort button ---
+// --- Refresh button ---
+// Reloads the project list from main (filesystem reconcile + backend scan) and
+// rebuilds the order from it. The only sidebar control that goes back to main —
+// the filter and view toggles re-sort the already-loaded data (#180).
 resortBtn.addEventListener('click', () => {
   loadProjects({ resort: true });
 });
