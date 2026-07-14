@@ -24,6 +24,10 @@
        settings-window.js sets the standalone-window marker and opens the panel;
        it must load AFTER settings-panel.js. -->
   <script src="utils.js"></script>
+  <!-- color-utils.js backs the tag colour picker in settings-panel.js. Without it
+       buildColorPopover throws on its first line (hexToHsv is undefined) and the
+       picker opens dead — which is what the Tags tab did in THIS window (#174). -->
+  <script src="color-utils.js"></script>
   <script src="shortcuts.js"></script>
   <script src="terminal-themes.js"></script>
   <!-- control-dialogs.js exposes window.showControlDialog — the confirms in settings-panel.js
