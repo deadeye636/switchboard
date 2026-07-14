@@ -9221,7 +9221,20 @@ details.settings-adv.backend-defaults > summary { color: #b0b0c4; }
 /* ---- Profile editor modal (reuses .new-session-overlay / .new-session-dialog) ---- */
 .backend-editor { width: 620px; max-height: 86vh; overflow-y: auto; }
 
-.backend-editor .settings-btn-row { position: static; padding-top: 16px; }
+/* These editors are DIALOGS, not the settings page. .settings-btn-row carries the settings
+   viewer's footer background (#111118) — right on a page painted that colour, a dark slab
+   floating in a dialog panel that is not. Drop it, keep the rule's border as the separator,
+   and push the buttons to the right edge the way every other footer does (#190). The settings
+   page needs a .settings-btn-spacer for that because it also has a destructive button on the
+   left; these dialogs have none, so flex-end is the whole job. */
+.backend-editor .settings-btn-row,
+.launcher-editor .settings-btn-row {
+  position: static;
+  justify-content: flex-end;
+  background: transparent;
+  margin-top: 20px;
+  padding: 14px 0 0;
+}
 .backend-editor .settings-field-wide { display: block; }
 .backend-editor .settings-field-wide .settings-field-control { margin-top: 10px; }
 
@@ -9356,7 +9369,6 @@ details.settings-adv.backend-env-adv #be-env-add { margin: 4px 16px 14px; }
 
 /* Launcher editor modal (reuses .new-session-overlay / .new-session-dialog + the env rows). */
 .launcher-editor { width: 620px; max-height: 86vh; overflow-y: auto; }
-.launcher-editor .settings-btn-row { position: static; padding-top: 16px; }
 .launcher-editor .settings-field-wide { display: block; }
 .launcher-editor .settings-field-wide .settings-field-control { margin-top: 10px; }
 details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }

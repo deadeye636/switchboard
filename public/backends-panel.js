@@ -465,32 +465,36 @@
             </div>
           </div>
         </div>
-        <!-- The endpoint fields. ANTHROPIC_* only exists on a Claude base, so they are hidden elsewhere:
-             on a Codex template they would be two boxes that write variables Codex never reads. -->
-        <div id="be-endpoint" ${isClaudeBase() ? '' : 'hidden'}>
-          <div class="settings-field">
-            <div class="settings-field-info">
-              <span class="settings-label">Model</span>
-              <div class="settings-description">Writes the whole model variable set at once (opus/sonnet/subagent).</div>
-            </div>
-            <div class="settings-field-control">
-              <input type="text" class="settings-input" id="be-model" value="${esc(modelSeed)}" placeholder="e.g. deepseek-v4-pro">
-            </div>
-          </div>
-          <div class="settings-field">
-            <div class="settings-field-info">
-              <span class="settings-label">Fast model</span>
-              <div class="settings-description">The small/fast model, redirected to this endpoint. Leave empty to reuse the model above — never leave it pointing at Anthropic, that would send the host key to the wrong endpoint.</div>
-            </div>
-            <div class="settings-field-control">
-              <input type="text" class="settings-input" id="be-haiku" value="${esc(haikuSeed)}" placeholder="same as Model">
-            </div>
-          </div>
-        </div>
+        <!-- The heading belongs ON TOP of the first option, on every backend. The endpoint fields are
+             launch options too (they are what a Claude template launches against), so they live INSIDE
+             this section — hanging them above it left Claude's first field sitting under no heading at
+             all, while Codex's first field had one (#190). Title + fields: paintOptions() below. -->
         <div class="settings-section">
-          <div class="settings-section-title" id="be-options-title">Launch options</div>
+          <div class="settings-section-title" id="be-options-title"></div>
           <div class="settings-hint">What this template starts its backend with. An option you leave on <em>Use the backend's default</em> follows that backend's own settings — now and after you change them.</div>
-          <div id="be-options">${optionsHtml()}</div>
+          <!-- ANTHROPIC_* only exists on a Claude base, so these are hidden elsewhere: on a Codex
+               template they would be two boxes that write variables Codex never reads. -->
+          <div id="be-endpoint" ${isClaudeBase() ? '' : 'hidden'}>
+            <div class="settings-field">
+              <div class="settings-field-info">
+                <span class="settings-label">Endpoint model</span>
+                <div class="settings-description">Writes the whole model variable set at once (opus/sonnet/subagent).</div>
+              </div>
+              <div class="settings-field-control">
+                <input type="text" class="settings-input" id="be-model" value="${esc(modelSeed)}" placeholder="e.g. deepseek-v4-pro">
+              </div>
+            </div>
+            <div class="settings-field">
+              <div class="settings-field-info">
+                <span class="settings-label">Endpoint fast model</span>
+                <div class="settings-description">The small/fast model, redirected to this endpoint. Leave empty to reuse the model above — never leave it pointing at Anthropic, that would send the host key to the wrong endpoint.</div>
+              </div>
+              <div class="settings-field-control">
+                <input type="text" class="settings-input" id="be-haiku" value="${esc(haikuSeed)}" placeholder="same as Model">
+              </div>
+            </div>
+          </div>
+          <div id="be-options"></div>
         </div>
         <details class="settings-adv backend-env-adv" open>
           <summary><svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>Advanced — environment variables</summary>
@@ -546,6 +550,15 @@
       const showError = (html) => { errorBox.innerHTML = html; errorBox.hidden = false; };
       const clearError = () => { errorBox.hidden = true; errorBox.innerHTML = ''; };
 
+      // Title AND fields come from here, so the heading can never name a backend other than the one whose
+      // options are below it. It used to be written twice — statically in the markup (unsuffixed) and again
+      // on `change` — so the backend the dialog OPENS on was the one whose header never got named (#190).
+      const paintOptions = () => {
+        optionsTitle.textContent = `Launch options — ${baseOf(baseId).label}`;
+        optionsBox.innerHTML = optionsHtml();
+      };
+      paintOptions();
+
       // --- base backend: it decides what the rest of this dialog even means.
       baseSelect.addEventListener('change', () => {
         baseId = baseSelect.value;
@@ -553,8 +566,7 @@
         // A different backend has different options. Keeping the old values would carry, say, a Claude
         // permission mode into a Codex template — a setting that backend has never heard of.
         options = {};
-        optionsTitle.textContent = `Launch options — ${baseOf(baseId).label}`;
-        optionsBox.innerHTML = optionsHtml();
+        paintOptions();
         // The grid offers the provider icons plus THIS base's own — so a template can never wear another
         // backend's badge. If the current pick just left the grid, fall back to a neutral one.
         const grid = dialog.querySelector('#be-icons');
