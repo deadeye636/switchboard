@@ -263,20 +263,72 @@ let settingsWindow = null;
 // Pop the settings panel out into its own window (Phase 2 — multi-window POC).
 // Loads a minimal settings.html that reuses settings-panel.js. Changes saved
 // there broadcast back to the main window via the 'settings-changed' IPC.
+//
+// Two things it must not do (#175):
+//  - show an unpainted window. Without a backgroundColor and a deferred show, the
+//    first frame is Chromium's default white, and it sits there for as long as the
+//    renderer takes to come up.
+//  - be rebuilt on every open. Closing used to destroy it, so each open paid a full
+//    renderer cold start: a new process, the stylesheet and every panel script from
+//    scratch — seconds, spent staring at that white frame. It is now hidden on close
+//    and kept warm.
+//
+// A hidden window is re-seeded by reloading it, and it has to be: it is a live
+// renderer holding the values it was seeded with, so without that it would reopen
+// showing settings as they were when it was last closed — and a Save from there
+// would write them back over anything changed in the meantime. The reload is also
+// what discards the unsaved edits the destroy used to take with it. It keeps the
+// process, the compiled scripts and the paint, so it costs a fraction of the cold
+// start — and it happens BEFORE the window is shown, never in front of the user.
 function openSettingsWindow() {
-  if (settingsWindow && !settingsWindow.isDestroyed()) { settingsWindow.focus(); return; }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (settingsWindow.isVisible()) { settingsWindow.focus(); return; }
+    const win = settingsWindow;
+    win.webContents.once('did-finish-load', () => {
+      if (win.isDestroyed()) return;
+      win.show();
+      win.focus();
+    });
+    win.webContents.reload();
+    return;
+  }
   settingsWindow = new BrowserWindow({
     width: 900, height: 820, minWidth: 640, minHeight: 480,
     title: 'Switchboard — Settings',
     parent: mainWindow || undefined,
     icon: path.join(__dirname, 'build', 'icon.png'),
+    show: false,
+    backgroundColor: '#0d1117', // settings.html's body background — no white first frame
     webPreferences: { preload: path.join(__dirname, 'preload.js'), nodeIntegration: false, contextIsolation: true },
   });
   settingsWindow.setMenu(null);
   settingsWindow.loadFile(path.join(__dirname, 'public', 'settings.html'));
+  settingsWindow.once('ready-to-show', () => {
+    if (!settingsWindow || settingsWindow.isDestroyed()) return;
+    settingsWindow.show();
+    settingsWindow.focus();
+  });
+  // The title-bar X. (Cancel/Save go through the hide-settings-window IPC instead — a
+  // renderer-initiated window.close() destroys the window without emitting this event.)
+  settingsWindow.on('close', (event) => {
+    // Quitting, or the main window is on its way out: let it die for real, or the
+    // hidden window keeps the app alive and `window-all-closed` never fires.
+    if (appQuitting || !mainWindow || mainWindow.isDestroyed()) return;
+    event.preventDefault();
+    settingsWindow.hide();
+  });
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 ipcMain.on('open-settings-window', () => openSettingsWindow());
+
+// Cancel/Save in the standalone settings window (#175). The renderer used to call
+// window.close(), which destroys the window without ever emitting 'close' — there is
+// nothing to intercept and turn into a hide. So it asks for the hide directly, and the
+// warm renderer survives to serve the next open.
+ipcMain.on('hide-settings-window', (event) => {
+  const w = BrowserWindow.fromWebContents(event.sender);
+  if (w && w === settingsWindow && !w.isDestroyed()) w.hide();
+});
 
 /**
  * Tell the windows to re-apply the global settings. `except` skips the window that already
@@ -444,6 +496,10 @@ function createWindow() {
 
   // Also save immediately before close (debounce may not have flushed)
   mainWindow.on('close', () => {
+    // The settings window survives its own close (it hides, #175) — take it down
+    // with the main window, or `window-all-closed` never fires and the app lingers
+    // with no window. `destroy()` skips its close handler by design.
+    if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.destroy();
     if (boundsTimer) clearTimeout(boundsTimer);
     if (!mainWindow.isMinimized()) {
       const b = mainWindow.getBounds();

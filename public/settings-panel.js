@@ -7,8 +7,14 @@
   const settingsViewerBody = document.getElementById('settings-viewer-body');
 
   function closeSettingsViewer() {
-    // Standalone settings window: there is no terminal area to restore — just close it.
-    if (window.__SETTINGS_WINDOW__) { try { window.close(); } catch {} return; }
+    // Standalone settings window: there is no terminal area to restore — put the window
+    // away. Hiding rather than closing keeps the renderer warm for the next open (#175);
+    // window.close() would destroy it, and main cannot intercept that.
+    if (window.__SETTINGS_WINDOW__) {
+      if (typeof window.api.hideSettingsWindow === 'function') window.api.hideSettingsWindow();
+      else { try { window.close(); } catch {} }
+      return;
+    }
     settingsViewer.style.display = 'none';
     const terminalArea = document.getElementById('terminal-area');
     const terminalHeader = document.getElementById('terminal-header');

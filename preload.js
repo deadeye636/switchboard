@@ -73,6 +73,11 @@ contextBridge.exposeInMainWorld('api', {
   setLogLevel: (level) => ipcRenderer.invoke('set-log-level', level),
   // Settings pop-out window (Phase 2)
   openSettingsWindow: () => ipcRenderer.send('open-settings-window'),
+  // Cancel/Save in the standalone settings window. It asks main to put the window away
+  // rather than calling window.close(): a renderer-initiated close DESTROYS the window
+  // outright — the 'close' event never fires, so it cannot be turned into a hide — and
+  // the next open would pay the full cold start again (#175).
+  hideSettingsWindow: () => ipcRenderer.send('hide-settings-window'),
   notifySettingsChanged: () => ipcRenderer.send('settings-changed'),
   onSettingsChanged: (cb) => ipcRenderer.on('settings-changed', () => cb()),
   renameSession: (id, name) => ipcRenderer.invoke('rename-session', id, name),
