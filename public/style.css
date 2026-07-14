@@ -5299,6 +5299,8 @@ mark.jsonl-search-hit-active {
 }
 .settings-nav-item:hover { background: rgba(255,255,255,0.03); color: #e0e0f0; }
 .settings-nav-item.active { background: rgba(128,136,255,0.14); color: #e0e0f0; font-weight: 500; }
+/* A category that belongs under the one above it (Terminal tools under Terminal, #178). */
+.settings-nav-sub { padding-left: 22px; font-size: 12.5px; color: #9a9ab0; }
 .settings-nav-item .settings-nav-count {
   font-size: 11px; color: #6a6a80;
   font-variant-numeric: tabular-nums;

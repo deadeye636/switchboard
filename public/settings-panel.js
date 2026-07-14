@@ -618,6 +618,7 @@
           </div>
           <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">5</span></button>
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
+          <button class="settings-nav-item settings-nav-sub" data-cat="tools">Terminal tools</button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">7</span></button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
@@ -849,10 +850,6 @@
                 </div>
               </div>
 
-              <!-- Terminal tools (T-3.10): the user-managed list of custom launchers. Under
-                   Terminal, not Sessions & CLI — this is where users look for terminal things. -->
-              <div id="sv-launchers-root"></div>
-
               <details class="settings-adv">
                 <summary>${advChev}Advanced</summary>
                 <div class="settings-section">
@@ -910,6 +907,14 @@
                   </div>
                 </div>
               </details>
+            </section>
+
+            <!-- ===== Terminal tools (T-3.10) =====
+                 Its own category under Terminal, not a section at the bottom of it: as
+                 a trailing block of the Terminal page it was routinely missed (#178). -->
+            <section class="settings-cat" data-cat="tools">
+              <div class="settings-cat-head"><h2>Terminal tools</h2><p>Saved commands, offered in every project's launch menu.</p></div>
+              <div id="sv-launchers-root"></div>
             </section>
 
             <!-- ===== Layout & Tabs ===== -->
