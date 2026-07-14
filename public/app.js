@@ -2831,6 +2831,28 @@ async function reapplyGlobalSettings() {
     window.api.onSettingsChanged(reapplyGlobalSettings);
   }
 
+  // Closing the window kills every running session — a CLI mid-turn included. Main cancels the close and
+  // asks here, so the question looks like the rest of the app instead of like a Windows system box, and
+  // then closes for real if the answer is yes. Not dismissible: a stray click on the backdrop must not
+  // read as an answer to a question about work that cannot be got back.
+  if (window.api && typeof window.api.onConfirmClose === 'function') {
+    window.api.onConfirmClose(async (warning) => {
+      let ok = false;
+      try {
+        ok = await showControlDialog({
+          title: warning?.title || 'Sessions are still running',
+          message: warning?.message || 'Closing Switchboard stops every running session.',
+          details: warning?.details || [],
+          confirmLabel: 'Close and stop them',
+          cancelLabel: 'Cancel',
+          tone: 'danger',
+          dismissible: false,
+        });
+      } catch { ok = false; }
+      window.api.confirmCloseResult(!!ok);
+    });
+  }
+
   const gridToggleBtn = document.createElement('button');
   gridToggleBtn.id = 'grid-toggle-btn';
   gridToggleBtn.title = gridViewActive ? 'Exit session overview' : 'Session overview';

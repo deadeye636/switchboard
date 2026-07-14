@@ -73,6 +73,10 @@ contextBridge.exposeInMainWorld('api', {
   setLogLevel: (level) => ipcRenderer.invoke('set-log-level', level),
   // Settings pop-out window (Phase 2)
   openSettingsWindow: () => ipcRenderer.send('open-settings-window'),
+  // Closing the window kills every running session. Main cancels the close, asks here — in the app's own
+  // dialog, not a Windows system box — and closes again if the answer is yes.
+  onConfirmClose: (cb) => ipcRenderer.on('confirm-close', (_e, warning) => cb(warning)),
+  confirmCloseResult: (confirmed) => ipcRenderer.send('confirm-close-result', !!confirmed),
   // Cancel/Save in the standalone settings window. It asks main to put the window away
   // rather than calling window.close(): a renderer-initiated close DESTROYS the window
   // outright — the 'close' event never fires, so it cannot be turned into a hide — and

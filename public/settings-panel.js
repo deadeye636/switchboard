@@ -480,6 +480,7 @@
     const tabAutoCloseDelayValue = fieldValue('tabAutoCloseDelaySec', 5);
     const tabsLiveRenderValue = fieldValue('tabsLiveRender', true);
     const restoreSessionsValue = fieldValue('restoreSessionsOnLaunch', true);
+    const confirmQuitValue = fieldValue('confirmQuitWithRunningSessions', true);
     const attentionHooksValue = fieldValue('attentionHooks', false);
     const secretRefCleanupValue = fieldValue('secretRefCleanupOnSessionStop', true);
     const secretRefSweepValue = fieldValue('secretRefSweepMinutes', 0);
@@ -658,7 +659,7 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7a7a90" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
             <input id="sv-search" type="text" placeholder="Search settings…" autocomplete="off">
           </div>
-          <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">5</span></button>
+          <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">6</span></button>
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
           <button class="settings-nav-item settings-nav-sub" data-cat="tools">Terminal tools</button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
@@ -691,6 +692,16 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-restore-sessions" ${restoreSessionsValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Ask before closing while sessions run</span>${help}</div>
+                    <div class="settings-description">Closing Switchboard stops every running session and terminal. Confirm first.</div>
+                    <div class="settings-more">The processes are children of the app: when it goes, they go. A CLI in the middle of a turn loses what it was doing, and an accidental Alt+F4 is enough. Switch this off and the window closes without asking.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-confirm-quit" ${confirmQuitValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">
@@ -1945,6 +1956,7 @@
         }
         settings.tabsLiveRender = settingsViewerBody.querySelector('#sv-tabs-live-render').checked;
         settings.restoreSessionsOnLaunch = settingsViewerBody.querySelector('#sv-restore-sessions').checked;
+        settings.confirmQuitWithRunningSessions = settingsViewerBody.querySelector('#sv-confirm-quit').checked;
         // The attention hook now lives on the CLAUDE backend page (it patches Claude's own
         // settings.json, so it belongs to Claude — but it is not a launch option, hence still a plain
         // global setting). That page is only in the DOM while it is open: keep the stored value when

@@ -16,6 +16,7 @@ const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolveP
 const { fetchAndTransformUsage } = require('./claude-auth');
 const { withMainProcessUsageCache } = require('./usage-cache');
 const { shouldUseSingleInstanceLock } = require('./main-lifecycle');
+const quitGuard = require('./quit-guard');
 // Multi-LLM backend seam (Phase 1): the spawn/env/id-map paths ask a backend instead of
 // assuming Claude. `claude` is the default backend and behaves byte-identically through it.
 const backends = require('./backends');
@@ -345,6 +346,54 @@ function broadcastSettingsChanged(except) {
 }
 ipcMain.on('settings-changed', (event) => broadcastSettingsChanged(event.sender));
 
+/**
+ * Closing the main window kills every PTY it owns — a Claude mid-turn, a build running in a terminal, all
+ * of it, and an accidental Alt+F4 was enough. Ask first.
+ *
+ * The question goes to the RENDERER, so it looks like the rest of the app rather than like a Windows system
+ * box. That makes it asynchronous, and a 'close' event cannot wait: so the close is cancelled, the dialog is
+ * put up, and if the answer is yes the window is closed again with `closeConfirmed` set, which walks past
+ * this guard. The decision and the wording live in quit-guard.js, where they can be tested.
+ *
+ * The native box is the fallback for the one case where the renderer cannot answer — it is gone or it has
+ * crashed. Without it, a broken renderer would leave a window that cannot be closed.
+ *
+ * @returns {boolean} true = go ahead and close now.
+ */
+let closeConfirmed = false;
+
+function confirmCloseWithRunningSessions() {
+  const running = quitGuard.runningSessions(activeSessions);
+  if (!quitGuard.shouldAskBeforeClose(running, getSetting('global') || {})) return true;
+
+  const warning = quitGuard.closeWarning(running);
+  const wc = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
+
+  if (!wc || wc.isDestroyed() || wc.isCrashed()) {
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning',
+      noLink: true,
+      buttons: ['Cancel', 'Close and stop them'],
+      defaultId: 0,   // Enter cancels: the safe answer is the one you get by reflex
+      cancelId: 0,    // Escape too
+      title: warning.title,
+      message: warning.message,
+      detail: warning.detail,
+    });
+    return choice === 1;
+  }
+
+  wc.send('confirm-close', warning);
+  return false;   // the renderer answers on 'confirm-close-result'
+}
+
+// The renderer's answer. Only a yes does anything: a no has already been honoured by the cancelled close.
+ipcMain.on('confirm-close-result', (_event, confirmed) => {
+  if (!confirmed) return;
+  closeConfirmed = true;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+});
+
 // Subagent live-tail watchers (watchId → { filePath, parentSessionId, agentId })
 const subagentWatchers = new Map();
 let subagentWatcherSeq = 0;
@@ -495,7 +544,16 @@ function createWindow() {
   mainWindow.on('move', saveBounds);
 
   // Also save immediately before close (debounce may not have flushed)
-  mainWindow.on('close', () => {
+  mainWindow.on('close', (event) => {
+    // Closing the window kills every PTY it owns (see the 'closed' handler below), and it did that
+    // without a word: a Claude mid-turn, a build running in a terminal — gone, with an accidental
+    // Alt+F4 enough to do it. Ask first, and ask BEFORE anything here is torn down, or a cancelled
+    // close would still have taken the settings window with it.
+    if (!closeConfirmed && !appQuitting && !confirmCloseWithRunningSessions()) {
+      event.preventDefault();
+      return;
+    }
+
     // The settings window survives its own close (it hides, #175) — take it down
     // with the main window, or `window-all-closed` never fires and the app lingers
     // with no window. `destroy()` skips its close handler by design.
