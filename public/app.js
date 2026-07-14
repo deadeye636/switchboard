@@ -93,13 +93,22 @@ const viewModeToggle = document.getElementById('view-mode-toggle');
 // split by project dir within, ungrouped below). Persisted across restarts.
 let sidebarViewMode = localStorage.getItem('sidebarViewMode') === 'folder' ? 'folder' : 'directory';
 // Project sorting (#17). Persisted in localStorage, render-synchronous like sidebarViewMode.
-let projectSortMode = (() => {
+//
+// Two layers since #181. The SAVED value comes from Settings and is the fallback and the source of
+// truth; the View menu in the sidebar sets an OVERRIDE that lives for this run of the app only — it is
+// never written anywhere, so a restart is back to what Settings says. `projectSortMode` and
+// `favoritesOwnList` are the EFFECTIVE values the renderers read: the override if there is one, the
+// saved value otherwise.
+let savedProjectSortMode = (() => {
   const m = localStorage.getItem('projectSortMode');
   return m === 'alpha' || m === 'manual' ? m : 'activity';
 })();
 // Favorites presentation: false = favorites pinned on top (block + divider);
 // true ("Eigene Favoritenliste") = favorites only via the star filter, not pinned.
-let favoritesOwnList = localStorage.getItem('favoritesOwnList') === '1';
+let savedFavoritesOwnList = localStorage.getItem('favoritesOwnList') === '1';
+let sortOverride = null;   // { projectSortMode, favoritesOwnList } — this session only, never persisted
+let projectSortMode = savedProjectSortMode;
+let favoritesOwnList = savedFavoritesOwnList;
 let projectOrder = (() => {
   try { const a = JSON.parse(localStorage.getItem('projectOrder')); return Array.isArray(a) ? a : []; }
   catch { return []; }
@@ -1455,12 +1464,54 @@ if (viewModeToggle) {
 // localStorage cache for the first paint) and re-render when they change.
 window._applyProjectSortSettings = (g) => {
   if (!g) return;
-  projectSortMode = (g.projectSortMode === 'alpha' || g.projectSortMode === 'manual') ? g.projectSortMode : 'activity';
-  favoritesOwnList = !!g.favoritesOwnList;
-  localStorage.setItem('projectSortMode', projectSortMode);
-  localStorage.setItem('favoritesOwnList', favoritesOwnList ? '1' : '0');
+  savedProjectSortMode = (g.projectSortMode === 'alpha' || g.projectSortMode === 'manual') ? g.projectSortMode : 'activity';
+  savedFavoritesOwnList = !!g.favoritesOwnList;
+  localStorage.setItem('projectSortMode', savedProjectSortMode);
+  localStorage.setItem('favoritesOwnList', savedFavoritesOwnList ? '1' : '0');
+  applyEffectiveSort();
+};
+
+// --- The View menu's sort override (#181) ---
+// Settings holds the sort. The View menu in the sidebar can put a different one in front of you for
+// THIS RUN of the app — never written anywhere, so a restart is back to what Settings says, and a Save
+// in Settings is never something the sidebar did behind your back.
+function applyEffectiveSort() {
+  projectSortMode = sortOverride ? sortOverride.projectSortMode : savedProjectSortMode;
+  favoritesOwnList = sortOverride ? sortOverride.favoritesOwnList : savedFavoritesOwnList;
   if (typeof updateFavoriteToggleVisibility === 'function') updateFavoriteToggleVisibility();
+  if (typeof window._renderViewMenu === 'function') window._renderViewMenu();
+  if (typeof window._updateViewMenuBtn === 'function') window._updateViewMenuBtn();
   if (typeof refreshSidebar === 'function') refreshSidebar({ resort: true });
+}
+
+// What the View menu shows and edits. `overridden` is the difference between the two, and it is what the
+// menu has to say out loud — an order you cannot tell from the saved one is how you end up "fixing" a
+// setting that was never wrong.
+window._getSortView = () => ({
+  projectSortMode,
+  favoritesOwnList,
+  savedProjectSortMode,
+  savedFavoritesOwnList,
+  overridden: !!sortOverride
+    && (sortOverride.projectSortMode !== savedProjectSortMode
+      || sortOverride.favoritesOwnList !== savedFavoritesOwnList),
+});
+
+// A patch from the menu. It always lands in the override — even when it happens to equal the saved value,
+// because "I chose this" and "nobody said otherwise" are different states, and only the reset clears it.
+window._setSortOverride = (patch) => {
+  const next = {
+    projectSortMode: projectSortMode,
+    favoritesOwnList: favoritesOwnList,
+    ...(patch || {}),
+  };
+  sortOverride = next;
+  applyEffectiveSort();
+};
+
+window._resetSortOverride = () => {
+  sortOverride = null;
+  applyEffectiveSort();
 };
 // Persist the manual project order (written by drag-reorder in the sidebar).
 window._persistProjectOrder = (arr) => {
@@ -2825,6 +2876,12 @@ setTimeout(() => {
     window._setUsageThresholds?.({ fiveHWarn: global.usage5hWarn, fiveHCrit: global.usage5hCrit, sevenDWarn: global.usage7dWarn, sevenDCrit: global.usage7dCrit });
     if (global.shortcuts) setAppShortcuts(global.shortcuts);
     if (typeof window._applySessionDisplaySettings === 'function') window._applySessionDisplaySettings(global);
+    // The project sort comes from Settings, and the boot never read it: it was taken from the
+    // localStorage mirror alone, which is only written when the settings are SAVED. A profile whose
+    // localStorage says something else — a fresh one, a cleared one — sorted by that instead, and the
+    // saved value was ignored until the next save. It is the fallback the View menu falls back TO (#181),
+    // so it has to be read here.
+    if (typeof window._applyProjectSortSettings === 'function') window._applyProjectSortSettings(global);
   }
 
   // Restore user-defined session groups (spec 07).

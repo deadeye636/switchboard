@@ -742,7 +742,116 @@ input:focus-visible {
   display: flex;
   gap: 6px;
   align-items: center;
+  position: relative;   /* anchors the View popover (#181) */
 }
+
+/* --- View menu (#181): the project sort, where the list is --- */
+/* A dot on the button while an override is in effect: the sidebar is not sorted the way Settings says,
+   and that has to be visible without opening anything. */
+#view-menu-btn.has-override::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #d97757;
+}
+#view-menu-btn { position: relative; }
+
+.view-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 200;
+  width: 244px;
+  padding: 6px;
+  background: #1c1c24;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+}
+
+.view-menu-head {
+  padding: 6px 8px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #6a6a80;
+}
+
+.view-menu-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #d0d0dc;
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.view-menu-item:hover { background: rgba(255,255,255,0.05); }
+.view-menu-item.on { color: #fff; }
+.view-menu-tick { width: 12px; flex-shrink: 0; color: #8088ff; }
+.view-menu-label { flex-shrink: 0; }
+.view-menu-hint {
+  margin-left: auto;
+  min-width: 0;
+  font-size: 11px;
+  color: #6a6a80;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.view-menu-sep {
+  height: 1px;
+  margin: 5px 4px;
+  background: rgba(255,255,255,0.07);
+}
+
+.view-menu-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: #c0c0d0;
+  cursor: pointer;
+}
+.view-menu-check:hover { background: rgba(255,255,255,0.05); }
+.view-menu-check input { cursor: pointer; }
+
+.view-menu-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 7px 8px 3px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.view-menu-note { font-size: 11px; color: #d97757; }
+.view-menu-note.saved { color: #6a6a80; }
+.view-menu-reset {
+  margin-left: auto;
+  padding: 4px 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  color: #c0c0d0;
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.view-menu-reset:hover { background: rgba(255,255,255,0.1); color: #e0e0f0; }
 
 #loading-status {
   font-size: 11px;
