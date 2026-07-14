@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (15 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (16 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-14
 
@@ -19,6 +19,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#188](https://github.com/deadeye636/switchboard/issues/188) The core reads Claude directly instead of through its descriptor · _chore_
+- [#191](https://github.com/deadeye636/switchboard/issues/191) Status bar: a usage segment per backend, selectable — and no fetch for a backend that is switched off · _feature_
 
 ## P3 — someday
 
