@@ -55,12 +55,12 @@ async function loadStats() {
   try {
     const result = await window.api.refreshStats(scope);
     stats = result?.stats;
-    usage = result?.usage || {};
+    usage = result?.usage || { backends: [] };
     cachedUsage = usage;
   } catch {
     // Fallback: read DB directly for heatmap, use last cached usage
     stats = await window.api.getStatsFromDb(scope);
-    usage = cachedUsage || {};
+    usage = cachedUsage || { backends: [] };
   }
 
   // A newer loadStats() started while we awaited — drop this stale result so the
@@ -180,10 +180,14 @@ function buildBackendFilterBar() {
   statsViewerBody.appendChild(bar);
 }
 
-function buildUsageSection(usage) {
-  // Remove existing usage container if present (for refresh)
+// Rate limits, one group per backend that reports them (#191). Was a single Claude block; a Codex user
+// now sees Codex's windows here, and a user of both sees both — each labelled, because two identical
+// grids of percentages with no owner would be worse than one.
+function buildUsageSection(payload) {
   const existing = statsViewerBody.querySelector('.usage-container');
   if (existing) existing.remove();
+
+  const list = (payload && Array.isArray(payload.backends)) ? payload.backends : [];
 
   const container = document.createElement('div');
   container.className = 'usage-container';
@@ -203,86 +207,125 @@ function buildUsageSection(usage) {
     refreshBtn.classList.add('usage-refresh-spinning');
     refreshBtn.disabled = true;
     try {
-      const freshUsage = await window.api.getUsage();
-      if (freshUsage && Object.keys(freshUsage).length) {
-        cachedUsage = freshUsage;
-        buildUsageSection(freshUsage);
+      const fresh = await window.api.getUsage();
+      if (fresh && Array.isArray(fresh.backends)) {
+        cachedUsage = fresh;
+        buildUsageSection(fresh);
       }
-    } catch {}
+    } catch { /* the existing render stays */ }
     refreshBtn.classList.remove('usage-refresh-spinning');
     refreshBtn.disabled = false;
   };
   titleRow.appendChild(refreshBtn);
   container.appendChild(titleRow);
 
-  // Show rate limit or error notice
-  if (usage._rateLimited || usage._error) {
+  if (list.length === 0) {
     const notice = document.createElement('div');
     notice.className = 'usage-rate-limited';
-    if (usage._rateLimited) {
-      const secs = usage.retryAfterSeconds || 0;
-      const mins = Math.ceil(secs / 60);
-      notice.textContent = secs > 0
-        ? `Usage API rate limited. Try again in ~${mins} min${mins !== 1 ? 's' : ''}.`
-        : 'Usage API rate limited. Try again later.';
-    } else {
-      notice.textContent = usage.message || 'Could not fetch usage data.';
-    }
+    notice.textContent = 'No enabled backend reports a usage limit.';
     container.appendChild(notice);
-    const statsNotice = statsViewerBody.querySelector('.stats-notice');
-    if (statsNotice) statsViewerBody.insertBefore(container, statsNotice);
-    else statsViewerBody.appendChild(container);
+    mountUsageContainer(container);
     return;
   }
 
-  const grid = document.createElement('div');
-  grid.className = 'usage-grid';
+  for (const usage of list) {
+    const group = document.createElement('div');
+    group.className = 'usage-backend-group';
 
-  const cards = typeof getUsageLimitCards === 'function' ? getUsageLimitCards(usage) : [];
+    const head = document.createElement('div');
+    head.className = 'usage-backend-head';
+    if (typeof renderBackendIcon === 'function') {
+      head.appendChild(renderBackendIcon(usage.icon || usage.backendId, 14, { monogram: usage.monogram }));
+    }
+    const name = document.createElement('span');
+    name.className = 'usage-backend-name';
+    name.textContent = usage.label || usage.backendId;
+    head.appendChild(name);
 
-  for (const card of cards) {
-    const usageCard = document.createElement('div');
-    usageCard.className = 'usage-card';
+    // A non-live backend states when its figure was true. Codex's comes out of its last rollout, so
+    // "42%" with no date is a number pretending to be current.
+    if (!usage.live && usage.observedAt && typeof observedAgo === 'function') {
+      const ago = observedAgo(usage.observedAt);
+      if (ago) {
+        const when = document.createElement('span');
+        when.className = 'usage-backend-asof';
+        when.textContent = `measured ${ago}`;
+        head.appendChild(when);
+      }
+    }
+    group.appendChild(head);
 
-    const header = document.createElement('div');
-    header.className = 'usage-card-header';
-    const label = document.createElement('span');
-    label.className = 'usage-card-label';
-    label.textContent = card.label;
-    header.appendChild(label);
-    const pctEl = document.createElement('span');
-    pctEl.className = 'usage-card-pct';
-    pctEl.textContent = card.percent + '%';
-    header.appendChild(pctEl);
-    usageCard.appendChild(header);
-
-    const track = document.createElement('div');
-    track.className = 'usage-track';
-    const fill = document.createElement('div');
-    fill.className = 'usage-fill' + (card.level && card.level !== 'normal' ? ` usage-fill-${card.level}` : '');
-    fill.style.width = Math.max(card.percent, 1) + '%';
-    track.appendChild(fill);
-    usageCard.appendChild(track);
-
-    if (card.detail) {
-      const detail = document.createElement('div');
-      detail.className = 'usage-card-reset';
-      detail.textContent = card.detail;
-      usageCard.appendChild(detail);
+    if (usage._rateLimited || usage._error || usage._noData) {
+      const notice = document.createElement('div');
+      notice.className = 'usage-rate-limited';
+      if (usage._rateLimited) {
+        const mins = Math.ceil((usage.retryAfterSeconds || 0) / 60);
+        notice.textContent = mins > 0
+          ? `Usage API rate limited. Try again in ~${mins} min${mins !== 1 ? 's' : ''}.`
+          : 'Usage API rate limited. Try again later.';
+      } else if (usage._error) {
+        notice.textContent = usage.message || 'Could not fetch usage data.';
+      } else {
+        notice.textContent = 'No usage limit reported yet.';
+      }
+      group.appendChild(notice);
+      container.appendChild(group);
+      continue;
     }
 
-    if (card.reset) {
-      const reset = document.createElement('div');
-      reset.className = 'usage-card-reset';
-      reset.textContent = 'Resets ' + card.reset;
-      usageCard.appendChild(reset);
+    const grid = document.createElement('div');
+    grid.className = 'usage-grid';
+    const cards = typeof getUsageLimitCards === 'function' ? getUsageLimitCards(usage) : [];
+
+    for (const card of cards) {
+      const usageCard = document.createElement('div');
+      usageCard.className = 'usage-card';
+
+      const header = document.createElement('div');
+      header.className = 'usage-card-header';
+      const label = document.createElement('span');
+      label.className = 'usage-card-label';
+      label.textContent = card.label;
+      header.appendChild(label);
+      const pctEl = document.createElement('span');
+      pctEl.className = 'usage-card-pct';
+      pctEl.textContent = card.percent + '%';
+      header.appendChild(pctEl);
+      usageCard.appendChild(header);
+
+      const track = document.createElement('div');
+      track.className = 'usage-track';
+      const fill = document.createElement('div');
+      fill.className = 'usage-fill' + (card.level && card.level !== 'normal' ? ` usage-fill-${card.level}` : '');
+      fill.style.width = Math.max(card.percent, 1) + '%';
+      track.appendChild(fill);
+      usageCard.appendChild(track);
+
+      if (card.detail) {
+        const detail = document.createElement('div');
+        detail.className = 'usage-card-reset';
+        detail.textContent = card.detail;
+        usageCard.appendChild(detail);
+      }
+
+      if (card.reset) {
+        const reset = document.createElement('div');
+        reset.className = 'usage-card-reset';
+        reset.textContent = 'Resets ' + card.reset;
+        usageCard.appendChild(reset);
+      }
+
+      grid.appendChild(usageCard);
     }
 
-    grid.appendChild(usageCard);
+    group.appendChild(grid);
+    container.appendChild(group);
   }
 
-  container.appendChild(grid);
-  // Insert before the stats notice footer if it exists, otherwise append
+  mountUsageContainer(container);
+}
+
+function mountUsageContainer(container) {
   const statsNotice = statsViewerBody.querySelector('.stats-notice');
   if (statsNotice) statsViewerBody.insertBefore(container, statsNotice);
   else statsViewerBody.appendChild(container);

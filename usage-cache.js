@@ -1,8 +1,17 @@
+// usage-cache.js — keep the last GOOD usage reading per backend, so a failed poll shows yesterday's
+// number marked as stale instead of blanking the status bar (#191: one cache entry per backend).
+
 const DEFAULT_USAGE_RETRY_SECONDS = 5 * 60;
 
+// Did this reading actually measure something? A reading is successful when it carries at least one
+// bucket or a quota — NOT merely "some key is set". Every reading now arrives with `backendId`, `label`
+// and `live` stamped on it by the collector, so a "does any non-underscore key have a value" test (what
+// this used to do) would call an error response successful and cache it over the last good one.
 function isSuccessfulUsage(usage) {
   if (!usage || usage._error || usage._rateLimited) return false;
-  return Object.keys(usage).some(key => !key.startsWith('_') && usage[key] !== undefined && usage[key] !== null);
+  const hasBuckets = Array.isArray(usage.buckets) && usage.buckets.length > 0;
+  const hasQuota = !!usage.quota && Number.isFinite(Number(usage.quota.percent));
+  return hasBuckets || hasQuota;
 }
 
 function retrySecondsForUsage(usage) {
@@ -22,10 +31,12 @@ function buildCachedUsageValue(usage, fetchedAt = new Date()) {
 
 function usageFailureMessage(usage) {
   if (usage?._rateLimited) return 'Usage API rate limited';
-  if (usage?._error) return usage.message || 'Could not fetch Claude usage data.';
+  if (usage?._error) return usage.message || 'Could not fetch usage data.';
   return 'Usage unavailable';
 }
 
+// A backend that is installed but has never reported a limit (Codex, never run) is NOT a failure and has
+// nothing to fall back to. Pass it through untouched rather than dressing it up as an error.
 function withMainProcessUsageCache(usage, cachedValue) {
   if (isSuccessfulUsage(usage)) {
     return {
@@ -40,6 +51,9 @@ function withMainProcessUsageCache(usage, cachedValue) {
     return {
       response: {
         ...cachedUsage,
+        // Identity is re-stamped by the collector after this returns, but keep whatever the live
+        // response knew so a cached body can never claim to be another backend.
+        backendId: usage?.backendId || cachedUsage.backendId,
         _stale: true,
         _staleMessage: usageFailureMessage(usage),
         _retryAfterSeconds: retrySecondsForUsage(usage),
@@ -51,7 +65,7 @@ function withMainProcessUsageCache(usage, cachedValue) {
   }
 
   return {
-    response: usage || { _error: true, message: 'Could not fetch Claude usage data.' },
+    response: usage || { _error: true, message: 'Could not fetch usage data.' },
     cacheValue: null,
     fromCache: false,
   };

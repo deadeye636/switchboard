@@ -265,6 +265,45 @@ The sessions are the fallback only for the moment before the backend probes have
 backend is not the default is badged individually regardless, so nothing is ever unlabelled. Rule:
 `computeShowAllBadges` (`public/backend-registry.js`), tested in `test/backend-badges.test.js`.
 
+## The usage capability (#191)
+
+**A backend that can report a quota declares it; the core never learns a backend id.** The status bar
+carries one segment per such backend, and Settings offers a tick per such backend — both derived from the
+descriptor, which is what lets Antigravity arrive later as a folder and nothing else.
+
+```js
+usage: {
+  live: true,                        // fetched now (Claude) vs. as of the last run (Codex)
+  fetch: async () => ({ … }),        // stays in main; only `live` crosses IPC
+}
+```
+
+Every capability returns the **same shape** (`backends/usage-format.js` documents it): a list of buckets
+(`key, label, percent, reset, tier, bar`) plus an optional credit pool. `main.js` iterates
+`backends.list().filter(b => b.enabled && b.usage)`, stamps each result with the descriptor's identity, and
+caches it **per backend** (`usage:lastSuccessful:<id>`).
+
+Three things this got wrong before, and now does not:
+
+- **A switched-off backend is not fetched.** `get-usage` used to call Claude's fetch unconditionally, so a
+  user who disabled Claude and ran only Codex still had the app reading Claude's OAuth credentials and
+  calling Anthropic's usage endpoint on a timer. Claude is not exempt from being disabled (#162), so this
+  was not hypothetical. **No enabled backend, no fetch** — and disabling one must still not erase the
+  *tick* that says you want to see it, or turning Codex off for a day silently forgets that wish.
+
+- **Freshness is not uniform, and the bar must not pretend it is.** Claude's figure is a live API call.
+  Codex's is read out of its last rollout — three days without Codex and it is three days old. The
+  non-live segment is dimmed past an hour and its tooltip says when it was measured. Two segments styled
+  identically, one of them stale, is a bar that lies.
+
+- **The colour thresholds are keyed on how fast a bucket REFILLS, not on a window name.** They used to be
+  `5h` and `7d` — *Claude's* windows, hardcoded in the settings page. Codex reports `window_minutes` and
+  the provider may change it; Google Antigravity reports no time window at all (its quotas are per
+  **model**). A tier of `short` / `long` carries all three; `5h` / `7d` carries exactly one.
+
+Hermes and Pi declare no capability and therefore appear nowhere in this UI — not even as an empty control
+that could never show a value. Pi's `usage.cost` is its own *cost estimate*, not a quota.
+
 ## As built — known gaps
 
 Filed as issues rather than silently carried:

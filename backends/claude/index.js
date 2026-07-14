@@ -286,4 +286,10 @@ module.exports = {
   deriveState: null, // Claude state comes from session-transitions folder-watch, not a per-event fn
   setRoots,          // main.js/tests point this at the real/ fixture projects dir
   _roots: () => _roots.slice(),
+  // Usage capability (#191). `live: true` — the figure is fetched from the API on every poll, so the bar
+  // shows it without an "as of" caveat. Only the declaration crosses IPC; `fetch` stays in main.
+  usage: {
+    live: true,
+    fetch: () => require('./usage').fetchUsage(),
+  },
 };

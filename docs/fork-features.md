@@ -105,14 +105,20 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   last-activity age — so an at-risk session reads at a glance.
 - Worktree label extraction for sessions living under `.claude/worktrees/`.
 
-### Usage monitoring
-`public/usage-status.js`
+### Usage monitoring (per backend, #191)
+`public/usage-status.js`, `backends/usage-format.js`, `backends/<id>/usage.js`
 
-- Surfaces Claude usage limits: current 5-hour window, weekly (all models),
-  weekly Sonnet, weekly Opus, and the monthly extra-usage **quota** (with
-  money formatting).
-- Graceful states for rate-limited / unavailable / **stale-cached** usage,
-  including retry-timing hints and high-usage (≥80%) emphasis.
+- **One status-bar segment per backend that reports a quota**, each with its own badge and each
+  selectable in *Settings → Usage & Notifications*. A backend declares the capability on its
+  descriptor; nothing in the core names a backend id.
+- **Claude** is fetched live from the API (5h, weekly, Sonnet, Opus, and the extra-usage credit pool
+  with money formatting). **Codex** is read out of its own transcript — no network call, no credential
+  access — so its figure is *as of its last run*: the segment dims past an hour and its tooltip says
+  when it was measured. Hermes and Pi have no quota and never appear.
+- **A switched-off backend is never fetched.** Colour thresholds are keyed on how fast a bucket
+  refills, not on a window name, so a backend that invents its own windows still colours correctly.
+- Graceful states for rate-limited / unavailable / never-reported / **stale-cached** usage, including
+  retry-timing hints.
 
 ### Spring cleaning (bulk session cleanup)
 `public/session-cleanup.js`

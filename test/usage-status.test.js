@@ -5,198 +5,144 @@ const {
   formatUsageStatus,
   getUsageLimitCards,
   getUsageRefreshDelayMs,
-  withCachedUsageFallback,
+  getUsagePollDelayMs,
   usageLevel3,
   getUsageBars,
   getUsageTooltip,
+  selectedUsageBackends,
+  isStaleReading,
 } = require('../public/usage-status');
 
-test('formatUsageStatus summarizes current usage buckets compactly', () => {
-  const result = formatUsageStatus({
-    session: 12,
-    weekAll: 38,
-    weekSonnet: 44,
-    weekOpus: 4,
-    sessionReset: '1pm (BST)',
+// One backend's reading, in the shape every backend now reports (#191). Nothing in here names a window:
+// the labels and tiers come from the backend, which is what lets Codex's derived windows — and, later,
+// Antigravity's per-model quotas — render without a line changing in this module.
+const claude = () => ({
+  backendId: 'claude',
+  label: 'Claude Code',
+  live: true,
+  buckets: [
+    { key: 'session', label: '5h', percent: 12, reset: '13:00 (BST)', tier: 'short', bar: true, cardLabel: 'Current session' },
+    { key: 'weekAll', label: '7d', percent: 38, tier: 'long', bar: true, cardLabel: 'Week (all models)' },
+    { key: 'weekSonnet', label: 'Sonnet', percent: 44, tier: 'long', bar: false, cardLabel: 'Week (Sonnet)' },
+  ],
+  quota: null,
+});
+
+test('the bar shows only the buckets the backend flagged for it', () => {
+  const bars = getUsageBars(claude());
+  // Sonnet reports a percentage but is not a bar — four windows wide would cost more than it tells you.
+  assert.deepEqual(bars.map(b => b.label), ['5h', '7d']);
+  assert.deepEqual(bars.map(b => b.percent), [12, 38]);
+});
+
+test('thresholds are keyed by TIER, not by a window name', () => {
+  // A short-cycle bucket at 65% is already amber; a long-cycle one at 65% is not. Same number, different
+  // meaning — and a backend that invents its own windows still gets coloured, because it declares a tier.
+  const bars = getUsageBars({
+    backendId: 'codex',
+    buckets: [
+      { key: 'primary', label: '5h', percent: 65, tier: 'short', bar: true },
+      { key: 'secondary', label: '7d', percent: 65, tier: 'long', bar: true },
+    ],
+  }, { short: { warn: 60, crit: 80 }, long: { warn: 75, crit: 90 } });
+
+  assert.equal(bars[0].level, 'warn');
+  assert.equal(bars[1].level, 'ok');
+});
+
+test('a quota bar appears only when the pool has actually been used', () => {
+  const withQuota = (percent) => getUsageBars({ buckets: [], quota: { percent, currency: 'USD' } });
+  assert.deepEqual(withQuota(0).map(b => b.key), []);       // 0% is not worth a bar
+  assert.deepEqual(withQuota(7).map(b => b.key), ['quota']);
+});
+
+test('Stats cards carry every bucket, not just the two in the bar', () => {
+  const cards = getUsageLimitCards(claude());
+  assert.deepEqual(cards.map(c => c.label), ['Current session', 'Week (all models)', 'Week (Sonnet)']);
+  assert.equal(cards[0].reset, '13:00 (BST)');
+});
+
+test('the quota card shows its amounts', () => {
+  const cards = getUsageLimitCards({
+    buckets: [],
+    quota: { percent: 88, used: 176958, limit: 200000, currency: 'USD' },
   });
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].label, 'Extra usage quota');
+  assert.equal(cards[0].percent, 88);
+  assert.match(cards[0].detail, /1,769\.58/);   // credits are cents
+});
 
-  assert.deepEqual(result, {
-    text: 'Usage: 5h 12% · 7d 38% · Sonnet 44% · Opus 4%',
-    title: 'Current 5-hour usage: 12% · resets 1pm (BST)',
-    level: 'normal',
-    percent: 44,
+test('the tooltip names the backend, and says so when the figure is not live', () => {
+  const live = getUsageTooltip(claude());
+  assert.match(live, /^Claude Code\n/);
+  assert.doesNotMatch(live, /as of its last run/);
+
+  const codex = getUsageTooltip({
+    backendId: 'codex', label: 'Codex', live: false,
+    observedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    buckets: [{ key: 'primary', label: '5h', percent: 4, tier: 'short', bar: true, cardLabel: 'Window (5h)' }],
   });
+  assert.match(codex, /^Codex \(as of its last run\)/);
+  assert.match(codex, /Measured 3 hours ago\./);
 });
 
-test('formatUsageStatus marks high usage when any bucket is near the limit', () => {
-  const result = formatUsageStatus({ session: 85, weekAll: 42 });
-
-  assert.equal(result.level, 'high');
-  assert.equal(result.text, 'Usage: 5h 85% · 7d 42%');
-  assert.equal(result.percent, 85);
-});
-
-test('formatUsageStatus uses the green→yellow→orange→red four-tier scale', () => {
-  // green (normal) below 50%
-  assert.equal(formatUsageStatus({ session: 30 }).level, 'normal');
-  // yellow (moderate) at 50–79%
-  assert.equal(formatUsageStatus({ session: 50 }).level, 'moderate');
-  assert.equal(formatUsageStatus({ session: 72 }).level, 'moderate');
-  // orange (high) at 80–94%
-  assert.equal(formatUsageStatus({ session: 80 }).level, 'high');
-  // red (critical) at 95%+
-  assert.equal(formatUsageStatus({ session: 96 }).level, 'critical');
-});
-
-test('getUsageLimitCards level reflects the four-tier scale per bucket', () => {
-  const cards = getUsageLimitCards({ session: 30, weekAll: 60, weekSonnet: 88, weekOpus: 99 });
-  assert.deepEqual(cards.map(c => c.level), ['normal', 'moderate', 'high', 'critical']);
-});
-
-test('formatUsageStatus shows extra usage quota when rate-limit buckets are unavailable', () => {
-  const result = formatUsageStatus({
-    extraUsage: 88,
-    extraUsageUsed: 176958,
-    extraUsageLimit: 200000,
-    extraUsageCurrency: 'USD',
-  });
-
-  assert.deepEqual(result, {
-    text: 'Quota: $1,769.58 / $2,000.00 (88%)',
-    title: 'Monthly extra usage quota: $1,769.58 used of $2,000.00',
-    level: 'high',
-    percent: 88,
-  });
-});
-
-test('getUsageLimitCards includes quota-only usage as a progress card', () => {
-  const result = getUsageLimitCards({
-    extraUsage: 91,
-    extraUsageUsed: 183546,
-    extraUsageLimit: 200000,
-    extraUsageCurrency: 'USD',
-  });
-
-  assert.deepEqual(result, [{
-    key: 'extraUsage',
-    label: 'Extra usage quota',
-    percent: 91,
-    detail: '$1,835.46 / $2,000.00',
-    level: 'high',
-    reset: null,
-  }]);
-});
-
-test('formatUsageStatus marks cached usage after an unavailable response', () => {
-  const result = formatUsageStatus({
-    extraUsage: 88,
-    extraUsageUsed: 176958,
-    extraUsageLimit: 200000,
-    extraUsageCurrency: 'USD',
-    _stale: true,
-    _staleMessage: 'Could not fetch usage',
-    _retryAfterSeconds: 300,
-  });
-
-  assert.equal(result.text, 'Quota: $1,769.58 / $2,000.00 (88%)');
-  assert.equal(result.level, 'high');
-  assert.match(result.title, /Using cached usage/);
-  assert.match(result.title, /Retrying in ~5 mins/);
-  assert.match(result.title, /Could not fetch usage/);
-});
-
-test('withCachedUsageFallback preserves last successful usage on unavailable response', () => {
-  const cached = { session: 20, extraUsage: 40 };
-  const result = withCachedUsageFallback({ _error: true, message: 'No token' }, cached);
-
-  assert.equal(result.session, 20);
-  assert.equal(result.extraUsage, 40);
-  assert.equal(result._stale, true);
-  assert.equal(result._staleMessage, 'No token');
-});
-
-test('withCachedUsageFallback preserves last successful usage on rate limit response', () => {
-  const cached = { session: 20, extraUsage: 40 };
-  const result = withCachedUsageFallback({ _rateLimited: true, retryAfterSeconds: 120 }, cached);
-
-  assert.equal(result.session, 20);
-  assert.equal(result.extraUsage, 40);
-  assert.equal(result._stale, true);
-  assert.equal(result._staleMessage, 'Usage API rate limited');
-  assert.equal(result._retryAfterSeconds, 125);
-});
-
-test('formatUsageStatus returns useful rate-limit and error states', () => {
-  assert.deepEqual(formatUsageStatus({ _rateLimited: true, retryAfterSeconds: 120 }), {
-    text: 'Usage rate limited',
-    title: 'Usage API rate limited. Try again in ~2 mins.',
-    level: 'warning',
-    percent: null,
-  });
-
-  assert.deepEqual(formatUsageStatus({ _error: true, message: 'No token' }), {
-    text: 'Usage unavailable',
-    title: 'No token',
-    level: 'warning',
-    percent: null,
-  });
-});
-
-test('usageLevel3 maps to green/orange/red at the configured thresholds', () => {
-  assert.equal(usageLevel3(59, 60, 80), 'ok');
-  assert.equal(usageLevel3(60, 60, 80), 'warn');
-  assert.equal(usageLevel3(79, 60, 80), 'warn');
-  assert.equal(usageLevel3(80, 60, 80), 'crit');
-  assert.equal(usageLevel3(100, 60, 80), 'crit');
-  // custom thresholds
-  assert.equal(usageLevel3(50, 40, 70), 'warn');
-  assert.equal(usageLevel3(70, 40, 70), 'crit');
-});
-
-test('getUsageBars returns 5h + 7d, and quota only when >0%', () => {
-  const th = { session: { warn: 60, crit: 80 }, weekAll: { warn: 60, crit: 80 }, extraUsage: { warn: 60, crit: 80 } };
-  const bars = getUsageBars({ session: 17, weekAll: 82, extraUsage: 0 }, th);
-  assert.deepEqual(bars.map(b => [b.label, b.percent, b.level]), [
-    ['5h', 17, 'ok'],
-    ['7d', 82, 'crit'],
-  ]);
-
-  const withQuota = getUsageBars({ session: 65, extraUsage: 12 }, th);
-  assert.deepEqual(withQuota.map(b => [b.label, b.percent, b.level]), [
-    ['5h', 65, 'warn'],
-    ['Quota', 12, 'ok'],
-  ]);
-
-  assert.deepEqual(getUsageBars({}), []);
-});
-
-test('getUsageBars applies per-window thresholds (5h vs 7d coloured differently)', () => {
-  const bars = getUsageBars({ session: 50, weekAll: 50 }, {
-    session: { warn: 40, crit: 90 }, // 50 → orange
-    weekAll: { warn: 60, crit: 80 }, // 50 → green
-  });
-  assert.equal(bars.find(b => b.key === 'session').level, 'warn');
-  assert.equal(bars.find(b => b.key === 'weekAll').level, 'ok');
-});
-
-test('getUsageTooltip lists every window with reset times and quota amounts', () => {
+test('a cached reading says why it is cached and when it will be tried again', () => {
+  // Dimming a number without saying what went wrong just makes it look broken. The point of falling back
+  // to the last good reading is that it stays usable while being visibly not fresh.
   const tip = getUsageTooltip({
-    session: 17, sessionReset: '14:30 (CEST)',
-    weekAll: 7, weekAllReset: 'Jul 8 at 09:00 (CEST)',
-    weekSonnet: 3, weekOpus: 12,
-    extraUsage: 0, extraUsageUsed: 0, extraUsageLimit: 5000, extraUsageCurrency: 'USD',
+    ...claude(),
+    _stale: true,
+    _staleMessage: 'Usage API rate limited',
+    _retryAfterSeconds: 125,
   });
-  assert.match(tip, /5h \(session\): 17% — resets 14:30 \(CEST\)/);
-  assert.match(tip, /7d \(all models\): 7% — resets Jul 8 at 09:00 \(CEST\)/);
-  assert.match(tip, /7d \(Sonnet\): 3%/);
-  assert.match(tip, /7d \(Opus\): 12%/);
-  assert.match(tip, /Extra usage quota: 0% \(\$0\.00 \/ \$50\.00\)/);
+  assert.match(tip, /Cached — the last fetch failed\./);
+  assert.match(tip, /Retrying in ~3 mins\./);
+  assert.match(tip, /Last error: Usage API rate limited/);
 });
 
-test('getUsageRefreshDelayMs respects usage API retry-after windows', () => {
+test('a non-live reading goes stale with age; a live one never does', () => {
+  const old = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+  assert.equal(isStaleReading({ live: false, observedAt: old }), true);
+  assert.equal(isStaleReading({ live: false, observedAt: new Date().toISOString() }), false);
+  // Claude's is fetched on every poll — it is never "as of" anything.
+  assert.equal(isStaleReading({ live: true, observedAt: old }), false);
+});
+
+test('a backend with nothing to draw states which backend it is', () => {
+  // "Usage unavailable" beside a healthy segment tells you nothing about whose it is.
+  assert.equal(formatUsageStatus({ label: 'Codex', _error: true, message: 'boom' }).text, 'Codex: unavailable');
+  assert.equal(formatUsageStatus({ label: 'Codex', _rateLimited: true }).text, 'Codex: rate limited');
+  // Installed, switched on, never run. NOT an error, and never a fabricated 0%.
+  const noData = formatUsageStatus({ label: 'Codex', _noData: true });
+  assert.equal(noData.text, 'Codex: no data yet');
+  assert.equal(noData.level, 'empty');
+});
+
+test('an absent tick shows the segment; only an explicit false hides it', () => {
+  const payload = { backends: [{ backendId: 'claude' }, { backendId: 'codex' }] };
+  // Nothing decided yet → both show. This is why the stored value is a map and not a list: dropping a
+  // key would be indistinguishable from deciding against it.
+  assert.deepEqual(selectedUsageBackends(payload, {}).map(u => u.backendId), ['claude', 'codex']);
+  assert.deepEqual(selectedUsageBackends(payload, { codex: false }).map(u => u.backendId), ['claude']);
+  assert.deepEqual(selectedUsageBackends(payload, { codex: true }).map(u => u.backendId), ['claude', 'codex']);
+});
+
+test('the poll interval is the shortest any backend asks for', () => {
   assert.equal(getUsageRefreshDelayMs({ _rateLimited: true, retryAfterSeconds: 120 }), 125000);
-  // Large retry-after windows are capped at 5 minutes so usage never freezes for an hour.
+  // Capped: a very long retry-after must not freeze the bar for the better part of an hour.
   assert.equal(getUsageRefreshDelayMs({ _rateLimited: true, retryAfterSeconds: 3600 }), 300000);
-  assert.equal(getUsageRefreshDelayMs({ session: 12 }), 60000);
-  assert.equal(getUsageRefreshDelayMs({ _error: true }), 60000);
+  assert.equal(getUsageRefreshDelayMs({ buckets: [] }), 60000);
+
+  // A rate-limited Claude must not slow Codex's file read down to its backoff, and a healthy Codex must
+  // not drag Claude's backoff down to 60s either — the bar polls at the shortest ask and each backend's
+  // own state decides what it gets.
+  assert.equal(getUsagePollDelayMs({ backends: [{ _rateLimited: true, retryAfterSeconds: 3600 }, { buckets: [] }] }), 60000);
+  assert.equal(getUsagePollDelayMs({ backends: [] }), 60000);
+});
+
+test('usageLevel3 keeps its 3-tier scale', () => {
+  assert.equal(usageLevel3(10, 60, 80), 'ok');
+  assert.equal(usageLevel3(60, 60, 80), 'warn');
+  assert.equal(usageLevel3(80, 60, 80), 'crit');
 });

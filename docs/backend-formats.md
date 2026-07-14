@@ -44,7 +44,29 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
 - Windows: `codex` on PATH is an npm **`.cmd` shim**, which `CreateProcess` cannot execute → argv spawn
   falls back to the shell.
 
-### The thread-name side file (#153)
+### Rate limits ride along in the transcript (#191)
+
+Codex writes its **usage quota into every `token_count` event**, so reading it costs a file read — no
+network call, no credential access, and `~/.codex/auth.json` stays untouched:
+
+```json
+{"type":"event_msg","payload":{"type":"token_count",
+  "info":{"total_token_usage":{…},"model_context_window":258400},
+  "rate_limits":{
+    "limit_id":"codex","limit_name":null,"plan_type":"<plan>",
+    "primary":  {"used_percent":0.0,"window_minutes":10080,"resets_at":<epoch seconds>},
+    "secondary":null,"credits":null,"individual_limit":null,"rate_limit_reached_type":null}}}
+```
+
+- **Two windows, and Codex does not name them.** `primary` / `secondary`, each with its own
+  `window_minutes` — the label (`5h`, `7d`) is **derived** from that number, never hardcoded: the provider
+  is free to change the window, and `secondary` is frequently `null`.
+- `used_percent` is a **float**, `resets_at` is **epoch seconds** (Claude sends an ISO string).
+- **The LAST one wins.** A rollout emits `token_count` on every turn; only the final block is current.
+- **It is not live.** The figure is the state as of that turn — go three days without running Codex and it
+  is three days old. Anything rendering it beside Claude's live number has to say so, or the number
+  silently promotes itself to "now".
+- A rollout that never got a reply carries no `rate_limits` at all → fall through to the next-newest.
 
 A session's **title is not in its own transcript.** Codex keeps the names the user gave their threads in a
 separate append-only file next to the store:
@@ -170,6 +192,19 @@ in with a Google account and offers to import an existing `~/.gemini` config.
 It ships as a **"Coming soon"** dummy: never in the picker, never scanned. **What it stores, where, and how
 it resumes is unknown** — the old Gemini CLI's paths (`~/.gemini/tmp/<hash>/chats/…`) are explicitly **not**
 carried over as an assumption. Recon it against a real install before building it.
+
+**Usage, from a desk survey (#191 — not from a real install, so treat it as a lead, not a fact).** Worth
+recording because it is the one backend whose quota model does *not* look like the other two:
+
+- Its quota is **per MODEL**, not per time window — the community monitors report figures like
+  `Pro-L 80% · Claude 25%`, each with its own reset. There is no "5h / 7d" to read.
+- Beside the model quotas sits a **credit pool**, spent only once a model's quota is exhausted.
+- **No clean local file.** The monitors either find the port of the running Antigravity client (process
+  inspection), lift the token out of the local login, and call it — or they go straight to Google's API.
+  So its capability would be `live: true` with a real fetch, not Codex's file read.
+
+This is why the usage capability keys its colour thresholds on **how fast a bucket refills** rather than on
+a window length: a per-model quota has no window at all, and a `5h`/`7d` tier could not describe it.
 
 ---
 

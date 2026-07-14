@@ -2612,6 +2612,7 @@ async function reapplyGlobalSettings() {
       ? g.gpuAcceleration
       : (g.terminalWebgl === false ? 'off' : 'auto')); // migrate old boolean (#87); default auto
   window._setUsageThresholds?.({ fiveHWarn: g.usage5hWarn, fiveHCrit: g.usage5hCrit, sevenDWarn: g.usage7dWarn, sevenDCrit: g.usage7dCrit });
+  window._setUsageBackendSelection?.(g.usageBackends || {});
   if (g.visibleSessionCount != null) window._setVisibleSessionCount?.(g.visibleSessionCount);
   if (g.sessionMaxAgeDays != null) window._setSessionMaxAge?.(g.sessionMaxAgeDays);
   if (g.shortcuts && typeof setAppShortcuts === 'function') setAppShortcuts(g.shortcuts);
@@ -2801,6 +2802,7 @@ setTimeout(() => {
         ? global.gpuAcceleration
         : (global.terminalWebgl === false ? 'off' : 'auto')); // migrate old boolean (#87); default auto
     window._setUsageThresholds?.({ fiveHWarn: global.usage5hWarn, fiveHCrit: global.usage5hCrit, sevenDWarn: global.usage7dWarn, sevenDCrit: global.usage7dCrit });
+    window._setUsageBackendSelection?.(global.usageBackends || {});
     if (global.shortcuts) setAppShortcuts(global.shortcuts);
     if (typeof window._applySessionDisplaySettings === 'function') window._applySessionDisplaySettings(global);
     // The project sort comes from Settings, and the boot never read it: it was taken from the
@@ -2880,22 +2882,33 @@ window.api.onProjectsChanged(() => {
 // Status bar
 let activityTimer = null;
 let usageStatusTimer = null;
-const USAGE_RETRY_AT_KEY = 'usageStatusRetryAt';
 const USAGE_CACHE_KEY = 'usageStatusLastValue';
 let cachedStatusBarUsage = null;
 // Usage colour thresholds (%): < warn = green, warn..crit = orange, >= crit = red.
-// Configurable per window (5h vs 7d) so 7d can be coloured differently; the Quota
-// bar reuses the 7d thresholds. Defaults mirror Claude's rough 60/80 guidance.
+//
+// Keyed by TIER, not by a window name (#191). A tier says how fast the bucket refills — 'short' is the
+// one you can hit this afternoon, 'long' is the slow burn (and the credit pool). The settings keys are
+// still `usage5hWarn` / `usage7dWarn` because they are what is in everyone's settings blob and renaming
+// them would silently reset the tuning; what they MEAN is the tier, which is why Codex's derived windows
+// and, later, Antigravity's per-model quotas colour correctly without a line changing here.
 // clampUsageThreshold lives in utils.js (shared with the settings panel, #79).
 let usageThresholds = {
-  session: { warn: 60, crit: 80 },   // 5h
-  weekAll: { warn: 75, crit: 90 },   // 7d
-  extraUsage: { warn: 75, crit: 90 }, // Quota (reuses 7d)
+  short: { warn: 60, crit: 80 },
+  long: { warn: 75, crit: 90 },
 };
 window._setUsageThresholds = (cfg = {}) => {
-  const five = clampUsageThreshold(cfg.fiveHWarn, cfg.fiveHCrit, 60, 80);
-  const seven = clampUsageThreshold(cfg.sevenDWarn, cfg.sevenDCrit, 75, 90);
-  usageThresholds = { session: five, weekAll: seven, extraUsage: seven };
+  usageThresholds = {
+    short: clampUsageThreshold(cfg.fiveHWarn, cfg.fiveHCrit, 60, 80),
+    long: clampUsageThreshold(cfg.sevenDWarn, cfg.sevenDCrit, 75, 90),
+  };
+  if (cachedStatusBarUsage) renderUsageStatus(cachedStatusBarUsage);
+};
+
+// Which backends the user wants in the bar. An ABSENT key means "not decided" and shows the segment;
+// only an explicit false hides it. Switching a backend off must not erase the wish to see it.
+let usageBackendSelection = {};
+window._setUsageBackendSelection = (map) => {
+  usageBackendSelection = (map && typeof map === 'object') ? map : {};
   if (cachedStatusBarUsage) renderUsageStatus(cachedStatusBarUsage);
 };
 
@@ -2910,112 +2923,135 @@ function renderDefaultStatus() {
   statusBarInfo.textContent = parts.join(' \u00b7 ');
 }
 
-function renderUsageStatus(usage) {
+// One segment per backend the user chose to see (#191):
+//
+//   … │ <icon> 5h ▓░ 12%  7d ▓░ 3% │ <icon> 5h ▓░ 42%  7d ▓░ 8% │ …
+//
+// A NON-LIVE backend (Codex reads its figure out of its last rollout) is dimmed once the reading is more
+// than an hour old, and its tooltip says when it was measured. Two segments styled identically, one of
+// them three days stale, is a bar that lies — and it is the failure this feature is most likely to ship.
+function renderUsageStatus(payload) {
   if (!statusBarUsage || typeof formatUsageStatus !== 'function') return;
   statusBarUsage.innerHTML = '';
   statusBarUsage.className = '';
+  statusBarUsage.title = '';
 
-  // Per-window bars (5h, 7d, Quota>0). Empty for error/rate-limit/no-data states —
-  // fall back to the compact single-label rendering (with its own title/level).
-  const bars = (typeof getUsageBars === 'function') ? getUsageBars(usage, usageThresholds) : [];
-  if (bars.length === 0) {
-    const status = formatUsageStatus(usage);
-    statusBarUsage.title = status.title;
-    statusBarUsage.className = status.level && status.level !== 'empty' ? `usage-status-${status.level}` : '';
-    if (status.text) {
-      const label = document.createElement('span');
-      label.className = 'status-bar-usage-label';
-      label.textContent = status.text;
-      statusBarUsage.appendChild(label);
+  const selected = (typeof selectedUsageBackends === 'function')
+    ? selectedUsageBackends(payload || {}, usageBackendSelection)
+    : ((payload && payload.backends) || []);
+  if (selected.length === 0) return;
+
+  const separator = () => {
+    const sep = document.createElement('span');
+    sep.className = 'status-bar-usage-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    return sep;
+  };
+
+  // A leading rule too, not just the ones between segments: the usage strip has to read as its own group
+  // next to the session/project counts, and without it the first backend's badge butts straight against
+  // "26 projects" as though it belonged to that sentence.
+  statusBarUsage.appendChild(separator());
+
+  selected.forEach((usage, i) => {
+    const segment = document.createElement('span');
+    segment.className = 'status-bar-usage-backend';
+    segment.title = (typeof getUsageTooltip === 'function') ? getUsageTooltip(usage) : '';
+    if (usage._stale || (typeof isStaleReading === 'function' && isStaleReading(usage))) {
+      segment.classList.add('usage-status-stale');
     }
-    return;
-  }
 
-  statusBarUsage.title = (typeof getUsageTooltip === 'function') ? getUsageTooltip(usage) : '';
-  if (usage && usage._stale) statusBarUsage.classList.add('usage-status-stale');
-
-  bars.forEach((bar, i) => {
-    const group = document.createElement('span');
-    group.className = `status-bar-usage-bar usage-level-${bar.level}`;
-
-    const label = document.createElement('span');
-    label.className = 'status-bar-usage-name';
-    label.textContent = bar.label;
-    group.appendChild(label);
-
-    const track = document.createElement('span');
-    track.className = 'status-bar-usage-track';
-    const fill = document.createElement('span');
-    fill.className = 'status-bar-usage-fill';
-    fill.style.width = `${Math.max(2, Math.min(100, bar.percent))}%`;
-    track.appendChild(fill);
-    group.appendChild(track);
-
-    const value = document.createElement('span');
-    value.className = 'status-bar-usage-value';
-    value.textContent = `${bar.percent}%`;
-    group.appendChild(value);
-
-    statusBarUsage.appendChild(group);
-    if (i < bars.length - 1) {
-      const sep = document.createElement('span');
-      sep.className = 'status-bar-usage-sep';
-      sep.textContent = '·';
-      statusBarUsage.appendChild(sep);
+    // The backend's badge, so two segments are never confused for one another. Reuses the sidebar's
+    // renderer, so the icon and its colour are the same object the session rows wear.
+    if (typeof window.renderBackendIcon === 'function') {
+      const icon = window.renderBackendIcon(usage.icon || usage.backendId, 12, { monogram: usage.monogram });
+      icon.classList.add('status-bar-usage-icon');
+      segment.appendChild(icon);
     }
+
+    const bars = (typeof getUsageBars === 'function') ? getUsageBars(usage, usageThresholds) : [];
+    if (bars.length === 0) {
+      // Error, rate limit, or a backend that has never reported one. Say which — a bare "unavailable"
+      // next to a healthy segment tells you nothing about whose it is.
+      const status = formatUsageStatus(usage);
+      if (status.level && status.level !== 'empty') segment.classList.add(`usage-status-${status.level}`);
+      if (status.title) segment.title = status.title;
+      if (status.text) {
+        const label = document.createElement('span');
+        label.className = 'status-bar-usage-label';
+        label.textContent = status.text;
+        segment.appendChild(label);
+      }
+    } else {
+      for (const bar of bars) {
+        const group = document.createElement('span');
+        group.className = `status-bar-usage-bar usage-level-${bar.level}`;
+
+        const label = document.createElement('span');
+        label.className = 'status-bar-usage-name';
+        label.textContent = bar.label;
+        group.appendChild(label);
+
+        const track = document.createElement('span');
+        track.className = 'status-bar-usage-track';
+        const fill = document.createElement('span');
+        fill.className = 'status-bar-usage-fill';
+        fill.style.width = `${Math.max(2, Math.min(100, bar.percent))}%`;
+        track.appendChild(fill);
+        group.appendChild(track);
+
+        const value = document.createElement('span');
+        value.className = 'status-bar-usage-value';
+        value.textContent = `${bar.percent}%`;
+        group.appendChild(value);
+
+        segment.appendChild(group);
+      }
+    }
+
+    statusBarUsage.appendChild(segment);
+    if (i < selected.length - 1) statusBarUsage.appendChild(separator());
   });
 }
 
+// The main process owns the cache and the staleness marking, per backend (usage-cache.js) — a poll that
+// fails comes back as the last good reading flagged `_stale`, and the backoff rides on the payload's own
+// retry-after. The renderer used to keep a SECOND cache and a second rate-limit gate beside it; with one
+// entry per backend that would be two mechanisms disagreeing about which backend is stale. It renders
+// what it is given and asks again when the payload says to.
 async function refreshStatusBarUsage() {
   if (!statusBarUsage) return;
-  const retryAt = Number(localStorage.getItem(USAGE_RETRY_AT_KEY) || 0);
-  if (retryAt && Date.now() < retryAt) {
-    const rateLimitedUsage = {
-      _rateLimited: true,
-      retryAfterSeconds: Math.ceil((retryAt - Date.now()) / 1000),
-    };
-    const displayUsage = typeof withCachedUsageFallback === 'function'
-      ? withCachedUsageFallback(rateLimitedUsage, cachedStatusBarUsage)
-      : rateLimitedUsage;
-    renderUsageStatus(displayUsage);
-    usageStatusTimer = setTimeout(refreshStatusBarUsage, Math.max(1000, retryAt - Date.now()));
-    return;
-  }
 
-  let usage = null;
+  let payload = null;
   try {
-    usage = await window.api.getUsage();
+    payload = await window.api.getUsage();
   } catch (err) {
-    usage = { _error: true, message: err?.message || 'Could not fetch Claude usage data.' };
+    payload = { backends: [], _error: true, message: err?.message || 'Could not fetch usage data.' };
   }
+  if (!payload || !Array.isArray(payload.backends)) payload = { backends: [] };
 
-  const displayUsage = typeof withCachedUsageFallback === 'function'
-    ? withCachedUsageFallback(usage || {}, cachedStatusBarUsage)
-    : usage;
-  renderUsageStatus(displayUsage || {});
+  renderUsageStatus(payload);
 
-  if (usage?._rateLimited && usage.retryAfterSeconds) {
-    localStorage.setItem(USAGE_RETRY_AT_KEY, String(Date.now() + getUsageRefreshDelayMs(usage)));
-  } else if (!usage?._rateLimited) {
-    localStorage.removeItem(USAGE_RETRY_AT_KEY);
-    if (usage && !usage._error && Object.keys(usage).length) {
-      cachedStatusBarUsage = usage;
-      try { localStorage.setItem(USAGE_CACHE_KEY, JSON.stringify(usage)); } catch {}
-    }
+  // Keep the last payload so the first paint after a restart isn't an empty bar while the first poll
+  // is in flight. Only a payload that actually measured something is worth restoring.
+  if (payload.backends.some(u => (u.buckets || []).length > 0 || u.quota)) {
+    cachedStatusBarUsage = payload;
+    try { localStorage.setItem(USAGE_CACHE_KEY, JSON.stringify(payload)); } catch { /* storage full */ }
   }
 
   if (usageStatusTimer) clearTimeout(usageStatusTimer);
-  usageStatusTimer = setTimeout(refreshStatusBarUsage, getUsageRefreshDelayMs(usage || {}));
+  const delay = (typeof getUsagePollDelayMs === 'function') ? getUsagePollDelayMs(payload) : 60 * 1000;
+  usageStatusTimer = setTimeout(refreshStatusBarUsage, delay);
 }
 
 function scheduleUsageStatusRefresh() {
   try {
-    const cachedUsage = JSON.parse(localStorage.getItem(USAGE_CACHE_KEY) || 'null');
-    if (cachedUsage && !cachedUsage._error && !cachedUsage._rateLimited) {
-      cachedStatusBarUsage = cachedUsage;
-      renderUsageStatus(cachedUsage);
+    const cached = JSON.parse(localStorage.getItem(USAGE_CACHE_KEY) || 'null');
+    if (cached && Array.isArray(cached.backends)) {
+      cachedStatusBarUsage = cached;
+      renderUsageStatus(cached);
     }
-  } catch {}
+  } catch { /* unparseable snapshot — the poll below replaces it */ }
   refreshStatusBarUsage();
 }
 

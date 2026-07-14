@@ -325,7 +325,7 @@ input:focus-visible {
 }
 
 .status-bar-usage-track {
-  width: 86px;
+  width: 44px;
   height: 5px;
   border-radius: 999px;
   background: rgba(255,255,255,0.08);
@@ -341,54 +341,38 @@ input:focus-visible {
   transition: width 0.25s ease;
 }
 
-#status-bar-usage.usage-status-normal {
-  color: #7ed99b;
+/* One SEGMENT per backend (#191): [icon] 5h ▓░ 12%  7d ▓░ 3% │ [icon] …
+   The state classes hang on the segment, not on the container — with two backends in the bar, a colour
+   or a dimmed opacity applied to the whole strip would paint the healthy one with the sick one's state. */
+.status-bar-usage-backend {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
+.status-bar-usage-icon { flex-shrink: 0; border-radius: 3px; }
 
-#status-bar-usage.usage-status-normal .status-bar-usage-fill {
-  background: rgba(110,205,140,0.7);
-}
+.status-bar-usage-backend.usage-status-warning { color: #f0a050; }
+.status-bar-usage-backend.usage-status-warning .status-bar-usage-fill { background: rgba(224,80,112,0.75); }
 
-#status-bar-usage.usage-status-moderate {
-  color: #f0d770;
-}
+/* A NON-LIVE figure that has gone cold (Codex, read out of its last rollout) is dimmed, so a three-day-old
+   percentage never sits beside Claude's live one looking equally current. */
+.status-bar-usage-backend.usage-status-stale { opacity: 0.55; }
 
-#status-bar-usage.usage-status-moderate .status-bar-usage-fill {
-  background: rgba(224,200,90,0.78);
-}
-
-#status-bar-usage.usage-status-high {
-  color: #ffb070;
-}
-
-#status-bar-usage.usage-status-high .status-bar-usage-fill {
-  background: rgba(240,150,70,0.82);
-}
-
-#status-bar-usage.usage-status-critical {
-  color: #ff8a8a;
-}
-
-#status-bar-usage.usage-status-critical .status-bar-usage-fill {
-  background: rgba(232,80,90,0.85);
-}
-
-#status-bar-usage.usage-status-warning {
-  color: #f0a050;
-}
-
-#status-bar-usage.usage-status-warning .status-bar-usage-fill {
-  background: rgba(224,80,112,0.75);
-}
-
-/* Per-window usage bars (5h / 7d / Quota) — see renderUsageStatus. Each is a
-   label + a compact bar + a coloured value; the 3-tier colour (green/orange/red)
-   is applied per bar, not on the whole container. */
+/* Per-window bars. Each is a label + a compact bar + a coloured value; the 3-tier colour
+   (green/orange/red) is applied per bar. */
 .status-bar-usage-bar { display: inline-flex; align-items: center; gap: 5px; }
 .status-bar-usage-name { color: #9a9ab0; }
-.status-bar-usage-bar .status-bar-usage-track { width: 44px; }
 .status-bar-usage-value { font-variant-numeric: tabular-nums; color: #c0c0d0; }
-.status-bar-usage-sep { color: #55556a; }
+
+/* The divider between two backends' segments — a rule, not a "·", so it reads as a boundary rather than
+   as one more item in the list. */
+.status-bar-usage-sep {
+  width: 1px;
+  height: 12px;
+  background: rgba(255,255,255,0.12);
+  flex-shrink: 0;
+}
 
 .status-bar-usage-bar.usage-level-ok .status-bar-usage-value { color: #7ed99b; }
 .status-bar-usage-bar.usage-level-ok .status-bar-usage-fill { background: rgba(110,205,140,0.75); }
@@ -396,8 +380,6 @@ input:focus-visible {
 .status-bar-usage-bar.usage-level-warn .status-bar-usage-fill { background: rgba(240,150,70,0.85); }
 .status-bar-usage-bar.usage-level-crit .status-bar-usage-value { color: #ff8a8a; }
 .status-bar-usage-bar.usage-level-crit .status-bar-usage-fill { background: rgba(232,80,90,0.9); }
-
-#status-bar-usage.usage-status-stale { opacity: 0.6; }
 
 #status-bar-activity {
   margin-left: auto;
@@ -5541,6 +5523,11 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
 /* Usage-threshold colour swatch (green / orange / red) shown next to the usage fields */
 .settings-usage-scale { display: inline-flex; gap: 3px; margin-right: 7px; vertical-align: middle; }
 .settings-usage-scale i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+/* The backend badge in a status-bar-usage row (#191) — the same SVG the sidebar draws, so the row is
+   recognisably the thing it switches on. */
+.settings-usage-backend-icon { display: inline-flex; margin-right: 7px; vertical-align: middle; }
+.settings-usage-backend-icon .backend-icon { border-radius: 4px; }
 
 /* --- Buttons ---
    The footer row reads left to right: what this page can do TO the project (destructive,

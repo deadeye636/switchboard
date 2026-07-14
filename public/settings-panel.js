@@ -440,6 +440,36 @@
     const usage5hCritValue = fieldValue('usage5hCrit', 80);
     const usage7dWarnValue = fieldValue('usage7dWarn', 75);
     const usage7dCritValue = fieldValue('usage7dCrit', 90);
+
+    // The status-bar usage selection (#191). A row exists only for a backend that is ENABLED and DECLARES
+    // a usage capability — the list is derived, never a hardcoded set. An ABSENT key means "not decided"
+    // and shows the segment; only an explicit false hides it, which is why the stored value is a map.
+    // Disabling a backend drops its row but must NOT erase the tick, or turning Codex off for a day
+    // silently forgets that its usage was wanted and the bar comes back empty.
+    //
+    // Asked over IPC rather than read from `window._backendsById`: Settings is its OWN window
+    // (settings.html) and does not load backend-registry.js, so that cache is empty here. Reading it
+    // would have produced no rows at all, in the one window where the rows live.
+    const usageSelection = (globalSettings && globalSettings.usageBackends) || {};
+    let usageCapable = [];
+    try {
+      const res = await window.api.backends.list();
+      usageCapable = ((res && res.backends) || [])
+        .filter(b => b.usage && b.status === 'ready' && b.enabled)
+        .sort((a, b) => String(a.label || a.id).localeCompare(String(b.label || b.id)));
+    } catch { /* no list, no rows — the thresholds below still render */ }
+    const usageBackendRowsHtml = usageCapable.map(b => `
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-label"><span class="settings-usage-backend-icon backend-icon-slot" data-icon="${escapeHtml(b.icon || b.id)}" data-size="16"></span>${escapeHtml(b.label || b.id)}</span>
+            <div class="settings-description">${b.usage.live
+              ? 'Fetched live, so the bar shows the current figure.'
+              : 'Read from its own session files — the figure is as of its last run, and the bar dims it once it is older than an hour.'}</div>
+          </div>
+          <div class="settings-field-control">
+            <label class="settings-toggle"><input type="checkbox" class="sv-usage-backend" data-backend="${escapeHtml(b.id)}" ${usageSelection[b.id] === false ? '' : 'checked'}><span class="settings-toggle-slider"></span></label>
+          </div>
+        </div>`).join('');
     const themeValue = fieldValue('terminalTheme', 'switchboard');
     // Terminal font (size + family). Family presets carry a monospace fallback;
     // a value not in the list is treated as a custom family.
@@ -1215,11 +1245,18 @@
             <section class="settings-cat" data-cat="usage">
               <div class="settings-cat-head"><h2>Usage &amp; Notifications</h2><p>Usage-bar colours and when Switchboard alerts you.</p></div>
 
+              <!-- Which backends the status bar shows (#191). One list, because the choice belongs to the
+                   BAR — one widget, several segments — not to each backend. A row appears only for a
+                   backend that is enabled AND can report a quota: Hermes and Pi have none, so they never
+                   get a control that could never show a value. The whole block is omitted when nothing
+                   qualifies, rather than explaining its own emptiness. -->
               <div class="settings-section">
+                <div class="settings-section-title">Usage</div>
+                ${usageBackendRowsHtml}
                 <div class="settings-field">
                   <div class="settings-field-info">
-                    <span class="settings-label">Usage colours — 5-hour bar (%)</span>
-                    <div class="settings-description"><span class="settings-usage-scale"><i style="background:#3ecf5a"></i><i style="background:#e0a13c"></i><i style="background:#e05a5a"></i></span>Green below the first value, orange from there, red at or above the second. Defaults 60 / 80.</div>
+                    <span class="settings-label">Usage colours — short-cycle limits (%)</span>
+                    <div class="settings-description"><span class="settings-usage-scale"><i style="background:#3ecf5a"></i><i style="background:#e0a13c"></i><i style="background:#e05a5a"></i></span>Limits that refill within hours — the ones you can run into today (Claude's 5h window). Green below the first value, orange from there, red at or above the second. Defaults 60 / 80.</div>
                   </div>
                   <div class="settings-field-control">
                     <input type="number" class="settings-input settings-input-compact" id="sv-usage-5h-warn" min="1" max="99" value="${usage5hWarnValue}" title="Orange from this %">
@@ -1228,8 +1265,8 @@
                 </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
-                    <span class="settings-label">Usage colours — 7-day &amp; quota bars (%)</span>
-                    <div class="settings-description"><span class="settings-usage-scale"><i style="background:#3ecf5a"></i><i style="background:#e0a13c"></i><i style="background:#e05a5a"></i></span>Same green / orange / red scale for the weekly and quota bars. Defaults 75 / 90.</div>
+                    <span class="settings-label">Usage colours — long-cycle limits &amp; quota (%)</span>
+                    <div class="settings-description"><span class="settings-usage-scale"><i style="background:#3ecf5a"></i><i style="background:#e0a13c"></i><i style="background:#e05a5a"></i></span>Limits that refill over days, and the credit pool. Same green / orange / red scale. Defaults 75 / 90.</div>
                   </div>
                   <div class="settings-field-control">
                     <input type="number" class="settings-input settings-input-compact" id="sv-usage-7d-warn" min="1" max="99" value="${usage7dWarnValue}" title="Orange from this %">
@@ -1239,6 +1276,7 @@
               </div>
 
               <div class="settings-section">
+                <div class="settings-section-title">Notifications</div>
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Enable notifications</span>
@@ -1266,6 +1304,10 @@
                     <label class="settings-toggle"><input type="checkbox" id="sv-attention-sound" ${attentionSoundValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
+              </div>
+
+              <div class="settings-section">
+                <div class="settings-section-title">Inbox</div>
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Keep the attention inbox pinned</span>
@@ -1517,6 +1559,16 @@
         useGlobalCheckbox,
       }).catch(() => {
         backendsRoot.innerHTML = '<div class="settings-hint">Could not load the backend list.</div>';
+      });
+    }
+
+    // The usage rows carry the backend's real badge, not a bare label — the same SVG the sidebar and
+    // the status bar draw, so a row is recognisably the thing it switches on (#191). A new control in
+    // this renderer inherits no styling; reuse the badge, never hand-roll a second one.
+    if (typeof window.renderBackendIcon === 'function') {
+      settingsViewerBody.querySelectorAll('.settings-usage-backend-icon').forEach(slot => {
+        const size = Number(slot.dataset.size) || 16;
+        slot.appendChild(window.renderBackendIcon(slot.dataset.icon, size));
       });
     }
 
@@ -1912,6 +1964,20 @@
           settings.usage7dWarn = seven.warn;
           settings.usage7dCrit = seven.crit;
         }
+        {
+          // Which backends the status bar shows (#191). Global-only — and it already is: this whole
+          // branch is the global one, like backend activation itself.
+          //
+          // MERGE over the stored map, never replace it: the rows on screen are only the backends that
+          // are enabled right now, so writing a fresh object from them would silently drop the tick of a
+          // backend the user has temporarily switched off. Turning Codex off for a day must not erase
+          // the wish to see its usage when it comes back.
+          const stored = { ...((globalSettings || {}).usageBackends || {}) };
+          settingsViewerBody.querySelectorAll('.sv-usage-backend').forEach(cb => {
+            stored[cb.dataset.backend] = !!cb.checked;
+          });
+          settings.usageBackends = stored;
+        }
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
         {
           const famSel = settingsViewerBody.querySelector('#sv-terminal-font-family').value;
@@ -2103,6 +2169,9 @@
         }
         if (typeof window._setUsageThresholds === 'function') {
           window._setUsageThresholds({ fiveHWarn: settings.usage5hWarn, fiveHCrit: settings.usage5hCrit, sevenDWarn: settings.usage7dWarn, sevenDCrit: settings.usage7dCrit });
+        }
+        if (settings.usageBackends && typeof window._setUsageBackendSelection === 'function') {
+          window._setUsageBackendSelection(settings.usageBackends);
         }
         {
           const autoAddEl = settingsViewerBody.querySelector('#sv-project-auto-add');

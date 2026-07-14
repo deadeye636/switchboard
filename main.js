@@ -13,7 +13,6 @@ const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
 const { decideOsc94 } = require('./osc-busy');
 const { shouldNoticeMissingRecord, missingRecordMessage } = require('./live-record-notice');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rekeyMcpServer, cleanStaleLockFiles } = require('./mcp-bridge');
-const { fetchAndTransformUsage } = require('./claude-auth');
 const { withMainProcessUsageCache } = require('./usage-cache');
 const { shouldUseSingleInstanceLock } = require('./main-lifecycle');
 const quitGuard = require('./quit-guard');
@@ -1485,12 +1484,12 @@ function buildStatsFromDb(backendId) {
   };
 }
 
-// --- IPC: refresh-stats (fetch /usage + build stats from DB; /stats PTY removed) ---
+// --- IPC: refresh-stats (fetch usage + build stats from DB; /stats PTY removed) ---
 ipcMain.handle('refresh-stats', async (_event, backendId) => {
   try {
     // /stats PTY call removed — heatmap is now sourced from session_cache via
-    // get-stats-from-db. Only /usage is fetched here (rate-limits panel).
-    const usage = await fetchAndTransformUsage().catch(() => ({}));
+    // get-stats-from-db. Only usage is fetched here (rate-limits panel).
+    const usage = await collectUsage().catch(() => ({ backends: [] }));
 
     // Build stats from DB (same as get-stats-from-db) so the caller gets both
     // at once and the renderer can update heatmap + usage in a single round-trip.
@@ -1501,39 +1500,67 @@ ipcMain.handle('refresh-stats', async (_event, backendId) => {
       log.error('Error building stats from DB in refresh-stats:', dbErr);
     }
 
-    return { stats, usage: usage || {} };
+    return { stats, usage: usage || { backends: [] } };
   } catch (err) {
     log.error('Error refreshing stats:', err);
-    return { stats: null, usage: {} };
+    return { stats: null, usage: { backends: [] } };
   }
 });
 
-// --- IPC: get-usage (lightweight, API-only, no PTY) ---
-ipcMain.handle('get-usage', async () => {
-  const cachedUsage = getSetting('usage:lastSuccessful');
-  try {
-    const usage = await fetchAndTransformUsage() || {};
-    const result = withMainProcessUsageCache(usage, cachedUsage);
+// --- IPC: get-usage (#191) ---
+//
+// One segment per backend that CAN report a quota and IS switched on. The "and is switched on" half is
+// the part that used to be missing: this handler called Claude's fetch unconditionally, so a user who
+// disabled Claude and ran only Codex still had the app reading Claude's OAuth credentials and calling
+// Anthropic's usage endpoint on a timer — for a backend they had turned off. Claude is not exempt from
+// being disabled (#162), so that was not hypothetical.
+//
+// No backend id appears here. A backend that can report usage says so on its descriptor; everything
+// below derives from that, which is what lets Antigravity arrive later as a folder and nothing else.
+async function collectUsage() {
+  const capable = backends.list().filter(b => b.enabled && b.usage && typeof b.usage.fetch === 'function');
+  if (capable.length === 0) return { backends: [] };
+
+  const results = await Promise.all(capable.map(async (b) => {
+    const cacheKey = `usage:lastSuccessful:${b.id}`;
+    const cached = getSetting(cacheKey);
+    let usage;
+    try {
+      usage = await b.usage.fetch() || {};
+    } catch (err) {
+      log.error(`[usage] ${b.id} fetch threw`, err?.message || String(err));
+      usage = { backendId: b.id, _error: true, message: err.message };
+    }
+    // Identity comes from the descriptor, not from the backend's own module — one place decides what a
+    // backend is called and what badge it wears, and the usage module cannot disagree with the sidebar.
+    usage.backendId = b.id;
+    usage.label = b.label;
+    usage.icon = b.icon || null;
+    usage.monogram = b.monogram || null;
+    usage.live = !!b.usage.live;
+
+    const result = withMainProcessUsageCache(usage, cached);
     if (result.cacheValue) {
-      try {
-        setSetting('usage:lastSuccessful', result.cacheValue);
-      } catch (err) {
-        log.warn('[usage] failed to persist usage cache', err?.message || String(err));
-      }
-      log.info('[usage] fetched fresh usage', { keys: Object.keys(usage).filter(key => !key.startsWith('_')) });
+      try { setSetting(cacheKey, result.cacheValue); }
+      catch (err) { log.warn(`[usage] ${b.id}: failed to persist cache`, err?.message || String(err)); }
+      log.info(`[usage] ${b.id}: fresh`, { buckets: (usage.buckets || []).length });
     } else if (result.fromCache) {
-      log.warn('[usage] serving cached usage', {
-        reason: result.response._staleMessage,
-        cachedAt: result.response._cachedAt,
-      });
+      log.warn(`[usage] ${b.id}: serving cached`, { reason: result.response._staleMessage, cachedAt: result.response._cachedAt });
     } else if (usage._error || usage._rateLimited) {
-      log.warn('[usage] usage unavailable', usage);
+      log.warn(`[usage] ${b.id}: unavailable`, { error: usage.message, rateLimited: !!usage._rateLimited });
     }
     return result.response;
+  }));
+
+  return { backends: results };
+}
+
+ipcMain.handle('get-usage', async () => {
+  try {
+    return await collectUsage();
   } catch (err) {
     log.error('Error fetching usage:', err);
-    const result = withMainProcessUsageCache({ _error: true, message: err.message }, cachedUsage);
-    return result.response;
+    return { backends: [] };
   }
 });
 
@@ -2980,6 +3007,10 @@ ipcMain.handle('backends-list', () => {
       // How long this CLI needs before it can accept input at all (Hermes: ~12s of Python imports).
       // The handoff seeding path waits it out instead of pasting into a process that cannot hear it.
       seedGraceMs: Number(b.seedGraceMs) || 0,
+      // Can this backend report a quota, and is that figure live (#191)? The DECLARATION crosses IPC;
+      // the fetch stays in main. Settings offers a status-bar checkbox only for backends that say yes —
+      // Hermes and Pi have no quota at all, so they never get a control that could never show a value.
+      usage: b.usage ? { live: !!b.usage.live } : null,
     })),
     defaultLaunchTarget: backends.getDefaultLaunchTarget(),
   };

@@ -23,7 +23,7 @@ Switchboard is a desktop app that gives you a unified view of all your Claude Co
 - **Native Notifications** — OS notifications, dock/taskbar badge, and a tray icon when an agent needs you — even when Switchboard is in the background
 - **Session Health & Handoff** — Flags long/expensive sessions and turns "Handoff Recommended" into a one-click fresh-start with a context packet
 - **Flexible Grid Layout** — Resize and drag-reorder the session cards in the grid overview; the layout persists
-- **Usage Monitoring** — Live Claude usage limits (5h / weekly / Opus / Sonnet / quota) with a durable cache
+- **Usage Monitoring** — A status-bar segment per backend that reports a quota (Claude live from the API, Codex out of its own transcript), each selectable, with a durable cache
 - **Fork & Resume** — Branch off from any point in a session's history
 - **Full-Text Search** — Find any session by what was discussed, not just when it happened
 - **IDE Emulation** — Switchboard acts as an IDE for Claude CLI, showing file diffs and opens in a side panel where you can accept, reject, or edit changes before they're applied. Supports both inline and side-by-side diff views. Disable this in Global Settings if you prefer Claude to use your own editor (VS Code, Cursor, etc.)
@@ -128,7 +128,7 @@ Switchboard treats your sessions like an agent control room — surfacing not ju
 - **One-click handoff** — When a session gets long/expensive, a guided flow asks the agent for a handoff packet, starts a fresh lean session seeded with it, and switches to it. Every token-spending step is explicit.
 - **"While you were away"** — Returning to a session shows a dismissible summary of what happened and which files it touched since you last looked.
 - **Per-session timeline** — A searchable event log (started, busy, needs-you, ready, exited, stopped, forked) separate from raw scrollback.
-- **Usage monitoring** — Live Claude usage limits (5h, weekly, Opus, Sonnet, extra-usage quota), with a durable cache that survives rate limits.
+- **Usage monitoring** — One status-bar segment per backend that reports a quota, each with its own badge and selectable in *Settings → Usage & Notifications*. Claude is fetched live from the API; Codex is read out of its own transcript (no network call, no credentials) and is therefore dimmed and timestamped once the figure goes cold. A backend you have switched off is never asked. Durable cache: a failed poll shows the last good reading, marked stale.
 - **Spring cleaning** — Bulk-clear stale and "abandoned short" sessions (conservative bounds; never touches starred, archived, or live sessions).
 - **Safer controls** — App-styled confirmation dialogs for destructive actions, with affected counts/names and an undo path where supported.
 

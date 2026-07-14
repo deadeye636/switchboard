@@ -172,6 +172,14 @@ module.exports = {
   probe,
   findExecutable,
 
+  // Usage capability (#191). `live: false` — Codex writes its rate limits into every rollout, so the
+  // figure costs a file read and no network call, but it is only as fresh as the last Codex turn. The
+  // renderer dims it and shows `observedAt`; presenting it as current would be a lie the bar tells.
+  usage: {
+    live: false,
+    fetch: () => require('./usage').fetchUsage(sessionsRoot()),
+  },
+
   // the dual-mode seam, file side (backends/file-store.js)
   discoverSessions: store.discoverSessions,
   parseSession: parser.parseSession,
