@@ -919,3 +919,82 @@ test('browseFolder returns null when the dialog is cancelled', async () => {
     assert.strictEqual(await projects.browseFolder(), null);
   } finally { t.cleanup(); }
 });
+
+// --- auto-hide RELEASES, too (#184) ----------------------------------------------------------------
+//
+// An auto-hide is the machine's decision, and the one thing that separates it from a hide is that the
+// machine takes it back by itself. It never did: the sweep only ever SET the flag, and nothing but an
+// unhide by hand or a remap cleared it. A project that went quiet long enough was gone for good, however
+// much work went into it afterwards — and the registry's own contract says the opposite.
+
+test('#184: an auto-hidden project comes back when work happens in it again', () => {
+  const t = makeCtx({ autoHideDays: 30 });
+  try {
+    t.setAdminRows([{ projectPath: 'D:\revived', registered: true, lastActivity: '2020-01-01T00:00:00.000Z' }]);
+    projects.applyAutoHide(true);
+    assert.strictEqual(t.autoHidden.has('D:\revived'), true, 'stale: hidden');
+
+    // A session runs there today.
+    t.setAdminRows([{
+      projectPath: 'D:\revived', registered: true, autoHidden: true,
+      lastActivity: new Date().toISOString(),
+    }]);
+    projects._resetAutoHideThrottle();
+    projects.applyAutoHide(true);
+
+    assert.strictEqual(t.autoHidden.has('D:\revived'), false, 'activity brings it back by itself');
+    assert.strictEqual(t.state('D:\revived').autoHidden, 0);
+    assert.strictEqual(t.state('D:\revived').autoHideResetAt, undefined,
+      'only the flag goes — no grace period it did not earn, so it can age out again');
+  } finally { t.cleanup(); }
+});
+
+test('#184: a live session brings an auto-hidden project back, whatever its timestamps say', () => {
+  const t = makeCtx({ autoHideDays: 30 });
+  try {
+    t.setAdminRows([{
+      projectPath: 'D:\live', registered: true, autoHidden: true,
+      lastActivity: '2020-01-01T00:00:00.000Z',
+    }]);
+    t.ctx.db.setProjectState('D:\live', { autoHidden: 1 });
+    t.ctx.activeSessions.set('s1', { exited: false, projectPath: 'D:\live' });
+
+    projects.applyAutoHide(true);
+    assert.strictEqual(t.autoHidden.has('D:\live'), false, 'somebody is working in it right now');
+  } finally { t.cleanup(); }
+});
+
+test('#184: a hide the USER made is not undone by activity', () => {
+  const t = makeCtx({ autoHideDays: 30 });
+  try {
+    t.setAdminRows([{
+      projectPath: 'D:\hidden-by-hand', registered: true, hidden: true,
+      lastActivity: new Date().toISOString(),
+    }]);
+    t.ctx.db.setProjectState('D:\hidden-by-hand', { hidden: 1, registered: 1 });
+
+    projects.applyAutoHide(true);
+    assert.strictEqual(t.state('D:\hidden-by-hand').hidden, 1,
+      'that is the entire point of saying hide — new sessions do not bring it back');
+  } finally { t.cleanup(); }
+});
+
+test('#184: switching auto-hide off gives back every project it was holding', () => {
+  const t = makeCtx({ autoHideDays: 30 });
+  try {
+    t.setAdminRows([
+      { projectPath: 'D:\a', registered: true, lastActivity: '2020-01-01T00:00:00.000Z' },
+      { projectPath: 'D:\b', registered: true, lastActivity: '2020-01-01T00:00:00.000Z' },
+    ]);
+    projects.applyAutoHide(true);
+    assert.deepStrictEqual([...t.autoHidden], ['D:\a', 'D:\b']);
+
+    // The user turns the feature off. A machine that is no longer running may not keep holding projects.
+    t.settings().autoHideDays = 0;
+    projects._resetAutoHideThrottle();
+    projects.applyAutoHide(true);
+
+    assert.deepStrictEqual([...t.autoHidden], [], 'every auto-hide is given back');
+    assert.strictEqual(t.state('D:\a').autoHidden, 0);
+  } finally { t.cleanup(); }
+});

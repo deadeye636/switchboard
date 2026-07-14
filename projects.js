@@ -62,16 +62,43 @@ function ensureProjectAdded(projectPath) {
 
 // --- #57: auto-hide stale projects ---
 // One pass over all known projects: any non-hidden project with no running session whose effective
-// activity (max of newest session activity and autoHideResetAt) is older than `autoHideDays` gets added
-// to hiddenProjects with the autoHidden flag set. Runs on app start and on the throttled refresh.
+// activity (max of newest session activity and autoHideResetAt) is older than `autoHideDays` gets the
+// autoHidden flag. Runs on app start and on the throttled refresh.
+//
+// The pass RELEASES as well as hides (#184). An auto-hide is the machine's decision, and the one thing
+// that separates it from a hide is that the machine takes it back by itself — that is what the two
+// columns are for. It never did: the sweep only ever set the flag, and nothing but an unhide by hand or
+// a remap cleared it. A project that went quiet long enough was gone for good, however much work went
+// into it afterwards. A hide the USER made is still theirs alone; activity does not undo it.
 let lastAutoHideAt = 0;
 const AUTO_HIDE_THROTTLE_MS = 10000;
+
+// Give back every project the auto-hide is currently holding. A hide the user made is a different
+// column and is not touched. Silent when there is nothing to give back, so it costs nothing on the
+// pass that runs whenever the projects refresh.
+function releaseAllAutoHidden() {
+  try {
+    const held = ctx.db.getAutoHiddenProjects();
+    if (!held || held.size === 0) return;
+    for (const projectPath of held) {
+      try { ctx.db.setProjectAutoHidden(projectPath, 0); } catch { /* best effort */ }
+    }
+    ctx.cache.notifyRendererProjectsChanged();
+  } catch (err) {
+    ctx.log.warn('[auto-hide] release failed: ' + (err && err.message));
+  }
+}
 
 function applyAutoHide(force) {
   try {
     const global = ctx.db.getSetting('global') || {};
     const days = Number(global.autoHideDays) || 0;
-    if (!(days > 0)) return;
+    if (!(days > 0)) {
+      // The feature is off. Nothing may STAY auto-hidden by a machine that is no longer running —
+      // switching it off has to give back every project it took (#184).
+      releaseAllAutoHidden();
+      return;
+    }
 
     const now = Date.now();
     if (!force && now - lastAutoHideAt < AUTO_HIDE_THROTTLE_MS) return;
@@ -88,17 +115,25 @@ function applyAutoHide(force) {
     // buildProjectsAdmin returns every project (hidden included) with lastActivity.
     for (const row of ctx.cache.buildProjectsAdmin()) {
       if (!row.registered) continue;                    // not on the list — nothing to hide
-      if (row.hidden || row.autoHidden) continue;       // already hidden, by hand or by staleness
-      if (runningPaths.has(row.projectPath)) continue;  // has a running session
+      if (row.hidden) continue;                         // hidden by hand: not the machine's to undo
       const meta = ctx.db.getProjectMeta(row.projectPath);
       const activityMs = row.lastActivity ? new Date(row.lastActivity).getTime() : 0;
       const resetMs = meta && meta.autoHideResetAt ? new Date(meta.autoHideResetAt).getTime() : 0;
       const eff = Math.max(activityMs, resetMs);
-      if (ctx.cache.shouldAutoHide(eff, now, days)) {
+      // A project with a live (non-exited) session is active by definition, whatever its timestamps say.
+      const stale = !runningPaths.has(row.projectPath) && ctx.cache.shouldAutoHide(eff, now, days);
+
+      if (stale && !row.autoHidden) {
         // ONLY the flag. It used to also push the path onto `hiddenProjects` — the same list a manual
         // hide wrote to — so the two became one state, and an auto-hidden project could never come back
         // by itself, which is the one thing that separates it from a hide (#167).
         try { ctx.db.setProjectAutoHidden(row.projectPath, 1); } catch { /* best effort */ }
+        changed = true;
+      } else if (!stale && row.autoHidden) {
+        // Back within the window — work happened here again. The flag goes, and nothing else: stamping
+        // the reset timer as well would hand the project a fresh grace period it did not earn, and it
+        // would not age out again on its own (#184).
+        try { ctx.db.setProjectAutoHidden(row.projectPath, 0); } catch { /* best effort */ }
         changed = true;
       }
     }
