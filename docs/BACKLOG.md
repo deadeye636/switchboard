@@ -19,7 +19,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#188](https://github.com/deadeye636/switchboard/issues/188) The core reads Claude directly instead of through its descriptor · _chore_
-- [#191](https://github.com/deadeye636/switchboard/issues/191) Status bar: a usage segment per backend, selectable — and no fetch for a backend that is switched off · _feature_
 
 ## P3 — someday
 
@@ -32,3 +31,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#113](https://github.com/deadeye636/switchboard/issues/113) Optional second tray icon showing Claude usage (live percentage) · _feature_
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
+- [#192](https://github.com/deadeye636/switchboard/issues/192) Antigravity (agy) backend: recon a real install, then make the planned dummy real · _feature_
