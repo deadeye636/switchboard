@@ -4960,7 +4960,8 @@ mark.jsonl-search-hit-active {
 #settings-viewer-body {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 40px 0;
+  /* The bottom padding is what keeps the last control off the pinned footer's edge (#176). */
+  padding: 32px 40px 24px;
   display: flex;
   justify-content: center;
 }
@@ -4968,6 +4969,27 @@ mark.jsonl-search-hit-active {
 #settings-viewer-body::-webkit-scrollbar { width: 5px; }
 #settings-viewer-body::-webkit-scrollbar-track { background: transparent; }
 #settings-viewer-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
+
+/* Pinned actions (#176). A sibling of the scrolling body, not part of it: Save and
+   Cancel stay on the bottom edge in every category and at any scroll position. */
+#settings-viewer-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding: 0 40px;
+  background: #111118;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+#settings-viewer-footer .settings-btn-row {
+  position: static;
+  width: 100%;
+  max-width: 680px;
+  margin-top: 0;
+  border-top: none;
+}
+/* Global scope: indent past the category nav so the buttons line up with the
+   settings column instead of with the window edge. */
+#settings-viewer-footer.two-pane { padding: 0 36px 0 248px; }
 
 .settings-form {
   width: 100%;
@@ -5315,7 +5337,7 @@ mark.jsonl-search-hit-active {
   overflow-y: auto;
   display: flex;
   justify-content: center;
-  padding: 28px 36px 0;
+  padding: 28px 36px 24px;
 }
 .settings-main::-webkit-scrollbar { width: 6px; }
 .settings-main::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
@@ -5398,12 +5420,15 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
 .settings-usage-scale { display: inline-flex; gap: 3px; margin-right: 7px; vertical-align: middle; }
 .settings-usage-scale i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 
-/* --- Buttons --- */
+/* --- Buttons ---
+   The footer row reads left to right: what this page can do TO the project (destructive,
+   and never the button your hand lands on), then a gap, then what it does with the EDITS —
+   discard, keep going, commit and leave. Only the last one is filled. */
 .settings-btn-row {
   position: sticky;
   bottom: 0;
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   margin-top: 24px;
   padding: 14px 0;
@@ -5411,11 +5436,29 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   z-index: 2;
 }
+/* Pushes the commit group to the right edge. */
+.settings-btn-spacer { flex: 1 1 auto; }
+
+/* Every button in the row shares its shape — only the weight differs. */
+.settings-btn-row button {
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 500;
+  padding: 8px 18px;
+  min-height: 34px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.settings-btn-row button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(120,130,255,0.28);
+}
 
 .settings-cancel-btn {
   background: transparent;
-  border: 1px solid rgba(255,255,255,0.12);
-  color: #9090a8;
+  border: 1px solid transparent;
+  color: #8a8a9e;
   font-size: 13px;
   padding: 8px 24px;
   border-radius: 8px;
@@ -5427,32 +5470,43 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
 
 .settings-cancel-btn:hover {
   background: rgba(255,255,255,0.06);
-  border-color: rgba(255,255,255,0.2);
   color: #c0c0d0;
 }
 
-.settings-save-btn {
+/* Apply (#177): commits, but does not end the dialog — outlined in the accent, not
+   filled with it. */
+.settings-apply-btn {
+  background: transparent;
+  border: 1px solid rgba(120,130,255,0.35);
+  color: #9aa1ff;
+}
+.settings-apply-btn:hover {
   background: rgba(120,130,255,0.12);
-  border: 1px solid rgba(120,130,255,0.3);
-  color: #8088ff;
-  font-size: 13px;
-  padding: 8px 24px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-family: inherit;
-  font-weight: 500;
-  transition: all 0.15s;
+  border-color: rgba(120,130,255,0.6);
+  color: #b4b9ff;
+}
+
+/* The one button that commits AND closes — the only filled one in the row. */
+.settings-save-btn {
+  background: #6f78ff;
+  border: 1px solid #6f78ff;
+  color: #fff;
+  font-weight: 600;
+  padding: 8px 22px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
 }
 
 .settings-save-btn:hover {
-  background: rgba(120,130,255,0.2);
-  border-color: rgba(120,130,255,0.5);
+  background: #838bff;
+  border-color: #838bff;
 }
 
+/* The green "✓ Saved" flash, shown on whichever button was pressed. */
+.settings-btn-row button.is-saved,
 .settings-save-btn.saved {
-  background: rgba(62,207,90,0.12);
-  border-color: rgba(62,207,90,0.3);
-  color: #3ecf5a;
+  background: #2ea043;
+  border-color: #2ea043;
+  color: #fff;
 }
 
 .settings-notice {
@@ -5465,23 +5519,25 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   margin-bottom: 8px;
 }
 
+/* Hide / Remove Project. They sit on the far left, quiet until you go for them: a
+   destructive action should not be the loudest thing on the row. (The spacer, not a
+   margin, is what pushes the commit group away from them.) */
 .settings-remove-btn {
-  background: rgba(255,80,80,0.08);
-  border: 1px solid rgba(255,80,80,0.2);
-  color: #cc4444;
+  background: transparent;
+  border: 1px solid rgba(255,80,80,0.22);
+  color: #b05050;
   font-size: 13px;
-  padding: 8px 24px;
+  padding: 8px 18px;
   border-radius: 8px;
   cursor: pointer;
   font-family: inherit;
   font-weight: 500;
   transition: all 0.15s;
-  margin-left: auto;
 }
 
 .settings-remove-btn:hover {
-  background: rgba(255,80,80,0.15);
-  border-color: rgba(255,80,80,0.4);
+  background: rgba(255,80,80,0.14);
+  border-color: rgba(255,80,80,0.45);
   color: #ff5050;
 }
 

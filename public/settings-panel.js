@@ -6,7 +6,16 @@
   const settingsViewerTitle = document.getElementById('settings-viewer-title');
   const settingsViewerBody = document.getElementById('settings-viewer-body');
 
+  // Which panel is on screen right now. Anything deferred — Apply's rebuild (#177) — has to
+  // check that the panel it was started for is still the one in front of the user before it
+  // touches the DOM, or it reopens the settings over whatever came after it.
+  let viewerGeneration = 0;
+  const viewerIsOpen = () => (window.__SETTINGS_WINDOW__
+    ? !document.hidden                                   // the window is hidden, not closed (#175)
+    : settingsViewer.style.display !== 'none');
+
   function closeSettingsViewer() {
+    viewerGeneration++;
     // Standalone settings window: there is no terminal area to restore — put the window
     // away. Hiding rather than closing keeps the renderer warm for the next open (#175);
     // window.close() would destroy it, and main cannot intercept that.
@@ -33,6 +42,7 @@
   }
 
   async function openSettingsViewer(scope, projectPath) {
+    viewerGeneration++;
     const isProject = scope === 'project';
     const settingsKey = isProject ? 'project:' + projectPath : 'global';
     const current = (await window.api.getSetting(settingsKey)) || {};
@@ -512,14 +522,36 @@
     let shellProfiles = [];
     try { shellProfiles = await window.api.getShellProfiles(); } catch {};
 
-    // Shared button row (both scopes).
+    // Shared button row (both scopes), mounted into the pinned footer below.
+    // Two groups, pushed apart: what this page can do TO the project on the left, what it
+    // does with the EDITS on the right, ending on the one button that commits and closes.
     const btnRow = `
       <div class="settings-btn-row">
-        <button class="settings-cancel-btn" id="sv-cancel-btn">Cancel</button>
-        <button class="settings-save-btn" id="sv-save-btn">Save Settings</button>
         ${isProject ? '<button class="settings-remove-btn" id="sv-remove-btn" title="Keep it on the project list, but stop showing it. New sessions do not bring it back.">Hide Project</button>' : ''}
         ${isProject ? '<button class="settings-remove-btn" id="sv-remove-project-btn" title="Take it off the project list and clear its cached sessions. The transcripts stay on disk; a new session there brings the project back.">Remove Project</button>' : ''}
+        <span class="settings-btn-spacer"></span>
+        <button class="settings-cancel-btn" id="sv-cancel-btn">Cancel</button>
+        <button class="settings-apply-btn" id="sv-apply-btn" title="Save without closing the settings">Apply</button>
+        <button class="settings-save-btn" id="sv-save-btn">Save Settings</button>
       </div>`;
+
+    // The actions sit OUTSIDE the scrolling body, on the bottom edge of the viewer:
+    // at the end of a long category they were only reachable by scrolling all the way
+    // down (#176). Only the settings content scrolls now; Save and Cancel do not move.
+    // Rebuilt on every open, so the listeners bound below always belong to the buttons
+    // currently on screen.
+    let settingsFooter = settingsViewer.querySelector('#settings-viewer-footer');
+    if (!settingsFooter) {
+      settingsFooter = document.createElement('div');
+      settingsFooter.id = 'settings-viewer-footer';
+      settingsViewer.appendChild(settingsFooter);
+    }
+    // The global scope indents its footer past the category nav, so the buttons line
+    // up with the settings column rather than with the window.
+    settingsFooter.classList.toggle('two-pane', !isProject);
+    settingsFooter.innerHTML = btnRow;
+    // The buttons no longer live in the body — look them up in the viewer.
+    const svBtn = (sel) => settingsViewer.querySelector(sel);
 
     // Small building blocks for the global two-pane layout.
     const help = `<button type="button" class="settings-help" aria-expanded="false" aria-label="More info">?</button>`;
@@ -604,7 +636,6 @@
 
         <!-- Per-backend launch defaults (T-2.6) — rendered from each backend's configFields. -->
         <div id="sv-backends-root"></div>
-        ${btnRow}
       </div>`;
     } else {
       // ---- Global scope: two-pane layout (nav + category panes) ----
@@ -1357,8 +1388,6 @@
 
               <div class="settings-hint">Thanks to the upstream fork authors (haydng, JeanBaptisteRenard, doctly) whose work this builds on.</div>
             </section>
-
-            ${btnRow}
           </div>
         </div>
       </div>`;
@@ -1787,8 +1816,11 @@
       }
     }
 
-    // Save button
-    settingsViewerBody.querySelector('#sv-save-btn').addEventListener('click', async () => {
+    // Everything Save writes — the settings blob plus the stores that are not in it
+    // (project tags, templates, the profiles default, the attention hook, the log
+    // level) — and everything it applies live. Apply runs exactly this and stays
+    // open; Save runs it and closes (#177). One body, so the two can never drift.
+    async function persistSettings() {
       let settings = {};
 
       if (isProject) {
@@ -2084,16 +2116,46 @@
       if (!isProject && settings.logLevel !== logLevelValue) {
         try { await window.api.setLogLevel(settings.logLevel); } catch {}
       }
+    }
 
-      const saveBtn = settingsViewerBody.querySelector('#sv-save-btn');
-      saveBtn.textContent = '✓ Saved';
-      saveBtn.style.background = '#2ea043';
-      saveBtn.style.color = '#fff';
+    // The green "✓ Saved" both buttons show.
+    const flashSaved = (btn) => {
+      btn.textContent = '✓ Saved';
+      btn.classList.add('is-saved');
+    };
+
+    // Save button
+    svBtn('#sv-save-btn').addEventListener('click', async () => {
+      await persistSettings();
+      flashSaved(svBtn('#sv-save-btn'));
       setTimeout(() => closeSettingsViewer(), 600);
     });
 
+    // Apply button (#177): save and stay, so several categories can be adjusted and
+    // checked one after another. The panel is rebuilt from the SAVED state afterwards
+    // — the editors, and the values this closure compares against (the attention hook,
+    // the log level, the shortcuts working copy), all have to move on with it, or a
+    // second Apply would re-fire changes that are no longer changes, and a Cancel would
+    // still be holding the pre-Apply state. Rebuilding is what makes Apply idempotent
+    // and leaves Cancel discarding only what was edited since.
+    svBtn('#sv-apply-btn').addEventListener('click', async () => {
+      await persistSettings();
+      flashSaved(svBtn('#sv-apply-btn'));
+      // Come back to the category the user was on, not to the top of the nav.
+      const activeCat = settingsViewerBody.querySelector('.settings-nav-item.active')?.dataset.cat || null;
+      const openedAt = viewerGeneration;
+      setTimeout(async () => {
+        // The rebuild must not outlive the panel it is rebuilding. Cancel, a click into a
+        // session, or a second Apply within the 600 ms would otherwise be undone by this
+        // timer — it reopens the settings over whatever the user is now looking at.
+        if (viewerGeneration !== openedAt || !viewerIsOpen()) return;
+        await openSettingsViewer(scope, projectPath);
+        if (activeCat) settingsViewerBody.querySelector(`.settings-nav-item[data-cat="${activeCat}"]`)?.click();
+      }, 600);
+    });
+
     // Cancel button
-    settingsViewerBody.querySelector('#sv-cancel-btn').addEventListener('click', () => {
+    svBtn('#sv-cancel-btn').addEventListener('click', () => {
       stopShortcutCapture();
       closeSettingsViewer();
     });
@@ -2106,7 +2168,7 @@
       if (typeof loadProjects === 'function') loadProjects();
     };
 
-    const hideBtn = settingsViewerBody.querySelector('#sv-remove-btn');
+    const hideBtn = svBtn('#sv-remove-btn');
     if (hideBtn) {
       hideBtn.addEventListener('click', async () => {
         const confirmed = await showControlDialog({
@@ -2123,7 +2185,7 @@
       });
     }
 
-    const removeProjectBtn = settingsViewerBody.querySelector('#sv-remove-project-btn');
+    const removeProjectBtn = svBtn('#sv-remove-project-btn');
     if (removeProjectBtn) {
       removeProjectBtn.addEventListener('click', async () => {
         const confirmed = await showControlDialog({
