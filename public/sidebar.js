@@ -805,7 +805,12 @@ function buildSubagentItem(session) {
 
   const metaEl = document.createElement('div');
   metaEl.className = 'session-meta';
-  metaEl.textContent = session.messageCount ? session.messageCount + ' msgs' : '';
+  // Count, then the same relative time the session cards show, from the same
+  // value (`modified`) — two cards under each other must not print the same
+  // number with different meanings (#179).
+  const subAge = session.modified ? formatDate(new Date(session.modified)) : '';
+  metaEl.textContent = [session.messageCount ? session.messageCount + ' msgs' : '', subAge]
+    .filter(Boolean).join(' · ');
 
   info.appendChild(summaryEl);
   info.appendChild(metaEl);
