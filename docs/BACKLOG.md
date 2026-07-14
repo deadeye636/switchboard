@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (18 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (16 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-14
 
@@ -18,7 +18,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
-- [#184](https://github.com/deadeye636/switchboard/issues/184) An auto-hidden project is never brought back by activity · _bug_
+- [#185](https://github.com/deadeye636/switchboard/issues/185) Replace user groups and the folder-first layout with grouping by session tag · _feature_
 
 ## P3 — someday
 
@@ -32,5 +32,3 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
 - [#164](https://github.com/deadeye636/switchboard/issues/164) Session tags: filter the sidebar by session tag · _feature_
-- [#181](https://github.com/deadeye636/switchboard/issues/181) Sidebar: turn the layout toggle into a View menu (grouping + sort, with a session-only sort override) · _feature_
-- [#183](https://github.com/deadeye636/switchboard/issues/183) A session whose project is not on the list disappears without a word · _bug_
