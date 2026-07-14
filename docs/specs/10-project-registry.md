@@ -135,6 +135,35 @@ projects at all.
 - A **legacy file's** `addedProjects` / `hiddenProjects` are folded into the register on import — that is
   where the list used to live.
 
+## The auto-hide never gave anything back (#184)
+
+The table above says an auto-hide *"resets itself"*. It did not. `applyAutoHide` only ever **set** the
+flag; the only things that cleared it were an unhide by hand and a remap. A project that went quiet long
+enough was gone for good, however much work went into it afterwards — and the one thing that separates the
+machine's decision from the user's is that the machine takes its own back.
+
+The sweep now releases as well as hides: back inside the window, or a live session running there, and the
+flag goes. **Only** the flag — stamping the grace timer as well would hand the project a reprieve it did
+not earn and it would never age out again. A hide the **user** made is skipped entirely; activity does not
+undo it. And switching the feature off (`autoHideDays = 0`) releases everything it was holding: it used to
+`return` before looking, so every project it had ever taken stayed hidden with no machine left to give it
+back.
+
+## What the sidebar is NOT showing (#183)
+
+A session in a project that is not on the register is indexed and searchable and painted **nowhere**. That
+is the design working — the register decides, and in manual mode discovery may not write to it — and it was
+also silent: the session you were in an hour ago was simply not there, with nothing to click and no reason
+given. The only way to find out was to read the database.
+
+A line under the project list says how much is being withheld (*"4 sessions in 1 project not on your list"*)
+and opens the project manager filtered to exactly those projects, where the **Listed** toggle adds one. It
+adds nothing by itself: the register stays the single source of truth, and manual mode stays manual.
+
+What it offers is exactly what auto-add **would** have taken — it asks `registry.shouldRegister` itself, so
+the offer can never contradict what the register would do. The tombstone therefore holds: a project you
+removed is not offered back until a session newer than the removal turns up.
+
 ## As built — where the pieces are
 
 | Piece | Where |
@@ -142,9 +171,40 @@ projects at all.
 | The decisions (register / skip / resurrect / sweep / visible) — pure, no db, no fs | `project-registry.js` |
 | The columns + the seeding migration | `db.js` |
 | The sidebar reads the register; the scan reports what the stores hold | `session-cache.js` |
-| add / hide / unhide / remove / discovery + sweep | `projects.js` |
+| add / hide / unhide / remove / discovery + sweep (it releases too, #184) | `projects.js` |
+| What is indexed but not listed (`unlistedProjects`, #183) | `projects.js` |
 | `syncRegistry()` before the list is built; one visibility rule for every view | `main.js` |
 | "Listed" toggle (both modes), hide ≠ remove | `public/projects-admin.js`, `public/sidebar.js` |
+| The "not on your list" line + the manager's filter (#183) | `public/app.js`, `public/projects-admin.js` |
+
+## Which project a session belongs to (#157, #182)
+
+A session is attributed **per session**, not per store folder: the folder is keyed on the directory a
+session *started* from, and a session that walks out of it — into a worktree — belongs where it is working
+(#157).
+
+That rule read "the git root of the current cwd", and it misfired on an ordinary layout (#182): a directory
+that coordinates several repositories, with the session launched in the coordinating directory. Ask it to
+look at one of them, its shell cwd follows it in, and from that moment the session belonged to
+`<project>/<sub-repo>` — a project nobody added, never registered in manual mode, and therefore **painted
+nowhere**. Indexed, searchable, invisible; it did not come back.
+
+**The launch directory decides.** A session that merely went *deeper* into its own project stays with it —
+a subdirectory that happens to carry a `.git` is still a subdirectory. Claude names its own transcript
+folder by the same directory, so this keeps us in step with it. Re-attribution is for a session that
+genuinely **leaves** the tree:
+
+| the session is working in | it belongs to |
+|---|---|
+| a plain subdirectory (`build/`, `.claude/scratchpad`) | the project (unchanged) |
+| a nested repository inside its own project | **the project** (#182) |
+| a worktree (`<project>/.claude/worktrees/<name>`) | the worktree — the explicit exception (#147, #157) |
+| the parent repo, having started in a worktree | the parent (an ancestor is not a descendant) |
+| an unrelated repository elsewhere on disk | that repository |
+
+The rule lives in `sessionProjectPath` (`derive-project-path.js`); `PARSER_SCHEMA_VERSION` was bumped with
+it, or the sessions v3 had already scattered into phantom projects would never be re-read — their mtimes
+settled long ago.
 
 ## What a removal clears — and what it does not
 

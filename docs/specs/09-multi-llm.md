@@ -240,9 +240,40 @@ The ones that will look wrong to someone tidying up later:
 10. **Real git worktrees are their own project**, detected by the `.git` *file*; grouping stays on the
     stable head cwd (deriving it per session let one moved session drag its siblings).
 
+## The provider badge (#187)
+
+**A row says which backend it is from the moment it is launched.** `launchNewSession` builds the row for a
+session that has no transcript yet, and it did not put the backend on it — though it is the very code that
+chose the backend. `sessionBackendId()` then fell through to the launch overlay, which the renderer only
+loads at start-up and which has therefore never heard of the session being launched right now, and landed
+on the `claude` default: a fresh Codex session sat there badged as Claude until the cache caught up.
+Resolution order, unchanged and now actually used: **the row's own column → the launch overlay → Claude**
+(a session with no provenance predates the multi-LLM era).
+
+**Whether EVERY row is badged follows the backends that are ENABLED, not the sessions on screen.** Deriving
+it from the visible sessions made the badges come and go with the list: someone running Claude and Codex
+saw them vanish the moment the Codex rows were filtered out, scrolled past the fold, or simply not started
+yet — and the remaining Claude rows then looked like the rows of a single-backend app.
+
+| enabled backends (`ready && enabled`) | badges |
+|---|---|
+| ≥ 2 | every row, always — you need to tell them apart |
+| exactly 1, and it is the default | none — a single-backend user sees an unchanged app |
+| exactly 1, and it is **not** the default | badge it: it is not what you would assume |
+
+The sessions are the fallback only for the moment before the backend probes have answered. A session whose
+backend is not the default is badged individually regardless, so nothing is ever unlabelled. Rule:
+`computeShowAllBadges` (`public/backend-registry.js`), tested in `test/backend-badges.test.js`.
+
 ## As built — known gaps
 
 Filed as issues rather than silently carried:
+
+- **#188** the core reads Claude directly instead of through its descriptor: `session-cache.js` imports
+  `read-session-file.js` / `read-folder-sessions.js` from the repo root, where it goes through the
+  descriptor for every other backend. `backends/claude/` is a folder like the rest of them now — but the
+  parsing still lives four directories up, shared with the scanner and the search worker, so the folder is
+  half a lie until the routing follows.
 
 - **#149** `backendDefaults` cascades as a whole block, not per option.
 - **#150/#151** Hermes: probe scope, no busy/idle fallback when its DB is unreadable.

@@ -371,14 +371,35 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   it listed and unseen; remove takes it off and leaves a tombstone, so the sessions on disk do not
   resurrect it — a *new* session does), a project with **no sessions** can be on the list, and
   discovery registers from **any** backend's store. Design record: `docs/specs/10-project-registry.md`.
-- **Sidebar** — favorite projects, project sorting, an own favorites list, and a
-  startup-collapse setting.
-- **Project tags + tag filter** — tag projects in the project settings via a chip editor
+- **Sidebar** — favorite projects, an own favorites list, and a startup-collapse setting.
+- **View menu** — the project order (Activity / A–Z / Manual) sits in the
+  sidebar, where the list is, instead of only behind the settings dialog. What it sets is an override
+  for **this run of the app**: it is never written anywhere, Settings stays the source of truth and the
+  fallback, and a restart is back to it. The button carries a dot while the order differs from the saved
+  one, and the menu offers *Reset to saved* — an order you cannot tell from the saved one is how you end
+  up "fixing" a setting that was never wrong.
+- **The sidebar says what it is NOT showing** — a session in a project that is not on the list is indexed
+  and searchable and painted nowhere (correct: in manual mode discovery may not write to the register).
+  A line under the project list now says how much is being withheld and opens the project manager
+  filtered to exactly those projects. It offers precisely what auto-add would have taken — it asks the
+  same registry function — so the offer can never contradict what the register would do, tombstone
+  included.
+- **Tag filter, both kinds in one bar** — tag projects in the project settings via a chip editor
   (type + Enter adds, `×` removes) with a datalist of existing tags for reuse and a per-chip
-  palette picker, including a custom color. Colored chips below the search bar filter the
-  sidebar with an **AND** match (a project must carry every selected tag). Tags live in their
-  own `project_tags` table; the filter itself is a pure, unit-tested module
-  (`public/project-tags-filter.js`).
+  palette picker, including a custom color. The chips below the search bar filter the sidebar:
+  **project chips** (folder glyph) drop whole projects, **session chips** (`#`) drop session rows and a
+  project disappears only as a consequence of having none left. **AND** within a kind, and the two AND
+  together (*sessions tagged `bug` in projects tagged `kunde`*) — which is why they share one bar rather
+  than sitting behind a Projects/Sessions switch. The glyph is not decoration: the namespaces are
+  separate, so the same word can be both. Tags live in their own tables; both filters are pure,
+  unit-tested modules (`public/project-tags-filter.js`, `public/session-tags-filter.js`).
+- **Closing does not silently kill your work** — the window owns every running CLI: when it goes, they
+  go, and it used to go without a word (an accidental Alt+F4 was enough). Closing with sessions running
+  asks first, in the app's own dialog, naming how many sessions and terminals and in which projects.
+  Cancel is the default (Escape and Enter both cancel) and the dialog is not dismissible. The decision
+  and the wording are a testable module (`quit-guard.js`); the native message box survives only as the
+  fallback for a renderer that cannot answer, or a crashed one would leave a window that can never be
+  closed. Switch it off in *Settings → Sessions & CLI*.
 
 ### Agent status signals
 - **Working detection for full-screen TUI sessions** — the CLI renders its busy spinner

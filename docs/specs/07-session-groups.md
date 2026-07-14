@@ -76,3 +76,18 @@ Group shape: `{ id, name, color, order }`. State is a plain serializable object.
 - Keep DOM keys stable for morphdom to avoid flicker on re-render.
 - Don't regress slug grouping — user groups layer on top, they don't replace it.
 - Coordinate `grid-view.js` header edits with Spec 06 if concurrent.
+
+## Status: up for replacement (#185)
+
+Groups and **session tags** are two answers to one question, and the tags have the better model. A group
+assigns a session to **exactly one** group (`assignments[sessionId] = groupId`) in the settings blob; a tag
+is n:m, lives in its own table, is centrally managed (rename, recolour, hide, delete — propagating
+everywhere), and since #164 it filters the sidebar. What a tag cannot do yet is *structure* the list — which
+is the one thing a group is for, and the sole reason the **folder-first layout** exists at all.
+
+So the plan is not to delete groups but to fold them in: **group the sidebar by session tag**. One concept
+instead of two, and a session with two grouping tags may legitimately appear in two sections — something a
+group cannot express. Groups, the folder-first render path and `groups-model.js` go once tag grouping
+covers them; existing assignments migrate to tags of the same name and colour.
+
+Until then this spec stands as built. Do not grow the group UI further without reading #185.
