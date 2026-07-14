@@ -157,6 +157,33 @@ package unless it is added there. 0.7.5's first draft shipped without `backends/
 anything. `test/packaged-files.test.js` now walks the real require graph against that allow-list, but a
 test is not a substitute for starting the thing you are about to hand someone.
 
+(Starting it is not as easy as it sounds: the **single-instance lock** hands your launch of
+`dist/win-unpacked/Switchboard.exe` straight to an already-running installed Switchboard, which then looks
+like a successful start and is not one. Close the installed app first, or you have verified nothing.)
+
+### Pushing a tag ALREADY builds the release — never `gh release create`
+
+`.github/workflows/build.yml` fires on `push` of a `v*` tag and builds **all three platforms**, then
+creates the release as a **draft** and uploads 19 assets to it: the Windows installer, the macOS `.dmg`/
+`.zip` (arm64 + x64), the Linux AppImage/`.deb`/pacman — **and the `latest*.yml` files the auto-updater
+needs.**
+
+So after `git push origin refs/tags/v<version>`, the release already exists. Adding your own with
+`gh release create` produces a **second** release on the same tag, carrying only whatever you attached by
+hand — no `latest*.yml`, so an auto-update from it silently cannot work — and whoever opens the releases
+page sees the wrong one. It happened in 0.7.6 and it looked exactly like "why is there only a Windows
+build?".
+
+```
+gh release list                                  # is there already a draft for this tag?
+gh release edit v<version> --notes-file <file>   # yes -> only ever EDIT it
+gh release edit v<version> --title "<version>"   # the title is 0.7.6; the TAG is v0.7.6
+```
+
+Two traps in that edit: `gh api -X PATCH …/releases/<id>` without `tag_name` **resets the tag to an
+`untagged-…` placeholder** — pass it, or use `gh release edit`. And the release **title carries no `v`**
+(`0.7.6`), while the tag does (`v0.7.6`) — match the ones already there.
+
 ## Where the data actually is
 
 **Two databases.** Look at the wrong one and you will "verify" against a store that has not moved in weeks —
