@@ -30,7 +30,6 @@ const planPanel = new ViewerPanel(planViewer, {
 });
 
 // currentPlanContent, currentPlanFilePath, currentPlanFilename → plans-memory-view.js
-const loadingStatus = document.getElementById('loading-status');
 const sessionFilters = document.getElementById('session-filters');
 const searchBar = document.getElementById('search-bar');
 const statsContent = document.getElementById('stats-content');
@@ -2011,25 +2010,43 @@ function dedup(projects) {
   }
 }
 
+// The list, before it exists (#186). Placeholder rows in the shape of what is coming — a project header
+// and a few session cards — so the sidebar has the same silhouette while it loads and the real list grows
+// out of it. No text, no toolbar movement. Replaced wholesale by the first render.
+function showSidebarSkeleton() {
+  if (!sidebarContent) return;
+  const card = '<div class="sk-card"><div class="sk-line sk-title"></div><div class="sk-line sk-meta"></div></div>';
+  const group = (cards) => `<div class="sk-group"><div class="sk-line sk-head"></div>${card.repeat(cards)}</div>`;
+  sidebarContent.innerHTML = `<div class="sidebar-skeleton" aria-hidden="true">${group(3)}${group(2)}${group(1)}</div>`;
+}
+
+// The other loading state: the list is already there, and the reload was asked for at the Refresh button
+// (#180). Mark it at the trigger — replacing the list with a skeleton would take away what you are
+// looking at and rebuild it, which is a flicker for nothing.
+function setRefreshSpinning(on) {
+  if (resortBtn) resortBtn.classList.toggle('spinning', !!on);
+}
+
 async function loadProjects({ resort = false } = {}) {
   const myGen = ++loadProjectsGen;
   const wasEmpty = cachedProjects.length === 0;
-  if (wasEmpty) {
-    loadingStatus.textContent = 'Loading\u2026';
-    loadingStatus.className = 'active';
-    loadingStatus.style.display = '';
-  }
+  // #186: a skeleton ONLY when there is nothing there \u2014 it stands where the list is about to be, so the
+  // list grows out of it instead of out of nothing. With content already on screen a skeleton would take
+  // away the list you are looking at and rebuild it, a flicker for nothing: mark the trigger instead.
+  // (The "Loading\u2026" text this replaces sat in the filter toolbar, resizing a row of icons.)
+  if (wasEmpty) showSidebarSkeleton();
+  else setRefreshSpinning(true);
   const [defaultProjects, allProjects] = await Promise.all([
     window.api.getProjects(false),
     window.api.getProjects(true),
   ]);
   // A newer loadProjects() started while we awaited — drop this stale response
   // so it can't overwrite fresher cachedProjects with older data.
+  // (A newer call owns the spinner too, so a stale one leaves it running for them.)
   if (myGen !== loadProjectsGen) return;
+  setRefreshSpinning(false);
   cachedProjects = defaultProjects;
   cachedAllProjects = allProjects;
-  loadingStatus.style.display = 'none';
-  loadingStatus.className = '';
   dedup(cachedProjects);
   dedup(cachedAllProjects);
 

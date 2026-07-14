@@ -851,20 +851,34 @@ input:focus-visible {
 }
 .view-menu-reset:hover { background: rgba(255,255,255,0.1); color: #e0e0f0; }
 
-#loading-status {
-  font-size: 11px;
-  color: #8888a0;
-  margin-left: auto;
-  white-space: nowrap;
+/* --- Loading (#186) ---
+   The list, before it exists: placeholders in the shape of what is coming, so the sidebar keeps its
+   silhouette and the real list grows out of them. This replaces a "Loading…" text that sat in the filter
+   toolbar and resized a row of icons. */
+.sidebar-skeleton { padding: 8px 0 0; }
+.sk-group { padding: 0 10px 14px; }
+.sk-line {
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 37%, rgba(255,255,255,0.04) 63%);
+  background-size: 400% 100%;
+  animation: sk-shimmer 1.4s ease-in-out infinite;
+}
+.sk-head { height: 11px; width: 58%; margin: 6px 0 10px; }
+.sk-card { padding: 7px 0 9px 12px; }
+.sk-title { height: 10px; width: 76%; margin-bottom: 7px; }
+.sk-meta { height: 7px; width: 42%; opacity: 0.7; }
+
+@keyframes sk-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
 }
 
-@keyframes loading-pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
-}
-
-#loading-status.active {
-  animation: loading-pulse 1.2s ease-in-out infinite;
+/* The other loading state: the list is there and the Refresh button (#180) was pressed. Mark the trigger
+   instead of taking the list away and rebuilding it. */
+#resort-btn.spinning svg { animation: sk-spin 0.9s linear infinite; }
+@keyframes sk-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 #star-toggle,
