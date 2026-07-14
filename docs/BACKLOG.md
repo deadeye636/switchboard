@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (16 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (15 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-14
 
@@ -31,4 +31,3 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#113](https://github.com/deadeye636/switchboard/issues/113) Optional second tray icon showing Claude usage (live percentage) · _feature_
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
-- [#186](https://github.com/deadeye636/switchboard/issues/186) Sidebar: the "Loading…" text does not belong in the filter toolbar · _chore_
