@@ -10,12 +10,15 @@
   // check that the panel it was started for is still the one in front of the user before it
   // touches the DOM, or it reopens the settings over whatever came after it.
   let viewerGeneration = 0;
+  // Owns the document-level listeners of the panel currently rendered (see openSettingsViewer).
+  let viewerListeners = new AbortController();
   const viewerIsOpen = () => (window.__SETTINGS_WINDOW__
     ? !document.hidden                                   // the window is hidden, not closed (#175)
     : settingsViewer.style.display !== 'none');
 
   function closeSettingsViewer() {
     viewerGeneration++;
+    viewerListeners.abort();   // nothing of the closed panel keeps listening (see openSettingsViewer)
     // Standalone settings window: there is no terminal area to restore — put the window
     // away. Hiding rather than closing keeps the renderer warm for the next open (#175);
     // window.close() would destroy it, and main cannot intercept that.
@@ -43,6 +46,14 @@
 
   async function openSettingsViewer(scope, projectPath) {
     viewerGeneration++;
+    // Every render of the panel binds a few listeners to `document` (the click-away that
+    // commits a colour). They outlive the DOM they were bound for — their closures keep the
+    // whole replaced settings form alive — and the panel is now re-rendered on every Apply,
+    // not just when Settings is opened. One controller per render, aborted by the next, takes
+    // them all with it.
+    viewerListeners.abort();
+    viewerListeners = new AbortController();
+    const listenerSignal = viewerListeners.signal;
     const isProject = scope === 'project';
     const settingsKey = isProject ? 'project:' + projectPath : 'global';
     const current = (await window.api.getSetting(settingsKey)) || {};
@@ -256,7 +267,7 @@
         const p = palette;
         closePalette();
         p._commit?.();
-      });
+      }, { signal: listenerSignal });
 
       addBtn.addEventListener('click', addTagDef);
       newInput.addEventListener('keydown', (e) => {
@@ -1812,7 +1823,7 @@
         // Dismiss the palette on an outside click.
         document.addEventListener('click', (e) => {
           if (paletteEl && !e.target.closest('.settings-tag-chip')) closePalette();
-        });
+        }, { signal: listenerSignal });
       }
     }
 
