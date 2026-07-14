@@ -65,12 +65,15 @@
         <input type="checkbox" id="view-menu-fav" ${view.favoritesOwnList ? 'checked' : ''}>
         <span>Favourites in their own list</span>
       </label>
-      <div class="view-menu-foot">
-        ${view.overridden
-          ? `<span class="view-menu-note">Just for now — saved: ${sortLabel(view.savedProjectSortMode)}</span>
-             <button type="button" class="view-menu-reset" data-reset="1">Reset</button>`
-          : '<span class="view-menu-note saved">Sorted as saved in Settings</span>'}
-      </div>`;
+      ${view.overridden
+        // Only when what you are looking at is not what Settings holds. The button carries a dot for the
+        // same reason: an order you cannot tell from the saved one is how you end up "fixing" a setting
+        // that was never wrong. The Reset says the rest.
+        ? `<div class="view-menu-foot">
+             <button type="button" class="view-menu-reset" data-reset="1"
+                     title="Back to the sort saved in Settings (${sortLabel(view.savedProjectSortMode)})">Reset to saved</button>
+           </div>`
+        : ''}`;
 
     menu.querySelectorAll('[data-sort]').forEach(el => {
       el.addEventListener('click', () => {

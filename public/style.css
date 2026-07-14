@@ -830,19 +830,17 @@ input:focus-visible {
 .view-menu-check:hover { background: rgba(255,255,255,0.05); }
 .view-menu-check input { cursor: pointer; }
 
+/* Only rendered while an override is in effect (#181). */
 .view-menu-foot {
   display: flex;
   align-items: center;
-  gap: 8px;
   margin-top: 4px;
   padding: 7px 8px 3px;
   border-top: 1px solid rgba(255,255,255,0.07);
 }
-.view-menu-note { font-size: 11px; color: #d97757; }
-.view-menu-note.saved { color: #6a6a80; }
 .view-menu-reset {
-  margin-left: auto;
-  padding: 4px 10px;
+  width: 100%;
+  padding: 5px 10px;
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 6px;
@@ -874,6 +872,7 @@ input:focus-visible {
 #running-toggle,
 #today-toggle,
 #favorite-toggle,
+#view-menu-btn,
 #spring-cleaning-btn {
   background: transparent;
   border: 1px solid rgba(255,255,255,0.08);
@@ -898,6 +897,7 @@ input:focus-visible {
 #running-toggle:hover,
 #today-toggle:hover,
 #favorite-toggle:hover,
+#view-menu-btn:hover,
 #spring-cleaning-btn:hover {
   background: rgba(255,255,255,0.04);
   border-color: rgba(255,255,255,0.12);
