@@ -308,8 +308,12 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Tabbed single-view** as the primary layout — session tabs, viewer close buttons; the
   grid is kept as a legacy mode. Right-click **tab context menu** (Close / Stop / Relaunch),
   auto-close, and removal of the top menubar for a cleaner window.
-- **Settings overhaul** — two-column layout, sticky Save/Cancel bar, optional pop-out
-  settings window, permission modes aligned to the Claude CLI.
+- **Settings overhaul** — two-column layout, permission modes aligned to the Claude CLI, and
+  an optional pop-out settings window that paints instantly and is kept warm between opens.
+  The actions are pinned to the bottom edge, reachable at any scroll position in any category:
+  Hide/Remove Project on the left, then Cancel, **Apply** (save without closing, so several
+  categories can be adjusted and checked one after another) and Save. Terminal tools have a
+  page of their own under Terminal.
 - **A backend declares what it can do, and it is all configurable** — `configFields` on the descriptor;
   the settings page, the Configure dialog and the template editor are **generated** from it. Pi and
   Hermes declared a single option each while their CLIs took a dozen (`--provider`, `--thinking`,
