@@ -76,13 +76,22 @@ function resolveWorktreePath(cwd) {
 
 // Windows says D:\x and d:\X are the same directory. A real store carries both spellings of the same
 // path, and compared naively they become two projects.
+function normPath(p) {
+  const trimmed = String(p).replace(/[\\/]+$/, '').replace(/\\/g, '/');
+  return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed;
+}
+
 function samePath(a, b) {
   if (!a || !b) return false;
-  const norm = (p) => {
-    const trimmed = String(p).replace(/[\\/]+$/, '');
-    return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed;
-  };
-  return norm(a) === norm(b);
+  return normPath(a) === normPath(b);
+}
+
+/** Is `child` a directory INSIDE `parent`? (Not the same directory — strictly below it.) */
+function isDescendant(child, parent) {
+  if (!child || !parent) return false;
+  const c = normPath(child);
+  const p = normPath(parent);
+  return c !== p && c.startsWith(p + '/');
 }
 
 // dir -> its project root (or null). A scan asks this for every session, and the answer for a given
@@ -136,6 +145,20 @@ function sessionProjectPath(currentCwd, folderProjectPath) {
   // The same project, spelled differently (case, a trailing separator): keep the folder's exact string,
   // because that string IS the grouping key — a second spelling would render a second project.
   if (folderProjectPath && samePath(resolved, folderProjectPath)) return folderProjectPath;
+
+  // A session that merely went DEEPER into its own project stays with it (#182). A subdirectory that
+  // happens to carry a `.git` is still a subdirectory: a parent that coordinates several repositories
+  // is an ordinary way to work, and without this every one of them steals any session that visits it —
+  // into a project nobody added, which in manual mode is never registered and therefore never painted.
+  // The session was LAUNCHED in the folder's project; Claude names its own transcript folder after that
+  // same directory, and this keeps us in step with it.
+  //
+  // The worktree is the exception this rule exists alongside: it sits below the project too, and it is
+  // deliberately a project of its own (#147/#157). Re-attribution is for a session that genuinely LEAVES
+  // the tree — into a worktree, or into an unrelated repository elsewhere on disk.
+  if (folderProjectPath && isDescendant(resolved, folderProjectPath) && !isRealGitWorktree(resolved)) {
+    return folderProjectPath;
+  }
   return resolved;
 }
 

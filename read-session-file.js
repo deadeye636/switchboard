@@ -12,7 +12,10 @@ const { sessionProjectPath } = require('./derive-project-path');
 //   v3: projectPath is decided PER SESSION, from the project root of the cwd it is working in (#157).
 //       Without this bump the fix would land in an empty table: a session that moved wrote its last cwd
 //       long ago, so its mtime never moves again and the scan would skip it forever.
-const PARSER_SCHEMA_VERSION = 3;
+//   v4: a session that moved DEEPER into its own project stays with it — a nested repository is not a
+//       new project (#182). Same reason for the bump: the sessions v3 scattered into phantom projects
+//       have long-settled mtimes, so only the version marker brings them home.
+const PARSER_SCHEMA_VERSION = 4;
 
 function contentToText(content) {
   if (typeof content === 'string') return content;

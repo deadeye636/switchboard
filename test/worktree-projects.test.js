@@ -197,3 +197,75 @@ test('THE TRAP: a moved session does not drag its siblings, whatever the readdir
   assert.strictEqual(read(sibling), repo, 'its sibling stays put — nothing dragged it');
   assert.strictEqual(read(subdir), repo, 'and a cd into a subdirectory is not a move at all');
 });
+
+// --- #182: a nested repository is not a new project ---
+//
+// A parent directory that coordinates several repositories is an ordinary way to work:
+//
+//   <project>/          the session is launched here (often not a repo itself)
+//   <project>/tool-a/   its own repo
+//   <project>/tool-b/   its own repo
+//
+// Asked to look at tool-a, the session's shell cwd follows it in — and before #182 it was
+// attributed to <project>/tool-a from that moment on. That project is one nobody added, so in
+// manual mode it is never registered and the session was painted nowhere at all: indexed,
+// searchable, and invisible. The session was LAUNCHED in <project>; Claude names its own
+// transcript folder after that same directory.
+
+test('#182: a session that moves into a nested repo of its own project stays with the project', () => {
+  _resetRootCache();
+  const root = tmpDir('sp6-');
+  const project = path.join(root, 'project');          // NOT a repo — the coordinating folder
+  const toolA = makeRepo(path.join(project, 'tool-a'));  // a repo of its own
+  fs.mkdirSync(path.join(toolA, 'src'), { recursive: true });
+
+  assert.strictEqual(sessionProjectPath(toolA, project), project,
+    'the nested repo does not steal the session');
+  assert.strictEqual(sessionProjectPath(path.join(toolA, 'src'), project), project,
+    'nor does anything inside it');
+});
+
+test('#182: the same holds when the project IS a repo and the nested one is too', () => {
+  _resetRootCache();
+  const root = tmpDir('sp7-');
+  const project = makeRepo(path.join(root, 'project'));
+  const vendored = makeRepo(path.join(project, 'vendor', 'lib'));
+
+  assert.strictEqual(sessionProjectPath(vendored, project), project,
+    'a vendored repo is a subdirectory, not a second project');
+});
+
+test('#182: a session LAUNCHED in the nested repo belongs to the nested repo', () => {
+  // The launch directory decides. Its folder's project IS tool-a, so nothing moves it out.
+  _resetRootCache();
+  const root = tmpDir('sp8-');
+  const project = path.join(root, 'project');
+  const toolA = makeRepo(path.join(project, 'tool-a'));
+  fs.mkdirSync(path.join(toolA, 'src'), { recursive: true });
+
+  assert.strictEqual(sessionProjectPath(toolA, toolA), toolA);
+  assert.strictEqual(sessionProjectPath(path.join(toolA, 'src'), toolA), toolA);
+});
+
+test('#182: a worktree INSIDE the project is still a project of its own', () => {
+  // The exception the containment rule has to leave standing (#147/#157): a worktree sits below
+  // the project as well, and it is deliberately not the project.
+  _resetRootCache();
+  const root = tmpDir('sp9-');
+  const project = makeRepo(path.join(root, 'project'));
+  const wt = makeWorktree(path.join(project, '.claude', 'worktrees', 'feature'),
+    path.join(project, '.git', 'worktrees', 'feature'));
+
+  assert.strictEqual(sessionProjectPath(wt, project), wt, 'the worktree keeps itself');
+  assert.strictEqual(sessionProjectPath(path.join(wt, 'src'), project), wt, 'from anywhere inside it');
+});
+
+test('#182: leaving the tree still re-attributes', () => {
+  _resetRootCache();
+  const root = tmpDir('sp10-');
+  const project = makeRepo(path.join(root, 'project'));
+  const elsewhere = makeRepo(path.join(root, 'elsewhere'));
+
+  assert.strictEqual(sessionProjectPath(elsewhere, project), elsewhere,
+    'an unrelated repo is not below the project — the session genuinely left');
+});
