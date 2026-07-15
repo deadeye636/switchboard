@@ -101,3 +101,56 @@ test('a later /rename to a new title notifies again', () => {
     fs.rmSync(projectsDir, { recursive: true, force: true });
   }
 });
+
+// #199 step 4: the writes moved into the neutral sink, but the #60 rename push must still be derived
+// from the effective name captured BEFORE the sink vs AFTER it — NOT from "did the sink write". A change
+// that grows the transcript body while the name stays the same runs the full write path (upsert + FTS +
+// metrics) yet must fire NOTHING, or the sidebar would repaint on every append. This guards the
+// prevName/newName straddle around applyIndexResults.
+test('a body change with an unchanged name writes but does NOT re-notify (#60 through the sink)', () => {
+  const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-rename3-'));
+  try {
+    const folder = 'proj';
+    const folderPath = path.join(projectsDir, folder);
+    writeSession(folderPath, '/tmp/proj', { customTitle: 'Stable' });
+
+    const sends = [];
+    const names = new Map();
+    let upserts = 0;
+    const win = { isDestroyed: () => false, webContents: { send: (ch) => sends.push(ch) } };
+    sessionCache.init({
+      PROJECTS_DIR: projectsDir,
+      activeSessions: new Map(),
+      getMainWindow: () => win,
+      log: { info() {}, debug() {}, warn() {}, error() {} },
+      db: {
+        deleteCachedFolder() {}, getCachedByFolder() { return []; },
+        upsertCachedSessions() { upserts++; },
+        deleteCachedSession() {}, replaceSessionMetrics() {}, deleteSearchFolder() {},
+        deleteSearchSession() {}, upsertSearchEntries() {},
+        setFolderMeta() {}, getFolderMeta() { return null; }, getAllFolderMeta() { return new Map(); },
+        getAllMeta() { return new Map(); }, getAllCached() { return []; }, getSetting() { return {}; },
+        getMeta(id) { return names.has(id) ? { name: names.get(id) } : null; },
+        setName(id, name) { names.set(id, name); },
+        getFavoritedProjects() { return new Set(); }, getProjectDisplayNames() { return new Map(); },
+        getAutoHiddenProjects() { return new Set(); },
+      },
+    });
+
+    // First index: null → "Stable" notifies once.
+    sessionCache.refreshFile(folder, folder + '/session.jsonl', { immediate: true });
+    assert.equal(sends.filter(c => c === 'projects-changed').length, 1);
+    const upsertsAfterFirst = upserts;
+
+    // Append a body line, keep the SAME custom-title. The sink must still write (upsert runs)...
+    fs.appendFileSync(path.join(folderPath, 'session.jsonl'),
+      JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'more output' } }) + '\n', 'utf8');
+    sessionCache.refreshFile(folder, folder + '/session.jsonl', { immediate: true });
+
+    assert.ok(upserts > upsertsAfterFirst, 'the body change is written through the sink');
+    assert.equal(names.get('session'), 'Stable');
+    assert.equal(sends.filter(c => c === 'projects-changed').length, 1, 'but an unchanged name must NOT re-notify');
+  } finally {
+    fs.rmSync(projectsDir, { recursive: true, force: true });
+  }
+});

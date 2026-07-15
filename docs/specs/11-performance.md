@@ -1,6 +1,6 @@
 # 11 — Performance: keeping the main thread responsive
 
-**Status:** steps 1–3 as-built (this pass); steps 4–5 planned. Issues [#199] (umbrella), [#200] (precondition).
+**Status:** steps 1–4 as-built; step 5 planned. Issues [#199] (umbrella), [#200] (precondition).
 
 ## The problem
 
@@ -65,6 +65,20 @@ swapping `fs.watch` for chokidar.
 
 **Measured:** `get-projects` dropped from 2–5 s stalls to ~50 ms (pure cache read); `refreshFile` stays
 incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`).
+
+- **Step 4 (done — extraction + neutral write sink).** `session-cache.js` (1381 lines) split into a 74-line
+  **façade** re-exporting the same names, over four modules: `backends/claude/store-indexer.js` (Claude's
+  folder-shaped walk + `_fileReadState` + the Claude `prepare` = `stampClaudeProvenance`), `backend-scan.js`
+  (generic Axis-B walk + `_axisBReadState`), `projects-view.js` (buildProjectsFromCache/Admin), and
+  `index-writes.js` — the **backend-neutral** write sink `applyIndexResults({sessions, wipeFolders, deleteIds,
+  metricsMode})`. Every write path (cold-scan, refreshFolder, refreshFile, refreshBackendSessions) now runs a
+  per-backend `prepare()` then the one sink; the sink carries no backend id and scopes every delete through the
+  row's own `backendId`. `metricsMode` keeps the #154 split (Claude `always`, Axis-B `if-nonempty`).
+  Behaviour-identical (verified: `npm test` green, exports unchanged, no require cycle, dev-app scan identical).
+  This is preparation — no perf change — that makes step 5 a lift: the worker parses off-thread and posts raw
+  sessions; main runs `prepare()` + the sink. The one harmonized deviation: the cold-scan search entry is now
+  built before `setName` like the other three paths (the DB `name` column is unconditionally the customTitle
+  either way; only the FTS title can be one pass stale in the rare rename+customTitle coexist case, self-healing).
 
 ### Known gaps / follow-ups
 

@@ -94,12 +94,22 @@ test('session-cache.js exports claudeStoreScope so main.js can share it', () => 
   assert.match(exportsBlock, /claudeStoreScope/, 'claudeStoreScope must be exported');
 });
 
-test('session-cache.js scan paths still scope their own folder deletes', () => {
-  const calls = folderDeleteCalls(read('session-cache.js')).filter(c => c.args !== '');
-  const unscoped = calls.filter(c => c.args.split(',').length < 2);
-  assert.deepStrictEqual(
-    unscoped.map(c => `session-cache.js:${c.line} ${c.fn}(${c.args})`),
-    [],
-    'the scanner must never issue an unscoped folder delete either'
-  );
+test('the session-cache scan paths still scope their own folder deletes', () => {
+  // Since #199 step 4 the scan paths' folder deletes live in the split modules: the neutral sink
+  // (index-writes.js applyIndexResults) and the Claude store walk (store-indexer.js vanished-folder
+  // branch). The rule follows the CODE, not the file — so all of them are checked here.
+  const scanFiles = [
+    'session-cache.js',
+    'index-writes.js',
+    'backend-scan.js',
+    'projects-view.js',
+    'backends/claude/store-indexer.js',
+  ];
+  const unscoped = [];
+  for (const file of scanFiles) {
+    for (const c of folderDeleteCalls(read(file)).filter(c => c.args !== '')) {
+      if (c.args.split(',').length < 2) unscoped.push(`${file}:${c.line} ${c.fn}(${c.args})`);
+    }
+  }
+  assert.deepStrictEqual(unscoped, [], 'the scanner must never issue an unscoped folder delete either');
 });

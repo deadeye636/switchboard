@@ -122,8 +122,10 @@ test('the scheduler asks the gate before spawning the claude binary', () => {
 // Claude's store is walked by its own path (PROJECTS_DIR), NOT by refreshBackendSessions — which skips
 // Claude deliberately. So the enable gate had to be added to that path, or "disabled" would have meant
 // "still indexing".
+// Since #199 step 4 Claude's store walk lives in backends/claude/store-indexer.js (session-cache.js is
+// now a façade). The gate must still be there — the rule follows the CODE, not the file.
 test('Claude\'s scanner asks the gate too', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'session-cache.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'backends', 'claude', 'store-indexer.js'), 'utf8');
   assert.match(src, /function claudeEnabled\(\)/, 'the gate exists');
   const refresh = src.slice(src.indexOf('function refreshFolder('));
   const body = refresh.slice(0, refresh.indexOf('\nfunction '));
@@ -133,7 +135,7 @@ test('Claude\'s scanner asks the gate too', () => {
 
 // "Disable is not delete" (§5.8). The rows stay; only the scan and the launch stop.
 test('the scanner fails OPEN when the registry cannot answer', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'session-cache.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'backends', 'claude', 'store-indexer.js'), 'utf8');
   const fn = src.slice(src.indexOf('function claudeEnabled()'));
   const body = fn.slice(0, fn.indexOf('\n}'));
   assert.match(body, /catch\s*{\s*return true/,

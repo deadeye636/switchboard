@@ -47,13 +47,24 @@ function mainCtxDbKeys() {
   );
 }
 
-// Every ctx.db.<name> that session-cache.js dereferences.
+// Every ctx.db.<name> that the session-cache layer dereferences. Since #199 step 4 session-cache.js is a
+// façade: the ctx.db.* reads moved into the modules it fans init() out to, so the scan follows the code
+// into them (else this guard would pass trivially by reading an empty façade).
+const SESSION_CACHE_FILES = [
+  'session-cache.js',
+  'index-writes.js',
+  'backend-scan.js',
+  'projects-view.js',
+  'backends/claude/store-indexer.js',
+];
 function sessionCacheDbDeps() {
-  const src = read('session-cache.js');
   const deps = new Set();
   const re = /ctx\.db\.([A-Za-z_$][\w$]*)/g;
-  let m;
-  while ((m = re.exec(src))) deps.add(m[1]);
+  for (const f of SESSION_CACHE_FILES) {
+    const src = read(f);
+    let m;
+    while ((m = re.exec(src))) deps.add(m[1]);
+  }
   return deps;
 }
 
