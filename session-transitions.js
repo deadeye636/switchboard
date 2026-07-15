@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { readSubagentMeta } = require('./read-session-file');
+const { readSubagentMeta } = require('./backends/claude/session-reader');
 
 /**
  * Fork / plan-accept detection for active PTY sessions.

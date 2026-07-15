@@ -19,7 +19,7 @@ const crypto = require('crypto');
 
 const { encodeProjectPath } = require('./encode-project-path');
 const { deriveProjectPath } = require('./derive-project-path');
-const { resolveJsonlPath } = require('./read-session-file');
+const { resolveJsonlPath } = require('./backends/claude/session-reader');
 const claudeConfig = require('./claude-config');
 const registry = require('./project-registry');
 

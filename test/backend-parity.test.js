@@ -58,7 +58,7 @@ test('every backend that names its own sessions implements ALL THREE identity ho
 });
 
 test('every backend exposes the incremental-parse contract with a schema version (§5.10)', () => {
-  for (const id of ['codex', 'pi']) {   // the file-mode parsers
+  for (const id of ['claude', 'codex', 'pi']) {   // the file-mode parsers
     const b = backends.get(id);
     assert.equal(typeof b.parseSessionIncremental, 'function', `${id} must expose the incremental parse`);
     assert.equal(typeof b.PARSER_SCHEMA_VERSION, 'number', `${id} must version its parser`);

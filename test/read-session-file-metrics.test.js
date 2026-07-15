@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { readSessionFile, extractDailyMetrics, isToolResultOnly } = require('../read-session-file');
+const { readSessionFile, extractDailyMetrics, isToolResultOnly } = require('../backends/claude/session-reader');
 const { bucketFromIso } = require('../metrics-bucket');
 
 function mkTmp() {

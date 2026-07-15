@@ -3,10 +3,13 @@ const fs = require('fs');
 const { Worker } = require('worker_threads');
 const { getFolderIndexMtimeMs } = require('./folder-index-state');
 const { deriveProjectPath, resolveWorktreePath } = require('./derive-project-path');
-const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId, PARSER_SCHEMA_VERSION: CLAUDE_PARSER_VERSION } = require('./read-session-file');
-const { readFolderSessions } = require('./read-folder-sessions');
 const { encodeProjectPath } = require('./encode-project-path');
 const backends = require('./backends');
+// Claude's format readers are reached THROUGH its descriptor (#188), not by importing the format
+// modules directly — the same route codex/pi already take. The registry is fully seeded by the time
+// require('./backends') returns, so `get('claude')` is safe at module load.
+const claude = backends.get('claude');
+const CLAUDE_PARSER_VERSION = claude.PARSER_SCHEMA_VERSION;
 const sessionBackends = require('./session-backends');
 const registry = require('./project-registry');
 
@@ -136,14 +139,14 @@ function markPersisted(sessionId) {
 /** The absolute session file behind a cached row: stored path (non-Claude) or the Claude reconstruction. */
 function resolveRowFilePath(row) {
   if (row && row.filePath) return row.filePath;
-  return resolveJsonlPath(PROJECTS_DIR, row);
+  return claude.resolveJsonlPath(PROJECTS_DIR, row);
 }
 
-// readSessionFile is imported from read-session-file.js (shared with worker)
+// Claude's readers come off its descriptor (claude.*), shared with the scan worker via the same module.
 
 /** Read one folder from filesystem by scanning .jsonl files directly */
 function readFolderFromFilesystem(folder) {
-  const { projectPath, sessions } = readFolderSessions(PROJECTS_DIR, folder);
+  const { projectPath, sessions } = claude.readFolderSessions(PROJECTS_DIR, folder);
   return { projectPath, sessions };
 }
 
@@ -304,7 +307,7 @@ function refreshFolder(folder, opts = {}) {
   const namesToSet = [];
   const sessionsToDelete = [];
 
-  for (const { filePath, parentSessionId } of enumerateSessionFiles(folderPath)) {
+  for (const { filePath, parentSessionId } of claude.enumerateSessionFiles(folderPath)) {
     // Check if file mtime changed.
     // We need the DB sessionId to look up the cache, but we don't know it until after
     // readSessionFile — for subagents it's sub:<parent>:<agentId>. Use the file path
@@ -331,7 +334,7 @@ function refreshFolder(folder, opts = {}) {
     // state so the next watcher-driven refreshFile starts from this full read
     // (guards against rewritten files whose retained offset is now wrong).
     _fileReadState.delete(filePath);
-    const s = readSessionFile(filePath, folder, projectPath, { parentSessionId });
+    const s = claude.readSessionFile(filePath, folder, projectPath, { parentSessionId });
     if (s) {
       currentIds.add(s.sessionId); // ensure we don't delete a newly-read subagent row
       sessionsToUpsert.push(stampClaudeProvenance(s));
@@ -465,7 +468,7 @@ function refreshFile(folder, relFilename, opts = {}) {
     let sessionId = base;
     if (parentSessionId) {
       const m = base.match(/^agent-(.+)$/);
-      try { sessionId = subagentSessionId(parentSessionId, m ? m[1] : base); } catch { sessionId = null; }
+      try { sessionId = claude.subagentSessionId(parentSessionId, m ? m[1] : base); } catch { sessionId = null; }
     }
     if (sessionId) { deleteCachedSession(sessionId); deleteSearchSession(sessionId); }
     setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
@@ -483,7 +486,7 @@ function refreshFile(folder, relFilename, opts = {}) {
     // a rewritten/truncated file) falls back to a full read inside
     // readSessionFileIncremental.
     const prev = _fileReadState.get(filePath) || null;
-    const res = readSessionFileIncremental(filePath, folder, projectPath, { parentSessionId }, prev);
+    const res = claude.readSessionFileIncremental(filePath, folder, projectPath, { parentSessionId }, prev);
     // null = file not yet a valid session (no first user turn) or became invalid.
     // Leave any existing row as-is; the reconcile sweep reconciles genuine losses.
     if (!res) {
@@ -1244,7 +1247,7 @@ function terminateScanWorker() {
 module.exports = {
   init,
   terminateScanWorker,
-  readSessionFile,
+  readSessionFile: claude.readSessionFile,
   readFolderFromFilesystem,
   refreshFolder,
   refreshFile,

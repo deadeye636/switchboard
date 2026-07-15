@@ -69,7 +69,7 @@ test('the FOLDER still identifies itself by the head cwd — that is what keeps 
 // originally asked for) would scatter those into phantom projects. Their project ROOT never moved.
 
 const { projectRootOf, sessionProjectPath, _resetRootCache } = require('../derive-project-path');
-const { readSessionFile } = require('../read-session-file');
+const { readSessionFile } = require('../backends/claude/session-reader');
 const { encodeProjectPath } = require('../encode-project-path');
 
 // A repo has a `.git` DIRECTORY; a worktree has a `.git` FILE. That is the whole difference, and it is

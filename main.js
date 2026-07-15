@@ -746,7 +746,7 @@ sessionCache.init({
 const { readSessionFile, readFolderFromFilesystem, refreshFolder, refreshFile, reconcileCacheFromFilesystem,
         buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker,
         refreshAllBackendSessions } = sessionCache;
-const { resolveJsonlPath, PARSER_SCHEMA_VERSION: CLAUDE_PARSER_VERSION } = require('./read-session-file');
+const { resolveJsonlPath, PARSER_SCHEMA_VERSION: CLAUDE_PARSER_VERSION } = require('./backends/claude/session-reader');
 
 // A bumped Claude parser has to re-read the sessions it changed — and that re-read must happen on the
 // WORKER thread, not here.

@@ -1,6 +1,6 @@
 const path = require('path');
-const { deriveProjectPath } = require('./derive-project-path');
-const { readSessionFile, enumerateSessionFiles } = require('./read-session-file');
+const { deriveProjectPath } = require('../../derive-project-path');
+const { readSessionFile, enumerateSessionFiles } = require('./session-reader');
 
 // Shared, Electron-free core of "read one ~/.claude/projects folder from the
 // filesystem": derive the project path, then read every session jsonl in the

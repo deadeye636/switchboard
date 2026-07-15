@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
-const { bucketFromIso, bucketKey } = require('./metrics-bucket');
-const { sessionProjectPath } = require('./derive-project-path');
+const { bucketFromIso, bucketKey } = require('../../metrics-bucket');
+const { sessionProjectPath } = require('../../derive-project-path');
 
 // Bump on ANY change to what this parser writes into a session row or its metrics. The scan compares
 // this to the version recorded on the cached row (#152) and re-reads the session when they differ —

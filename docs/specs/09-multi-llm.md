@@ -308,12 +308,6 @@ that could never show a value. Pi's `usage.cost` is its own *cost estimate*, not
 
 Filed as issues rather than silently carried:
 
-- **#188** the core reads Claude directly instead of through its descriptor: `session-cache.js` imports
-  `read-session-file.js` / `read-folder-sessions.js` from the repo root, where it goes through the
-  descriptor for every other backend. `backends/claude/` is a folder like the rest of them now — but the
-  parsing still lives four directories up, shared with the scanner and the search worker, so the folder is
-  half a lie until the routing follows.
-
 - **#149** `backendDefaults` cascades as a whole block, not per option.
 - **#150/#151** Hermes: probe scope, no busy/idle fallback when its DB is unreadable.
 - **#153** leftovers vs. the plan (Tier-2 registration path, a launch-time `$VAR` warning, picker cosmetics).
@@ -321,7 +315,10 @@ Filed as issues rather than silently carried:
 - **#156** this contract needs a shared file-store helper — Codex and Pi duplicate ~60 lines of walk /
   watch / match / lookup boilerplate that the next file backend would copy a third time.
 
-Closed since: **#154** (every backend feeds the charts), **#152** + **#159** (below).
+Closed since: **#154** (every backend feeds the charts), **#152** + **#159** (below), **#188** (the core
+now reads Claude through its descriptor — the format modules moved into `backends/claude/`
+(`session-reader.js` / `folder-reader.js`) and `session-cache.js` pulls its readers off the descriptor,
+so the folder is no longer half a lie; the Electron-free scan worker imports the reader by path).
 
 ## Metrics: the staleness gate, and what a bucket is (#152, #159)
 

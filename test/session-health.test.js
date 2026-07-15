@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { readSessionFile } = require('../read-session-file');
+const { readSessionFile } = require('../backends/claude/session-reader');
 const sessionCache = require('../session-cache');
 const {
   getSessionHealth,

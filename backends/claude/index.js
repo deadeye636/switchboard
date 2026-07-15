@@ -1,13 +1,14 @@
 // backends/claude/index.js — the Claude Code backend descriptor (the default; status 'ready').
 //
-// A THIN ADAPTER (00 §4, 02-file-map): Claude's heavy parse/state/discovery logic still lives in the
-// hot-path modules at the repo root — read-session-file.js and friends — because the CORE imports them
-// directly (session-cache.js does not go through this descriptor the way it goes through Codex's or Pi's).
-// That is the real asymmetry, and a folder does not fix it; moving the readers in here before the core is
-// routed through the descriptor would only hide it. This descriptor just points at them:
+// A THIN ADAPTER (00 §4, 02-file-map): Claude's heavy parse/state/discovery logic lives in the format
+// modules alongside this descriptor — session-reader.js (was read-session-file.js) and folder-reader.js.
+// Since #188 the CORE reads Claude's sessions THROUGH this descriptor (session-cache.js pulls the raw
+// readers off the module.exports below, the way it goes through Codex's or Pi's), so the readers moved
+// in here and this descriptor re-exports them:
 //   - buildLaunch  reproduces the inline claude-arg logic (main.js:3052-3086) byte-identically.
 //   - discoverSessions  = FILE mode over ~/.claude/projects (reuses enumerateSessionFiles).
-//   - parseSession({kind:'file'})  delegates to read-session-file.js.
+//   - parseSession({kind:'file'})  delegates to session-reader.js; parseSessionIncremental wraps its
+//     incremental reader for the watcher hot path.
 //   - deriveState  is null — Claude's busy/idle comes from the existing session-transitions folder
 //     watch (detectSessionTransitions), not a per-event function.
 //   - watchTargets  = the projects dir root(s).
@@ -16,7 +17,8 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
-const { readSessionFile, enumerateSessionFiles, PARSER_SCHEMA_VERSION: readerVersion } = require('../../read-session-file');
+const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId, readSubagentMeta, PARSER_SCHEMA_VERSION: readerVersion } = require('./session-reader');
+const { readFolderSessions } = require('./folder-reader');
 
 // Claude's session store root. Defaults to ~/.claude/projects; main.js overrides it with its own
 // PROJECTS_DIR at init (and tests point it at a fixture) via setRoots().
@@ -161,6 +163,21 @@ function parseSession(handle, opts = {}) {
   return readSessionFile(handle.path, folder != null ? folder : handle.folder, projectPath, opts);
 }
 
+// Incremental variant of parseSession — the SAME contract codex/pi expose (backends/*/parser.js):
+// returns `{ row, parseState }`, where `parseState` is the opaque, serializable resume state to hand
+// back as `prev` on the next call (null → full first read). Claude's own reader speaks `{session, next}`
+// (or `null`); this wrapper normalises that shape so a generic consumer sees one contract across every
+// backend. The Claude hot path calls `readSessionFileIncremental` raw (session-cache.js), so its
+// `{session,next}` shape is unchanged — only this descriptor-level wrapper maps it.
+function parseSessionIncremental(handle, opts = {}, prev = null) {
+  if (!handle || handle.kind !== 'file') return { row: null, parseState: null };
+  const { projectPath, folder } = opts;
+  const parentSessionId = opts.parentSessionId != null ? opts.parentSessionId : handle.parentSessionId;
+  const res = readSessionFileIncremental(handle.path, folder != null ? folder : handle.folder, projectPath, { parentSessionId }, prev);
+  if (!res) return { row: null, parseState: null };
+  return { row: res.session, parseState: res.next };
+}
+
 // STORE-level watch targets: Claude's projects root dir(s). The live watcher (T-4.8) watches these.
 function watchTargets() {
   return _roots.map(p => ({ kind: 'dir', path: p }));
@@ -263,7 +280,7 @@ module.exports = {
   projectTrust,
   rewriteProjectPath,
   deleteSessions,
-  // Claude's parser lives in read-session-file.js (it predates the backend registry); its version rides
+  // Claude's parser lives in session-reader.js (it predates the backend registry); its version rides
   // on the descriptor like every other backend's, so the scan's staleness gate (#152) is one rule for
   // all of them and not a special case for the default backend.
   PARSER_SCHEMA_VERSION: readerVersion,
@@ -282,6 +299,16 @@ module.exports = {
   buildLaunch,
   discoverSessions,
   parseSession,
+  parseSessionIncremental,
+  // Raw readers the core pulls off the descriptor (session-cache.js drives Claude's dedicated scan
+  // through these instead of importing the format modules directly — #188).
+  readSessionFile,
+  readSessionFileIncremental,
+  enumerateSessionFiles,
+  resolveJsonlPath,
+  subagentSessionId,
+  readSubagentMeta,
+  readFolderSessions,
   watchTargets,
   deriveState: null, // Claude state comes from session-transitions folder-watch, not a per-event fn
   setRoots,          // main.js/tests point this at the real/ fixture projects dir

@@ -2,7 +2,10 @@ const { parentPort, workerData } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
 const { getFolderIndexMtimeMs } = require('../folder-index-state');
-const { readFolderSessions } = require('../read-folder-sessions');
+// Direct path import (NOT the backends registry): this is a worker_thread and must stay Electron-free,
+// and the registry can transitively reach electron. folder-reader only requires session-reader +
+// derive-project-path, both Electron-free (#188).
+const { readFolderSessions } = require('../backends/claude/folder-reader');
 
 const PROJECTS_DIR = workerData.projectsDir;
 
