@@ -1,7 +1,8 @@
 # 11 — Performance: keeping the main thread responsive
 
-**Status:** steps 1–4 + the step-5 pure-loop layer (5.1) as-built; the off-thread worker (5.2/5.3) in
-progress. Issues [#199] (umbrella), [#200] (precondition).
+**Status:** steps 1–5 as-built — the persistent off-thread index worker is now the ONLY scan path (the
+env flag and the inline parse were removed after a live-install validation). Issues [#199] (umbrella),
+[#200] (precondition).
 
 ## The problem
 
@@ -93,19 +94,36 @@ incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`).
   (the `folder-reader` precedent from #188 — the worker must not drag `index-writes`/the registry), added the
   missing single-file watcher pure fn (`parseClaudeFile`), and returned the Claude stat counters in the reply
   (a by-reference `stats` object can't cross the thread). Still on-thread + behaviour-identical.
+- **Step 5.2/5.3 + cleanup (done — the worker IS the scan path).** `workers/index-worker.js` (persistent)
+  owns the fs walk, `stat`, parse (via the leaves), both incremental memos, and the `getFolderIndexMtimeMs`
+  gate walk; it resolves backends by id from a posted **roster** (never `backends.list()` — settings aren't
+  injected in a worker), derives `projectPath` itself (fs-only), and posts the per-backend reply the pure
+  loops already return. `index-worker-client.js` (main) builds the request snapshot (DB reads), replays each
+  reply through the one neutral sink, and holds the guards: an `appQuitting` check before any apply (no write
+  to a closed DB), a **delete-epoch** guard on both the reconcile and file lanes (a reply can't
+  reverse-resurrect a row deleted since its request), `postReconcile` coalescing (a get-projects burst → one
+  in-flight + one trailing sweep), a re-check of `isRemovedProject` fresh at apply, and a debounced file-lane
+  `projects-changed` push. **DB writes stay on main** (single writer, no `SQLITE_BUSY`); crash → respawn with
+  an empty memo (self-healing, full == incremental per #194/#200); quit → terminate-then-close.
+  - **Measured, live install:** the `gate=214 ms`/tick stat walk left the main thread entirely — main now
+    only posts (`[index-worker] post reconcile … clone~33f/741rows postMs=0`), the compact staleness snapshot
+    clones in **~0–1 ms** (fable's "measure the clone" corrective: it is not relocated, it is gone), and
+    `get-projects` stays ~50–64 ms. Verified on-screen: session counts identical, xterm input responsive.
+    `await window.api.indexWorkerStatus()` → `{alive, pending}` confirms the worker is live.
+  - **Cleanup:** once validated, the `SWITCHBOARD_INDEX_WORKER` flag and the runtime-dead inline parse
+    (`reconcileCacheFromFilesystem`, `refreshFile`, `refreshAllBackendSessions`, the inline `queueIndexSweep`
+    body) were removed — one path, no toggle; git history (`6605aef`, pre-worker) is the fallback.
 
 ### Known gaps / follow-ups
 
-- The reconcile still executes **on the main thread**, just after the paint rather than blocking it —
-  moving the parse off-thread is **step 5**.
-- **The folder change-gate itself is now a recursive stat walk.** `getFolderIndexMtimeMs` recurses into
-  subagent dirs (step 2, so a subagent-only append trips the gate), and it runs **unconditionally for every
-  folder on every reconcile tick** — including folders that changed nothing. On a large, subagent-heavy
-  store this reintroduces exactly the "many transcripts" main-thread I/O #199 is fighting, at the gate
-  level. It is now **measured** (`gate=<ms>` in the `[perf] reconcile` line, logged even on an idle store
-  when the gate walk is slow), not eliminated — **step 5** (the off-thread index worker) removes it, since
-  the walk moves into the worker. Watch `gate=` on a busy install; if it grows, a cheaper gate (cap /
-  skip-list folders whose top-level mtime is already old) is the interim mitigation.
+- **RESOLVED by step 5** — the reconcile + parse + the recursive `getFolderIndexMtimeMs` gate walk
+  (`gate=214 ms`/tick) no longer run on the main thread; they run in the persistent index worker. The
+  `[perf] reconcile … gate=` line is gone from main (main logs `[index-worker] post … postMs~0` instead).
+- **Residual: the Axis-B store watcher still parses on main.** `refreshBackendSessions` is kept for the
+  backend-store watcher (`startBackendWatchers`), which does a synchronous per-backend refresh on a Codex/
+  Hermes/Pi/agy store change — the one on-main parse the worker does not yet own. The reported freeze was
+  Claude high-output (fully off-thread now); the Axis-B watcher is smaller (those stores append less), so
+  this is a follow-up (migrating it to the worker rewrites ~30 `refreshBackendSessions` test assertions).
 - The sweep cadence is a coalesced `setImmediate` fired **after each `get-projects`**, not a wall-clock
   interval: while active changes are covered by the live watcher, the safety-net reconcile does not fire on
   its own if the sidebar is never re-fetched. A background interval is a one-line alternative if that gap
