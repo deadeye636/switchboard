@@ -111,10 +111,30 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
 
   // --- pure parse-loop (this is what moves to the worker in step 5.2) ---
   const reply = parseBackendSessions(b, { handles, cachedByFile, cachedById, force });
+
+  // --- replay every side-effect from the reply (shared by the inline path and, in 5.2b, the worker) ---
+  applyBackendReply(backendId, reply, { cached, stats });
+
+  stats.elapsedMs = Math.round(elapsed());
+  if (stats.upserted || stats.deleted) {
+    log.info(`[scan] ${backendId}: ${stats.scanned} sessions (${stats.upserted} indexed, ${stats.skipped} unchanged, ${stats.deleted} removed) in ${stats.elapsedMs} ms`);
+  }
+  return stats;
+}
+
+// Replay a `parseBackendSessions` reply — the DB / overlay / scan-state side-effects main owns. Extracted
+// (#199 step 5.2b) so there is ONE replay: the inline `refreshBackendSessions` (index-worker flag OFF) and
+// the persistent index worker's reconcile reply handler (flag ON) both call it, the reply being byte-
+// identical whether the pure loop ran on-thread or in the worker.
+//
+//   cached   — THIS request's cached snapshot for this backend; the delete-diff is confined to it (never a
+//              fresh liveCache read — fable finding 2).
+//   stats    — filled in place ({scanned, skipped, upserted, deleted}).
+//   dropIds  — the delete-epoch guard (worker path only): sessionIds DELETED since the request. Their rows
+//              are filtered out of the sink so a late reply can't reverse-resurrect a just-deleted row.
+function applyBackendReply(backendId, reply, { cached = [], stats = {}, dropIds } = {}) {
   stats.scanned = reply.scanned;
   stats.skipped = reply.skipped;
-
-  // --- replay every side-effect from the reply (main owns the DB, the overlay and the scan-state) ---
 
   // UNCONDITIONAL store sighting per parsed session (#167 tombstone/bring-back) — Axis-B notes EVERY
   // session, not just removed ones (unlike Claude's loop).
@@ -146,18 +166,15 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
   // `reply.seenIds` above, so the reconcile above did not delete it — exactly the old `if (hit)
   // seenIds.add(...)` semantics, now expressed as "shaped + seen, but filtered out of the sink." Mirrors
   // refreshFolder. A hidden project is indexed as normal — hiding is a view decision, not a delete.
-  const toIndex = reply.sessions.filter(row => !isRemovedProject(row.projectPath));
+  let sessions = reply.sessions;
+  if (dropIds && dropIds.size) sessions = sessions.filter(row => !dropIds.has(row.sessionId));
+  const toIndex = sessions.filter(row => !isRemovedProject(row.projectPath));
 
   // The one neutral sink: upserts (with markPersisted + setName + per-day metrics 'if-nonempty', #154)
   // and the per-id reconcile deletes, all scoped through each row's own backendId.
   applyIndexResults({ sessions: toIndex, deleteIds, metricsMode: 'if-nonempty' });
   stats.upserted = toIndex.length;
   stats.deleted = deleteIds.length;
-
-  stats.elapsedMs = Math.round(elapsed());
-  if (stats.upserted || stats.deleted) {
-    log.info(`[scan] ${backendId}: ${stats.scanned} sessions (${stats.upserted} indexed, ${stats.skipped} unchanged, ${stats.deleted} removed) in ${stats.elapsedMs} ms`);
-  }
   return stats;
 }
 
@@ -180,10 +197,26 @@ function refreshAllBackendSessions({ force = false } = {}) {
   return out;
 }
 
+// The Axis-B backends the index worker should scan: every ready+enabled backend that owns its OWN store
+// (i.e. not Claude, not an Axis-A profile, and shaped like a scannable store). This is what main posts as
+// the `roster` so the worker never calls `backends.list()` (B-1: in a worker `backendEnabled` is empty, so
+// list() would fall back to Claude-only). Same filter refreshAllBackendSessions applies inline.
+function axisBRoster() {
+  let list;
+  try { list = backends.list(); } catch { return []; }
+  return list
+    .filter(b => b.status === 'ready' && b.enabled && b.id !== 'claude' && !b.isProfile
+      && typeof b.discoverSessions === 'function' && typeof b.parseSession === 'function')
+    .map(b => b.id);
+}
+
 module.exports = {
   init,
   refreshBackendSessions,
   refreshAllBackendSessions,
   cachedRowsOfBackend,
   storeExists,
+  // #199 step 5.2b: shared reply-replay + the roster main posts to the worker.
+  applyBackendReply,
+  axisBRoster,
 };

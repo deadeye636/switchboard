@@ -187,8 +187,24 @@ function refreshFolder(folder, opts = {}) {
     indexMtimeMs: opts.indexMtimeMs,
   });
 
-  // --- replay every side-effect from the reply (main owns the DB, the timers and the scan-state) ---
+  // --- replay every side-effect from the reply (shared by the inline path here and, in 5.2b, the
+  //     worker-reply path, which posts the SAME reply shape) ---
+  return applyClaudeFolderReply(folder, reply, { scope, cachedMap, stats });
+}
 
+// Replay a `parseClaudeFolder` reply — the DB / timer / scan-state side-effects main owns after the pure
+// loop runs. Extracted (#199 step 5.2b) so there is ONE replay: the inline `refreshFolder` (index-worker
+// flag OFF) and the persistent index worker's reconcile reply handler (flag ON) both call it, the reply
+// being byte-identical to what `parseClaudeFolder` returns whether it ran on-thread or in the worker.
+//
+//   cachedMap — THIS request's cached snapshot; the delete-diff is `cachedMap.keys() −
+//              seenIds`, never a fresh liveCache read (fable finding 2). Off-thread main retains the
+//              snapshot it posted and passes it back in here.
+//   stats    — optional sweep accumulator (folds in the F3 perf counters).
+//   dropIds  — the delete-epoch guard (worker path only): sessionIds DELETED since the request was posted.
+//              Their rows are filtered out of the sink so a late reply can't reverse-resurrect a
+//              just-deleted row (#76/#90 at the new seam). Undefined on the inline path (nothing races it).
+function applyClaudeFolderReply(folder, reply, { scope, cachedMap, stats, dropIds } = {}) {
   // Fold the Claude parse counters RETURNED in the reply into the sweep accumulator (#199 step 5.2a / F3).
   // The loop no longer mutates a by-reference `stats` object (that can't cross a thread) — it returns them,
   // and main adds them here so the `[perf] reconcile … full=/incr=/bytes=` line prints the same numbers.
@@ -211,11 +227,13 @@ function refreshFolder(folder, opts = {}) {
   // Confining it to cachedMap (never a fresh liveCache read) is what keeps an off-thread pass from
   // deleting a row a racing file-event created after the snapshot (fable finding 2).
   const seen = new Set(reply.seenIds);
-  const deleteIds = [...cachedMap.keys()].filter(id => !seen.has(id));
+  const deleteIds = cachedMap ? [...cachedMap.keys()].filter(id => !seen.has(id)) : [];
 
   // Per-backend PREPARE (Claude): stamp provenance + parser version on each RAW row, then the one neutral
   // sink does the common writes (metrics 'always', search, name, upsert). Called only when there is work.
-  const prepared = reply.sessions.map(stampClaudeProvenance);
+  let sessions = reply.sessions;
+  if (dropIds && dropIds.size) sessions = sessions.filter(s => !dropIds.has(s.sessionId));
+  const prepared = sessions.map(stampClaudeProvenance);
   if (prepared.length || deleteIds.length) {
     applyIndexResults({ sessions: prepared, deleteIds, metricsMode: 'always' });
   }
@@ -266,6 +284,23 @@ function flushPendingReindex() {
 // ./folder-parse.js (#199 step 5.2a / F1); imported at the top so the debounced hot path (via
 // parseClaudeFile), the reconcile sweep (via parseClaudeFolder) and the vanished-file delete below all
 // share the ONE `_fileReadState` Map. Worker-owned once step 5.2b lands.
+
+// The write half of a single-file refresh — the #60 rename straddle around the neutral sink. Extracted
+// (#199 step 5.2b) so the inline `refreshFile` run() (index-worker flag OFF) and the worker's `file`-lane
+// reply handler (flag ON, which posts the parsed session back) share ONE write path.
+//
+// Captures the effective name BEFORE the write so it can tell the renderer when a rename (Claude /rename →
+// JSONL custom-title, promoted via setName inside the sink) actually changed it; without the notify the
+// deferred reindex writes the new name to the DB but the sidebar keeps the old one until an unrelated
+// refresh (#60). The before/after MUST straddle the sink call — the sink is what runs setName now.
+function applyClaudeFileReply(session) {
+  const s = session;
+  const prevName = (getMeta(s.sessionId) || {}).name || null;
+  // Claude prepare + the one neutral sink (metrics 'always'; single-session upsert + FTS + setName).
+  applyIndexResults({ sessions: [stampClaudeProvenance(s)], metricsMode: 'always' });
+  const newName = (getMeta(s.sessionId) || {}).name || null;
+  if (newName !== prevName) notifyRendererProjectsChanged();
+}
 
 // Incremental single-file refresh (perf #1). The projects watcher fires per changed .jsonl; re-indexing
 // just that one file avoids re-enumerating + re-stating the whole folder on every append. The throttled
@@ -326,19 +361,10 @@ function refreshFile(folder, relFilename, opts = {}) {
     // already dropped inside parseClaudeFile. Leave any existing row as-is; the reconcile sweep reconciles
     // genuine losses.
     if (!parsed.session) return;
-    const s = parsed.session;
-    // Capture the effective name BEFORE the write so we can tell the renderer when a rename (Claude
-    // /rename → JSONL custom-title, promoted via setName inside the sink) actually changed it. Without
-    // this notify the deferred reindex writes the new name to the DB but the sidebar keeps the old one
-    // until an unrelated refresh (#60). The before/after MUST straddle the sink call — the sink is what
-    // runs setName now.
-    const prevName = (getMeta(s.sessionId) || {}).name || null;
     const tWrite = startTimer();
-    // Claude prepare + the one neutral sink (metrics 'always'; single-session upsert + FTS + setName).
-    applyIndexResults({ sessions: [stampClaudeProvenance(s)], metricsMode: 'always' });
+    applyClaudeFileReply(parsed.session);
     const writeMs = tWrite();
-    const newName = (getMeta(s.sessionId) || {}).name || null;
-    if (newName !== prevName) notifyRendererProjectsChanged();
+    const s = parsed.session;
     // #199: one line only when this refresh actually stalled (>= 50 ms). The write blocks (upsert +
     // metrics + FTS) are one sink call now, so they are timed together as `write`.
     const totalMs = readMs + writeMs;
@@ -355,6 +381,52 @@ function refreshFile(folder, relFilename, opts = {}) {
   } else {
     scheduleReindex(filePath, run);
   }
+}
+
+// Main-side pre-work for the worker `file` lane (#199 step 5.2b / F2). The watcher hot path's DB half —
+// the enable gate, the removed short-circuit, the vanished-file delete, the up-front folder stamp — that
+// must not lag or cross the thread. It is the top of refreshFile, minus the parse (which parseClaudeFile
+// runs in the worker) and minus the write (applyClaudeFileReply runs on the reply). refreshFile itself
+// stays intact for the flag-OFF path; this is the flag-ON split, so the two share no code but the sink.
+// Returns:
+//   null                                            — fully handled here (disabled / no project / removed /
+//                                                     not a session file); nothing to parse off-thread.
+//   { deletedId }                                   — the file vanished; its row was deleted on main. Main
+//                                                     notes the id for the delete-epoch guard.
+//   { filePath, folder, projectPath, parentSessionId } — post this to the worker to parse + apply.
+function refreshFilePrepare(folder, relFilename) {
+  if (!claudeEnabled()) return null;
+  const folderPath = path.join(PROJECTS_DIR, folder);
+  const rel = relFilename.split(/[\\/]/).filter(Boolean);
+  const inner = rel.slice(1);
+  if (inner.length === 0) return null;
+  const parentSessionId = inner.length >= 2 ? inner[0] : null;
+  const filePath = path.join(PROJECTS_DIR, ...rel);
+
+  const projectPath = folderProjectPath(folder, folderPath);
+  if (!projectPath) return null;
+  if (isRemovedProject(projectPath)) {
+    cancelReindex(filePath);
+    setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+    return null;
+  }
+  if (!fs.existsSync(filePath)) {
+    cancelReindex(filePath);
+    _fileReadState.delete(filePath);
+    const base = path.basename(filePath, '.jsonl');
+    let sessionId = base;
+    if (parentSessionId) {
+      const m = base.match(/^agent-(.+)$/);
+      try { sessionId = claude.subagentSessionId(parentSessionId, m ? m[1] : base); } catch { sessionId = null; }
+    }
+    if (sessionId) applyIndexResults({ deleteIds: [sessionId] });
+    setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+    return { deletedId: sessionId || null };
+  }
+  // Stamp the folder as indexed-as-of-now up front so the reconcile sweep doesn't jump in with a full
+  // refresh while the off-thread read is pending — exactly as refreshFile does inline.
+  setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
+  return { filePath, folder, projectPath, parentSessionId };
 }
 
 /**
@@ -537,6 +609,13 @@ module.exports = {
   flushPendingReindex,
   populateCacheViaWorker,
   terminateScanWorker,
+  // #199 step 5.2b: the shared reply-replay entry points — one implementation the inline path (flag OFF)
+  // and the index worker's reply handler (flag ON) both call.
+  applyClaudeFolderReply,
+  applyClaudeFileReply,
+  refreshFilePrepare,
+  isRemovedProject,
+  claudeEnabled,
   // exposed for the façade's readSessionFile re-export convenience
   claude,
 };

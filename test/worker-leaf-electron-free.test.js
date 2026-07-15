@@ -51,6 +51,15 @@ test('backend-parse (the Axis-B parse leaf) requires cleanly in a worker context
   assert.equal(r.ok, true, `require('backend-parse') threw in a worker: ${r.error}`);
 });
 
+// #199 step 5.2b — the persistent index worker itself must require cleanly off-thread: it pulls the two
+// leaves + the backends registry + the fs-only gate/derive helpers, and NONE may drag in electron. This is
+// the module that actually runs in the Worker, so it is the real precondition; the leaf tests above guard
+// its pieces, this guards the assembled whole.
+test('workers/index-worker (the persistent index worker) requires cleanly in a worker context', async () => {
+  const r = await requireInWorker(abs('workers/index-worker.js'));
+  assert.equal(r.ok, true, `require('workers/index-worker') threw in a worker: ${r.error}`);
+});
+
 // Belt-and-braces: the leaves must NOT drag electron / index-writes / the backends registry into their
 // transitive require graph (the thing that would make the worker require throw once a descriptor regresses).
 // Loaded here in a fresh child require-cache so the main-thread suite's already-warm modules don't mask it.
