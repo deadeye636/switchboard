@@ -1,10 +1,12 @@
 // Claude's folder-driven store indexer, split out of session-cache.js (#199 step 4).
 //
-// This owns the ~/.claude/projects walk: the incremental folder/file refresh (refreshFolder,
-// refreshFile), the reconcile safety-net sweep, the debounced per-file reindex, the per-file
-// retained-parse-state memo, the cold-scan worker, and the Claude `prepare` (stampClaudeProvenance).
-// Every write goes through the neutral sink in index-writes.js — the only backend-shaped step here is
-// stampClaudeProvenance, which runs on main BEFORE the sink.
+// This owns the ~/.claude/projects walk. Since #199 the reconcile safety-net sweep and the watcher's
+// single-file parse run OFF-thread in the persistent index worker; what remains here is the SYNCHRONOUS
+// per-folder refresh (`refreshFolder`, still used by projects.js register/bring-back + remap), the
+// worker's main-side pre-work + reply replay (`refreshFilePrepare`, `applyClaudeFolderReply`,
+// `applyClaudeFileReply`), the debounced-reindex primitives, the cold-scan worker, and the Claude
+// `prepare` (stampClaudeProvenance). Every write goes through the neutral sink in index-writes.js — the
+// only backend-shaped step here is stampClaudeProvenance, which runs on main BEFORE the sink.
 //
 // CYCLE GUARD (#199 step-4 footnote): this file sits under backends/claude/ and requires the registry
 // (`../index`) at load to reach Claude's format readers through its descriptor. NOTHING under backends/
@@ -19,7 +21,7 @@ const { deriveProjectPath } = require('../../derive-project-path');
 // #199 step 5.2a (F1/F2): the PURE Claude parse-loops + their shared incremental memo live in the
 // Electron-free leaf folder-parse.js. store-indexer re-imports them so there is ONE implementation the
 // step-5 worker and main both run — no drift. The DB-touching orchestration stays HERE, on main.
-const { parseClaudeFolder, parseClaudeFile, _fileReadState } = require('./folder-parse');
+const { parseClaudeFolder, _fileReadState } = require('./folder-parse');
 const backends = require('../index');
 // Claude's format readers are reached THROUGH its descriptor (#188), not by importing the format
 // modules directly. The registry is fully seeded by the time this module is first required (the façade
@@ -285,9 +287,9 @@ function flushPendingReindex() {
 // parseClaudeFile), the reconcile sweep (via parseClaudeFolder) and the vanished-file delete below all
 // share the ONE `_fileReadState` Map. Worker-owned once step 5.2b lands.
 
-// The write half of a single-file refresh — the #60 rename straddle around the neutral sink. Extracted
-// (#199 step 5.2b) so the inline `refreshFile` run() (index-worker flag OFF) and the worker's `file`-lane
-// reply handler (flag ON, which posts the parsed session back) share ONE write path.
+// The write half of a single-file refresh — the #60 rename straddle around the neutral sink. It is the
+// main-side pre-work + apply for the index worker's `file` lane (the worker parses off-thread and posts the
+// session back; this reads the DB and replays the write). The parse itself is `parseClaudeFile` in the leaf.
 //
 // Captures the effective name BEFORE the write so it can tell the renderer when a rename (Claude /rename →
 // JSONL custom-title, promoted via setName inside the sink) actually changed it; without the notify the
@@ -302,92 +304,11 @@ function applyClaudeFileReply(session) {
   if (newName !== prevName) notifyRendererProjectsChanged();
 }
 
-// Incremental single-file refresh (perf #1). The projects watcher fires per changed .jsonl; re-indexing
-// just that one file avoids re-enumerating + re-stating the whole folder on every append. The throttled
-// folder-level reconcileCacheFromFilesystem sweep stays as the safety net.
-//
-// `relFilename` is the watcher's path relative to PROJECTS_DIR, e.g. "<folder>/<uuid>.jsonl" (top-level)
-// or "<folder>/<uuid>/subagents/<f>.jsonl".
-function refreshFile(folder, relFilename, opts = {}) {
-  if (!claudeEnabled()) return;   // #162 — a disabled backend is not watched, Claude included
-  const folderPath = path.join(PROJECTS_DIR, folder);
-  const rel = relFilename.split(/[\\/]/).filter(Boolean);
-  const inner = rel.slice(1); // path within the folder
-  if (inner.length === 0) return;
-  // Subagent transcripts live one or more levels below <folder>; their parent session UUID is the first
-  // path segment inside the folder.
-  const parentSessionId = inner.length >= 2 ? inner[0] : null;
-  const filePath = path.join(PROJECTS_DIR, ...rel);
-
-  const projectPath = folderProjectPath(folder, folderPath);
-  if (!projectPath) return;
-  // REMOVED project: don't index its folder back into the cache (a hidden one still is — #167).
-  if (isRemovedProject(projectPath)) {
-    cancelReindex(filePath);
-    setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
-    return;
-  }
-
-  if (!fs.existsSync(filePath)) {
-    // Deleted file → drop its row immediately (deletes must not lag), stamping the sessionId the same way
-    // readSessionFile does (top-level = filename; subagent = sub:<parent>:<agentId>).
-    cancelReindex(filePath);
-    _fileReadState.delete(filePath);
-    const base = path.basename(filePath, '.jsonl');
-    let sessionId = base;
-    if (parentSessionId) {
-      const m = base.match(/^agent-(.+)$/);
-      try { sessionId = claude.subagentSessionId(parentSessionId, m ? m[1] : base); } catch { sessionId = null; }
-    }
-    if (sessionId) applyIndexResults({ deleteIds: [sessionId] });
-    setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
-    return;
-  }
-
-  // Stamp the folder as indexed-as-of-now up front (cheap single-row write) so the reconcile sweep
-  // doesn't jump in with a full-folder refresh while the heavy read+FTS is still pending below.
-  setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
-
-  const run = () => {
-    // Incremental hot-path read (perf #74) via the PURE leaf `parseClaudeFile` (#199 step 5.2a / F2): it
-    // reuses the shared retained parse state so only the bytes appended since the last refresh are read,
-    // and manages the memo (remember on a valid read, drop on an invalid one). First touch (or a
-    // rewritten/truncated file) falls back to a full read inside readSessionFileIncremental. The DB half
-    // (removed-check, rename straddle, setFolderMeta, vanished-file delete) stays HERE, on main.
-    const tRead = startTimer();
-    const parsed = parseClaudeFile(filePath, folder, projectPath, { parentSessionId });
-    const readMs = tRead();
-    // null session = file not yet a valid session (no first user turn) or became invalid. The memo was
-    // already dropped inside parseClaudeFile. Leave any existing row as-is; the reconcile sweep reconciles
-    // genuine losses.
-    if (!parsed.session) return;
-    const tWrite = startTimer();
-    applyClaudeFileReply(parsed.session);
-    const writeMs = tWrite();
-    const s = parsed.session;
-    // #199: one line only when this refresh actually stalled (>= 50 ms). The write blocks (upsert +
-    // metrics + FTS) are one sink call now, so they are timed together as `write`.
-    const totalMs = readMs + writeMs;
-    if (log && totalMs >= 50) {
-      log.debug(`[perf] refreshFile ${s.sessionId} ${totalMs.toFixed(0)}ms: read=${readMs.toFixed(0)} write=${writeMs.toFixed(0)}`);
-    }
-  };
-
-  // opts.immediate: skip the reindex debounce and run inline. Used by the Stop-hook fast-path so a
-  // rename shows the instant the turn ends, not after both debounces.
-  if (opts.immediate) {
-    cancelReindex(filePath);
-    run();
-  } else {
-    scheduleReindex(filePath, run);
-  }
-}
-
 // Main-side pre-work for the worker `file` lane (#199 step 5.2b / F2). The watcher hot path's DB half —
 // the enable gate, the removed short-circuit, the vanished-file delete, the up-front folder stamp — that
-// must not lag or cross the thread. It is the top of refreshFile, minus the parse (which parseClaudeFile
-// runs in the worker) and minus the write (applyClaudeFileReply runs on the reply). refreshFile itself
-// stays intact for the flag-OFF path; this is the flag-ON split, so the two share no code but the sink.
+// must not lag or cross the thread. It is everything a single-file refresh does EXCEPT the parse (which
+// parseClaudeFile runs in the worker) and the write (applyClaudeFileReply runs on the reply). This is the
+// only single-file path now; index-worker-client.postFile calls it before posting the parse off-thread.
 // Returns:
 //   null                                            — fully handled here (disabled / no project / removed /
 //                                                     not a session file); nothing to parse off-thread.
@@ -429,58 +350,12 @@ function refreshFilePrepare(folder, relFilename) {
   return { filePath, folder, projectPath, parentSessionId };
 }
 
-/**
- * Reconcile the cache with the filesystem.
- *
- * Re-indexes only folders that are new or whose newest .jsonl is newer than what we last indexed — a
- * cheap, stat-only gate when nothing changed. This is what keeps sessions from silently going missing.
- *
- * Rate-limited: the live watcher catches real-time changes, so this safety-net sweep only needs to run
- * occasionally. The throttle skips the redundant double-call per sidebar paint.
- */
-const RECONCILE_THROTTLE_MS = 5000;
-let lastReconcileAt = 0;
-
-function reconcileCacheFromFilesystem() {
-  const now = Date.now();
-  if (now - lastReconcileAt < RECONCILE_THROTTLE_MS) return false;
-  lastReconcileAt = now;
-  // #199 step 2: prove the sweep no longer full-reads changed files. Same [perf]-debug style as e7450cb.
-  const stats = { foldersScanned: 0, foldersTripped: 0, filesFull: 0, filesIncremental: 0, bytes: 0, gateMs: 0 };
-  const elapsed = startTimer();
-  let changed = false;
-  try {
-    const metaMap = getAllFolderMeta();
-    const folders = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
-      .filter(d => d.isDirectory() && d.name !== '.git')
-      .map(d => d.name);
-    stats.foldersScanned = folders.length;
-
-    for (const folder of folders) {
-      const meta = metaMap.get(folder);
-      const folderPath = path.join(PROJECTS_DIR, folder);
-      // One readdir+stat pass per folder per sweep: the gate value is handed to refreshFolder for its
-      // final stamp instead of being recomputed there. `getFolderIndexMtimeMs` recurses into subagent
-      // dirs (#199 step 2), so this stat walk runs UNCONDITIONALLY for every folder every tick; `gateMs`
-      // measures it. Step 5 (the off-thread index worker) is what actually removes it.
-      const gt = startTimer();
-      const indexMtimeMs = getFolderIndexMtimeMs(folderPath);
-      stats.gateMs += gt();
-      if (!meta || indexMtimeMs > (meta.indexMtimeMs || 0)) {
-        stats.foldersTripped++;
-        if (refreshFolder(folder, { indexMtimeMs, stats })) changed = true;
-      }
-    }
-  } catch (err) {
-    console.error('Error reconciling cache:', err);
-  }
-  // Log when a folder tripped (the read cost) OR when the gate walk itself was slow on an idle store.
-  if (log && (stats.foldersTripped > 0 || stats.gateMs > 25)) {
-    const ms = elapsed();
-    log.debug(`[perf] reconcile ${ms.toFixed(0)}ms: scanned=${stats.foldersScanned} tripped=${stats.foldersTripped} gate=${stats.gateMs.toFixed(0)} full=${stats.filesFull} incr=${stats.filesIncremental} bytes=${stats.bytes}`);
-  }
-  return changed;
-}
+// The reconcile safety-net sweep (folder gate walk + per-folder refresh) moved OFF the main thread into the
+// persistent index worker (#199 — workers/index-worker.js runClaudeReconcile + the shared
+// applyClaudeFolderReply). Main no longer walks the store inline; index-worker-client.postReconcile drives
+// it. The per-folder `refreshFolder` above stays for the SYNCHRONOUS project-management refreshes
+// (projects.js register/bring-back + remap), which need a folder re-read to have happened before they
+// return — something the async worker sweep does not provide.
 
 // --- Worker-based cache population (Claude cold scan) ---
 // Returns a Promise that resolves when the in-flight scan finishes. Concurrent callers share the same
@@ -602,15 +477,13 @@ module.exports = {
   readFolderFromFilesystem,
   folderProjectPath,
   refreshFolder,
-  refreshFile,
-  reconcileCacheFromFilesystem,
   scheduleReindex,
   cancelReindex,
   flushPendingReindex,
   populateCacheViaWorker,
   terminateScanWorker,
-  // #199 step 5.2b: the shared reply-replay entry points — one implementation the inline path (flag OFF)
-  // and the index worker's reply handler (flag ON) both call.
+  // #199: the reply-replay entry points — the index worker's reply handler and the synchronous
+  // refreshFolder both call these, so there is ONE apply implementation, no drift.
   applyClaudeFolderReply,
   applyClaudeFileReply,
   refreshFilePrepare,

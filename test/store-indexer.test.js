@@ -6,6 +6,8 @@ const os = require('os');
 const path = require('path');
 
 const sessionCache = require('../session-cache');
+const storeIndexer = require('../backends/claude/store-indexer');
+const { parseClaudeFile } = require('../backends/claude/folder-parse');
 const backends = require('../backends');
 const sessionBackends = require('../session-backends');
 const { encodeProjectPath } = require('../encode-project-path');
@@ -188,35 +190,40 @@ test('a vanished folder does the scoped deleteCachedFolder WITHOUT deleteSearchF
   } finally { cleanup(w); }
 });
 
-// --- 3. cancelReindex — the sweep cancels a pending debounced refreshFile for a file it re-read ---
-test('refreshFolder cancels the pending debounced reindex for a file it re-read (no double read)', (t) => {
+// --- 3. cancelReindex — the folder sweep cancels a pending debounced reindex for a file it re-read ---
+// #199 CLEANUP: the inline refreshFile that used to SCHEDULE the debounce moved off-thread, but the cancel
+// side survives on main: applyClaudeFolderReply cancels the pending reindex for every file the sweep
+// re-read (reply.reReadFiles → cancelReindex). Drive that directly: arm a debounce via the exported
+// scheduleReindex, then let refreshFolder re-read the file and assert the debounce was cancelled.
+test('the folder sweep cancels a pending debounced reindex for a file it re-read (no double read)', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const w = setup();
   const id = 'cccccccc-0000-4000-8000-000000000003';
   try {
     writeClaudeSession(w.projectsDir, w.folder, w.projectCwd, id);
-    const rel = w.folder + '/' + id + '.jsonl';
     const filePath = path.join(w.projectsDir, w.folder, id + '.jsonl');
 
-    // Watcher path: schedule a debounced reindex for this file (run() not yet executed).
-    sessionCache.refreshFile(w.folder, rel);
+    // A pending debounced reindex for this file (what the watcher hot path arms).
+    let ran = 0;
+    storeIndexer.scheduleReindex(filePath, () => { ran++; });
     assert.equal(w.db._rec.upsertIds.filter(x => x === id).length, 0, 'the debounce has not upserted yet');
 
     // The sweep re-reads the whole folder — reads this file and must cancel the pending debounce for it.
     sessionCache.refreshFolder(w.folder);
     assert.equal(w.db._rec.upsertIds.filter(x => x === id).length, 1, 'the sweep read + upserted the file once');
 
-    // Append MORE bytes: if the debounce were NOT cancelled, its run() would now fire and read+upsert again.
-    fs.appendFileSync(filePath, JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'more' } }) + '\n', 'utf8');
+    // If the debounce were NOT cancelled, its run() would fire on the next tick.
     t.mock.timers.tick(5000);
-
-    assert.equal(w.db._rec.upsertIds.filter(x => x === id).length, 1,
+    assert.equal(ran, 0,
       'the pending debounce was cancelled by the sweep — no second read (the #199 double-read)');
   } finally { cleanup(w); t.mock.timers.reset(); }
 });
 
 // --- 4. rename straddle (#60): notify on a real rename, NOT on a body-only append ---
-test('refreshFile notifies the renderer on a real /rename but not on a body-only change (#60 straddle)', () => {
+// #199 CLEANUP: the #60 straddle lives in applyClaudeFileReply (the worker's file-lane reply handler and
+// the surviving single-file write path both call it). Drive it via the pure parseClaudeFile leaf + the
+// apply helper — exactly the pair the worker path runs.
+test('applyClaudeFileReply notifies the renderer on a real /rename but not on a body-only change (#60 straddle)', () => {
   const pushed = [];
   const w = setup({ pushed });
   const id = 'dddddddd-0000-4000-8000-000000000004';
@@ -224,21 +231,26 @@ test('refreshFile notifies the renderer on a real /rename but not on a body-only
     const filePath = writeClaudeSession(w.projectsDir, w.folder, w.projectCwd, id, [
       JSON.stringify({ type: 'custom-title', customTitle: 'First name' }),
     ]);
+    const reindex = () => {
+      const parsed = parseClaudeFile(filePath, w.folder, w.projectCwd, { parentSessionId: null });
+      if (parsed.session) storeIndexer.applyClaudeFileReply(parsed.session);
+    };
+
     // Initial index — sets the name for the first time (null -> "First name").
-    sessionCache.refreshFile(w.folder, w.folder + '/' + id + '.jsonl', { immediate: true });
+    reindex();
     const afterInitial = pushed.filter(c => c === 'projects-changed').length;
     assert.ok(afterInitial >= 1, 'first index establishes the name and pushes');
 
     // A real rename: the /title custom-title changes.
     fs.appendFileSync(filePath, JSON.stringify({ type: 'custom-title', customTitle: 'Renamed' }) + '\n', 'utf8');
-    sessionCache.refreshFile(w.folder, w.folder + '/' + id + '.jsonl', { immediate: true });
+    reindex();
     const afterRename = pushed.filter(c => c === 'projects-changed').length;
     assert.equal(afterRename, afterInitial + 1, 'a real rename straddle notifies the renderer');
     assert.equal((w.db._meta.get(id) || {}).name, 'Renamed', 'and the new name was written');
 
     // A body-only change: a message append, same title -> the effective name is unchanged -> NO notify.
     fs.appendFileSync(filePath, JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'body only' } }) + '\n', 'utf8');
-    sessionCache.refreshFile(w.folder, w.folder + '/' + id + '.jsonl', { immediate: true });
+    reindex();
     const afterBody = pushed.filter(c => c === 'projects-changed').length;
     assert.equal(afterBody, afterRename, 'a body-only change must NOT fire the rename notify');
   } finally { cleanup(w); }

@@ -12,9 +12,8 @@
 // and the backends registry (verified to pull no electron at load, #199 precondition). NO electron, NO DB,
 // NO index-writes.
 //
-// It is gated behind an env flag DEFAULT OFF in 5.2b (main only spawns it when SWITCHBOARD_INDEX_WORKER=1);
-// 5.3 flips the flag on and measures. Flag OFF, main runs the identical pure loops inline and this file is
-// never loaded.
+// This is the ONE runtime path (#199): the env flag that used to gate it, and the inline parse loops main
+// ran when it was off, were removed once the worker was validated in a live install. Main always spawns it.
 //
 // Protocol (see index-worker-client.js on the main side for the mirror image):
 //   IN  reconcile{reqId, roster, roots, folderMeta, removedSet, snapshot}  — the periodic sweep

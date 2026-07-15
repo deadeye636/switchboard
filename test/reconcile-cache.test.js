@@ -115,7 +115,12 @@ test('the get-projects handler does no filesystem reconcile inline', () => {
   assert.ok(/queueIndexSweep\(\)/.test(body), 'get-projects defers repair work to the coalesced sweep');
 });
 
-test('reconcileCacheFromFilesystem indexes new and stale folders but skips up-to-date ones', () => {
+// #199 CLEANUP: the reconcile safety-net sweep moved OFF the main thread into workers/index-worker.js
+// (runClaudeReconcile). The gate — re-read a folder that is new or whose newest .jsonl beat what was last
+// indexed, skip an up-to-date one — is the same behaviour reconcileCacheFromFilesystem used to guard; it is
+// now asserted directly against the worker's pure sweep (fs-only, no DB).
+test('the reconcile gate re-reads new and stale folders but skips up-to-date ones (off-thread sweep)', () => {
+  const iw = require('../workers/index-worker');
   const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-reconcile-'));
   try {
     // never-indexed (no meta), stale (meta older than disk), and up-to-date folders
@@ -123,27 +128,25 @@ test('reconcileCacheFromFilesystem indexes new and stale folders but skips up-to
     writeSession(path.join(projectsDir, 'proj-stale'), '/tmp/proj-stale');
     writeSession(path.join(projectsDir, 'proj-current'), '/tmp/proj-current');
 
-    const metaMap = new Map();
-    metaMap.set('proj-stale', { folder: 'proj-stale', projectPath: '/tmp/proj-stale', indexMtimeMs: 0 });
-    metaMap.set('proj-current', {
-      folder: 'proj-current', projectPath: '/tmp/proj-current',
-      indexMtimeMs: getFolderIndexMtimeMs(path.join(projectsDir, 'proj-current')),
+    const folderMeta = {
+      'proj-stale': { projectPath: '/tmp/proj-stale', indexMtimeMs: 0 },
+      'proj-current': {
+        projectPath: '/tmp/proj-current',
+        indexMtimeMs: getFolderIndexMtimeMs(path.join(projectsDir, 'proj-current')),
+      },
+    };
+
+    const out = iw.runClaudeReconcile({
+      roots: { claude: projectsDir }, folderMeta, removedSet: [],
+      snapshot: { claudeByFolder: {} }, force: false,
     });
+    const tripped = out.map(o => o.folder);
 
-    const fake = makeFakeDb(metaMap);
-    sessionCache.init({
-      PROJECTS_DIR: projectsDir,
-      activeSessions: new Map(),
-      getMainWindow: () => null,
-      log: console,
-      db: fake.db,
-    });
-
-    sessionCache.reconcileCacheFromFilesystem();
-
-    assert.ok(fake.indexedFolders.has('proj-new'), 'new folder should be indexed');
-    assert.ok(fake.indexedFolders.has('proj-stale'), 'stale folder (older indexMtimeMs) should be re-indexed');
-    assert.ok(!fake.indexedFolders.has('proj-current'), 'up-to-date folder should be skipped');
+    assert.ok(tripped.includes('proj-new'), 'new folder should trip the gate and be re-read');
+    assert.ok(tripped.includes('proj-stale'), 'stale folder (older indexMtimeMs) should trip the gate');
+    assert.ok(!tripped.includes('proj-current'), 'up-to-date folder should be skipped');
+    // each re-read folder parsed its one session (the reply main would apply)
+    for (const { reply } of out) assert.equal(reply.sessions.length, 1, 'a re-read folder parses its session');
   } finally {
     fs.rmSync(projectsDir, { recursive: true, force: true });
   }

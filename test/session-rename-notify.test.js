@@ -5,11 +5,19 @@ const os = require('os');
 const path = require('path');
 
 const sessionCache = require('../session-cache');
+const storeIndexer = require('../backends/claude/store-indexer');
+const { parseClaudeFile } = require('../backends/claude/folder-parse');
 
 // #60: a rename (Claude /rename -> JSONL custom-title, promoted via setName) must
-// notify the renderer, else the sidebar keeps showing the old name. The immediate
-// refresh path (used by the Stop-hook fast-path) runs the reindex inline, so these
-// assertions are synchronous.
+// notify the renderer, else the sidebar keeps showing the old name.
+//
+// #199 CLEANUP: the single-file parse moved off-thread, so the on-thread flow is now the pure parse leaf
+// (parseClaudeFile) + the shared apply helper (applyClaudeFileReply) — the exact pair the worker's file
+// lane runs. `reindex` drives that synchronously, so these assertions stay synchronous.
+function reindex(folder, filePath, projectPath) {
+  const parsed = parseClaudeFile(filePath, folder, projectPath, { parentSessionId: null });
+  if (parsed.session) storeIndexer.applyClaudeFileReply(parsed.session);
+}
 
 function writeSession(folderPath, cwd, { customTitle } = {}) {
   fs.mkdirSync(folderPath, { recursive: true });
@@ -48,12 +56,12 @@ test('rename fires projects-changed on first index, then stays quiet when unchan
     });
 
     // First immediate refresh: name goes null -> "Renamed_A" -> must notify.
-    sessionCache.refreshFile(folder, folder + '/session.jsonl', { immediate: true });
+    reindex(folder, path.join(projectsDir, folder, 'session.jsonl'), '/tmp/proj');
     assert.equal(names.get('session'), 'Renamed_A', 'custom-title promoted to session_meta.name');
     assert.equal(sends.filter(c => c === 'projects-changed').length, 1, 'rename must notify the renderer');
 
     // Second immediate refresh, nothing changed: must NOT notify again.
-    sessionCache.refreshFile(folder, folder + '/session.jsonl', { immediate: true });
+    reindex(folder, path.join(projectsDir, folder, 'session.jsonl'), '/tmp/proj');
     assert.equal(sends.filter(c => c === 'projects-changed').length, 1, 'no rename → no extra notify');
   } finally {
     fs.rmSync(projectsDir, { recursive: true, force: true });
@@ -88,12 +96,12 @@ test('a later /rename to a new title notifies again', () => {
       },
     });
 
-    sessionCache.refreshFile(folder, folder + '/session.jsonl', { immediate: true });
+    reindex(folder, path.join(projectsDir, folder, 'session.jsonl'), '/tmp/proj');
     assert.equal(sends.filter(c => c === 'projects-changed').length, 1);
 
     // User renames again → new custom-title in the JSONL.
     writeSession(folderPath, '/tmp/proj', { customTitle: 'Second' });
-    sessionCache.refreshFile(folder, folder + '/session.jsonl', { immediate: true });
+    reindex(folder, path.join(projectsDir, folder, 'session.jsonl'), '/tmp/proj');
 
     assert.equal(names.get('session'), 'Second');
     assert.equal(sends.filter(c => c === 'projects-changed').length, 2, 'new title must notify again');
@@ -138,14 +146,14 @@ test('a body change with an unchanged name writes but does NOT re-notify (#60 th
     });
 
     // First index: null → "Stable" notifies once.
-    sessionCache.refreshFile(folder, folder + '/session.jsonl', { immediate: true });
+    reindex(folder, path.join(projectsDir, folder, 'session.jsonl'), '/tmp/proj');
     assert.equal(sends.filter(c => c === 'projects-changed').length, 1);
     const upsertsAfterFirst = upserts;
 
     // Append a body line, keep the SAME custom-title. The sink must still write (upsert runs)...
     fs.appendFileSync(path.join(folderPath, 'session.jsonl'),
       JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'more output' } }) + '\n', 'utf8');
-    sessionCache.refreshFile(folder, folder + '/session.jsonl', { immediate: true });
+    reindex(folder, path.join(projectsDir, folder, 'session.jsonl'), '/tmp/proj');
 
     assert.ok(upserts > upsertsAfterFirst, 'the body change is written through the sink');
     assert.equal(names.get('session'), 'Stable');

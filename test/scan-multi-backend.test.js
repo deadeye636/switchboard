@@ -361,10 +361,10 @@ test('a disabled backend is never scanned but keeps its cached rows', () => {
     assert.ok(!w.db._cache.has('cccccccc-0000-4000-8000-000000000003'), 'the disabled backend\'s store is not indexed');
     assert.ok(w.db._cache.has('bbbbbbbb-0000-4000-8000-000000000002'), 'disable != erase — existing rows survive');
 
-    // ...and refreshAllBackendSessions skips it too.
-    fakeDiscoverCalls = 0;
-    const all = sessionCache.refreshAllBackendSessions();
-    assert.ok(!('codex' in all), 'disabled backend not swept');
+    // ...and the off-thread sweep skips it too: postReconcile scans only the axisBRoster, and a disabled
+    // backend is filtered out of that roster (the same ready+enabled gate refreshAllBackendSessions applied).
+    assert.ok(!require('../backend-scan').axisBRoster().includes('codex'),
+      'disabled backend is not in the worker sweep roster');
   } finally { cleanup(w); }
 });
 

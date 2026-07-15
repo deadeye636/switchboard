@@ -7,9 +7,9 @@
 //
 //   index-writes.js            — the ONE backend-neutral write sink + buildSearchEntry + claudeStoreScope
 //                                 + the cross-sweep scan-state + the renderer-push helpers (the LEAF).
-//   backends/claude/store-indexer.js — Claude's folder-driven store walk (refreshFolder/refreshFile/
-//                                 reconcile/cold-scan + the Claude `prepare`, stampClaudeProvenance).
-//   backend-scan.js            — the generic Axis-B store scanner (refreshBackendSessions et al.).
+//   backends/claude/store-indexer.js — Claude's folder-driven store walk (refreshFolder + the worker's
+//                                 apply/prepare + cold-scan; the reconcile sweep now runs off-thread).
+//   backend-scan.js            — the generic Axis-B store scanner (refreshBackendSessions + the apply/roster).
 //   projects-view.js           — the sidebar/admin view builders + the auto-hide predicate.
 //
 // `init` must keep tolerating a PARTIAL ctx (tests init with subsets — every ctx.db.* read is guarded at
@@ -43,15 +43,12 @@ module.exports = {
   readSessionFile: claude.readSessionFile,
   readFolderFromFilesystem: storeIndexer.readFolderFromFilesystem,
   refreshFolder: storeIndexer.refreshFolder,
-  refreshFile: storeIndexer.refreshFile,
   resolveRowFilePath: storeIndexer.resolveRowFilePath,
-  reconcileCacheFromFilesystem: storeIndexer.reconcileCacheFromFilesystem,
   flushPendingReindex: storeIndexer.flushPendingReindex,
   populateCacheViaWorker: storeIndexer.populateCacheViaWorker,
   terminateScanWorker: storeIndexer.terminateScanWorker,
   // --- generic Axis-B store scan (backend-scan.js) ---
   refreshBackendSessions: backendScan.refreshBackendSessions,
-  refreshAllBackendSessions: backendScan.refreshAllBackendSessions,
   // --- neutral write sink + shared scan-state (index-writes.js) ---
   // Exposed so the IPC handlers that delete a folder's rows (remove-project, delete-project-sessions,
   // delete-worktree) can scope the delete exactly like the scanner does — a project folder key is shared

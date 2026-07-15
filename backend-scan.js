@@ -178,29 +178,15 @@ function applyBackendReply(backendId, reply, { cached = [], stats = {}, dropIds 
   return stats;
 }
 
-/**
- * Rescan every ready+enabled backend that owns its store (i.e. everything except Claude/Axis-A).
- *
- * `force` re-parses every session even if its change marker says nothing moved. That is what "Rebuild
- * session cache" means: the whole point of the action is that a cached row is WRONG, and a wrong row's
- * marker matches happily.
- */
-function refreshAllBackendSessions({ force = false } = {}) {
-  const out = {};
-  let list;
-  try { list = backends.list(); } catch { return out; }
-  for (const b of list) {
-    if (b.status !== 'ready' || !b.enabled) continue;
-    if (b.id === 'claude' || b.isProfile) continue;
-    out[b.id] = refreshBackendSessions(b.id, { force });
-  }
-  return out;
-}
+// The "rescan every ready+enabled backend" sweep (refreshAllBackendSessions) moved OFF the main thread into
+// the persistent index worker (#199): postReconcile posts the `axisBRoster` below and the worker scans each
+// backend, incl. the `force` re-read behind "Rebuild session cache". `refreshBackendSessions` (above) stays
+// for the SYNCHRONOUS per-backend refresh the backend-store watcher (main.js) still does on a store change.
 
 // The Axis-B backends the index worker should scan: every ready+enabled backend that owns its OWN store
 // (i.e. not Claude, not an Axis-A profile, and shaped like a scannable store). This is what main posts as
 // the `roster` so the worker never calls `backends.list()` (B-1: in a worker `backendEnabled` is empty, so
-// list() would fall back to Claude-only). Same filter refreshAllBackendSessions applies inline.
+// list() would fall back to Claude-only). This is the ready+enabled filter the reconcile sweep applies.
 function axisBRoster() {
   let list;
   try { list = backends.list(); } catch { return []; }
@@ -213,7 +199,6 @@ function axisBRoster() {
 module.exports = {
   init,
   refreshBackendSessions,
-  refreshAllBackendSessions,
   cachedRowsOfBackend,
   storeExists,
   // #199 step 5.2b: shared reply-replay + the roster main posts to the worker.

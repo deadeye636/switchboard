@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('api', {
   deleteWorkFile: (filePath) => ipcRenderer.invoke('delete-work-file', filePath),
   getProjects: (showArchived) => ipcRenderer.invoke('get-projects', showArchived),
   rebuildCache: () => ipcRenderer.invoke('rebuild-cache'),
+  indexWorkerStatus: () => ipcRenderer.invoke('index-worker-status'),
   // Multi-LLM backends + user Axis-A profiles (Phase 1 T-1.5, Phase 2 T-2.1).
   backends: {
     list: () => ipcRenderer.invoke('backends-list'),

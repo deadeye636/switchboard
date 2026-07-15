@@ -5,13 +5,13 @@
 // request snapshot, and the DB writes that replay each reply through the one neutral sink. Main is the sole
 // writer; the worker is the sole parser.
 //
-// GATED behind an env flag DEFAULT OFF (SWITCHBOARD_INDEX_WORKER=1). Flag OFF, main never requires this
-// module and runs the pure loops inline (byte-identical to today). Flag ON, the reconcile / file / rebuild
+// This is the ONE runtime path (#199): the env flag that used to gate it (and the inline parse loops it
+// duplicated) were removed once the worker was validated in a live install. The reconcile / file / rebuild
 // paths post a request here instead of parsing on the UI thread.
 //
-// The reply-apply is the SAME code the inline path runs: store-indexer.applyClaudeFolderReply /
+// The reply-apply is the SAME code a synchronous refresh runs: store-indexer.applyClaudeFolderReply /
 // applyClaudeFileReply and backend-scan.applyBackendReply — the reply the worker posts is byte-identical to
-// what the pure loop returns on-thread, so there is one replay, no drift.
+// what the pure parse-loop returns on-thread, so there is one replay, no drift.
 
 'use strict';
 
@@ -380,6 +380,9 @@ module.exports = {
   postFile,
   postRootCacheReset,
   noteDeleted,
+  // Renderer-reachable status for verifying the off-thread path is live (#199 — DevTools:
+  // `await window.api.indexWorkerStatus()`). `alive` = the worker thread is spawned.
+  status: () => ({ alive: worker !== null, pending: pending.size }),
   // exposed for tests: a transport seam (drive without spawning a real Worker) + the reply handler, so the
   // appQuitting + delete-epoch guards can be exercised deterministically in `node --test`.
   buildSnapshot,

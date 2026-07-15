@@ -96,10 +96,11 @@ test('a spawned worker answers a file request with {session, sessionId}', async 
   }
 });
 
-// The core "worker == inline" guarantee: drive the SAME fixture store through (a) the inline
-// sessionCache.reconcileCacheFromFilesystem and (b) the worker's runClaudeReconcile + the shared
-// applyClaudeFolderReply, each against its own fake DB, and assert the upserted rows match.
-test('the worker reply reconstructs the same rows the inline path writes', () => {
+// The core "worker == synchronous refresh" guarantee: drive the SAME fixture store through (a) the
+// synchronous per-folder sessionCache.refreshFolder (the on-thread path projects.js still uses) and (b) the
+// worker's runClaudeReconcile + the shared applyClaudeFolderReply, each against its own fake DB, and assert
+// the upserted rows match.
+test('the worker reply reconstructs the same rows the synchronous refresh writes', () => {
   const sessionCache = require('../session-cache');
   const storeIndexer = require('../backends/claude/store-indexer');
   const iw = require('../workers/index-worker');
@@ -129,10 +130,10 @@ test('the worker reply reconstructs the same rows the inline path writes', () =>
       };
     }
 
-    // (a) inline
+    // (a) synchronous per-folder refresh (the on-thread path that survives the #199 cleanup)
     const inlineDb = makeDb();
     sessionCache.init({ PROJECTS_DIR: projectsDir, activeSessions: new Map(), getMainWindow: () => null, log: console, db: inlineDb.db });
-    sessionCache.reconcileCacheFromFilesystem();
+    for (const folder of fs.readdirSync(projectsDir)) sessionCache.refreshFolder(folder);
 
     // (b) worker leaf + the shared apply, against a fresh fake DB (re-init points the sink at it)
     const workerDb = makeDb();

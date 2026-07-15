@@ -510,7 +510,9 @@ function createWindow() {
     const shiftAllowedForPlus = !input.shift || input.code === 'Equal';
 
     if (key === 'f12' || (primary && input.shift && key === 'i')) {
-      wc.toggleDevTools();
+      // Open DevTools in a SEPARATE (detached) window, not docked to the app.
+      if (wc.isDevToolsOpened()) wc.closeDevTools();
+      else wc.openDevTools({ mode: 'detach' });
       event.preventDefault();
     } else if (key === 'f11') {
       mainWindow.setFullScreen(!mainWindow.isFullScreen());
@@ -743,36 +745,37 @@ sessionCache.init({
     getProjectMeta, getProjectStates,
   },
 });
-const { readSessionFile, readFolderFromFilesystem, refreshFolder, refreshFile, reconcileCacheFromFilesystem,
-        buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide, notifyRendererProjectsChanged, sendStatus, populateCacheViaWorker,
-        refreshAllBackendSessions } = sessionCache;
+const { readSessionFile, readFolderFromFilesystem, refreshFolder,
+        buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide, notifyRendererProjectsChanged, sendStatus,
+        populateCacheViaWorker } = sessionCache;
 const { resolveJsonlPath, PARSER_SCHEMA_VERSION: CLAUDE_PARSER_VERSION } = require('./backends/claude/session-reader');
 
-// #199 step 5.2b — the off-thread index worker, behind an env flag DEFAULT OFF. Flag OFF (the default) is
-// today's inline path, byte-identical: `indexWorker` is null and every scan call site below takes the same
-// branch it always did. Flag ON spawns the persistent worker once and posts reconcile / file / rebuild
-// requests to it instead of parsing on the UI thread; the reply is applied through the same neutral sink.
-// 5.3 flips the default on and A/B-measures the clone+IPC cost against the removed gate walk.
-const INDEX_WORKER_ENABLED = process.env.SWITCHBOARD_INDEX_WORKER === '1';
-const indexWorker = INDEX_WORKER_ENABLED ? require('./index-worker-client') : null;
-if (indexWorker) {
-  indexWorker.init({
-    PROJECTS_DIR,
-    log,
-    db: { getAllCached, getAllFolderMeta, setFolderMeta },
-    isAppQuitting: () => appQuitting,
-    // The post-sweep upkeep main owns — the same three steps queueIndexSweep runs after the inline sweep.
-    afterReconcile: () => {
-      try { projects.syncRegistry(); } catch (err) { log.warn('[registry] sync failed:', err?.message || err); }
-      try { projects.applyAutoHide(); } catch (err) { log.warn('[auto-hide] failed:', err?.message || err); }
-      notifyRendererProjectsChanged();
-    },
-    // A per-file apply (watcher hot path) pushes projects-changed so the sidebar learns of a new/updated
-    // session — the flag-OFF path gets this from the watcher's flush; here it rides each file reply.
-    onFileApplied: () => notifyRendererProjectsChanged(),
-  });
-  log.info('[index-worker] enabled (SWITCHBOARD_INDEX_WORKER=1) — parse runs off-thread');
-}
+// #199 — the off-thread index worker is the ONE runtime path. The SWITCHBOARD_INDEX_WORKER flag and the
+// inline parse orchestration it used to gate were removed once the worker was validated in a live install
+// (commit 6605aef is the pre-worker fallback in git history). The worker is spawned once and every
+// reconcile / file / rebuild request is posted to it instead of parsing on the UI thread; the reply is
+// applied on main through the one neutral sink. One parser (the worker), one writer (main).
+const indexWorker = require('./index-worker-client');
+indexWorker.init({
+  PROJECTS_DIR,
+  log,
+  db: { getAllCached, getAllFolderMeta, setFolderMeta },
+  isAppQuitting: () => appQuitting,
+  // The post-sweep upkeep main owns — the same three steps that used to run after the inline sweep.
+  afterReconcile: () => {
+    try { projects.syncRegistry(); } catch (err) { log.warn('[registry] sync failed:', err?.message || err); }
+    try { projects.applyAutoHide(); } catch (err) { log.warn('[auto-hide] failed:', err?.message || err); }
+    notifyRendererProjectsChanged();
+  },
+  // A per-file apply (watcher hot path) pushes projects-changed so the sidebar learns of a new/updated
+  // session; it rides each file reply (coalesced in the client).
+  onFileApplied: () => notifyRendererProjectsChanged(),
+});
+
+// Renderer-reachable status for verifying the off-thread path is live (#199). DevTools console:
+//   await window.api.indexWorkerStatus()   ->  { alive: true, pending: <n> }
+// `alive` is whether the worker thread is currently spawned; `pending` the in-flight request count.
+ipcMain.handle('index-worker-status', () => indexWorker.status());
 
 // A bumped Claude parser has to re-read the sessions it changed — and that re-read must happen on the
 // WORKER thread, not here.
@@ -838,12 +841,9 @@ projects.init({
     deleteCachedFolder, deleteSearchFolder,
     // Row-by-row, for the hard delete: a store folder can hold sessions of more than one project (#157),
     // so the folder is the wrong unit to clear the cache by.
-    // Fix 2 (flag ON): note each explicitly-deleted id into the worker's delete-epoch guard first, so an
-    // in-flight reconcile reply can't reverse-resurrect a session removeProject/deleteProjectSessions just
-    // deleted. Flag OFF → indexWorker is null → the raw function is passed (byte-identical).
-    deleteCachedSession: indexWorker
-      ? (id) => { try { indexWorker.noteDeleted(id); } catch {} return deleteCachedSession(id); }
-      : deleteCachedSession,
+    // Note each explicitly-deleted id into the worker's delete-epoch guard first, so an in-flight reconcile
+    // reply can't reverse-resurrect a session removeProject/deleteProjectSessions just deleted.
+    deleteCachedSession: (id) => { try { indexWorker.noteDeleted(id); } catch {} return deleteCachedSession(id); },
     deleteSearchSession,
     getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
     renameProjectRefs, deleteProjectRefs, setFolderMeta, toggleProjectFavorite,
@@ -919,8 +919,8 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
         for (const row of getAllCached()) {
           if (row.projectPath !== normalizedPath) continue;
           if (foreign.has(row.backendId || 'claude')) continue;
-          // Fix 2: stamp the delete-epoch so an in-flight worker reply can't reverse-resurrect this id.
-          if (indexWorker) indexWorker.noteDeleted(row.sessionId);
+          // Stamp the delete-epoch so an in-flight worker reply can't reverse-resurrect this id.
+          indexWorker.noteDeleted(row.sessionId);
           deleteCachedSession(row.sessionId);
           deleteSearchSession(row.sessionId);
           removed++;
@@ -1287,19 +1287,15 @@ ipcMain.handle('rebuild-cache', async () => {
     // that has become a repo since startup (a fresh `git init`, a new worktree) keeps its stale "no root".
     try { require('./derive-project-path')._resetRootCache(); } catch { /* best effort */ }
     // The worker keeps its OWN _rootCache; a rebuild must clear it there too or it keeps stale roots (F4).
-    if (indexWorker) { try { indexWorker.postRootCacheReset(); } catch { /* best effort */ } }
+    try { indexWorker.postRootCacheReset(); } catch { /* best effort */ }
     await populateCacheViaWorker();
     markClaudeParserRead();
     // A rebuild must cover EVERY backend's roots, not just Claude's (T-2.7 + T-4.2) — otherwise
     // "Rebuild session cache" would silently drop the user's Codex/other-backend history. And it must
     // FORCE the re-read: the reason to rebuild is that a row is wrong, and a wrong row's change marker
-    // matches just fine, so the normal (marker-gated) sweep would skip exactly the rows to repair.
-    // Flag ON (B-4): the force re-read becomes an async worker round-trip covering Claude + every backend.
-    if (indexWorker) {
-      try { await indexWorker.postReconcile({ force: true }); } catch (err) { log.warn('[rebuild] worker force reconcile failed:', err?.message || err); }
-    } else {
-      try { refreshAllBackendSessions({ force: true }); } catch (err) { log.warn('[rebuild] backend scan failed:', err?.message || err); }
-    }
+    // matches just fine, so the normal (marker-gated) sweep would skip exactly the rows to repair. The
+    // force re-read is an async worker round-trip covering Claude + every backend.
+    try { await indexWorker.postReconcile({ force: true }); } catch (err) { log.warn('[rebuild] worker force reconcile failed:', err?.message || err); }
     return { ok: true };
   } catch (err) {
     console.error('Error rebuilding cache:', err);
@@ -1325,27 +1321,11 @@ function queueIndexSweep() {
   setImmediate(() => {
     indexSweepQueued = false;
     if (appQuitting) return;
-    // #199 step 5.2b, flag ON: the whole reconcile + backend sweep runs off-thread. postReconcile applies
-    // the reply on the main thread and then runs syncRegistry + applyAutoHide + notify itself (the
-    // `afterReconcile` hook wired at init) — the same three post-sweep steps as below. Nothing to fold
-    // into `changed` here: the push happens inside the apply.
-    if (indexWorker) { indexWorker.postReconcile(); return; }
-
-    let changed = false;
-    // Pick up folders changed while the app was closed, or never indexed by an older build, so
-    // sessions/worktrees don't silently go missing. Stat-gated + throttled, so cheap when idle.
-    try { if (reconcileCacheFromFilesystem()) changed = true; }
-    catch (err) { log.warn('[scan] reconcile failed:', err?.message || err); }
-    // Every non-Claude backend that owns its own session store (T-4.2). Self-gating and mtime-gated.
-    try {
-      const out = refreshAllBackendSessions();
-      for (const id in out) { const s = out[id]; if (s && (s.upserted || s.deleted)) changed = true; }
-    } catch (err) { log.warn('[scan] backend scan failed:', err?.message || err); }
-    // #167 / #57: register newly-seen projects and apply auto-hide. Both self-notify via
-    // 'projects-changed' when they change anything, so they are not folded into `changed` below.
-    try { projects.syncRegistry(); } catch (err) { log.warn('[registry] sync failed:', err?.message || err); }
-    try { projects.applyAutoHide(); } catch (err) { log.warn('[auto-hide] failed:', err?.message || err); }
-    if (changed) notifyRendererProjectsChanged();
+    // The whole reconcile + backend sweep runs off-thread. postReconcile applies the reply on the main
+    // thread and then runs syncRegistry + applyAutoHide + notify itself (the `afterReconcile` hook wired
+    // at init) — nothing to fold in here: the push happens inside the apply. postReconcile also coalesces
+    // a burst of these into one in-flight + one trailing sweep.
+    indexWorker.postReconcile();
   });
 }
 
@@ -2081,10 +2061,9 @@ function persistSettingsBlob(key, value) {
   if (key === 'global') {
     try {
       startBackendWatchers();
-      // Flag ON: the roster the worker scans is recomputed per request, so a full reconcile picks up the
+      // The roster the worker scans is recomputed per request, so a full reconcile picks up the
       // just-enabled/disabled backend; postReconcile pushes projects-changed itself on apply.
-      if (indexWorker) indexWorker.postReconcile();
-      else refreshAllBackendSessions();
+      indexWorker.postReconcile();
       notifyRendererProjectsChanged();
     } catch (err) {
       log.warn('[backends] re-arm after settings change failed:', err?.message || err);
@@ -2572,10 +2551,9 @@ function startAttentionHookServer() {
             if (sess && sess.projectFolder) {
               // relFilename is folder-prefixed (refreshFile strips the first segment).
               const rel = sess.projectFolder + '/' + sessionId + '.jsonl';
-              // Flag ON: the parse runs off-thread, but the reply still jumps the queue (priority lane) so
-              // the rename shows the instant the turn ends — the whole point of the immediate fast-path.
-              if (indexWorker) indexWorker.postFile(sess.projectFolder, rel, { immediate: true });
-              else refreshFile(sess.projectFolder, rel, { immediate: true });
+              // The parse runs off-thread, but the reply still jumps the queue (priority lane) so the
+              // rename shows the instant the turn ends — the whole point of the immediate fast-path.
+              indexWorker.postFile(sess.projectFolder, rel, { immediate: true });
             }
           } catch (err) {
             log.warn(`[attention-hook] fast refresh failed: ${err.message}`);
@@ -4245,44 +4223,32 @@ function startProjectsWatcher() {
     const files = new Map(pendingFiles);
     pendingFiles.clear();
 
-    let changed = false;
-
-    // Per-file refreshes (perf #1): update just the changed transcript(s) instead
-    // of re-scanning the whole folder on every append.
-    // NOTE on the vanished-folder branches below: they must NOT call the raw db deleteCachedFolder.
-    // A project folder key is shared across backends (same cwd -> same project), so an unscoped wipe
-    // would also delete the Codex rows for that project even though nothing happened to Codex's own
-    // store. refreshFolder() detects the missing folder and does a Claude-SCOPED delete instead.
+    // Per-file refreshes (perf #1): update just the changed transcript(s) instead of re-scanning the
+    // whole folder on every append. The projects-changed push rides on each worker reply's apply
+    // (afterReconcile / the file-lane rename notify), so main does not fire it here — it would
+    // double-paint before the apply.
+    // NOTE on the vanished-folder branches below: the worker walks the folder and reports the vanish, and
+    // the reply-apply does a Claude-SCOPED delete — a project folder key is shared across backends (same
+    // cwd -> same project), so an unscoped wipe would also delete the Codex rows for that project.
     for (const [folder, relSet] of files) {
       if (folders.has(folder)) continue; // a full folder refresh below covers it
       const folderPath = path.join(PROJECTS_DIR, folder);
       if (!fs.existsSync(folderPath)) {
-        // Vanished folder: flag ON routes the scoped delete through a reconcile (the worker walks it and
-        // reports the vanish); flag OFF does the inline refreshFolder scoped delete.
-        if (indexWorker) indexWorker.postReconcile(); else refreshFolder(folder);
-        changed = true; continue;
+        // Vanished folder: a reconcile routes the scoped delete (the worker walks it and reports the vanish).
+        indexWorker.postReconcile();
+        continue;
       }
       detectSessionTransitions(folder);
-      // Flag ON: each changed transcript is parsed off-thread (postFile does the DB pre-work on main).
-      if (indexWorker) { for (const rel of relSet) indexWorker.postFile(folder, rel); }
-      else { for (const rel of relSet) refreshFile(folder, rel); }
-      changed = true;
+      // Each changed transcript is parsed off-thread (postFile does the DB pre-work on main).
+      for (const rel of relSet) indexWorker.postFile(folder, rel);
     }
 
-    // Folder-level events (top-level add/remove) → full folder refresh.
+    // Folder-level events (top-level add/remove) → full folder refresh. A reconcile covers both the
+    // present-folder refresh and the scoped delete-when-gone.
     for (const folder of folders) {
       const folderPath = path.join(PROJECTS_DIR, folder);
       if (fs.existsSync(folderPath)) detectSessionTransitions(folder);
-      // Flag ON: a full reconcile covers both the present-folder refresh and the scoped delete-when-gone.
-      if (indexWorker) indexWorker.postReconcile();
-      else refreshFolder(folder); // handles both: refresh when present, scoped delete when gone
-      changed = true;
-    }
-
-    if (changed && !indexWorker) {
-      // Flag ON, the projects-changed push rides on each worker reply's apply (afterReconcile / the
-      // file-lane rename notify), so main does not fire it here — it would double-paint before the apply.
-      notifyRendererProjectsChanged();
+      indexWorker.postReconcile();
     }
   }
 
@@ -4898,10 +4864,10 @@ app.on('will-quit', () => {
   // Terminate an in-flight project scan so a late worker message can't write to
   // the DB after closeDb() ("connection is not open" at shutdown) (issue #76).
   try { sessionCache.terminateScanWorker(); } catch {}
-  // Terminate the persistent index worker (#199 step 5.2b): appQuitting is already set (before-quit), so
-  // the reply handler drops any in-flight reply before applyIndexResults; terminate-then-close accepts the
-  // lost last debounce window (the reconcile catches it next start). Extends the #76/#90 pattern.
-  if (indexWorker) { try { indexWorker.terminate(); } catch {} }
+  // Terminate the persistent index worker (#199): appQuitting is already set (before-quit), so the reply
+  // handler drops any in-flight reply before applyIndexResults; terminate-then-close accepts the lost last
+  // debounce window (the reconcile catches it next start). Extends the #76/#90 pattern.
+  try { indexWorker.terminate(); } catch {}
   // Terminate the search worker gracefully before closing the DB, so the
   // worker's read-only connection is released before the WAL checkpoint.
   // shutdown() suppresses the restart logic before calling terminate().
