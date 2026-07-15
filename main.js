@@ -762,10 +762,13 @@ indexWorker.init({
   db: { getAllCached, getAllFolderMeta, setFolderMeta },
   isAppQuitting: () => appQuitting,
   // The post-sweep upkeep main owns — the same three steps that used to run after the inline sweep.
-  afterReconcile: () => {
+  // syncRegistry + applyAutoHide run every sweep (cheap, idempotent); the projects-changed push is gated on
+  // `changed` so a sweep that moved nothing does not notify (#208 — the Axis-B watcher fires this on every
+  // store change; a busy Codex/Hermes append that the gate skips must not push at the 600 ms watcher cadence).
+  afterReconcile: (changed = true) => {
     try { projects.syncRegistry(); } catch (err) { log.warn('[registry] sync failed:', err?.message || err); }
     try { projects.applyAutoHide(); } catch (err) { log.warn('[auto-hide] failed:', err?.message || err); }
-    notifyRendererProjectsChanged();
+    if (changed) notifyRendererProjectsChanged();
   },
   // A per-file apply (watcher hot path) pushes projects-changed so the sidebar learns of a new/updated
   // session; it rides each file reply (coalesced in the client).
@@ -4462,22 +4465,17 @@ function startBackendWatchers() {
   function flush() {
     debounceTimer = null;
     if (appQuitting) return;
-    const ids = [...pending];
     pending.clear();
-    let changed = false;
-    for (const id of ids) {
-      try {
-        const res = sessionCache.refreshBackendSessions(id);
-        if (res && (res.upserted || res.deleted)) changed = true;
-      } catch (err) {
-        log.warn(`[watch] backend ${id} refresh failed: ${err?.message || err}`);
-      }
-    }
-    // The rollout that just changed is also the busy/idle signal for a live Codex session (T-4.5).
-    // The store that just changed is also the busy/idle signal — and the place a freshly launched
-    // session's real id first appears (T-4.5 / T-5.3). One generic pass covers every such backend.
+    // #208: the per-backend parse moved OFF the main thread. A store change posts a reconcile to the index
+    // worker (it scans the whole ready+enabled Axis-B roster — the sweep is coalesced with the get-projects
+    // sweeps through the same gate). The worker parses; main applies the reply and pushes projects-changed
+    // CONDITIONALLY via afterReconcile. `pending` (which backend changed) is no longer needed to target the
+    // scan — the worker rescans the roster — so it is just reset here.
+    try { indexWorker.postReconcile(); } catch (err) { log.warn(`[watch] backend reconcile post failed: ${err?.message || err}`); }
+    // The store that just changed is also the busy/idle signal — and the place a freshly launched session's
+    // real id first appears (T-4.5 / T-5.3). This reads the live PTY set, NOT a transcript, so it stays
+    // synchronous on main: the spinner must update at once, not after a worker round-trip.
     try { updateBackendLiveStates(); } catch (err) { log.warn(`[backends] live-state update failed: ${err?.message || err}`); }
-    if (changed) notifyRendererProjectsChanged();
   }
 
   function schedule(backendId) {

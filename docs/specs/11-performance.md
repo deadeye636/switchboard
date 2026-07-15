@@ -1,8 +1,9 @@
 # 11 — Performance: keeping the main thread responsive
 
-**Status:** steps 1–5 as-built — the persistent off-thread index worker is now the ONLY scan path (the
-env flag and the inline parse were removed after a live-install validation). Issues [#199] (umbrella),
-[#200] (precondition).
+**Status:** steps 1–5 as-built — the persistent off-thread index worker is now the ONLY scan path, for
+Claude AND for every Axis-B backend (the env flag and the inline parse were removed after a live-install
+validation; the Axis-B store watcher followed in [#208]). Issues [#199] (umbrella), [#200] (precondition),
+[#208] (Axis-B watcher off-thread).
 
 ## The problem
 
@@ -119,16 +120,28 @@ incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`).
 - **RESOLVED by step 5** — the reconcile + parse + the recursive `getFolderIndexMtimeMs` gate walk
   (`gate=214 ms`/tick) no longer run on the main thread; they run in the persistent index worker. The
   `[perf] reconcile … gate=` line is gone from main (main logs `[index-worker] post … postMs~0` instead).
-- **Residual: the Axis-B store watcher still parses on main.** `refreshBackendSessions` is kept for the
-  backend-store watcher (`startBackendWatchers`), which does a synchronous per-backend refresh on a Codex/
-  Hermes/Pi/agy store change — the one on-main parse the worker does not yet own. The reported freeze was
-  Claude high-output (fully off-thread now); the Axis-B watcher is smaller (those stores append less), so
-  this is a follow-up (migrating it to the worker rewrites ~30 `refreshBackendSessions` test assertions).
-- The sweep cadence is a coalesced `setImmediate` fired **after each `get-projects`**, not a wall-clock
-  interval: while active changes are covered by the live watcher, the safety-net reconcile does not fire on
-  its own if the sidebar is never re-fetched. A background interval is a one-line alternative if that gap
-  matters.
-- Steps 4 (module extraction) and 5 (index worker) are not done.
+- **RESOLVED by [#208]** — the Axis-B store watcher no longer parses on main. `startBackendWatchers`'
+  per-store-change flush now posts `indexWorker.postReconcile()` (the worker scans the whole ready+enabled
+  `axisBRoster`, coalesced with the get-projects sweeps through the same gate) instead of the synchronous
+  `refreshBackendSessions`, which was **deleted** — the worker is now the only Axis-B scan path too. The
+  busy/idle spinner (`updateBackendLiveStates`) stays synchronous in the flush: it reads the live PTY set,
+  not a transcript. Two things fell out of making the worker the sole path:
+  - **A data-loss guard.** The worker's discovery-failure catch used to return an EMPTY reply
+    (`incomplete: false`); on the only-scan-path it would let the reconcile delete-diff wipe a backend's
+    entire cached history on one transient error (EMFILE/EACCES, a locked db). It now returns
+    `unreadableBackendReply` (`incomplete: true`) — "could not read", not "empty" — so main keeps the rows,
+    exactly as the old inline early-return did. Guarded by a test.
+  - **Conditional `projects-changed`.** `afterReconcile(changed)` gates the push on whether the sweep moved
+    the cache, restoring the old inline `if (upserted||deleted)` semantics — the watcher is the highest-
+    frequency trigger, and a busy Codex/Hermes append the mtime/marker gate skips must not push at the
+    600 ms watcher cadence.
+- The sweep cadence is a coalesced `setImmediate` fired **after each `get-projects`**, plus the Axis-B
+  watcher's post on a store change — not a wall-clock interval. Active changes are covered by the live
+  watchers; the safety-net reconcile does not fire on its own if the sidebar is never re-fetched AND no
+  store changes. A background interval is a one-line alternative if that gap matters. (Minor: the per-store
+  `[scan] <backend>: N sessions in X ms` timing line went with `refreshBackendSessions` — the aggregate
+  `[index-worker] post reconcile … postMs` covers the hot path; a lost trailing reconcile on a worker crash
+  while the gate is held is re-covered by the next get-projects, not a timer.)
 
 ## Observability — the central perf surface
 

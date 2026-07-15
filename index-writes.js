@@ -156,9 +156,9 @@ function isRemovedProject(projectPath) {
  * Per session it does: buildSearchEntry (a DB read — fine on main, identical for a Hermes/Codex row),
  * upsert, markPersisted (#155 — every write path marked after upsert; do NOT drop it), setName when a
  * customTitle is present (COMMON: Axis-B promotes it too — §5.7 / :862), replaceSessionMetrics per
- * metricsMode, and the FTS delete+reinsert. Search entries are BUILT before setName runs — matching
- * refreshFolder/refreshFile/refreshBackendSessions, whose entries were captured pre-setName in the
- * parse loop; the FTS body is byte-identical whether setName lands before or after, because the search
+ * metricsMode, and the FTS delete+reinsert. Search entries are BUILT before setName runs — matching every
+ * parse path (refreshFolder / the file lane / the Axis-B scan), whose entries were captured pre-setName in
+ * the parse loop; the FTS body is byte-identical whether setName lands before or after, because the search
  * title precedence (name > customTitle) already folds a just-set customTitle back to the same string.
  */
 function applyIndexResults({ sessions = [], wipeFolders = [], deleteIds = [], metricsMode = 'always' } = {}) {

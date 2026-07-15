@@ -328,6 +328,12 @@ function applyReconcileReply(msg, p) {
   const dropIds = dropIdsSince(p.postedSeq);
   const scope = indexWrites.claudeStoreScope();
   const stats = { filesFull: 0, filesIncremental: 0, bytes: 0 };
+  // Did this sweep actually MOVE the cache? The projects-changed push is gated on it (afterReconcile),
+  // preserving the old inline `if (upserted||deleted)` semantics — the Axis-B store watcher now fires this
+  // path on every store change (#208), and a busy Codex/Hermes session that only appends to already-indexed
+  // sessions (mtime/marker gate skips them) must not spam a 600 ms projects-changed cadence. applyClaudeFolderReply
+  // returns whether it changed anything; applyBackendReply reports it via stats.upserted/deleted.
+  let changed = false;
 
   for (const { folder, reply } of msg.claude || []) {
     const cachedMap = (p.retained && p.retained.claude.get(folder)) || new Map();
@@ -341,17 +347,20 @@ function applyReconcileReply(msg, p) {
       folderDrop = new Set(dropIds);
       for (const s of reply.sessions || []) if (s && s.sessionId) folderDrop.add(s.sessionId);
     }
-    storeIndexer.applyClaudeFolderReply(folder, reply, { scope, cachedMap, stats, dropIds: folderDrop });
+    if (storeIndexer.applyClaudeFolderReply(folder, reply, { scope, cachedMap, stats, dropIds: folderDrop })) changed = true;
   }
 
   for (const { backendId, reply, storeMissing } of msg.backends || []) {
-    if (storeMissing) continue;   // mirror refreshBackendSessions' early return — keep the cached rows
+    if (storeMissing) continue;   // the store-not-found guard — keep the cached rows, reconcile nothing
     const cached = (p.retained && p.retained.backends.get(backendId)) || [];
-    backendScan.applyBackendReply(backendId, reply, { cached, stats: {}, dropIds });
+    const bStats = {};
+    backendScan.applyBackendReply(backendId, reply, { cached, stats: bStats, dropIds });
+    if (bStats.upserted || bStats.deleted) changed = true;
   }
 
-  // syncRegistry + applyAutoHide + the projects-changed push — main's post-sweep upkeep (runs on main).
-  try { afterReconcile(); } catch (err) { log.warn(`[index-worker] afterReconcile failed: ${err?.message || err}`); }
+  // syncRegistry + applyAutoHide + the projects-changed push — main's post-sweep upkeep (runs on main). The
+  // push is CONDITIONAL on `changed` (afterReconcile gates it); syncRegistry/applyAutoHide run regardless.
+  try { afterReconcile(changed); } catch (err) { log.warn(`[index-worker] afterReconcile failed: ${err?.message || err}`); }
 }
 
 function applyFileReply(msg, p) {

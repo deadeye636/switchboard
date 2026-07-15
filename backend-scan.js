@@ -12,15 +12,13 @@
 // sessionBucketPath cwd fallback, the Hermes lineageParentId remap, the changeMarker for db rows) stays
 // in THIS parse loop, not in a prepare and not in the sink.
 
-const fs = require('fs');
 const backends = require('./backends');
-const { startTimer } = require('./perf');
 const { applyIndexResults, markPersisted, noteStoreProject, isRemovedProject } = require('./index-writes');
 // #199 step 5.2a (F1): the PURE Axis-B parse-loop + its incremental memo live in the Electron-free leaf
-// backend-parse.js. backend-scan re-imports the loop so there is ONE implementation the step-5 worker and
-// main both run — no drift. The DB-touching orchestration (snapshot gather, storeExists, the sink,
-// noteStoreProject / markPersisted / isRemovedProject / the delete-diff) stays HERE, on main.
-const { parseBackendSessions } = require('./backend-parse');
+// backend-parse.js, so the same code runs in the worker (which discovers + parses) and on main (which
+// replays the reply below). This file holds the DB-touching orchestration only: the reply replay
+// (applyBackendReply — noteStoreProject / markPersisted / isRemovedProject / the delete-diff / the neutral
+// sink) and the `axisBRoster` main posts to the worker.
 
 let log;
 let getAllCached;
@@ -42,90 +40,18 @@ function cachedRowsOfBackend(backendId) {
 // backend-scan imports the loop above; the DB-touching orchestration (snapshot gather + reply replay)
 // stays HERE, on main.
 
-/**
- * Does the backend's store actually exist? Asked via its own `watchTargets()` — the store-level
- * addresses it already declares (a dir root, or a db file) — so no backend-specific knowledge is needed
- * here. A backend that declares nothing is assumed present (we cannot prove otherwise).
- */
-function storeExists(b) {
-  let targets;
-  try { targets = (typeof b.watchTargets === 'function' && b.watchTargets()) || []; } catch { return true; }
-  if (!targets.length) return true;
-  return targets.some(t => {
-    if (!t || !t.path) return false;
-    try { return fs.existsSync(t.path); } catch { return false; }
-  });
-}
+// The per-backend store scan is the pure `parseBackendSessions` loop (in the Electron-free leaf
+// ./backend-parse.js) plus the DB-touching orchestration below (`applyBackendReply`). Both run in the index
+// worker (`workers/index-worker.js` — discover + parse + the store-not-found guard) and on main (this file —
+// the reply replay). There is no on-main scan entry point any more: the old `refreshBackendSessions`, which
+// gathered the snapshot and ran the loop synchronously on the UI thread for the store watcher, was removed
+// in #208 once the persistent worker became the only scan path. `parseBackendSessions` + `applyBackendReply`
+// are the two halves the worker and main now share.
 
-/**
- * Rescan one backend's own session store and reconcile the cache with it.
- *
- * Only `ready && enabled` backends are scanned (§5.8). Claude (and every Axis-A profile, which shares
- * Claude's store) is a no-op here — refreshFolder / populateCacheViaWorker own that store.
- *
- * #199 step 5.1b: the parse-loop is the PURE `parseBackendSessions` (snapshot-in, reply-out — what moves
- * to the worker in 5.2). This function is now main: GATHER the snapshot (the DB-reading gates the loop must
- * not do — the cached-rows snapshot + the store-not-found guard), CALL the pure loop, then REPLAY every
- * side-effect from the reply — noteStoreProject / markPersisted-on-skip / the snapshot-scoped delete-diff /
- * the apply-time removed gate / the one neutral sink. Behaviour-identical.
- *
- * Returns { scanned, upserted, skipped, deleted } (all 0 when the backend is skipped).
- */
-function refreshBackendSessions(backendId, { force = false } = {}) {
-  const stats = { scanned: 0, upserted: 0, skipped: 0, deleted: 0 };
-  const elapsed = startTimer();   // how long a store takes to walk (#153)
-
-  const b = backends.list().find(d => d.id === backendId);
-  if (!b) return stats;
-  if (b.status !== 'ready' || !b.enabled) return stats;          // §5.8 gate: never enumerate its roots
-  if (b.id === 'claude' || b.isProfile) return stats;            // shares Claude's store — not ours to scan
-  if (typeof b.discoverSessions !== 'function' || typeof b.parseSession !== 'function') return stats;
-
-  // --- snapshot (main gathers what the pure loop must not read) ---
-  let handles;
-  try { handles = b.discoverSessions() || []; } catch (err) {
-    log.info(`[scan] ${backendId}: discovery failed: ${err.message}`);
-    return stats;
-  }
-
-  // Cached rows of THIS backend only — the reconcile below must never look at (or delete) another
-  // backend's rows, even when they sit in the same folder. This IS the snapshot the delete-diff is
-  // confined to (never a fresh liveCache read at apply time — fable finding 2).
-  const cached = cachedRowsOfBackend(backendId);
-
-  // The store-not-found guard (storeExists stays on MAIN). An empty store means two very different things:
-  // "the user deleted their sessions" (reconcile them away) or "we are looking in the wrong place" (do
-  // NOT). Deleting the whole history because a directory is missing is not a reconcile, it is data loss —
-  // so when there are no handles AND the store is not there, leave the cached rows alone. This early return
-  // IS the storeMissing delete-gate: with no handles there is nothing to note, mark or index anyway.
-  if (!handles.length && cached.length && !storeExists(b)) {
-    log.info(`[scan] ${backendId}: store not found — keeping ${cached.length} cached session(s) instead of reconciling them away`);
-    return stats;
-  }
-  const cachedByFile = new Map();
-  const cachedById = new Map();
-  for (const row of cached) {
-    if (row.filePath) cachedByFile.set(row.filePath, row);
-    cachedById.set(row.sessionId, row);
-  }
-
-  // --- pure parse-loop (this is what moves to the worker in step 5.2) ---
-  const reply = parseBackendSessions(b, { handles, cachedByFile, cachedById, force });
-
-  // --- replay every side-effect from the reply (shared by the inline path and, in 5.2b, the worker) ---
-  applyBackendReply(backendId, reply, { cached, stats });
-
-  stats.elapsedMs = Math.round(elapsed());
-  if (stats.upserted || stats.deleted) {
-    log.info(`[scan] ${backendId}: ${stats.scanned} sessions (${stats.upserted} indexed, ${stats.skipped} unchanged, ${stats.deleted} removed) in ${stats.elapsedMs} ms`);
-  }
-  return stats;
-}
-
-// Replay a `parseBackendSessions` reply — the DB / overlay / scan-state side-effects main owns. Extracted
-// (#199 step 5.2b) so there is ONE replay: the inline `refreshBackendSessions` (index-worker flag OFF) and
-// the persistent index worker's reconcile reply handler (flag ON) both call it, the reply being byte-
-// identical whether the pure loop ran on-thread or in the worker.
+// Replay a `parseBackendSessions` reply — the DB / overlay / scan-state side-effects main owns. This is the
+// ONE replay every Axis-B scan runs: the persistent index worker's reconcile reply handler
+// (index-worker-client) and the test helper both call it, the reply being byte-identical whether the pure
+// loop ran on-thread or in the worker.
 //
 //   cached   — THIS request's cached snapshot for this backend; the delete-diff is confined to it (never a
 //              fresh liveCache read — fable finding 2).
@@ -178,10 +104,10 @@ function applyBackendReply(backendId, reply, { cached = [], stats = {}, dropIds 
   return stats;
 }
 
-// The "rescan every ready+enabled backend" sweep (refreshAllBackendSessions) moved OFF the main thread into
-// the persistent index worker (#199): postReconcile posts the `axisBRoster` below and the worker scans each
-// backend, incl. the `force` re-read behind "Rebuild session cache". `refreshBackendSessions` (above) stays
-// for the SYNCHRONOUS per-backend refresh the backend-store watcher (main.js) still does on a store change.
+// Every Axis-B scan runs OFF the main thread in the persistent index worker (#199/#208): postReconcile posts
+// the `axisBRoster` below and the worker scans each backend, incl. the `force` re-read behind "Rebuild
+// session cache" and the per-store-change flush the backend-store watcher (main.js) now posts instead of
+// scanning inline.
 
 // The Axis-B backends the index worker should scan: every ready+enabled backend that owns its OWN store
 // (i.e. not Claude, not an Axis-A profile, and shaped like a scannable store). This is what main posts as
@@ -198,9 +124,7 @@ function axisBRoster() {
 
 module.exports = {
   init,
-  refreshBackendSessions,
   cachedRowsOfBackend,
-  storeExists,
   // #199 step 5.2b: shared reply-replay + the roster main posts to the worker.
   applyBackendReply,
   axisBRoster,

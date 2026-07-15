@@ -58,8 +58,8 @@ function init(ctx) {
 /**
  * Is Claude switched on? (#162)
  *
- * Claude's store is walked by a path of its own (PROJECTS_DIR), not by `refreshBackendSessions`, and that
- * path never consulted the enable gate — so "disabling Claude" left it happily indexing. Every other
+ * Claude's store is walked by a path of its own (PROJECTS_DIR), not by the generic Axis-B store scan, and
+ * that path never consulted the enable gate — so "disabling Claude" left it happily indexing. Every other
  * backend stops being scanned when it is switched off; Claude does now too.
  *
  * Fails OPEN. If the registry cannot answer (a unit test with no backends.init, a settings read that

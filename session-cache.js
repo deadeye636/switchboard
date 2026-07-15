@@ -9,7 +9,8 @@
 //                                 + the cross-sweep scan-state + the renderer-push helpers (the LEAF).
 //   backends/claude/store-indexer.js — Claude's folder-driven store walk (refreshFolder + the worker's
 //                                 apply/prepare + cold-scan; the reconcile sweep now runs off-thread).
-//   backend-scan.js            — the generic Axis-B store scanner (refreshBackendSessions + the apply/roster).
+//   backend-scan.js            — the generic Axis-B store scan replay (applyBackendReply + the roster main
+//                                 posts to the worker; the scan itself runs off-thread since #199/#208).
 //   projects-view.js           — the sidebar/admin view builders + the auto-hide predicate.
 //
 // `init` must keep tolerating a PARTIAL ctx (tests init with subsets — every ctx.db.* read is guarded at
@@ -47,8 +48,6 @@ module.exports = {
   flushPendingReindex: storeIndexer.flushPendingReindex,
   populateCacheViaWorker: storeIndexer.populateCacheViaWorker,
   terminateScanWorker: storeIndexer.terminateScanWorker,
-  // --- generic Axis-B store scan (backend-scan.js) ---
-  refreshBackendSessions: backendScan.refreshBackendSessions,
   // --- neutral write sink + shared scan-state (index-writes.js) ---
   // Exposed so the IPC handlers that delete a folder's rows (remove-project, delete-project-sessions,
   // delete-worktree) can scope the delete exactly like the scanner does — a project folder key is shared

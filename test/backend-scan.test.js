@@ -10,6 +10,8 @@ const backends = require('../backends');
 const codex = require('../backends/codex');
 const sessionBackends = require('../session-backends');
 const { encodeProjectPath } = require('../encode-project-path');
+// #208: the Axis-B scan runs in the index worker now — drive the real worker parse + main apply in one call.
+const { runBackendScan } = require('./helpers/run-backend-scan');
 
 // #199 step 5.1b — CHARACTERIZATION tests for the side-effects the "extract the generic Axis-B parse-loop
 // (refreshBackendSessions) as a PURE snapshot-in/reply-out function" claim rests on, and which the rest of
@@ -185,7 +187,7 @@ test('refreshBackendSessions notes EVERY parsed session in the store scan-state 
     assert.equal(sessionCache.getStoreProjectPaths().has(w.projectCwd), false, 'precondition: unseen path');
     writeCodexRollout(w.codexHome, w.projectCwd, 'aaaaaaaa-0000-4000-8000-000000000001');
 
-    const stats = sessionCache.refreshBackendSessions('codex');
+    const stats = runBackendScan('codex');
     assert.equal(stats.upserted, 1, 'the (non-removed) session is indexed normally');
     assert.ok(sessionCache.getStoreProjectPaths().has(w.projectCwd),
       'and its project is recorded in the store scan-state UNCONDITIONALLY (#167) — not only for removed projects');
@@ -199,14 +201,14 @@ test('the file-mtime SKIP branch marks the overlay entry persisted (#155)', () =
   try {
     writeCodexRollout(w.codexHome, w.projectCwd, id);
     // First scan: upsert path (the sink also marks persisted). Now the row exists with a matching mtime.
-    assert.equal(sessionCache.refreshBackendSessions('codex').upserted, 1);
+    assert.equal(runBackendScan('codex').upserted, 1);
 
     // Re-record the overlay entry: `record` un-persists it. Only the SKIP-path markPersisted can now
     // re-persist it, because a matching mtime means the session never reaches the sink again.
     sessionBackends.record(id, 'codex');
     assert.equal(sessionBackends.isPersisted(id), false, 'a fresh record is un-scanned');
 
-    const stats = sessionCache.refreshBackendSessions('codex');
+    const stats = runBackendScan('codex');
     assert.equal(stats.skipped, 1, 'the mtime gate holds — the session is skipped');
     assert.equal(stats.upserted, 0, 'so it never reaches the sink');
     assert.ok(sessionBackends.isPersisted(id),
@@ -223,12 +225,12 @@ test('the db-marker SKIP branch marks the overlay entry persisted (#155)', () =>
       bucketPath: w.root,
       sessions: [{ sessionId: id, marker: 'm1', row: { cwd: w.projectCwd, summary: 'v1', messageCount: 1 } }],
     }));
-    assert.equal(sessionCache.refreshBackendSessions('dbtest').upserted, 1);
+    assert.equal(runBackendScan('dbtest').upserted, 1);
 
     sessionBackends.record(id, 'dbtest');
     assert.equal(sessionBackends.isPersisted(id), false, 'a fresh record is un-scanned');
 
-    const stats = sessionCache.refreshBackendSessions('dbtest');
+    const stats = runBackendScan('dbtest');
     assert.equal(stats.skipped, 1, 'the same marker skips the session');
     assert.equal(stats.upserted, 0);
     assert.ok(sessionBackends.isPersisted(id), 'the db-marker skip branch marked it persisted (#155)');
@@ -260,13 +262,13 @@ test('a partially-readable store (handles.incomplete) keeps rows it did not see 
     }));
 
     // Both indexed.
-    sessionCache.refreshBackendSessions('inctest');
+    runBackendScan('inctest');
     assert.ok(w.db._cache.has(present) && w.db._cache.has(missing), 'both rows cached');
 
     // A subtree failed to read: only one handle comes back, and discovery flags itself incomplete.
     sessions = sessions.filter(s => s.sessionId === present);
     incomplete = true;
-    const stats = sessionCache.refreshBackendSessions('inctest');
+    const stats = runBackendScan('inctest');
     assert.equal(stats.deleted, 0, 'a partial read reconciles NOTHING away (#197)');
     assert.ok(w.db._cache.has(missing), 'the unseen session survives — a half-read store is not a deletion');
     assert.ok(w.db._cache.has(present), 'the seen one too');
@@ -285,9 +287,32 @@ test('a store that is not there keeps its cached rows (no handles + missing stor
       sessionId: 'gt-old', backendId: 'gonetest', folder: w.folder, projectPath: w.projectCwd, summary: 'kept',
     });
 
-    const stats = sessionCache.refreshBackendSessions('gonetest');
+    const stats = runBackendScan('gonetest');
     assert.equal(stats.deleted, 0, 'nothing reconciled when the store itself is not present');
     assert.ok(w.db._cache.has('gt-old'), 'the history survives an unreachable store');
+  } finally { cleanup(w); }
+});
+
+// --- 4b. discovery-FAILURE guard (#208): a THROW mid-discovery keeps the cached rows ---
+// Distinct from #4: here the store IS present, but reading it FAILS transiently (EMFILE/EACCES, a locked
+// db). That must not read as "the store is empty". The worker returns an `incomplete` reply (not an empty
+// one), so main keeps every cached row and reconciles nothing away. Before #208 the worker's discovery
+// catch returned an EMPTY reply with incomplete:false, and — now that the worker is the ONLY scan path —
+// the reconcile delete-diff would then have wiped the backend's entire history on one transient error.
+test('a discovery error keeps the cached rows (#208 — incomplete, not an empty store)', () => {
+  const w = setup({ enabledMap: { throwtest: true } });
+  try {
+    backends.register(configurableBackend('throwtest', {
+      handles() { throw new Error('EMFILE: too many open files'); },
+      targets() { return [{ kind: 'dir', path: w.root }]; },   // the store IS there — this is a read failure
+    }));
+    w.db._cache.set('tt-old', {
+      sessionId: 'tt-old', backendId: 'throwtest', folder: w.folder, projectPath: w.projectCwd, summary: 'kept',
+    });
+
+    const stats = runBackendScan('throwtest');
+    assert.equal(stats.deleted, 0, 'a discovery throw reconciles NOTHING away');
+    assert.ok(w.db._cache.has('tt-old'), 'the history survives a transient discovery error');
   } finally { cleanup(w); }
 });
 
@@ -306,7 +331,7 @@ test('a db-mode row keeps null filePath + changeMarker + the lineageParentId rem
       }],
     }));
 
-    assert.equal(sessionCache.refreshBackendSessions('dbtest').upserted, 1);
+    assert.equal(runBackendScan('dbtest').upserted, 1);
     const row = w.db._cache.get(id);
     assert.ok(row, 'cached');
     assert.equal(row.filePath, null, 'a db session has no file path (v11 tolerates null)');
@@ -330,7 +355,7 @@ test('an empty-metrics session does not clobber existing metrics (metricsMode if
     // Metrics already stored for this id (e.g. by a prior richer parse or another path).
     w.db._metrics.set(id, [{ date: '2026-07-01', model: 'x', inputTokens: 5, outputTokens: 1, messageCount: 1 }]);
 
-    assert.equal(sessionCache.refreshBackendSessions('dbtest').upserted, 1, 'the row is upserted (reaches the sink)');
+    assert.equal(runBackendScan('dbtest').upserted, 1, 'the row is upserted (reaches the sink)');
     const kept = w.db._metrics.get(id);
     assert.ok(kept && kept.length === 1, 'the existing metrics survive — if-nonempty does not clear on an empty batch (#154)');
     assert.equal(kept[0].inputTokens, 5);

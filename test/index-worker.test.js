@@ -231,6 +231,56 @@ test('delete-epoch guard: a row deleted since the request is not reverse-resurre
   assert.ok(!rec.upserts.includes('sess-raced'), 'the just-deleted row was dropped, not re-indexed');
 });
 
+// An Axis-B backend reply (as workers/index-worker.runBackendReconcile posts it inside msg.backends) that
+// would upsert one session — the counterpart to folderReplyWithSession for the backend lane.
+function backendReplyEntry(sessionId, { backendId = 'codex', storeMissing = false } = {}) {
+  return {
+    backendId, storeMissing,
+    reply: {
+      sessions: [{ sessionId, folder: 'proj-b', projectPath: '/tmp/b', backendId, summary: '', textContent: '', dailyMetrics: [] }],
+      seenIds: [sessionId], seenFiles: [], skippedIds: [], storeProjects: [], incomplete: false, scanned: 1, skipped: 0,
+    },
+  };
+}
+
+// The #208 seam: the Axis-B store watcher now posts a reconcile, so the SAME client guards that protect the
+// Claude lane must protect msg.backends too. These lock the two guards only the client applies for a backend
+// reply (the worker cannot): the delete-epoch dropIds and the storeMissing skip.
+test('delete-epoch guard covers the Axis-B reconcile lane (a deleted backend row is not resurrected)', () => {
+  const client = require('../index-worker-client');
+  const rec = bootClient(client);
+  client.postReconcile();
+  const req = reconcilePosts(rec.posted)[0];
+
+  // The user deletes this exact backend session AFTER the request was posted, before its reply lands.
+  client.noteDeleted('axb-raced');
+  client._deliverReply({ type: 'reply', reqId: req.reqId, kind: 'reconcile',
+    claude: [], backends: [backendReplyEntry('axb-raced')] });
+  assert.ok(!rec.upserts.includes('axb-raced'), 'the just-deleted Axis-B row was dropped, not re-indexed');
+
+  // Control: with no delete, the same backend reply DOES index the session.
+  const rec2 = bootClient(client);
+  client.postReconcile();
+  const req2 = reconcilePosts(rec2.posted)[0];
+  client._deliverReply({ type: 'reply', reqId: req2.reqId, kind: 'reconcile',
+    claude: [], backends: [backendReplyEntry('axb-present')] });
+  assert.ok(rec2.upserts.includes('axb-present'), 'a backend reply with no racing delete indexes as normal (control)');
+});
+
+test('a storeMissing Axis-B reply is skipped at the client — nothing is applied', () => {
+  const client = require('../index-worker-client');
+  const rec = bootClient(client);
+  client.postReconcile();
+  const req = reconcilePosts(rec.posted)[0];
+
+  // storeMissing = "the store is not there" — the client must `continue` past it, applying nothing (so the
+  // reconcile delete-diff never runs and the cached rows survive an unreachable store).
+  client._deliverReply({ type: 'reply', reqId: req.reqId, kind: 'reconcile',
+    claude: [], backends: [backendReplyEntry('axb-missing', { storeMissing: true })] });
+  assert.deepEqual(rec.upserts, [], 'a storeMissing reply applies nothing');
+  assert.deepEqual(rec.deletes, [], 'and deletes nothing');
+});
+
 test('delete-epoch guard also covers the file lane', () => {
   const client = require('../index-worker-client');
   const rec = bootClient(client);

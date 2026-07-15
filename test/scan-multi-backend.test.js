@@ -7,11 +7,14 @@ const path = require('path');
 
 const sessionCache = require('../session-cache');
 const backends = require('../backends');
+const backendScan = require('../backend-scan');
 const codex = require('../backends/codex');
 const pi = require('../backends/pi');
 const sessionBackends = require('../session-backends');
 const { encodeProjectPath } = require('../encode-project-path');
 const { bucketFromIso } = require('../metrics-bucket');
+// #208: the Axis-B scan runs in the index worker now — drive the real worker parse + main apply in one call.
+const { runBackendScan } = require('./helpers/run-backend-scan');
 
 // T-4.2 — the multi-source scanner. The invariant under test: Claude's folder-driven scan and a
 // backend that owns its own store (Codex) share the SAME project/folder bucket (grouping is central
@@ -193,7 +196,7 @@ test('a Codex session and a Claude session with the same cwd land in the same pr
     writeCodexRollout(w.codexHome, w.projectCwd, 'bbbbbbbb-0000-4000-8000-000000000002');
 
     sessionCache.refreshFolder(w.folder);
-    const stats = sessionCache.refreshBackendSessions('codex');
+    const stats = runBackendScan('codex');
     assert.equal(stats.scanned, 1);
     assert.equal(stats.upserted, 1);
 
@@ -237,7 +240,7 @@ test('refreshing Claude does not delete the Codex rows in the same folder', () =
     const claudeFile = writeClaudeSession(w.projectsDir, w.folder, w.projectCwd, 'aaaaaaaa-0000-4000-8000-000000000001');
     writeCodexRollout(w.codexHome, w.projectCwd, 'bbbbbbbb-0000-4000-8000-000000000002');
     sessionCache.refreshFolder(w.folder);
-    sessionCache.refreshBackendSessions('codex');
+    runBackendScan('codex');
     assert.equal(w.db._cache.size, 2);
 
     // A plain re-sweep must be a no-op for the Codex row.
@@ -264,14 +267,14 @@ test('refreshing Codex does not delete the Claude rows in the same folder', () =
     writeClaudeSession(w.projectsDir, w.folder, w.projectCwd, 'aaaaaaaa-0000-4000-8000-000000000001');
     const rollout = writeCodexRollout(w.codexHome, w.projectCwd, 'bbbbbbbb-0000-4000-8000-000000000002');
     sessionCache.refreshFolder(w.folder);
-    sessionCache.refreshBackendSessions('codex');
+    runBackendScan('codex');
 
-    sessionCache.refreshBackendSessions('codex');
+    runBackendScan('codex');
     assert.ok(w.db._cache.has('aaaaaaaa-0000-4000-8000-000000000001'), 'claude row survives a Codex sweep');
 
     // The rollout disappears -> only the Codex row is reconciled away.
     fs.rmSync(rollout);
-    const stats = sessionCache.refreshBackendSessions('codex');
+    const stats = runBackendScan('codex');
     assert.equal(stats.deleted, 1);
     assert.ok(!w.db._cache.has('bbbbbbbb-0000-4000-8000-000000000002'), 'deleted rollout is reconciled away');
     assert.ok(!w.db._search.has('bbbbbbbb-0000-4000-8000-000000000002'), 'and so is its search entry');
@@ -284,11 +287,11 @@ test('an unchanged rollout is not re-parsed on the next sweep', () => {
   const w = setup();
   try {
     writeCodexRollout(w.codexHome, w.projectCwd, 'bbbbbbbb-0000-4000-8000-000000000002');
-    const first = sessionCache.refreshBackendSessions('codex');
+    const first = runBackendScan('codex');
     assert.equal(first.upserted, 1);
     assert.equal(first.skipped, 0);
 
-    const second = sessionCache.refreshBackendSessions('codex');
+    const second = runBackendScan('codex');
     assert.equal(second.upserted, 0);
     assert.equal(second.skipped, 1, 'mtime gate holds — no re-parse, no re-index');
     assert.equal(second.deleted, 0);
@@ -344,7 +347,11 @@ test('an evicted overlay entry does not downgrade an already-recorded profile ro
 
 // --- (d) the ready && enabled gate (§5.8): never scan, never erase ---
 
-test('a disabled backend is never scanned but keeps its cached rows', () => {
+// The §5.8 ready+enabled/claude/profile gate now lives in `axisBRoster()` (#208): main filters the roster
+// before the worker ever sees a backend, so "never scanned" = "not in the roster the worker is handed".
+// (The worker's per-backend `runBackendReconcile` — what the helper drives — deliberately does NOT re-check
+// the gate; that would duplicate it in a second place.)
+test('a disabled backend is not in the worker sweep roster (never scanned) but keeps its cached rows', () => {
   const w = setup({ enabledMap: { codex: false } });
   try {
     // A row cached from an earlier, enabled run.
@@ -356,19 +363,15 @@ test('a disabled backend is never scanned but keeps its cached rows', () => {
     // ...and a rollout sitting in the store that a scan WOULD pick up.
     writeCodexRollout(w.codexHome, w.projectCwd, 'cccccccc-0000-4000-8000-000000000003');
 
-    const stats = sessionCache.refreshBackendSessions('codex');
-    assert.deepEqual(stats, { scanned: 0, upserted: 0, skipped: 0, deleted: 0 }, 'store not enumerated');
-    assert.ok(!w.db._cache.has('cccccccc-0000-4000-8000-000000000003'), 'the disabled backend\'s store is not indexed');
+    // A disabled backend is filtered out of the roster the worker scans, so its store is never enumerated
+    // and its cached rows are left exactly as they were (disable != erase).
+    assert.ok(!backendScan.axisBRoster().includes('codex'), 'disabled backend is not in the worker sweep roster');
+    assert.ok(!w.db._cache.has('cccccccc-0000-4000-8000-000000000003'), 'so its store is never indexed');
     assert.ok(w.db._cache.has('bbbbbbbb-0000-4000-8000-000000000002'), 'disable != erase — existing rows survive');
-
-    // ...and the off-thread sweep skips it too: postReconcile scans only the axisBRoster, and a disabled
-    // backend is filtered out of that roster (the same ready+enabled gate refreshAllBackendSessions applied).
-    assert.ok(!require('../backend-scan').axisBRoster().includes('codex'),
-      'disabled backend is not in the worker sweep roster');
   } finally { cleanup(w); }
 });
 
-test('a planned backend is never scanned and its roots are never enumerated', () => {
+test('a planned backend is not in the roster, and a ready+enabled one is', () => {
   // `fakeplanned` is a registered `planned` dummy (agy became ready in #192, so it can no longer play
   // this role — enabling it would enumerate its real on-disk store).
   const w = setup({ enabledMap: { fakeplanned: true, faketest: true } });
@@ -378,34 +381,31 @@ test('a planned backend is never scanned and its roots are never enumerated', ()
       backendId: 'fakeplanned', filePath: null, summary: 'old planned session',
     }]);
 
-    // `planned` can never be enabled (backends.isEnabled), so this is a no-op by construction.
-    const stats = sessionCache.refreshBackendSessions('fakeplanned');
-    assert.deepEqual(stats, { scanned: 0, upserted: 0, skipped: 0, deleted: 0 });
+    // `planned` can never be enabled (backends.isEnabled), so it is never in the roster — never scanned.
+    assert.ok(!backendScan.axisBRoster().includes('fakeplanned'), 'a planned backend is never in the roster');
     assert.ok(w.db._cache.has('dddddddd-0000-4000-8000-000000000004'), 'planned backend keeps its cached rows');
 
-    // A ready+enabled Axis-B backend, by contrast, DOES get its store enumerated.
+    // A ready+enabled Axis-B backend IS in the roster, and when the worker scans it its store is enumerated.
+    assert.ok(backendScan.axisBRoster().includes('faketest'), 'ready && enabled -> in the roster');
     fakeDiscoverCalls = 0;
-    sessionCache.refreshBackendSessions('faketest');
-    assert.equal(fakeDiscoverCalls, 1, 'ready && enabled -> discoverSessions() called');
+    runBackendScan('faketest');
+    assert.equal(fakeDiscoverCalls, 1, 'and scanning it enumerates the store (discoverSessions called)');
 
-    // ...and a disabled one does not.
+    // ...and a disabled one drops out of the roster, so the worker never receives it to scan.
     backends.init({ getGlobalSettings: () => ({ backendEnabled: { faketest: false } }) });
-    fakeDiscoverCalls = 0;
-    sessionCache.refreshBackendSessions('faketest');
-    assert.equal(fakeDiscoverCalls, 0, 'disabled -> discoverSessions() never called');
+    assert.ok(!backendScan.axisBRoster().includes('faketest'), 'disabled -> filtered out of the roster');
   } finally { cleanup(w); }
 });
 
-test('refreshBackendSessions is a no-op for Claude and for Axis-A profiles', () => {
+test('Claude and Axis-A profiles are never in the Axis-B roster (their store is not scanned here)', () => {
   const w = setup();
   try {
-    writeClaudeSession(w.projectsDir, w.folder, w.projectCwd, 'aaaaaaaa-0000-4000-8000-000000000001');
-    // Claude's store is owned by refreshFolder/populateCacheViaWorker — this must not double-scan it.
-    assert.deepEqual(sessionCache.refreshBackendSessions('claude'),
-      { scanned: 0, upserted: 0, skipped: 0, deleted: 0 });
-    assert.equal(w.db._cache.size, 0);
-    assert.deepEqual(sessionCache.refreshBackendSessions('nonexistent-backend'),
-      { scanned: 0, upserted: 0, skipped: 0, deleted: 0 });
+    // Claude's store is owned by refreshFolder/populateCacheViaWorker — the Axis-B roster must never carry
+    // it (or a profile that shares its store), or the sweep would double-scan the same transcripts.
+    const roster = backendScan.axisBRoster();
+    assert.ok(!roster.includes('claude'), 'claude is not an Axis-B store to scan');
+    assert.ok(!roster.some(id => backends.get(id) && backends.get(id).isProfile),
+      'no Axis-A profile is in the roster');
   } finally { cleanup(w); }
 });
 
@@ -419,7 +419,7 @@ test('a REMOVED project is not indexed back in — and its transcript is still s
   const id = 'bbbbbbbb-0000-4000-8000-000000000002';
   try {
     writeCodexRollout(w.codexHome, w.projectCwd, id);
-    sessionCache.refreshBackendSessions('codex');
+    runBackendScan('codex');
     assert.ok(w.db._cache.has(id));
 
     const rollout = w.db._cache.get(id).filePath;
@@ -427,7 +427,7 @@ test('a REMOVED project is not indexed back in — and its transcript is still s
     w.db._states.set(w.projectCwd, { registered: 0, removedAt: new Date().toISOString() });
     fs.utimesSync(rollout, new Date(Date.now() + 2000), new Date(Date.now() + 2000));   // beat the mtime gate
 
-    const stats = sessionCache.refreshBackendSessions('codex');
+    const stats = runBackendScan('codex');
     assert.equal(stats.upserted, 0, 'a removed project is not indexed back in');
     assert.strictEqual(w.db._cache.has(id), false);
 
@@ -446,7 +446,7 @@ test('a HIDDEN project keeps being indexed — hiding is a view decision, not a 
     w.db._states.set(w.projectCwd, { registered: 1, hidden: 1 });
     writeCodexRollout(w.codexHome, w.projectCwd, id);
 
-    const stats = sessionCache.refreshBackendSessions('codex');
+    const stats = runBackendScan('codex');
     assert.equal(stats.upserted, 1, 'its sessions are indexed as normal');
     assert.ok(w.db._cache.has(id), 'so unhiding shows them at once, with no rescan to wait for');
 
@@ -493,7 +493,7 @@ test('db-mode: a {kind:db} session is indexed and grouped by its cwd like any ot
       }],
     }));
 
-    const stats = sessionCache.refreshBackendSessions('dbtest');
+    const stats = runBackendScan('dbtest');
     assert.equal(stats.upserted, 1, 'a db handle is parsed and cached (not skipped as "not a file")');
 
     const row = w.db._cache.get('hsess-1');
@@ -527,7 +527,7 @@ test('db-mode: cost + lineage reach the renderer session rows', () => {
         },
       }],
     }));
-    sessionCache.refreshBackendSessions('dbtest');
+    runBackendScan('dbtest');
 
     const session = sessionCache.buildProjectsFromCache(false)
       .find(p => p.projectPath === w.projectCwd)
@@ -552,11 +552,11 @@ test('db-mode: the change marker is the gate — an unchanged session is not re-
     be.parseSession = (h) => { parses++; return realParse(h); };
     backends.register(be);
 
-    assert.equal(sessionCache.refreshBackendSessions('dbtest').upserted, 1);
+    assert.equal(runBackendScan('dbtest').upserted, 1);
     assert.equal(parses, 1);
 
     // Same marker -> the scanner must skip it without touching the store.
-    const second = sessionCache.refreshBackendSessions('dbtest');
+    const second = runBackendScan('dbtest');
     assert.equal(second.skipped, 1, 'unchanged session skipped via its marker');
     assert.equal(second.upserted, 0);
     assert.equal(parses, 1, 'and NOT re-parsed');
@@ -568,12 +568,12 @@ test('db-mode: a moved marker re-reads the session', () => {
   try {
     const sessions = [{ sessionId: 'hsess-1', marker: 'm1', row: { cwd: w.projectCwd, summary: 'v1', messageCount: 1 } }];
     backends.register(fakeDbBackend('dbtest', { bucketPath: w.root, sessions }));
-    sessionCache.refreshBackendSessions('dbtest');
+    runBackendScan('dbtest');
 
     // The session gained a message -> its marker moves -> it must be re-read.
     sessions[0].marker = 'm2';
     sessions[0].row.summary = 'v2';
-    const stats = sessionCache.refreshBackendSessions('dbtest');
+    const stats = runBackendScan('dbtest');
     assert.equal(stats.upserted, 1, 'a changed marker forces a re-read');
     assert.equal(w.db._cache.get('hsess-1').summary, 'v2');
   } finally { cleanup(w); }
@@ -590,7 +590,7 @@ test('db-mode: a cwd-LESS session lands in the backend bucket, not dropped and n
       }],
     }));
 
-    const stats = sessionCache.refreshBackendSessions('dbtest');
+    const stats = runBackendScan('dbtest');
     assert.equal(stats.upserted, 1, 'a general agent session with no cwd is still ingested');
     const row = w.db._cache.get('hsess-nocwd');
     assert.equal(row.projectPath, w.root, 'bucketed under the backend, not forced into a project');
@@ -606,11 +606,11 @@ test('db-mode: a session that disappears from the DB is reconciled away (keyed o
       { sessionId: 'hsess-2', marker: 'm1', row: { cwd: w.projectCwd, summary: 'b', messageCount: 1 } },
     ];
     backends.register(fakeDbBackend('dbtest', { bucketPath: w.root, sessions }));
-    sessionCache.refreshBackendSessions('dbtest');
+    runBackendScan('dbtest');
     assert.ok(w.db._cache.has('hsess-2'));
 
     sessions.pop();   // hermes deleted a session
-    const stats = sessionCache.refreshBackendSessions('dbtest');
+    const stats = runBackendScan('dbtest');
     assert.equal(stats.deleted, 1);
     assert.ok(!w.db._cache.has('hsess-2'), 'gone from the store -> gone from the cache');
     assert.ok(w.db._cache.has('hsess-1'), 'the survivor is untouched');
@@ -646,7 +646,7 @@ test('a Pi session is scanned by the generic path: cached, grouped by its cwd, s
     writeClaudeSession(w.projectsDir, w.folder, w.projectCwd, 'cccccccc-0000-4000-8000-000000000003');
     sessionCache.refreshFolder(w.folder);
 
-    const stats = sessionCache.refreshBackendSessions('pi');
+    const stats = runBackendScan('pi');
     assert.equal(stats.upserted, 1, 'the generic scanner parsed Pi with no Pi-specific code in it');
 
     const row = w.db._cache.get(id);
@@ -681,7 +681,7 @@ test('a MISSING store keeps the cached rows — an unreachable root is not "the 
       summary: 'indexed under the other root',
     });
 
-    const stats = sessionCache.refreshBackendSessions('pi');
+    const stats = runBackendScan('pi');
     assert.equal(stats.deleted, 0, 'nothing is reconciled away when the store is not even there');
     assert.ok(w.db._cache.get('pi-old'), 'the history survives an unreachable root');
   } finally { pi.setRoot(null); cleanup(w); }
@@ -697,18 +697,17 @@ test('an EMPTY but existing store DOES reconcile — that really is "the session
       sessionId: 'pi-gone', backendId: 'pi', folder: w.folder, projectPath: w.projectCwd, summary: 'deleted',
     });
 
-    const stats = sessionCache.refreshBackendSessions('pi');
+    const stats = runBackendScan('pi');
     assert.equal(stats.deleted, 1, 'the store is reachable and empty -> the row is stale');
     assert.equal(w.db._cache.get('pi-gone'), undefined);
   } finally { pi.setRoot(null); cleanup(w); }
 });
 
-test('a disabled Pi is never scanned, but keeps its cached rows (5.8)', () => {
+test('a disabled Pi is not in the roster (never scanned), but keeps its cached rows (5.8)', () => {
   const w = setup({ enabledMap: { pi: false } });
   try {
     w.db._cache.set('pi-old', { sessionId: 'pi-old', backendId: 'pi', folder: w.folder, projectPath: w.projectCwd, summary: 'old pi session' });
-    const stats = sessionCache.refreshBackendSessions('pi');
-    assert.equal(stats.scanned, 0, 'a disabled backend has its store left alone entirely');
+    assert.ok(!backendScan.axisBRoster().includes('pi'), 'a disabled backend has its store left alone entirely');
     assert.ok(w.db._cache.get('pi-old'), 'disable is not erase');
   } finally { cleanup(w); }
 });
@@ -732,7 +731,7 @@ test('the scanner stores EVERY backend\'s per-day metrics, not just Claude\'s (#
     ].join('\n') + '\n', 'utf8');
     pi.setRoot(piRoot);
 
-    sessionCache.refreshBackendSessions('pi');
+    runBackendScan('pi');
 
     const buckets = w.db._metrics.get(id);
     assert.ok(buckets && buckets.length, 'the metrics reached the store');
@@ -765,9 +764,9 @@ test('an unchanged session is skipped — that is the point of the change marker
   const w = setup();
   try {
     writeCodexRollout(w.codexHome, w.projectCwd, 'cccccccc-0000-4000-8000-000000000001');
-    assert.equal(sessionCache.refreshBackendSessions('codex').upserted, 1);
+    assert.equal(runBackendScan('codex').upserted, 1);
 
-    const again = sessionCache.refreshBackendSessions('codex');
+    const again = runBackendScan('codex');
     assert.equal(again.skipped, 1, 'nothing moved on disk, so nothing is re-read');
     assert.equal(again.upserted, 0);
   } finally { cleanup(w); }
@@ -778,7 +777,7 @@ test('a row written by an OLDER parser is re-read, even though the file never ch
   try {
     const id = 'cccccccc-0000-4000-8000-000000000002';
     writeCodexRollout(w.codexHome, w.projectCwd, id);
-    sessionCache.refreshBackendSessions('codex');
+    runBackendScan('codex');
 
     const row = w.db._cache.get(id);
     assert.equal(row.parserVersion, codex.PARSER_SCHEMA_VERSION, 'the row records the parser that wrote it');
@@ -787,7 +786,7 @@ test('a row written by an OLDER parser is re-read, even though the file never ch
     row.parserVersion = codex.PARSER_SCHEMA_VERSION - 1;
     w.db._metrics.delete(id);
 
-    const stats = sessionCache.refreshBackendSessions('codex');
+    const stats = runBackendScan('codex');
     assert.equal(stats.skipped, 0, 'the marker matches, but the parser does not — so it is NOT skipped');
     assert.equal(stats.upserted, 1);
     assert.equal(w.db._cache.get(id).parserVersion, codex.PARSER_SCHEMA_VERSION, 're-stamped with the current parser');
@@ -800,7 +799,7 @@ test('the metrics a bumped parser writes carry the hour and the cost columns', (
   try {
     const id = 'cccccccc-0000-4000-8000-000000000003';
     writeCodexRollout(w.codexHome, w.projectCwd, id);
-    sessionCache.refreshBackendSessions('codex');
+    runBackendScan('codex');
 
     const buckets = w.db._metrics.get(id);
     assert.ok(buckets && buckets.length);

@@ -124,18 +124,26 @@ function storeExists(b) {
 }
 
 // One Axis-B backend: discover + the pure parseBackendSessions loop. Returns { backendId, reply,
-// storeMissing }. `storeMissing` mirrors refreshBackendSessions' early return — with no handles and a store
-// that isn't there, main leaves the cached rows alone (it must not reconcile a whole history away because a
-// directory moved). The cached snapshot rides in `snapshot.backends[id]`.
+// storeMissing }. `storeMissing` is the store-not-found guard — with no handles and a store that isn't
+// there, main leaves the cached rows alone (it must not reconcile a whole history away because a directory
+// moved). A store the worker cannot READ at all (unresolvable backend / discovery threw) is a different
+// case: `unreadableBackendReply` (incomplete) — see the note in the body. The cached snapshot rides in
+// `snapshot.backends[id]`.
 function runBackendReconcile(backendId, { snapshot, force }) {
+  // A reply that says "we could NOT determine this store's contents" — the worker couldn't resolve the
+  // backend, it has no discover/parse, or discovery THREW (EMFILE/EACCES mid-walk, a locked db). It is NOT
+  // "the store is empty": `incomplete: true` makes main's applyBackendReply keep the cached rows and skip
+  // the reconcile delete-diff (#197), exactly as the old inline refreshBackendSessions returned early. An
+  // empty reply with `incomplete: false` here would let the delete-diff wipe the backend's whole history on
+  // a transient error — the residual data-loss #208 closed when this became the only scan path.
   const b = backends.get(backendId);
-  if (!b) return { backendId, reply: emptyBackendReply(), storeMissing: false };
+  if (!b) return { backendId, reply: unreadableBackendReply(), storeMissing: false };
   if (typeof b.discoverSessions !== 'function' || typeof b.parseSession !== 'function') {
-    return { backendId, reply: emptyBackendReply(), storeMissing: false };
+    return { backendId, reply: unreadableBackendReply(), storeMissing: false };
   }
 
   let handles;
-  try { handles = b.discoverSessions() || []; } catch { return { backendId, reply: emptyBackendReply(), storeMissing: false }; }
+  try { handles = b.discoverSessions() || []; } catch { return { backendId, reply: unreadableBackendReply(), storeMissing: false }; }
 
   const cached = (snapshot && snapshot.backends && snapshot.backends[backendId]) || [];
   if (!handles.length && cached.length && !storeExists(b)) {
@@ -155,6 +163,12 @@ function runBackendReconcile(backendId, { snapshot, force }) {
 
 function emptyBackendReply() {
   return { sessions: [], seenIds: [], seenFiles: [], skippedIds: [], storeProjects: [], incomplete: false, scanned: 0, skipped: 0 };
+}
+
+// Same as empty, but flagged `incomplete` — "we could not read this store", so main keeps every cached row
+// instead of reconciling them away (see runBackendReconcile).
+function unreadableBackendReply() {
+  return { ...emptyBackendReply(), incomplete: true };
 }
 
 // --- request handling ------------------------------------------------------------------------------

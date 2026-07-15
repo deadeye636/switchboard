@@ -119,9 +119,9 @@ test('the scheduler asks the gate before spawning the claude binary', () => {
     'a scheduled run must not spawn a disabled backend');
 });
 
-// Claude's store is walked by its own path (PROJECTS_DIR), NOT by refreshBackendSessions — which skips
-// Claude deliberately. So the enable gate had to be added to that path, or "disabled" would have meant
-// "still indexing".
+// Claude's store is walked by its own path (PROJECTS_DIR), NOT by the generic Axis-B store scan — which
+// skips Claude deliberately. So the enable gate had to be added to that path, or "disabled" would have
+// meant "still indexing".
 // Since #199 step 4 Claude's store walk lives in backends/claude/store-indexer.js (session-cache.js is
 // now a façade). The gate must still be there — the rule follows the CODE, not the file.
 test('Claude\'s scanner asks the gate too', () => {
