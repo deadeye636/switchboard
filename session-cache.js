@@ -12,6 +12,7 @@ const claude = backends.get('claude');
 const CLAUDE_PARSER_VERSION = claude.PARSER_SCHEMA_VERSION;
 const sessionBackends = require('./session-backends');
 const registry = require('./project-registry');
+const { startTimer } = require('./perf');
 
 /**
  * Session cache module.
@@ -494,7 +495,9 @@ function refreshFile(folder, relFilename, opts = {}) {
     // a rewritten/truncated file) falls back to a full read inside
     // readSessionFileIncremental.
     const prev = _fileReadState.get(filePath) || null;
+    const tRead = startTimer();
     const res = claude.readSessionFileIncremental(filePath, folder, projectPath, { parentSessionId }, prev);
+    const readMs = tRead();
     // null = file not yet a valid session (no first user turn) or became invalid.
     // Leave any existing row as-is; the reconcile sweep reconciles genuine losses.
     if (!res) {
@@ -512,14 +515,29 @@ function refreshFile(folder, relFilename, opts = {}) {
     // changed it. Without this notify, the deferred reindex writes the new name to
     // the DB but the sidebar keeps showing the old one until an unrelated refresh.
     const prevName = (getMeta(s.sessionId) || {}).name || null;
+    const tUpsert = startTimer();
     upsertCachedSessions([stampClaudeProvenance(s)]);
     markPersisted(s.sessionId);
+    const upsertMs = tUpsert();
+    const tMetrics = startTimer();
     replaceSessionMetrics(s.sessionId, s.dailyMetrics);
+    const metricsMs = tMetrics();
+    // FTS is delete + full-document reinsert: buildSearchEntry(s) rebuilds the search
+    // body from the WHOLE session, so this block grows with the session — the prime
+    // suspect for the main-thread stall on high-output sessions (#199).
+    const tFts = startTimer();
     deleteSearchSession(s.sessionId);
     upsertSearchEntries([buildSearchEntry(s)]);
+    const ftsMs = tFts();
     if (s.customTitle) setName(s.sessionId, s.customTitle);
     const newName = (getMeta(s.sessionId) || {}).name || null;
     if (newName !== prevName) notifyRendererProjectsChanged();
+    // #199: one line only when this refresh actually stalled (>= 50 ms), with the
+    // per-block split so the culprit is visible. Silent on the common cheap refresh.
+    const totalMs = readMs + upsertMs + metricsMs + ftsMs;
+    if (log && totalMs >= 50) {
+      log.debug(`[perf] refreshFile ${s.sessionId} ${totalMs.toFixed(0)}ms: read=${readMs.toFixed(0)} upsert=${upsertMs.toFixed(0)} metrics=${metricsMs.toFixed(0)} fts=${ftsMs.toFixed(0)}`);
+    }
   };
 
   // opts.immediate: skip the reindex debounce and run inline. Used by the Stop-hook
@@ -624,7 +642,7 @@ function storeExists(b) {
 
 function refreshBackendSessions(backendId, { force = false } = {}) {
   const stats = { scanned: 0, upserted: 0, skipped: 0, deleted: 0 };
-  const startedMs = Date.now();   // how long a store takes to walk (#153) — a number, not a hand-timed guess
+  const elapsed = startTimer();   // how long a store takes to walk (#153) — a number, not a hand-timed guess
 
   const b = backends.list().find(d => d.id === backendId);
   if (!b) return stats;
@@ -817,7 +835,7 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
     }
   }
 
-  stats.elapsedMs = Date.now() - startedMs;
+  stats.elapsedMs = Math.round(elapsed());
   if (stats.upserted || stats.deleted) {
     log.info(`[scan] ${backendId}: ${stats.scanned} sessions (${stats.upserted} indexed, ${stats.skipped} unchanged, ${stats.deleted} removed) in ${stats.elapsedMs} ms`);
   }
@@ -1157,7 +1175,7 @@ function populateCacheViaWorker() {
   //
   // `info`, not `debug`: packaged builds default to info, and a number nobody can see cannot be compared
   // against anything. It is one line per cold start, not per event.
-  const startedMs = Date.now();
+  const elapsed = startTimer();
 
   populatePromise = new Promise((resolve) => {
     let settled = false;
@@ -1235,7 +1253,7 @@ function populateCacheViaWorker() {
       setFolderMeta(folder, projectPath, indexMtimeMs);
     }
 
-    const elapsedMs = Date.now() - startedMs;
+    const elapsedMs = Math.round(elapsed());
     const perSession = sessionCount ? Math.round(elapsedMs / sessionCount) : 0;
     log.info(
       `[scan] cold scan: ${sessionCount} sessions across ${msg.results.length} projects in ${elapsedMs} ms`

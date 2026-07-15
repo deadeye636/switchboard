@@ -103,7 +103,8 @@ test('a template with no backendId is Claude\'s — nothing existing breaks', ()
 // The old code did `const claude = registry.get('claude')` and then called `claude.buildLaunch(ctx)`
 // UNGUARDED. A template whose base is missing must fail with a sentence, not a TypeError.
 test('a template whose backend is gone says so instead of throwing', () => {
-  withProfiles([{ id: 'ghost', name: 'Ghost', backendId: 'agy', env: {} }], () => {
+  // A base id that is not registered at all (agy is real now, so it can no longer stand in for "gone").
+  withProfiles([{ id: 'ghost', name: 'Ghost', backendId: 'no-such-backend', env: {} }], () => {
     const t = backends.get('ghost');
     assert.ok(t, 'it stays visible in Settings — it is the user\'s template, not ours to hide');
     assert.equal(t.status, 'planned', 'but it cannot be launched');

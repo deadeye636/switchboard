@@ -183,28 +183,78 @@ The only backend whose history is **not** in files — the reason the discovery 
 - **Trap:** a stored `pi /login` OAuth session takes **priority over env vars**, so an injected key can be
   silently shadowed. The descriptor surfaces that in Settings.
 
-## agy (Antigravity CLI) — planned, recon needed
+## agy (Antigravity CLI) — file, per-conversation SQLite (reconned from a real install, v1.1.1)
 
 Google **retired the Gemini CLI in June 2026**; its successor is the Antigravity CLI, binary **`agy`** — a
-single Go binary (install script → `~/.local/bin/agy`, or `npm i -g @google/antigravity-cli`), which signs
-in with a Google account and offers to import an existing `~/.gemini` config.
+single Go binary. On this machine it is at `%LOCALAPPDATA%\agy\bin\agy.exe`, and the app it belongs to
+(Antigravity, a VS Code fork) is a separate install. It signs in with a Google account and imports an
+existing `~/.gemini` config on first run — which is why its data lives **under `~/.gemini`, not `~/.agy`**.
 
-It ships as a **"Coming soon"** dummy: never in the picker, never scanned. **What it stores, where, and how
-it resumes is unknown** — the old Gemini CLI's paths (`~/.gemini/tmp/<hash>/chats/…`) are explicitly **not**
-carried over as an assumption. Recon it against a real install before building it.
+**The desk survey was wrong about the store, exactly as the standing rule predicts.** The old Gemini CLI's
+`~/.gemini/tmp/<hash>/chats/` paths are **not** what agy uses; those directories still exist from the
+retired CLI and are a decoy. agy's own store is elsewhere.
 
-**Usage, from a desk survey (#191 — not from a real install, so treat it as a lead, not a fact).** Worth
-recording because it is the one backend whose quota model does *not* look like the other two:
+```
+~/.gemini/antigravity-cli/conversations/<conversation-id>.db     one SQLite DB per conversation
+~/.gemini/antigravity-cli/cache/last_conversations.json          { "<cwd>": "<conversation-id>" }  (latest per cwd)
+~/.gemini/antigravity-cli/history.jsonl                          one line per prompt: {display, timestamp(ms), workspace}
+~/.gemini/antigravity-cli/conversation_summaries.db              a separate summaries store (WAL)
+~/.gemini/antigravity-cli/settings.json                          { trustedWorkspaces: [...] }  (the trust surface)
+```
 
-- Its quota is **per MODEL**, not per time window — the community monitors report figures like
-  `Pro-L 80% · Claude 25%`, each with its own reset. There is no "5h / 7d" to read.
-- Beside the model quotas sits a **credit pool**, spent only once a model's quota is exhausted.
-- **No clean local file.** The monitors either find the port of the running Antigravity client (process
-  inspection), lift the token out of the local login, and call it — or they go straight to Google's API.
-  So its capability would be `live: true` with a real fetch, not Codex's file read.
+- **One transcript is one SQLite `.db` file per conversation** — so it is a **file-mode** backend and composes
+  `backends/file-store.js` (walk `conversations/*.db`, `refSuffix(id) = '<id>.db'`). But the *content* is a
+  database, not text, so it reads like Hermes: reuse the dual driver (`better-sqlite3` in Electron, fall back
+  to `node:sqlite` so the parser is testable under plain `node --test` — see Hermes' `loadDriver`). Read-only,
+  `query_only`, short-lived.
+- **The `.db` filename IS the conversation id** — the same id `agy --conversation <id>` resumes. So identity
+  needs no header parse: `sessionId` = the file's basename.
+- **The content is protobuf blobs in a `steps` table** (agy calls a conversation a *trajectory*). Tables:
+  `steps` (one row per turn: `step_type`, `status`, `step_payload` BLOB, `metadata` BLOB, `step_format`),
+  `trajectory_meta`, `trajectory_metadata_blob` (`id='main'`, the conversation-level metadata), plus
+  `gen_metadata`, `executor_metadata`, `battle_mode_infos`, `parent_references`. There is no schema shipped,
+  so the parser reads what it needs by **extracting the embedded strings** from the blobs rather than decoding
+  the full protobuf:
+  - **cwd** — `trajectory_metadata_blob.data` begins (proto field 1.1) with the workspace as a `file://` URI:
+    `file:///C:/proj` → `C:\proj`. This is the authoritative cwd; do not trust `last_conversations.json`
+    (it only holds the *latest* conversation per cwd, not all).
+  - **step roles** — `step_type` 14 = the user prompt, 15 = a model message, 9 = a tool call/result, others
+    (23, 98) are lifecycle/title steps. Turn/message count derives from the 14/15 rows.
+  - **title** — agy generates one ("Fix the build" in the sample); it appears in a step. Fall
+    back to the first user prompt (step 14, or `history.jsonl`'s `display` for that workspace) when absent.
+  - **model** — recorded as a display string in the blobs (`Gemini 3.5 Flash (Medium)`, also ids like
+    `gemini-3.5-flash-low`); the LAST one used wins. Best-effort string extraction — treat a miss as unknown,
+    never as an error.
+- **No timestamp lives in the DB blobs** (scanned; none in the 2026 epoch-ms range). So the change marker is
+  the **`.db` file mtime** (the file-store default), and `history.jsonl`'s `timestamp` (epoch **ms**) gives a
+  birth/first-prompt time per workspace if a first-seen date is wanted.
+- **State**: agy states nothing a file read can see — no lifecycle event in the DB, and its `--print` mode is
+  mutually exclusive with the interactive TUI. Busy/idle is inferred like Pi: the last turn's role (a trailing
+  user step = a turn is running) plus the terminal-liveness signal with a ceiling. It does **not** own an OSC
+  title heuristic (that is Claude-only, keyed on the binary).
+- **Transcript**: agy declares **`transcriptAccess: 'export'`** with a `readMessages`, exactly like Hermes — the
+  `.db` is a *binary* SQLite/protobuf file, so the message viewer and the handoff read the **exported turns**,
+  never the raw file (handing that path to the JSONL reader, or to a fresh agent, would yield garbage). It is
+  still *discovered* as a file (the file store scans/watches/reconciles it); only the read goes through the
+  exporter. `readMessages` walks the `steps` (14 = user, 15 = model; tool/lifecycle steps skipped) and pulls
+  each turn's prose out of the protobuf blob with a shallow wire-format walk — a model reply is one
+  length-delimited field whose value carries newlines and markdown, so a naive byte scan would split it.
+- **Resume** is `agy --conversation <id>`; `--continue`/`-c` reopens the most recent. **Fork** has no flag —
+  `supportsFork: false` (offering it would launch an unrelated session).
+- **`agy --help` / the argv** (v1.1.1): `--model`, `--project` / `--new-project`, `--add-dir` (repeatable),
+  `--agent`, `--mode {accept-edits,plan}`, `--sandbox`, `--dangerously-skip-permissions`, `--print`/`-p`/
+  `--prompt` (non-interactive), `--prompt-interactive`/`-i`, `--conversation`, `--continue`/`-c`. Subcommands:
+  `models`, `agents`, `changelog`, `install`, `plugin`, `update`. **`agy models`** lists the launchable models
+  (Gemini 3.5 Flash L/M/H, Gemini 3.1 Pro L/H, Claude Sonnet 4.6, Claude Opus 4.6, GPT-OSS 120B) — multi-
+  provider, which is why its quota is per-model. On Windows `agy` on PATH is a real `.exe`, not a `.cmd` shim.
 
-This is why the usage capability keys its colour thresholds on **how fast a bucket refills** rather than on
-a window length: a per-model quota has no window at all, and a `5h`/`7d` tier could not describe it.
+**Usage (#191).** Its quota is **per MODEL**, not per time window — community monitors report `Pro-L 80% ·
+Claude 25%`, each with its own reset, plus a shared **credit pool** spent once a model's quota is exhausted.
+There is no `5h`/`7d` window, which is why the usage capability keys its colour thresholds on how fast a bucket
+refills. **No clean local quota file was found** in the store (unlike Codex's `token_count`), so a real usage
+capability would be `live: true` with a network fetch (find the running client's port / lift the login token,
+or call Google's API) — bigger than a file read, and left as a follow-up; the descriptor can ship `ready`
+without it, like Hermes and Pi have no quota at all.
 
 ---
 

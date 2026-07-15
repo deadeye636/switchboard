@@ -51,62 +51,9 @@ function dbExists() {
 
 // --- SQLite driver ---
 //
-// Two drivers, one tiny interface. `better-sqlite3` is what the app already ships (and is what runs in
-// production), but it is compiled against Electron's ABI and cannot be loaded by a plain `node --test`
-// process. Node 22 ships `node:sqlite`, which can — so the reader falls back to it. That keeps this
-// backend testable in the normal suite instead of untested, and makes the reader work even where the
-// native module is unavailable.
-//
-// The wrapper normalises the two APIs down to what we actually use: prepare().all/get, a pragma read,
-// and close.
-function loadDriver() {
-  try {
-    const Database = require('better-sqlite3');
-    // require() alone proves nothing: better-sqlite3 loads its native binding LAZILY, on first open.
-    // Under a plain `node` process that binding is the wrong ABI (it is built for Electron) and only
-    // blows up here. Probe it for real, so we can fall through to node:sqlite instead of silently
-    // returning "no sessions".
-    new Database(':memory:').close();
-    return {
-      open(file) {
-        const db = new Database(file, { readonly: true, fileMustExist: true });
-        db.pragma('query_only = 1');   // belt and braces: we can never write, even by mistake
-        return {
-          all: (sql, ...p) => db.prepare(sql).all(...p),
-          get: (sql, ...p) => db.prepare(sql).get(...p),
-          pragma: (name) => db.pragma(name, { simple: true }),
-          close: () => db.close(),
-        };
-      },
-    };
-  } catch { /* fall through */ }
-
-  try {
-    const { DatabaseSync } = require('node:sqlite');
-    return {
-      open(file) {
-        const db = new DatabaseSync(file, { readOnly: true });
-        return {
-          all: (sql, ...p) => db.prepare(sql).all(...p),
-          get: (sql, ...p) => db.prepare(sql).get(...p),
-          pragma: (name) => {
-            const row = db.prepare(`PRAGMA ${name}`).get();
-            return row ? Object.values(row)[0] : null;
-          },
-          close: () => db.close(),
-        };
-      },
-    };
-  } catch { /* no driver at all */ }
-
-  return null;
-}
-
-let _driver;
-function driver() {
-  if (_driver === undefined) _driver = loadDriver();
-  return _driver;
-}
+// better-sqlite3 in Electron, node:sqlite under `node --test`. The dual driver is shared with agy (the
+// other SQLite-backed backend) so the fallback logic lives in exactly one place — backends/sqlite-driver.js.
+const { driver } = require('../sqlite-driver');
 
 // Open a short-lived READ-ONLY connection. Returns null when the DB isn't there (Hermes installed but
 // never run, or a degraded-mode install writing JSON instead — a known gap, not a crash), or when it is

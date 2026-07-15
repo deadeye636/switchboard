@@ -1,7 +1,8 @@
 # Multi-LLM backends
 
 Switchboard was a Claude Code cockpit. It now runs **several coding CLIs** side by side — Claude Code,
-Codex, Hermes and Pi — in one sidebar, one search index, one set of stats, with one launch menu.
+Codex, the Antigravity CLI (`agy`), Hermes and Pi — in one sidebar, one search index, one set of stats,
+with one launch menu.
 
 Claude remains the default and behaves exactly as before. Everything else is off until you turn it on.
 

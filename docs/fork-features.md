@@ -282,13 +282,14 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 The largest structural change this fork makes: Switchboard stops being a Claude-only cockpit and
 becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 
-- **Four backends, one app** — Claude Code, **Codex**, **Hermes** and **Pi** run side by side in one
-  sidebar, one FTS index, one launch menu and one stats view. A backend is a folder under `backends/`
+- **Five backends, one app** — Claude Code, **Codex**, the **Antigravity CLI** (`agy`), **Hermes** and
+  **Pi** run side by side in one sidebar, one FTS index, one launch menu and one stats view. A backend is a folder under `backends/`
   with a single descriptor; the registry, scanner, watcher, launch menu, settings page, Configure
   dialog, badge, search, stats and resume all derive from it.
 - **Two kinds of history, one seam** — discovery is dual-mode from the start: a backend yields
-  `{kind:'file'}` handles (Claude, Codex, Pi) **or** `{kind:'db'}` handles (Hermes keeps its sessions
-  in SQLite). Every parser also exposes an incremental contract (byte offset + tail fingerprint +
+  `{kind:'file'}` handles (Claude, Codex, Pi, and agy — whose per-conversation file happens to be a
+  SQLite DB, read via an exporter like Hermes) **or** `{kind:'db'}` handles (Hermes keeps its sessions
+  in SQLite). Every file parser also exposes an incremental contract (byte offset + tail fingerprint +
   schema version).
 - **Launch options per CLI** — each backend declares its own `configFields`; the Settings page and the
   Configure dialog are **generated** from them and stored under `backendDefaults.<id>`, cascading

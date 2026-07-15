@@ -322,15 +322,17 @@ async function showNewSessionPopover(project, anchorEl) {
   // `planned` or disabled one is never offered.
   await (window.refreshBackendCaches ? window.refreshBackendCaches() : Promise.resolve());
   const backendList = window.launchableBackends ? window.launchableBackends() : [];
-  // The DEFAULT first, then the other built-ins, then user profiles — a stable, predictable order.
-  // It used to be "Claude first", which is the same thing only as long as Claude is the default: a user
-  // who set another one got their default buried under Claude, unmarked, in a list of equals (#153).
+  // The DEFAULT first, then the other built-ins in REGISTRATION order, then user profiles. Registration
+  // order (claude, codex, agy, hermes, pi) is the same order Settings > Backends shows, so the two
+  // surfaces agree — agy sits under Codex in both, not alphabetically ahead of it. It used to be "Claude
+  // first", which is the same thing only as long as Claude is the default: a user who set another one got
+  // their default buried under Claude, unmarked, in a list of equals (#153).
   const defaultId = window._defaultBackendId || 'claude';
   backendList.sort((a, b) => {
     if (a.id === defaultId) return -1;
     if (b.id === defaultId) return 1;
     if (!!a.isProfile !== !!b.isProfile) return a.isProfile ? 1 : -1;
-    return String(a.label).localeCompare(String(b.label));
+    return 0;   // same group -> keep registration order (Array.sort is stable), matching the Settings list
   });
 
   // The group label the mockup asks for. Only when there is something under it: a heading over an empty

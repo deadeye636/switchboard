@@ -292,9 +292,11 @@ function backendCoreEnv({ mcpPort } = {}) {
   return env;
 }
 
-// --- planned Axis-B dummies (00 §5.8): shown in Settings as "Coming soon", never spawned/scanned.
-// A guard (T-3.6) blocks `planned` (or disabled) ids from the spawn + scan paths. These carry no
-// working hooks; Phases 4–6 replace codex/hermes/pi with real `ready` descriptors.
+// --- planned Axis-B dummy factory (00 §5.8): a "Coming soon" backend, never spawned/scanned. A guard
+// (T-3.6) blocks `planned` (or disabled) ids from the spawn + scan paths. Kept — and exported — because
+// the app's shape must survive an unbuilt backend, and the tests exercise that guard against one. No
+// built-in is planned any more: agy (Google's Antigravity CLI) became a real `ready` descriptor in #192
+// (backends/agy), so the seed registers it like every other binary.
 function plannedDummy({ id, label, monogram, colour }) {
   return {
     id, label, tier: 1, axis: 'B', status: 'planned', monogram, colour,
@@ -305,16 +307,6 @@ function plannedDummy({ id, label, monogram, colour }) {
     watchTargets() { return []; },
     deriveState: null, // uniform with claude.js: null = "state derived elsewhere / not applicable"
   };
-}
-
-// Axis-B binaries not built yet.
-//
-// `agy` = Google's Antigravity CLI. It REPLACES the Gemini CLI, which Google retired in June 2026
-// (https://antigravity.google/docs/cli/install) — a single Go binary, installed to ~/.local/bin/agy or
-// via `npm i -g @google/antigravity-cli`, which imports an existing ~/.gemini config on first run. The
-// old `gemini` id is gone, not aliased: it was never built, so nothing can reference it.
-function registerPlannedDummies() {
-  register(plannedDummy({ id: 'agy', label: 'Antigravity CLI', monogram: 'Ag', colour: 'agy' }));
 }
 
 // --- test hook: wipe + re-seed the registry deterministically.
@@ -328,9 +320,12 @@ function _seedDefaults() {
   registry.clear();
   register(require('./claude'));
   register(require('./codex'));
+  // Antigravity (agy) is the next Axis-B binary and Codex' closest sibling, so it sits right under Codex
+  // in the Settings > Backends list (which renders built-ins in registration order). A real `ready`
+  // file-mode descriptor whose transcript happens to be a SQLite DB (#192, backends/agy).
+  register(require('./agy'));
   register(require('./hermes'));   // Phase 5 — the first non-file (SQLite) backend
   register(require('./pi'));       // Phase 6 — file mode again, the payoff of the abstraction
-  registerPlannedDummies();
 }
 
 _seedDefaults();

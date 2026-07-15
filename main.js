@@ -7,6 +7,7 @@ const os = require('os');
 const http = require('http');
 const pty = require('node-pty');
 const log = require('electron-log');
+const { startTimer } = require('./perf');
 const attentionSource = require('./public/attention-source');
 // getFolderIndexMtimeMs moved to session-cache.js
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
@@ -1283,23 +1284,42 @@ ipcMain.handle('get-projects', async (_event, showArchived) => {
       markClaudeParserRead();
     }
 
+    // #199: this synchronous tail runs on the MAIN thread on every get-projects
+    // (sidebar refresh / tab switch / refresh click). Time each block; log one line
+    // at `debug` only when the whole tail stalls (>= 50 ms), so it is silent when
+    // idle and names the culprit block when it bites.
+    const tReconcile = startTimer();
     // Pick up folders changed while the app was closed, or never indexed by an
     // older build, so sessions/worktrees don't silently go missing. Stat-gated,
     // so it's cheap when nothing has changed.
     reconcileCacheFromFilesystem();
+    const reconcileMs = tReconcile();
     // Same, for every non-Claude backend that owns its own session store (T-4.2): Codex's
     // date-bucketed rollout tree, later Hermes' SQLite. Self-gating — a `planned` or disabled
     // backend is never enumerated, and Claude/Axis-A profiles are a no-op here (they live in the
     // Claude store the reconcile above already covered). mtime-gated, so it is cheap when idle.
+    const tBackends = startTimer();
     try { refreshAllBackendSessions(); } catch (err) { log.warn('[scan] backend scan failed:', err?.message || err); }
+    const backendsMs = tBackends();
     // #167: the scans above have just told us which projects have sessions. Put the new ones ON THE LIST
     // (in auto mode) and sweep the tombstones that no longer guard anything — before the list is built,
     // so a project discovered a moment ago is in this very render.
+    const tSync = startTimer();
     projects.syncRegistry();
+    const syncMs = tSync();
     // #57: apply auto-hide before building the response so freshly-hidden projects
     // drop out of this render. Internally throttled, so it's cheap on rapid calls.
+    const tHide = startTimer();
     projects.applyAutoHide();
-    return buildProjectsFromCache(showArchived);
+    const hideMs = tHide();
+    const tBuild = startTimer();
+    const built = buildProjectsFromCache(showArchived);
+    const buildMs = tBuild();
+    const totalMs = reconcileMs + backendsMs + syncMs + hideMs + buildMs;
+    if (totalMs >= 50) {
+      log.debug(`[perf] get-projects ${totalMs.toFixed(0)}ms: reconcile=${reconcileMs.toFixed(0)} backends=${backendsMs.toFixed(0)} syncRegistry=${syncMs.toFixed(0)} autoHide=${hideMs.toFixed(0)} build=${buildMs.toFixed(0)}`);
+    }
+    return built;
   } catch (err) {
     console.error('Error listing projects:', err);
     return [];
@@ -3227,27 +3247,30 @@ ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
   const row = getCachedSession(sessionId);
   if (!row) return { error: 'Session not found in cache' };
 
-  // Only Claude's transcripts live at PROJECTS_DIR/<folder>/<id>.jsonl. Another file backend records
-  // its own absolute path (v11) — reconstructing Claude's layout for it would read the wrong file (or,
-  // for a db-store backend like Hermes, no file at all: it has none, so say that instead of throwing
-  // an ENOENT at the user).
-  if (row.filePath) return readJsonlEntries(row.filePath);
   // An Axis-A profile runs the same binary into the same store, so it reads like Claude. Only an
   // Axis-B backend owns a store of its own.
   const backendId = row.backendId || 'claude';
   const b = backends.get(backendId);
-  if (b && b.axis === 'B') {
-    // A backend with no transcript file can still hand us its messages (Hermes reads them from its DB).
-    // That is what makes the viewer AND the handoff pre-fill work for it — without it, a handoff on such
-    // a backend silently makes the user retype the packet the agent just wrote (#148).
-    if (typeof b.readMessages === 'function') {
-      try {
-        const entries = b.readMessages(sessionId) || [];
-        return { entries };
-      } catch (err) {
-        return { error: err.message };
-      }
+
+  // A backend whose transcript is NOT a plain text file EXPORTS its messages instead of being read as
+  // JSONL — Hermes (a DB with no file) and agy (a binary SQLite/protobuf `.db`). This must come BEFORE
+  // the `filePath` branch: agy's `.db` IS a discovered file, so reading it as JSONL yields garbage, and
+  // handing that path to a fresh agent (handoff) hands over a binary blob. Backend-neutral — keyed on
+  // `transcriptAccess`, no hardcoded id. Without it the viewer and the handoff pre-fill (#148) break.
+  if (((b && b.transcriptAccess) || 'file') !== 'file' && typeof b.readMessages === 'function') {
+    try {
+      return { entries: b.readMessages(sessionId) || [] };
+    } catch (err) {
+      return { error: err.message };
     }
+  }
+
+  // Claude's transcripts live at PROJECTS_DIR/<folder>/<id>.jsonl; another file backend records its own
+  // absolute path (v11) — reconstructing Claude's layout for it would read the wrong file.
+  if (row.filePath) return readJsonlEntries(row.filePath);
+
+  // An Axis-B backend with its own store but no file and no exporter: say so, don't ENOENT at the user.
+  if (b && b.axis === 'B') {
     return { error: `${b.label || backendId} keeps this session in its own store, not in a transcript file — there is nothing to show here.` };
   }
   const folder = row.folder || getCachedFolder(sessionId);

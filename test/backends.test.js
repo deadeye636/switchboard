@@ -113,23 +113,23 @@ test('descriptor shape: ready, configFields present, contract hooks exposed', ()
 
 // --- registry.
 
-test('registry: claude + codex + hermes + pi are ready; agy (Antigravity CLI) is still a planned dummy', () => {
+test('registry: every built-in binary backend is ready (agy became real in #192)', () => {
   assert.strictEqual(backends.get('claude').status, 'ready');
   assert.strictEqual(backends.get('codex').status, 'ready');  // Phase 4 (file store)
+  assert.strictEqual(backends.get('agy').status, 'ready');    // #192 (file store, SQLite content)
   assert.strictEqual(backends.get('hermes').status, 'ready'); // Phase 5 (SQLite store)
   assert.strictEqual(backends.get('pi').status, 'ready');     // Phase 6 (file store again)
-  for (const id of ['agy']) {
-    const d = backends.get(id);
-    assert.ok(d, `${id} registered`);
-    assert.strictEqual(d.status, 'planned', `${id} is a planned dummy until its phase builds it`);
-  }
 });
 
 test('registry: a planned dummy refuses to launch', () => {
-  assert.throws(() => backends.get('agy').buildLaunch({}), /planned/);
+  // No built-in is planned any more, but the guard the app relies on for an unbuilt backend must stay
+  // true — exercise it against a fresh dummy from the exported factory.
+  const dummy = backends.plannedDummy({ id: 'nope', label: 'Nope', monogram: 'Np', colour: 'default' });
+  assert.strictEqual(dummy.status, 'planned');
+  assert.throws(() => dummy.buildLaunch({}), /planned/);
 });
 
-test('registry: list() includes claude + the planned dummies', () => {
+test('registry: list() includes claude + the other built-in binaries', () => {
   const ids = backends.list().map(d => d.id).sort();
   assert.deepStrictEqual(ids, ['agy', 'claude', 'codex', 'hermes', 'pi']);
 });
@@ -147,23 +147,25 @@ function withRegistry(settings, profileList, fn) {
   }
 }
 
-test('list(): only claude is enabled by default; planned are never enabled', () => {
+test('list(): only claude is enabled by default; other ready backends are off until enabled', () => {
   withRegistry({}, [], () => {
     const byId = Object.fromEntries(backends.list().map(b => [b.id, b]));
     assert.strictEqual(byId.claude.enabled, true);
     assert.strictEqual(byId.codex.enabled, false);
-    assert.strictEqual(byId.agy.enabled, false);
+    assert.strictEqual(byId.agy.enabled, false, 'ready, but not enabled out of the box');
   });
 });
 
-test('list(): backendEnabled.<id> flags are merged; planned can NEVER be enabled', () => {
+test('list(): backendEnabled.<id> flags are merged; a ready backend can be enabled, a planned one cannot', () => {
   withRegistry({ backendEnabled: { codex: true, agy: true, claude: false } }, [], () => {
     const byId = Object.fromEntries(backends.list().map(b => [b.id, b]));
     assert.strictEqual(byId.claude.enabled, false, 'claude can be disabled by the user');
     assert.strictEqual(byId.codex.enabled, true, 'a ready backend the user enabled');
-    // agy is a planned dummy -> the flag must not be able to activate it (§5.8)
-    assert.strictEqual(byId.agy.enabled, false, 'planned stays off even when flagged');
+    assert.strictEqual(byId.agy.enabled, true, 'agy is ready now, so its flag activates it');
   });
+  // The planned guard still holds for an unbuilt backend: even flagged on, it stays off (§5.8).
+  const planned = backends.plannedDummy({ id: 'planq', label: 'PlanQ', monogram: 'Pq', colour: 'default' });
+  assert.strictEqual(backends.isEnabled(planned, { planq: true }), false, 'planned stays off even when flagged');
 });
 
 test('list(): user profiles are unioned in and enabled by default', () => {
@@ -205,12 +207,12 @@ test('isLaunchable: the §5.8 gate — ready AND enabled only', () => {
   withRegistry({}, [], () => {
     assert.strictEqual(backends.isLaunchable('claude'), true, 'default backend is on');
     assert.strictEqual(backends.isLaunchable('codex'), false, 'ready but not enabled yet');
-    assert.strictEqual(backends.isLaunchable('agy'), false, 'planned is never launchable');
+    assert.strictEqual(backends.isLaunchable('agy'), false, 'ready but not enabled yet');
     assert.strictEqual(backends.isLaunchable('ghost'), false, 'unknown id');
   });
   withRegistry({ backendEnabled: { codex: true, agy: true } }, [], () => {
     assert.strictEqual(backends.isLaunchable('codex'), true, 'enabling a ready backend makes it launchable');
-    assert.strictEqual(backends.isLaunchable('agy'), false, 'a planned backend can never be enabled');
+    assert.strictEqual(backends.isLaunchable('agy'), true, 'agy is ready — enabling it makes it launchable too');
   });
   withRegistry({ backendEnabled: { claude: false } }, [], () => {
     assert.strictEqual(backends.isLaunchable('claude'), false, 'a disabled backend cannot spawn');

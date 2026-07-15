@@ -15,10 +15,11 @@ const assert = require('node:assert/strict');
 
 const claude = require('../backends/claude');
 const codex = require('../backends/codex');
+const agy = require('../backends/agy');
 const hermes = require('../backends/hermes');
 const pi = require('../backends/pi');
 
-const BACKENDS = [claude, codex, hermes, pi];
+const BACKENDS = [claude, codex, agy, hermes, pi];
 
 const CTX = { cwd: '/p', resume: false, sessionId: 's1' };
 

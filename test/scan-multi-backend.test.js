@@ -29,6 +29,11 @@ backends.register({
   deriveState: null,
 });
 
+// A `planned` backend, for the never-scanned gate below. No built-in is planned any more (agy became
+// real in #192), so the test registers its own dummy rather than borrowing a real backend whose store
+// would then actually be enumerated on disk.
+backends.register(backends.plannedDummy({ id: 'fakeplanned', label: 'Fake Planned', monogram: 'Fp', colour: 'fake' }));
+
 // --- in-memory mirror of the db layer (better-sqlite3 is built for Electron's ABI and cannot be
 // required from node:test — same approach as db-session-metrics.test.js). The backend scoping here
 // mirrors db.js backendScopeClause() 1:1. ---
@@ -364,16 +369,17 @@ test('a disabled backend is never scanned but keeps its cached rows', () => {
 });
 
 test('a planned backend is never scanned and its roots are never enumerated', () => {
-  // agy is still a `planned` dummy (hermes became ready in Phase 5, codex in Phase 4).
-  const w = setup({ enabledMap: { agy: true, faketest: true } });
+  // `fakeplanned` is a registered `planned` dummy (agy became ready in #192, so it can no longer play
+  // this role — enabling it would enumerate its real on-disk store).
+  const w = setup({ enabledMap: { fakeplanned: true, faketest: true } });
   try {
     w.db.upsertCachedSessions([{
       sessionId: 'dddddddd-0000-4000-8000-000000000004', folder: w.folder, projectPath: w.projectCwd,
-      backendId: 'agy', filePath: null, summary: 'old agy session',
+      backendId: 'fakeplanned', filePath: null, summary: 'old planned session',
     }]);
 
     // `planned` can never be enabled (backends.isEnabled), so this is a no-op by construction.
-    const stats = sessionCache.refreshBackendSessions('agy');
+    const stats = sessionCache.refreshBackendSessions('fakeplanned');
     assert.deepEqual(stats, { scanned: 0, upserted: 0, skipped: 0, deleted: 0 });
     assert.ok(w.db._cache.has('dddddddd-0000-4000-8000-000000000004'), 'planned backend keeps its cached rows');
 
