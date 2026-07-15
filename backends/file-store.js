@@ -39,13 +39,21 @@ function findOnPath(name) {
   return null;
 }
 
-/** Every file under `dir` (recursively) whose name `matches`. A store root that is not there yields none. */
-function walkStore(dir, matches, out = []) {
+/**
+ * Every file under `dir` (recursively) whose name `matches`. A store root that is not there yields none.
+ *
+ * `stats.errors` (when a stats object is passed) counts directories that could not be read — a permission
+ * error or a lock on a SUBTREE. The caller needs that: a swallowed read error makes a subtree's sessions
+ * simply absent from the result, indistinguishable from "the user deleted them" — and the reconcile would
+ * then purge real history for a store we only failed to read (#197).
+ */
+function walkStore(dir, matches, out = [], stats = null) {
   let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+  catch { if (stats) stats.errors++; return out; }
   for (const e of entries) {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) walkStore(p, matches, out);
+    if (e.isDirectory()) walkStore(p, matches, out, stats);
     else if (e.isFile() && matches(e.name)) out.push(p);
   }
   return out;
@@ -60,7 +68,8 @@ function createFileStore({ root, matches, parseSession, refSuffix } = {}) {
   /** FILE-mode discovery: one {kind:'file'} handle per transcript. */
   function discoverSessions() {
     const storeRoot = root();
-    return walkStore(storeRoot, matches).map(p => ({
+    const stats = { errors: 0 };
+    const handles = walkStore(storeRoot, matches, [], stats).map(p => ({
       kind: 'file',
       path: p,
       // The filename usually carries the id too, but the header is authoritative — the parser reads it there.
@@ -68,6 +77,13 @@ function createFileStore({ root, matches, parseSession, refSuffix } = {}) {
       parentSessionId: null,
       root: storeRoot,
     }));
+    // A subtree that could not be read makes this result PARTIAL: its sessions are missing, not gone. Flag
+    // it so the reconcile keeps unseen rows instead of deleting real history for a store it only half-read
+    // (#197). A wholly-absent root also trips this, harmlessly: the whole-store guard already keeps
+    // everything there. NON-enumerable so the handle list still deep-equals a plain array (the discovery
+    // contract is "an array of handles"); the reconcile reads the flag off it directly.
+    if (stats.errors > 0) Object.defineProperty(handles, 'incomplete', { value: true, enumerable: false });
+    return handles;
   }
 
   /** STORE-level watch target: the root, recursively (new subdirectories appear on their own — a date

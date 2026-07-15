@@ -800,12 +800,21 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
 
   // Reconcile: a cached row whose file is gone from the store is dropped. Keyed on the file (not on
   // "did we parse it this pass"), so a row skipped by the mtime gate or by a hidden project survives.
-  for (const row of cached) {
-    const stillThere = row.filePath ? seenFiles.has(row.filePath) : seenIds.has(row.sessionId);
-    if (stillThere) continue;
-    deleteCachedSession(row.sessionId);
-    deleteSearchSession(row.sessionId);
-    stats.deleted++;
+  //
+  // NOT when discovery only PARTIALLY read the store (#197): a readdir that threw on a subtree (a
+  // permission error, a lock) drops that subtree's sessions from `handles` — they are unseen, not deleted.
+  // Purging their rows would erase real history for a store we merely failed to read, the same data loss
+  // the whole-store-absent guard above refuses. Keep them; the next clean pass reconciles genuine losses.
+  if (handles.incomplete) {
+    if (cached.length) log.info(`[scan] ${backendId}: store only partially readable — keeping ${cached.length} cached row(s), skipping reconcile`);
+  } else {
+    for (const row of cached) {
+      const stillThere = row.filePath ? seenFiles.has(row.filePath) : seenIds.has(row.sessionId);
+      if (stillThere) continue;
+      deleteCachedSession(row.sessionId);
+      deleteSearchSession(row.sessionId);
+      stats.deleted++;
+    }
   }
 
   stats.elapsedMs = Date.now() - startedMs;

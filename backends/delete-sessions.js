@@ -25,15 +25,37 @@ function deleteTranscripts(files, root) {
   const failed = [];
   const guard = root ? path.resolve(root) + path.sep : null;
 
+  const touched = new Set();
   for (const file of files || []) {
     if (!file) continue;
     const resolved = path.resolve(file);
     if (guard && !resolved.startsWith(guard)) { failed.push(file); continue; }
+    // Count only what was really there (#198): `force:true` swallows ENOENT, so an already-gone file — a
+    // subagent listed on its own row that went with its parent — must not inflate the "Removed N" the
+    // dialog reports. Claude's own deleteSessions checks existence first; match it.
+    const existed = fs.existsSync(resolved);
     try {
       fs.rmSync(resolved, { force: true });
-      removed++;
+      if (existed) removed++;
+      touched.add(path.dirname(resolved));
     } catch {
       failed.push(file);
+    }
+  }
+
+  // Prune directories left empty by the deletes, up to (never including) the store root — an emptied
+  // date-bucket dir (Codex `sessions/YYYY/MM/DD`) should not linger as a shell, the way Claude's own
+  // delete already prunes. `guard` carries a trailing separator, so the store root never satisfies
+  // `startsWith` and is never removed.
+  if (guard) {
+    for (let dir of touched) {
+      while (path.resolve(dir).startsWith(guard)) {
+        let entries;
+        try { entries = fs.readdirSync(dir); } catch { break; }
+        if (entries.length) break;
+        try { fs.rmdirSync(dir); } catch { break; }
+        dir = path.dirname(dir);
+      }
     }
   }
   return { removed, failed };

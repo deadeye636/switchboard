@@ -3542,7 +3542,13 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
           // AUTHORITATIVE provenance (§5.7), so fall back to it — otherwise resuming a session the
           // overlay no longer knows (a scanner-discovered Codex session, or one whose entry aged out)
           // would silently default to `claude` and spawn `claude --resume <codex-uuid>`, which fails.
-          if (!recorded) {
+          //
+          // Consult the cache ALSO when the overlay points at a backend that no longer resolves (#196):
+          // a session launched under a TEMPLATE records that template's id (session-backends.record gets
+          // `backend.id`, which for a profile launch is the profile id), and the template may since have
+          // been deleted. The cache's backendId is the BASE backend the transcript was actually written
+          // by, so this heals a deleted-template session onto its real base binary instead of Claude.
+          if (!recorded || !backends.get(recorded.backendId)) {
             try {
               const row = getCachedSession(lookupId);
               if (row && row.backendId) recorded = { backendId: row.backendId, profileId: null };
@@ -3556,9 +3562,17 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
       // raw failure.
       const requestedId = sessionOptions?.backendId || recorded?.backendId || 'claude';
       const inferredClaude = !sessionOptions?.backendId && !recorded?.backendId;
-      const backend = backends.get(requestedId) || backends.get('claude');
+      // A recorded provenance that STILL does not resolve (its backend/template was removed from this
+      // build, and the cache heal above found nothing) must not silently become a Claude resume of a
+      // foreign transcript — `claude --resume <codex-uuid>` gives a dead tab, where every other
+      // bad-provenance branch below refuses with a sentence. Only the genuine `inferredClaude` case (no
+      // provenance at all → really Claude's) may default to Claude (#196).
+      const backend = backends.get(requestedId) || (inferredClaude ? backends.get('claude') : null);
       if (!backend) {
-        return { ok: false, error: `Backend '${requestedId}' is not installed in this build.` };
+        return { ok: false, error: inferredClaude
+          ? `Backend '${requestedId}' is not installed in this build.`
+          : `The backend or template this session ran under ('${requestedId}') is no longer installed, `
+            + `so it cannot be resumed. Re-create it, or start a new session.` };
       }
       startupHint = backend.startupHint || null;
 
