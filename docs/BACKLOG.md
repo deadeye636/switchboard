@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (17 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-15
 
@@ -19,6 +19,8 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#188](https://github.com/deadeye636/switchboard/issues/188) The core reads Claude directly instead of through its descriptor · _chore_
+- [#195](https://github.com/deadeye636/switchboard/issues/195) Parity tests enumerate a hardcoded backend roster instead of the registry · _chore_
+- [#196](https://github.com/deadeye636/switchboard/issues/196) Resume of a session whose recorded backend/template no longer resolves silently spawns claude --resume on a foreign transcript · _bug_
 
 ## P3 — someday
 
@@ -33,3 +35,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
 - [#192](https://github.com/deadeye636/switchboard/issues/192) Antigravity (agy) backend: recon a real install, then make the planned dummy real · _feature_
 - [#193](https://github.com/deadeye636/switchboard/issues/193) Session provenance: show where a session came from (clear heuristic + explicit parent links) · _feature_
+- [#194](https://github.com/deadeye636/switchboard/issues/194) Incremental-parse contract is enforced but never consumed — generic scan full-parses every changed file · _chore_
+- [#197](https://github.com/deadeye636/switchboard/issues/197) A partially unreadable file store reconciles real sessions out of the cache · _bug_
+- [#198](https://github.com/deadeye636/switchboard/issues/198) Shared deleteTranscripts over-counts removed files and leaves empty dirs behind · _bug_
