@@ -28,6 +28,7 @@ const {
   applyIndexResults,
   claudeStoreScope,
   isRemovedProject,
+  markPersisted,
   noteStoreProject,
   newestSessionAt,
   notifyRendererProjectsChanged,
@@ -117,94 +118,86 @@ function folderProjectPath(folder, folderPath) {
   return deriveProjectPath(folderPath);
 }
 
-// opts.indexMtimeMs — pre-computed getFolderIndexMtimeMs result. The reconcile
-// sweep already scans every folder once for its change gate; passing that value
-// in avoids a second readdir+stat pass per refreshed folder. Stamping the
-// pre-refresh value is the safe direction: a file that changes mid-refresh just
-// triggers one extra sweep next pass.
+// The Claude parse-loop as a PURE function (#199 step 5.1a). Snapshot-in, reply-out: it COMPUTES and
+// RETURNS everything main must PERSIST, and persists NONE of it — no DB read, no sink call, no
+// noteStoreProject / cancelReindex / setFolderMeta. Its return IS the reply shape the step-5 worker will
+// post; if a side-effect is not in the reply, main drops it even on-thread, so every one is represented.
+// Two deliberate, non-persisted exceptions it DOES mutate in place: the caller's `stats` diagnostic
+// accumulator, and the module-level `_fileReadState` memo (the incremental offsets — worker-owned in 5.2).
+// Both are process-local, single-threaded, and carry no cross-request state a reply would need.
 //
-// Phased (#199 step-4, fable #4) into snapshot -> parse-loop -> sink, even while on-thread: main gathers
-// the cached-rows + folder-meta snapshot, the parse-loop walks/parses (this is what moves to the worker
-// in step 5), and the neutral sink applies the writes.
-function refreshFolder(folder, opts = {}) {
-  // Claude answers to the enable gate like every other backend now (#162). "Disable is not delete"
-  // (§5.8) still holds: the cached rows stay, so the sessions remain visible and searchable — they are
-  // simply not re-read, and nothing new appears.
-  if (!claudeEnabled()) return;   // undefined is falsy — the "changed?" contract below treats it as no-change
+// Worker-safe: it only touches the filesystem (statSync, enumerateSessionFiles, readSessionFileIncremental,
+// getFolderIndexMtimeMs) and the module-level `_fileReadState` memo (worker-owned in step 5.2). The
+// DB-reading gates it must not do — `folderProjectPath` (needs getFolderMeta) and `isRemovedProject` — are
+// resolved by main and fed in as `projectPath` / `removed`; the cached-rows snapshot arrives as `cachedMap`
+// + `cachedByFilePath` (built by main from getCachedByFolder). stampClaudeProvenance is NOT applied here
+// (it reads the launch overlay, main-only) — the loop returns RAW sessions and main prepares them.
+//
+// Reply fields (all load-bearing — see the step-5 "Corrections" in the plan):
+//   sessions        — RAW parsed rows (main maps stampClaudeProvenance, then the sink writes them)
+//   seenIds         — every cached id STILL present (unchanged-skipped + re-read); main's snapshot-scoped
+//                     delete-diff = cachedMap.keys() − seenIds (NOT liveCache − seenIds — fable finding 2)
+//   seenFiles       — every .jsonl visited (forward-compat with the worker's file-based diff)
+//   reReadFiles     — files this pass actually re-read; main cancelReindex()es each (the debounce timers
+//                     live on main — dropping this reintroduces the #199 double-read)
+//   skippedIds      — the #155 skip-path markPersisted ids (empty for Claude's loop; carried for shape)
+//   folderStamps    — [{folder, projectPath, indexMtimeMs}] for EVERY visited folder incl. removed /
+//                     no-projectPath / vanished-with-projectPath, or the sweep gate re-trips every tick
+//   vanishedFolders — folder gone at walk time; main does the scoped cached-folder delete WITHOUT the
+//                     matching search-folder delete (the A-4 asymmetry)
+//   storeProjects   — [{projectPath, newestAt}] for a REMOVED folder; main replays noteStoreProject
+//                     (drop it and storeProjectPaths empties → syncRegistry breaks the #167 bring-back)
+//   changed         — whether any file was (re-)read (main ORs in the delete count it computes)
+function parseClaudeFolder({ folder, folderPath, exists, projectPath, removed, cachedMap, cachedByFilePath, indexMtimeMs, stats }) {
+  const reply = {
+    sessions: [], seenIds: [], seenFiles: [], reReadFiles: [], skippedIds: [],
+    folderStamps: [], vanishedFolders: [], storeProjects: [], changed: false,
+  };
+  const stampMtimeMs = () => (indexMtimeMs != null ? indexMtimeMs : getFolderIndexMtimeMs(folderPath));
 
-  // Optional perf accumulator handed in by the reconcile sweep (#199 step 2).
-  const stats = opts.stats || null;
-
-  const folderPath = path.join(PROJECTS_DIR, folder);
-  // Scope EVERY folder-wide read/delete below to Claude's store: an Axis-B backend (Codex) can hold
-  // rows under the same folder key, and its sessions live outside ~/.claude/projects. An unscoped sweep
-  // here would delete them.
-  const scope = claudeStoreScope();
-
-  // --- snapshot (main gathers) ---
-  if (!fs.existsSync(folderPath)) {
-    // VANISHED-FOLDER branch (#199 step-4 footnote A-4): keep the EXACT asymmetric delete —
-    // deleteCachedFolder WITHOUT deleteSearchFolder. It is a pre-existing FTS-orphan asymmetry: the
-    // cache-first order makes a scoped search wipe impossible here anyway (the scoped FTS delete resolves
-    // backendId through the very rows this deletes). Routing it through the sink's search-first
-    // wipeFolders would CHANGE behaviour (arguably fix the orphan) — so it is kept as-is to stay
-    // behaviour-identical; step 5's worker reconcile is where the orphan can be cleaned up honestly.
-    deleteCachedFolder(folder, scope);
-    return true;
+  // VANISHED-FOLDER branch (#199 step-4 footnote A-4): report it so main does the EXACT asymmetric delete —
+  // deleteCachedFolder WITHOUT deleteSearchFolder. A pre-existing FTS-orphan asymmetry: the cache-first
+  // order makes a scoped search wipe impossible here anyway (the scoped FTS delete resolves backendId
+  // through the very rows this deletes). Routing it through the sink's search-first wipeFolders would
+  // CHANGE behaviour (arguably fix the orphan) — kept as-is to stay behaviour-identical.
+  if (!exists) {
+    reply.vanishedFolders.push(folder);
+    reply.changed = true;
+    return reply;
   }
-  const stampMtimeMs = () =>
-    (opts.indexMtimeMs != null ? opts.indexMtimeMs : getFolderIndexMtimeMs(folderPath));
 
-  // Reuse the previously-derived projectPath when its directory still exists. A vanished directory falls
-  // through to a fresh derive so the missing-project remap detection keeps working.
-  const projectPath = folderProjectPath(folder, folderPath);
+  // No projectPath (undeterminable cwd): stamp the folder so the gate does not re-trip, nothing else.
   if (!projectPath) {
-    setFolderMeta(folder, null, stampMtimeMs());
-    return false;
+    reply.folderStamps.push({ folder, projectPath: null, indexMtimeMs: stampMtimeMs() });
+    return reply;
   }
 
   // REMOVED project: don't index its folder back into the cache (a hidden one still is — #167). What the
   // folder holds, and how recent it is, still has to be REPORTED so the sweep does not forget a removal
-  // while its transcripts are there, and a session NEWER than the removal brings the project back.
-  if (isRemovedProject(projectPath)) {
+  // while its transcripts are there, and a session NEWER than the removal brings the project back. The
+  // `newestAt` is the folder index mtime (matching the pre-extraction `newestMs = getFolderIndexMtimeMs`),
+  // NOT a session parse — so this branch reads no session file, exactly as before.
+  if (removed) {
     const newestMs = getFolderIndexMtimeMs(folderPath);
-    noteStoreProject(projectPath, newestMs ? new Date(newestMs).toISOString() : null);
-    setFolderMeta(folder, projectPath, stampMtimeMs());
-    return false;
+    reply.storeProjects.push({ projectPath, newestAt: newestMs ? new Date(newestMs).toISOString() : null });
+    reply.folderStamps.push({ folder, projectPath, indexMtimeMs: stampMtimeMs() });
+    return reply;
   }
 
-  // Get what's currently cached for this folder. cachedMap: DB sessionId -> { modified, filePath } so we
-  // can do mtime comparison even for subagents whose DB sessionId differs from the on-disk filename.
-  const cachedSessions = getCachedByFolder(folder, scope);
-  const cachedMap = new Map();          // DB sessionId -> { modified, filePath, parserVersion }
-  const cachedByFilePath = new Map();   // filePath -> { dbId, entry } (reverse map for the per-file loop)
-  for (const row of cachedSessions) {
-    const entry = {
-      modified: row.modified,
-      filePath: resolveRowFilePath(row),
-      parserVersion: row.parserVersion,   // #152 — the skip gate needs it, not just the mtime
-    };
-    cachedMap.set(row.sessionId, entry);
-    cachedByFilePath.set(entry.filePath, { dbId: row.sessionId, entry });
-  }
-
-  // --- parse-loop (this is what moves to the worker in step 5) ---
-  const currentIds = new Set();
-  let changed = false;
-  const preparedSessions = [];   // already-prepared rows, handed to the sink
-  const deleteIds = [];          // rows whose .jsonl vanished
-
+  // --- the parse-loop proper ---
+  const seen = new Set();   // cached ids + re-read session ids still present this pass
   for (const { filePath, parentSessionId } of claude.enumerateSessionFiles(folderPath)) {
     // We need the DB sessionId to look up the cache, but we don't know it until after the read — for
     // subagents it's sub:<parent>:<agentId>. Use the file path to find a matching cached entry instead.
     let fileMtime;
     try { fileMtime = fs.statSync(filePath).mtime.toISOString(); } catch { continue; }
+    reply.seenFiles.push(filePath);
 
     const cachedHit = cachedByFilePath.get(filePath) || null;
     const cachedEntry = cachedHit ? cachedHit.entry : null;
     const cachedDbId = cachedHit ? cachedHit.dbId : null;
 
-    if (cachedDbId !== null) currentIds.add(cachedDbId);
+    if (cachedDbId !== null) seen.add(cachedDbId);
 
     // The staleness gate. An unchanged file is skipped — UNLESS the parser that wrote the cached row is
     // not the parser that would read it now (#152). A parser change does not touch the file's mtime.
@@ -225,36 +218,117 @@ function refreshFolder(folder, opts = {}) {
         if (prev) { stats.filesIncremental++; stats.bytes += Math.max(0, res.next.offset - prev.offset); }
         else { stats.filesFull++; stats.bytes += res.next.offset; }
       }
-      // This sweep just read the file — cancel any pending debounced refreshFile for it so the watcher
-      // flush doesn't redo the same read+FTS work a moment later (#199 step 2).
-      cancelReindex(filePath);
+      // This sweep just read the file — main must cancel any pending debounced refreshFile for it so the
+      // watcher flush doesn't redo the same read+FTS work a moment later (#199 step 2).
+      reply.reReadFiles.push(filePath);
       const s = res.session;
-      currentIds.add(s.sessionId); // ensure we don't delete a newly-read subagent row
-      // Per-backend PREPARE (Claude): stamp provenance + parser version. The sink does the metrics,
-      // search, name and upsert — all common.
-      preparedSessions.push(stampClaudeProvenance(s));
+      seen.add(s.sessionId); // ensure main doesn't delete a newly-read subagent row
+      reply.sessions.push(s); // RAW — main applies stampClaudeProvenance before the sink
     } else {
       // Not (yet) a valid session, or it became invalid — drop any stale memo so the next touch starts
       // from a clean full read (mirrors refreshFile).
       _fileReadState.delete(filePath);
     }
-    changed = true;
+    reply.changed = true;
   }
 
-  // Remove sessions whose .jsonl files were deleted
-  for (const sessionId of cachedMap.keys()) {
-    if (!currentIds.has(sessionId)) {
-      deleteIds.push(sessionId);
-      changed = true;
+  reply.seenIds = [...seen];
+  reply.folderStamps.push({ folder, projectPath, indexMtimeMs: stampMtimeMs() });
+  return reply;
+}
+
+// opts.indexMtimeMs — pre-computed getFolderIndexMtimeMs result. The reconcile
+// sweep already scans every folder once for its change gate; passing that value
+// in avoids a second readdir+stat pass per refreshed folder. Stamping the
+// pre-refresh value is the safe direction: a file that changes mid-refresh just
+// triggers one extra sweep next pass.
+//
+// Phased (#199 step-4, fable #4) into snapshot -> parse-loop -> sink; step 5.1a extracts the parse-loop as
+// the PURE `parseClaudeFolder` (snapshot-in, reply-out) and this function is now: main GATHERS the
+// snapshot (the DB-reading gates it must not leave in the loop), CALLS the pure loop, then REPLAYS every
+// side-effect from the reply — prepare() + the neutral sink, plus noteStoreProject / cancelReindex /
+// setFolderMeta / the vanished asymmetric delete / the snapshot-scoped delete-diff. Behaviour-identical.
+function refreshFolder(folder, opts = {}) {
+  // Claude answers to the enable gate like every other backend now (#162). "Disable is not delete"
+  // (§5.8) still holds: the cached rows stay, so the sessions remain visible and searchable — they are
+  // simply not re-read, and nothing new appears.
+  if (!claudeEnabled()) return;   // undefined is falsy — the "changed?" contract below treats it as no-change
+
+  // Optional perf accumulator handed in by the reconcile sweep (#199 step 2).
+  const stats = opts.stats || null;
+
+  const folderPath = path.join(PROJECTS_DIR, folder);
+  // Scope EVERY folder-wide read/delete below to Claude's store: an Axis-B backend (Codex) can hold
+  // rows under the same folder key, and its sessions live outside ~/.claude/projects. An unscoped sweep
+  // here would delete them.
+  const scope = claudeStoreScope();
+
+  // --- snapshot (main gathers the DB-derived facts the pure loop must not read) ---
+  const exists = fs.existsSync(folderPath);
+  // Reuse the previously-derived projectPath when its directory still exists (folderProjectPath), then the
+  // #167 removed gate. Both are DB reads (getFolderMeta / getProjectMeta), so they run HERE, not in the
+  // loop; the derived projectPath + removed flag are fed in.
+  let projectPath = null, removed = false;
+  const cachedMap = new Map();          // DB sessionId -> { modified, filePath, parserVersion }
+  const cachedByFilePath = new Map();   // filePath -> { dbId, entry } (reverse map for the per-file loop)
+  if (exists) {
+    projectPath = folderProjectPath(folder, folderPath);
+    if (projectPath) {
+      removed = isRemovedProject(projectPath);
+      if (!removed) {
+        // Get what's currently cached for this folder. cachedMap enables mtime comparison even for
+        // subagents whose DB sessionId differs from the on-disk filename; this IS the snapshot the
+        // delete-diff is confined to (fable finding 2 — never a fresh liveCache read at apply time).
+        for (const row of getCachedByFolder(folder, scope)) {
+          const entry = {
+            modified: row.modified,
+            filePath: resolveRowFilePath(row),
+            parserVersion: row.parserVersion,   // #152 — the skip gate needs it, not just the mtime
+          };
+          cachedMap.set(row.sessionId, entry);
+          cachedByFilePath.set(entry.filePath, { dbId: row.sessionId, entry });
+        }
+      }
     }
   }
 
-  // --- sink (applies the writes) ---
-  applyIndexResults({ sessions: preparedSessions, deleteIds, metricsMode: 'always' });
+  // --- pure parse-loop (this is what moves to the worker in step 5.2) ---
+  const reply = parseClaudeFolder({
+    folder, folderPath, exists, projectPath, removed, cachedMap, cachedByFilePath,
+    indexMtimeMs: opts.indexMtimeMs, stats,
+  });
 
-  // Update folder mtime
-  setFolderMeta(folder, projectPath, stampMtimeMs());
-  return changed;
+  // --- replay every side-effect from the reply (main owns the DB, the timers and the scan-state) ---
+
+  // Vanished-folder scoped wipe: the cached-folder delete WITHOUT the matching search delete (A-4).
+  for (const f of reply.vanishedFolders) deleteCachedFolder(f, scope);
+
+  // Store scan-state for removed projects (#167 tombstone/bring-back).
+  for (const sp of reply.storeProjects) noteStoreProject(sp.projectPath, sp.newestAt);
+
+  // Cancel the pending debounced refreshFile for each file this sweep re-read (#199 — the double-read).
+  for (const fp of reply.reReadFiles) cancelReindex(fp);
+
+  // Snapshot-scoped delete-diff: rows in THIS request's cached snapshot that were not seen this pass.
+  // Confining it to cachedMap (never a fresh liveCache read) is what keeps an off-thread pass from
+  // deleting a row a racing file-event created after the snapshot (fable finding 2).
+  const seen = new Set(reply.seenIds);
+  const deleteIds = [...cachedMap.keys()].filter(id => !seen.has(id));
+
+  // Per-backend PREPARE (Claude): stamp provenance + parser version on each RAW row, then the one neutral
+  // sink does the common writes (metrics 'always', search, name, upsert). Called only when there is work.
+  const prepared = reply.sessions.map(stampClaudeProvenance);
+  if (prepared.length || deleteIds.length) {
+    applyIndexResults({ sessions: prepared, deleteIds, metricsMode: 'always' });
+  }
+
+  // #155 skip-path markPersisted (empty for Claude's loop today; replayed for shape + forward-compat).
+  for (const id of reply.skippedIds) markPersisted(id);
+
+  // Stamp every visited folder (incl. removed / no-projectPath) or the gate re-trips every tick.
+  for (const st of reply.folderStamps) setFolderMeta(st.folder, st.projectPath, st.indexMtimeMs);
+
+  return reply.changed || deleteIds.length > 0;
 }
 
 // Debounced per-file re-index (perf #1 + #4 + review item B). Re-reading and re-indexing a transcript on
