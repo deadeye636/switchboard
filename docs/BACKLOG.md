@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (17 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (16 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-15
 
@@ -19,7 +19,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#199](https://github.com/deadeye636/switchboard/issues/199) perf: main-thread stalls during high-output sessions (move cache/FTS writes off the main thread) · _bug_
-- [#200](https://github.com/deadeye636/switchboard/issues/200) Hourly session metrics collapse on the incremental read path (mergeDailyMetrics drops the hour) · _bug_
 
 ## P3 — someday
 
