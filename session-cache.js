@@ -428,6 +428,14 @@ function flushPendingReindex() {
 const _fileReadState = new Map();
 const FILE_READ_STATE_MAX = 512;
 
+// The same retained-parse-state memo, for the Axis-B file backends (#194). Their generic scan/watcher
+// flush (refreshBackendSessions) used to full-parse every CHANGED file — a busy Codex/Pi session was
+// re-read from byte 0 on every append, though its descriptor exposes `parseSessionIncremental`. Keyed by
+// file path → the backend's opaque `parseState`; disjoint from `_fileReadState` (Claude's store never
+// shares a path with a Codex/Pi store). Bounded the same way; an evicted entry just costs one full
+// re-read, and the parser drops a state whose parser version moved or whose file shrank.
+const _axisBReadState = new Map();
+
 // Incremental single-file refresh (perf #1). The projects watcher fires per
 // changed .jsonl; re-indexing just that one file avoids re-enumerating +
 // re-stating the whole folder and rebuilding its cached-row map on every append
@@ -702,8 +710,28 @@ function refreshBackendSessions(backendId, { force = false } = {}) {
       }
     }
 
+    // Incremental read when the backend offers it AND this is a file handle (#194): re-parse only the
+    // bytes appended since last time instead of the whole transcript. `prev` is the opaque parseState
+    // from the last read (null → full read); the parser itself falls back to a full read on a version
+    // bump or a shrunk/rewritten file. A db-store backend (Hermes) has no per-file state and no
+    // incremental parser, so it keeps the full parseSession path. Capability-gated — no backend id here.
     let row;
-    try { row = b.parseSession(h, {}); } catch { row = null; }
+    if (isFile && typeof b.parseSessionIncremental === 'function') {
+      const prev = _axisBReadState.get(h.path) || null;
+      let res;
+      try { res = b.parseSessionIncremental(h, {}, prev); } catch { res = null; }
+      row = res ? res.row : null;
+      if (res && res.parseState) {
+        _axisBReadState.set(h.path, res.parseState);
+        if (_axisBReadState.size > FILE_READ_STATE_MAX) {
+          _axisBReadState.delete(_axisBReadState.keys().next().value);   // oldest out (insertion order)
+        }
+      } else {
+        _axisBReadState.delete(h.path);
+      }
+    } else {
+      try { row = b.parseSession(h, {}); } catch { row = null; }
+    }
     if (!row || !row.sessionId) continue;
 
     // §5.9: the backend supplies a cwd, the grouping layer owns the rest — grouping is central and
