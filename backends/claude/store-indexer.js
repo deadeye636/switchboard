@@ -16,6 +16,10 @@ const fs = require('fs');
 const { Worker } = require('worker_threads');
 const { getFolderIndexMtimeMs } = require('../../folder-index-state');
 const { deriveProjectPath } = require('../../derive-project-path');
+// #199 step 5.2a (F1/F2): the PURE Claude parse-loops + their shared incremental memo live in the
+// Electron-free leaf folder-parse.js. store-indexer re-imports them so there is ONE implementation the
+// step-5 worker and main both run — no drift. The DB-touching orchestration stays HERE, on main.
+const { parseClaudeFolder, parseClaudeFile, _fileReadState } = require('./folder-parse');
 const backends = require('../index');
 // Claude's format readers are reached THROUGH its descriptor (#188), not by importing the format
 // modules directly. The registry is fully seeded by the time this module is first required (the façade
@@ -118,124 +122,9 @@ function folderProjectPath(folder, folderPath) {
   return deriveProjectPath(folderPath);
 }
 
-// The Claude parse-loop as a PURE function (#199 step 5.1a). Snapshot-in, reply-out: it COMPUTES and
-// RETURNS everything main must PERSIST, and persists NONE of it — no DB read, no sink call, no
-// noteStoreProject / cancelReindex / setFolderMeta. Its return IS the reply shape the step-5 worker will
-// post; if a side-effect is not in the reply, main drops it even on-thread, so every one is represented.
-// Two deliberate, non-persisted exceptions it DOES mutate in place: the caller's `stats` diagnostic
-// accumulator, and the module-level `_fileReadState` memo (the incremental offsets — worker-owned in 5.2).
-// Both are process-local, single-threaded, and carry no cross-request state a reply would need.
-//
-// Worker-safe: it only touches the filesystem (statSync, enumerateSessionFiles, readSessionFileIncremental,
-// getFolderIndexMtimeMs) and the module-level `_fileReadState` memo (worker-owned in step 5.2). The
-// DB-reading gates it must not do — `folderProjectPath` (needs getFolderMeta) and `isRemovedProject` — are
-// resolved by main and fed in as `projectPath` / `removed`; the cached-rows snapshot arrives as `cachedMap`
-// + `cachedByFilePath` (built by main from getCachedByFolder). stampClaudeProvenance is NOT applied here
-// (it reads the launch overlay, main-only) — the loop returns RAW sessions and main prepares them.
-//
-// Reply fields (all load-bearing — see the step-5 "Corrections" in the plan):
-//   sessions        — RAW parsed rows (main maps stampClaudeProvenance, then the sink writes them)
-//   seenIds         — every cached id STILL present (unchanged-skipped + re-read); main's snapshot-scoped
-//                     delete-diff = cachedMap.keys() − seenIds (NOT liveCache − seenIds — fable finding 2)
-//   seenFiles       — every .jsonl visited (forward-compat with the worker's file-based diff)
-//   reReadFiles     — files this pass actually re-read; main cancelReindex()es each (the debounce timers
-//                     live on main — dropping this reintroduces the #199 double-read)
-//   skippedIds      — the #155 skip-path markPersisted ids (empty for Claude's loop; carried for shape)
-//   folderStamps    — [{folder, projectPath, indexMtimeMs}] for EVERY visited folder incl. removed /
-//                     no-projectPath / vanished-with-projectPath, or the sweep gate re-trips every tick
-//   vanishedFolders — folder gone at walk time; main does the scoped cached-folder delete WITHOUT the
-//                     matching search-folder delete (the A-4 asymmetry)
-//   storeProjects   — [{projectPath, newestAt}] for a REMOVED folder; main replays noteStoreProject
-//                     (drop it and storeProjectPaths empties → syncRegistry breaks the #167 bring-back)
-//   changed         — whether any file was (re-)read (main ORs in the delete count it computes)
-function parseClaudeFolder({ folder, folderPath, exists, projectPath, removed, cachedMap, cachedByFilePath, indexMtimeMs, stats }) {
-  const reply = {
-    sessions: [], seenIds: [], seenFiles: [], reReadFiles: [], skippedIds: [],
-    folderStamps: [], vanishedFolders: [], storeProjects: [], changed: false,
-  };
-  const stampMtimeMs = () => (indexMtimeMs != null ? indexMtimeMs : getFolderIndexMtimeMs(folderPath));
-
-  // VANISHED-FOLDER branch (#199 step-4 footnote A-4): report it so main does the EXACT asymmetric delete —
-  // deleteCachedFolder WITHOUT deleteSearchFolder. A pre-existing FTS-orphan asymmetry: the cache-first
-  // order makes a scoped search wipe impossible here anyway (the scoped FTS delete resolves backendId
-  // through the very rows this deletes). Routing it through the sink's search-first wipeFolders would
-  // CHANGE behaviour (arguably fix the orphan) — kept as-is to stay behaviour-identical.
-  if (!exists) {
-    reply.vanishedFolders.push(folder);
-    reply.changed = true;
-    return reply;
-  }
-
-  // No projectPath (undeterminable cwd): stamp the folder so the gate does not re-trip, nothing else.
-  if (!projectPath) {
-    reply.folderStamps.push({ folder, projectPath: null, indexMtimeMs: stampMtimeMs() });
-    return reply;
-  }
-
-  // REMOVED project: don't index its folder back into the cache (a hidden one still is — #167). What the
-  // folder holds, and how recent it is, still has to be REPORTED so the sweep does not forget a removal
-  // while its transcripts are there, and a session NEWER than the removal brings the project back. The
-  // `newestAt` is the folder index mtime (matching the pre-extraction `newestMs = getFolderIndexMtimeMs`),
-  // NOT a session parse — so this branch reads no session file, exactly as before.
-  if (removed) {
-    const newestMs = getFolderIndexMtimeMs(folderPath);
-    reply.storeProjects.push({ projectPath, newestAt: newestMs ? new Date(newestMs).toISOString() : null });
-    reply.folderStamps.push({ folder, projectPath, indexMtimeMs: stampMtimeMs() });
-    return reply;
-  }
-
-  // --- the parse-loop proper ---
-  const seen = new Set();   // cached ids + re-read session ids still present this pass
-  for (const { filePath, parentSessionId } of claude.enumerateSessionFiles(folderPath)) {
-    // We need the DB sessionId to look up the cache, but we don't know it until after the read — for
-    // subagents it's sub:<parent>:<agentId>. Use the file path to find a matching cached entry instead.
-    let fileMtime;
-    try { fileMtime = fs.statSync(filePath).mtime.toISOString(); } catch { continue; }
-    reply.seenFiles.push(filePath);
-
-    const cachedHit = cachedByFilePath.get(filePath) || null;
-    const cachedEntry = cachedHit ? cachedHit.entry : null;
-    const cachedDbId = cachedHit ? cachedHit.dbId : null;
-
-    if (cachedDbId !== null) seen.add(cachedDbId);
-
-    // The staleness gate. An unchanged file is skipped — UNLESS the parser that wrote the cached row is
-    // not the parser that would read it now (#152). A parser change does not touch the file's mtime.
-    if (cachedEntry && cachedEntry.modified === fileMtime && cachedEntry.parserVersion === CLAUDE_PARSER_VERSION) {
-      continue; // unchanged, and read by the parser we still have
-    }
-
-    // File is new or modified — re-read it INCREMENTALLY, sharing the watcher's memo (#199 step 2). We
-    // hand the memo over, we do NOT delete it. This is the #194 parity fix applied to Claude.
-    const prev = _fileReadState.get(filePath) || null;
-    const res = claude.readSessionFileIncremental(filePath, folder, projectPath, { parentSessionId }, prev);
-    if (res) {
-      rememberFileReadState(filePath, res.next);
-      if (stats) {
-        // full-vs-incremental is classified by whether a memo existed (the dominant signal); a rare
-        // fingerprint-mismatch full re-read with a memo is counted as incremental, but the reader does
-        // not expose which branch it took and the counter is diagnostic, not load-bearing.
-        if (prev) { stats.filesIncremental++; stats.bytes += Math.max(0, res.next.offset - prev.offset); }
-        else { stats.filesFull++; stats.bytes += res.next.offset; }
-      }
-      // This sweep just read the file — main must cancel any pending debounced refreshFile for it so the
-      // watcher flush doesn't redo the same read+FTS work a moment later (#199 step 2).
-      reply.reReadFiles.push(filePath);
-      const s = res.session;
-      seen.add(s.sessionId); // ensure main doesn't delete a newly-read subagent row
-      reply.sessions.push(s); // RAW — main applies stampClaudeProvenance before the sink
-    } else {
-      // Not (yet) a valid session, or it became invalid — drop any stale memo so the next touch starts
-      // from a clean full read (mirrors refreshFile).
-      _fileReadState.delete(filePath);
-    }
-    reply.changed = true;
-  }
-
-  reply.seenIds = [...seen];
-  reply.folderStamps.push({ folder, projectPath, indexMtimeMs: stampMtimeMs() });
-  return reply;
-}
+// The Claude parse-loop `parseClaudeFolder` moved to the Electron-free leaf ./folder-parse.js (#199 step
+// 5.2a / F1) — see its doc comment there for the reply shape. store-indexer imports it above; the DB-
+// touching orchestration (snapshot gather + reply replay) stays HERE, on main.
 
 // opts.indexMtimeMs — pre-computed getFolderIndexMtimeMs result. The reconcile
 // sweep already scans every folder once for its change gate; passing that value
@@ -295,10 +184,19 @@ function refreshFolder(folder, opts = {}) {
   // --- pure parse-loop (this is what moves to the worker in step 5.2) ---
   const reply = parseClaudeFolder({
     folder, folderPath, exists, projectPath, removed, cachedMap, cachedByFilePath,
-    indexMtimeMs: opts.indexMtimeMs, stats,
+    indexMtimeMs: opts.indexMtimeMs,
   });
 
   // --- replay every side-effect from the reply (main owns the DB, the timers and the scan-state) ---
+
+  // Fold the Claude parse counters RETURNED in the reply into the sweep accumulator (#199 step 5.2a / F3).
+  // The loop no longer mutates a by-reference `stats` object (that can't cross a thread) — it returns them,
+  // and main adds them here so the `[perf] reconcile … full=/incr=/bytes=` line prints the same numbers.
+  if (stats && reply.stats) {
+    stats.filesFull += reply.stats.filesFull;
+    stats.filesIncremental += reply.stats.filesIncremental;
+    stats.bytes += reply.stats.bytes;
+  }
 
   // Vanished-folder scoped wipe: the cached-folder delete WITHOUT the matching search delete (A-4).
   for (const f of reply.vanishedFolders) deleteCachedFolder(f, scope);
@@ -364,21 +262,10 @@ function flushPendingReindex() {
   }
 }
 
-// Per-file incremental read state (perf #74): filePath -> { offset, state, metrics } as returned by
-// readSessionFileIncremental. Lets a watcher flush on a large live transcript read only the
-// newly-appended bytes. In-memory only; bounded so weeks of touched files can't grow unchecked.
-const _fileReadState = new Map();
-const FILE_READ_STATE_MAX = 512;
-
-// Store the retained parse state for a file, evicting the oldest entry when the memo is full (an evicted
-// entry just costs one full re-read). Shared by BOTH readers of Claude's store — the debounced
-// refreshFile hot path and the reconcile sweep's refreshFolder (#199 step 2).
-function rememberFileReadState(filePath, next) {
-  _fileReadState.set(filePath, next);
-  if (_fileReadState.size > FILE_READ_STATE_MAX) {
-    _fileReadState.delete(_fileReadState.keys().next().value);
-  }
-}
+// Per-file incremental read state (perf #74) + rememberFileReadState moved to the Electron-free leaf
+// ./folder-parse.js (#199 step 5.2a / F1); imported at the top so the debounced hot path (via
+// parseClaudeFile), the reconcile sweep (via parseClaudeFolder) and the vanished-file delete below all
+// share the ONE `_fileReadState` Map. Worker-owned once step 5.2b lands.
 
 // Incremental single-file refresh (perf #1). The projects watcher fires per changed .jsonl; re-indexing
 // just that one file avoids re-enumerating + re-stating the whole folder on every append. The throttled
@@ -427,21 +314,19 @@ function refreshFile(folder, relFilename, opts = {}) {
   setFolderMeta(folder, projectPath, getFolderIndexMtimeMs(folderPath));
 
   const run = () => {
-    // Incremental hot-path read (perf #74): reuse the retained parse state so only the bytes appended
-    // since the last refresh are read. First touch (or a rewritten/truncated file) falls back to a full
-    // read inside readSessionFileIncremental.
-    const prev = _fileReadState.get(filePath) || null;
+    // Incremental hot-path read (perf #74) via the PURE leaf `parseClaudeFile` (#199 step 5.2a / F2): it
+    // reuses the shared retained parse state so only the bytes appended since the last refresh are read,
+    // and manages the memo (remember on a valid read, drop on an invalid one). First touch (or a
+    // rewritten/truncated file) falls back to a full read inside readSessionFileIncremental. The DB half
+    // (removed-check, rename straddle, setFolderMeta, vanished-file delete) stays HERE, on main.
     const tRead = startTimer();
-    const res = claude.readSessionFileIncremental(filePath, folder, projectPath, { parentSessionId }, prev);
+    const parsed = parseClaudeFile(filePath, folder, projectPath, { parentSessionId });
     const readMs = tRead();
-    // null = file not yet a valid session (no first user turn) or became invalid. Leave any existing row
-    // as-is; the reconcile sweep reconciles genuine losses.
-    if (!res) {
-      _fileReadState.delete(filePath);
-      return;
-    }
-    rememberFileReadState(filePath, res.next);
-    const s = res.session;
+    // null session = file not yet a valid session (no first user turn) or became invalid. The memo was
+    // already dropped inside parseClaudeFile. Leave any existing row as-is; the reconcile sweep reconciles
+    // genuine losses.
+    if (!parsed.session) return;
+    const s = parsed.session;
     // Capture the effective name BEFORE the write so we can tell the renderer when a rename (Claude
     // /rename → JSONL custom-title, promoted via setName inside the sink) actually changed it. Without
     // this notify the deferred reindex writes the new name to the DB but the sidebar keeps the old one

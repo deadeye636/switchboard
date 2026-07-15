@@ -46,18 +46,21 @@ function makeFakeDb(metaMap) {
 // the pending refreshFile then full-read the same growing transcript again). Assert refreshFolder never
 // takes the old full-read path and that the second sweep reuses the retained state.
 test('refreshFolder re-reads a changed file incrementally, never via the full-read path', () => {
-  const claude = require('../backends').get('claude');
+  // #199 step 5.2a: the reconcile parse-loop moved into the Electron-free leaf backends/claude/folder-parse.js,
+  // which calls the session-reader DIRECTLY (no longer through the `claude` descriptor). The reader module IS
+  // the mock seam now — patch it there, not on the descriptor.
+  const reader = require('../backends/claude/session-reader');
   const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-incr-'));
   const folder = 'proj-incr';
   const folderPath = path.join(projectsDir, folder);
   const sessionPath = path.join(folderPath, 'session.jsonl');
 
-  const origFull = claude.readSessionFile;
-  const origIncr = claude.readSessionFileIncremental;
+  const origFull = reader.readSessionFile;
+  const origIncr = reader.readSessionFileIncremental;
   let fullCalls = 0;
   const prevSeen = [];
-  claude.readSessionFile = (...a) => { fullCalls++; return origFull(...a); };
-  claude.readSessionFileIncremental = (fp, f, pp, opts, prev) => { prevSeen.push(prev); return origIncr(fp, f, pp, opts, prev); };
+  reader.readSessionFile = (...a) => { fullCalls++; return origFull(...a); };
+  reader.readSessionFileIncremental = (fp, f, pp, opts, prev) => { prevSeen.push(prev); return origIncr(fp, f, pp, opts, prev); };
 
   try {
     writeSession(folderPath, '/tmp/proj-incr');
@@ -93,8 +96,8 @@ test('refreshFolder re-reads a changed file incrementally, never via the full-re
 
     assert.equal(fullCalls, 0, 'refreshFolder must never use the deprecated full-read path');
   } finally {
-    claude.readSessionFile = origFull;
-    claude.readSessionFileIncremental = origIncr;
+    reader.readSessionFile = origFull;
+    reader.readSessionFileIncremental = origIncr;
     fs.rmSync(projectsDir, { recursive: true, force: true });
   }
 });

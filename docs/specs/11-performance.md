@@ -1,6 +1,7 @@
 # 11 — Performance: keeping the main thread responsive
 
-**Status:** steps 1–4 as-built; step 5 planned. Issues [#199] (umbrella), [#200] (precondition).
+**Status:** steps 1–4 + the step-5 pure-loop layer (5.1) as-built; the off-thread worker (5.2/5.3) in
+progress. Issues [#199] (umbrella), [#200] (precondition).
 
 ## The problem
 
@@ -79,6 +80,19 @@ incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`).
   sessions; main runs `prepare()` + the sink. The one harmonized deviation: the cold-scan search entry is now
   built before `setName` like the other three paths (the DB `name` column is unconditionally the customTitle
   either way; only the FTS title can be one pass stale in the rare rename+customTitle coexist case, self-healing).
+- **Step 5.1 (done — pure parse-loops, on-thread).** The Claude walk (`parseClaudeFolder`) and the generic
+  Axis-B walk (`parseBackendSessions`) are now PURE snapshot-in / reply-out functions: they compute and return
+  everything main must persist and persist none of it. Their return **is** the reply shape the step-5 worker
+  will post — every side-effect the worker cannot do is a reply field main replays (`storeProjects` →
+  `noteStoreProject` #167, `vanishedFolders` → scoped delete, `reReadFiles` → `cancelReindex`, `folderStamps`
+  → `setFolderMeta`, `skippedIds` → `markPersisted` #155, `incomplete`/store-not-found guards). The delete-diff
+  is snapshot-scoped (`cachedIds − seenIds`, never live-cache) so it cannot reverse-resurrect a row once
+  off-thread. Behaviour-identical (no perf change — preparation), so 5.2 lifts the loops into the worker as-is.
+  **5.2a** then moved the loops + their `_fileReadState`/`_axisBReadState` memos into **Electron-free leaf
+  modules** (`backends/claude/folder-parse.js`, `backend-parse.js`) that both main and the worker can require
+  (the `folder-reader` precedent from #188 — the worker must not drag `index-writes`/the registry), added the
+  missing single-file watcher pure fn (`parseClaudeFile`), and returned the Claude stat counters in the reply
+  (a by-reference `stats` object can't cross the thread). Still on-thread + behaviour-identical.
 
 ### Known gaps / follow-ups
 
