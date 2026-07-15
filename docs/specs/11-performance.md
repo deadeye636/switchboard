@@ -70,6 +70,14 @@ incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`).
 
 - The reconcile still executes **on the main thread**, just after the paint rather than blocking it —
   moving the parse off-thread is **step 5**.
+- **The folder change-gate itself is now a recursive stat walk.** `getFolderIndexMtimeMs` recurses into
+  subagent dirs (step 2, so a subagent-only append trips the gate), and it runs **unconditionally for every
+  folder on every reconcile tick** — including folders that changed nothing. On a large, subagent-heavy
+  store this reintroduces exactly the "many transcripts" main-thread I/O #199 is fighting, at the gate
+  level. It is now **measured** (`gate=<ms>` in the `[perf] reconcile` line, logged even on an idle store
+  when the gate walk is slow), not eliminated — **step 5** (the off-thread index worker) removes it, since
+  the walk moves into the worker. Watch `gate=` on a busy install; if it grows, a cheaper gate (cap /
+  skip-list folders whose top-level mtime is already old) is the interim mitigation.
 - The sweep cadence is a coalesced `setImmediate` fired **after each `get-projects`**, not a wall-clock
   interval: while active changes are covered by the live watcher, the safety-net reconcile does not fire on
   its own if the sidebar is never re-fetched. A background interval is a one-line alternative if that gap

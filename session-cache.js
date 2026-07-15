@@ -610,7 +610,7 @@ function reconcileCacheFromFilesystem() {
   // #199 step 2: prove the sweep no longer full-reads changed files. `full` should be ~0 in steady
   // state (only first-touch after startup / a rewrite), `incr` should carry the appends of a live
   // session. Same [perf]-debug style as e7450cb; silent when no folder tripped the change gate.
-  const stats = { foldersTripped: 0, filesFull: 0, filesIncremental: 0, bytes: 0 };
+  const stats = { foldersScanned: 0, foldersTripped: 0, filesFull: 0, filesIncremental: 0, bytes: 0, gateMs: 0 };
   const elapsed = startTimer();
   let changed = false;
   try {
@@ -618,13 +618,20 @@ function reconcileCacheFromFilesystem() {
     const folders = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
       .filter(d => d.isDirectory() && d.name !== '.git')
       .map(d => d.name);
+    stats.foldersScanned = folders.length;
 
     for (const folder of folders) {
       const meta = metaMap.get(folder);
       const folderPath = path.join(PROJECTS_DIR, folder);
-      // One readdir+stat pass per folder per sweep: the gate value is handed to
-      // refreshFolder for its final stamp instead of being recomputed there.
+      // One readdir+stat pass per folder per sweep: the gate value is handed to refreshFolder for its
+      // final stamp instead of being recomputed there. `getFolderIndexMtimeMs` recurses into subagent
+      // dirs (#199 step 2 — else a subagent-only append never trips the gate), so this stat walk runs
+      // UNCONDITIONALLY for every folder every tick, even unchanged ones. `gateMs` measures it: on a large
+      // subagent-heavy store this is itself main-thread I/O #199 is fighting, and step 5 (the off-thread
+      // index worker) is what actually removes it — until then, watch this number.
+      const gt = startTimer();
       const indexMtimeMs = getFolderIndexMtimeMs(folderPath);
+      stats.gateMs += gt();
       if (!meta || indexMtimeMs > (meta.indexMtimeMs || 0)) {
         stats.foldersTripped++;
         if (refreshFolder(folder, { indexMtimeMs, stats })) changed = true;
@@ -633,9 +640,11 @@ function reconcileCacheFromFilesystem() {
   } catch (err) {
     console.error('Error reconciling cache:', err);
   }
-  if (log && stats.foldersTripped > 0) {
+  // Log when a folder tripped (the read cost) OR when the gate walk itself was slow on an idle store
+  // (the cost that is otherwise invisible — a walk over every folder that changed nothing).
+  if (log && (stats.foldersTripped > 0 || stats.gateMs > 25)) {
     const ms = elapsed();
-    log.debug(`[perf] reconcile ${ms.toFixed(0)}ms: folders=${stats.foldersTripped} full=${stats.filesFull} incr=${stats.filesIncremental} bytes=${stats.bytes}`);
+    log.debug(`[perf] reconcile ${ms.toFixed(0)}ms: scanned=${stats.foldersScanned} tripped=${stats.foldersTripped} gate=${stats.gateMs.toFixed(0)} full=${stats.filesFull} incr=${stats.filesIncremental} bytes=${stats.bytes}`);
   }
   return changed;
 }
