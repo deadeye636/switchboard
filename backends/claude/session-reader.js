@@ -323,11 +323,22 @@ function readSessionFile(filePath, folder, projectPath, opts = {}) {
 }
 
 // ── Incremental read (perf #74) ──────────────────────────────────────────────
-// Merge a fresh extractDailyMetrics() result into a cumulative per-(date,model)
-// map so incremental chunks add onto previously-seen totals.
+// Cost is NULL when the backend reports no money — an ABSENCE, not a zero (Claude never reports any).
+// null+null must stay null, or a summed bucket draws a free day in the cost chart; a real number on
+// either side sums, treating the missing side as 0.
+function addCost(a, b) {
+  if (a == null && b == null) return null;
+  return (Number(a) || 0) + (Number(b) || 0);
+}
+
+// Merge a fresh extractDailyMetrics() result into a cumulative per-(date, HOUR, model) map so
+// incremental chunks add onto previously-seen totals. The key MUST carry the hour (#200): keying on
+// (date, model) alone collapsed every hour of a day into the first-seen one on the incremental path, so
+// the #159 hourly grid got summed into the wrong bucket and the rest were lost. `bucketKey` is the same
+// clock extractDailyMetrics buckets on, so a merged map is identical to one full extract of the same lines.
 function mergeDailyMetrics(map, add) {
   for (const m of add) {
-    const key = `${m.date}|${m.model}`;
+    const key = bucketKey(m.date, m.hour, m.model);
     const cur = map.get(key);
     if (!cur) {
       map.set(key, m);
@@ -339,6 +350,8 @@ function mergeDailyMetrics(map, add) {
     cur.outputTokens += m.outputTokens;
     cur.cacheReadTokens += m.cacheReadTokens;
     cur.cacheCreationTokens += m.cacheCreationTokens;
+    cur.estimatedCostUsd = addCost(cur.estimatedCostUsd, m.estimatedCostUsd);
+    cur.actualCostUsd = addCost(cur.actualCostUsd, m.actualCostUsd);
   }
 }
 

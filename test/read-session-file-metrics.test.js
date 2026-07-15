@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { readSessionFile, extractDailyMetrics, isToolResultOnly } = require('../backends/claude/session-reader');
+const { readSessionFile, readSessionFileIncremental, extractDailyMetrics, isToolResultOnly } = require('../backends/claude/session-reader');
 const { bucketFromIso } = require('../metrics-bucket');
 
 function mkTmp() {
@@ -203,5 +203,49 @@ test('readSessionFile attaches dailyMetrics to the returned session object', () 
     assert.equal(userBucket.messageCount, 1, 'only the real user turn, tool_result-only excluded');
   } finally {
     cleanup(tmp);
+  }
+});
+
+test('readSessionFileIncremental buckets per HOUR across an hour boundary, identical to a full read (#200)', () => {
+  // The live-watcher path merges each appended chunk's extract into a cumulative map. Before #200 that map
+  // keyed on (date, model) with no hour, so a session that ran into a second hour booked all of it to the
+  // first hour's bucket. Drive the incremental reader across an hour edge in two chunks and assert the
+  // buckets are identical — HOUR included — to one full readSessionFile of the same transcript.
+  const dir = mkTmp();
+  try {
+    const file = path.join(dir, 'sess.jsonl');
+    const model = 'claude-opus-4-8';
+    const asst = (iso, out) => JSON.stringify({ type: 'assistant', timestamp: iso, message: {
+      model, usage: { input_tokens: 10, output_tokens: out, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } });
+    const user = JSON.stringify({ type: 'user', timestamp: '2026-06-01T10:00:00.000Z', message: { role: 'user', content: 'hi' } });
+    // Two clusters ~3h apart so they land in different LOCAL hours whatever the machine's timezone.
+    const chunkA = [user, asst('2026-06-01T10:05:00.000Z', 1), asst('2026-06-01T10:40:00.000Z', 2)];
+    const chunkB = [asst('2026-06-01T13:05:00.000Z', 4), asst('2026-06-01T13:50:00.000Z', 8)];
+
+    // Ground truth: one full read of the complete file.
+    fs.writeFileSync(file, [...chunkA, ...chunkB].join('\n') + '\n');
+    const full = readSessionFile(file, 'folder', dir, {}).dailyMetrics;
+
+    // Incremental: write chunkA, read (prev=null); append chunkB, read (prev=next). Two chunks, one edge.
+    fs.writeFileSync(file, chunkA.join('\n') + '\n');
+    const r1 = readSessionFileIncremental(file, 'folder', dir, {}, null);
+    fs.appendFileSync(file, chunkB.join('\n') + '\n');
+    const r2 = readSessionFileIncremental(file, 'folder', dir, {}, r1.next);
+    const inc = r2.session.dailyMetrics;
+
+    const key = (m) => `${m.date}|${m.hour}|${m.model}`;
+    const fb = new Map(full.map(m => [key(m), m]));
+    const ib = new Map(inc.map(m => [key(m), m]));
+    assert.ok(fb.size >= 2, 'the fixture must span at least two hour buckets for this to be a real test');
+    assert.equal(ib.size, fb.size, 'incremental produced a different set of (date,hour,model) buckets');
+    for (const [k, fm] of fb) {
+      const im = ib.get(k);
+      assert.ok(im, `incremental is missing bucket ${k} (the hour was collapsed)`);
+      for (const field of ['messageCount', 'toolCallCount', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheCreationTokens']) {
+        assert.equal(im[field], fm[field], `${field} mismatch in bucket ${k}`);
+      }
+    }
+  } finally {
+    cleanup(dir);
   }
 });

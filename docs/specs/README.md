@@ -20,6 +20,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 08 | [Flexible grid layout (resize/drag)](08-flexible-grid-layout.md) | #7b | Depends on 07 |
 | 09 | [Multi-LLM backends](09-multi-llm.md) | #142 | No — touches spawn/scan/settings |
 | 10 | [The project list is a list](10-project-registry.md) | #167 | No — touches the scan + the sidebar |
+| 11 | [Performance: keeping the main thread responsive](11-performance.md) | #199, #200 | No — touches the scan hot path + get-projects |
 
 ## Shared architecture (read once, applies to all specs)
 

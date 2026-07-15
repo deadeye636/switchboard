@@ -7,7 +7,6 @@ const os = require('os');
 const http = require('http');
 const pty = require('node-pty');
 const log = require('electron-log');
-const { startTimer } = require('./perf');
 const attentionSource = require('./public/attention-source');
 // getFolderIndexMtimeMs moved to session-cache.js
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
@@ -1267,6 +1266,42 @@ ipcMain.handle('rebuild-cache', async () => {
   }
 });
 
+// #199 step 3: the index-repair sweep, coalesced and OFF the get-projects response path.
+//
+// reconcile (Claude store) + backend sweep (Codex/etc.) + syncRegistry + applyAutoHide used to run
+// inline on every get-projects, blocking the sidebar paint. They now run here, once per burst of
+// sidebar refreshes: get-projects returns the cached view immediately and calls queueIndexSweep(),
+// which defers the work to the next tick and drops duplicate requests while one is pending. When the
+// sweep actually changes the cache it pushes 'projects-changed', so the renderer re-fetches and the
+// view converges — the paint simply never waits on the repair work.
+//
+// This still runs on the main thread (moving the parse off-thread is #199 step 5); the win is that the
+// RESPONSE no longer waits, and after step 2 the reconcile is incremental and cheap.
+let indexSweepQueued = false;
+function queueIndexSweep() {
+  if (indexSweepQueued) return;
+  indexSweepQueued = true;
+  setImmediate(() => {
+    indexSweepQueued = false;
+    if (appQuitting) return;
+    let changed = false;
+    // Pick up folders changed while the app was closed, or never indexed by an older build, so
+    // sessions/worktrees don't silently go missing. Stat-gated + throttled, so cheap when idle.
+    try { if (reconcileCacheFromFilesystem()) changed = true; }
+    catch (err) { log.warn('[scan] reconcile failed:', err?.message || err); }
+    // Every non-Claude backend that owns its own session store (T-4.2). Self-gating and mtime-gated.
+    try {
+      const out = refreshAllBackendSessions();
+      for (const id in out) { const s = out[id]; if (s && (s.upserted || s.deleted)) changed = true; }
+    } catch (err) { log.warn('[scan] backend scan failed:', err?.message || err); }
+    // #167 / #57: register newly-seen projects and apply auto-hide. Both self-notify via
+    // 'projects-changed' when they change anything, so they are not folded into `changed` below.
+    try { projects.syncRegistry(); } catch (err) { log.warn('[registry] sync failed:', err?.message || err); }
+    try { projects.applyAutoHide(); } catch (err) { log.warn('[auto-hide] failed:', err?.message || err); }
+    if (changed) notifyRendererProjectsChanged();
+  });
+}
+
 ipcMain.handle('get-projects', async (_event, showArchived) => {
   try {
     // ...and a bumped parser counts as "needs populating": the rows are there, but they were written by a
@@ -1284,41 +1319,15 @@ ipcMain.handle('get-projects', async (_event, showArchived) => {
       markClaudeParserRead();
     }
 
-    // #199: this synchronous tail runs on the MAIN thread on every get-projects
-    // (sidebar refresh / tab switch / refresh click). Time each block; log one line
-    // at `debug` only when the whole tail stalls (>= 50 ms), so it is silent when
-    // idle and names the culprit block when it bites.
-    const tReconcile = startTimer();
-    // Pick up folders changed while the app was closed, or never indexed by an
-    // older build, so sessions/worktrees don't silently go missing. Stat-gated,
-    // so it's cheap when nothing has changed.
-    reconcileCacheFromFilesystem();
-    const reconcileMs = tReconcile();
-    // Same, for every non-Claude backend that owns its own session store (T-4.2): Codex's
-    // date-bucketed rollout tree, later Hermes' SQLite. Self-gating — a `planned` or disabled
-    // backend is never enumerated, and Claude/Axis-A profiles are a no-op here (they live in the
-    // Claude store the reconcile above already covered). mtime-gated, so it is cheap when idle.
-    const tBackends = startTimer();
-    try { refreshAllBackendSessions(); } catch (err) { log.warn('[scan] backend scan failed:', err?.message || err); }
-    const backendsMs = tBackends();
-    // #167: the scans above have just told us which projects have sessions. Put the new ones ON THE LIST
-    // (in auto mode) and sweep the tombstones that no longer guard anything — before the list is built,
-    // so a project discovered a moment ago is in this very render.
-    const tSync = startTimer();
-    projects.syncRegistry();
-    const syncMs = tSync();
-    // #57: apply auto-hide before building the response so freshly-hidden projects
-    // drop out of this render. Internally throttled, so it's cheap on rapid calls.
-    const tHide = startTimer();
-    projects.applyAutoHide();
-    const hideMs = tHide();
-    const tBuild = startTimer();
+    // #199 step 3: the response is now a PURE cache read. The repair/upkeep work that used to run on the
+    // MAIN thread on every get-projects (sidebar refresh / tab switch / refresh click) — reconcile the
+    // Claude store, sweep the other backends' stores, register newly-seen projects, apply auto-hide —
+    // was the 2-5 s stall that froze xterm input mid-paint. It is now taken OFF the response path:
+    // queueIndexSweep() runs it just after this returns (coalesced), and it announces via the existing
+    // 'projects-changed' push when it actually moves the cache, so the sidebar still converges — it just
+    // no longer waits on repair work to paint.
     const built = buildProjectsFromCache(showArchived);
-    const buildMs = tBuild();
-    const totalMs = reconcileMs + backendsMs + syncMs + hideMs + buildMs;
-    if (totalMs >= 50) {
-      log.debug(`[perf] get-projects ${totalMs.toFixed(0)}ms: reconcile=${reconcileMs.toFixed(0)} backends=${backendsMs.toFixed(0)} syncRegistry=${syncMs.toFixed(0)} autoHide=${hideMs.toFixed(0)} build=${buildMs.toFixed(0)}`);
-    }
+    queueIndexSweep();
     return built;
   } catch (err) {
     console.error('Error listing projects:', err);

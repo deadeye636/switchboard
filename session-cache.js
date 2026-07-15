@@ -242,7 +242,11 @@ function refreshFolder(folder, opts = {}) {
   //
   // "Disable is not delete" (§5.8) still holds: the cached rows stay, so the sessions remain visible and
   // searchable. They are simply not re-read, and nothing new appears.
-  if (!claudeEnabled()) return;
+  if (!claudeEnabled()) return;   // undefined is falsy — the "changed?" contract below treats it as no-change
+
+  // Optional perf accumulator handed in by the reconcile sweep (#199 step 2): files fully read vs
+  // incrementally read, and bytes consumed. Absent on the watcher's direct calls.
+  const stats = opts.stats || null;
 
   const folderPath = path.join(PROJECTS_DIR, folder);
   // Scope EVERY folder-wide read/delete below to Claude's store: an Axis-B backend (Codex) can hold
@@ -251,7 +255,7 @@ function refreshFolder(folder, opts = {}) {
   const scope = claudeStoreScope();
   if (!fs.existsSync(folderPath)) {
     deleteCachedFolder(folder, scope);
-    return;
+    return true;
   }
   const stampMtimeMs = () =>
     (opts.indexMtimeMs != null ? opts.indexMtimeMs : getFolderIndexMtimeMs(folderPath));
@@ -264,7 +268,7 @@ function refreshFolder(folder, opts = {}) {
   const projectPath = folderProjectPath(folder, folderPath);
   if (!projectPath) {
     setFolderMeta(folder, null, stampMtimeMs());
-    return;
+    return false;
   }
 
   // REMOVED project: don't index its folder back into the cache. The store folder stays on disk after a
@@ -280,7 +284,7 @@ function refreshFolder(folder, opts = {}) {
     const newestMs = getFolderIndexMtimeMs(folderPath);
     noteStoreProject(projectPath, newestMs ? new Date(newestMs).toISOString() : null);
     setFolderMeta(folder, projectPath, stampMtimeMs());
-    return;
+    return false;
   }
 
   // Get what's currently cached for this folder.
@@ -331,21 +335,42 @@ function refreshFolder(folder, opts = {}) {
       continue; // unchanged, and read by the parser we still have
     }
 
-    // File is new or modified — re-read it. Drop any incremental per-file
-    // state so the next watcher-driven refreshFile starts from this full read
-    // (guards against rewritten files whose retained offset is now wrong).
-    _fileReadState.delete(filePath);
-    const s = claude.readSessionFile(filePath, folder, projectPath, { parentSessionId });
-    if (s) {
+    // File is new or modified — re-read it INCREMENTALLY, sharing the watcher's memo (#199 step 2).
+    // The reconcile sweep used to full-read every changed file here AND delete the incremental state,
+    // so the pending debounced refreshFile then full-read the same growing transcript a second time.
+    // Now both readers use readSessionFileIncremental against the SAME `_fileReadState`: it reads only
+    // the appended bytes and falls back to a full read INSIDE itself on first-touch (no memo), a
+    // rewrite/shrink (fingerprint/size check) or — since the memo is process-scoped, so any entry in it
+    // was produced by the parser we are still running — never a stale parser. We hand the memo over, we
+    // do NOT delete it. This is the #194 parity fix finally applied to Claude, the last store walk that
+    // still full-read changed files.
+    const prev = _fileReadState.get(filePath) || null;
+    const res = claude.readSessionFileIncremental(filePath, folder, projectPath, { parentSessionId }, prev);
+    if (res) {
+      rememberFileReadState(filePath, res.next);
+      if (stats) {
+        // full-vs-incremental is classified by whether a memo existed (the dominant signal); a rare
+        // fingerprint-mismatch full re-read with a memo is counted as incremental, but the reader does
+        // not expose which branch it took and the counter is diagnostic, not load-bearing.
+        if (prev) { stats.filesIncremental++; stats.bytes += Math.max(0, res.next.offset - prev.offset); }
+        else { stats.filesFull++; stats.bytes += res.next.offset; }
+      }
+      // This sweep just read the file — cancel any pending debounced refreshFile for it so the watcher
+      // flush doesn't redo the same read+FTS work a moment later (#199 step 2).
+      cancelReindex(filePath);
+      const s = res.session;
       currentIds.add(s.sessionId); // ensure we don't delete a newly-read subagent row
       sessionsToUpsert.push(stampClaudeProvenance(s));
-      // Per-(date,model) metrics only exist on the full-read path. The header-only
-      // refresh branch above doesn't produce dailyMetrics, so this is the sole
-      // write point for an incremental refresh — short transaction, fine to run
-      // outside the upsert batch.
+      // Per-(date,model) metrics only exist on the read path. The header-only refresh branch above
+      // doesn't produce dailyMetrics, so this is the sole write point for an incremental refresh —
+      // short transaction, fine to run outside the upsert batch.
       replaceSessionMetrics(s.sessionId, s.dailyMetrics);
       searchEntriesToUpsert.push(buildSearchEntry(s));
       if (s.customTitle) namesToSet.push({ id: s.sessionId, name: s.customTitle });
+    } else {
+      // Not (yet) a valid session, or it became invalid — drop any stale memo so the next touch starts
+      // from a clean full read (mirrors refreshFile).
+      _fileReadState.delete(filePath);
     }
     changed = true;
   }
@@ -380,6 +405,7 @@ function refreshFolder(folder, opts = {}) {
 
   // Update folder mtime
   setFolderMeta(folder, projectPath, stampMtimeMs());
+  return changed;
 }
 
 // Debounced per-file re-index (perf #1 + #4 + review item B). Re-reading and
@@ -428,6 +454,19 @@ function flushPendingReindex() {
 // an evicted entry just costs one full re-read.
 const _fileReadState = new Map();
 const FILE_READ_STATE_MAX = 512;
+
+// Store the retained parse state for a file, evicting the oldest entry when the memo is full
+// (an evicted entry just costs one full re-read). Shared by BOTH readers of Claude's store —
+// the debounced refreshFile hot path and the reconcile sweep's refreshFolder (#199 step 2) —
+// so they hand the same incremental offset back and forth instead of each full-reading the
+// growing transcript.
+function rememberFileReadState(filePath, next) {
+  _fileReadState.set(filePath, next);
+  if (_fileReadState.size > FILE_READ_STATE_MAX) {
+    // Evict the oldest-inserted entry; it just falls back to a full read.
+    _fileReadState.delete(_fileReadState.keys().next().value);
+  }
+}
 
 // The same retained-parse-state memo, for the Axis-B file backends (#194). Their generic scan/watcher
 // flush (refreshBackendSessions) used to full-parse every CHANGED file — a busy Codex/Pi session was
@@ -504,11 +543,7 @@ function refreshFile(folder, relFilename, opts = {}) {
       _fileReadState.delete(filePath);
       return;
     }
-    _fileReadState.set(filePath, res.next);
-    if (_fileReadState.size > FILE_READ_STATE_MAX) {
-      // Evict the oldest-inserted entry; it just falls back to a full read.
-      _fileReadState.delete(_fileReadState.keys().next().value);
-    }
+    rememberFileReadState(filePath, res.next);
     const s = res.session;
     // Capture the effective name before writing so we can tell the renderer when a
     // rename (Claude /rename → JSONL custom-title, promoted via setName) actually
@@ -570,8 +605,14 @@ let lastReconcileAt = 0;
 
 function reconcileCacheFromFilesystem() {
   const now = Date.now();
-  if (now - lastReconcileAt < RECONCILE_THROTTLE_MS) return;
+  if (now - lastReconcileAt < RECONCILE_THROTTLE_MS) return false;
   lastReconcileAt = now;
+  // #199 step 2: prove the sweep no longer full-reads changed files. `full` should be ~0 in steady
+  // state (only first-touch after startup / a rewrite), `incr` should carry the appends of a live
+  // session. Same [perf]-debug style as e7450cb; silent when no folder tripped the change gate.
+  const stats = { foldersTripped: 0, filesFull: 0, filesIncremental: 0, bytes: 0 };
+  const elapsed = startTimer();
+  let changed = false;
   try {
     const metaMap = getAllFolderMeta();
     const folders = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
@@ -585,12 +626,18 @@ function reconcileCacheFromFilesystem() {
       // refreshFolder for its final stamp instead of being recomputed there.
       const indexMtimeMs = getFolderIndexMtimeMs(folderPath);
       if (!meta || indexMtimeMs > (meta.indexMtimeMs || 0)) {
-        refreshFolder(folder, { indexMtimeMs });
+        stats.foldersTripped++;
+        if (refreshFolder(folder, { indexMtimeMs, stats })) changed = true;
       }
     }
   } catch (err) {
     console.error('Error reconciling cache:', err);
   }
+  if (log && stats.foldersTripped > 0) {
+    const ms = elapsed();
+    log.debug(`[perf] reconcile ${ms.toFixed(0)}ms: folders=${stats.foldersTripped} full=${stats.filesFull} incr=${stats.filesIncremental} bytes=${stats.bytes}`);
+  }
+  return changed;
 }
 
 // --- multi-source scan: the backends that own their session store (Axis B) ---
