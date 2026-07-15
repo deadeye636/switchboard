@@ -38,4 +38,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#202](https://github.com/deadeye636/switchboard/issues/202) Tasks & Bookmarks: show the backend badge (and session name) on the session backlink · _feature_
 - [#203](https://github.com/deadeye636/switchboard/issues/203) Projects manager: add a Settings action per project row · _feature_
 - [#204](https://github.com/deadeye636/switchboard/issues/204) Variables: make the New Variable dialog wider · _feature_
-- [#208](https://github.com/deadeye636/switchboard/issues/208) perf: move the Axis-B store watcher off the main thread (index worker) · _chore_
+- [#209](https://github.com/deadeye636/switchboard/issues/209) perf: move the newly-spawned-session header parse (matchLiveSession) off the main thread · _chore_
