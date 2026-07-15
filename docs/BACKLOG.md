@@ -3,9 +3,9 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (16 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (17 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-14
+**As of:** 2026-07-15
 
 
 ## P1 — next up
@@ -32,3 +32,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#117](https://github.com/deadeye636/switchboard/issues/117) Terminal: evaluate VSCode-style shell integration (OSC 633) for plain terminals · _feature_
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
 - [#192](https://github.com/deadeye636/switchboard/issues/192) Antigravity (agy) backend: recon a real install, then make the planned dummy real · _feature_
+- [#193](https://github.com/deadeye636/switchboard/issues/193) Session provenance: show where a session came from (clear heuristic + explicit parent links) · _feature_
