@@ -14,13 +14,21 @@ const path = require('node:path');
 const backends = require('../backends');
 const codexState = require('../backends/codex/state');
 
-const REAL = ['claude', 'codex', 'hermes', 'pi'];
+// Registry-driven, not a hand-maintained roster (#195): a newly registered `ready` backend is covered
+// the moment it is seeded, and one that cannot satisfy a contract fails the suite on registration —
+// which is the point. A literal id list reproduced, one level up, the very "a sibling quietly keeps the
+// defect" failure these tests exist to kill. `status === 'ready'` drops the `planned` dummies (agy);
+// profiles run a base backend's binary and are not their own store.
+const READY = backends.list().filter(b => b.status === 'ready' && !b.isProfile);
+// File-mode backends (own transcript files) owe the incremental-parse contract; a db-backed one (Hermes,
+// `transcriptAccess: 'export'`) does not, it only versions its parser.
+const FILE_MODE = READY.filter(b => b.transcriptAccess === 'file');
 
 test('every ready backend declares an availability probe', () => {
   // Without one, an enabled-but-not-installed backend is offered in the picker and dies in the terminal
   // with a raw shell error instead of a sentence the user can act on (D15). Codex shipped without it.
-  for (const id of REAL) {
-    const b = backends.get(id);
+  for (const b of READY) {
+    const id = b.id;
     if (id === 'claude') continue;   // the default backend: if it is missing, the app has bigger problems
     assert.equal(typeof b.probe, 'function', `${id} must declare probe()`);
     const res = b.probe();
@@ -32,8 +40,8 @@ test('every ready backend declares an availability probe', () => {
 test('every backend states whether it can fork — and only a forker gets forkFrom honoured', () => {
   // The Fork button used to be offered for every session. A backend that ignores `forkFrom` does not
   // "do nothing" — it launches an unrelated EMPTY session. So the capability must be explicit.
-  for (const id of REAL) {
-    const b = backends.get(id);
+  for (const b of READY) {
+    const id = b.id;
     assert.equal(typeof b.supportsFork, 'boolean', `${id} must state supportsFork`);
 
     const args = b.buildLaunch({ cwd: '/p', sessionId: 's1', forkFrom: 'PARENT' }).args.join(' ');
@@ -48,8 +56,8 @@ test('every backend states whether it can fork — and only a forker gets forkFr
 test('every backend that names its own sessions implements ALL THREE identity hooks (D17)', () => {
   // Two hooks is the resume bug: matchLiveSession only accepts records born after the spawn, which a
   // resumed session's record never is, so it claims the NEXT new session's record instead.
-  for (const id of REAL) {
-    const b = backends.get(id);
+  for (const b of READY) {
+    const id = b.id;
     const names = typeof b.matchLiveSession === 'function';
     if (!names) continue;
     assert.equal(typeof b.liveRefFor, 'function', `${id} adopts ids, so it needs liveRefFor (resume)`);
@@ -57,13 +65,23 @@ test('every backend that names its own sessions implements ALL THREE identity ho
   }
 });
 
-test('every backend exposes the incremental-parse contract with a schema version (§5.10)', () => {
-  for (const id of ['claude', 'codex', 'pi']) {   // the file-mode parsers
-    const b = backends.get(id);
+test('every file-mode backend exposes the incremental-parse contract with a schema version (§5.10)', () => {
+  for (const b of FILE_MODE) {
+    const id = b.id;
     assert.equal(typeof b.parseSessionIncremental, 'function', `${id} must expose the incremental parse`);
     assert.equal(typeof b.PARSER_SCHEMA_VERSION, 'number', `${id} must version its parser`);
+    // The contract is a SHAPE, not just a name: an invalid handle returns `{ row, parseState }`, never a
+    // bare null or a backend-private shape — else a generic consumer reads `undefined.row` off it. #188
+    // shipped exactly that latent trap (Claude's wrapper returned `{session,next}`/null); this catches it.
+    const out = b.parseSessionIncremental({ kind: 'not-a-real-handle' });
+    assert.ok(out && typeof out === 'object' && 'row' in out && 'parseState' in out,
+      `${id}.parseSessionIncremental must return { row, parseState }, got ${JSON.stringify(out)}`);
   }
-  assert.equal(typeof backends.get('hermes').PARSER_SCHEMA_VERSION, 'number');
+  // Every ready backend versions its parser, file-mode or not — Hermes has no incremental parse (SQLite),
+  // but the scan's staleness gate still keys on the version.
+  for (const b of READY) {
+    assert.equal(typeof b.PARSER_SCHEMA_VERSION, 'number', `${b.id} must version its parser`);
+  }
 });
 
 // --- the tail-window bug, checked on the OTHER backend it was never checked on -------------------
@@ -169,8 +187,8 @@ test('a backend that names its own sessions can say whether it knows one yet', (
   // have written their store record — after the agent's first answer. Fork a session before that, and
   // the only id we hold is OUR id, which means nothing to them: `pi --fork <our-uuid>` answers "No
   // session found" and the user gets a dead tab. `liveRefFor` is what the fork guard asks.
-  for (const id of REAL) {
-    const b = backends.get(id);
+  for (const b of READY) {
+    const id = b.id;
     if (typeof b.matchLiveSession !== 'function') continue;   // Claude: our id IS its id
     assert.equal(typeof b.liveRefFor, 'function', `${id} must be able to answer "do you know this session?"`);
     assert.equal(b.liveRefFor('11111111-2222-4333-8444-555555555555'), null,
