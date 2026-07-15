@@ -156,7 +156,7 @@ test('the worker reply reconstructs the same rows the inline path writes', () =>
 // --- client guards (driven through the transport seam, no spawned Worker) --------------------------
 
 // Init the client with a fake DB + a controllable appQuitting flag, capturing every posted request.
-function bootClient(client, { quitting = { v: false } } = {}) {
+function bootClient(client, { quitting = { v: false }, onFileApplied } = {}) {
   const upserts = [];
   const deletes = [];
   const sink = require('../index-writes');
@@ -182,9 +182,13 @@ function bootClient(client, { quitting = { v: false } } = {}) {
     db: { getAllCached: () => [], getAllFolderMeta: () => new Map(), setFolderMeta: () => {} },
     isAppQuitting: () => quitting.v,
     afterReconcile: () => {},
+    onFileApplied: onFileApplied || (() => {}),
   });
   return { posted, upserts, deletes };
 }
+
+// The reconcile requests captured by the transport seam.
+function reconcilePosts(posted) { return posted.filter(m => m.type === 'reconcile'); }
 
 // A Claude folder reply that would upsert one session (as the worker produces).
 function folderReplyWithSession(sessionId, folder = 'proj-z') {
@@ -241,4 +245,87 @@ test('delete-epoch guard also covers the file lane', () => {
     session: { sessionId: 'sess-file-raced', folder: 'proj-z', summary: '', textContent: '', dailyMetrics: [] },
     sessionId: 'sess-file-raced' });
   assert.ok(!rec.upserts.includes('sess-file-raced'), 'the file-lane reply for a deleted id was dropped');
+});
+
+// --- fix 1: postReconcile COALESCING ---------------------------------------------------------------
+test('postReconcile coalescing: a burst posts at most one in-flight + one trailing (not N)', () => {
+  const client = require('../index-worker-client');
+  const rec = bootClient(client);
+
+  // A burst of get-projects → N postReconcile calls while the first is still in flight.
+  for (let i = 0; i < 8; i++) client.postReconcile();
+  assert.equal(reconcilePosts(rec.posted).length, 1,
+    'only ONE reconcile is posted while a reply is outstanding — the rest arm the trailing flag');
+
+  // The in-flight reply lands → the single trailing sweep re-holds the gate and posts exactly once more.
+  const first = reconcilePosts(rec.posted)[0];
+  client._deliverReply({ type: 'reply', reqId: first.reqId, kind: 'reconcile', claude: [], backends: [] });
+  assert.equal(reconcilePosts(rec.posted).length, 2, 'the trailing sweep ran — the last request is not lost');
+
+  // Its reply releases the gate; no further sweep is queued.
+  const second = reconcilePosts(rec.posted)[1];
+  client._deliverReply({ type: 'reply', reqId: second.reqId, kind: 'reconcile', claude: [], backends: [] });
+  assert.equal(reconcilePosts(rec.posted).length, 2, 'the gate released — no spurious extra sweep');
+});
+
+// --- fix 2: noteDeleted covers an explicit main-side delete ----------------------------------------
+// The main.js wiring (delete-worktree loop + the projects ctx.db.deleteCachedSession wrap) calls
+// client.noteDeleted(id) for each explicitly-deleted session. This asserts the guard that wiring feeds:
+// an in-flight reconcile reply for a session deleted by an explicit action is dropped, not resurrected.
+test('noteDeleted (explicit delete) drops an in-flight reconcile reply for that id', () => {
+  const client = require('../index-worker-client');
+  const rec = bootClient(client);
+  client.postReconcile();
+  const req = reconcilePosts(rec.posted)[0];
+
+  // remove-project / delete-project-sessions / delete-worktree deletes this id AFTER the request was posted.
+  client.noteDeleted('sess-explicit-del');
+
+  client._deliverReply({ type: 'reply', reqId: req.reqId, kind: 'reconcile',
+    claude: [{ folder: 'proj-z', reply: folderReplyWithSession('sess-explicit-del') }], backends: [] });
+  assert.ok(!rec.upserts.includes('sess-explicit-del'),
+    'the explicitly-deleted row was not reverse-resurrected by the in-flight reply');
+});
+
+// --- fix 3: removed-race re-check at apply ---------------------------------------------------------
+// A project removed AFTER the snapshot is not in the posted removedSet, so the worker parsed + indexed it.
+// applyReconcileReply must re-check isRemovedProject FRESH on main and drop that folder's parsed rows.
+test('removed-race: a project removed after the snapshot is not indexed by an in-flight reply', () => {
+  const client = require('../index-worker-client');
+  const storeIndexer = require('../backends/claude/store-indexer');
+  const realIsRemoved = storeIndexer.isRemovedProject;
+  const rec = bootClient(client);
+  try {
+    // The reply's folderStamp carries projectPath '/tmp/z'; mark exactly that path removed on main NOW.
+    storeIndexer.isRemovedProject = (pp) => pp === '/tmp/z';
+    client.postReconcile();
+    const req = reconcilePosts(rec.posted)[0];
+    client._deliverReply({ type: 'reply', reqId: req.reqId, kind: 'reconcile',
+      claude: [{ folder: 'proj-z', reply: folderReplyWithSession('sess-removed') }], backends: [] });
+    assert.ok(!rec.upserts.includes('sess-removed'),
+      'a project removed since the snapshot was NOT indexed by the racing reply');
+  } finally {
+    storeIndexer.isRemovedProject = realIsRemoved;
+  }
+
+  // Control: with the project NOT removed, the same reply DOES index the session.
+  const rec2 = bootClient(client);
+  client.postReconcile();
+  const req2 = reconcilePosts(rec2.posted)[0];
+  client._deliverReply({ type: 'reply', reqId: req2.reqId, kind: 'reconcile',
+    claude: [{ folder: 'proj-z', reply: folderReplyWithSession('sess-present') }], backends: [] });
+  assert.ok(rec2.upserts.includes('sess-present'), 'a present project is indexed as normal (control)');
+});
+
+// --- fix 4: per-file liveness push COALESCING ------------------------------------------------------
+test('file-lane push coalescing: a burst of file applies collapses to one push', () => {
+  const client = require('../index-worker-client');
+  let pushes = 0;
+  bootClient(client, { onFileApplied: () => { pushes++; } });
+
+  for (let i = 0; i < 8; i++) client._coalesceFilePush();
+  assert.equal(pushes, 0, 'no push has fired yet — the burst is coalesced behind the debounce');
+
+  client._flushFilePush();
+  assert.equal(pushes, 1, 'eight file applies produced exactly one projects-changed push');
 });

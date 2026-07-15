@@ -67,6 +67,53 @@ function pruneDeleted() {
   for (const [id, seq] of deletedAt) if (seq < minSeq) deletedAt.delete(id);
 }
 
+// --- postReconcile COALESCING (#199 step 5.3, fix 1) -----------------------------------------------
+// A burst of get-projects fired 6+ back-to-back reconcile posts. Mirror the inline queueIndexSweep's
+// `indexSweepQueued` guard: while a (non-force) reconcile is OUTSTANDING (posted, reply not yet applied) a
+// new postReconcile only ARMS a trailing flag instead of posting again, so a burst yields at most ONE
+// in-flight reconcile + ONE trailing. When the in-flight reply settles the trailing sweep re-holds the gate,
+// so the last genuinely-needed sweep still runs. `force` (rebuild — awaited, rare) bypasses the gate.
+let reconcileInFlight = false;   // a gate-holding non-force reconcile is posted, its reply not yet applied
+let reconcileTrailing = false;   // a further sweep was requested while the gate was held — run one after
+
+// The gate-holding request settled (applied or errored). Re-hold the gate with the trailing sweep if one was
+// armed (reconcileInFlight stays true across the re-post — the gate is continuously held), else release it.
+// Called from every NORMAL settle path so the gate can never wedge shut.
+function afterGateSettled() {
+  if (reconcileTrailing && !isAppQuitting()) {
+    reconcileTrailing = false;
+    doPostReconcile({ force: false, gate: true });
+  } else {
+    reconcileInFlight = false;
+  }
+}
+// Worker gone (crash/quit): clear the gate WITHOUT firing a trailing — a late reply must not spawn a fresh
+// worker mid-teardown, and the reconcile safety-net + the next get-projects re-trigger a sweep anyway.
+function clearReconcileGate() { reconcileInFlight = false; reconcileTrailing = false; }
+
+// --- per-file liveness push COALESCING (#199 step 5.3, fix 4) --------------------------------------
+// The flag-OFF path fires ONE `projects-changed` per watcher flush; the worker file lane used to push per
+// apply (`onFileApplied`), a storm on a busy multi-agent session. Collapse a burst of file replies into one
+// trailing push — a trailing debounce capped by a max-wait, the same shape as the watcher's flush — without
+// dropping the eventual convergence (the last file always leaves a pending push).
+let _filePushTimer = null;
+let _filePushFirstAt = 0;
+const FILE_PUSH_DEBOUNCE_MS = 300;
+const FILE_PUSH_MAX_WAIT_MS = 1000;
+function coalesceFilePush() {
+  const now = Date.now();
+  if (!_filePushTimer) _filePushFirstAt = now;
+  const delay = Math.min(FILE_PUSH_DEBOUNCE_MS, Math.max(0, FILE_PUSH_MAX_WAIT_MS - (now - _filePushFirstAt)));
+  if (_filePushTimer) clearTimeout(_filePushTimer);
+  _filePushTimer = setTimeout(flushFilePush, delay);
+  if (typeof _filePushTimer.unref === 'function') _filePushTimer.unref();
+}
+function flushFilePush() {
+  if (_filePushTimer) { clearTimeout(_filePushTimer); _filePushTimer = null; }
+  if (isAppQuitting()) return;
+  try { onFileApplied(); } catch {}
+}
+
 function ensureWorker() {
   if (worker) return worker;
   worker = new Worker(path.join(__dirname, 'workers', 'index-worker.js'));
@@ -94,6 +141,7 @@ function respawn() {
   if (dead) { try { dead.removeAllListeners(); dead.terminate(); } catch {} }
   for (const [, p] of pending) { try { p.resolve(); } catch {} }
   pending.clear();
+  clearReconcileGate();   // the gate-holding request is lost with the worker — don't wedge future sweeps
 }
 
 function terminate() {
@@ -101,6 +149,8 @@ function terminate() {
   worker = null;
   if (dead) { try { dead.removeAllListeners(); dead.terminate(); } catch {} }
   pending.clear();
+  clearReconcileGate();
+  if (_filePushTimer) { clearTimeout(_filePushTimer); _filePushTimer = null; }
 }
 
 // --- request snapshot (the DB reads the worker must not do) ----------------------------------------
@@ -182,9 +232,21 @@ function instrumentedPost(msg, sizeHint) {
   log.debug(`[index-worker] post ${msg.type} reqId=${msg.reqId} clone~${sizeHint.folders}f/${sizeHint.rows}rows postMs=${ms}`);
 }
 
-// The periodic reconcile sweep. Returns a Promise that resolves once the reply has been applied.
+// The periodic reconcile sweep. Returns a Promise that resolves once the reply has been applied. Non-force
+// sweeps are COALESCED through the gate (fix 1): a burst posts at most one in-flight + one trailing.
 function postReconcile({ force = false } = {}) {
   if (isAppQuitting()) return Promise.resolve(false);
+  if (!force) {
+    if (reconcileInFlight) { reconcileTrailing = true; return Promise.resolve(false); }
+    reconcileInFlight = true;
+    return doPostReconcile({ force: false, gate: true });
+  }
+  return doPostReconcile({ force: true, gate: false });
+}
+
+// Actually build the snapshot + post the request. `gate` marks the one reconcile that holds the coalescing
+// gate, so its settle re-holds/releases it (afterGateSettled). Force posts never hold the gate.
+function doPostReconcile({ force = false, gate = false } = {}) {
   const r = roster();
   const { post: snapshot, retained } = buildSnapshot(r);
   const { folderMeta, removedSet } = buildFolderContext();
@@ -198,7 +260,7 @@ function postReconcile({ force = false } = {}) {
   };
 
   return new Promise((resolve) => {
-    pending.set(reqId, { resolve, postedSeq, retained, kind: force ? 'rebuild' : 'reconcile' });
+    pending.set(reqId, { resolve, postedSeq, retained, kind: force ? 'rebuild' : 'reconcile', gate });
     instrumentedPost({
       type: force ? 'rebuild' : 'reconcile',
       reqId, roster: r, roots: { claude: PROJECTS_DIR },
@@ -239,7 +301,7 @@ function postRootCacheReset() {
 function onReply(msg) {
   const p = msg && msg.reqId != null ? pending.get(msg.reqId) : null;
   if (msg && msg.type === 'error') {
-    if (p) { pending.delete(msg.reqId); pruneDeleted(); p.resolve(); }
+    if (p) { pending.delete(msg.reqId); pruneDeleted(); p.resolve(); if (p.gate) afterGateSettled(); }
     log.warn(`[index-worker] request ${msg.reqId} failed: ${msg.error}`);
     return;
   }
@@ -248,7 +310,7 @@ function onReply(msg) {
 
   // The appQuitting guard: a late reply must NOT write to a closed DB (#76/#90 at the new seam). Checked
   // BEFORE any apply. Terminate-then-close alone can't cover an already-posted reply.
-  if (isAppQuitting()) { pruneDeleted(); p.resolve(); return; }
+  if (isAppQuitting()) { pruneDeleted(); p.resolve(); if (p.gate) clearReconcileGate(); return; }
 
   try {
     if (msg.kind === 'file') applyFileReply(msg, p);
@@ -258,6 +320,7 @@ function onReply(msg) {
   } finally {
     pruneDeleted();
     p.resolve(msg.kind === 'file' ? undefined : true);
+    if (p.gate) afterGateSettled();
   }
 }
 
@@ -268,7 +331,17 @@ function applyReconcileReply(msg, p) {
 
   for (const { folder, reply } of msg.claude || []) {
     const cachedMap = (p.retained && p.retained.claude.get(folder)) || new Map();
-    storeIndexer.applyClaudeFolderReply(folder, reply, { scope, cachedMap, stats, dropIds });
+    // Removed-race (fix 3): a project removed AFTER the snapshot is NOT in the worker's posted removedSet, so
+    // the worker parsed + indexed it. dropIds (the delete-epoch guard) covers deletes, not removes — so
+    // re-check isRemovedProject FRESH on main and drop this folder's parsed rows, mirroring refreshFolder's
+    // removed short-circuit (the already-cached rows are left alone; #167 "remove ≠ delete").
+    let folderDrop = dropIds;
+    const pp = replyProjectPath(reply, folder);
+    if (pp && storeIndexer.isRemovedProject(pp)) {
+      folderDrop = new Set(dropIds);
+      for (const s of reply.sessions || []) if (s && s.sessionId) folderDrop.add(s.sessionId);
+    }
+    storeIndexer.applyClaudeFolderReply(folder, reply, { scope, cachedMap, stats, dropIds: folderDrop });
   }
 
   for (const { backendId, reply, storeMissing } of msg.backends || []) {
@@ -286,7 +359,17 @@ function applyFileReply(msg, p) {
   const dropIds = dropIdsSince(p.postedSeq);
   if (dropIds.has(msg.sessionId)) return;   // deleted since the request — do not resurrect it
   storeIndexer.applyClaudeFileReply(msg.session);
-  try { onFileApplied(msg.sessionId); } catch {}
+  coalesceFilePush();   // fix 4: one trailing push per burst, matching the inline flush cadence
+}
+
+// The projectPath a folder reply resolved to — from its folderStamp (set for every visited folder) with a
+// session-row fallback. Used by the removed-race re-check (fix 3).
+function replyProjectPath(reply, folder) {
+  if (reply && Array.isArray(reply.folderStamps)) {
+    for (const st of reply.folderStamps) if (st && st.folder === folder && st.projectPath) return st.projectPath;
+  }
+  if (reply && reply.sessions && reply.sessions[0]) return reply.sessions[0].projectPath || null;
+  return null;
 }
 
 module.exports = {
@@ -303,4 +386,7 @@ module.exports = {
   _pendingSize: () => pending.size,
   _setTransport: (fn) => { _testTransport = fn; },
   _deliverReply: onReply,
+  // fix 4: drive the file-lane push coalescer deterministically in `node --test`.
+  _coalesceFilePush: () => coalesceFilePush(),
+  _flushFilePush: () => flushFilePush(),
 };

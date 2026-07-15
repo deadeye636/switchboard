@@ -838,7 +838,13 @@ projects.init({
     deleteCachedFolder, deleteSearchFolder,
     // Row-by-row, for the hard delete: a store folder can hold sessions of more than one project (#157),
     // so the folder is the wrong unit to clear the cache by.
-    deleteCachedSession, deleteSearchSession,
+    // Fix 2 (flag ON): note each explicitly-deleted id into the worker's delete-epoch guard first, so an
+    // in-flight reconcile reply can't reverse-resurrect a session removeProject/deleteProjectSessions just
+    // deleted. Flag OFF → indexWorker is null → the raw function is passed (byte-identical).
+    deleteCachedSession: indexWorker
+      ? (id) => { try { indexWorker.noteDeleted(id); } catch {} return deleteCachedSession(id); }
+      : deleteCachedSession,
+    deleteSearchSession,
     getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
     renameProjectRefs, deleteProjectRefs, setFolderMeta, toggleProjectFavorite,
     getCachedByProjectPath, getBackendsByProjectPath,
@@ -913,6 +919,8 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
         for (const row of getAllCached()) {
           if (row.projectPath !== normalizedPath) continue;
           if (foreign.has(row.backendId || 'claude')) continue;
+          // Fix 2: stamp the delete-epoch so an in-flight worker reply can't reverse-resurrect this id.
+          if (indexWorker) indexWorker.noteDeleted(row.sessionId);
           deleteCachedSession(row.sessionId);
           deleteSearchSession(row.sessionId);
           removed++;
