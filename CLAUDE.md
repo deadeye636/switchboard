@@ -32,8 +32,11 @@ Feature-adoption catalogue: closed issue [#1](https://github.com/deadeye636/swit
 Adopt JBR features one at a time, never bulk-merge:
 
 1. `git checkout -b port/<feature> main`
-2. `git cherry-pick <commits>` — resolve conflicts (shared hot-paths: `src/main.js`, `src/renderer/shell/sidebar.js`,
-   `src/db/db.js`, `src/index/session-cache.js` collide because both forks rewrote them).
+2. `git cherry-pick <commits>` — resolve conflicts. The classic hot-paths were `src/main.js`,
+   `src/renderer/shell/sidebar.js`, `src/db/db.js` and `src/index/session-cache.js`, because both forks
+   rewrote them. Three of those are façades now (#213/#217/#199), so a port collides with the **module**
+   that owns the code, not with the façade — usually a smaller, clearer conflict. `sidebar.js` is still a
+   2150-line monolith (#218).
 3. `npm test` must be green — no new failures vs. the pre-port run.
 4. `git checkout main && git merge --ff-only port/<feature>`.
 
@@ -116,8 +119,11 @@ the installer.
   cares. `connection.js` (DATA_DIR + the one handle), `schema.js`, `migrations.js`, then the stores:
   `meta-store` (what the **user** decided), `session-store` (what the **scanner** derived),
   `search-store` (FTS5), `tags-store`, `tasks-store`, `settings-store`, `stats-store`, plus
-  `project-refs.js` (a project's footprint moved across four stores, atomically). Three things to know
-  before touching it:
+  `project-refs.js` (a project's footprint moved across four stores, atomically). Three helpers sit beside
+  them and predate the split: `sqlite-busy-retry.js` (wraps every write; **not** usable inside an open
+  transaction — that is why `project-refs.js` takes the stores' raw statements), `search-query-util.js`
+  (the MATCH cap shared with the search worker, #79) and `stats-queries.js` (the Stats SQL, Electron-free
+  so it can be tested). Things to know before touching any of it:
   - **`migrations.length` IS the schema version.** One array, one file, **append only** — never insert,
     reorder or edit a shipped entry; retire one as a no-op `() => {}` in place. Not a bug, a corrupted
     user database. `test/db-migrations.test.js` pins every shipped entry by fingerprint (appending is
@@ -318,8 +324,9 @@ including a schema the migrations never touched (`no such column: parserVersion`
 | a test sandbox / agent run | `$SWITCHBOARD_DATA_DIR` | there |
 
 Set in `src/main.js` (~L82): unpackaged **and** no explicit `SWITCHBOARD_DATA_DIR` → `~/.switchboard-dev`, so a dev
-instance never races the installed app on `session_cache`. `src/db/db.js` resolves `DATA_DIR` at module load, so the
-env var must be set **before** anything requires it.
+instance never races the installed app on `session_cache`. **`src/db/connection.js`** resolves `DATA_DIR` at module
+load (db.js requires it on its first line, so the timing is what it always was), which is why the env var must be set
+**before** anything requires db.js. `test/main-modules-no-db.test.js` guards both halves.
 
 **`SWITCHBOARD_DATA_DIR` alone does not separate a sandbox from a dev run.** It moves the DB; `userData` is
 a **separate** switch (`SWITCHBOARD_USER_DATA`), and without it a sandbox lands on `~/.switchboard-dev/userData`
@@ -422,8 +429,14 @@ diagnostic at `debug` that the packaged default hides is what made #120 invisibl
   Escape closes a `showControlDialog` — fine for a question, wrong for anything holding something the user
   cannot get back (a handoff packet an agent spent tokens writing). Pass `dismissible: false`, or ask
   before discarding.
-- When touching `src/db/db.js` schema: append a migration, never edit an existing one.
-- When adding IPC: handler in `src/main.js` + binding in `src/preload.js` + (if it returns to UI) a renderer caller.
+- **Schema changes live in `src/db/`, not in `db.js`** (a façade since #217): the CREATE TABLEs are in
+  `schema.js`, the migrations in `migrations.js`. **Append** a migration, never insert, reorder or edit a
+  shipped one — `migrations.length` IS the schema version, and renumbering corrupts user databases.
+  `test/db-migrations.test.js` pins every shipped entry by fingerprint.
+- **When adding IPC: the handler does NOT go in `src/main.js`** — see "Where an IPC handler goes" above. It
+  goes in the `src/app/` module that owns the area (`init(ctx)` + `registerIpc(ipc)`), plus a binding in
+  `src/preload.js` + (if it returns to UI) a renderer caller. `test/main-no-new-ipc.test.js` (#222) fails on
+  a new handler in main.js and names the module to use instead.
 - Prefer `execFile` over shell string interpolation for any external process (security).
 - **User-facing UI text is English** (settings labels/descriptions, sidebar labels, dialogs,
   tooltips) — match the existing strings. Commit messages are English (see above); code
