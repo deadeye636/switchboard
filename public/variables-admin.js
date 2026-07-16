@@ -181,21 +181,38 @@
           </div>
           <label class="va-field"><span>Tags</span>
             <input type="text" class="settings-input" id="va-f-tags" value="${escapeHtml(form.tags)}" placeholder="comma,separated" autocomplete="off" spellcheck="false"></label>
-          <label class="va-field"><span>Preset</span>
-            <select class="settings-select" id="va-f-preset">
-              <option value="">Default (auto)</option>
-              <option value="{ref}">Shell value</option>
-              <option value="{path}">Path only</option>
-              <option value="-i '{path}'">SSH key</option>
-              <option value="--defaults-extra-file='{path}'">MySQL defaults-file</option>
-              <option value="PGSERVICEFILE='{path}' PGSERVICE=name">Postgres service</option>
-              <option value="PGPASSFILE='{path}'">Postgres .pgpass</option>
-              <option value="Bearer {ref}">API Bearer</option>
-              <option value="__custom__">Custom</option>
-            </select></label>
-          <label class="va-field"><span>Insert template</span>
-            <textarea class="settings-input va-template-input" id="va-f-template" rows="2" placeholder="Default (auto)" autocomplete="off" spellcheck="false">${escapeHtml(form.insertTemplate)}</textarea></label>
-          <div class="va-field-help">Placeholders: <code>{path}</code> temp-file path · <code>{ref}</code> shell-native read of that file · <code>{value}</code> raw value. Empty = auto (secret → <code>{ref}</code>, plain → <code>{value}</code>).</div>
+          <div class="va-field">
+            <div class="va-template-head">
+              <span>Insert template</span>
+              <div class="va-chips">
+                <button type="button" class="va-chip" data-tok="{value}" title="Insert the raw value inline">{value}</button>
+                <button type="button" class="va-chip" data-tok="{path}" title="Path of a temp file holding the value — quote this one">{path}</button>
+                <button type="button" class="va-chip" data-tok="{ref}" title="The shell reads the temp file. A complete shell word — never quote it">{ref}</button>
+                <button type="button" class="va-chip va-chip-var" data-varpick="1" title="Reference another variable">Variable…</button>
+                <select class="settings-select va-preset-sel" id="va-f-preset" title="Prefill a template">
+                  <option value="">Presets…</option>
+                  <option value="{ref}">Read from temp file — {ref}</option>
+                  <option value="{path}">Temp-file path — {path}</option>
+                  <option value="-i '{path}'">SSH key flag</option>
+                  <option value="--defaults-extra-file='{path}'">MySQL defaults file</option>
+                  <option value="PGSERVICEFILE='{path}' PGSERVICE=name">Postgres service (edit the name)</option>
+                  <option value="PGPASSFILE='{path}'">Postgres .pgpass</option>
+                  <option value="Bearer {ref}">API Bearer token</option>
+                </select>
+              </div>
+            </div>
+            <textarea class="settings-input va-template-input" id="va-f-template" rows="3" autocomplete="off" spellcheck="false">${escapeHtml(form.insertTemplate)}</textarea>
+          </div>
+          <div class="va-preview-head">
+            <span>Preview</span>
+            <div class="va-shell-toggle" id="va-f-shell">
+              <button type="button" class="va-chip" data-shell="bash">bash</button>
+              <button type="button" class="va-chip" data-shell="pwsh">pwsh</button>
+            </div>
+            <span class="va-preview-flags" id="va-f-flags"></span>
+          </div>
+          <div class="va-preview" id="va-f-preview"></div>
+          <div class="va-preview-notes" id="va-f-notes"></div>
           <div class="va-status" id="va-f-status"></div>
           <div class="va-dialog-actions">
             <button type="button" class="va-secondary" id="va-f-cancel">Cancel</button>
@@ -235,44 +252,241 @@
     }
     applyMask();
 
-    // Preset only prefills the template field; the value stays freely editable.
+    // A preset prefills the template field; the value stays freely editable. The dropdown no longer mirrors
+    // the field — the preview below is what tells the user which state they are in, so there is nothing left
+    // for a "Custom" entry to say.
     const templateInput = overlay.querySelector('#va-f-template');
     const presetSel = overlay.querySelector('#va-f-preset');
-    const CUSTOM = '__custom__';
-    // Keep the dropdown honest: it reflects what the template field actually is —
-    // '' → Default (auto), an exact preset value → that preset, anything else → Custom.
-    function syncPresetFromTemplate() {
-      const t = templateInput.value;
-      if (t === '') { presetSel.value = ''; return; }
-      for (const opt of presetSel.options) {
-        if (opt.value !== CUSTOM && opt.value !== '' && opt.value === t) { presetSel.value = t; return; }
-      }
-      presetSel.value = CUSTOM;
-    }
     presetSel.addEventListener('change', () => {
-      // Custom just means "edit freely" — don't overwrite the field, focus it.
-      if (presetSel.value === CUSTOM) { templateInput.focus(); return; }
-      templateInput.value = presetSel.value; // '' clears (Default auto), else the preset
+      if (!presetSel.value) return;
+      const preset = presetSel.value;
+      templateInput.value = preset;
+      presetSel.value = '';
+      templateInput.focus();
+      // Select a placeholder word the user is meant to replace, so typing overwrites it. Without this,
+      // whoever trusts the Postgres preset ships PGSERVICE=name verbatim.
+      const editable = preset.match(/PGSERVICE=(name)/);
+      if (editable) {
+        const at = preset.indexOf('PGSERVICE=') + 'PGSERVICE='.length;
+        templateInput.setSelectionRange(at, at + editable[1].length);
+      }
+      renderPreview();
     });
-    templateInput.addEventListener('input', syncPresetFromTemplate);
-    syncPresetFromTemplate(); // initial dropdown state from the (possibly prefilled) template
+
+    // --- the chips: insert a token at the caret -----------------------------------------------------
+    overlay.querySelectorAll('.va-chip[data-tok]').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        insertAtCaret(templateInput, chip.dataset.tok);
+        renderPreview();
+      });
+    });
+    overlay.querySelector('.va-chip[data-varpick]').addEventListener('click', (e) => {
+      openVarPicker(e.currentTarget, (name) => {
+        insertAtCaret(templateInput, `{var:${name}}`);
+        renderPreview();
+      });
+    });
+
+    function insertAtCaret(el, text) {
+      const at = el.selectionStart ?? el.value.length;
+      const end = el.selectionEnd ?? at;
+      el.setRangeText(text, at, end, 'end');
+      el.focus();
+    }
+
+    // --- the variable picker ------------------------------------------------------------------------
+    // Lists what THIS row could reference: globals plus, for a project-scoped row, that project's. The row
+    // being edited is excluded — a self-reference is an instant cycle, so it is not offered.
+    function openVarPicker(anchor, onPick) {
+      const existingPop = overlay.querySelector('.va-var-picker');
+      if (existingPop) { existingPop.remove(); return; }
+      const scopeValue = scopeSel.value;
+      const candidates = variables.filter((v) => {
+        if (form.id && v.id === form.id) return false;
+        if (v.scope !== 'project') return true;
+        return scopeValue !== 'global' && v.projectPath === scopeValue;
+      });
+      const pop = document.createElement('div');
+      pop.className = 'va-var-picker';
+      pop.innerHTML = candidates.length
+        ? `<input type="text" class="settings-input va-var-filter" placeholder="Filter…" spellcheck="false">
+           <div class="va-var-list">${candidates.map((v) => `
+             <button type="button" class="va-var-row" data-name="${escapeHtml(v.name)}">
+               <span class="va-var-name">${escapeHtml(v.name)}</span>
+               ${v.secret ? '<span class="va-secret-pill">Secret</span>' : ''}
+               <span class="va-var-scope">${v.scope === 'project' ? 'Project' : 'Global'}</span>
+             </button>`).join('')}</div>`
+        : '<div class="va-var-empty">No other variables to reference.</div>';
+      anchor.parentElement.appendChild(pop);
+      const filter = pop.querySelector('.va-var-filter');
+      if (filter) {
+        filter.focus();
+        filter.addEventListener('input', () => {
+          const q = filter.value.toLowerCase();
+          pop.querySelectorAll('.va-var-row').forEach((r) => {
+            r.style.display = r.dataset.name.toLowerCase().includes(q) ? '' : 'none';
+          });
+        });
+      }
+      pop.addEventListener('click', (ev) => {
+        const row = ev.target.closest('.va-var-row');
+        if (!row) return;
+        onPick(row.dataset.name);
+        pop.remove();
+      });
+      setTimeout(() => {
+        const away = (ev) => {
+          if (!pop.contains(ev.target) && ev.target !== anchor) { pop.remove(); document.removeEventListener('mousedown', away); }
+        };
+        document.addEventListener('mousedown', away);
+      }, 0);
+    }
+
+    // --- the preview --------------------------------------------------------------------------------
+    // Composed with the SAME pure functions the insert runs (public/variable-insert.js), so it cannot drift
+    // from what will actually be produced. It needs no IPC and no plaintext: the admin list carries `secret`
+    // and `insertTemplate` but never values, so a referenced variable renders as a placeholder — and a ref
+    // renders against a synthetic path. No temp file is ever written from this dialog.
+    const VI = window.variableInsert;
+    const SYNTH_PATH = '<secret-file>';
+    let previewShell = (navigator.platform || '').toLowerCase().startsWith('win') ? 'pwsh' : 'bash';
+    const previewEl = overlay.querySelector('#va-f-preview');
+    const notesEl = overlay.querySelector('#va-f-notes');
+    const flagsEl = overlay.querySelector('#va-f-flags');
+    const shellToggle = overlay.querySelector('#va-f-shell');
+
+    shellToggle.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-shell]');
+      if (!btn) return;
+      previewShell = btn.dataset.shell;
+      renderPreview();
+    });
+
+    function previewRowFor(name) {
+      const scopeValue = scopeSel.value;
+      const rows = variables.filter((v) => v.scope !== 'project' || (scopeValue !== 'global' && v.projectPath === scopeValue));
+      const id = VI.buildNameIndex(rows)[name];
+      return { row: rows.find((v) => v.id === id) || null, ambiguous: rows.filter((v) => v.name === name).length > 1 };
+    }
+
+    function renderPreview() {
+      shellToggle.querySelectorAll('[data-shell]').forEach((b) => b.classList.toggle('active', b.dataset.shell === previewShell));
+      const row = { insertTemplate: templateInput.value, secret: secretInput.checked };
+      const tmpl = VI.effectiveTemplate(row);
+      templateInput.placeholder = secretInput.checked
+        ? 'Default: {ref} — the shell reads a temp file'
+        : 'Default: {value} — inserts the raw value';
+
+      const notes = [];
+      let touchesSecret = !!secretInput.checked && tmpl.includes('{value}');
+      const vars = {};
+      const varRefOffsets = {};
+      for (const name of VI.parseVarRefs(tmpl)) {
+        const { row: ref, ambiguous } = previewRowFor(name);
+        if (!ref) { notes.push(['error', `{var:${name}} — no such variable`]); vars[name] = ''; continue; }
+        const childTmpl = VI.finalTemplateFor(ref, false);
+        if (ref.secret) {
+          touchesSecret = true;
+          if (VI.effectiveTemplate(ref).includes('{value}')) {
+            notes.push(['info', `${name} is a secret — inserted as a file read, never as plaintext`]);
+          }
+        }
+        const child = VI.compose(childTmpl, {
+          path: SYNTH_PATH,
+          ref: childTmpl.includes('{ref}') ? VI.shellRefFor(previewShell, SYNTH_PATH) : null,
+          value: childTmpl.includes('{value}') ? `⟨value of ${name}⟩` : null,
+        });
+        vars[name] = child.text;
+        varRefOffsets[name] = child.refOffsets;
+        notes.push([ambiguous ? 'warn' : 'ok',
+          ambiguous
+            ? `{var:${name}} — more than one variable is called this; bound to the ${ref.scope === 'project' ? 'project' : 'global'} one`
+            : `{var:${name}} → ${ref.scope === 'project' ? 'Project' : 'Global'}`]);
+      }
+
+      const own = VI.compose(tmpl, {
+        path: SYNTH_PATH,
+        ref: tmpl.includes('{ref}') ? VI.shellRefFor(previewShell, SYNTH_PATH) : null,
+        value: tmpl.includes('{value}')
+          ? (secretInput.checked ? '⟨value⟩' : (valueInput.value || '⟨value⟩'))
+          : null,
+        vars,
+        varRefOffsets,
+      });
+
+      // The rule is not taught in a help line nobody reads — it is enforced, visibly, with the reason in the
+      // message. This is the SAME check the insert hard-fails on, so the editor shows the future error.
+      const unsafe = VI.scanRefSafety(own.text, own.refOffsets);
+      for (const hit of unsafe) {
+        const what = hit.reason === 'unbalanced' ? 'a quote is left open around it' : 'it sits inside quotes';
+        notes.push([hit.nested ? 'error' : 'warn',
+          `A file reference is broken: ${what}. Remove the quotes — the reference is already a complete shell word.`
+          + (hit.nested ? ' The insert will refuse this.' : '')]);
+      }
+      if (VI.shellRefFor(previewShell, '') === null) notes.push(['warn', `This shell cannot read a file inline — {ref} falls back to a clipboard copy.`]);
+      if (/[\n\r]/.test(own.text)) notes.push(['error', 'The result contains a line break — use {path} for multi-line content. The insert will refuse this.']);
+      if (/\{var:(?![^{}]+\})/.test(tmpl)) notes.push(['warn', '{var: without a closing brace is treated as literal text.']);
+
+      previewEl.innerHTML = highlightRefs(own.text, own.refOffsets, unsafe);
+      flagsEl.innerHTML = touchesSecret ? '<span class="va-secret-pill" title="This insert reads secret temp files.">Secret</span>' : '';
+      notesEl.innerHTML = notes.map(([tone, text]) => `<div class="va-note va-note-${tone}">${escapeHtml(text)}</div>`).join('');
+    }
+
+    // Render the composed string verbatim, marking each ref so "one complete shell word" is visible rather
+    // than stated. Built from escaped segments — the dialog is innerHTML-based, and CSP is defence in depth,
+    // not permission to skip escaping.
+    function highlightRefs(text, refOffsets, unsafe) {
+      if (!text) return '<span class="va-preview-empty">(nothing)</span>';
+      const bad = new Set(unsafe.filter(h => h.reason === 'quoted').map(h => h.offset));
+      const marks = [...refOffsets].sort((a, b) => a.offset - b.offset);
+      let out = '';
+      let at = 0;
+      for (const m of marks) {
+        const refText = VI.shellRefFor(previewShell, SYNTH_PATH) || '';
+        if (m.offset < at || !refText) continue;
+        out += escapeHtml(text.slice(at, m.offset));
+        out += `<span class="va-preview-ref${bad.has(m.offset) ? ' va-preview-ref-bad' : ''}">${escapeHtml(text.substr(m.offset, refText.length))}</span>`;
+        at = m.offset + refText.length;
+      }
+      return out + escapeHtml(text.slice(at));
+    }
+
+    templateInput.addEventListener('input', renderPreview);
+    valueInput.addEventListener('input', renderPreview);
+    scopeSel.addEventListener('change', renderPreview);
 
     eyeBtn.addEventListener('click', () => { revealed = !revealed; applyMask(); });
     secretInput.addEventListener('change', () => {
       form.secret = secretInput.checked;
       revealed = false;
       applyMask();
+      renderPreview();   // the default template flips with it — the strongest teacher in the dialog
     });
+    renderPreview();
 
     const close = () => {
       document.removeEventListener('keydown', onKey);
       overlay.remove();
     };
-    function onKey(e) { if (e.key === 'Escape') close(); }
+    // This dialog holds work that cannot be recovered — a value the user typed, possibly a credential in the
+    // middle of a rotation. It used to discard that on Escape or a stray backdrop click, with no
+    // confirmation. A backdrop click no longer closes it at all, and Escape asks once it is dirty.
+    let dirty = false;
+    overlay.querySelector('.va-dialog-body').addEventListener('input', () => { dirty = true; });
+    async function tryClose() {
+      if (!dirty) { close(); return; }
+      const discard = await showControlDialog({
+        title: 'Discard changes?',
+        message: 'This variable has unsaved edits.',
+        confirmLabel: 'Discard',
+        tone: 'danger',
+      });
+      if (discard) close();
+    }
+    function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); tryClose(); } }
     document.addEventListener('keydown', onKey);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-    overlay.querySelector('.va-dialog-close').addEventListener('click', close);
-    overlay.querySelector('#va-f-cancel').addEventListener('click', close);
+    overlay.querySelector('.va-dialog-close').addEventListener('click', tryClose);
+    overlay.querySelector('#va-f-cancel').addEventListener('click', tryClose);
 
     overlay.querySelector('.va-dialog-body').addEventListener('submit', async (e) => {
       e.preventDefault();

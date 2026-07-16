@@ -1,5 +1,3 @@
-'use strict';
-
 // Pure helpers for the Saved Variables insert-template mechanism.
 //
 // No Electron / fs dependencies live here on purpose: the substitution and shell-reference logic is the
@@ -11,6 +9,18 @@
 // (via a plain <script> tag — the renderer has no `require`). That is not tidiness: the template editor's
 // preview must compose with the exact same code the insert runs, or it drifts from what it claims to show —
 // and a preview that disagrees with the resolver is worse than no preview at all.
+
+// The UMD wrapper is not decoration — the same one custom-launchers.js uses. A classic <script> puts every
+// top-level `const` into the GLOBAL lexical scope, and this file's exports object was called `api`: that
+// collides with `window.api`, the contextBridge IPC surface, which is a non-configurable global property.
+// The result is a SyntaxError at parse time — the whole file never runs, `window.variableInsert` is
+// undefined, and the only symptom is a preview that renders nothing. Declare nothing globally.
+(function (root, factory) {
+  const mod = factory();
+  if (typeof module !== 'undefined' && module.exports) module.exports = mod;
+  if (root) root.variableInsert = mod;
+})(typeof window !== 'undefined' ? window : null, function () {
+'use strict';
 
 // Default template for a variable that has none set. Secrets reference a temp file (so the plaintext never
 // enters the prompt/transcript); non-secrets inline their raw value — this preserves the pre-template
@@ -288,7 +298,7 @@ function beatsForBinding(a, b) {
 // is far past any honest template and far below anything that could hurt.
 const MAX_RESOLVED_NODES = 20;
 
-const api = {
+return {
   defaultInsertTemplate,
   effectiveTemplate,
   forceRefForNested,
@@ -303,7 +313,4 @@ const api = {
   MAX_RESOLVED_NODES,
 };
 
-// Dual mode: `require()` in main, a global in the renderer (which has no require — plain <script> tags).
-// Same pattern as terminal-context-menu.js.
-if (typeof module !== 'undefined' && module.exports) module.exports = api;
-if (typeof window !== 'undefined') window.variableInsert = api;
+});

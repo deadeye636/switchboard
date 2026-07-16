@@ -8737,7 +8737,9 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
   background: #1e1e2a;
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px;
-  width: 520px;
+  /* 640 fits the widest preset plus a ref-expanded preview without wrapping (#204). max-width still guards
+     a small window. */
+  width: 640px;
   max-width: calc(100vw - 48px);
   max-height: calc(100vh - 64px);
   overflow: hidden;
@@ -8815,6 +8817,81 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 /* A name that predates cross-references and holds a brace: a limitation, not an error — it is only
    unreferenceable. Warning tone, not danger; we are not blocking the save. */
 .va-field-help.va-name-warn { color: #e5c07b; }
+
+/* --- the insert-template editor (#204/#205) ------------------------------------------------------- */
+.va-template-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* position: relative anchors the picker popover below — without it the absolute popover escapes to the
+   viewport and lands somewhere unrelated. */
+.va-chips { position: relative; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+/* Chips are the discovery mechanism: {var:} exists because there is a button for it. Borrowed from the
+   quick-pick's row buttons so they read as controls, not as text. */
+.va-chip {
+  padding: 2px 7px;
+  background: #23232c;
+  color: #c0c0cc;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+.va-chip:hover { border-color: rgba(128,136,255,0.6); color: #e8e8f0; }
+.va-chip-var { font-family: inherit; }
+.va-chip.active { background: rgba(128,136,255,0.18); border-color: rgba(128,136,255,0.6); color: #e8e8f0; }
+.va-preset-sel { width: auto; font-size: 11px; padding: 2px 6px; }
+
+/* The picker lives INSIDE the .va-dialog overlay, so it needs to out-stack it explicitly — an overlay-hosted
+   popover inherits nothing and would otherwise render underneath. */
+.va-var-picker {
+  position: absolute;
+  z-index: 20;
+  margin-top: 4px;
+  right: 0;
+  width: 260px;
+  max-height: 220px;
+  overflow: auto;
+  background: #1e1e2a;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.5);
+  padding: 6px;
+}
+.va-var-filter { width: 100%; margin-bottom: 6px; }
+.va-var-row {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 4px 6px; background: transparent; border: 0; border-radius: 5px;
+  color: #d0d0e8; font-size: 12px; text-align: left; cursor: pointer;
+}
+.va-var-row:hover { background: rgba(255,255,255,0.07); }
+.va-var-name { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.va-var-scope { color: #7a7a90; font-size: 10px; }
+.va-var-empty { color: #7a7a90; font-size: 12px; padding: 6px; }
+
+.va-preview-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9a9ab0; margin-top: 2px; }
+.va-shell-toggle { display: flex; gap: 3px; }
+.va-preview-flags { margin-left: auto; }
+/* Verbatim, because it is the ground truth — a ref must be visible exactly as the shell will see it. */
+.va-preview {
+  background: #14141c;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #c8c8d8;
+  white-space: pre-wrap;
+  word-break: break-all;
+  min-height: 18px;
+}
+.va-preview-empty { color: #6a6a80; font-style: italic; }
+.va-preview-ref { background: rgba(97,175,239,0.16); border-radius: 3px; }
+.va-preview-ref-bad { background: rgba(224,108,117,0.22); text-decoration: underline wavy #e06c75; }
+.va-preview-notes { display: flex; flex-direction: column; gap: 2px; }
+.va-note { font-size: 11px; line-height: 1.45; }
+.va-note-ok { color: #7a7a90; }
+.va-note-info { color: #61afef; }
+.va-note-warn { color: #e5c07b; }
+.va-note-error { color: #e06c75; }
 .va-status { font-size: 12px; color: #7a7a90; min-height: 14px; }
 .va-status.error { color: #ff8f8f; }
 .va-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
