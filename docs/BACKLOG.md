@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (28 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-16
 
@@ -23,6 +23,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#211](https://github.com/deadeye636/switchboard/issues/211) Projects admin: the last Claude-only bits belong behind a backend hook · _chore_
 - [#220](https://github.com/deadeye636/switchboard/issues/220) A dev run can be left behind, and the next one then talks to the corpse · _bug_
 - [#222](https://github.com/deadeye636/switchboard/issues/222) Stop main.js growing back: a guard that refuses a new IPC handler, and a rule saying where it goes · _chore_
+- [#223](https://github.com/deadeye636/switchboard/issues/223) After /clear with two Claude sessions in one project, both stay running and the tab keeps the dead id · _bug_
 
 ## P3 — someday
 
