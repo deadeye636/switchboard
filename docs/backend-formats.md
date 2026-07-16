@@ -291,7 +291,7 @@ default that **matches what the CLI already does** — it is a description of th
 Two markers a field may carry, because two honest exceptions exist and both must be **declared** rather
 than discovered by a puzzled reader:
 
-- **`appliesAt: 'spawn'`** — the option is real, but it is not in the argv `buildLaunch` returns. main.js
+- **`appliesAt: 'spawn'`** — the option is real, but it is not in the argv `buildLaunch` returns. `src/app/terminal/spawn.js`
   applies it at the spawn site: Claude's `preLaunchCmd` *prefixes* the command line, `mcpEmulation`
   starts the MCP bridge and appends `--ide`, `afkTimeoutSec` becomes an env var.
 - **`requires: '<otherOption>'`** — the option only means anything while another one is on (a worktree's
@@ -299,7 +299,8 @@ than discovered by a puzzled reader:
 
 `test/backend-config-fields.test.js` enforces the contract: **every declared option must change the
 command line**, unless it declares one of those two reasons — and a `spawn`-applied one must actually be
-read by main.js. A control that does nothing is the exact bug this file exists to prevent.
+read by `src/app/terminal/spawn.js` (it was main.js until #213 split it out). A control that does nothing is
+the exact bug this file exists to prevent.
 
 **Hermes corrects an earlier claim of ours.** The old comment on its `configFields` said the list was
 "deliberately small" because its model/provider config lives in its own `config.yaml`. Half true, wholly

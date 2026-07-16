@@ -53,7 +53,7 @@ special case anywhere outside that provider's own folder.
 | `id`, `label`, `monogram`, `colour` | identity + badge |
 | `status` | `ready` \| `planned` (a "Coming soon" dummy that can never launch or be scanned) |
 | `axis` | `'B'` = own binary + own store. Claude is the default (`axis: null`); a profile is Axis-A and declares no schema of its own (it runs Claude's binary, so it uses Claude's). |
-| `configFields` | this CLI's launch options. **The Settings page and the Configure dialog are generated from it.** A field may declare `appliesAt: 'spawn'` (applied by main.js, not part of the argv) or `requires: '<other>'` (meaningless on its own). Options that belong to **Switchboard** rather than to a CLI — today `preLaunchCmd` — are added to every backend by the registry (`UNIVERSAL_FIELDS`), not copied into each descriptor. |
+| `configFields` | this CLI's launch options. **The Settings page and the Configure dialog are generated from it.** A field may declare `appliesAt: 'spawn'` (applied by `app/terminal/spawn.js`, not part of the argv) or `requires: '<other>'` (meaningless on its own). Options that belong to **Switchboard** rather than to a CLI — today `preLaunchCmd` — are added to every backend by the registry (`UNIVERSAL_FIELDS`), not copied into each descriptor. |
 | `supportsFork` | whether Fork is offered for its sessions |
 | `startupHint`, `caveat` | a slow first paint (Hermes ≈ 12 s); a standing gotcha shown in Settings |
 | `buildLaunch({cwd, resume, sessionId, forkFrom, options})` | → `{command, args, env, cwd, spawnMode}`. `env` values are `$VAR` refs, resolved at spawn. |

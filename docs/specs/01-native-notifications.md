@@ -4,6 +4,11 @@
 
 **Status:** Implemented · **Roadmap:** Opportunity #1 (Phase 1) · **Independent:** Yes
 
+> **As built:** everything below that says `src/main.js` now lives in **`src/app/notifications.js`** —
+> #213 split it out. The module owns the `Tray` instance and the tooltip text (nothing outside reads
+> them) and takes the window through a **getter**, never a captured value: a notification click focuses
+> the window the app has *now*, not the one that existed when the module was wired.
+
 ## Problem & goal
 
 Switchboard's whole value is watching multiple agents for you, but **every attention signal currently dies inside the renderer**. There is no native OS notification, no dock/taskbar badge, and no tray icon anywhere in `src/main.js`. The moment the window is unfocused (you're in your editor/browser), an agent hitting a permission prompt produces **zero** signal.

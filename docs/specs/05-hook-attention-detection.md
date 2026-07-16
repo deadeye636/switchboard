@@ -5,6 +5,8 @@
 **Status:** Implemented · **Roadmap:** Opportunity #5 (Phase 4) · **Independent:** Yes
 
 > **As built:** in addition to the `Notification` and `Stop` hooks below, `UserPromptSubmit`, `SubagentStart` and `SubagentStop` hooks are also registered. The HTTP ingest server lives in **`src/app/hooks.js`** — it was in `src/main.js` (never near the OSC parsing region, despite Step 1 below) until #213 split it out. That module requires no Electron on purpose, which is what lets `test/hook-ingest.test.js` drive the token check and the settings.json rewrite for real; before the split neither was asserted by anything.
+>
+> **Where the code is now** — everything under "Current state" below names `main.js` with line numbers from the day it was written; both moved. The OSC-9 / OSC-0 parsing is in **`src/app/terminal/spawn.js`**'s PTY `onData` handler, and the busy/idle it derives is **Claude's alone** (#120): the idle half is the literal `✳`, so running it against another CLI that spins in its title latches "working" forever. Every other backend reports state through `liveState` — see **`src/watch/adopt.js`**. The dev/installed hook-sentinel clash is **#219**.
 
 ## Problem & goal
 

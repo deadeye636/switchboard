@@ -284,10 +284,12 @@ All application code lives under `src/`; the repo root holds only project metada
 
 ```
 src/
-  main.js          Electron main process
+  main.js          Electron main process — a composition root: requires, DATA_DIR, wiring
   preload.js       Context bridge — the only IPC surface
-  app/             Main-process areas: lifecycle, quit guard, terminal/ (PTY logic)
-  watch/           File watching
+  app/             Main-process areas: lifecycle, windows, notifications, settings,
+                   variables (+ secrets), hooks, quit guard, terminal/ (spawn, I/O, PTY logic)
+  watch/           File watching: Claude's projects dir, the other backends' stores,
+                   identity adoption
   db/              SQLite session cache, metadata, stats & search queries
   index/           Scan/index layer; session-cache.js is a façade over it
   session/         Transcript reading & session identity

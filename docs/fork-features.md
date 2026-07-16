@@ -156,7 +156,7 @@ Gets the supervision intelligence *out of the app window* and shortens every
 context switch. Each feature has a full design doc under `docs/specs/`.
 
 ### 01 — Native notifications + badge + tray
-`src/renderer/shell/notification-policy.js`, `src/main.js`
+`src/renderer/shell/notification-policy.js`, `src/app/notifications.js`
 
 - Native **OS notifications** when a session needs you while Switchboard is
   unfocused; clicking one focuses the window and that session.
@@ -191,7 +191,7 @@ context switch. Each feature has a full design doc under `docs/specs/`.
   it. Every token-spending step is explicit and cancelable.
 
 ### 05 — Hook-based attention detection
-`src/shared/attention-source.js`, `src/main.js`
+`src/shared/attention-source.js`, `src/app/hooks.js`
 
 - A more reliable attention signal sourced from **Claude Code hooks**
   (`Notification` + `Stop` events) via a local `127.0.0.1` HTTP ingest server,
@@ -323,7 +323,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Hermes declared a single option each while their CLIs took a dozen (`--provider`, `--thinking`,
   `--tools`, `--toolsets`, `--skills`, `--safe-mode`, `-c key=value`, …) — so neither was configurable at
   all. Two honest exceptions are **declared** rather than discovered: `appliesAt: 'spawn'` (applied by
-  main.js, not in the argv) and `requires: '<other>'` (meaningless on its own). `preLaunchCmd` belongs to
+  `app/terminal/spawn.js`, not in the argv) and `requires: '<other>'` (meaningless on its own). `preLaunchCmd` belongs to
   Switchboard rather than to a CLI, so the registry adds it to **every** backend; setting one drops that
   session to the shell path, because a shell prefix needs a shell. A declared option that changes nothing
   is a control that lies, and `test/backend-config-fields.test.js` refuses to let one exist.

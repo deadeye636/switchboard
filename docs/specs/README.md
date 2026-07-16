@@ -25,13 +25,18 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 
 ## Shared architecture (read once, applies to all specs)
 
-**Process model** — Electron. `src/main.js` (main process, Node) ⇄ `src/preload.js` (context bridge) ⇄ `public/*.js` (renderer). The renderer has no Node access; everything crosses via `window.api` (see `src/preload.js`).
+**Process model** — Electron. `src/main.js` (main process, Node) ⇄ `src/preload.js` (context bridge) ⇄ `src/renderer/**` (renderer). The renderer has no Node access; everything crosses via `window.api` (see `src/preload.js`).
+
+**Where main-process code goes (#213).** `src/main.js` is a **composition root** — requires, `DATA_DIR`, wiring, and the small handlers that share no state. An area lives in its own module under `src/app/` (`windows`, `notifications`, `settings`, `variables`, `hooks`, `lifecycle`, `terminal/{spawn,io}`) or `src/watch/` (`projects`, `stores`, `adopt`). **A new IPC handler belongs in one of those, not in main.js** — #222 is the guard that will enforce it. See CLAUDE.md's Architecture section for the ctx rule a module follows; the short version:
+
+- shared state arrives through a **ctx object**: a `const` (a Map) straight through, a `let` (`mainWindow`, `appQuitting`) **only ever as a getter**;
+- the module never top-level-requires `db.js`, and takes Electron through ctx too (`registerIpc(ipc)`, `ctx.dialog`, …) — that is what keeps it loadable in `node --test`, which is the whole reason the split was worth doing.
 
 **Adding an IPC channel:**
-- Request/response: `ipcMain.handle('my-channel', handler)` in `src/main.js`; expose `myThing: (args) => ipcRenderer.invoke('my-channel', args)` in `src/preload.js`.
-- Fire-and-forget renderer→main: `ipcMain.on(...)` + `ipcRenderer.send(...)`.
-- main→renderer push: `mainWindow.webContents.send('my-event', ...)` + an `onMyEvent` listener in `src/preload.js`.
-- `mainWindow` is the singleton browser window in `src/main.js` (declared ~line 125; guard every send with `if (mainWindow && !mainWindow.isDestroyed())`).
+- Request/response: `ipc.handle('my-channel', handler)` inside your module's `registerIpc(ipc)`; expose `myThing: (args) => ipcRenderer.invoke('my-channel', args)` in `src/preload.js`.
+- Fire-and-forget renderer→main: `ipc.on(...)` + `ipcRenderer.send(...)`.
+- main→renderer push: `ctx.getMainWindow()?.webContents.send('my-event', ...)` + an `onMyEvent` listener in `src/preload.js`.
+- **Never capture the window.** It is reassigned on reopen, so a captured one addresses a window that no longer exists — and the symptom is a UI that quietly stops updating, with no error. Read it through the getter and guard every send: `const w = ctx.getMainWindow(); if (w && !w.isDestroyed()) …`.
 
 **Renderer module convention** — pure-logic modules use the UMD wrapper (see top of `src/renderer/session/session-status.js`): `module.exports` under Node (for tests), `Object.assign(root, factory())` in the browser (globals). Keep all testable logic in this style and **Electron-free**. UI wiring lives in `src/renderer/app.js`, `src/renderer/shell/sidebar.js`, `src/renderer/views/grid-view.js`.
 

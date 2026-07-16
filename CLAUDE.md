@@ -70,7 +70,8 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 `build.files` is `src/**/*` — an **allow-list**, so a new directory outside `src/` is silently absent from
 the installer.
 
-- **Main process** (`src/main.js`): app lifecycle, IPC handlers, terminal (PTY) management, file watching.
+- **Main process** (`src/main.js`): the composition root. The lifecycle, the PTY management and the file
+  watching it used to hold are modules now (below); what stays here is wiring and the small IPC handlers.
   **~2470 lines, down from 5011: the split is done (#213).** What is left is a composition root — the
   requires, `DATA_DIR`, the wiring for eleven modules, and ~86 small IPC handlers that stayed on purpose
   (thin, no shared state; moving them buys churn). `src/app/` holds `lifecycle.js` (the boot, the
@@ -99,7 +100,8 @@ the installer.
     there and the module takes a getter. Read nowhere else → it moves into the module.
 - **Preload** (`src/preload.js`): the **only** IPC surface. Renderer talks to main exclusively through
   `window.api.*` defined here (`ipcRenderer.invoke` for request/response, `.send`/`.on` for streams).
-  Add a binding here when you add an IPC handler in `src/main.js`.
+  Add a binding here when you add an IPC handler — which belongs in an `src/app/` module's
+  `registerIpc(ipc)`, not in `src/main.js`.
 - **`src/shared/`**: the four modules **both processes load** — `attention-source`, `custom-launchers`,
   `variable-insert`, `preview-kind`. They are `require()`d in main and a global in the renderer (which has
   no require — plain `<script>` tags). The preview in main must compute with the same code the insert runs
@@ -139,7 +141,7 @@ the installer.
 - **Read first:** `docs/specs/09-multi-llm.md` (the contract + why each decision is what it is) and
   `docs/backend-formats.md` (what each backend actually writes — taken from real installs, because the
   published docs were wrong in three places).
-- **Don't hardcode a backend id outside its own folder.** `src/main.js` / `src/index/session-cache.js` / `src/renderer/**/*.js`
+- **Don't hardcode a backend id outside its own folder.** `src/main.js` / `src/app/**` / `src/watch/**` / `src/index/session-cache.js` / `src/renderer/**/*.js`
   contain no `if (backendId === 'codex')` and must not gain one.
 - **A file-mode backend composes `src/backends/file-store.js` — it does not copy the walk.** Discovery,
   `watchTargets`, the birth-time `matchLiveSession` and the suffix `liveRefFor` are the same code for every
@@ -158,8 +160,8 @@ the installer.
   session carried `-a on-request -s workspace-write` although the user had chosen neither, overruling
   their own `config.toml` in silence. So write a default that **matches what that CLI already does** — it
   is a description of the CLI, not a wish. `test/backend-config-fields.test.js` also refuses a declared
-  option that changes nothing (a control that lies), unless it says why: `appliesAt: 'spawn'` (main.js
-  applies it, not the argv) or `requires: '<other>'` (meaningless on its own).
+  option that changes nothing (a control that lies), unless it says why: `appliesAt: 'spawn'`
+  (`app/terminal/spawn.js` applies it, not the argv) or `requires: '<other>'` (meaningless on its own).
 - **Options cascade PER OPTION, and every level stores only what it marked as set:**
   `backend default → global → project → template`. Without that marker, "not set" cannot be told from
   "deliberately empty / off", and an option whose default is ON could never be switched off. The Configure
