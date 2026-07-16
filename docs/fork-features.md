@@ -477,6 +477,20 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Saved Variables** — reusable snippet/template panel with quick-pick, insert-template and
   a management tab (port of **brianstanley**). Insert into the terminal via the right-click
   menu or a **configurable hotkey** (default Ctrl/Cmd+Shift+V) — works in every right-click mode.
+  - **Cross-references** (#205): a template can compose other variables —
+    `mysql -u {var:user} -p{var:db-pass}`. A secret reached through `{var:}` is **never** inlined as
+    plaintext, even when its own template says `{value}`: that consent was given for inserting *that*
+    variable, at its own row, with its Secret pill — not for someone else's insert months later, where
+    it would land in shell history, scrollback and the transcript the CLI uploads. It resolves through a
+    0600 temp file instead. Cycles, a 20-node cap, a composed line break and a **quoted** file reference
+    are all refused before anything reaches the terminal.
+  - **A template editor that shows what the insert will do** (#204): chips to place `{value}` / `{path}` /
+    `{ref}` / another variable, and a live preview built with the **same functions the insert runs** — so
+    it cannot drift from what will actually be produced. It needs no plaintext to do it. A file reference
+    is a complete shell word, and quoting it silently produces a wrong credential plus a leaked temp-file
+    path — so the preview does not explain that rule, it runs the real check and says which reference is
+    about to break, before you reach for the credential.
+  - Design record: [`docs/specs/12-saved-variables.md`](specs/12-saved-variables.md).
 - **File preview** — the integrated file panel renders **Markdown**, a **sandboxed HTML preview**
   (`allow-same-origin`, no scripts), and **images** (PNG/JPG/GIF/WebP/SVG/… via a size-capped
   base64 data-URL IPC) inline (port of **brianstanley**). Pure kind/MIME helpers in

@@ -2,7 +2,7 @@
 
 Each file in this folder is a **self-contained spec for one feature**, written so a single agent can pick it up and implement it without needing the original planning conversation. They derive from the productivity roadmap (since migrated to GitHub Issues — see `docs/BACKLOG.md`).
 
-**All ten specs are implemented.** They remain as design records; each spec's `Status:` line and an "As built" note (where the implementation diverged) reflect the final state. Line-number references below describe the codebase at spec-writing time and have drifted.
+**All specs are implemented.** They remain as design records; each spec's `Status:` line and an "As built" note (where the implementation diverged) reflect the final state. Line-number references below describe the codebase at spec-writing time and have drifted.
 
 **Every agent must read this README first**, then their assigned spec.
 
@@ -21,6 +21,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 09 | [Multi-LLM backends](09-multi-llm.md) | #142 | No — touches spawn/scan/settings |
 | 10 | [The project list is a list](10-project-registry.md) | #167 | No — touches the scan + the sidebar |
 | 11 | [Performance: keeping the main thread responsive](11-performance.md) | #199, #200 | No — touches the scan hot path + get-projects |
+| 12 | [Saved Variables: how a secret reaches a terminal](12-saved-variables.md) | #205, #204 | No — touches the insert path + the terminal |
 
 ## Shared architecture (read once, applies to all specs)
 
