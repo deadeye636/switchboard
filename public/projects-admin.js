@@ -197,6 +197,7 @@
           : 'Click to make it a favourite — favourites are pinned to the top of the sidebar, ahead of every other project.')}</td>
         ${allowCol}
         <td class="pa-actions">
+          <button data-action="settings" title="Open this project's settings">Settings</button>
           <button data-action="rename" title="Rename (display name)">Rename</button>
           <button data-action="remap" title="Remap to another folder">Remap</button>
           <button data-action="remove" class="pa-danger" title="Remove from Switchboard (off the list, cached sessions cleared)">Remove</button>
@@ -415,6 +416,11 @@
         else await window.api.hideProject(path);
       } else if (action === 'favorite') {
         await window.api.toggleProjectFavorite(path);
+      } else if (action === 'settings') {
+        // The same viewer the sidebar's project-settings button opens (#203) — one panel, one path, no
+        // new IPC. settings-panel.js exposes it globally and loads before this view.
+        if (typeof window.openSettingsViewer === 'function') window.openSettingsViewer('project', path);
+        return; // opening a panel changes no row — skip the table reload below
       } else if (action === 'allowlist') {
         // On the list, or not. This is what "add a project" finally means — a project with no sessions
         // can be on it, and adding one used to do nothing at all unless discovery had already found it.
