@@ -111,10 +111,27 @@ the installer.
   (`shell/`, `session/`, `terminal/`, `views/`, `jsonl/`, `panels/`, …). DOM reconciliation via morphdom.
   Terminal = `@xterm/xterm`.
   Diffs = CodeMirror (`codemirror-setup.js`, bundled by esbuild into `codemirror-bundle.js`).
-- **Persistence** (`src/db/`): `db.js` (`better-sqlite3`) + `stats-queries.js`, `search-query-util.js`,
-  `sqlite-busy-retry.js`. Session cache + full-text search via **FTS5**.
-  Migrations are an **ordered array** (`const migrations = [...]`); schema version = array length.
-  Add a new migration by **appending** to the end — never insert or renumber.
+- **Persistence** (`src/db/`): `db.js` is a **façade** (#217, 1997 → 158 lines) over modules named after
+  what they hold — same exports, so `require('../db/db')` is unchanged and no caller outside `src/db/`
+  cares. `connection.js` (DATA_DIR + the one handle), `schema.js`, `migrations.js`, then the stores:
+  `meta-store` (what the **user** decided), `session-store` (what the **scanner** derived),
+  `search-store` (FTS5), `tags-store`, `tasks-store`, `settings-store`, `stats-store`, plus
+  `project-refs.js` (a project's footprint moved across four stores, atomically). Three things to know
+  before touching it:
+  - **`migrations.length` IS the schema version.** One array, one file, **append only** — never insert,
+    reorder or edit a shipped entry; retire one as a no-op `() => {}` in place. Not a bug, a corrupted
+    user database. `test/db-migrations.test.js` pins every shipped entry by fingerprint (appending is
+    free) and is the first real test this layer has ever had.
+  - **`schema.js` is a BASELINE, not the final shape.** `applySchema` then `runMigrations` runs on *every*
+    database including a brand-new one (version 0 → all of them run), so both paths converge. A column a
+    migration adds does **not** have to be repeated in the CREATE TABLE.
+  - **A store is required BELOW `runMigrations(db)`** — it prepares its statements at load, so requiring
+    it at the top dies on a **fresh** database with `no such table:` while every existing install is fine.
+    `test/db-store-load-order.test.js` guards it.
+  - **No test loads `db.js`** (better-sqlite3 is built against Electron's ABI), so a green suite says
+    *nothing* here. Verify with `scripts/db-probe.js` under `ELECTRON_RUN_AS_NODE=1` against a
+    **copy** of a real DB **and** an empty one — several of the bugs found during #217 were visible only
+    on the fresh one.
 - **Scan/index** (`src/index/`): `session-cache.js` is a **façade** (#199) over `index-writes.js`,
   `index-worker-client.js`, `search-worker-client.js`, `projects-view.js`, `folder-index-state.js`.
   The workers themselves are `src/workers/`.
