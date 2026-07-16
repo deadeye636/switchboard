@@ -238,7 +238,28 @@ Being a deliberate act is the entire point.
   (Takes ~20 s. `trigger-watcher.test.js` uses real `fs.watch`/timers and is the slowest file at ~19 s, which sets the wall clock since files run in parallel.)
 - `npm start` — bundles CodeMirror, then launches Electron.
 - `npm run start:debug` — the same, with the DevTools port open, so the app can be **driven from the CLI** (below).
+- `npm run stop:dev` — stop **this checkout's** dev Electron run. Filters on this repo's `node_modules`, so
+  it never touches the user's installed Switchboard or another checkout. Never `taskkill /IM electron.exe`.
 - `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe`.
+
+**Both start commands can now REFUSE, on purpose (#220), and this is the first thing to know:**
+
+| What you see | Why | What to do |
+|---|---|---|
+| `[lifecycle] another instance is already running on this userData … — quitting` | Every build takes the single-instance lock now. A dev run is already up — often a leftover with no window, whose launcher was killed. | `npm run stop:dev`, then start again. |
+| `Debug port 9222 is already in use` and `start:debug` exits | Electron does **not** fail on an unbindable debug port — it starts silently *without* one, and `drive-app.js` then reports on the **old** process. So the launch refuses instead. | `npm run stop:dev`, then start again. |
+
+**Two dev builds at once (parallel agent sessions in this repo).** The lock makes the second launch quit,
+which is usually what you want. If you genuinely need two, one of them needs **its own everything** —
+`SWITCHBOARD_DATA_DIR` alone is **not** enough, because `userData` is a separate switch and the lock is
+scoped to `userData` (measured, not assumed):
+
+```
+SWITCHBOARD_DATA_DIR=C:/temp/switchboard/s2 SWITCHBOARD_USER_DATA=C:/temp/switchboard/s2-ud npm start
+```
+
+`SWITCHBOARD_ALLOW_MULTIPLE_INSTANCES=1` also works, but then both instances share one dev DB and one
+Chromium cache and fight over them — that is the thing #216 removed. Prefer the two paths above.
 
 ### Release artifacts
 
