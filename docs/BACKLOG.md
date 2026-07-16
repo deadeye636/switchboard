@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (23 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-16
 
@@ -35,7 +35,5 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
 - [#193](https://github.com/deadeye636/switchboard/issues/193) Session provenance: show where a session came from (clear heuristic + explicit parent links) · _feature_
 - [#201](https://github.com/deadeye636/switchboard/issues/201) agy backend: add a usage capability (status bar + Usage & Notifications), like Claude/Codex · _feature, blocked-on-upstream_
-- [#202](https://github.com/deadeye636/switchboard/issues/202) Tasks & Bookmarks: show the backend badge (and session name) on the session backlink · _feature_
-- [#203](https://github.com/deadeye636/switchboard/issues/203) Projects manager: add a Settings action per project row · _feature_
 - [#204](https://github.com/deadeye636/switchboard/issues/204) Variables: make the New Variable dialog wider · _feature_
 - [#210](https://github.com/deadeye636/switchboard/issues/210) perf: run the live-session identity match (matchLiveSession) in the index worker · _chore_
