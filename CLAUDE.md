@@ -71,7 +71,7 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 the installer.
 
 - **Main process** (`src/main.js`): app lifecycle, IPC handlers, terminal (PTY) management, file watching.
-  ~3750 lines and being split into `src/app/` + `src/watch/` (#213) — `src/app/` already holds the PTY
+  ~3400 lines and being split into `src/app/` + `src/watch/` (#213) — `src/app/` already holds the PTY
   pure-logic (`terminal/`), the quit guard, the settings transfer, `lifecycle.js`, `notifications.js`,
   `windows.js`, `hooks.js`, `variables.js` and `settings.js`. An extracted module takes shared state through a **ctx object**, and the rule is: a `const`
   (a Map, a Set) is passed straight through, a `let` (`mainWindow`, `appQuitting`) **only ever as a getter**
@@ -101,7 +101,13 @@ the installer.
   `src/workers/scan-projects.js`, `src/index/session-cache.js`, `src/session/session-transitions.js`,
   and Claude's own readers in `src/backends/claude/` (`session-reader.js`, `store-indexer.js`).
 - **Servers** (`src/servers/`): MCP IDE bridge (`mcp-bridge.js`), scheduler (`schedule-*.js`).
-  File-watching lives in `src/watch/`.
+- **Watching** (`src/watch/`): `projects.js` (fs.watch on Claude's store — folders + per-file refreshes),
+  `stores.js` (every OTHER backend's store; scan-generalization is not watch-generalization, so this
+  works on `watchTargets()`, not on discovery's per-session handles), `adopt.js` (identity adoption +
+  busy/idle for the backends that name their own sessions), `trigger-watcher.js`. `adopt.js` owns
+  `liveStoreRef`/`liveBusy` and **exports the Maps themselves** — main's PTY-exit handler drops a dead
+  session's claim from them, so a copy would leave the claim standing forever and a relaunch would
+  inherit a dead ref.
 - **Backends** (`src/backends/`): the app runs **several coding CLIs** (Claude, Codex, Hermes, Pi; `agy`
   planned), not just Claude. One folder per backend — `index.js` (registry) + `claude/`
   (a **thin adapter** over the modules above: the core still imports Claude's readers directly instead of

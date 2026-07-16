@@ -3073,411 +3073,49 @@ try { require('./backends/claude').setRoots([PROJECTS_DIR]); } catch {}
 backends.init({ getGlobalSettings: () => getSetting('global') || {}, profiles });
 const { detectSessionTransitions } = sessionTransitions;
 
-// --- fs.watch on projects directory ---
-let projectsWatcher = null;
 // Set once quit begins so a still-pending debounced flush (or a late worker
 // message) doesn't touch the DB after closeDb() — "The database connection is
 // not open" on quit (#90).
 let appQuitting = false;
 
-function startProjectsWatcher() {
-  if (!fs.existsSync(PROJECTS_DIR)) return;
-
-  const pendingFolders = new Set();      // top-level folder add/remove → full refresh
-  const pendingFiles = new Map();         // folder → Set<relFilename> → per-file refresh (#1)
-  let debounceTimer = null;
-  let burstStartedAt = 0;
-  // Trailing debounce for calm periods, capped by a max-wait so a *continuous*
-  // storm of JSONL appends (busy multi-agent session) can't keep resetting the
-  // timer forever and starve the flush. Guarantees a flush at least every
-  // MAX_WAIT_MS while events keep coming.
-  const DEBOUNCE_MS = 500;
-  const MAX_WAIT_MS = 2500;
-
-  function flushChanges() {
-    debounceTimer = null;
-    if (appQuitting) return; // DB may already be closed (#90)
-    const folders = new Set(pendingFolders);
-    pendingFolders.clear();
-    const files = new Map(pendingFiles);
-    pendingFiles.clear();
-
-    // Per-file refreshes (perf #1): update just the changed transcript(s) instead of re-scanning the
-    // whole folder on every append. The projects-changed push rides on each worker reply's apply
-    // (afterReconcile / the file-lane rename notify), so main does not fire it here — it would
-    // double-paint before the apply.
-    // NOTE on the vanished-folder branches below: the worker walks the folder and reports the vanish, and
-    // the reply-apply does a Claude-SCOPED delete — a project folder key is shared across backends (same
-    // cwd -> same project), so an unscoped wipe would also delete the Codex rows for that project.
-    for (const [folder, relSet] of files) {
-      if (folders.has(folder)) continue; // a full folder refresh below covers it
-      const folderPath = path.join(PROJECTS_DIR, folder);
-      if (!fs.existsSync(folderPath)) {
-        // Vanished folder: a reconcile routes the scoped delete (the worker walks it and reports the vanish).
-        indexWorker.postReconcile();
-        continue;
-      }
-      detectSessionTransitions(folder);
-      // Each changed transcript is parsed off-thread (postFile does the DB pre-work on main).
-      for (const rel of relSet) indexWorker.postFile(folder, rel);
-    }
-
-    // Folder-level events (top-level add/remove) → full folder refresh. A reconcile covers both the
-    // present-folder refresh and the scoped delete-when-gone.
-    for (const folder of folders) {
-      const folderPath = path.join(PROJECTS_DIR, folder);
-      if (fs.existsSync(folderPath)) detectSessionTransitions(folder);
-      indexWorker.postReconcile();
-    }
-  }
-
-  try {
-    projectsWatcher = fs.watch(PROJECTS_DIR, { recursive: true }, (_eventType, filename) => {
-      if (!filename) return;
-
-      // filename is relative, e.g. "folder-name/sessions-index.json" or "folder-name/abc.jsonl"
-      const parts = filename.split(path.sep);
-      const folder = parts[0];
-      if (!folder || folder === '.git') return;
-
-      // Only care about .jsonl changes or top-level folder add/remove
-      const basename = parts[parts.length - 1];
-      if (parts.length === 1) {
-        pendingFolders.add(folder); // folder created/removed → full refresh
-      } else if (basename.endsWith('.jsonl')) {
-        // Per-file: record the specific changed transcript (relative path incl. folder).
-        if (!pendingFiles.has(folder)) pendingFiles.set(folder, new Set());
-        pendingFiles.get(folder).add(filename);
-      } else {
-        return;
-      }
-
-      const now = Date.now();
-      if (!debounceTimer) burstStartedAt = now; // first event of a new burst
-      const waited = now - burstStartedAt;
-      const delay = Math.min(DEBOUNCE_MS, Math.max(0, MAX_WAIT_MS - waited));
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(flushChanges, delay);
-    });
-
-    projectsWatcher.on('error', (err) => {
-      console.error('Projects watcher error:', err);
-    });
-  } catch (err) {
-    console.error('Failed to start projects watcher:', err);
-  }
-}
-
-// --- live watch on the OTHER backends' session stores (T-4.8) ---
-//
-// Scan-generalization (T-4.2) is not watch-generalization. The watcher above is Claude-shaped: it
-// watches PROJECTS_DIR and speaks in folders + per-file refreshes. A backend with its own store needs
-// its own watch, and it operates on STORE-level targets (a dir root, or a db file), not on the
-// per-session handles discovery returns — hence the separate `watchTargets()` hook.
-//
-// Two things bite here:
-//   - Codex's tree is DATE-BUCKETED (sessions/YYYY/MM/DD/). A naive watch on today's directory goes
-//     stale at MIDNIGHT (tomorrow's dir does not exist yet) and misses the dir a fresh session
-//     creates. A recursive watch on the sessions ROOT covers both.
-//   - The root may not exist yet (no session ever run). Watching it would throw, so we retry.
-//
-// A db-kind target (Hermes' state.db, Phase 5) polls the file AND its `-wal` sibling: a plain
-// state.db mtime misses WAL-buffered commits.
-const backendWatchers = [];
 // Transcripts we exported for a "let the new session read the old one" handoff. Temp files: they exist
 // so another agent can read them once, and they do not outlive the app.
 const handoffExports = new Set();
-let backendBusyTicker = null;   // slow re-check so a hung backend cannot stay BUSY forever
-let backendWatcherRetry = null;
+// --- Watching: Claude's projects dir, the other backends' stores, identity adoption -> src/watch/ ---
+// appQuitting stays HERE (13 readers, across windows, spawn, the cache ctx and the lifecycle) and the
+// modules take a getter — never the value: a captured false lets a late flush touch the DB after
+// closeDb() (#90). liveStoreRef/liveBusy are the opposite case: `const` Maps, so the reference is passed
+// straight through and main's PTY exit handler deletes from the very Maps adopt.js maintains.
+const watchAdopt = require('./watch/adopt');
+const watchProjects = require('./watch/projects');
+const watchStores = require('./watch/stores');
 
-// --- Axis-B live sessions: identity adoption + busy/idle (T-4.5, T-5.3) ---
-//
-// Two problems, one root, and they apply to EVERY backend that names its own sessions:
-//
-//  1. IDENTITY. Claude accepts `--session-id`, so we choose the id. Codex and Hermes do not: they
-//     create their own id in their own store. Until the two are reconciled the app shows two rows for
-//     one session (our pending row + the scanned store row), the pending row never dies, and resuming
-//     from the sidebar targets an id the tool never had.
-//  2. BUSY/IDLE. Claude reports state through OSC title sequences in its PTY stream. Neither Codex nor
-//     Hermes emits OSC, so a live session would sit permanently "idle". Their stores carry the signal
-//     instead — and the backend watcher already fires whenever those stores change.
-//
-// Both are solved once, generically, via two optional descriptor hooks:
-//     matchLiveSession({cwd, sinceMs, claimed}) -> {sessionId, ref} | null
-//     liveState(ref)                            -> 'busy' | 'idle' | null
-// A backend that names its own sessions implements them; anything else is simply skipped. Adding a
-// third such backend needs no change here.
-const liveStoreRef = new Map();   // our sessionId -> the backend's record ref (rollout path / db id)
-const liveBusy = new Map();       // our sessionId -> last busy state pushed to the renderer
+watchAdopt.init({
+  activeSessions,
+  getMainWindow: () => mainWindow,
+  backends,
+  sessionBackends,
+  log,
+});
+watchProjects.init({
+  projectsDir: PROJECTS_DIR,
+  getAppQuitting: () => appQuitting,
+  indexWorker,
+  detectSessionTransitions,
+  log,
+});
+watchStores.init({
+  backends,
+  getAppQuitting: () => appQuitting,
+  indexWorker,
+  log,
+});
 
-function claimLiveRecord(sessionId, session, backend) {
-  const existing = liveStoreRef.get(sessionId);
-  if (existing) return existing;
+// The PTY exit handler drops a dead session's claim from these; nothing else in main touches them.
+const { liveStoreRef, liveBusy } = watchAdopt;
+const { startProjectsWatcher, stopProjectsWatcher } = watchProjects;
+const { startBackendWatchers, stopBackendWatchers } = watchStores;
 
-  // RESUME: our id already IS the backend's id, so there is nothing to correlate — just confirm the
-  // record exists. This must come first: `matchLiveSession` only accepts records born after the spawn,
-  // and a resumed session's record is by definition older, so correlation could never claim it — but it
-  // WOULD happily claim the next new session's record in the same cwd and collapse two tabs onto one id.
-  //
-  // Only a RESUMED session can have a record under our id. A new one (fork included) is about to be
-  // named by the backend itself, so asking is guaranteed to come back empty — and `liveRefFor` walks the
-  // whole store, on every watcher flush, for every session not yet claimed. That walk bought nothing and
-  // is simply not made (#155).
-  //
-  // For a resumed session the question IS asked on every flush until it answers, and deliberately so: a
-  // null is not proof that the record is absent. Hermes' openDb() returns null while its DB is locked —
-  // and the moment of heaviest write contention is right after a resume. Caching that first "no" would
-  // leave the session without busy/idle for good, with nothing left to heal it, since matchLiveSession
-  // can never claim a record older than the spawn. In practice this resolves on the first flush.
-  if (typeof backend.liveRefFor === 'function' && session._resumed !== false) {
-    let ownRef = null;
-    try { ownRef = backend.liveRefFor(sessionId); } catch { ownRef = null; }
-    if (ownRef) {
-      liveStoreRef.set(sessionId, ownRef);
-      return ownRef;
-    }
-  }
-
-  const claimed = new Set(liveStoreRef.values());
-  // Small grace window: the store record appears just AFTER we spawn the process.
-  const sinceMs = (session._openedAt || 0) - 10000;
-
-  let match = null;
-  try {
-    match = backend.matchLiveSession({ cwd: session.projectPath, sinceMs, claimed });
-  } catch (err) {
-    log.warn(`[${backend.id}] live match failed: ${err?.message || err}`);
-    return null;
-  }
-  if (!match || !match.sessionId) return null;
-
-  // Adopt the backend's id. This is exactly Claude's temp->real transition, so it reuses that
-  // plumbing: re-key the live session, move the backend overlay across, and tell the renderer to fold
-  // its pending row onto the real one.
-  const realId = match.sessionId;
-  if (realId !== sessionId && !activeSessions.has(realId)) {
-    log.info(`[${backend.id}] session ${sessionId} → ${realId} (adopting the backend's own session id)`);
-    session.realSessionId = realId;
-    activeSessions.delete(sessionId);
-    activeSessions.set(realId, session);
-    sessionBackends.rekeySession(sessionId, realId);
-    liveStoreRef.set(realId, match.ref);
-    const wasBusy = liveBusy.get(sessionId);
-    liveBusy.delete(sessionId);
-    if (wasBusy !== undefined) liveBusy.set(realId, wasBusy);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('session-forked', sessionId, realId);
-    }
-  } else {
-    // No adoption needed (or the target id is somehow already live). NOTE: the claim is deliberately
-    // NOT recorded before a successful adoption — doing so would make the early-return above skip the
-    // adoption forever if it ever failed.
-    liveStoreRef.set(sessionId, match.ref);
-  }
-  return match.ref;
-}
-
-function updateBackendLiveStates() {
-  // Snapshot: claimLiveRecord may re-key a session, which mutates activeSessions mid-iteration.
-  for (const [sessionId, session] of [...activeSessions]) {
-    if (session.exited) {
-      // Drop the claim so the maps don't grow for the life of the app (and so a re-launched session
-      // re-claims cleanly instead of inheriting a dead ref).
-      const liveId = session.realSessionId || sessionId;
-      liveStoreRef.delete(sessionId); liveStoreRef.delete(liveId);
-      liveBusy.delete(sessionId); liveBusy.delete(liveId);
-      continue;
-    }
-    if (session.isPlainTerminal) continue;
-
-    const mapped = sessionBackends.get(session.realSessionId || sessionId);
-    if (!mapped) continue;
-    const backend = backends.get(mapped.backendId);
-    if (!backend || typeof backend.matchLiveSession !== 'function' || typeof backend.liveState !== 'function') {
-      continue;   // Claude & Axis-A: they report state through OSC and own their session id already.
-    }
-
-    const liveId = session.realSessionId || sessionId;
-    const ref = claimLiveRecord(sessionId, session, backend);
-    if (!ref) {
-      // No record, and the session is plainly running in front of the user — so the tab will show no
-      // state at all, forever. Hermes' degraded mode (it writes JSON when it cannot open its own DB) puts
-      // it here. Say so once, rather than leaving a blank indicator the user cannot explain (#151). We do
-      // NOT fabricate a state from PTY output: output is liveness, never busy (D21).
-      if (shouldNoticeMissingRecord({ openedAt: session._openedAt, alreadyNoticed: session._noRecordNoticed })) {
-        session._noRecordNoticed = true;
-        const message = missingRecordMessage(backend.label || backend.id);
-        log.warn(`[${backend.id}] session=${liveId} has no store record — reporting no busy/idle state`);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('session-notice', liveId, message);
-        }
-      }
-      continue;
-    }
-
-    let state;
-    try { state = backend.liveState(ref, { lastOutputMs: session._lastOutputAt || 0 }); } catch { state = null; }
-    if (state == null) continue;
-
-    const busy = state === 'busy';
-    if (liveBusy.get(liveId) === busy) continue;   // only push edges, not every watcher event
-    liveBusy.set(liveId, busy);
-    log.info(`[${backend.id}] session=${liveId} → ${busy ? 'BUSY' : 'IDLE'}`);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('cli-busy-state', liveId, busy);
-    }
-  }
-}
-
-
-function startBackendWatchers() {
-  stopBackendWatchers();
-
-  const DEBOUNCE_MS = 600;
-  const pending = new Set();       // backendIds with unflushed changes
-  let debounceTimer = null;
-  let missingRoot = false;
-
-  function flush() {
-    debounceTimer = null;
-    if (appQuitting) return;
-    pending.clear();
-    // #208: the per-backend parse moved OFF the main thread. A store change posts a reconcile to the index
-    // worker (it scans the whole ready+enabled Axis-B roster — the sweep is coalesced with the get-projects
-    // sweeps through the same gate). The worker parses; main applies the reply and pushes projects-changed
-    // CONDITIONALLY via afterReconcile. `pending` (which backend changed) is no longer needed to target the
-    // scan — the worker rescans the roster — so it is just reset here.
-    try { indexWorker.postReconcile(); } catch (err) { log.warn(`[watch] backend reconcile post failed: ${err?.message || err}`); }
-    // The store that just changed is also the busy/idle signal — and the place a freshly launched session's
-    // real id first appears (T-4.5 / T-5.3). This reads the live PTY set, NOT a transcript, so it stays
-    // synchronous on main: the spinner must update at once, not after a worker round-trip.
-    try { updateBackendLiveStates(); } catch (err) { log.warn(`[backends] live-state update failed: ${err?.message || err}`); }
-  }
-
-  function schedule(backendId) {
-    pending.add(backendId);
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(flush, DEBOUNCE_MS);
-  }
-
-  for (const backend of backends.launchable()) {
-    // Claude (and every Axis-A profile, which shares Claude's store) is already covered by
-    // startProjectsWatcher above — watching it twice would double every refresh.
-    if (backend.axis !== 'B' || typeof backend.watchTargets !== 'function') continue;
-
-    let targets = [];
-    try { targets = backend.watchTargets() || []; } catch { continue; }
-
-    for (const target of targets) {
-      if (!target || !target.path) continue;
-
-      if (target.kind === 'db') {
-        // Poll the DB and its write-ahead log: a commit can land in the -wal without touching the
-        // main file's mtime, so watching state.db alone would miss live sessions.
-        for (const file of [target.path, target.path + '-wal']) {
-          try {
-            fs.watchFile(file, { interval: 2000, persistent: false }, (cur, prev) => {
-              if (cur.mtimeMs !== prev.mtimeMs || cur.size !== prev.size) schedule(backend.id);
-            });
-            backendWatchers.push({ kind: 'poll', file });
-          } catch { /* best effort */ }
-        }
-        continue;
-      }
-
-      // dir-kind (Codex, later Pi).
-      if (!fs.existsSync(target.path)) {
-        // No session has ever been run for this backend — nothing to watch yet. Re-arm later so the
-        // very first session still shows up live rather than only after a restart.
-        missingRoot = true;
-        continue;
-      }
-      try {
-        const w = fs.watch(target.path, { recursive: target.recursive !== false }, (_evt, filename) => {
-          if (!filename) return;
-          // Only session files matter; ignore the dir churn of the date buckets themselves.
-          if (!String(filename).endsWith('.jsonl')) return;
-          schedule(backend.id);
-        });
-        w.on('error', (err) => log.warn(`[watch] backend ${backend.id} watcher error: ${err?.message || err}`));
-        backendWatchers.push({ kind: 'watch', watcher: w });
-        log.info(`[watch] backend=${backend.id} watching ${target.path}`);
-      } catch (err) {
-        log.warn(`[watch] backend ${backend.id} watch failed: ${err?.message || err}`);
-      }
-    }
-  }
-
-  // A store root that doesn't exist yet (or a backend the user just enabled) — re-arm periodically so
-  // it starts being watched without a restart.
-  if (missingRoot && !backendWatcherRetry) {
-    backendWatcherRetry = setTimeout(() => {
-      backendWatcherRetry = null;
-      if (!appQuitting) startBackendWatchers();
-    }, 60000);
-    if (backendWatcherRetry.unref) backendWatcherRetry.unref();
-  }
-
-  // Busy/idle for these backends is derived from their STORE, and the store only tells us something
-  // when it changes. A backend that hangs mid-turn writes nothing more — so the last edge we pushed
-  // (BUSY) would stand forever, and every backend's state logic has a staleness rule that never gets a
-  // chance to run. This slow tick gives it one.
-  //
-  // It also has to run for a session we have NOT paired with a record yet, and that is not a nicety: the
-  // store-changed watcher cannot fire when the store does not exist. Hermes in degraded mode (it writes
-  // JSON because it could not open its own database) never touches state.db, so nothing changes, so
-  // nothing ticks — and gating this on "something is busy" made it worse, because an unpaired session can
-  // never BE busy. One Hermes session on a broken store would then sit there in silence, which is exactly
-  // the condition #151 exists to speak up about. So: tick while anything is busy, OR while anything is
-  // still unpaired. An app with no live backend session does no work either way.
-  if (!backendBusyTicker) {
-    backendBusyTicker = setInterval(() => {
-      if (appQuitting) return;
-      let anyBusy = false;
-      for (const busy of liveBusy.values()) if (busy) { anyBusy = true; break; }
-      if (!anyBusy && !hasUnclaimedStoreSession()) return;
-      try { updateBackendLiveStates(); } catch (err) {
-        log.warn(`[backends] busy re-check failed: ${err?.message || err}`);
-      }
-    }, 30000);
-    if (backendBusyTicker.unref) backendBusyTicker.unref();
-  }
-}
-
-// Is any live session still waiting to be paired with its backend's store record? Only store-derived
-// backends count — Claude owns its session id and reports state through the terminal, so it is never
-// "unpaired" in this sense.
-//
-// A session we have ALREADY spoken up about stops counting. This tick exists to get us to that notice,
-// and matchLiveSession is not free: on a file backend it walks the whole store and parses every candidate.
-// Left counting, a session that can never be paired (a store that moved, a cwd that will not correlate)
-// would drive that walk every 30 seconds for the life of the app. The record can still turn up later —
-// the store watcher fires the moment anything is written, which is exactly when it would.
-function hasUnclaimedStoreSession() {
-  for (const [sessionId, session] of activeSessions) {
-    if (session.exited || session.isPlainTerminal || session._noRecordNoticed) continue;
-    const liveId = session.realSessionId || sessionId;
-    if (liveStoreRef.has(sessionId) || liveStoreRef.has(liveId)) continue;
-    const mapped = sessionBackends.get(liveId);
-    if (!mapped) continue;
-    const backend = backends.get(mapped.backendId);
-    if (!backend || typeof backend.matchLiveSession !== 'function' || typeof backend.liveState !== 'function') continue;
-    return true;
-  }
-  return false;
-}
-
-function stopBackendWatchers() {
-  for (const entry of backendWatchers) {
-    try {
-      if (entry.kind === 'watch') entry.watcher.close();
-      else if (entry.kind === 'poll') fs.unwatchFile(entry.file);
-    } catch { /* best effort */ }
-  }
-  backendWatchers.length = 0;
-  if (backendWatcherRetry) { clearTimeout(backendWatcherRetry); backendWatcherRetry = null; }
-  if (backendBusyTicker) { clearInterval(backendBusyTicker); backendBusyTicker = null; }
-}
 
 // --- IPC: app version ---
 ipcMain.handle('get-app-version', () => app.getVersion());
@@ -3706,10 +3344,7 @@ app.on('before-quit', () => {
   notifications.destroyTray();
 
   // Close filesystem watchers
-  if (projectsWatcher) {
-    projectsWatcher.close();
-    projectsWatcher = null;
-  }
+  stopProjectsWatcher();
   stopBackendWatchers();
 
   // Kill all PTY processes on quit
