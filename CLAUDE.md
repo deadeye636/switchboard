@@ -246,7 +246,11 @@ The win target is **x64-only** (arm64 toolchain not available here).
 
 Three tiers (electron-log). Packaged builds default to `info`; the level is a global
 setting (**Sessions & CLI → Log level**) and applies live, so a live session can be
-diagnosed without a dev build. Log file: `%APPDATA%/switchboard/logs/main.log`.
+diagnosed without a dev build. Log file: the installed app writes `%APPDATA%/switchboard/logs/main.log`; a
+**dev** build writes `~/.switchboard-dev/userData/logs/main.log` (#216 gave dev its own `userData`, the same
+way it already had its own DB — so the two stop fighting over one Chromium cache and a dev insert stops
+writing secret-ref temp files into the installed app's directory). Reading the wrong one looks exactly like
+"my log line never fired".
 
 | Level | Use it for | Rule of thumb |
 |---|---|---|

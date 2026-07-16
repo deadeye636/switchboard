@@ -84,6 +84,19 @@ if (!app.isPackaged && !process.env.SWITCHBOARD_DATA_DIR) {
   process.env.SWITCHBOARD_DATA_DIR = path.join(os.homedir(), '.switchboard-dev');
 }
 
+// …and its own userData, for the same reason (#216). Separating only the DB left the two sharing
+// %APPDATA%/switchboard, which meant Chromium fought itself over one cache directory (a steady stream of
+// "Unable to move the cache: Access is denied" in the log you read while diagnosing) — and, less cosmetically,
+// a dev insert wrote its secret-ref temp files into the INSTALLED app's directory, since getSecretRefDir()
+// hangs off userData. Everything under userData moves with this: the caches, secret-refs, window state, and
+// electron-log's main.log (see docs/logging paths — a dev build's log lives under the dev userData).
+// Must run before anything reads the path.
+if (!app.isPackaged && !process.env.SWITCHBOARD_USER_DATA) {
+  app.setPath('userData', path.join(os.homedir(), '.switchboard-dev', 'userData'));
+} else if (process.env.SWITCHBOARD_USER_DATA) {
+  app.setPath('userData', process.env.SWITCHBOARD_USER_DATA);
+}
+
 try { require('electron-reloader')(module, { watchRenderer: true }); } catch {};
 
 // Clean env for child processes — strip Electron internals that cause nested

@@ -174,7 +174,8 @@ incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`).
 There is no separate perf file. `perf.js` (`startTimer` / `timed` / `timedAsync`) times a labelled span
 and the call sites log a `[perf] <label> <ms>ms: …` line at **debug** only. The log level is a live global
 setting (Sessions & CLI → Log level), so a running session can be profiled without a dev build. Query the
-electron-log stream (`%APPDATA%/switchboard/logs/main.log`) for `[perf]`. Instrumented today: `refreshFile`
+electron-log stream (installed: `%APPDATA%/switchboard/logs/main.log`; dev:
+`~/.switchboard-dev/userData/logs/main.log` since #216) for `[perf]`. Instrumented today: `refreshFile`
 (read / upsert / metrics / FTS) and the reconcile (`folders` / `full` / `incr` / `bytes`) — `full=0` in
 steady state is the signal that step 2 is holding. Use it to verify each further step before/after in a
 live high-output session; do not scatter raw `Date.now()` deltas.
