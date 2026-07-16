@@ -189,7 +189,7 @@
               <option value="--defaults-extra-file='{path}'">MySQL defaults-file</option>
               <option value="PGSERVICEFILE='{path}' PGSERVICE=name">Postgres service</option>
               <option value="PGPASSFILE='{path}'">Postgres .pgpass</option>
-              <option value="Bearer $(cat '{path}')">API Bearer</option>
+              <option value="Bearer {ref}">API Bearer</option>
               <option value="__custom__">Custom</option>
             </select></label>
           <label class="va-field"><span>Insert template</span>
