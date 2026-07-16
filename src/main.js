@@ -640,105 +640,11 @@ function applyMainZoom(level) {
   return l;
 }
 
-// --- Native notifications, dock/taskbar badge, and tray (Spec 01) ---
-// All emission is driven by the renderer, which funnels attention/ready
-// transitions through the pure notification-policy.js decision module.
-let tray = null;
-let traySummary = 'Switchboard';
-
-function focusMainWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
-}
-
-function updateTrayTooltip() {
-  if (tray && !tray.isDestroyed()) tray.setToolTip(traySummary);
-}
-
-ipcMain.on('notify', (_event, payload) => {
-  if (!Notification.isSupported()) return;
-  const { title, body, sessionId } = payload || {};
-  try {
-    const notification = new Notification({ title: title || 'Switchboard', body: body || '' });
-    notification.on('click', () => {
-      focusMainWindow();
-      if (sessionId && mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('focus-session', sessionId);
-      }
-    });
-    notification.show();
-  } catch (err) {
-    log.error('[notify] failed to show notification:', err?.message || String(err));
-  }
-});
-
-ipcMain.on('set-badge', (_event, count) => {
-  const n = Number(count) || 0;
-  try {
-    if (process.platform === 'darwin') {
-      // macOS dock badge is the primary target.
-      if (app.dock) app.dock.setBadge(n ? String(n) : '');
-    } else if (typeof app.setBadgeCount === 'function') {
-      // Linux (Unity launchers) honour this; it is a no-op on platforms that
-      // don't support a numeric badge (e.g. Windows).
-      app.setBadgeCount(n);
-    }
-  } catch (err) {
-    log.error('[set-badge] failed:', err?.message || String(err));
-  }
-});
-
-ipcMain.on('set-tray-summary', (_event, text) => {
-  traySummary = typeof text === 'string' && text ? text : 'Switchboard';
-  updateTrayTooltip();
-});
-
-function createTray() {
-  if (tray) return;
-  let trayImage;
-  try {
-    // Icon liegt jetzt mit im Paket (build.files), sonst ist __dirname/build im ASAR leer.
-    const iconPath = path.join(__dirname, '..', 'build', 'icon.png');
-    trayImage = nativeImage.createFromPath(iconPath);
-    if (trayImage.isEmpty()) {
-      log.error('[tray] icon image empty (asset im Paket?):', iconPath);
-    } else {
-      // Windows-Tray erwartet 16px; macOS/Linux 18px wie bisher.
-      const size = process.platform === 'win32' ? 16 : 18;
-      trayImage = trayImage.resize({ width: size, height: size });
-    }
-  } catch (err) {
-    log.error('[tray] failed to load icon:', err?.message || String(err));
-    trayImage = nativeImage.createEmpty();
-  }
-  try {
-    tray = new Tray(trayImage);
-  } catch (err) {
-    log.error('[tray] failed to create tray:', err?.message || String(err));
-    return;
-  }
-  const contextMenu = Menu.buildFromTemplate([
-    { label: 'Open Switchboard', click: () => focusMainWindow() },
-    {
-      // Spec 02 owns the real "next attention" handler; until then this just
-      // brings the window forward.
-      label: 'Focus next attention',
-      click: () => {
-        focusMainWindow();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('focus-next-attention');
-        }
-      },
-    },
-    { type: 'separator' },
-    { label: 'Quit', click: () => app.quit() },
-  ]);
-  tray.setToolTip(traySummary);
-  tray.setContextMenu(contextMenu);
-  tray.on('click', () => focusMainWindow());
-}
+// --- Native notifications, dock/taskbar badge, and tray (Spec 01) -> app/notifications.js ---
+const notifications = require('./app/notifications');
+notifications.init({ getMainWindow: () => mainWindow, log });
+notifications.registerIpc(ipcMain);
+const focusMainWindow = notifications.focusMainWindow;
 
 // --- Session cache helpers ---
 
@@ -4827,7 +4733,7 @@ if (!gotSingleInstanceLock) {
 
     buildMenu();
     createWindow();
-    createTray();
+    notifications.createTray();
     startProjectsWatcher();
     // Watch the other enabled backends' own stores (Codex's rollout tree, later Hermes' state.db)
     // so their sessions appear live, not just after a restart (T-4.8).
@@ -4964,10 +4870,7 @@ app.on('before-quit', () => {
   shutdownAllMcp();
 
   // Remove the tray icon
-  if (tray && !tray.isDestroyed()) {
-    tray.destroy();
-    tray = null;
-  }
+  notifications.destroyTray();
 
   // Close filesystem watchers
   if (projectsWatcher) {
