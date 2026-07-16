@@ -2223,21 +2223,6 @@ function serializeSavedVariable(row, includeValue = false) {
   return serialized;
 }
 
-function savedVariablePromptValue(value) {
-  const stringValue = String(value ?? '');
-  return /[\s;]/.test(stringValue) ? JSON.stringify(stringValue) : stringValue;
-}
-
-function savedVariablePromptLine(variable) {
-  return `${variable.name}=${savedVariablePromptValue(variable.value)}`;
-}
-
-function formatSavedVariablesForPrompt(variables) {
-  if (!variables.length) return '';
-  if (variables.length === 1) return savedVariablePromptLine(variables[0]);
-  return `Saved variables: ${variables.map(savedVariablePromptLine).join('; ')}`;
-}
-
 ipcMain.handle('list-saved-variables', (_event, projectPath) => {
   try {
     return listSavedVariables(typeof projectPath === 'string' ? projectPath : null)
@@ -2292,26 +2277,6 @@ ipcMain.handle('delete-saved-variable', (_event, id) => {
   try {
     deleteSavedVariable(id);
     return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
-});
-
-ipcMain.handle('use-saved-variables', (_event, ids = []) => {
-  try {
-    const variables = [];
-    for (const id of Array.isArray(ids) ? ids : []) {
-      const row = getSavedVariable(id);
-      if (!row) continue;
-      const variable = serializeSavedVariable(row, true);
-      variables.push(variable);
-      touchSavedVariable(id);
-    }
-    return {
-      ok: true,
-      text: formatSavedVariablesForPrompt(variables),
-      variables: variables.map(({ value, ...variable }) => variable),
-    };
   } catch (err) {
     return { ok: false, error: err.message };
   }
