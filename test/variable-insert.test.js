@@ -356,3 +356,35 @@ test('buildNameIndex: matching is case-SENSITIVE — Server and server are two v
   assert.equal(idx.Server, '1');
   assert.equal(idx.server, '2');
 });
+
+// --- ref origin: a nested ref is refused, the author's own is not -------------------------------------
+//
+// Both are equally broken when quoted. The difference is history: a ref reached through {var:} is new
+// ground, so refusing it breaks nobody. A quoted {ref} in someone's OWN template may have been sitting
+// there since before cross-references existed — hard-failing it would break an install for a feature its
+// owner never used. compose() records which is which; the resolver refuses only the first.
+
+test('compose: an own {ref} is nested:false; a ref arriving through {var:} is nested:true', () => {
+  const own = compose('-p{ref}', { ref: "\"$(cat '/tmp/x')\"" });
+  assert.deepEqual(own.refOffsets.map(o => o.nested), [false]);
+
+  const child = compose('{ref}', { ref: "\"$(cat '/tmp/c')\"" });
+  const parent = compose('run {var:c}', { vars: { c: child.text }, varRefOffsets: { c: child.refOffsets } });
+  assert.deepEqual(parent.refOffsets.map(o => o.nested), [true], "however deep it was, from here it came via a reference");
+});
+
+test('scanRefSafety: carries the origin through, so the caller can refuse only what it must', () => {
+  const own = compose("-p'{ref}'", { ref: "\"$(cat '/tmp/x')\"" });
+  const ownHits = scanRefSafety(own.text, own.refOffsets);
+  assert.ok(ownHits.length, 'a quoted own ref is still reported');
+  assert.equal(ownHits.every(h => h.nested), false, 'but marked as not-nested, so the resolver lets it pass');
+
+  const child = compose('{ref}', { ref: "\"$(cat '/tmp/c')\"" });
+  const parent = compose("run '{var:c}'", { vars: { c: child.text }, varRefOffsets: { c: child.refOffsets } });
+  const hits = scanRefSafety(parent.text, parent.refOffsets).filter(h => h.nested);
+  assert.ok(hits.length, 'a quoted NESTED ref is what gets refused');
+});
+
+test('scanRefSafety: a plain number offset still works (nested defaults to false)', () => {
+  assert.ok(scanRefSafety("-p'X'", [3]).length, 'tolerates the bare-number shape');
+});

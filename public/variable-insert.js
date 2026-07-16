@@ -140,8 +140,17 @@ function resolveVarGraph(rootId, nodesById, nameIndex = {}) {
 // replacement-pattern syntax, which is why the original used split/join and why the `$` / `\` literal-ness
 // tests exist. They guard this too.
 //
-// Returns { text, refOffsets } — refOffsets are the indices in `text` where a {ref} expansion begins.
-// scanRefSafety needs them: whether a ref is safe is a property of the FINISHED string, not of the template.
+// Returns { text, refOffsets } where each entry is { offset, nested }: where a {ref} expansion begins in
+// `text`, and whether it arrived through a {var:} reference rather than this template's own {ref}.
+//
+// The origin matters and is not cosmetic. A quoted ref is always broken, but the two cases have different
+// histories: a ref reached through {var:} is new ground — cross-references did not exist, so nothing can
+// break by refusing it. A ref in the author's OWN template may have been sitting there since v0.7.3, quoted,
+// half-working; hard-failing it would break an install for a feature its owner never used. So the resolver
+// refuses the first and lets the second through, and the editor is where the second gets told.
+//
+// scanRefSafety needs the offsets because whether a ref is safe is a property of the FINISHED string, not of
+// the template.
 function compose(template, values = {}) {
   // The regex is built here, per call, and never hoisted to module scope. `matchAll`/`exec` on a /g regex
   // carry `lastIndex` between uses: one innocent `TOKEN.test(tmpl)` elsewhere would leave it set, and the
@@ -161,7 +170,7 @@ function compose(template, values = {}) {
     if (token === 'path') resolved = v.path == null ? '' : String(v.path);
     else if (token === 'ref') {
       resolved = v.ref == null ? '' : String(v.ref);
-      if (resolved) refOffsets.push(out.length);
+      if (resolved) refOffsets.push({ offset: out.length, nested: false });   // this template's OWN ref
     } else if (token === 'value') resolved = v.value == null ? '' : String(v.value);
     else {
       // {var:name} — the caller passes already-resolved, opaque child text. A name we were given nothing for
@@ -169,9 +178,14 @@ function compose(template, values = {}) {
       const name = token.slice(4).trim();
       const child = vars[name];
       resolved = child == null ? '' : String(child);
-      // A child's text may itself contain refs; their offsets shift by where the child lands.
-      if (Array.isArray(v.varRefOffsets && v.varRefOffsets[name])) {
-        for (const o of v.varRefOffsets[name]) refOffsets.push(out.length + o);
+      // A child's text may itself contain refs; their offsets shift by where the child lands. However deep
+      // the child's own ref was, from HERE it arrived through a reference — so it is nested.
+      const childOffsets = v.varRefOffsets && v.varRefOffsets[name];
+      if (Array.isArray(childOffsets)) {
+        for (const o of childOffsets) {
+          const at = typeof o === 'number' ? o : o.offset;
+          refOffsets.push({ offset: out.length + at, nested: true });
+        }
       }
     }
     out += resolved;
@@ -201,10 +215,13 @@ function substituteInsertTemplate(template, values = {}) {
 // fatal in both quote kinds because it needs $(…) rather than (…) inside a string. Telling someone to unquote
 // is cheap; a silently wrong credential is not.
 //
-// Returns [{ offset, reason }] — empty means safe.
+// Returns [{ offset, nested, reason, quote }] — empty means safe. `nested` is carried through from compose so
+// the caller can refuse a ref that arrived via {var:} while only warning about one the author wrote himself
+// (see compose()).
 function scanRefSafety(text, refOffsets = []) {
   const s = String(text ?? '');
-  const offsets = Array.isArray(refOffsets) ? refOffsets : [];
+  const offsets = (Array.isArray(refOffsets) ? refOffsets : [])
+    .map((o) => (typeof o === 'number' ? { offset: o, nested: false } : o));
   if (!offsets.length) return [];
 
   // Quote state at every index: which quote char (if any) encloses it.
@@ -220,11 +237,12 @@ function scanRefSafety(text, refOffsets = []) {
 
   const out = [];
   for (const o of offsets) {
-    if (state[o]) out.push({ offset: o, reason: 'quoted', quote: state[o] });
+    if (state[o.offset]) out.push({ offset: o.offset, nested: !!o.nested, reason: 'quoted', quote: state[o.offset] });
   }
   // An unbalanced quote at the end means everything after it is quoted by accident — a ref anywhere in that
-  // text is unreliable even if the scan above cleared it.
-  if (quote !== null) out.push({ offset: s.length, reason: 'unbalanced', quote });
+  // text is unreliable even if the scan above cleared it. Attributed to a nested ref if there is one, since
+  // that is the case the resolver may refuse.
+  if (quote !== null) out.push({ offset: s.length, nested: offsets.some((o) => o.nested), reason: 'unbalanced', quote });
   return out;
 }
 

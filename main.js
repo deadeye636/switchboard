@@ -2475,7 +2475,7 @@ ipcMain.handle('resolve-variable-insert', (_event, id, sessionId) => {
       return { ok: false, error: `Variables reference each other in a loop: ${graph.cycle.join(' → ')}` };
     }
     if (graph.order.length > MAX_RESOLVED_NODES) {
-      return { ok: false, error: `This template pulls in ${graph.order.length} variables (limit ${MAX_RESOLVED_NODES})` };
+      return { ok: false, error: `"${root.name}" pulls in ${graph.order.length} variables (limit ${MAX_RESOLVED_NODES})` };
     }
 
     // Per node: the template it will actually resolve with, and what that needs. Computed ONCE here and
@@ -2553,17 +2553,26 @@ ipcMain.handle('resolve-variable-insert', (_event, id, sessionId) => {
     // word, and the quote that breaks it can come from a resolved value rather than the template (a
     // username of `root'` is enough). So this can only run here, after composition — which is why the
     // unwind below exists.
-    const unsafe = scanRefSafety(text, refOffsets);
+    // Only a ref that arrived through {var:} is refused. A quoted {ref} in the author's OWN template is just
+    // as broken, but it may predate cross-references entirely — hard-failing it now would break an install
+    // for a feature its owner never used. Same reasoning that stops the name rules touching rows nobody
+    // edited. The template editor is where that case gets told.
+    const unsafe = scanRefSafety(text, refOffsets).filter((h) => h.nested);
     if (unsafe.length) {
       for (const f of written) untrackSecretRef(f, sessionId);
-      return { ok: false, error: 'A file reference ended up inside quotes — remove the quotes around it. The reference is already a complete shell word.' };
+      const at = unsafe[0];
+      const why = at.reason === 'unbalanced'
+        ? 'a quote is left open around it'
+        : `it ended up inside ${at.quote === "'" ? 'single' : 'double'} quotes`;
+      return { ok: false, error: `A referenced variable resolves to a file reference, but ${why} — remove the quotes around it. The reference is already a complete shell word.` };
     }
 
-    // A composed line break would be typed as Enter and run whatever precedes it. Multi-line content belongs
-    // in a file — which is what {path} is for.
-    if (/[\n\r]/.test(text)) {
+    // A composed line break would be typed as Enter and run whatever precedes it. An ESC byte belongs here
+    // too: the quick-pick sends resolved text straight through `sendInput` with no bracketed-paste guard, so
+    // a control sequence in a value reaches the PTY raw. Multi-line content belongs in a file — {path}.
+    if (/[\n\r\x1b]/.test(text)) {
       for (const f of written) untrackSecretRef(f, sessionId);
-      return { ok: false, error: 'The result contains a line break or control character — use {path} for multi-line content.' };
+      return { ok: false, error: `"${root.name}" resolves to text containing a line break or control character — use {path} for multi-line content.` };
     }
 
     // `lastUsedAt` used to be written by the `use-saved-variables` handler, which was this column's ONLY
