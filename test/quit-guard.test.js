@@ -2,9 +2,10 @@
 // Closing the main window kills every PTY the app owns — a Claude in the middle of a turn, a build running
 // in a terminal. It used to do that without a word, and an accidental Alt+F4 was enough.
 //
-// main.js cannot be tested (nothing requires it), so the decision and the wording live in quit-guard.js.
-// The wiring — that the question is asked BEFORE anything is torn down — is checked against main.js's
-// source, the way the other main-process guards are.
+// The window itself cannot be tested (windows.js pulls in Electron), so the decision and the wording live
+// in quit-guard.js. The wiring — that the question is asked BEFORE anything is torn down — is checked
+// against app/windows.js's source, the way the other main-process guards are. It moved there from main.js
+// with #213's extraction 2; the assertions follow the code.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -75,8 +76,8 @@ test('the native fallback carries the same thing as text — a renderer that can
   assert.match(w.detail, /Settings → Sessions & CLI/, 'and it says how to switch itself off');
 });
 
-test('main.js asks BEFORE it tears anything down — a cancelled close must leave the app intact', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+test('windows.js asks BEFORE it tears anything down — a cancelled close must leave the app intact', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'windows.js'), 'utf8');
   const handler = src.slice(src.indexOf("mainWindow.on('close'"));
   const guardAt = handler.indexOf('confirmCloseWithRunningSessions()');
   const destroyAt = handler.indexOf('settingsWindow.destroy()');
@@ -90,13 +91,13 @@ test('main.js asks BEFORE it tears anything down — a cancelled close must leav
 });
 
 test('the question goes to the app\'s own dialog, and the yes comes back to close for real', () => {
-  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'windows.js'), 'utf8');
   const preload = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
 
   assert.match(main, /wc\.send\('confirm-close', warning\)/, 'main asks the renderer');
-  assert.match(main, /ipcMain\.on\('confirm-close-result'/, 'and listens for the answer');
-  assert.match(main, /closeConfirmed = true;\s*\n\s*if \(mainWindow[\s\S]{0,80}\.close\(\)/,
+  assert.match(main, /ipc\.on\('confirm-close-result'/, 'and listens for the answer');
+  assert.match(main, /closeConfirmed = true;[\s\S]{0,120}\.close\(\)/,
     'a yes closes again, past the guard');
   assert.match(preload, /onConfirmClose/, 'the binding exists');
   assert.match(preload, /confirmCloseResult/);
