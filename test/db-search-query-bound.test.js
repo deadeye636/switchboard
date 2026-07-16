@@ -95,10 +95,14 @@ test('titleOnly mode prefixes "title:" before the quoted phrase', () => {
 // 3. Both consumers route through the shared module (source check)
 // ---------------------------------------------------------------------------
 
-test('db.js searchByType uses the shared buildFtsMatch', () => {
-  const dbSrc = fs.readFileSync(path.join(root, 'src', 'db', 'db.js'), 'utf8');
-  assert.match(dbSrc, /require\(['"]\.\/search-query-util['"]\)/, 'db.js must import search-query-util');
-  assert.match(dbSrc, /buildFtsMatch\s*\(/, 'db.js must call buildFtsMatch');
+test('search-store.js searchByType uses the shared buildFtsMatch', () => {
+  // The FTS queries moved out of db.js into search-store.js with #217. The point of the assertion is
+  // unchanged: the MATCH string must be built by the shared helper, so main and the search worker bound
+  // a query the same way (#79) — one of them capping and the other not is how a stray long query used to
+  // take the process down.
+  const dbSrc = fs.readFileSync(path.join(root, 'src', 'db', 'search-store.js'), 'utf8');
+  assert.match(dbSrc, /require\(['"]\.\/search-query-util['"]\)/, 'search-store.js must import search-query-util');
+  assert.match(dbSrc, /buildFtsMatch\s*\(/, 'search-store.js must call buildFtsMatch');
 });
 
 test('search worker uses the shared buildFtsMatch', () => {

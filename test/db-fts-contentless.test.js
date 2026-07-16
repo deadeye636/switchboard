@@ -4,8 +4,8 @@ const fs = require('fs');
 const path = require('path');
 
 // ---------------------------------------------------------------------------
-// Static-analysis tests (native-module-free) — verify db.js source text for
-// the contentless FTS5 schema, body truncation, and migration wiring.
+// Static-analysis tests (native-module-free) — verify the contentless FTS5 schema, body truncation, and
+// migration wiring, by reading the source of whichever module owns each (see below).
 // better-sqlite3 is compiled against Electron's Node ABI and cannot be
 // required from plain node:test (same constraint as db-daily-activity.test.js).
 // ---------------------------------------------------------------------------
@@ -16,10 +16,14 @@ function readSrc(file) {
   return fs.readFileSync(path.join(root, file), 'utf8');
 }
 
-const dbSrc = readSrc('src/db/db.js');
-// The migrations moved out of db.js into their own module with #217 — one array, one file, append-only.
-// The FTS DDL assertions above still read db.js; the migration assertions below read this.
+// #217 split db.js into modules. Each assertion below now reads the module that owns the thing it is
+// about, so the file it greps is the file a change would land in:
+//   search-store.js — the FTS5 DDL, its statements and every query against them.
+//   migrations.js   — the one ordered, append-only migration array.
+//   db.js           — nothing but the façade now; only the export surface is still checked against it.
+const ftsSrc = readSrc('src/db/search-store.js');
 const migSrc = readSrc('src/db/migrations.js');
+const dbSrc = readSrc('src/db/db.js');
 
 // ---------------------------------------------------------------------------
 // 1. Schema: external-content FTS5 table
@@ -28,7 +32,7 @@ const migSrc = readSrc('src/db/migrations.js');
 test('search_fts uses content= pointing to search_content table', () => {
   // Must contain content='search_content' (or content="search_content")
   assert.match(
-    dbSrc,
+    ftsSrc,
     /content\s*=\s*['"]search_content['"]/,
     'search_fts DDL must reference search_content as its external content table'
   );
@@ -36,12 +40,12 @@ test('search_fts uses content= pointing to search_content table', () => {
 
 test('search_content table is created with title and body columns', () => {
   assert.match(
-    dbSrc,
+    ftsSrc,
     /CREATE TABLE IF NOT EXISTS search_content/,
-    'search_content table must be defined in db.js'
+    'search_content table must be defined in search-store.js'
   );
   // Must have a body column
-  const contentTableMatch = dbSrc.match(
+  const contentTableMatch = ftsSrc.match(
     /CREATE TABLE IF NOT EXISTS search_content[\s\S]*?\)/
   );
   assert.ok(contentTableMatch, 'search_content CREATE TABLE not found');
@@ -51,7 +55,7 @@ test('search_content table is created with title and body columns', () => {
 
 test('search_fts DDL no longer stores its own content (no bare fts5 without content=)', () => {
   // Find the search_fts USING fts5( ... ) block
-  const ftsMatch = dbSrc.match(/USING fts5\s*\([\s\S]*?\)/);
+  const ftsMatch = ftsSrc.match(/USING fts5\s*\([\s\S]*?\)/);
   assert.ok(ftsMatch, 'search_fts USING fts5(...) block not found');
   // Must contain content= — proves it is NOT a plain content-storing table
   assert.match(
@@ -65,13 +69,13 @@ test('search_fts DDL no longer stores its own content (no bare fts5 without cont
 // 2. Body truncation constant
 // ---------------------------------------------------------------------------
 
-test('db.js defines a body truncation cap (FTS_BODY_MAX_CHARS or similar)', () => {
+test('search-store.js defines a body truncation cap (FTS_BODY_MAX_CHARS or similar)', () => {
   // We expect a constant like: const FTS_BODY_MAX_CHARS = N
   // Accept any reasonable name as long as a truncation cap is applied on body
   assert.match(
-    dbSrc,
+    ftsSrc,
     /FTS_BODY_MAX/,
-    'db.js must define an FTS body truncation cap constant'
+    'search-store.js must define an FTS body truncation cap constant'
   );
 });
 
@@ -80,7 +84,7 @@ test('body is truncated before insertion into search_content', () => {
   // a slice/substr call or the truncation constant on the body argument.
   // We look for .slice(0, applied near the searchInsertContent or searchInsertFts stmt.
   assert.match(
-    dbSrc,
+    ftsSrc,
     /\.slice\s*\(\s*0\s*,\s*FTS_BODY_MAX/,
     'body must be sliced to FTS_BODY_MAX_CHARS before insertion'
   );
@@ -190,7 +194,7 @@ test('searchDeleteBySession also cleans search_content rows', () => {
   // Expect a prepared statement or inline DELETE targeting search_content
   // keyed by session rowid
   assert.match(
-    dbSrc,
+    ftsSrc,
     /DELETE FROM search_content WHERE rowid IN[\s\S]*?search_map[\s\S]*?session/,
     'delete-by-session must purge search_content rows'
   );
@@ -198,7 +202,7 @@ test('searchDeleteBySession also cleans search_content rows', () => {
 
 test('searchDeleteByFolder also cleans search_content rows', () => {
   assert.match(
-    dbSrc,
+    ftsSrc,
     /DELETE FROM search_content WHERE rowid IN[\s\S]*?search_map[\s\S]*?folder/,
     'delete-by-folder must purge search_content rows'
   );
@@ -206,7 +210,7 @@ test('searchDeleteByFolder also cleans search_content rows', () => {
 
 test('searchDeleteByType also cleans search_content rows', () => {
   assert.match(
-    dbSrc,
+    ftsSrc,
     /DELETE FROM search_content WHERE rowid IN[\s\S]*?search_map[\s\S]*?type/,
     'delete-by-type must purge search_content rows'
   );
@@ -222,7 +226,7 @@ test('searchUpdateTitle targets search_content (not search_fts) for title update
   // The UPDATE stmt for title should touch search_content, not search_fts
   // (updating search_fts directly on an external-content table is not how it works)
   assert.match(
-    dbSrc,
+    ftsSrc,
     /UPDATE search_content SET title/,
     'searchUpdateTitle must UPDATE search_content.title (not search_fts)'
   );
@@ -234,7 +238,7 @@ test('searchUpdateTitle targets search_content (not search_fts) for title update
 
 test('searchQuery uses snippet(search_fts, 1, ...) to extract body preview', () => {
   assert.match(
-    dbSrc,
+    ftsSrc,
     /snippet\s*\(\s*search_fts\s*,\s*1\s*,/,
     'searchQuery must call snippet(search_fts, 1, ...) for the body column'
   );
@@ -248,9 +252,9 @@ test('searchQuery uses snippet(search_fts, 1, ...) to extract body preview', () 
 test('upsertSearchEntriesBatch inserts into search_content before search_fts', () => {
   // Find the upsertSearchEntriesBatch transaction body.
   // Use 2000 chars to cover the full body including the truncation comment.
-  const txStart = dbSrc.indexOf('upsertSearchEntriesBatch');
+  const txStart = ftsSrc.indexOf('upsertSearchEntriesBatch');
   assert.ok(txStart !== -1, 'upsertSearchEntriesBatch not found');
-  const txSlice = dbSrc.slice(txStart, txStart + 2000);
+  const txSlice = ftsSrc.slice(txStart, txStart + 2000);
   const contentPos = txSlice.indexOf('searchInsertContent');
   const ftsPos = txSlice.indexOf('searchInsertFts');
   assert.ok(contentPos !== -1, 'searchInsertContent call not found in upsertSearchEntriesBatch');
@@ -290,7 +294,7 @@ function extractFunctionSrc(src, name) {
 }
 
 test('deleteSearchSession: FTS delete issued before search_content delete', () => {
-  const fnSrc = extractFunctionSrc(dbSrc, 'deleteSearchSession');
+  const fnSrc = extractFunctionSrc(ftsSrc, 'deleteSearchSession');
   assert.ok(fnSrc, 'deleteSearchSession not found in db.js');
   const ftsDel = fnSrc.indexOf('searchDeleteBySession');
   const contentDel = fnSrc.indexOf('searchDeleteContentBySession');
@@ -304,7 +308,7 @@ test('deleteSearchSession: FTS delete issued before search_content delete', () =
 });
 
 test('deleteSearchFolder: FTS delete issued before search_content delete', () => {
-  const fnSrc = extractFunctionSrc(dbSrc, 'deleteSearchFolder');
+  const fnSrc = extractFunctionSrc(ftsSrc, 'deleteSearchFolder');
   assert.ok(fnSrc, 'deleteSearchFolder not found in db.js');
   const ftsDel = fnSrc.indexOf('searchDeleteByFolder');
   const contentDel = fnSrc.indexOf('searchDeleteContentByFolder');
@@ -318,7 +322,7 @@ test('deleteSearchFolder: FTS delete issued before search_content delete', () =>
 });
 
 test('deleteSearchType: FTS delete issued before search_content delete', () => {
-  const fnSrc = extractFunctionSrc(dbSrc, 'deleteSearchType');
+  const fnSrc = extractFunctionSrc(ftsSrc, 'deleteSearchType');
   assert.ok(fnSrc, 'deleteSearchType not found in db.js');
   const ftsDel = fnSrc.indexOf('searchDeleteByType');
   const contentDel = fnSrc.indexOf('searchDeleteContentByType');
