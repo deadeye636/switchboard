@@ -283,6 +283,14 @@ Set in `src/main.js` (~L82): unpackaged **and** no explicit `SWITCHBOARD_DATA_DI
 instance never races the installed app on `session_cache`. `src/db/db.js` resolves `DATA_DIR` at module load, so the
 env var must be set **before** anything requires it.
 
+**`SWITCHBOARD_DATA_DIR` alone does not separate a sandbox from a dev run.** It moves the DB; `userData` is
+a **separate** switch (`SWITCHBOARD_USER_DATA`), and without it a sandbox lands on `~/.switchboard-dev/userData`
+— the same one `npm start` uses. Since #220 every build takes the single-instance lock and Electron scopes it
+to `userData`, so such a sandbox is **refused** while a dev instance is running (it names the userData in the
+way). That is the lock doing its job: two instances on one `userData` fought over the Chromium cache anyway,
+which is what #216 was about. To run a sandbox beside a dev instance, give it **both** — its own
+`SWITCHBOARD_DATA_DIR` and its own `SWITCHBOARD_USER_DATA`.
+
 **A fix confirmed under `npm start` is confirmed in the DEV database only.** The installed app runs its own
 migration + reindex the next time *it* starts.
 
