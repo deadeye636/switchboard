@@ -2456,6 +2456,10 @@ ipcMain.handle('resolve-variable-insert', (_event, id, shellType, sessionId) => 
     }
     const ref = needsRef ? shellRefFor(shellType, filePath) : null;
     const text = substituteInsertTemplate(tmpl, { path: filePath, ref, value });
+    // `lastUsedAt` used to be written by the `use-saved-variables` handler, which was this column's ONLY
+    // writer and which nothing ever called — so the column has been dead data. This is the honest place
+    // for it: the variable was actually used, at the moment its text reaches a terminal.
+    touchSavedVariable(id);
     return { ok: true, text };
   } catch (err) {
     return { ok: false, error: err.message };
