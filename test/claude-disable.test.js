@@ -111,12 +111,64 @@ test('with nothing enabled, the default target is null rather than a lie', () =>
 
 // The scheduler built `claude …` with no gate check at all, so a disabled Claude would still be spawned
 // by a cron tick — silently, because nothing on that path ever asked.
+//
+// This used to assert that the SOURCE of runScheduleCommand mentions isLaunchable — which cannot tell you
+// the check does anything. Since #213 the runner is a factory in app/lifecycle.js, so the cron tick runs
+// for real here and the assertion is whether a child process was spawned at all.
+const lifecycle = require('../src/app/lifecycle');
+
+function scheduleCtx({ launchable }) {
+  const spawned = [];
+  const ctx = {
+    spawned,
+    getSetting: () => ({}),
+    SETTING_DEFAULTS: { shellProfile: 'auto' },
+    resolveShell: () => ({ path: '/bin/bash', args: [] }),
+    backends: { isLaunchable: () => launchable, get: () => ({ binary: 'claude' }) },
+    ensureProjectAdded: () => {},
+    quoteArgvForShell: (_s, argv) => argv.join(' '),
+    shellArgs: (_s, cmd) => ['-c', cmd],
+    cleanPtyEnv: {},
+    spawnChild: (cmd, args, opts) => {
+      spawned.push({ cmd, args, opts });
+      return { stderr: { on() {} }, on() {} };
+    },
+    log: { info() {}, warn() {}, error() {} },
+  };
+  return ctx;
+}
+
 test('the scheduler asks the gate before spawning the claude binary', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
-  const fn = src.slice(src.indexOf('function runScheduleCommand('));
-  const body = fn.slice(0, fn.indexOf('\n    }'));
-  assert.match(body, /isLaunchable\(['"]claude['"]\)/,
-    'a scheduled run must not spawn a disabled backend');
+  const ctx = scheduleCtx({ launchable: false });
+  const run = lifecycle.makeRunScheduleCommand(ctx);
+
+  let err = null;
+  run(['-p', 'hi'], 'D:/x', 'nightly', (e) => { err = e; });
+
+  assert.deepEqual(ctx.spawned, [], 'a disabled backend must not be spawned by a cron tick');
+  assert.match(err.message, /Claude Code is disabled/,
+    'and the task says why — one that quietly stops running is worse than one that refuses');
+});
+
+test('with the gate open, the scheduled run spawns the descriptor\'s binary', () => {
+  const ctx = scheduleCtx({ launchable: true });
+  const run = lifecycle.makeRunScheduleCommand(ctx);
+
+  run(['-p', 'hi'], 'D:/x', 'nightly');
+
+  assert.equal(ctx.spawned.length, 1);
+  assert.match(ctx.spawned[0].args.join(' '), /claude -p hi/,
+    'the binary name comes from the backend descriptor, not a literal (T-1.7)');
+  assert.equal(ctx.spawned[0].opts.cwd, 'D:/x');
+});
+
+// #167: a schedule pointed at a project the user never added writes transcripts that show up nowhere.
+test('a scheduled run puts its project on the list, like any other launch (#167)', () => {
+  const ctx = scheduleCtx({ launchable: true });
+  const added = [];
+  ctx.ensureProjectAdded = (p) => added.push(p);
+  lifecycle.makeRunScheduleCommand(ctx)(['-p', 'hi'], 'D:/proj', 'nightly');
+  assert.deepEqual(added, ['D:/proj']);
 });
 
 // Claude's store is walked by its own path (PROJECTS_DIR), NOT by the generic Axis-B store scan — which

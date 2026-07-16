@@ -71,14 +71,32 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 the installer.
 
 - **Main process** (`src/main.js`): app lifecycle, IPC handlers, terminal (PTY) management, file watching.
-  ~2600 lines and being split into `src/app/` + `src/watch/` (#213) — `src/app/` already holds the quit
-  guard, the settings transfer, `lifecycle.js`, `notifications.js`, `windows.js`, `hooks.js`,
-  `variables.js`, `settings.js` and `terminal/` (the PTY pure-logic plus `spawn.js` — the open-terminal
-  handler — and `io.js` — input/resize/redraw/flow control). An extracted module takes shared state through a **ctx object**, and the rule is: a `const`
-  (a Map, a Set) is passed straight through, a `let` (`mainWindow`, `appQuitting`) **only ever as a getter**
-  — a captured `mainWindow` addresses a window that no longer exists after a reopen, and the UI just stops
-  updating with no error. It also never top-level-requires `db.js` (that resolves `DATA_DIR` before
-  `main.js` sets it); `test/main-modules-no-db.test.js` enforces both halves of the DATA_DIR ordering.
+  **~2470 lines, down from 5011: the split is done (#213).** What is left is a composition root — the
+  requires, `DATA_DIR`, the wiring for eleven modules, and ~86 small IPC handlers that stayed on purpose
+  (thin, no shared state; moving them buys churn). `src/app/` holds `lifecycle.js` (the boot, the
+  scheduler's runner, the ordered teardown), `windows.js`, `notifications.js`, `hooks.js`,
+  `variables.js`, `settings.js`, `quit-guard.js`, `settings-transfer.js` and `terminal/`
+  (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
+  **A new IPC handler belongs in one of those modules, not here** — #222 is the guard that will say so.
+- **The ctx object** — how every `src/app/*` and `src/watch/*` module gets what main.js owns. Three rules,
+  each paid for:
+  - **A `const` goes straight through; a `let` ONLY as a getter.** `activeSessions`, `liveStoreRef` and
+    the other Maps are passed by reference — same object, every writer sees every write. `mainWindow`,
+    `appQuitting`, `closeConfirmed` are reassigned, so they arrive as `getMainWindow()` /
+    `getAppQuitting()`. A captured `mainWindow` addresses a window that no longer exists after a reopen:
+    the UI stops updating, with no error anywhere. A captured `appQuitting` lets a late flush hit a closed
+    DB (#90).
+  - **Never top-level-`require('../db/db')`** — db.js resolves `DATA_DIR` at module load, before main.js
+    sets it, and a dev build then silently writes to the installed app's database.
+    `test/main-modules-no-db.test.js` enforces both halves.
+  - **Electron arrives through ctx too** (`dialog`, `safeStorage`, `app`, even `ipcMain` via
+    `registerIpc(ipc)`) — not for purity, but because it is what makes the module loadable in
+    `node --test`. That is the whole reason #213 was worth doing: the hook server's token check (#77), the
+    secret resolver, the settings write path, the cascade (#149) and the scheduler's enable gate (#162)
+    had NO tests while they sat in Electron-bound main.js. Their guards could only grep main.js's source —
+    and a grep cannot tell you the line does anything.
+  - **Where a `let` lives is decided by counting readers, not taste.** Still read in main.js → it stays
+    there and the module takes a getter. Read nowhere else → it moves into the module.
 - **Preload** (`src/preload.js`): the **only** IPC surface. Renderer talks to main exclusively through
   `window.api.*` defined here (`ipcRenderer.invoke` for request/response, `.send`/`.on` for streams).
   Add a binding here when you add an IPC handler in `src/main.js`.

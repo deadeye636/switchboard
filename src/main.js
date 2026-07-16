@@ -9,7 +9,6 @@ const log = require('electron-log');
 const { shouldNoticeMissingRecord, missingRecordMessage } = require('./app/terminal/live-record-notice');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rekeyMcpServer, cleanStaleLockFiles } = require('./servers/mcp-bridge');
 const { withMainProcessUsageCache } = require('./backends/usage-cache');
-const { shouldUseSingleInstanceLock } = require('./app/lifecycle');
 // Multi-LLM backend seam (Phase 1): the spawn/env/id-map paths ask a backend instead of
 // assuming Claude. `claude` is the default backend and behaves byte-identically through it.
 const backends = require('./backends');
@@ -2405,226 +2404,66 @@ ipcMain.handle('get-about-info', () => ({
   arch: process.arch,
 }));
 
-// --- App lifecycle ---
-// Prevent a second Electron instance from killing active PTY sessions.
-// This happens when the user replaces the AppImage while Switchboard is running:
-// the OS spawns the new binary, which would otherwise initialise a second process
-// and leave the first one's node-pty sessions orphaned or killed.
-// requestSingleInstanceLock ensures only one packaged instance runs at a time.
-// Development builds intentionally skip it so `npm start` can run beside the
-// installed app while validating local changes.
-const useSingleInstanceLock = shouldUseSingleInstanceLock({
-  isPackaged: app.isPackaged,
-  env: process.env,
-});
-const gotSingleInstanceLock = !useSingleInstanceLock || app.requestSingleInstanceLock();
-if (!gotSingleInstanceLock) {
-  app.quit();
-} else {
-  // Focus the existing window when a second launch is attempted.
-  if (useSingleInstanceLock) {
-    app.on('second-instance', () => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.focus();
-      }
-    });
-  }
+// --- App lifecycle -> app/lifecycle.js ---
+// The composition root's last act: hand the module everything the boot and the teardown need. The
+// teardown ORDER is load-bearing (appQuitting first, then flush, then terminate, then closeDb) and lives
+// in the module with the reasons; main.js only supplies the pieces.
+const lifecycle = require('./app/lifecycle');
 
-  app.whenReady().then(() => {
-    // Wipe any secret-ref temp files left behind by a previous run that didn't
-    // quit cleanly (crash) — plaintext must not survive a restart.
-    try { cleanupSecretRefs(); } catch {}
-    // One-time: Claude's launch options move from the settings root into backendDefaults.claude.
-    // Runs before any window reads settings, so the panel never sees the half-migrated shape.
-    try { migrateClaudeLaunchDefaults(); } catch (err) {
-      log.warn('[settings] Claude launch-defaults migration failed:', err?.message || err);
+const lifecycleCtx = {
+  app,
+  session,
+  BrowserWindow,
+  getMainWindow: () => mainWindow,
+  setAppQuitting: (v) => { appQuitting = v; },
+  activeSessions,
+  cleanPtyEnv,
+  log,
+  // boot
+  cleanupSecretRefs,
+  migrateClaudeLaunchDefaults,
+  buildMenu,
+  createWindow,
+  createTray: () => notifications.createTray(),
+  startProjectsWatcher,
+  startBackendWatchers,
+  startAttentionHookServer,
+  cleanStaleLockFiles,
+  scheduleIpc,
+  startScheduler,
+  populateCacheViaWorker,
+  applyAutoHide: (onStartup) => projects.applyAutoHide(onStartup),
+  startTriggerWatcher: (opts) => require('./watch/trigger-watcher').start(opts),
+  searchFtsRecreated: () => searchFtsRecreated,
+  // the scheduler's runner
+  getSetting,
+  SETTING_DEFAULTS,
+  resolveShell,
+  backends,
+  ensureProjectAdded: (p) => projects.ensureProjectAdded(p),
+  quoteArgvForShell,
+  shellArgs,
+  spawnChild: (cmd, args, opts) => require('child_process').spawn(cmd, args, opts),
+  // teardown
+  attentionHooksEnabled,
+  removeClaudeAttentionHook,
+  cleanupHandoffExports: () => {
+    for (const file of handoffExports) {
+      try { fs.unlinkSync(file); } catch { /* best effort */ }
     }
-    // Set Content Security Policy
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          'Content-Security-Policy': ["default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'"],
-        },
-      });
-    });
+    handoffExports.clear();
+  },
+  shutdownAllMcp,
+  destroyTray: () => notifications.destroyTray(),
+  stopProjectsWatcher,
+  stopBackendWatchers,
+  flushSessionBackends: () => sessionBackends.flushNow(),
+  flushPendingReindex: () => sessionCache.flushPendingReindex(),
+  terminateScanWorker: () => sessionCache.terminateScanWorker(),
+  terminateIndexWorker: () => indexWorker.terminate(),
+  shutdownSearchClient: () => searchClient.shutdown(),
+  closeDb,
+};
 
-    buildMenu();
-    createWindow();
-    notifications.createTray();
-    startProjectsWatcher();
-    // Watch the other enabled backends' own stores (Codex's rollout tree, later Hermes' state.db)
-    // so their sessions appear live, not just after a restart (T-4.8).
-    startBackendWatchers();
-    startAttentionHookServer();
-    // Remove IDE lock files left behind by a crashed instance whose PID was
-    // reused (the function only unlinks locks matching our own pid).
-    cleanStaleLockFiles(log);
-    scheduleIpc.ensureScheduleCreatorCommand();
-
-    // Shared runCommand for cron scheduler and "run now" — takes argv, not a shell string.
-    const { spawn: cpSpawn } = require('child_process');
-    function runScheduleCommand(claudeArgv, cwd, name, onDone) {
-      const globalSettings = getSetting('global') || {};
-      const profileId = globalSettings.shellProfile || SETTING_DEFAULTS.shellProfile;
-      const profile = resolveShell(profileId);
-      const shell = profile.path;
-
-      // Scheduled runs are Claude-only by design: the schedule UI composes Claude's headless argv. So
-      // they answer to Claude's enable gate like everything else (#162) — a disabled backend must not
-      // keep spawning its binary from a cron tick, which is exactly what this path did, silently,
-      // because it never asked. Refuse loudly instead: a scheduled task that quietly stops running is
-      // worse than one that says why.
-      if (!backends.isLaunchable('claude')) {
-        const msg = `[schedule] "${name}" skipped: Claude Code is disabled (scheduled runs are Claude-only).`;
-        log.warn(msg);
-        if (typeof onDone === 'function') onDone(new Error('Claude Code is disabled — scheduled runs need it.'));
-        return;
-      }
-
-      // A scheduled run is a session the user asked for, so its project goes on the list (#167) — in both
-      // modes, like any other launch. Without this, a schedule pointed at a project the user has not added
-      // writes transcripts that never show up anywhere: real sessions, invisible, with no way to find them.
-      if (cwd) { try { projects.ensureProjectAdded(cwd); } catch { /* the scan will get it in auto mode */ } }
-
-      // The binary name comes from the backend descriptor, not a literal (T-1.7) — so no `'claude '`
-      // command build survives outside backends/.
-      const cmd = (backends.get('claude')?.binary || 'claude') + ' ' + quoteArgvForShell(shell, claudeArgv);
-      const args = shellArgs(shell, cmd, profile.args || []);
-
-      // cmd.exe: Node's default arg joining escapes embedded `"` as `\"`, which
-      // cmd does not understand — pass the pre-quoted line verbatim instead
-      // (same failure class as the node-pty launch path, see ptyShellArgs).
-      const isCmdShell = path.basename(shell).toLowerCase().startsWith('cmd');
-
-      log.info(`[schedule] Running: ${shell} ${args.join(' ')}`);
-      const child = cpSpawn(shell, args, {
-        cwd,
-        stdio: ['ignore', 'ignore', 'pipe'],
-        env: { ...cleanPtyEnv, FORCE_COLOR: '0' },
-        windowsVerbatimArguments: isCmdShell,
-      });
-
-      let stderr = '';
-      child.stderr.on('data', (data) => { stderr += data.toString(); });
-
-      child.on('exit', (code) => {
-        if (stderr.trim()) log.error(`[schedule] ${name} stderr:\n${stderr.trim()}`);
-        log.info(`[schedule] ${name} finished (exit ${code})`);
-        if (onDone) onDone();
-      });
-
-      child.on('error', (err) => {
-        log.error(`[schedule] ${name} error:`, err.message);
-        if (onDone) onDone();
-      });
-    }
-
-    scheduleIpc.init(log, runScheduleCommand);
-    startScheduler(log, runScheduleCommand);
-
-    // Full cache rebuild on every startup — prunes stale rows for deleted
-    // transcripts (sub-agent/workflow runs cleaned up between sessions leave
-    // ghost rows in session_cache that show in the sidebar but are
-    // inaccessible on open). populateCacheViaWorker runs in a Worker thread
-    // and is non-blocking; concurrent callers share the same in-flight
-    // Promise so the FTS-recreated path below (if also triggered) is free.
-    populateCacheViaWorker().then(() => {
-      // #57: run one auto-hide pass once the cache is populated on startup, so
-      // stale projects are hidden before the first sidebar render settles.
-      try { projects.applyAutoHide(true); } catch {}
-    });
-
-    // File-trigger watcher — allows harness scripts to inject input into open
-    // PTY sessions by dropping a JSON file in ~/.switchboard/triggers/.
-    // Wrapped in try/catch so a boot failure here doesn't abort app.whenReady.
-    try {
-      require('./watch/trigger-watcher').start({
-        log,
-        getPtyForSession(sessionId) {
-          const session = activeSessions.get(sessionId);
-          if (!session || session.exited) return null;
-          return { ptyProcess: session.pty };
-        },
-        isSessionBusy(sessionId) {
-          const session = activeSessions.get(sessionId);
-          return session ? !!session._cliBusy : false;
-        },
-      });
-    } catch (err) {
-      log.error('[trigger-watcher] Failed to start trigger watcher:', err.message);
-    }
-
-    // Re-index search if FTS table was recreated (e.g. tokenizer config change).
-    // populateCacheViaWorker is already running above; the guard inside it
-    // (populatePromise !== null) means this is a no-op on the same tick and
-    // returns the shared Promise — no double scan.
-    if (searchFtsRecreated) populateCacheViaWorker();
-
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    });
-  }); // end app.whenReady
-} // end gotSingleInstanceLock else-branch
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('before-quit', () => {
-  // Stop any pending debounced cache flush from running after the DB closes (#90).
-  appQuitting = true;
-
-  // Leave no hook pointing at a port nobody listens on: Claude Code blocks on every
-  // UserPromptSubmit until it times out, in every project, not just ours (#125). The
-  // next boot rewrites the hook, so removing it here costs nothing.
-  try { if (attentionHooksEnabled()) removeClaudeAttentionHook(); } catch { /* best effort */ }
-  for (const file of handoffExports) {
-    try { fs.unlinkSync(file); } catch { /* best effort */ }
-  }
-  handoffExports.clear();
-
-  // Shut down all MCP servers
-  shutdownAllMcp();
-
-  // Remove the tray icon
-  notifications.destroyTray();
-
-  // Close filesystem watchers
-  stopProjectsWatcher();
-  stopBackendWatchers();
-
-  // Kill all PTY processes on quit
-  for (const [, session] of activeSessions) {
-    if (!session.exited) {
-      try { session.pty.kill(); } catch {}
-    }
-  }
-
-  // Wipe any secret-ref temp files written for inline secret insertion.
-  cleanupSecretRefs();
-
-  // Flush the launch-time backend/profile overlay so a session started just before quit keeps
-  // its provenance across the restart (§5.7).
-  try { sessionBackends.flushNow(); } catch {}
-});
-
-// Close SQLite after all windows are closed to avoid "connection is not open" errors
-app.on('will-quit', () => {
-  // Flush any debounced per-file re-index so the last transcript edits inside a
-  // debounce window are persisted before we close the DB (perf review item H).
-  try { sessionCache.flushPendingReindex(); } catch {}
-  // Terminate an in-flight project scan so a late worker message can't write to
-  // the DB after closeDb() ("connection is not open" at shutdown) (issue #76).
-  try { sessionCache.terminateScanWorker(); } catch {}
-  // Terminate the persistent index worker (#199): appQuitting is already set (before-quit), so the reply
-  // handler drops any in-flight reply before applyIndexResults; terminate-then-close accepts the lost last
-  // debounce window (the reconcile catches it next start). Extends the #76/#90 pattern.
-  try { indexWorker.terminate(); } catch {}
-  // Terminate the search worker gracefully before closing the DB, so the
-  // worker's read-only connection is released before the WAL checkpoint.
-  // shutdown() suppresses the restart logic before calling terminate().
-  searchClient.shutdown();
-  closeDb();
-});
+lifecycle.start(lifecycleCtx);
+lifecycle.registerQuitHandlers(lifecycleCtx);

@@ -86,22 +86,35 @@ test('resolveEnv still returns just the env — the callers that have nothing to
   assert.deepStrictEqual(resolveEnv({ A: '$X', B: 'lit' }, { X: 'v' }), { A: 'v', B: 'lit' });
 });
 
-test('no spawn path in main.js resolves an env bundle in silence', () => {
+test('no spawn path resolves an env bundle in silence', () => {
   // There were THREE of them — the external launcher, the in-app launcher, the backend PTY — and all
-  // three called resolveEnv() bare and inspected nothing. A fourth would be added the same way. So: in
-  // main.js, the resolution goes through resolveSpawnEnv(), which says what it dropped.
+  // three called resolveEnv() bare and inspected nothing. A fourth would be added the same way. So every
+  // resolution goes through resolveSpawnEnv(), which says what it dropped.
+  //
+  // #213 moved the in-app launcher and the backend PTY into app/terminal/spawn.js, so checking main.js
+  // alone would leave the rule unasserted exactly where the spawns now live. Sweep both — and any module
+  // a later extraction adds under app/.
   const fs = require('node:fs');
   const path = require('node:path');
-  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  const root = path.join(__dirname, '..', 'src');
 
-  const bare = src.split('\n')
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) return walk(full);
+    return e.name.endsWith('.js') ? [full] : [];
+  });
+  const files = [path.join(root, 'main.js'), ...walk(path.join(root, 'app'))];
+
+  const bare = files.flatMap((file) => fs.readFileSync(file, 'utf8').split('\n')
     .map((line, i) => ({ line, n: i + 1 }))
     .filter(({ line }) => /(?<!function\s)\bresolveEnv\s*\(/.test(line))
-    .filter(({ line }) => !line.trim().startsWith('//') && !line.trim().startsWith('*'));
+    .filter(({ line }) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+    .map((b) => `${path.relative(root, file)}:${b.n} ${b.line.trim()}`));
 
-  assert.deepStrictEqual(bare.map(b => `main.js:${b.n} ${b.line.trim()}`), [],
+  assert.deepStrictEqual(bare, [],
     'a spawn that drops a $VAR without saying so leaves the user with an auth error that names nothing');
-  assert.match(src, /function resolveSpawnEnv\(/);
+  assert.match(fs.readFileSync(path.join(root, 'main.js'), 'utf8'), /function resolveSpawnEnv\(/,
+    'and the one that speaks up still exists');
 });
 
 test('empty host value is treated as unset -> dropped', () => {
