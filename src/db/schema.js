@@ -1,10 +1,21 @@
-// The schema as it is created FRESH — every CREATE TABLE / CREATE INDEX, and nothing else (#217 step 2).
+// The BASELINE schema — every CREATE TABLE / CREATE INDEX, and nothing else (#217 step 2).
 //
-// This is the shape a brand-new database is born with. It is NOT the history of how an existing one got
-// here — that is `migrations.js`, and the two are deliberately separate files that must stay in step:
-// a column added by a migration belongs in the CREATE TABLE here too, or a fresh install and an upgraded
-// one end up with different tables. Every statement is IF NOT EXISTS / try-wrapped, so this runs on every
-// start against any database and changes nothing when the shape is already right.
+// This is NOT the final shape of the database, and assuming it is will mislead you. It is the baseline
+// the migrations then finish. `db.js` runs applySchema and THEN runMigrations, on every start and on
+// EVERY database — including a brand-new one, whose db_version is 0, so all of them run. Both paths, fresh
+// and upgraded, therefore converge on the same shape by the same route.
+//
+// That is why the two files disagree, on purpose and harmlessly. Measured, not assumed: session_cache is
+// missing eight columns here that migrations add (backendId, filePath, parserVersion, the cost fields…);
+// session_metrics and tag_defs are created ONLY by a migration and never appear below; and project_tags
+// and session_tags are created here WITH a `color` column that a later migration removes again when
+// colours moved to tag_defs. Every one of those ends correctly, because the migrations always run after
+// this file.
+//
+// So: a column a new migration adds does NOT have to be repeated in the CREATE TABLE here. Adding it is
+// optional tidiness, and the codebase does it both ways. What is NOT optional is that everything here
+// stays IF NOT EXISTS / try-wrapped, so it can run against a database that already has the final shape
+// and change nothing.
 //
 // It runs BEFORE the migrations, exactly as it did when it was the top of db.js: the migrations assume
 // the tables exist.

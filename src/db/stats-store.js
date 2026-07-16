@@ -15,18 +15,26 @@ const { db } = require('./connection');
 // Aggregates ALL rows in session_cache (parent sessions + subagents) so the
 // heatmap reflects real usage regardless of whether Claude rotated the parent
 // JSONL files.
+//
+// Memoized on first call, like every other aggregate here (`_statsStmts` below). It used to re-parse this
+// SQL on every call — the odd one out in its own file, from back when it was the only statement in the
+// block. Lazy rather than prepared at load, because the Stats screen may never be opened.
+let _dailyActivityStmt = null;
 function getDailyActivity() {
-  return db.prepare(`
-    SELECT
-      substr(modified, 1, 10) AS date,
-      SUM(messageCount)       AS messageCount,
-      COUNT(*)                AS sessionCount
-    FROM session_cache
-    WHERE modified IS NOT NULL
-      AND length(modified) >= 10
-    GROUP BY date
-    ORDER BY date ASC
-  `).all();
+  if (!_dailyActivityStmt) {
+    _dailyActivityStmt = db.prepare(`
+      SELECT
+        substr(modified, 1, 10) AS date,
+        SUM(messageCount)       AS messageCount,
+        COUNT(*)                AS sessionCount
+      FROM session_cache
+      WHERE modified IS NOT NULL
+        AND length(modified) >= 10
+      GROUP BY date
+      ORDER BY date ASC
+    `);
+  }
+  return _dailyActivityStmt.all();
 }
 
 // --- Session metrics aggregates (for the stats screen) ---
