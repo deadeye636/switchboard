@@ -135,6 +135,32 @@ incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`).
     the cache, restoring the old inline `if (upserted||deleted)` semantics — the watcher is the highest-
     frequency trigger, and a busy Codex/Hermes append the mtime/marker gate skips must not push at the
     600 ms watcher cadence.
+- **MITIGATED by [#209]; the residual is [#210]** — the live-session identity match. `updateBackendLiveStates`
+  stays synchronous in the watcher flush (it drives the spinner), and through `claimLiveRecord` it calls
+  `matchLiveSession` (`backends/file-store.js`) for a freshly spawned, not-yet-paired Axis-B session. That
+  correlates by BIRTH time, so it used to `statSync` **every transcript in the store**, on the main thread,
+  on every flush until the session paired.
+  **Measured first, then fixed** (the issue was filed as "a header parse runs on main"; measurement showed
+  the header parse is ~1 file — the `sinceMs` gate already skips pre-spawn files — and that the real cost was
+  the stat-per-file):
+
+  | transcripts | before | after (`birthHint`) |
+  |---|---|---|
+  | 500 | 35 ms | 17 ms |
+  | 2000 | 106 ms | 27 ms |
+  | 5000 | 243 ms | 44 ms |
+
+  The fix is an optional `birthHint(filename) -> ms | null` on `createFileStore`: Codex and Pi encode the
+  session start time in the transcript name, so a record the NAME already dates before the spawn is rejected
+  **without a syscall**. It is only ever a REJECT — survivors are still stat'd, so the precise birth and the
+  oldest-wins tiebreak are unchanged — and it is applied with a deliberate **24 h margin**, because these
+  filenames carry no timezone (Codex writes `rollout-2026-07-01T10-00-00-<id>`) and a hint that wrongly said
+  "old" would stop a session pairing at all. A backend without the hook (agy: `<id>.db`, no timestamp) keeps
+  the stat path. Hermes is db-mode and never had this walk.
+  **Residual → [#210]:** the `discoverSessions()` readdir walk itself (~44 ms at 5000) still runs on main.
+  Removing it means running the match in the worker — which makes `claimLiveRecord` async and re-opens the
+  `activeSessions` re-key + stale-reply race surface, for a bounded cost an order below the #199 stall. Filed,
+  not built; the trade-offs are written up in [#210].
 - The sweep cadence is a coalesced `setImmediate` fired **after each `get-projects`**, plus the Axis-B
   watcher's post on a store change — not a wall-clock interval. Active changes are covered by the live
   watchers; the safety-net reconcile does not fire on its own if the sidebar is never re-fetched AND no

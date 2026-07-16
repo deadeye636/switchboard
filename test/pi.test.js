@@ -267,6 +267,29 @@ test('matchLiveSession claims a NEW session; liveRefFor claims a RESUMED one (D1
   } finally { pi.setRoot(null); fs.rmSync(store.root, { recursive: true, force: true }); }
 });
 
+// #209: the transcript NAME carries the start time, so an old one is rejected before it is stat'd. Drives
+// Pi's own birthHint regex end-to-end (the hook is internal to the file-store closure).
+test('matchLiveSession: an old transcript is rejected by its NAME, without a stat (#209)', () => {
+  const store = tmpStore();
+  const id = '019f5573-63e7-7e7d-ba4e-200c900885ff';
+  try {
+    // Written NOW — its real birth is post-spawn, so a stat would accept it. Only the name says 2026-07-12.
+    fs.copyFileSync(FIXTURE, path.join(store.dir, `2026-07-12T08-30-53-415Z_${id}.jsonl`));
+    pi.setRoot(store.root);
+
+    // A spawn a year after the name's date: the name alone rules the record out.
+    const spawn = Date.UTC(2027, 6, 12, 8, 30, 53);
+    assert.strictEqual(pi.matchLiveSession({ cwd: 'Z:\\temp', sinceMs: spawn, claimed: new Set() }), null,
+      'a transcript the name dates a year before the spawn is not ours');
+
+    // Control: a spawn just after the name's date is INSIDE the 24 h margin, so it is still stat'd and
+    // matched (its real birth is now). This is what keeps a timezone misreading from losing a session.
+    const justAfter = Date.UTC(2026, 6, 12, 9, 0, 0);
+    assert.ok(pi.matchLiveSession({ cwd: 'Z:\\temp', sinceMs: justAfter, claimed: new Set() }),
+      'inside the margin the hint is not trusted to mean "old" (control)');
+  } finally { pi.setRoot(null); fs.rmSync(store.root, { recursive: true, force: true }); }
+});
+
 test('probe: a clear reason, and it names the Node requirement', () => {
   const res = pi.probe();
   assert.strictEqual(typeof res.ok, 'boolean');

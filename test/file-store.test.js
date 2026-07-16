@@ -10,7 +10,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { createFileStore, findOnPath, walkStore } = require('../backends/file-store');
+const { createFileStore, findOnPath, walkStore, BIRTH_HINT_SKEW_MS } = require('../backends/file-store');
 
 // A store shaped like a real one: nested folders, a mix of matching and non-matching files.
 // `<root>/2026/07/12/log-<id>.jsonl`, with a sidecar the backend must ignore.
@@ -156,6 +156,95 @@ test('matchLiveSession skips a transcript with no id or no cwd', () => {
     writeSession(bucket, 'no-cwd', null);
     assert.equal(storeFor(root).matchLiveSession({ cwd: '/p', sinceMs: 0, claimed: new Set() }), null);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// --- #209: the birthHint pre-filter (skip the stat for what the NAME already rules out) ---------------
+//
+// matchLiveSession stat'd EVERY transcript to read its birth time, on the main thread, on every watcher
+// flush while a session was unpaired: ~163 ms of pure stat for a 5000-transcript store. A backend whose
+// filename carries the start time can reject the old ones before touching the disk.
+
+// The synthetic backend again, but declaring a birthHint: `log-<epochMs>-<id>.jsonl`.
+function storeWithHint(root, { onStat } = {}) {
+  return createFileStore({
+    root: () => root,
+    matches: (name) => name.startsWith('log-') && name.endsWith('.jsonl'),
+    parseSession: (handle) => {
+      try {
+        const head = JSON.parse(fs.readFileSync(handle.path, 'utf8').split('\n')[0]);
+        return { sessionId: head.id, cwd: head.cwd };
+      } catch { return null; }
+    },
+    refSuffix: (id) => `-${id}.jsonl`,
+    birthHint: (name) => {
+      if (onStat) onStat(name);
+      const m = /^log-(\d+)-/.exec(name);
+      return m ? Number(m[1]) : null;
+    },
+  });
+}
+
+test('birthHint rejects a transcript the NAME proves is older than the spawn — without stat-ing it', () => {
+  const { root, bucket } = makeStore();
+  try {
+    const spawn = Date.now();
+    // The file's REAL birth is now (it was just written), so a stat would happily accept it. Only the
+    // name says it is a week old. If the record is still returned, the hint never ran.
+    const old = path.join(bucket, `log-${spawn - 7 * 24 * 3600_000}-week-old.jsonl`);
+    fs.writeFileSync(old, JSON.stringify({ id: 'week-old', cwd: '/p' }) + '\n');
+
+    assert.equal(storeWithHint(root).matchLiveSession({ cwd: '/p', sinceMs: spawn, claimed: new Set() }), null,
+      'the name alone ruled it out — no stat, no match');
+    // Control: the SAME file, through a store with no birthHint, IS matched (its real birth is post-spawn).
+    // This is what proves the skip above came from the hint and not from the file being genuinely old.
+    const viaStat = storeFor(root).matchLiveSession({ cwd: '/p', sinceMs: spawn - 60_000, claimed: new Set() });
+    assert.equal(viaStat && viaStat.sessionId, 'week-old', 'without the hint the stat accepts it (control)');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('birthHint never rejects inside the skew margin — a nameless timezone must not lose a session', () => {
+  // A filename carries no timezone in the formats we read, so a hint can be a whole UTC offset out. If the
+  // margin were tight, that misreading would drop the session's OWN record and it would never pair.
+  const { root, bucket } = makeStore();
+  try {
+    const spawn = Date.now();
+    // The name claims 13 h before the spawn — the worst a UTC-offset misreading can produce. Inside the
+    // 24 h margin, so it must still be stat'd (and its real birth is post-spawn → it matches).
+    const file = path.join(bucket, `log-${spawn - 13 * 3600_000}-tz-skewed.jsonl`);
+    fs.writeFileSync(file, JSON.stringify({ id: 'tz-skewed', cwd: '/p' }) + '\n');
+
+    const match = storeWithHint(root).matchLiveSession({ cwd: '/p', sinceMs: spawn - 60_000, claimed: new Set() });
+    assert.equal(match && match.sessionId, 'tz-skewed', 'a hint inside the margin is not trusted to mean "old"');
+    assert.ok(BIRTH_HINT_SKEW_MS >= 14 * 3600_000, 'the margin must cover every real UTC offset');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('birthHint falls through to the stat when it cannot answer (unparseable name, a throw, no sinceMs)', () => {
+  const { root, bucket } = makeStore();
+  try {
+    const spawn = Date.now();
+    // A name the hint cannot parse → null → must be stat'd like any other file, not silently dropped.
+    writeSession(bucket, 'no-stamp', '/p');
+    assert.equal(storeWithHint(root).matchLiveSession({ cwd: '/p', sinceMs: spawn - 60_000, claimed: new Set() })?.sessionId,
+      'no-stamp', 'an unparseable name is not a reject');
+
+    // A hint that THROWS must not take the match down with it.
+    const throwing = createFileStore({
+      root: () => root,
+      matches: (name) => name.startsWith('log-') && name.endsWith('.jsonl'),
+      parseSession: () => ({ sessionId: 'no-stamp', cwd: '/p' }),
+      refSuffix: (id) => `-${id}.jsonl`,
+      birthHint: () => { throw new Error('bad name'); },
+    });
+    assert.equal(throwing.matchLiveSession({ cwd: '/p', sinceMs: spawn - 60_000, claimed: new Set() })?.sessionId,
+      'no-stamp', 'a throwing hint falls through to the stat');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('createFileStore refuses a birthHint that is not a function', () => {
+  assert.throws(() => createFileStore({
+    root: () => '/tmp', matches: () => true, parseSession: () => null, refSuffix: () => '', birthHint: 'nope',
+  }), /birthHint must be a function/);
 });
 
 test('liveRefFor finds a RESUMED session by id, whatever the record\'s age', () => {

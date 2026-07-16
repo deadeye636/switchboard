@@ -147,6 +147,13 @@ const store = createFileStore({
   parseSession: parser.parseSession,
   // `rollout-<ISO>-<uuid>.jsonl`
   refSuffix: (sessionId) => `-${sessionId}.jsonl`,
+  // The rollout name carries the session's start time — a birth estimate that costs no stat (#209). It has
+  // NO timezone marker, so this reading can be a whole UTC offset out; file-store only ever uses it to
+  // reject what is old by a 24 h margin, which absorbs that, and stats every survivor as before.
+  birthHint: (name) => {
+    const m = /^rollout-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-/.exec(name);
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : null;
+  },
 });
 
 /** Busy/idle for a live session, from the store record `matchLiveSession` returned. */

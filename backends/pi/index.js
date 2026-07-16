@@ -213,6 +213,13 @@ const store = createFileStore({
   parseSession: parser.parseSession,
   // `<ISO>_<uuid>.jsonl`
   refSuffix: (sessionId) => `_${sessionId}.jsonl`,
+  // Pi's filename carries the session's start time — a birth estimate that costs no stat (#209). Unlike
+  // Codex' it IS explicit UTC (the trailing Z), but file-store applies the same 24 h reject margin either
+  // way and stats every survivor, so the precise birth is unchanged.
+  birthHint: (name) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z_/.exec(name);
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +m[7]) : null;
+  },
 });
 
 // `ctx.lastOutputMs` = when this session's PTY last said anything (main.js). Used ONLY to keep a

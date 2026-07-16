@@ -297,6 +297,30 @@ test('matchLiveSession: finds the rollout for a session we just launched in this
   assert.match(match.ref, /rollout-a\.jsonl$/);
 });
 
+// #209: the rollout NAME carries the start time, so an old rollout is rejected before it is stat'd. This
+// drives Codex' own birthHint regex end-to-end through the real descriptor (the hook itself is internal
+// to the file-store closure — what matters is that the name is read correctly).
+test('matchLiveSession: an old rollout is rejected by its NAME, without a stat (#209)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-hint-'));
+  const day = path.join(home, 'sessions', '2024', '01', '02');
+  fs.mkdirSync(day, { recursive: true });
+  // The file is written NOW, so its real birth is post-spawn and a stat would accept it. Only the name
+  // says 2024. If it still matched, the birthHint never ran.
+  fs.copyFileSync(FIXTURE, path.join(day, 'rollout-2024-01-02T10-00-00-019f081a-8834-7342-8741-30624c553c1c.jsonl'));
+  codex.setHome(home);
+
+  assert.strictEqual(
+    codex.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: Date.now(), claimed: new Set() }), null,
+    'a rollout the name dates to 2024 is not the session we just spawned');
+
+  // Control: the same fixture under a name dated NOW is still found — the hint rejects the old, not everything.
+  const today = new Date();
+  const stamp = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}-${String(today.getUTCDate()).padStart(2, '0')}T${String(today.getUTCHours()).padStart(2, '0')}-00-00`;
+  fs.copyFileSync(FIXTURE, path.join(day, `rollout-${stamp}-019f081a-8834-7342-8741-30624c553c1c.jsonl`));
+  const match = codex.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: Date.now() - 60_000, claimed: new Set() });
+  assert.ok(match, 'a rollout named for today is still correlated (control)');
+});
+
 test('matchLiveSession: never hands the same rollout to two sessions', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-live2-'));
   const day = path.join(home, 'sessions', '2026', '06', '27');
