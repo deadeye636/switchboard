@@ -12,9 +12,9 @@ When you return to a session that ran while you were elsewhere, "Ready" only tel
 
 ## Current state (grounded)
 
-- Per-session event log exists: `public/session-timeline.js` (`createTimelineStore`, `addTimelineEvent`, `getTimelineEvents`, `filterTimelineEvents`). Events are recorded throughout `app.js` via `recordTimelineEvent(sessionId, kind, label, detail)` (~line 168) — kinds include `started`, `busy`, `idle`, `needs-attention`, `response-ready`, `exited`, `stopped`, `forked`.
+- Per-session event log exists: `src/renderer/session/session-timeline.js` (`createTimelineStore`, `addTimelineEvent`, `getTimelineEvents`, `filterTimelineEvents`). Events are recorded throughout `app.js` via `recordTimelineEvent(sessionId, kind, label, detail)` (~line 168) — kinds include `started`, `busy`, `idle`, `needs-attention`, `response-ready`, `exited`, `stopped`, `forked`.
 - The full timeline UI is `#timeline-viewer` (`index.html:72`) rendered by `renderTimelineViewer` in `app.js`.
-- File activity is observable from IDE-emulation diffs/opens: `onMcpOpenDiff` / `onMcpOpenFile` (`preload.js:92–99`, `mcp-bridge.js`). Each diff/open carries a file path per session.
+- File activity is observable from IDE-emulation diffs/opens: `onMcpOpenDiff` / `onMcpOpenFile` (`preload.js:92–99`, `src/servers/mcp-bridge.js`). Each diff/open carries a file path per session.
 - Focus/active session is `activeSessionId`; focusing happens via `showSession` / `setActiveSession` / `focusGridCard`, and `clearNotifications(sessionId)` runs on focus.
 - There is **no** "last viewed" marker per session today.
 
@@ -32,7 +32,7 @@ When you return to a session that ran while you were elsewhere, "Ready" only tel
 ### Track files touched
 - Add `filesTouchedSinceViewed: Map<sessionId, Map<path, {at, kind}>>` updated in the `onMcpOpenDiff`/`onMcpOpenFile` handlers (and optionally when a diff is accepted). Cleared for a session when its summary is shown/dismissed.
 
-### Pure selector: `public/away-summary.js` (UMD, Electron-free, tested)
+### Pure selector: `src/renderer/shell/away-summary.js` (UMD, Electron-free, tested)
 ```js
 // buildAwaySummary({ events, filesTouched, lastViewedAt, now, maxEvents = 8 })
 //   events: timeline events for the session (newest-first, as stored)
@@ -55,8 +55,8 @@ When you return to a session that ran while you were elsewhere, "Ready" only tel
 - Respect `prefers-reduced-motion` for any entrance animation.
 
 ## Files to touch
-- **New:** `public/away-summary.js`, `test/away-summary.test.js`.
-- **Modified:** `public/app.js` (add `lastViewedTime` + `filesTouchedSinceViewed` maps near ~125; set last-viewed at the focus choke point; update files maps in MCP handlers; render/dismiss summary), `public/index.html` (script tag before `app.js`), `public/style.css` (summary card styles), optionally `public/sidebar.js` if adding a small "changed since last view" affordance.
+- **New:** `src/renderer/shell/away-summary.js`, `test/away-summary.test.js`.
+- **Modified:** `src/renderer/app.js` (add `lastViewedTime` + `filesTouchedSinceViewed` maps near ~125; set last-viewed at the focus choke point; update files maps in MCP handlers; render/dismiss summary), `src/renderer/index.html` (script tag before `app.js`), `src/renderer/style.css` (summary card styles), optionally `src/renderer/shell/sidebar.js` if adding a small "changed since last view" affordance.
 
 ## Tests (`test/away-summary.test.js`)
 - Events before `lastViewedAt` excluded; events after included and capped at `maxEvents`.

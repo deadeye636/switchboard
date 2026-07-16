@@ -89,8 +89,8 @@ nicht zuverlässig portabel. Manuelles Voranstellen ist robuster.)
 `npm run build:win` =
 1. `node scripts/gen-build-info.js` — stempelt `build-info.json` (Branch/Commit/
    dirty/Datum) für die About-Anzeige (gitignored).
-2. `npm run bundle:codemirror` — esbuild bündelt `public/codemirror-setup.js` →
-   `public/codemirror-bundle.js` (gitignored).
+2. `npm run bundle:codemirror` — esbuild bündelt `src/renderer/jsonl/codemirror-setup.js` →
+   `src/renderer/codemirror-bundle.js` (gitignored).
 3. `electron-builder --win` — native Module gegen Electron-ABI rebuilden
    (node-gyp 13 + gepatchte node-pty-gyps), dann NSIS-Installer packen. Der
    `beforePack`-Hook `scripts/ensure-conpty-dll.js` kopiert node-ptys gebündelte

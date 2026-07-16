@@ -208,7 +208,7 @@ resolver's parser.
 
 ## The editor
 
-`public/variable-insert.js` lives under `public/` behind a **UMD wrapper** so main requires it and the
+`src/shared/variable-insert.js` lives under `public/` behind a **UMD wrapper** so main requires it and the
 renderer loads it as a plain `<script>`. Not tidiness: the preview must compose with the **same functions**
 the insert runs, or it drifts from what it claims to show — and a preview that disagrees with the resolver is
 worse than none.
@@ -254,6 +254,6 @@ composed string would inline `{value}` plaintext into `main.log`.
   strips it, so the same secret composes to different values per shell. Untested against a live pwsh session.
 - **The clipboard fallback puts a secret's plaintext on the clipboard** (pre-existing, and consented — the
   user asked for that variable). On Windows, clipboard history (Win+V) persists and cloud-syncs it.
-- **The resolver's guards are verified live, not by unit test** — the handler lives in `main.js`, which
-  cannot load under `node --test`. The pure core (`public/variable-insert.js`) is thoroughly covered;
+- **The resolver's guards are verified live, not by unit test** — the handler lives in `src/main.js`, which
+  cannot load under `node --test`. The pure core (`src/shared/variable-insert.js`) is thoroughly covered;
   the unwind, the node cap and the multi-line refusal are not.

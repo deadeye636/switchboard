@@ -33,7 +33,7 @@ human control flows. Upstream tracked some raw runtime state inline; this fork
 extracts it into tested pure modules and builds a full supervision UI on top.
 
 ### Session status model
-`public/session-status.js`
+`src/renderer/session/session-status.js`
 
 - A formal status model: **Needs You → Ready → Working → Running → Exited →
   Idle**, each with a label, CSS class, priority, and inbox membership.
@@ -43,7 +43,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   unit-tested (`test/session-status.test.js`).
 
 ### Session visit history
-`public/session-history.js`
+`src/renderer/session/session-history.js`
 
 - Browser-style **back / forward** through visited sessions
   (`Ctrl/Cmd+Shift+,` / `.`, rebindable). Temporal order, unlike `navigateSession`,
@@ -54,7 +54,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   (`test/session-history.test.js`).
 
 ### Attention inbox + status chips
-`public/sidebar.js`
+`src/renderer/shell/sidebar.js`
 
 - An **"Attention" section** that appears above projects whenever any session
   needs human action, has finished with unread output, or is actively running.
@@ -66,7 +66,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   pins to the top of `#sidebar-content` while the project list scrolls under it.
 
 ### Grid command center
-`public/grid-view.js`
+`src/renderer/views/grid-view.js`
 
 - Per-card status chips and per-project counts.
 - Status **filters** in grid mode: All / Needs You / Ready / Running.
@@ -80,7 +80,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   it. Announcements go to a grid-owned live region, separate from the attention one.
 
 ### Session health + handoff packets
-`public/session-health.js`
+`src/renderer/session/session-health.js`
 
 - A health model: **Healthy → Growing → Marathon Risk → Handoff Recommended**,
   computed from user-turn count, total entries, active time, cache-read tokens,
@@ -91,7 +91,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   one. (Wired into one-click handoff — see Wave 2.)
 
 ### Per-session timeline
-`public/session-timeline.js`
+`src/renderer/session/session-timeline.js`
 
 - A per-session event log (capped at 80 events) for the supervision-relevant
   moments: started, busy, idle, needs-attention, response-ready, exited, stopped,
@@ -99,7 +99,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 - Searchable/filterable timeline viewer, separate from raw terminal scrollback.
 
 ### Session card details / traffic-light metrics
-`public/session-card-details.js`
+`src/renderer/session/session-card-details.js`
 
 - Compact per-session metric labels (turns, cache, active time, message count)
   with **green/amber/red** traffic-light levels for each metric and for
@@ -107,7 +107,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 - Worktree label extraction for sessions living under `.claude/worktrees/`.
 
 ### Usage monitoring (per backend, #191)
-`public/usage-status.js`, `backends/usage-format.js`, `backends/<id>/usage.js`
+`src/renderer/shell/usage-status.js`, `src/backends/usage-format.js`, `backends/<id>/usage.js`
 
 - **One status-bar segment per backend that reports a quota**, each with its own badge and each
   selectable in *Settings → Usage & Notifications*. A backend declares the capability on its
@@ -122,7 +122,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   retry-timing hints.
 
 ### Spring cleaning (bulk session cleanup)
-`public/session-cleanup.js`
+`src/renderer/session/session-cleanup.js`
 
 - Finds stale sessions safe to clear out:
   - **Age-based candidates** (inactive ≥ 3/7/30 days), excluding starred,
@@ -133,7 +133,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 - Selection summary (count + project span).
 
 ### Accessibility hardening
-`public/a11y-utils.js`
+`src/renderer/lib/a11y-utils.js`
 
 - Make custom clickable rows keyboard-operable: `role="button"`, tab focus, and
   Enter/Space activation.
@@ -142,7 +142,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   `prefers-reduced-motion` support across ripples, spinners, shimmer, toasts.
 
 ### Safer human-control dialogs
-`public/control-dialogs.js`
+`src/renderer/dialogs/control-dialogs.js`
 
 - App-styled confirmation dialogs/toasts replacing native `confirm`/`alert` for
   archive, hide-worktree, remap, and stop actions — with affected counts/names,
@@ -156,7 +156,7 @@ Gets the supervision intelligence *out of the app window* and shortens every
 context switch. Each feature has a full design doc under `docs/specs/`.
 
 ### 01 — Native notifications + badge + tray
-`public/notification-policy.js`, `main.js`
+`src/renderer/shell/notification-policy.js`, `src/main.js`
 
 - Native **OS notifications** when a session needs you while Switchboard is
   unfocused; clicking one focuses the window and that session.
@@ -168,7 +168,7 @@ context switch. Each feature has a full design doc under `docs/specs/`.
 - The notify/badge decision is a pure, unit-tested helper.
 
 ### 02 — Next-attention hotkey + alert sound
-`public/alert-sound.js`, `public/app.js`
+`src/renderer/shell/alert-sound.js`, `src/renderer/app.js`
 
 - A configurable in-app **hotkey** (default `Cmd/Ctrl+Shift+A`) to jump to the
   next session needing attention, working even while a terminal is focused.
@@ -176,7 +176,7 @@ context switch. Each feature has a full design doc under `docs/specs/`.
   with the decision logic unit-tested.
 
 ### 03 — "While you were away" summary
-`public/away-summary.js`
+`src/renderer/shell/away-summary.js`
 
 - Tracks a per-session **last-viewed** marker and **files touched** while away.
 - On returning to a session that changed while unfocused, shows a compact,
@@ -184,14 +184,14 @@ context switch. Each feature has a full design doc under `docs/specs/`.
   whether it's waiting on you. Never hides the live terminal.
 
 ### 04 — One-click handoff
-`public/handoff-flow.js`, `public/dialogs.js`
+`public/handoff-flow.js`, `src/renderer/dialogs/dialogs.js`
 
 - Turns "Handoff Recommended" into a single guided flow: ask the current agent
   for a handoff packet → start a fresh, lean session seeded with it → switch to
   it. Every token-spending step is explicit and cancelable.
 
 ### 05 — Hook-based attention detection
-`public/attention-source.js`, `main.js`
+`src/shared/attention-source.js`, `src/main.js`
 
 - A more reliable attention signal sourced from **Claude Code hooks**
   (`Notification` + `Stop` events) via a local `127.0.0.1` HTTP ingest server,
@@ -202,7 +202,7 @@ context switch. Each feature has a full design doc under `docs/specs/`.
   own handlers reversibly when disabled.
 
 ### 06 — Bulk actions from the grid
-`public/bulk-actions.js`, `public/grid-view.js`
+`src/renderer/shell/bulk-actions.js`, `src/renderer/views/grid-view.js`
 
 - Safe bulk actions scoped to the current grid filter: **Step through queue**,
   **Mark all ready as seen** (with Undo), and **Stop all running** (destructive →
@@ -217,7 +217,7 @@ layout and the grid's group regions were deleted rather than maintained twice.
 The design record survives in `docs/specs/07-session-groups.md`.
 
 ### 08 — Flexible grid layout (resize / drag)
-`public/grid-layout.js`, `public/grid-view.js`
+`src/renderer/views/grid-layout.js`, `src/renderer/views/grid-view.js`
 
 - **Resize** grid cards to span columns/rows (snap presets 1×1 / 2×1 / 1×2 / 2×2 /
   full width; up to 3 rows via the keyboard move mode) and **drag to reorder**
@@ -237,7 +237,7 @@ Smaller but important changes (mostly in main/Node-side files).
 - **Exit banner**: when a session's process dies, the terminal stays mounted with
   a banner instead of silently closing.
 - **Restore open sessions** across a normal quit/relaunch, with a one-shot restore
-  on app restart (`public/update-restart.js`; originally built for auto-update
+  on app restart (`src/renderer/shell/update-restart.js`; originally built for auto-update
   relaunches — the auto-updater itself has since been removed from this fork).
 
 ### Session/cache correctness
@@ -251,9 +251,9 @@ Smaller but important changes (mostly in main/Node-side files).
   and resolving `projectPath` from cache metadata instead of re-reading JSONLs.
 
 ### Durable caches & DB robustness
-- **Durable usage cache** (`usage-cache.js`) so usage survives rate-limits with a
+- **Durable usage cache** (`src/backends/usage-cache.js`) so usage survives rate-limits with a
   stale-but-useful fallback, including a write fallback.
-- **SQLite busy/locked retry** wrapper (`sqlite-busy-retry.js`) for overlapping
+- **SQLite busy/locked retry** wrapper (`src/db/sqlite-busy-retry.js`) for overlapping
   watcher/index writes.
 
 ### Security hardening
@@ -361,7 +361,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   than guessed at. Import and a normal save share one write path (`persistSettingsBlob`), which is
   what keeps the launcher secret-scrub and the backend re-arm from being bypassed — the imported
   backends take effect with no restart. Values that could not mean anything elsewhere
-  (`windowBounds`) are dropped in both directions. Pure logic in `settings-transfer.js`, unit-tested.
+  (`windowBounds`) are dropped in both directions. Pure logic in `src/app/settings-transfer.js`, unit-tested.
 - **About tab.**
 
 ### Projects & sidebar
@@ -396,12 +396,12 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   together (*sessions tagged `bug` in projects tagged `kunde`*) — which is why they share one bar rather
   than sitting behind a Projects/Sessions switch. The glyph is not decoration: the namespaces are
   separate, so the same word can be both. Tags live in their own tables; both filters are pure,
-  unit-tested modules (`public/project-tags-filter.js`, `public/session-tags-filter.js`).
+  unit-tested modules (`src/renderer/bookmarks/project-tags-filter.js`, `src/renderer/session/session-tags-filter.js`).
 - **Closing does not silently kill your work** — the window owns every running CLI: when it goes, they
   go, and it used to go without a word (an accidental Alt+F4 was enough). Closing with sessions running
   asks first, in the app's own dialog, naming how many sessions and terminals and in which projects.
   Cancel is the default (Escape and Enter both cancel) and the dialog is not dismissible. The decision
-  and the wording are a testable module (`quit-guard.js`); the native message box survives only as the
+  and the wording are a testable module (`src/app/quit-guard.js`); the native message box survives only as the
   fallback for a renderer that cannot answer, or a crashed one would leave a window that can never be
   closed. Switch it off in *Settings → Sessions & CLI*.
 
@@ -440,7 +440,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   runs no turn so no `Stop` hook fires). Opening `/mcp` and pressing ESC left the session on
   *Working* forever. The latch now releases on `4;0`, and with hooks enabled the progress
   sequence no longer sets busy at all — the turn boundaries are authoritative
-  (`osc-busy.js`, unit-tested).
+  (`src/app/terminal/osc-busy.js`, unit-tested).
 - Gated by a **Subagent live status** setting (default on).
 
 ### Terminal
@@ -494,7 +494,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **File preview** — the integrated file panel renders **Markdown**, a **sandboxed HTML preview**
   (`allow-same-origin`, no scripts), and **images** (PNG/JPG/GIF/WebP/SVG/… via a size-capped
   base64 data-URL IPC) inline (port of **brianstanley**). Pure kind/MIME helpers in
-  `public/preview-kind.js` (unit-tested).
+  `src/shared/preview-kind.js` (unit-tested).
 
 ### Supervision extensions
 - **Handoff library** — save packets, editable prompt, resume, direct "New session" seed,

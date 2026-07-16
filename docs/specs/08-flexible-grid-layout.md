@@ -4,7 +4,7 @@
 
 **Status:** Implemented · **Roadmap:** Opportunity #7b (Phase 5B)
 
-> **As built:** on top of the mouse interactions below, a keyboard move mode (Ctrl+Shift+M, `gridMoveMode` in `public/shortcuts.js`) allows resizing/reordering cards without the mouse; spans go up to 3 rows (`MAX_GRID_ROWS` in `public/grid-layout.js`).
+> **As built:** on top of the mouse interactions below, a keyboard move mode (Ctrl+Shift+M, `gridMoveMode` in `src/renderer/shell/shortcuts.js`) allows resizing/reordering cards without the mouse; spans go up to 3 rows (`MAX_GRID_ROWS` in `src/renderer/views/grid-layout.js`).
 >
 > **Superseded in part (#185):** everything below that couples this spec to Spec 07 — the grouped layout, the group regions, and dropping a card into another group — is **gone**. Groups were removed; the grid is a single flat card grid, and a drag only ever reorders. Read those passages as history, not as the contract.
 
@@ -16,7 +16,7 @@ The grid is a **uniform auto-grid** — equal-size cards, column count derived f
 
 ## Current state (grounded)
 
-- Layout math: `calculateGridColumnCount({width, cardCount, minCardWidth, gap})` (`public/grid-layout.js`), `MIN_GRID_CARD_WIDTH=620`, `GRID_GAP=10`.
+- Layout math: `calculateGridColumnCount({width, cardCount, minCardWidth, gap})` (`src/renderer/views/grid-layout.js`), `MIN_GRID_CARD_WIDTH=620`, `GRID_GAP=10`.
 - Applied in `updateGridColumns` (`grid-view.js:274`): sets `terminalsEl.style.gridTemplateColumns = repeat(cols, 1fr)`; `grid-few-cards`/`grid-single-card` classes for small counts.
 - Cards: `wrapInGridCard` (`grid-view.js:71`), placed into `#terminals` in sidebar order in `showGridView`. Each terminal must be re-fit after any size change via `fitAndScroll(entry)` (`terminal-manager.js`) — already called after layout in `showGridView` (~263) and on resize via a `ResizeObserver` (`initGridObservers`, ~285).
 - Persisted grid prefs precedent: `gridViewActive`, `gridStatusFilter` in `localStorage`.
@@ -28,7 +28,7 @@ The grid is a **uniform auto-grid** — equal-size cards, column count derived f
 
 ## Design
 
-### Layout model: extend `public/grid-layout.js` (pure, tested)
+### Layout model: extend `src/renderer/views/grid-layout.js` (pure, tested)
 ```js
 // normalizeSpan({cols, rows}, maxCols) -> clamped {cols, rows} (cols in 1..maxCols, rows in 1..MAX_ROWS)
 // applyLayout(orderedSessionIds, layoutMap, maxCols)
@@ -55,7 +55,7 @@ Cards use CSS grid item spans: `grid-column: span N; grid-row: span M;` on the c
 
 ## Files to touch
 - **New:** `test/grid-layout.test.js` (extend existing module's tests).
-- **Modified:** `public/grid-layout.js` (span/order/reorder helpers), `public/grid-view.js` (resize handles, drag-reorder, apply persisted layout in `showGridView`/`updateGridColumns`, reset button), `public/index.html` (no new script — `grid-layout.js` already loaded ~141), `public/style.css` (resize handle, drag affordances, span behavior).
+- **Modified:** `src/renderer/views/grid-layout.js` (span/order/reorder helpers), `src/renderer/views/grid-view.js` (resize handles, drag-reorder, apply persisted layout in `showGridView`/`updateGridColumns`, reset button), `src/renderer/index.html` (no new script — `grid-layout.js` already loaded ~141), `src/renderer/style.css` (resize handle, drag affordances, span behavior).
 
 ## Tests (`test/grid-layout.test.js`)
 - `normalizeSpan` clamps cols to `[1, maxCols]` and rows to `[1, MAX_ROWS]`.

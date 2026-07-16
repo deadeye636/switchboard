@@ -6,7 +6,7 @@
 
 > **Fork note (2026-07):** This third-party guide was written against upstream
 > `doctly/switchboard` v0.0.30. It still applies to this fork: the stylesheet is
-> `public/style.css` and the colors quoted below are unchanged. Two differences:
+> `src/renderer/style.css` and the colors quoted below are unchanged. Two differences:
 > get releases from this fork's GitHub releases page instead of doctly's, and this
 > fork has **no auto-update** — your CSS edits survive until you manually install
 > a new version (re-apply them after updating).
@@ -46,7 +46,7 @@ L'interface est livrée avec un **thème sombre** bleu-violet. Comme l'applicati
 
 ## 4. Comprendre la personnalisation (`app.asar`)
 
-La CSS de l'interface se trouve dans `public/style.css`, **empaquetée** dans :
+La CSS de l'interface se trouve dans `src/renderer/style.css`, **empaquetée** dans :
 
 ```
 <dossier d'installation>\resources\app.asar

@@ -64,7 +64,7 @@ Group shape: `{ id, name, color, order }`. State is a plain serializable object.
 
 ## Files to touch
 - **New:** `public/groups-model.js`, `test/groups-model.test.js`.
-- **Modified:** `public/sidebar.js` (`renderProjects` split + `buildUserGroup` + assignment UI), `public/grid-view.js` (group regions + group filter), `public/app.js` (load/hold/persist `groupsState`; expose to sidebar/grid via the existing globals pattern), `public/index.html` (script tag before `sidebar.js`), `public/style.css` (group section + region styles; reuse slug-group styles as base).
+- **Modified:** `src/renderer/shell/sidebar.js` (`renderProjects` split + `buildUserGroup` + assignment UI), `src/renderer/views/grid-view.js` (group regions + group filter), `src/renderer/app.js` (load/hold/persist `groupsState`; expose to sidebar/grid via the existing globals pattern), `src/renderer/index.html` (script tag before `sidebar.js`), `src/renderer/style.css` (group section + region styles; reuse slug-group styles as base).
 
 ## Tests (`test/groups-model.test.js`)
 - add/rename/recolor/remove groups; assign moves a session and unassign returns it to ungrouped.

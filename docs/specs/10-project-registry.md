@@ -86,7 +86,7 @@ Both were green in every unit test.
 **1. "Removed" quietly meant "banned for good."** A removed project is deliberately not indexed — that is
 what makes the removal stick. But discovery looked at the **cache**, so a brand-new session in that
 project produced no row and was never noticed: the project could never come back, whatever you did in it.
-The scan is now the one that reports it (`session-cache.js` → `getStoreProjectPaths()`, `path → newest
+The scan is now the one that reports it (`src/index/session-cache.js` → `getStoreProjectPaths()`, `path → newest
 session seen`), because the scan parses the transcript **before** it decides to skip it. The same map is
 what keeps the sweep from being blind: ask the cache whether a removed project still has sessions and it
 says "none" **by construction**.
@@ -168,14 +168,14 @@ removed is not offered back until a session newer than the removal turns up.
 
 | Piece | Where |
 |---|---|
-| The decisions (register / skip / resurrect / sweep / visible) — pure, no db, no fs | `project-registry.js` |
-| The columns + the seeding migration | `db.js` |
-| The sidebar reads the register; the scan reports what the stores hold | `session-cache.js` |
-| add / hide / unhide / remove / discovery + sweep (it releases too, #184) | `projects.js` |
-| What is indexed but not listed (`unlistedProjects`, #183) | `projects.js` |
-| `syncRegistry()` before the list is built; one visibility rule for every view | `main.js` |
-| "Listed" toggle (both modes), hide ≠ remove | `public/projects-admin.js`, `public/sidebar.js` |
-| The "not on your list" line + the manager's filter (#183) | `public/app.js`, `public/projects-admin.js` |
+| The decisions (register / skip / resurrect / sweep / visible) — pure, no db, no fs | `src/projects/project-registry.js` |
+| The columns + the seeding migration | `src/db/db.js` |
+| The sidebar reads the register; the scan reports what the stores hold | `src/index/session-cache.js` |
+| add / hide / unhide / remove / discovery + sweep (it releases too, #184) | `src/projects/projects.js` |
+| What is indexed but not listed (`unlistedProjects`, #183) | `src/projects/projects.js` |
+| `syncRegistry()` before the list is built; one visibility rule for every view | `src/main.js` |
+| "Listed" toggle (both modes), hide ≠ remove | `src/renderer/panels/projects-admin.js`, `src/renderer/shell/sidebar.js` |
+| The "not on your list" line + the manager's filter (#183) | `src/renderer/app.js`, `src/renderer/panels/projects-admin.js` |
 
 ## Which project a session belongs to (#157, #182)
 
@@ -202,7 +202,7 @@ genuinely **leaves** the tree:
 | the parent repo, having started in a worktree | the parent (an ancestor is not a descendant) |
 | an unrelated repository elsewhere on disk | that repository |
 
-The rule lives in `sessionProjectPath` (`derive-project-path.js`); `PARSER_SCHEMA_VERSION` was bumped with
+The rule lives in `sessionProjectPath` (`src/session/derive-project-path.js`); `PARSER_SCHEMA_VERSION` was bumped with
 it, or the sessions v3 had already scattered into phantom projects would never be re-read — their mtimes
 settled long ago.
 

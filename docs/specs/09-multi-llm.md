@@ -10,7 +10,7 @@ User-facing guide: [`docs/multi-llm.md`](../multi-llm.md). Session formats of ea
 
 ## Problem & goal
 
-Switchboard was a **Claude Code** cockpit: `main.js` spawned `claude`, the scanner read
+Switchboard was a **Claude Code** cockpit: `src/main.js` spawned `claude`, the scanner read
 `~/.claude/projects/**/*.jsonl`, the sidebar assumed one binary and one transcript format. Meanwhile the
 same person runs Codex, Hermes or Pi in a second terminal, with no session list, no search, no attention
 signals, no stats — the entire reason Switchboard exists, missing for half their work.
@@ -78,7 +78,7 @@ one transcript per session under a root — only the root, the filename shape an
 and Pi carried that code verbatim, which is precisely the shape of #148–#155: a defect found in one
 backend, fixed there, and kept by its twin.
 
-So it lives once, in **`backends/file-store.js`**. A file backend declares what is genuinely its own and
+So it lives once, in **`src/backends/file-store.js`**. A file backend declares what is genuinely its own and
 gets the rest:
 
 ```js
@@ -121,7 +121,7 @@ For the inferred ones, terminal output is used as a **liveness** signal (`ctx.la
 a running-but-silent turn out of idle, and may **never** declare one busy. Activity is a bad state signal
 (a spinner frame is activity, so is an echoed keystroke) and a fine liveness signal.
 
-**When the store says nothing at all, the app says so** (`live-record-notice.js`, #151). A store-derived
+**When the store says nothing at all, the app says so** (`src/app/terminal/live-record-notice.js`, #151). A store-derived
 backend can only report a state once the live session is paired with its store record. Hermes has a
 degraded mode — it writes sessions as JSON when it cannot open its own database, and our reader *is* that
 database — so a session running in front of the user may have no record we can see. The tab then shows no
@@ -278,8 +278,8 @@ usage: {
 }
 ```
 
-Every capability returns the **same shape** (`backends/usage-format.js` documents it): a list of buckets
-(`key, label, percent, reset, tier, bar`) plus an optional credit pool. `main.js` iterates
+Every capability returns the **same shape** (`src/backends/usage-format.js` documents it): a list of buckets
+(`key, label, percent, reset, tier, bar`) plus an optional credit pool. `src/main.js` iterates
 `backends.list().filter(b => b.enabled && b.usage)`, stamps each result with the descriptor's identity, and
 caches it **per backend** (`usage:lastSuccessful:<id>`).
 
@@ -317,7 +317,7 @@ Filed as issues rather than silently carried:
 
 Closed since: **#154** (every backend feeds the charts), **#152** + **#159** (below), **#188** (the core
 now reads Claude through its descriptor — the format modules moved into `backends/claude/`
-(`session-reader.js` / `folder-reader.js`) and `session-cache.js` pulls its readers off the descriptor,
+(`session-reader.js` / `folder-reader.js`) and `src/index/session-cache.js` pulls its readers off the descriptor,
 so the folder is no longer half a lie; the Electron-free scan worker imports the reader by path).
 
 ## Metrics: the staleness gate, and what a bucket is (#152, #159)
@@ -333,7 +333,7 @@ claimed a cold-start rebuild would backfill it — but a cold start only runs wh
 which after the first launch it never is. **Bump a parser and its sessions re-read themselves. That is
 the contract; do not add a metrics field without bumping.**
 
-**A metrics bucket is `(date, hour, model)`, on the LOCAL clock** (`metrics-bucket.js` — one helper, all
+**A metrics bucket is `(date, hour, model)`, on the LOCAL clock** (`src/backends/metrics-bucket.js` — one helper, all
 four backends). Claude used to slice the ISO string (the UTC day) while Hermes grouped by SQLite's
 `localtime`: in a chart that stacked both, the same evening's work sat a column apart. The user's day is
 the day their own clock showed.
@@ -352,7 +352,7 @@ Each backend can be exact to a different depth, and the difference is stated rat
 counts them.
 
 **The Stats filter is one control** at the top of the page and scopes every figure below it. It is
-resolved in **SQL** (`stats-queries.js`), not in the renderer, because only aggregates cross the IPC
+resolved in **SQL** (`src/db/stats-queries.js`), not in the renderer, because only aggregates cross the IPC
 boundary — there is nothing in the renderer left to filter. `session_metrics` carries no `backendId`: it
 JOINs `session_cache`, which owns the authoritative provenance. A `NULL` backendId there means Claude,
 and every query folds it in — otherwise a Claude user's entire pre-multi-LLM history vanishes the moment

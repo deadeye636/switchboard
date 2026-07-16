@@ -82,7 +82,7 @@ separate append-only file next to the store:
   rollout files**, last written three months ago. An entry exists only for a thread the user bothered to
   name, and Codex does not backfill the rest. So a session with no entry is the **common case**, and the
   first real user prompt stays the title. A per-session fallback is mandatory, not polish.
-- The parser reads it once, memoised on the file's mtime (`backends/codex/thread-names.js`).
+- The parser reads it once, memoised on the file's mtime (`src/backends/codex/thread-names.js`).
 - It does **not** go through `customTitle`: that field is promoted into `session_meta.name` by the scan,
   which would overwrite a rename the user made in Switchboard, on every rescan. A thread name is a label,
   not a claim on the name column.
@@ -203,7 +203,7 @@ retired CLI and are a decoy. agy's own store is elsewhere.
 ```
 
 - **One transcript is one SQLite `.db` file per conversation** — so it is a **file-mode** backend and composes
-  `backends/file-store.js` (walk `conversations/*.db`, `refSuffix(id) = '<id>.db'`). But the *content* is a
+  `src/backends/file-store.js` (walk `conversations/*.db`, `refSuffix(id) = '<id>.db'`). But the *content* is a
   database, not text, so it reads like Hermes: reuse the dual driver (`better-sqlite3` in Electron, fall back
   to `node:sqlite` so the parser is testable under plain `node --test` — see Hermes' `loadDriver`). Read-only,
   `query_only`, short-lived.
@@ -273,7 +273,7 @@ which meant they were, in practice, not configurable from Switchboard.
 | **Pi** | `model`, `provider`, `thinking`, `tools`, `excludeTools`, `appendSystemPrompt`, `noContextFiles` | **`--api-key`** — it would put a raw key on the COMMAND LINE, readable in any process listing. Pi reads its key from the environment; a template's `$VAR` env bundle (resolved at spawn, never on disk) is the only route we offer. Also `--mode json/rpc` and `--print` (non-interactive), `--session-dir`/`--no-session` (they move or suppress the store we watch). |
 
 **Some options belong to Switchboard, not to a CLI**, and the registry adds those to *every* backend
-(`backends/index.js`, `UNIVERSAL_FIELDS`) rather than letting four descriptors carry four copies that
+(`src/backends/agy/index.js`, `UNIVERSAL_FIELDS`) rather than letting four descriptors carry four copies that
 drift apart. Today that is **`preLaunchCmd`** — a raw shell prefix (`nvm use 20 &&`, `aws-vault exec
 profile --`) with nothing Claude-specific about it. It *was* Claude's, for a reason nobody wrote down and
 which turned out to be about the **spawn mode**: Claude starts through a shell (there is a command line to

@@ -59,5 +59,5 @@ the Squirrel install step with a manual bundle swap + relaunch.
 
 ## Touched files
 
-- `main.js` — updater config, capture downloaded file, manual mac install.
-- `public/app.js` — surface install error message.
+- `src/main.js` — updater config, capture downloaded file, manual mac install.
+- `src/renderer/app.js` — surface install error message.

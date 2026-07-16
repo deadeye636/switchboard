@@ -16,7 +16,7 @@ name the cause in half a sentence, link the issue. What they must never be is a 
 **Never guess from the subject line.** A subject is fifty characters and often says less than it seems.
 For every `feat`/`fix` that is not self-evident, read `git show <sha> --stat` — the body and the touched
 files decide both the wording and the section it belongs in. A commit titled `fix(projects): …` that only
-touches `db.js` is not a project fix.
+touches `src/db/db.js` is not a project fix.
 
 **One line per thing the reader will NOTICE — never one line per commit.** Six commits that hardened one
 feature are one line. A commit that changed nothing a user can see is not a line at all.
@@ -123,7 +123,7 @@ The release stays a **draft** until the user says otherwise — publishing is a 
 
 **Under the hood.** One line, not seven:
 
-> Project management moved out of `main.js` into a module with tests (#170), the shared file-store walk is
+> Project management moved out of `src/main.js` into a module with tests (#170), the shared file-store walk is
 > no longer copied per backend (#156), and the cold scan now reports how long it took.
 
 ## Counter-examples

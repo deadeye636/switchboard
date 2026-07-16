@@ -12,10 +12,10 @@ The grid is positioned as a "command center" for many agents, but every action i
 
 ## Current state (grounded)
 
-- Grid: `public/grid-view.js`. Cards built in `wrapInGridCard` (per-session header with stop/handoff). Filter bar `renderGridStatusFilters` (~42) with All / Needs You / Ready / Running, counts from `getStatusCounts`. `getGridOpenSessions()` / `getGridAllowedSessionIds()` give the working set.
+- Grid: `src/renderer/views/grid-view.js`. Cards built in `wrapInGridCard` (per-session header with stop/handoff). Filter bar `renderGridStatusFilters` (~42) with All / Needs You / Ready / Running, counts from `getStatusCounts`. `getGridOpenSessions()` / `getGridAllowedSessionIds()` give the working set.
 - Focus traversal exists: `getNextAttentionInboxItem` (`session-status.js:91`), `focusGridCard(sessionId)` (`grid-view.js:194`), `navigateGrid`/`navigateSession`.
 - Clearing state: `clearNotifications(sessionId)` / `clearUnread(sessionId)` (`app.js`).
-- Stop with confirmation: `confirmAndStopSession(sessionId)` (used by card stop button). Styled dialogs/toasts: `public/control-dialogs.js` (`showControlDialog`, `showControlToast`).
+- Stop with confirmation: `confirmAndStopSession(sessionId)` (used by card stop button). Styled dialogs/toasts: `src/renderer/dialogs/control-dialogs.js` (`showControlDialog`, `showControlToast`).
 
 ## Scope
 
@@ -24,7 +24,7 @@ The grid is positioned as a "command center" for many agents, but every action i
 
 ## Design
 
-### Pure helper: `public/bulk-actions.js` (UMD, Electron-free, tested)
+### Pure helper: `src/renderer/shell/bulk-actions.js` (UMD, Electron-free, tested)
 Compute the targets for each action from the runtime + filter, so the dangerous part (what gets acted on) is unit-tested:
 ```js
 // bulkTargets(sessions, runtime, filter) -> {
@@ -43,8 +43,8 @@ Reuse `getFilteredSessionsByStatus` + `getSessionStatus` + `getAttentionInboxIte
 - Keep the bar visible (not hover-only), consistent with the existing "attention actions visible" decision in the supervision plan.
 
 ## Files to touch
-- **New:** `public/bulk-actions.js`, `test/bulk-actions.test.js`.
-- **Modified:** `public/grid-view.js` (header bulk bar + handlers; reuse `focusGridCard`, `clearUnread`, `confirmAndStopSession`/`stopSession`), `public/index.html` (script tag before `grid-view.js`), `public/style.css` (bulk bar styles). `preload.js` only if a not-yet-exposed action is needed (stop already exposed).
+- **New:** `src/renderer/shell/bulk-actions.js`, `test/bulk-actions.test.js`.
+- **Modified:** `src/renderer/views/grid-view.js` (header bulk bar + handlers; reuse `focusGridCard`, `clearUnread`, `confirmAndStopSession`/`stopSession`), `src/renderer/index.html` (script tag before `grid-view.js`), `src/renderer/style.css` (bulk bar styles). `src/preload.js` only if a not-yet-exposed action is needed (stop already exposed).
 
 ## Tests (`test/bulk-actions.test.js`)
 - `readyToClear` only includes response-ready sessions within the active filter.
