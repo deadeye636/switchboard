@@ -140,7 +140,9 @@ const {
 try { applyLogLevel(getSetting('global')?.logLevel); } catch { /* first run: defaults stand */ }
 
 // Pure insert-template helpers (no Electron deps — unit-tested separately).
-const { defaultInsertTemplate, shellRefFor, substituteInsertTemplate } = require('./variable-insert');
+// Lives under public/ so the renderer can load it as a plain <script> too: the template editor's preview has
+// to compose with the SAME code the insert runs, or it drifts from what it claims to show.
+const { defaultInsertTemplate, shellRefFor, substituteInsertTemplate } = require('./public/variable-insert');
 
 // --- Search query worker ---
 // Routes 'search' IPC off the main thread so that a slow FTS5 phrase query
@@ -2333,12 +2335,6 @@ function classifyShellType(shellPath) {
   return 'unknown';
 }
 
-// Resolve the effective shell family for a project (mirrors createTerminalSession's
-// profile precedence: project override → global → default → auto detection).
-function resolveShellTypeForProject(projectPath) {
-  return classifyShellType(resolveShell(effectiveSettings(projectPath).shellProfile).path);
-}
-
 // Resolve a bare command name to a directly-executable binary, for backends that ask for argv-mode
 // spawn (00 §4). Returns null when it can't be executed directly — notably a `.cmd`/`.bat` npm shim
 // on Windows, which CreateProcess (and therefore node-pty's argv spawn) cannot run. The caller then
@@ -2409,16 +2405,6 @@ function cleanupSecretRefs() {
   } catch {}
 }
 
-// Resolve the shell family for a project so the renderer can pick the right
-// reference syntax (or fall back to clipboard copy for cmd/unknown).
-ipcMain.handle('get-shell-type', (_event, projectPath) => {
-  try {
-    return { ok: true, shellType: resolveShellTypeForProject(typeof projectPath === 'string' ? projectPath : null) };
-  } catch (err) {
-    return { ok: false, error: err.message, shellType: 'unknown' };
-  }
-});
-
 // Resolve a variable's insert-template into the exact text to place in the
 // terminal. Supersedes the raw-value / materialize-secret-ref paths: it applies
 // the variable's insertTemplate (or the secret/non-secret default), materializing
@@ -2430,10 +2416,10 @@ ipcMain.handle('get-shell-type', (_event, projectPath) => {
 //                (cmd/unknown/WSL) we return { fallback:'copy', value } instead.
 // The shell family is taken from the SESSION, not from the caller. It used to be a renderer argument, which
 // made the one security-relevant decision here — "can this shell read a temp file inline?" — something main
-// was told rather than something it knew. It was also derived from the wrong setting: the renderer asked
-// `get-shell-type`, which answers for the project's CLI shell (`shellProfile`), while a plain terminal spawns
-// with `terminalShellProfile`. Set the two differently and main built a pwsh read for a bash session — which
-// emits literal text and leaves the secret's temp-file path in the terminal, and so in the transcript.
+// was told rather than something it knew. It was also derived from the wrong setting: the renderer asked for
+// the PROJECT's CLI shell (`shellProfile`), while a plain terminal spawns with `terminalShellProfile`. Set
+// the two differently and main built a pwsh read for a bash session — which emits literal text and leaves the
+// secret's temp-file path in the terminal, and so in the transcript.
 ipcMain.handle('resolve-variable-insert', (_event, id, sessionId) => {
   try {
     const row = getSavedVariable(id);
