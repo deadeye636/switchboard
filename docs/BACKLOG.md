@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (24 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-16
 
@@ -18,9 +18,9 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
-- [#205](https://github.com/deadeye636/switchboard/issues/205) Variables: reference other variables inside an insert template · _feature_
 - [#206](https://github.com/deadeye636/switchboard/issues/206) Add Codex support to scheduled tasks (Claude + Codex) · _feature_
 - [#207](https://github.com/deadeye636/switchboard/issues/207) Variable quick-pick: keyboard-driven (type-to-filter, arrow nav, Enter inserts + trailing space) · _feature_
+- [#211](https://github.com/deadeye636/switchboard/issues/211) Projects admin: the last Claude-only bits belong behind a backend hook · _chore_
 
 ## P3 — someday
 
@@ -35,5 +35,8 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#143](https://github.com/deadeye636/switchboard/issues/143) i18n: renderer localisation support layer (language-neutral, EN master) · _feature, source:kreaddis_
 - [#193](https://github.com/deadeye636/switchboard/issues/193) Session provenance: show where a session came from (clear heuristic + explicit parent links) · _feature_
 - [#201](https://github.com/deadeye636/switchboard/issues/201) agy backend: add a usage capability (status bar + Usage & Notifications), like Claude/Codex · _feature, blocked-on-upstream_
-- [#204](https://github.com/deadeye636/switchboard/issues/204) Variables: make the New Variable dialog wider · _feature_
 - [#210](https://github.com/deadeye636/switchboard/issues/210) perf: run the live-session identity match (matchLiveSession) in the index worker · _chore_
+- [#212](https://github.com/deadeye636/switchboard/issues/212) Renderer still names Claude in three places the descriptor should cover · _chore_
+- [#213](https://github.com/deadeye636/switchboard/issues/213) main.js is ~4970 lines — split it into src/app/ the way session-cache.js was split · _chore_
+- [#214](https://github.com/deadeye636/switchboard/issues/214) Repo layout: move all app code under src/ and give it themed folders · _chore_
+- [#215](https://github.com/deadeye636/switchboard/issues/215) public/ is 69 flat files and the bigger half of the app — give the renderer a structure · _chore_
