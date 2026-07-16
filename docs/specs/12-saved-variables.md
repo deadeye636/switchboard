@@ -155,8 +155,12 @@ collect them is opt-in and off by default.
 
 **The list rows carry no value — that is what makes phase 1 honest, and it is a trap.** Using those same rows
 in phase 2 silently yields an empty value: a referenced variable composes to nothing, and a referenced
-*secret* writes an **empty temp file** whose ref then reads it. Phase 2 re-reads the full row. Unit tests
-cannot see this (they never touch the DB); it took running the app.
+*secret* writes an **empty temp file** whose ref then reads it. Phase 2 re-reads the full row. It took
+running the app to find, and for a long time a unit test could not have seen it — the handler was in
+`main.js`, which needs Electron. Since #213 it is `app/variables.js`, and
+`test/variables-secrets.test.js` builds a real `{var:}` graph and asserts the referenced secret's temp
+file holds its actual value. Removing the re-read now fails two tests. Keep it that way: the guard was
+written *because* nothing was watching this line.
 
 **The shell family comes from the session**, recorded at spawn. It used to be an argument from the renderer —
 so the one security-relevant question here ("can this shell read a file inline?") was something main was
@@ -254,6 +258,10 @@ composed string would inline `{value}` plaintext into `main.log`.
   strips it, so the same secret composes to different values per shell. Untested against a live pwsh session.
 - **The clipboard fallback puts a secret's plaintext on the clipboard** (pre-existing, and consented — the
   user asked for that variable). On Windows, clipboard history (Win+V) persists and cloud-syncs it.
-- **The resolver's guards are verified live, not by unit test** — the handler lives in `src/main.js`, which
-  cannot load under `node --test`. The pure core (`src/shared/variable-insert.js`) is thoroughly covered;
-  the unwind, the node cap and the multi-line refusal are not.
+- ~~**The resolver's guards are verified live, not by unit test**~~ — **closed by #213.** The handler moved
+  to `src/app/variables.js`, which takes safeStorage, the DB and the secret-ref directory through ctx and so
+  loads under `node --test`. `test/variables-secrets.test.js` now covers the encryption round-trip, the 0600
+  mode (POSIX only — on Windows the mode bits are not what protects the file), the unwind on every failure
+  path, the multi-line/ESC refusal, the secret-ref lifecycle, and the `{var:}` graph — including the trap
+  above: a referenced secret whose full row is not re-read writes an empty temp file. The **node cap** is
+  still not covered. Nor is the pwsh ref (see above): that one needs a live pwsh session, not a unit test.

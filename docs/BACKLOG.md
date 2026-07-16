@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (25 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (26 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-16
 
@@ -21,6 +21,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#206](https://github.com/deadeye636/switchboard/issues/206) Add Codex support to scheduled tasks (Claude + Codex) · _feature_
 - [#207](https://github.com/deadeye636/switchboard/issues/207) Variable quick-pick: keyboard-driven (type-to-filter, arrow nav, Enter inserts + trailing space) · _feature_
 - [#211](https://github.com/deadeye636/switchboard/issues/211) Projects admin: the last Claude-only bits belong behind a backend hook · _chore_
+- [#220](https://github.com/deadeye636/switchboard/issues/220) A dev run can be left behind, and the next one then talks to the corpse · _bug_
 
 ## P3 — someday
 
