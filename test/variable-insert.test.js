@@ -7,7 +7,10 @@ const {
   substituteInsertTemplate,
   effectiveTemplate,
   forceRefForNested,
+  finalTemplateFor,
   parseVarRefs,
+  resolveVarGraph,
+  buildNameIndex,
   compose,
   scanRefSafety,
 } = require('../public/variable-insert');
@@ -253,4 +256,103 @@ test('scanRefSafety: no refs → nothing to flag, whatever the quoting', () => {
 test('scanRefSafety: an unbalanced quote around a ref is flagged even if the ref itself reads unquoted', () => {
   const r = compose("echo '{var:x} {ref}", { ref: "\"$(cat '/tmp/x')\"", vars: { x: 'a' } });
   assert.ok(scanRefSafety(r.text, r.refOffsets).some(h => h.reason === 'unbalanced' || h.reason === 'quoted'));
+});
+
+// --- resolveVarGraph: the walk that decides everything BEFORE anything is decrypted ---------------------
+
+function node(id, name, opts = {}) {
+  return { id, name, secret: !!opts.secret, insertTemplate: opts.tmpl || '', scope: opts.scope || 'global', createdAt: opts.createdAt || '2026-01-01T00:00:00.000Z' };
+}
+function graphFor(rows, rootId) {
+  const byId = new Map(rows.map(r => [r.id, r]));
+  return resolveVarGraph(rootId, byId, buildNameIndex(rows));
+}
+
+test('resolveVarGraph: children come before parents (bottom-up), each id once', () => {
+  const rows = [
+    node('a', 'a', { tmpl: '{var:b} {var:c}' }),
+    node('b', 'b', { tmpl: '{var:c}' }),
+    node('c', 'c'),
+  ];
+  const g = graphFor(rows, 'a');
+  assert.ok(!g.cycle);
+  assert.deepEqual(g.order, ['c', 'b', 'a'], 'c resolves first; a last');
+});
+
+test('resolveVarGraph: a diamond resolves the shared node ONCE', () => {
+  // A→x and A→y→x. Without memoisation x would be composed twice and, if secret, get two temp files.
+  const rows = [
+    node('a', 'a', { tmpl: '{var:x} {var:y}' }),
+    node('y', 'y', { tmpl: '{var:x}' }),
+    node('x', 'x'),
+  ];
+  const g = graphFor(rows, 'a');
+  assert.equal(g.order.filter(id => id === 'x').length, 1);
+  assert.deepEqual(g.order, ['x', 'y', 'a']);
+});
+
+test('resolveVarGraph: a cycle is detected and named, and does not hang', () => {
+  const rows = [
+    node('a', 'a', { tmpl: '{var:b}' }),
+    node('b', 'b', { tmpl: '{var:a}' }),
+  ];
+  const g = graphFor(rows, 'a');
+  assert.ok(g.cycle, 'cycle reported');
+  assert.ok(g.cycle.includes('a') && g.cycle.includes('b'), 'the path names the variables');
+});
+
+test('resolveVarGraph: a self-reference is a cycle', () => {
+  const g = graphFor([node('a', 'a', { tmpl: 'x {var:a}' })], 'a');
+  assert.ok(g.cycle);
+});
+
+test('resolveVarGraph: an unknown name is reported, not fatal (missing → empty)', () => {
+  const g = graphFor([node('a', 'a', { tmpl: '{var:nope}' })], 'a');
+  assert.ok(!g.cycle);
+  assert.deepEqual(g.order, ['a']);
+  assert.deepEqual(g.missing, ['nope']);
+});
+
+test('resolveVarGraph: a secret child is walked through its FORCED template, not its own', () => {
+  // The secret's template says {value}; reached through a ref it resolves as {ref}. The graph must walk the
+  // forced form, or a template that only references things via {value} would look ref-free to phase 1 —
+  // and phase 1 is where the shell-capability check happens.
+  const rows = [
+    node('a', 'a', { tmpl: '{var:s}' }),
+    node('s', 's', { secret: true, tmpl: '{value}' }),
+  ];
+  const g = graphFor(rows, 'a');
+  assert.deepEqual(g.order, ['s', 'a']);
+  assert.equal(finalTemplateFor(rows[1], false), '{ref}', 'nested → forced');
+  assert.equal(finalTemplateFor(rows[1], true), '{value}', 'as the ROOT it keeps its own template');
+});
+
+// --- buildNameIndex: Decision 6 — a rule, not a UNIQUE constraint --------------------------------------
+
+test('buildNameIndex: project scope beats global for the same name', () => {
+  const rows = [
+    node('g', 'server', { scope: 'global', createdAt: '2020-01-01T00:00:00.000Z' }),
+    node('p', 'server', { scope: 'project', createdAt: '2026-01-01T00:00:00.000Z' }),
+  ];
+  assert.equal(buildNameIndex(rows).server, 'p', 'project wins even though it is newer');
+});
+
+test('buildNameIndex: within a scope the OLDEST wins, id breaks a createdAt tie', () => {
+  const rows = [
+    node('n', 'x', { createdAt: '2026-05-05T00:00:00.000Z' }),
+    node('o', 'x', { createdAt: '2020-01-01T00:00:00.000Z' }),
+  ];
+  assert.equal(buildNameIndex(rows).x, 'o');
+
+  // createdAt is a millisecond ISO string — ties are real, so the result must not depend on row order.
+  const tied = [node('bbb', 'y'), node('aaa', 'y')];
+  assert.equal(buildNameIndex(tied).y, 'aaa');
+  assert.equal(buildNameIndex([...tied].reverse()).y, 'aaa', 'stable whatever the input order');
+});
+
+test('buildNameIndex: matching is case-SENSITIVE — Server and server are two variables', () => {
+  const rows = [node('1', 'Server'), node('2', 'server')];
+  const idx = buildNameIndex(rows);
+  assert.equal(idx.Server, '1');
+  assert.equal(idx.server, '2');
 });

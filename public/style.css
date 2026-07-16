@@ -8812,6 +8812,9 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .va-secret-toggle { display: flex; flex-direction: column; gap: 5px; }
 .va-field-help { font-size: 12px; color: #7a7a90; line-height: 1.5; margin-top: -4px; }
 .va-field-help code { background: rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 4px; font-size: 11px; }
+/* A name that predates cross-references and holds a brace: a limitation, not an error — it is only
+   unreferenceable. Warning tone, not danger; we are not blocking the save. */
+.va-field-help.va-name-warn { color: #e5c07b; }
 .va-status { font-size: 12px; color: #7a7a90; min-height: 14px; }
 .va-status.error { color: #ff8f8f; }
 .va-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }

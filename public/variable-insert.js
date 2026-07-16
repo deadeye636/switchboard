@@ -73,6 +73,57 @@ function parseVarRefs(template) {
   return out;
 }
 
+// The template a node resolves with, once its position is known. The ROOT keeps its own template; every node
+// reached THROUGH a reference has a secret's {value} forced to {ref} (see forceRefForNested).
+function finalTemplateFor(node, isRoot) {
+  const t = effectiveTemplate(node);
+  return isRoot ? t : forceRefForNested(t, !!(node && node.secret));
+}
+
+// Walk the reference graph from a root, WITHOUT touching a value.
+//
+// This is why the graph phase can be pure: everything it needs — a name, the secret flag, the template — is
+// in the rows the list query already returns, and that query deliberately does not select `value`. So cycles,
+// the node count and every "does this need a temp file?" decision are settled before anything is decrypted.
+//
+//   nodesById  — id -> { id, name, secret, insertTemplate }; MUST contain the root, which may not be in the
+//                applicable set (a root can belong to another project; the handler injects it).
+//   nameIndex  — name -> id, already collapsed by the binding rule (project beats global, then oldest).
+//
+// Returns { order, missing } with `order` bottom-up (children before parents, each id once), or { cycle }
+// naming the path. A reference to a name nobody has resolves to empty later — the missing-{value}
+// convention — so it is reported, not fatal.
+function resolveVarGraph(rootId, nodesById, nameIndex = {}) {
+  const get = (id) => (nodesById instanceof Map ? nodesById.get(id) : nodesById[id]);
+  const lookup = (name) => (nameIndex instanceof Map ? nameIndex.get(name) : nameIndex[name]);
+  const order = [];
+  const done = new Set();
+  const visiting = [];
+  const missing = [];
+
+  function walk(id, isRoot) {
+    if (done.has(id)) return null;
+    if (visiting.includes(id)) return visiting.slice(visiting.indexOf(id)).concat(id);
+    const node = get(id);
+    if (!node) return null;
+    visiting.push(id);
+    for (const name of parseVarRefs(finalTemplateFor(node, isRoot))) {
+      const childId = lookup(name);
+      if (childId == null) { missing.push(name); continue; }
+      const cycle = walk(childId, false);
+      if (cycle) return cycle;
+    }
+    visiting.pop();
+    done.add(id);
+    order.push(id);          // children are already in — this is the bottom-up order
+    return null;
+  }
+
+  const cycle = walk(rootId, true);
+  if (cycle) return { cycle: cycle.map((id) => (get(id) || {}).name || id) };
+  return { order, missing };
+}
+
 // Compose a template into its final text.
 //
 // SINGLE PASS, and that is the whole point. The old implementation chained split/join passes — {path}, then
@@ -177,15 +228,61 @@ function scanRefSafety(text, refOffsets = []) {
   return out;
 }
 
+// Collapse the applicable rows to ONE id per name — deterministically, because `{var:x}` must mean the same
+// row today and tomorrow.
+//
+// Duplicate names are possible (the table has never constrained them) and this is deliberately NOT solved
+// with a unique index: nothing in cross-referencing requires uniqueness, and a constraint would mean
+// rewriting names in databases we cannot see. A rule costs nothing and breaks nobody's data.
+//
+//   1. project scope beats global — the same precedence the settings cascade uses, and the same set the
+//      list query already returns;
+//   2. within a scope, oldest wins: createdAt ASC, then id ASC. `createdAt` is a millisecond ISO string, so
+//      ties are real; `id` is the tie-break that keeps this stable across runs. `updatedAt` would identify
+//      "recently touched", not "the one you meant" — and it moves whenever either duplicate is edited.
+//
+// Names are matched case-SENSITIVELY: `Server` and `server` are two legitimate rows, and the `LOWER(name)`
+// in the list query's ORDER BY must not be mistaken for a matching rule.
+function buildNameIndex(rows = []) {
+  const best = new Map();
+  for (const r of rows) {
+    if (!r || !r.name) continue;
+    const cur = best.get(r.name);
+    if (!cur || beatsForBinding(r, cur)) best.set(r.name, r);
+  }
+  const index = {};
+  for (const [name, row] of best) index[name] = row.id;
+  return index;
+}
+
+function beatsForBinding(a, b) {
+  const aProject = a.scope === 'project';
+  const bProject = b.scope === 'project';
+  if (aProject !== bProject) return aProject;                    // project beats global
+  const ac = String(a.createdAt || '');
+  const bc = String(b.createdAt || '');
+  if (ac !== bc) return ac < bc;                                 // oldest wins
+  return String(a.id) < String(b.id);                            // stable tie-break
+}
+
+// How many variables one insert may pull in. A cycle guard stops infinite descent but bounds nothing else:
+// a wide graph would materialize a temp file per secret and compose a command nobody meant to write. Twenty
+// is far past any honest template and far below anything that could hurt.
+const MAX_RESOLVED_NODES = 20;
+
 const api = {
   defaultInsertTemplate,
   effectiveTemplate,
   forceRefForNested,
+  finalTemplateFor,
   shellRefFor,
   parseVarRefs,
+  resolveVarGraph,
+  buildNameIndex,
   compose,
   substituteInsertTemplate,
   scanRefSafety,
+  MAX_RESOLVED_NODES,
 };
 
 // Dual mode: `require()` in main, a global in the renderer (which has no require — plain <script> tags).

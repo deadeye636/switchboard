@@ -142,7 +142,10 @@ try { applyLogLevel(getSetting('global')?.logLevel); } catch { /* first run: def
 // Pure insert-template helpers (no Electron deps — unit-tested separately).
 // Lives under public/ so the renderer can load it as a plain <script> too: the template editor's preview has
 // to compose with the SAME code the insert runs, or it drifts from what it claims to show.
-const { defaultInsertTemplate, shellRefFor, substituteInsertTemplate } = require('./public/variable-insert');
+const {
+  shellRefFor, compose, parseVarRefs, finalTemplateFor,
+  resolveVarGraph, buildNameIndex, scanRefSafety, MAX_RESOLVED_NODES,
+} = require('./public/variable-insert');
 
 // --- Search query worker ---
 // Routes 'search' IPC off the main thread so that a slow FTS5 phrase query
@@ -2249,6 +2252,17 @@ ipcMain.handle('save-saved-variable', (_event, input = {}) => {
     const name = String(input.name || '').trim().slice(0, 120);
     if (!name) return { ok: false, error: 'Name is required' };
 
+    // A name is how a template refers to a variable (`{var:<name>}`), and the grammar stops at a brace — so
+    // a name holding one can never be referenced. Rejected only when the name is actually NEW or CHANGED:
+    // rows predating cross-references may hold anything, and they still work for everything except being
+    // referenced. Blocking a save because of a name the user did not touch would lock them out of editing
+    // their own value — arriving, of all moments, while they are rotating a credential.
+    const previous = input.id ? getSavedVariable(input.id) : null;
+    const nameChanged = !previous || previous.name !== name;
+    if (nameChanged && /[{}]/.test(name)) {
+      return { ok: false, error: 'A name cannot contain { or } — it could not be referenced as {var:name}' };
+    }
+
     const scope = input.scope === 'project' ? 'project' : 'global';
     const projectPath = scope === 'project' ? String(input.projectPath || '').trim() : null;
     if (scope === 'project' && !projectPath) {
@@ -2310,6 +2324,18 @@ function trackSecretRef(filePath, sessionId) {
   let s = secretRefBySession.get(sessionId);
   if (!s) { s = new Set(); secretRefBySession.set(sessionId, s); }
   s.add(filePath);
+}
+
+// Undo a track + delete the file. A composed insert can write several temp files and then fail — a nested
+// ref on a shell that cannot read one, a quoted ref, a line break in the result — and it must not leave the
+// secrets it already wrote lying around. The age sweep is opt-in and off by default, so nothing else would
+// collect them until the session ends. Best-effort: an unlink that fails still gets untracked, since the
+// quit-time directory sweep is the backstop.
+function untrackSecretRef(filePath, sessionId) {
+  try { fs.unlinkSync(filePath); } catch {}
+  secretRefFiles.delete(filePath);
+  const s = sessionId && secretRefBySession.get(sessionId);
+  if (s) { s.delete(filePath); if (!s.size) secretRefBySession.delete(sessionId); }
 }
 
 // Delete a session's secret-ref temp files (called on its PTY exit when the
@@ -2420,43 +2446,134 @@ function cleanupSecretRefs() {
 // the PROJECT's CLI shell (`shellProfile`), while a plain terminal spawns with `terminalShellProfile`. Set
 // the two differently and main built a pwsh read for a bash session — which emits literal text and leaves the
 // secret's temp-file path in the terminal, and so in the transcript.
+// A template may also reference OTHER variables via {var:<name>} (#205), which is why this runs in two
+// phases. PHASE 1 decides everything using only the list rows — which carry the name, the secret flag and the
+// template, and deliberately not the value — so cycles, the node count and every "does this need a temp file
+// and can this shell read one?" question are settled while no plaintext has been decrypted and no file
+// exists. PHASE 2 then materializes, and any failure there unlinks whatever this insert already wrote.
+// Splitting it is what preserves the old handler's property: never leave a stray secret file behind.
 ipcMain.handle('resolve-variable-insert', (_event, id, sessionId) => {
+  const written = [];   // files THIS insert created — unwound on any failure below
   try {
-    const row = getSavedVariable(id);
-    if (!row) return { ok: false, error: 'Variable not found' };
     const session = activeSessions.get(sessionId);
     if (!session) return { ok: false, error: 'No running session for this insert' };
     const shellType = session.shellType || 'unknown';
-    const value = decryptSavedVariableValue(row);
-    const tmpl = (row.insertTemplate && row.insertTemplate.trim()) || defaultInsertTemplate(!!row.secret);
-    const needsRef = tmpl.includes('{ref}');
-    const needsPath = tmpl.includes('{path}');
-    // A {ref} template on a shell without inline-read support can't be inserted
-    // safely → copy fallback. Checked before writing any temp file so we don't
-    // leave a stray secret file behind for the copy path.
-    if (needsRef && shellRefFor(shellType, '') === null) {
-      return { ok: false, fallback: 'copy', value };
+    const root = getSavedVariable(id);
+    if (!root) return { ok: false, error: 'Variable not found' };
+
+    // ---- PHASE 1: decide (no plaintext, no files) ----
+    // The applicable set for THIS session's project: globals ∪ that project's variables. The root is injected
+    // because it need not be in that set — a variable scoped to another project can still be inserted here,
+    // and its refs then resolve against the set the user is actually working in.
+    const rows = listSavedVariables(session.projectPath || null) || [];
+    const nodesById = new Map(rows.map((r) => [r.id, r]));
+    nodesById.set(root.id, root);
+    const nameIndex = buildNameIndex(rows);
+
+    const graph = resolveVarGraph(root.id, nodesById, nameIndex);
+    if (graph.cycle) {
+      return { ok: false, error: `Variables reference each other in a loop: ${graph.cycle.join(' → ')}` };
     }
-    let filePath = null;
-    if (needsRef || needsPath) {
-      const dir = getSecretRefDir();
-      fs.mkdirSync(dir, { recursive: true });
-      // Age-sweep is opt-in via the secretRefSweepMinutes setting (0 = off) so a
-      // long-running prompt's ref isn't purged mid-use; quit/startup/session-stop
-      // handle the rest.
+    if (graph.order.length > MAX_RESOLVED_NODES) {
+      return { ok: false, error: `This template pulls in ${graph.order.length} variables (limit ${MAX_RESOLVED_NODES})` };
+    }
+
+    // Per node: the template it will actually resolve with, and what that needs. Computed ONCE here and
+    // reused in phase 2 — deciding it twice is how the capability check and the materialization end up
+    // talking about different templates.
+    const plan = graph.order.map((nodeId) => {
+      const node = nodesById.get(nodeId);
+      const tmpl = finalTemplateFor(node, nodeId === root.id);
+      return { nodeId, node, tmpl, needsRef: tmpl.includes('{ref}'), needsPath: tmpl.includes('{path}') };
+    });
+
+    // A {ref} on a shell with no inline read cannot be inserted. For the ROOT alone this stays the old
+    // clipboard fallback: the user asked for this variable, so handing them its value to paste is the
+    // consent they already gave. A NESTED ref must not do that — they asked for the parent as one string,
+    // and a partial composition on the clipboard is both a leak and garbage.
+    if (shellRefFor(shellType, '') === null) {
+      const nestedRef = plan.find((p) => p.needsRef && p.nodeId !== root.id);
+      if (nestedRef) {
+        return { ok: false, error: `"${nestedRef.node.name}" needs a shell that can read a file inline; this session's shell (${shellType}) cannot` };
+      }
+      const rootRef = plan.find((p) => p.needsRef && p.nodeId === root.id);
+      if (rootRef) return { ok: false, fallback: 'copy', value: decryptSavedVariableValue(root) };
+    }
+
+    // ---- PHASE 2: materialize ----
+    // One sweep for the whole insert, not one per node.
+    if (plan.some((p) => p.needsRef || p.needsPath)) {
+      fs.mkdirSync(getSecretRefDir(), { recursive: true });
       sweepSecretRefs((Number(getSetting('global')?.secretRefSweepMinutes) || 0) * 60000);
-      filePath = path.join(dir, require('crypto').randomUUID());
-      fs.writeFileSync(filePath, value, { mode: 0o600 });
-      trackSecretRef(filePath, sessionId);
     }
-    const ref = needsRef ? shellRefFor(shellType, filePath) : null;
-    const text = substituteInsertTemplate(tmpl, { path: filePath, ref, value });
+
+    // Resolve bottom-up (children first — that is what graph.order is), memoized per id so a diamond
+    // A→x, A→y→x writes x's temp file once and composes its text once.
+    const textById = new Map();
+    const refOffsetsById = new Map();
+    for (const p of plan) {
+      // Re-read the FULL row here. Phase 1's nodes come from listSavedVariables, which deliberately does not
+      // select `value` — that is what lets the graph walk decide everything without touching plaintext. Using
+      // those same rows to materialize silently yields an empty value: a referenced variable composes to
+      // nothing, and a referenced SECRET writes an empty temp file its ref then reads.
+      const full = p.nodeId === root.id ? root : (getSavedVariable(p.nodeId) || p.node);
+      const value = decryptSavedVariableValue(full);
+      let filePath = null;
+      if (p.needsRef || p.needsPath) {
+        filePath = path.join(getSecretRefDir(), require('crypto').randomUUID());
+        fs.writeFileSync(filePath, value, { mode: 0o600 });
+        trackSecretRef(filePath, sessionId);
+        written.push(filePath);
+      }
+      // A node's `value` is passed ONLY when its own template asks for it. The old handler passed it
+      // unconditionally, which is exactly what let a child's stored text reach a parent's plaintext.
+      const vars = {};
+      const varRefOffsets = {};
+      for (const name of parseVarRefs(p.tmpl)) {
+        const childId = nameIndex[name];
+        if (childId == null) continue;                    // unknown name → empty, like a missing {value}
+        vars[name] = textById.get(childId) ?? '';
+        varRefOffsets[name] = refOffsetsById.get(childId) || [];
+      }
+      const composed = compose(p.tmpl, {
+        path: filePath,
+        ref: p.needsRef ? shellRefFor(shellType, filePath) : null,
+        value: p.tmpl.includes('{value}') ? value : null,
+        vars,
+        varRefOffsets,
+      });
+      textById.set(p.nodeId, composed.text);
+      refOffsetsById.set(p.nodeId, composed.refOffsets);
+    }
+
+    const text = textById.get(root.id) ?? '';
+    const refOffsets = refOffsetsById.get(root.id) || [];
+
+    // Ref safety is a property of the FINISHED string: shellRefFor returns a complete, pre-quoted shell
+    // word, and the quote that breaks it can come from a resolved value rather than the template (a
+    // username of `root'` is enough). So this can only run here, after composition — which is why the
+    // unwind below exists.
+    const unsafe = scanRefSafety(text, refOffsets);
+    if (unsafe.length) {
+      for (const f of written) untrackSecretRef(f, sessionId);
+      return { ok: false, error: 'A file reference ended up inside quotes — remove the quotes around it. The reference is already a complete shell word.' };
+    }
+
+    // A composed line break would be typed as Enter and run whatever precedes it. Multi-line content belongs
+    // in a file — which is what {path} is for.
+    if (/[\n\r]/.test(text)) {
+      for (const f of written) untrackSecretRef(f, sessionId);
+      return { ok: false, error: 'The result contains a line break or control character — use {path} for multi-line content.' };
+    }
+
     // `lastUsedAt` used to be written by the `use-saved-variables` handler, which was this column's ONLY
     // writer and which nothing ever called — so the column has been dead data. This is the honest place
-    // for it: the variable was actually used, at the moment its text reaches a terminal.
-    touchSavedVariable(id);
+    // for it: the variable was actually used, at the moment its text reaches a terminal. Root only — the
+    // user used the variable they picked, not whatever it happens to reference.
+    touchSavedVariable(root.id);
     return { ok: true, text };
   } catch (err) {
+    for (const f of written) { try { untrackSecretRef(f, sessionId); } catch {} }
     return { ok: false, error: err.message };
   }
 });

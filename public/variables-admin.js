@@ -167,6 +167,7 @@
         <form class="va-dialog-body">
           <label class="va-field"><span>Name</span>
             <input type="text" class="settings-input" id="va-f-name" value="${escapeHtml(form.name)}" autocomplete="off" spellcheck="false"></label>
+          ${/[{}]/.test(form.name) ? `<div class="va-field-help va-name-warn">This name contains <code>{</code> or <code>}</code>, so it cannot be referenced from another variable's template as <code>{var:name}</code>. It works everywhere else — rename it if you want to reference it.</div>` : ''}
           <label class="va-field"><span>Value</span>
             <div class="va-value-wrap">
               <textarea class="settings-input va-value-input" id="va-f-value" spellcheck="false" autocomplete="off">${escapeHtml(form.value)}</textarea>
