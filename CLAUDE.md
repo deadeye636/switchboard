@@ -310,6 +310,16 @@ No dependency (Node 22 ships a global `WebSocket`; CDP is JSON over one). `windo
 the sidebar would render, or `await window.api.unhideProject(path)` to do what a click would do. Give the
 renderer a second after launch; a query fired too early answers about an empty page.
 
+**A dev run you stopped may not be stopped** (#220). Killing the `npm run start:debug` wrapper leaves its
+Electron processes alive, and they keep port 9222 — so the next `drive-app.js` attaches to the **old**
+process and reports on code that is no longer on disk. That is a verification that reads as a pass and is
+worth nothing. Two things now stop it: every build takes the single-instance lock (dev included — #216 gave
+dev its own `userData`, and Electron scopes the lock to `userData`, so a dev lock and the installed app's
+lock are different locks), and `start:debug` refuses to launch when 9222 is already bound
+(`scripts/check-debug-port.js`). To run two dev builds deliberately: `SWITCHBOARD_ALLOW_MULTIPLE_INSTANCES=1`.
+When stopping a leftover run, filter on `node_modules\electron\dist` and stop **only** those PIDs — a blanket
+kill of `electron.exe` takes the user's installed app with it.
+
 ### Windows build gotchas (this machine, VS 2026)
 
 Full procedure + background: `docs/build-windows.md` (and memory `switchboard-win-build-vs2026`).

@@ -17,15 +17,32 @@
 const path = require('path');
 
 /**
- * Does this build take the single-instance lock?
+ * Does this build take the single-instance lock? Everything does now, unless it opts out (#220).
  *
  * The packaged app must: replacing the AppImage while Switchboard runs makes the OS spawn the new binary,
- * which would otherwise initialise a second process and orphan the first one's PTYs. A dev build must NOT,
- * or `npm start` gets handed to the installed app instead of starting. (That dev exemption is also why two
- * dev instances can coexist — see #220.)
+ * which would otherwise initialise a second process and orphan the first one's PTYs.
+ *
+ * A dev build used to be exempt, and the reason was real: `npm start` must not be handed to the installed
+ * app instead of starting. That reason died with **#216**, which gave the dev build its own `userData`.
+ * Electron scopes the lock to the userData directory — verified, not assumed: two instances pointed at
+ * different userData dirs BOTH get the lock and run side by side, while a second instance on the SAME dir
+ * is refused and the first sees `second-instance`. So a dev lock and the installed app's lock are simply
+ * different locks, and a dev instance taking one hands nothing to the installed app.
+ *
+ * What the exemption cost: a dev run whose launcher was killed (a stopped `start:debug`, a closed
+ * terminal, an agent's background task) left Electron alive with no window, still holding
+ * `--remote-debugging-port=9222` and still writing to `~/.switchboard-dev/switchboard.db`. The next
+ * `scripts/drive-app.js` then attached to THAT process and reported on code no longer on disk — a
+ * verification that reads as a pass and is worth nothing.
+ *
+ * `SWITCHBOARD_ALLOW_MULTIPLE_INSTANCES=1` is the escape hatch for deliberately running two dev builds.
+ * It does not apply to the packaged app, whose behaviour is unchanged.
  */
 function shouldUseSingleInstanceLock({ isPackaged, env = process.env } = {}) {
-  return !!isPackaged || env.SWITCHBOARD_FORCE_SINGLE_INSTANCE === '1';
+  if (isPackaged) return true;                                          // unchanged, and not negotiable
+  if (env.SWITCHBOARD_FORCE_SINGLE_INSTANCE === '1') return true;       // the old opt-in, still honoured
+  if (env.SWITCHBOARD_ALLOW_MULTIPLE_INSTANCES === '1') return false;   // deliberately running two
+  return true;
 }
 
 /**
@@ -106,6 +123,15 @@ function start(ctx) {
   const useSingleInstanceLock = shouldUseSingleInstanceLock({ isPackaged: app.isPackaged, env: process.env });
   const gotSingleInstanceLock = !useSingleInstanceLock || app.requestSingleInstanceLock();
   if (!gotSingleInstanceLock) {
+    // Say what happened, and say it at a level the launch actually shows. The instance holding the lock
+    // may have no window (a dev run whose launcher was killed), in which case the `second-instance` focus
+    // below is a no-op and this line is the ONLY thing distinguishing "refused" from "started fine and
+    // vanished". Naming userData is what makes it actionable: it identifies WHICH instance is in the way.
+    ctx.log.info(`[lifecycle] another instance is already running on this userData ` +
+      `(${app.getPath('userData')}) — quitting. ` +
+      (app.isPackaged ? 'Its window has been focused.'
+        : 'If it is a leftover dev run with no window, stop it; ' +
+          'set SWITCHBOARD_ALLOW_MULTIPLE_INSTANCES=1 to deliberately run two.'));
     app.quit();
     return false;
   }

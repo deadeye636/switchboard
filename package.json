@@ -8,7 +8,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron .",
-    "start:debug": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron --remote-debugging-port=9222 .",
+    "start:debug": "node scripts/check-debug-port.js && node scripts/gen-build-info.js && npm run bundle:codemirror && electron --remote-debugging-port=9222 .",
     "test": "node --test",
     "electron": "electron .",
     "bundle:codemirror": "esbuild src/renderer/jsonl/codemirror-setup.js --bundle --outfile=src/renderer/codemirror-bundle.js --format=iife --platform=browser --minify",
