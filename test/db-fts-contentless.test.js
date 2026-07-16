@@ -17,6 +17,9 @@ function readSrc(file) {
 }
 
 const dbSrc = readSrc('src/db/db.js');
+// The migrations moved out of db.js into their own module with #217 — one array, one file, append-only.
+// The FTS DDL assertions above still read db.js; the migration assertions below read this.
+const migSrc = readSrc('src/db/migrations.js');
 
 // ---------------------------------------------------------------------------
 // 1. Schema: external-content FTS5 table
@@ -91,14 +94,14 @@ test('body is truncated before insertion into search_content', () => {
 test('migrations array contains a v6 entry that drops and recreates search_fts', () => {
   // v6 migration must drop the old table and set searchFtsRecreated
   assert.match(
-    dbSrc,
+    migSrc,
     /DROP TABLE IF EXISTS search_fts/,
-    'db.js must DROP search_fts in a migration'
+    'migrations.js must DROP search_fts in a migration'
   );
   assert.match(
-    dbSrc,
+    migSrc,
     /DROP TABLE IF EXISTS search_content/,
-    'db.js must DROP search_content in a migration (clean slate for existing installs)'
+    'migrations.js must DROP search_content in a migration (clean slate for existing installs)'
   );
 });
 
@@ -106,8 +109,17 @@ test('searchFtsRecreated is set to true in the v6 migration', () => {
   // The migration that drops search_fts must also set the flag so
   // main.js triggers a full repopulate.
   // Count occurrences: one in v2 (existing), one in v6 (new).
-  const matches = dbSrc.match(/searchFtsRecreated\s*=\s*true/g);
-  assert.ok(matches && matches.length >= 2, 'searchFtsRecreated = true should appear at least twice (v2 + v6 migrations)');
+  //
+  // COMMENTS DO NOT COUNT, and that is not pedantry: a comment in this file also reads
+  // `searchFtsRecreated = true`, so the old count of ">= 2 matches anywhere" stayed green with one of the
+  // two real assignments deleted — comment + survivor = 2. Found by deleting one and watching nothing
+  // happen. Strip the comment lines first, then count what actually executes.
+  const code = migSrc.split('\n').filter(l => !/^\s*(\/\/|\*)/.test(l)).join('\n');
+  const matches = code.match(/searchFtsRecreated\s*=\s*true/g);
+  assert.ok(matches && matches.length >= 2,
+    'searchFtsRecreated = true must appear at least twice in CODE (the v2 and v6 migrations). ' +
+    `Found ${matches ? matches.length : 0}. Whichever migration drops search_fts must set the flag, or ` +
+    'main.js never triggers the repopulate and search stays silently empty until the next full rebuild.');
 });
 
 // ---------------------------------------------------------------------------
@@ -125,12 +137,12 @@ test('v6 migration includes a VACUUM call to reclaim freed pages', () => {
   // Locate the v6 migration function body: the block that contains both
   // DROP TABLE IF EXISTS search_fts AND searchFtsRecreated = true (distinguishes
   // v6 from v2, which only drops search_fts but not search_content).
-  const v6Start = dbSrc.indexOf("DROP TABLE IF EXISTS search_content");
+  const v6Start = migSrc.indexOf("DROP TABLE IF EXISTS search_content");
   assert.ok(v6Start !== -1, 'v6 migration DROP TABLE IF EXISTS search_content not found');
 
   // Extract from the DROP TABLE search_content up to the next migrations-array
   // closing paren, approximately 600 chars — enough to cover the v6 function body.
-  const v6Slice = dbSrc.slice(v6Start, v6Start + 600);
+  const v6Slice = migSrc.slice(v6Start, v6Start + 600);
 
   assert.match(
     v6Slice,
@@ -145,13 +157,13 @@ test('v6 VACUUM is placed inside the migration function body (not outside migrat
   // the migrations loop runner. This ensures VACUUM is inside the per-migration
   // function, not added as a post-loop global (which would run on every startup).
   // We look for the exec call specifically to skip any VACUUM mentions in comments.
-  const v6Drop = dbSrc.indexOf("DROP TABLE IF EXISTS search_content");
+  const v6Drop = migSrc.indexOf("DROP TABLE IF EXISTS search_content");
   assert.ok(v6Drop !== -1, 'DROP TABLE IF EXISTS search_content not found (v6 marker)');
 
   // Find the actual try { db.exec('VACUUM') } call in code (not comments).
   // We use the try-wrapped form which only appears in code, not in inline comments.
-  const vacuumCall = dbSrc.indexOf("try { db.exec('VACUUM')");
-  assert.ok(vacuumCall !== -1, "try { db.exec('VACUUM') } call not found in db.js");
+  const vacuumCall = migSrc.indexOf("try { db.exec('VACUUM')");
+  assert.ok(vacuumCall !== -1, "try { db.exec('VACUUM') } call not found in migrations.js");
 
   // The exec call must come after the v6 DROP TABLE
   assert.ok(
@@ -162,7 +174,7 @@ test('v6 VACUUM is placed inside the migration function body (not outside migrat
   // The exec call must appear before the migrations loop runner (the for loop
   // that executes migrations) — i.e., inside the migrations array literal
   const migrationsLoopMarker = 'for (let i = currentDbVersion';
-  const loopPos = dbSrc.indexOf(migrationsLoopMarker);
+  const loopPos = migSrc.indexOf(migrationsLoopMarker);
   assert.ok(loopPos !== -1, 'migrations loop not found');
   assert.ok(
     vacuumCall < loopPos,
