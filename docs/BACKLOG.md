@@ -37,6 +37,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#201](https://github.com/deadeye636/switchboard/issues/201) agy backend: add a usage capability (status bar + Usage & Notifications), like Claude/Codex · _feature, blocked-on-upstream_
 - [#210](https://github.com/deadeye636/switchboard/issues/210) perf: run the live-session identity match (matchLiveSession) in the index worker · _chore_
 - [#212](https://github.com/deadeye636/switchboard/issues/212) Renderer still names Claude in three places the descriptor should cover · _chore_
-- [#213](https://github.com/deadeye636/switchboard/issues/213) main.js is ~4970 lines — split it into src/app/ the way session-cache.js was split · _chore_
-- [#214](https://github.com/deadeye636/switchboard/issues/214) Repo layout: move all app code under src/ and give it themed folders · _chore_
-- [#215](https://github.com/deadeye636/switchboard/issues/215) public/ is 69 flat files and the bigger half of the app — give the renderer a structure · _chore_
+- [#213](https://github.com/deadeye636/switchboard/issues/213) main.js is ~5000 lines — split it into src/app/ (design the ctx first) · _chore_
+- [#214](https://github.com/deadeye636/switchboard/issues/214) Repo layout: move all app code under src/ (incl. src/shared for the dual-mode modules) · _chore_
+- [#215](https://github.com/deadeye636/switchboard/issues/215) Renderer structure: 69 flat files into folders — executed inside #214's renderer commit · _chore_
