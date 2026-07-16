@@ -54,7 +54,8 @@ test('shouldAutoHide treats a never-active project (eff=0) as stale when enabled
 // under plain node:test (same constraint db-daily-activity / main-ctx-db-wiring
 // document). We therefore (a) mirror the two ON CONFLICT upserts + the autoHidden
 // query to lock in their semantics, and (b) source-guard db.js so the real schema,
-// statements and exports stay in sync with this model.
+// statements and exports stay in sync with this model. Since #217 those guards read the module that
+// now owns each half: the schema in db/schema.js, the exports still in db/db.js's façade.
 
 function makeProjectMeta() {
   const rows = new Map(); // projectPath -> row
@@ -104,7 +105,8 @@ test('project_meta roundtrip: reset works on a fresh project (INSERT branch)', (
   assert.equal(row.autoHideResetAt, stamp);
 });
 
-// Source guards — keep db.js in sync with the model above.
+// Source guards — keep the real code in sync with the model above. #217 split db.js, so these point at
+// the module that owns each part now: the DDL lives in db/schema.js, the export surface in db/db.js.
 
 function readRoot(f) { return fs.readFileSync(path.join(__dirname, '..', f), 'utf8'); }
 

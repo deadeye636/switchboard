@@ -86,8 +86,8 @@ const migrations = [
   // file stays at its old size. Without VACUUM the user sees "stopped growing"
   // rather than "actually shrank". A one-time VACUUM here reclaims that space
   // immediately: empirically 225 MB → 37.9 MB in ~0.5 s on a 236 MB real DB.
-  // VACUUM cannot run inside a SQLite transaction. The migrations loop (lines
-  // above) is NOT wrapped in a transaction, so calling db.exec('VACUUM') here
+  // VACUUM cannot run inside a SQLite transaction. The migrations loop (in
+  // runMigrations, below) is NOT wrapped in a transaction, so calling db.exec('VACUUM') here
   // is legal and runs atomically against the now-empty freelist pages.
   (db) => {
     try { db.exec('DROP TABLE IF EXISTS search_fts'); } catch {}
@@ -354,6 +354,12 @@ const migrations = [
  *   received.
  */
 function runMigrations(db) {
+  // Report what THIS call did, not what a previous one did. Production calls this exactly once, at db.js's
+  // load, so the reset changes nothing observable there — but the moment the function became exported it
+  // also became callable twice, and a second call on an up-to-date database would otherwise still report
+  // the first run's `true` and send main.js off to repopulate the whole search index for nothing.
+  searchFtsRecreated = false;
+
   const currentDbVersion = (() => {
     try {
       const row = db.prepare("SELECT value FROM settings WHERE key = 'db_version'").get();
