@@ -101,6 +101,26 @@ test('pasteIntoTerminal: multiline + bracketed mode → bracketed sequence, \\n 
   } finally { global.window = savedWindow; }
 });
 
+test('pasteIntoTerminal: pasted text cannot end its own paste', () => {
+  // The wrapper is \x1b[200~ … \x1b[201~. Text carrying an end marker of its own would close the bracket
+  // early, and everything after it would arrive as KEYSTROKES — i.e. the pasted content decides it is a
+  // command. xterm strips it nowhere, so this is the only place it can happen.
+  const sent = [];
+  const savedWindow = global.window;
+  global.window = { api: { sendInput: (id, d) => sent.push([id, d]) } };
+  try {
+    const term = { modes: { bracketedPasteMode: true }, paste(t) { this.pasted = t; } };
+    menu.pasteIntoTerminal(term, 's1', 'safe\n\x1b[201~rm -rf /\nmore');
+    assert.strictEqual(sent.length, 1);
+    const data = sent[0][1];
+    assert.strictEqual(data.startsWith('\x1b[200~'), true);
+    assert.strictEqual(data.endsWith('\x1b[201~'), true);
+    assert.strictEqual(data.indexOf('\x1b[201~'), data.length - '\x1b[201~'.length,
+      'exactly one end marker, and it is ours at the very end');
+    assert.strictEqual(data.includes('rm -rf /'), true, 'the payload survives — as inert pasted TEXT');
+  } finally { global.window = savedWindow; }
+});
+
 test('pasteIntoTerminal: single-line falls back to terminal.paste (no sendInput)', () => {
   const sent = [];
   const savedWindow = global.window;

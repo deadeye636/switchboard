@@ -111,7 +111,13 @@ function pasteIntoTerminal(terminal, sessionId, text) {
   if (typeof text !== 'string' || !text) return;
   const bracketed = !!(terminal && terminal.modes && terminal.modes.bracketedPasteMode);
   if (bracketed && sessionId && /[\r\n]/.test(text)) {
-    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+      // Strip any end-of-paste marker the text itself carries. Without this the wrapper below closes early
+      // and everything after it arrives as KEYSTROKES rather than pasted text — i.e. the pasted content
+      // decides it is a command. xterm does not strip it either (neither its paste() nor its bracketing
+      // helper), so this is the only place it can be done. Whatever is being pasted, it does not get to end
+      // its own paste.
+      .replace(/\x1b\[201~/g, '');
     window.api.sendInput(sessionId, '\x1b[200~' + normalized + '\x1b[201~');
     return;
   }
