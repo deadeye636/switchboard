@@ -108,8 +108,12 @@ test('project_meta roundtrip: reset works on a fresh project (INSERT branch)', (
 
 function readRoot(f) { return fs.readFileSync(path.join(__dirname, '..', f), 'utf8'); }
 
-test('db.js defines the auto-hide columns on project_meta', () => {
-  const src = readRoot('src/db/db.js');
+test('schema.js defines the auto-hide columns on project_meta', () => {
+  // The DDL moved out of db.js into schema.js with #217; the columns and the idempotent ALTERs that back
+  // an existing database went with it. Both halves still have to be here: the CREATE TABLE is what a fresh
+  // install gets, the ALTER is what an old one gets, and a column in only one of them means the two shapes
+  // drift apart.
+  const src = readRoot('src/db/schema.js');
   assert.match(src, /autoHidden INTEGER DEFAULT 0/, 'CREATE TABLE should declare autoHidden');
   assert.match(src, /autoHideResetAt TEXT/, 'CREATE TABLE should declare autoHideResetAt');
   assert.match(src, /ALTER TABLE project_meta ADD COLUMN autoHidden/, 'idempotent ALTER for autoHidden');
