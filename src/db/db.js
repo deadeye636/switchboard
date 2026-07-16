@@ -10,7 +10,6 @@ const { db, DB_PATH, closeDb } = require('./connection');
 const { runWithBusyRetry } = require('./sqlite-busy-retry');
 const { runMigrations } = require('./migrations');
 const { applySchema } = require('./schema');
-const statsStore = require('./stats-store');
 
 // Create the tables a fresh database needs, then bring an existing one up to date. Order matters: the
 // migrations assume the tables exist.
@@ -19,6 +18,19 @@ applySchema(db);
 // a migration that dropped search_fts sets it, and main.js reads it to trigger a full repopulate. It has
 // always been re-exported as a VALUE captured here, not a getter — keep it that way.
 const { searchFtsRecreated } = runMigrations(db);
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────
+// THE STORES LOAD HERE, BELOW THE SCHEMA, AND THAT IS NOT STYLE.
+//
+// Each store prepares its statements at ITS module load, and `db.prepare` needs the table to exist. Put
+// one of these requires up with the others and a FRESH database dies on the first launch with
+// `SqliteError: no such table: settings` — while every existing install stays perfectly happy, because
+// its tables have been there for months. That is a bug you ship, not one you hit.
+//
+// So: schema, then migrations, then stores. A new store module goes at the bottom of this list.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────
+const statsStore = require('./stats-store');
+const settingsStore = require('./settings-store');
 
 
 
@@ -107,7 +119,6 @@ const stmts = {
   // sidebar builds from, instead of deriving the list from the transcripts on disk.
   projectMetaAll: db.prepare('SELECT * FROM project_meta'),
   projectMetaTombstones: db.prepare('SELECT projectPath, removedAt FROM project_meta WHERE removedAt IS NOT NULL'),
-  settingsByPrefix: db.prepare('SELECT key, value FROM settings WHERE key LIKE ?'),
   // Bookmarks (toggle by {sessionId, entryIndex} anchor)
   bookmarkGet: db.prepare('SELECT id FROM bookmarks WHERE sessionId = ? AND entryIndex = ?'),
   bookmarkInsert: db.prepare('INSERT INTO bookmarks (sessionId, entryIndex, timestamp, label, createdAt) VALUES (?, ?, ?, ?, ?)'),
@@ -316,49 +327,6 @@ const stmts = {
   searchFtsDeleteRow: db.prepare("INSERT INTO search_fts(search_fts, rowid, title, body) VALUES('delete', ?, ?, ?)"),
   searchFtsInsertRow: db.prepare('INSERT INTO search_fts(rowid, title, body) VALUES(?, ?, ?)'),
   // Settings statements
-  settingsGet: db.prepare('SELECT value FROM settings WHERE key = ?'),
-  settingsUpsert: db.prepare(`
-    INSERT INTO settings (key, value) VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `),
-  settingsDelete: db.prepare('DELETE FROM settings WHERE key = ?'),
-  // Remap moves the `project:<path>` blob to the new key (#55).
-  settingsRename: db.prepare('UPDATE settings SET key = ? WHERE key = ?'),
-  // Saved variables (Saved Variables panel)
-  // insertTemplate is NOT a secret (it only describes how to insert, not the
-  // value) so it is safe to carry in the list statements; `value` stays excluded.
-  savedVariablesList: db.prepare(`
-    SELECT id, name, secret, scope, projectPath, tags, insertTemplate, createdAt, updatedAt, lastUsedAt
-    FROM saved_variables
-    WHERE scope = 'global' OR (scope = 'project' AND projectPath = ?)
-    ORDER BY LOWER(name), updatedAt DESC
-  `),
-  // Every variable regardless of scope/project — used by the Variables admin tab
-  // which needs the full CRUD list (not just the ones applicable to one project).
-  savedVariablesListAll: db.prepare(`
-    SELECT id, name, secret, scope, projectPath, tags, insertTemplate, createdAt, updatedAt, lastUsedAt
-    FROM saved_variables
-    ORDER BY LOWER(name), updatedAt DESC
-  `),
-  savedVariableGet: db.prepare('SELECT * FROM saved_variables WHERE id = ?'),
-  savedVariableUpsert: db.prepare(`
-    INSERT INTO saved_variables
-      (id, name, value, valueEncoding, secret, scope, projectPath, tags, insertTemplate, createdAt, updatedAt, lastUsedAt)
-    VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      name = excluded.name,
-      value = excluded.value,
-      valueEncoding = excluded.valueEncoding,
-      secret = excluded.secret,
-      scope = excluded.scope,
-      projectPath = excluded.projectPath,
-      tags = excluded.tags,
-      insertTemplate = excluded.insertTemplate,
-      updatedAt = excluded.updatedAt
-  `),
-  savedVariableDelete: db.prepare('DELETE FROM saved_variables WHERE id = ?'),
-  savedVariableTouch: db.prepare('UPDATE saved_variables SET lastUsedAt = ? WHERE id = ?'),
   searchQuery: db.prepare(`
     SELECT search_map.id, snippet(search_fts, 1, '<mark>', '</mark>', '...', 40) as snippet
     FROM search_fts
@@ -475,7 +443,7 @@ function getProjectTombstones() {
 // settings blobs (`project:<path>`). Consumed wherever a project name is rendered.
 function getProjectDisplayNames() {
   const map = new Map();
-  for (const row of stmts.settingsByPrefix.all('project:%')) {
+  for (const row of settingsStore.stmts.settingsByPrefix.all('project:%')) {
     let val;
     try { val = JSON.parse(row.value); } catch { val = null; }
     const name = val && typeof val.displayName === 'string' ? val.displayName.trim() : '';
@@ -789,9 +757,9 @@ const renameProjectRefsTx = db.transaction((oldPath, newPath) => {
   // Handoffs are a list, so they simply accrue to the destination.
   stmts.projectHandoffsRename.run(newPath, oldPath);
 
-  const destSettings = stmts.settingsGet.get('project:' + newPath);
-  if (destSettings) stmts.settingsDelete.run('project:' + oldPath);
-  else stmts.settingsRename.run('project:' + newPath, 'project:' + oldPath);
+  const destSettings = settingsStore.stmts.settingsGet.get('project:' + newPath);
+  if (destSettings) settingsStore.stmts.settingsDelete.run('project:' + oldPath);
+  else settingsStore.stmts.settingsRename.run('project:' + newPath, 'project:' + oldPath);
 });
 
 function renameProjectRefs(oldPath, newPath) {
@@ -805,7 +773,7 @@ const deleteProjectRefsTx = db.transaction((projectPath) => {
   stmts.projectMetaDelete.run(projectPath);
   stmts.projectTagDeleteAll.run(projectPath);
   stmts.projectHandoffsDeleteAll.run(projectPath);
-  stmts.settingsDelete.run('project:' + projectPath);
+  settingsStore.stmts.settingsDelete.run('project:' + projectPath);
 });
 
 function deleteProjectRefs(projectPath) {
@@ -1189,97 +1157,6 @@ function isSearchIndexPopulated() {
 
 // --- Settings functions ---
 
-function getSetting(key) {
-  const row = stmts.settingsGet.get(key);
-  if (!row) return null;
-  try { return JSON.parse(row.value); } catch { return row.value; }
-}
-
-function setSetting(key, value) {
-  runWithBusyRetry(() => stmts.settingsUpsert.run(key, JSON.stringify(value)));
-}
-
-function deleteSetting(key) {
-  runWithBusyRetry(() => stmts.settingsDelete.run(key));
-}
-
-/** Every settings blob whose key starts with `prefix` (e.g. 'project:'), parsed. */
-function listSettings(prefix) {
-  return stmts.settingsByPrefix.all(prefix + '%').map(row => {
-    let value;
-    try { value = JSON.parse(row.value); } catch { value = null; }
-    return { key: row.key, value };
-  });
-}
-
-// --- Saved variable functions ---
-
-function parseSavedVariableTags(tags) {
-  if (Array.isArray(tags)) return tags;
-  if (!tags) return [];
-  try {
-    const parsed = JSON.parse(tags);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function normalizeSavedVariableRow(row) {
-  if (!row) return null;
-  return {
-    ...row,
-    secret: !!row.secret,
-    tags: parseSavedVariableTags(row.tags),
-    insertTemplate: row.insertTemplate || '',
-  };
-}
-
-function listSavedVariables(projectPath = null) {
-  return stmts.savedVariablesList.all(projectPath || '').map(normalizeSavedVariableRow);
-}
-
-function listAllSavedVariables() {
-  return stmts.savedVariablesListAll.all().map(normalizeSavedVariableRow);
-}
-
-function getSavedVariable(id) {
-  return normalizeSavedVariableRow(stmts.savedVariableGet.get(id));
-}
-
-function saveSavedVariable(variable) {
-  const now = variable.updatedAt || new Date().toISOString();
-  const existing = variable.id ? stmts.savedVariableGet.get(variable.id) : null;
-  const createdAt = variable.createdAt || existing?.createdAt || now;
-  const row = {
-    id: variable.id,
-    name: variable.name,
-    value: variable.value,
-    valueEncoding: variable.valueEncoding || 'plain',
-    secret: variable.secret ? 1 : 0,
-    scope: variable.scope || 'global',
-    projectPath: variable.scope === 'project' ? (variable.projectPath || null) : null,
-    tags: JSON.stringify(Array.isArray(variable.tags) ? variable.tags : []),
-    insertTemplate: typeof variable.insertTemplate === 'string' ? variable.insertTemplate : '',
-    createdAt,
-    updatedAt: now,
-    lastUsedAt: existing?.lastUsedAt || null,
-  };
-  runWithBusyRetry(() => stmts.savedVariableUpsert.run(
-    row.id, row.name, row.value, row.valueEncoding, row.secret, row.scope,
-    row.projectPath, row.tags, row.insertTemplate, row.createdAt, row.updatedAt, row.lastUsedAt
-  ));
-  return getSavedVariable(row.id);
-}
-
-function deleteSavedVariable(id) {
-  runWithBusyRetry(() => stmts.savedVariableDelete.run(id));
-}
-
-function touchSavedVariable(id) {
-  runWithBusyRetry(() => stmts.savedVariableTouch.run(new Date().toISOString(), id));
-}
-
 
 module.exports = {
   getMeta, getAllMeta, setName, toggleStar, setArchived,
@@ -1299,8 +1176,17 @@ module.exports = {
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated, searchFtsRecreated,
-  getSetting, setSetting, deleteSetting, listSettings,
-  listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
+  // --- settings + saved variables (settings-store.js) ---
+  getSetting: settingsStore.getSetting,
+  setSetting: settingsStore.setSetting,
+  deleteSetting: settingsStore.deleteSetting,
+  listSettings: settingsStore.listSettings,
+  listSavedVariables: settingsStore.listSavedVariables,
+  listAllSavedVariables: settingsStore.listAllSavedVariables,
+  getSavedVariable: settingsStore.getSavedVariable,
+  saveSavedVariable: settingsStore.saveSavedVariable,
+  deleteSavedVariable: settingsStore.deleteSavedVariable,
+  touchSavedVariable: settingsStore.touchSavedVariable,
   // --- the stats aggregates (stats-store.js) ---
   getDailyActivity: statsStore.getDailyActivity,
   getDailyMetrics: statsStore.getDailyMetrics,
