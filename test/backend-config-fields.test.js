@@ -89,10 +89,10 @@ for (const backend of BACKENDS) {
     const spawnFields = backend.configFields.filter(f => f.appliesAt === 'spawn');
     if (!spawnFields.length) return;
     const mainSrc = require('node:fs').readFileSync(
-      require('node:path').join(__dirname, '..', 'src', 'main.js'), 'utf8');
+      require('node:path').join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8');
     for (const f of spawnFields) {
       assert.ok(mainSrc.includes(f.id),
-        `${backend.id}.${f.id} claims to be applied at the spawn site, but main.js never mentions it`);
+        `${backend.id}.${f.id} claims to be applied at the spawn site, but app/terminal/spawn.js never mentions it`);
     }
   });
 

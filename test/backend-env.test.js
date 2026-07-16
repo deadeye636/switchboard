@@ -14,9 +14,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
-// The spawn-side merge still lives in main.js, which needs Electron — so that one half stays a static
-// guard on its source. The settings-side half no longer has to be (see below).
-const MAIN = fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8');
+// The spawn-side merge stays a static guard on its source: spawn.js can be required, but reaching this
+// merge means spawning a real PTY. The settings-side half no longer has to be (see below).
+const SPAWN = fs.readFileSync(path.join(ROOT, 'src', 'app', 'terminal', 'spawn.js'), 'utf8');
 
 // This used to read main.js as TEXT, cut `stripBackendEnvSecrets` out of it with indexOf, and run it
 // through `new Function` — the only way to reach it, because main.js needs Electron and can never be
@@ -95,8 +95,9 @@ test('the guard runs on the single write path, next to the launcher one', () => 
 // template that was chosen deliberately. Getting this backwards would let a global variable silently
 // override the template the user picked by name.
 test('the spawn merges backend env BETWEEN the backend and the template', () => {
-  const spawn = MAIN.slice(MAIN.indexOf('const allEnv = (getSetting(\'global\') || {}).backendEnv || {};'));
-  const block = spawn.slice(0, spawn.indexOf('\n      }'));
+  const at = SPAWN.indexOf('const allEnv = (ctx.getSetting(\'global\') || {}).backendEnv || {};');
+  assert.notEqual(at, -1, 'the merge must still be in spawn.js');
+  const block = SPAWN.slice(at, SPAWN.indexOf('\n      }', at));
 
   // The template's own keys are lifted back out of launch.env first...
   assert.match(block, /for \(const key of Object\.keys\(templateEnv\)\) delete baseEnv\[key\];/,

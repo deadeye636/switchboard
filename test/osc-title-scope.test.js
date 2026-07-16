@@ -17,7 +17,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const MAIN = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+const MAIN = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8');
 
 test('the OSC-0 title heuristic is gated on the session that owns it', () => {
   assert.match(MAIN, /if \(code === '0' && session\._oscTitleState\)/,

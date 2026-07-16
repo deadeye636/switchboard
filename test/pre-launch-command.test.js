@@ -15,7 +15,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const backends = require('../src/backends');
-const MAIN = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+const MAIN = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8');
 
 // --- the option is offered everywhere ---------------------------------------------------------------
 
@@ -56,8 +56,9 @@ test('a backend that already declares it is not given a second copy', () => {
 
 // --- the spawn -------------------------------------------------------------------------------------
 //
-// main.js needs Electron, so this half is a static guard — the same idiom the rest of the suite uses for
-// spawn-path rules.
+// A static guard on spawn.js's source. Not because the module cannot be required — since #213 it can —
+// but because reaching this code means spawning a real PTY. The refusal paths ARE exercised for real in
+// test/spawn-guards.test.js; what stays here is the shape of the command that gets built.
 
 test('setting a pre-launch command drops the session to the shell path', () => {
   assert.match(MAIN, /const useArgvSpawn = !!argvExe && !preLaunchCmd;/,
