@@ -85,5 +85,33 @@ try {
   out.writeDeleted = JSON.stringify(db.getSetting('__probe_key') ?? null);
 } catch (e) { out.writeReadBack = `THREW: ${e.message}`; }
 
+// 7. THE PATHS A READ-ONLY PROBE CANNOT SEE, and they are here because it did not see them.
+//
+// The #217 split severed three closures — code moved into a module without the identifiers it used to
+// capture from db.js's single file scope. Every one of them parsed, loaded, passed 1465 tests and was
+// byte-identical in everything above, because everything above only READS. What broke was a scoped
+// DELETE and a write that resolves its own arguments:
+//   - deleteSearchFolder/deleteCachedFolder with a scope: the cold scan (a fresh install's first index),
+//     "Rebuild session cache" and the post-FTS-migration repopulate all take this path on their FIRST
+//     folder. It threw ReferenceError: backendScopeClause is not defined.
+//   - createTask WITHOUT a projectPath: the live shape of "create task from this message", which resolves
+//     the project from the session. It threw ReferenceError: getCachedSession is not defined.
+// Scoping matters on its own terms too: a project bucket is keyed on cwd and shared between backends, so
+// an unscoped delete takes another backend's rows with it.
+probe('deleteSearchFolder(folder, scope)', () => {
+  db.deleteSearchFolder('__probe_no_such_folder__', { only: ['claude'] });
+  return 'ok';
+});
+probe('deleteCachedFolder(folder, scope)', () => {
+  db.deleteCachedFolder('__probe_no_such_folder__', { only: ['claude'] });
+  return 'ok';
+});
+probe('createTask({sessionId}) resolving its own projectPath', () => {
+  const t = db.createTask({ sessionId: '__probe__', entryIndex: 1, title: 'probe', note: '', quote: '' });
+  const id = t && (t.id ?? t);
+  if (id) db.removeTask(id);
+  return 'ok';
+});
+
 db.closeDb();
 console.log(JSON.stringify(out, null, 2));

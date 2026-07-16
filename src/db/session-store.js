@@ -340,4 +340,9 @@ module.exports = {
   deleteCachedSession, deleteCachedFolder,
   replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
+  // --- for other src/db modules, not for callers outside it ---
+  // search-store's scoped folder delete needs the same scoping as the cache's, and it must share
+  // `_scopedStmts` with the code above rather than build its own: in old db.js both sat in one scope and
+  // used ONE memo map. Exporting the function keeps that; copying it would quietly double the prepares.
+  backendScopeClause, prepScoped,
 };

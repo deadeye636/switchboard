@@ -11,6 +11,10 @@
 
 const { db } = require('./connection');
 const { runWithBusyRetry } = require('./sqlite-busy-retry');
+// createTask resolves a task's project from its session when the caller does not name one — and that IS
+// the live shape: "create task from this message" sends only { sessionId, entryIndex, title, ... }. Another
+// free identifier from old db.js's single scope.
+const { getCachedSession } = require('./session-store');
 
 const stmts = {
   // Tasks (scoped task/note system)

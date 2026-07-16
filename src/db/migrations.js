@@ -20,7 +20,18 @@
 // database that already has the change -- hence the try/catch around each ALTER. They also run on a FRESH
 // database, where schema.js has just created the final shape: a migration that assumes an old shape must
 // still not throw.
+//
+// THE THREE REQUIRES BELOW ARE USED BY THE MIGRATIONS, NOT BY THE RUNNER. The #167 register seed reads
+// Claude's store off disk to decide which projects to register. They were free identifiers in old db.js's
+// single file scope, and extracting this file severed them — with no error anywhere, because a migration's
+// own try/catch eats the ReferenceError and the runner then stamps the new version regardless. The seed
+// registered NOTHING and could never run again: silent, permanent data loss on upgrade. Do not remove them
+// because "nothing at the top level uses them" — grep the array.
 'use strict';
+
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
 
 let searchFtsRecreated = false;
 const migrations = [

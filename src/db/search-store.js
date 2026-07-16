@@ -19,6 +19,11 @@
 
 const { db } = require('./connection');
 const { runWithBusyRetry } = require('./sqlite-busy-retry');
+// A scoped folder delete has to scope EXACTLY like the session cache's does — a project bucket is keyed on
+// cwd and therefore shared between backends, so an unscoped delete takes another backend's rows with it.
+// These two were free identifiers in old db.js's single scope; taking them from session-store keeps the
+// one shared `_scopedStmts` memo the original had, instead of a second map preparing the same SQL again.
+const { backendScopeClause, prepScoped } = require('./session-store');
 
 //
 // Body is capped at FTS_BODY_MAX_CHARS before being stored. This bounds the
@@ -99,7 +104,8 @@ const stmts = {
   // column values. Used before reinserting with updated title.
   searchFtsDeleteRow: db.prepare("INSERT INTO search_fts(search_fts, rowid, title, body) VALUES('delete', ?, ?, ?)"),
   searchFtsInsertRow: db.prepare('INSERT INTO search_fts(rowid, title, body) VALUES(?, ?, ?)'),
-  // Settings statements
+  // The query itself. Bound through buildFtsMatch (#79) so main and the search worker cap a query
+  // identically — one capping and the other not is how a stray long query used to take the process down.
   searchQuery: db.prepare(`
     SELECT search_map.id, snippet(search_fts, 1, '<mark>', '</mark>', '...', 40) as snippet
     FROM search_fts
@@ -238,7 +244,6 @@ function isSearchIndexPopulated() {
   return row.cnt > 0;
 }
 
-// --- Settings functions ---
 
 module.exports = {
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,

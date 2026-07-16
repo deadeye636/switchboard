@@ -119,7 +119,7 @@ function listBookmarks(sessionId) {
   return sessionId ? stmts.bookmarkListBySession.all(sessionId) : stmts.bookmarkListAll.all();
 }
 
-// --- Tasks (scoped task/note system) ---
+// --- Session tags ---
 
 function getSessionTags(sessionId) {
   return sessionId ? stmts.tagsGet.all(sessionId) : [];

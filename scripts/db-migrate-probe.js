@@ -48,4 +48,35 @@ out.fromZero = runAt(0);
 const real = runMigrations(new Database(dbPath));
 out.realRunnerOnUpToDate = { from: real.from, to: real.to, ranAnything: real.from !== real.to };
 
+// 6. DID THE LAST MIGRATION ACTUALLY DO ANYTHING? "fired" above only proves it was CALLED.
+//
+// Every migration wraps itself in try/catch, so one that throws reports success and the runner stamps the
+// new version anyway — the migration is then marked done forever and can never run again. That is not
+// hypothetical: extracting migrations.js dropped its `path`/`os`/`fs` requires, so the #167 register seed
+// threw ReferenceError, swallowed it, seeded NOTHING, and stamped db_version 15. Silent, permanent, and
+// invisible to every check that only counts calls.
+//
+// So measure the EFFECT: rewind a real database one version and see whether the register fills up.
+// Needs a database with real rows — on an empty one there is nothing to seed, and that is reported.
+try {
+  const d = new Database(dbPath);
+  const projects = d.prepare('SELECT COUNT(*) c FROM project_meta').get().c;
+  if (!projects) {
+    out.seedEffect = 'skipped: no project_meta rows in this database (use a copy of a real one)';
+  } else {
+    d.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version', ?)").run(JSON.stringify(SCHEMA_VERSION - 1));
+    d.prepare('UPDATE project_meta SET registered = NULL, registeredAt = NULL').run();
+    const before = d.prepare('SELECT COUNT(*) c FROM project_meta WHERE registered = 1').get().c;
+    const res = runMigrations(d);
+    const after = d.prepare('SELECT COUNT(*) c FROM project_meta WHERE registered = 1').get().c;
+    out.seedEffect = {
+      from: res.from, to: res.to, registeredBefore: before, registeredAfter: after,
+      verdict: after > before
+        ? 'OK — the last migration had a real effect'
+        : 'BROKEN — it reported success and did nothing. Look for a swallowed throw inside it.',
+    };
+  }
+  d.close();
+} catch (e) { out.seedEffect = `THREW: ${e.message}`; }
+
 console.log(JSON.stringify(out, null, 2));

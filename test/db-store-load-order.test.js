@@ -31,7 +31,13 @@ test('db.js requires every store AFTER applySchema and runMigrations', () => {
   assert.ok(migrateAt > -1, 'db.js must call runMigrations(db) at load');
   assert.ok(schemaAt < migrateAt, 'the schema must be created before the migrations run against it');
 
-  const stores = [...src.matchAll(/^const \w+ = require\('\.\/([\w-]*store)'\);/gm)];
+  // Every local require EXCEPT the three that must come first. Matching only names ending in "store"
+  // would miss project-refs — which requires four stores itself, so hoisting it hoists them too. The rule
+  // is about anything that (even transitively) prepares statements, and the honest way to express that is
+  // "everything except the known-early three".
+  const EARLY = new Set(['connection', 'schema', 'migrations']);
+  const requires = [...src.matchAll(/^const .*? = require\('\.\/([\w-]+)'\);/gm)];
+  const stores = requires.filter(m => !EARLY.has(m[1]));
   assert.ok(stores.length > 0, 'db.js requires at least one store module');
 
   const tooEarly = stores.filter(m => m.index < migrateAt).map(m => m[1]);
