@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (26 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (25 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-16
 
@@ -38,7 +38,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#201](https://github.com/deadeye636/switchboard/issues/201) agy backend: add a usage capability (status bar + Usage & Notifications), like Claude/Codex · _feature, blocked-on-upstream_
 - [#210](https://github.com/deadeye636/switchboard/issues/210) perf: run the live-session identity match (matchLiveSession) in the index worker · _chore_
 - [#212](https://github.com/deadeye636/switchboard/issues/212) Renderer still names Claude in three places the descriptor should cover · _chore_
-- [#217](https://github.com/deadeye636/switchboard/issues/217) db.js is 1997 lines — split it behind a facade like session-cache.js · _chore_
 - [#218](https://github.com/deadeye636/switchboard/issues/218) Renderer monoliths: app.js, settings-panel.js, sidebar.js, grid-view.js (9309 lines in four files) · _chore_
 - [#219](https://github.com/deadeye636/switchboard/issues/219) Dev and installed app fight over the attention hooks in ~/.claude/settings.json · _bug_
 - [#221](https://github.com/deadeye636/switchboard/issues/221) merge-setting writes a renderer-supplied blob straight past the secret scrub · _bug_
