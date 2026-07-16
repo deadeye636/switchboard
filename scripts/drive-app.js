@@ -13,6 +13,7 @@
 //        node scripts/drive-app.js click "<selector>"      click the first match
 //        node scripts/drive-app.js clicktext "<sel>" "<s>" click the first match whose text contains <s>
 //        node scripts/drive-app.js count "<selector>"      how many match
+//        node scripts/drive-app.js console [seconds]       what the renderer logged, incl. failed loads
 //
 // No dependency: Node 22 ships a global WebSocket, and CDP is JSON over one.
 'use strict';
@@ -35,10 +36,11 @@ async function pageTarget() {
   return page;
 }
 
-// One CDP session: send commands, await their replies, close.
+// One CDP session: send commands, await their replies, subscribe to events, close.
 function connect(wsUrl) {
   const ws = new WebSocket(wsUrl);
   const pending = new Map();
+  const listeners = new Map();               // CDP method -> handlers
   let nextId = 1;
 
   const ready = new Promise((resolve, reject) => {
@@ -49,8 +51,12 @@ function connect(wsUrl) {
   ws.addEventListener('message', (ev) => {
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.id === undefined) {               // an event, not a reply to anything we asked
+      for (const fn of listeners.get(msg.method) || []) fn(msg.params || {});
+      return;
+    }
     const waiter = pending.get(msg.id);
-    if (!waiter) return;                       // an event, not a reply — we do not listen for events
+    if (!waiter) return;
     pending.delete(msg.id);
     if (msg.error) waiter.reject(new Error(msg.error.message || JSON.stringify(msg.error)));
     else waiter.resolve(msg.result);
@@ -58,6 +64,10 @@ function connect(wsUrl) {
 
   return {
     ready,
+    on(method, fn) {
+      if (!listeners.has(method)) listeners.set(method, []);
+      listeners.get(method).push(fn);
+    },
     send(method, params = {}) {
       const id = nextId++;
       return new Promise((resolve, reject) => {
@@ -121,6 +131,46 @@ const COMMANDS = {
       el.click();
       return 'clicked: ' + (el.innerText || el.title || el.className || el.tagName).slice(0, 60);
     })()`);
+  },
+
+  // What the renderer logged — including the loads that failed.
+  //
+  // `shot` shows you a blank window; this shows you WHY it is blank. The renderer has no modules and no
+  // bundler, so a mistyped `<script src>` is not an error anyone sees: the page just quietly lacks a
+  // global, and the first thing to touch it throws somewhere else entirely. `Log.entryAdded` carries the
+  // 404 itself ("Failed to load resource: net::ERR_FILE_NOT_FOUND file:///…/xterm.js") — the one line
+  // that names the actual culprit.
+  //
+  // Both domains are needed, and each replays its own half. Measured against a running app rather than
+  // read off the protocol docs, because the docs only promise the buffering for `Log`:
+  //
+  //   fire console.error, wait 1s, then attach fresh with ONE domain:
+  //     Runtime.enable only  ->  Runtime.consoleAPICalled  (the error arrives)
+  //     Log.enable only      ->  nothing
+  //
+  // So `Runtime` carries console + exceptions and DOES replay them, while `Log` carries the failed loads
+  // (net::ERR_FILE_NOT_FOUND). Attaching seconds after the window opened still sees startup errors.
+  async console(cdp, [seconds = '2']) {
+    const out = [];
+
+    cdp.on('Runtime.consoleAPICalled', ({ type, args = [] }) => {
+      const text = args.map(a => a.value ?? a.description ?? a.unserializableValue ?? a.type).join(' ');
+      out.push(`${String(type).toUpperCase()}  ${text}`);
+    });
+    cdp.on('Runtime.exceptionThrown', ({ exceptionDetails = {} }) => {
+      out.push(`THROWN  ${exceptionDetails.exception?.description || exceptionDetails.text}`);
+    });
+    cdp.on('Log.entryAdded', ({ entry = {} }) => {
+      const where = entry.url ? `  <- ${entry.url}` : '';
+      out.push(`${String(entry.level).toUpperCase()}  ${entry.text}${where}`);
+    });
+
+    await cdp.send('Runtime.enable');
+    await cdp.send('Log.enable');
+    await new Promise(r => setTimeout(r, Math.max(0, Number(seconds) || 2) * 1000));
+
+    // Silence is the pass condition, so say so out loud rather than printing nothing.
+    return out.length ? out.join('\n') : '(no console output, no failed loads)';
   },
 
   // The one that matters in a list: "the row that says X, and the button in it".
