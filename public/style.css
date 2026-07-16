@@ -8946,6 +8946,16 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .tv-main { flex: 1; min-width: 0; }
 .tv-title { font-size: 13px; color: #e0e0ec; font-weight: 500; word-break: break-word; }
 .tv-meta { margin-top: 3px; font-size: 11px; color: #7a7a90; }
+/* The task card's left column: the status pill, with the session's backend badge under it (#202). Its own
+   column so the badge lines up with the pill instead of riding the meta text, which wraps. */
+.tv-statuscol { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; flex-shrink: 0; }
+/* A bookmark's session backlink: its own line under the project (#202). A bookmark card has no status
+   column, so the badge rides the text here rather than a column of its own. */
+.bmv-backlink { margin-top: 2px; }
+/* `display: inline-block` is NOT optional: the base `.backend-icon` rule below is `display: block` (it
+   lives in a slot in the sidebar/settings), which orphans the badge onto a line of its own. It also has to
+   sit on the text baseline rather than the line box. */
+.tv-meta .backend-icon { display: inline-block; vertical-align: -2px; margin-right: 4px; }
 .tv-note { margin-top: 6px; font-size: 12px; color: #b8b8c8; white-space: pre-wrap; word-break: break-word; }
 .tv-quote {
   margin: 6px 0 0;

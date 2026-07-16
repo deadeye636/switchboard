@@ -180,6 +180,11 @@
       t.projectDisplayName ? escapeHtml(t.projectDisplayName) : '',
       t.sessionName && t.scope !== 'project' ? escapeHtml(t.sessionName) : '',
     ].filter(Boolean).join(' · ');
+    // Which CLI ran the referenced session (#202). It sits UNDER the status pill rather than inline in the
+    // meta: the meta wraps (a session name can be long), which orphaned the badge onto a line of its own,
+    // and the left column already is where this card's badges live. Keyed on the id — every backend gets
+    // one with no branching here.
+    const badge = (t.sessionId && t.scope !== 'project') ? backendBadgeHtml(t.backendId, 14) : '';
     const dates = [
       created ? 'Created ' + created : '',
       updated ? 'Updated ' + updated : '',
@@ -187,8 +192,11 @@
     const canJump = !!t.sessionId;
     return `
       <div class="tv-card" data-id="${t.id}" data-status="${escapeHtml(t.status)}">
-        <button class="tv-status tv-status-${escapeHtml(t.status)}" data-action="status-menu"
-          title="Change status">${escapeHtml(taskStatusLabel(t.status))}</button>
+        <div class="tv-statuscol">
+          <button class="tv-status tv-status-${escapeHtml(t.status)}" data-action="status-menu"
+            title="Change status">${escapeHtml(taskStatusLabel(t.status))}</button>
+          ${badge}
+        </div>
         <div class="tv-main">
           <div class="tv-title">${escapeHtml(t.title)}</div>
           ${meta ? `<div class="tv-meta">${meta}</div>` : ''}

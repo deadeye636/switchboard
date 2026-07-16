@@ -2956,7 +2956,10 @@ function enrichBookmarks(rows) {
       ? (cached.name || cached.aiTitle || cached.summary || b.sessionId)
       : (b.sessionId || null);
     const projectDisplayName = projectPath ? (displayNames[projectPath] || projectPath) : null;
-    return { ...b, projectPath, sessionName, projectDisplayName };
+    // Which CLI ran the referenced session (#202) — the backlink shows its badge. Already on the cached
+    // row; only passed through here. Null for a bookmark whose session is not (or no longer) cached.
+    const backendId = cached ? (cached.backendId || 'claude') : null;
+    return { ...b, projectPath, sessionName, projectDisplayName, backendId };
   });
 }
 
@@ -2994,7 +2997,9 @@ function enrichTasks(rows) {
     const projectDisplayName = t.projectPath
       ? (displayNames[t.projectPath] || t.projectPath)
       : null;
-    return { ...t, sessionName, projectDisplayName };
+    // Which CLI ran the referenced session (#202) — see enrichBookmarks.
+    const backendId = cached ? (cached.backendId || 'claude') : null;
+    return { ...t, sessionName, projectDisplayName, backendId };
   });
 }
 

@@ -45,16 +45,19 @@
 
   function cardHtml(b) {
     const created = fmtDate(b.createdAt);
-    const meta = [
-      b.projectDisplayName ? escapeHtml(b.projectDisplayName) : '',
-      b.sessionName ? escapeHtml(b.sessionName) : '',
-    ].filter(Boolean).join(' · ');
+    const meta = b.projectDisplayName ? escapeHtml(b.projectDisplayName) : '';
+    // The session backlink gets a LINE OF ITS OWN, under the project: it carries the backend badge (#202)
+    // — which CLI ran it, at a glance — and a session name can be long, so sharing the project's line made
+    // the two run together and wrap. Keyed on the id, so every backend gets a badge with no branching here
+    // (see backend-icons.js on why outerHTML is safe).
+    const backlink = b.sessionName ? backendBadgeHtml(b.backendId, 12) + escapeHtml(b.sessionName) : '';
     const canJump = !!b.sessionId;
     return `
       <div class="tv-card bmv-card" data-id="${b.id}">
         <div class="tv-main">
           <div class="tv-title">${escapeHtml(bookmarkLabel(b))}</div>
           ${meta ? `<div class="tv-meta">${meta}</div>` : ''}
+          ${backlink ? `<div class="tv-meta bmv-backlink">${backlink}</div>` : ''}
         </div>
         <div class="tv-actions">
           ${canJump ? '<button data-action="open-session" title="Open session (starts it if stopped)">▶</button>' : ''}

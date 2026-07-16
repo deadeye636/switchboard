@@ -76,7 +76,26 @@
     return svg;
   }
 
+  /**
+   * The same badge as MARKUP, for the views that build their rows as HTML strings rather than DOM
+   * (tasks-view / bookmarks-view render a template string into innerHTML). Returns '' for no key, so a
+   * caller can concatenate it unconditionally.
+   *
+   * Still XSS-safe, and the reason is worth stating precisely: the badge is BUILT as a DOM tree above
+   * (createElementNS + textContent) and only then serialized. Serialization escapes the `"` that would
+   * end an attribute (and `&`), so a profile id like `"><img onerror=…>` comes back sealed INSIDE the
+   * class value — its characters survive, but it can never become markup. (Attribute serialization does
+   * NOT escape `<`/`>`; it does not need to. `test/backend-badge-html.test.js` pins the real property:
+   * re-parsing injects no node and no handler.) What would NOT be safe is assembling the same SVG by
+   * string concatenation — don't refactor it into that.
+   */
+  function backendBadgeHtml(key, size, opts) {
+    if (!key) return '';
+    return renderBackendIcon(key, size, opts).outerHTML;
+  }
+
   window.renderBackendIcon = renderBackendIcon;
+  window.backendBadgeHtml = backendBadgeHtml;
   window.backendIconColour = colourFor;
   window.backendMonogram = monogramFor;
 })();
