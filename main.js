@@ -143,7 +143,7 @@ try { applyLogLevel(getSetting('global')?.logLevel); } catch { /* first run: def
 // Lives under public/ so the renderer can load it as a plain <script> too: the template editor's preview has
 // to compose with the SAME code the insert runs, or it drifts from what it claims to show.
 const {
-  shellRefFor, compose, parseVarRefs, finalTemplateFor,
+  shellRefFor, compose, parseVarRefs, finalTemplateFor, effectiveTemplate,
   resolveVarGraph, buildNameIndex, scanRefSafety, MAX_RESOLVED_NODES,
 } = require('./public/variable-insert');
 
@@ -2293,6 +2293,28 @@ ipcMain.handle('delete-saved-variable', (_event, id) => {
   try {
     deleteSavedVariable(id);
     return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// Which variables' templates reference `name` via {var:name}? Renaming or deleting one that others compose
+// with breaks them SILENTLY: a reference nobody resolves is empty, so the command still runs — with an empty
+// credential where the secret used to be. So the admin asks first.
+//
+// Matched in JS with the real grammar rather than a SQL LIKE. A LIKE would have to be
+// `'%{var:' || name || '}%'`, and a name containing % or _ is then a wildcard that over-matches — the table
+// has never constrained names. parseVarRefs cannot be fooled that way, and it agrees with the resolver by
+// construction because it IS the resolver's parser. It also honours the effective template, so a row with no
+// template of its own (default {ref}/{value}) correctly references nothing.
+ipcMain.handle('saved-variable-references', (_event, name) => {
+  try {
+    const target = String(name || '').trim();
+    if (!target) return { ok: true, referencedBy: [] };
+    const referencedBy = listAllSavedVariables()
+      .filter((row) => parseVarRefs(effectiveTemplate(row)).includes(target))
+      .map((row) => ({ id: row.id, name: row.name, scope: row.scope || 'global' }));
+    return { ok: true, referencedBy };
   } catch (err) {
     return { ok: false, error: err.message };
   }

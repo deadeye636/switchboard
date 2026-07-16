@@ -288,6 +288,20 @@
         tags: overlay.querySelector('#va-f-tags').value,
         insertTemplate: overlay.querySelector('#va-f-template').value,
       };
+      // A rename is a silent break for anything composing with the old name — ask before, not after.
+      const renamedFrom = (form.id && form.name && form.name !== payload.name) ? form.name : null;
+      if (renamedFrom) {
+        const warning = await referenceWarning(renamedFrom, `Renaming "${renamedFrom}"`);
+        if (warning) {
+          const go = await showControlDialog({
+            title: `Rename ${renamedFrom} to ${payload.name}?`,
+            message: warning + ' Update those templates afterwards.',
+            confirmLabel: 'Rename',
+            tone: 'danger',
+          });
+          if (!go) return;
+        }
+      }
       const res = await window.api.saveSavedVariable(payload);
       if (!res || !res.ok) {
         statusEl.textContent = res?.error || 'Save failed';
@@ -302,6 +316,20 @@
   }
 
   // --- Row actions ---------------------------------------------------------
+
+  // Warn when other variables compose with this one. Renaming or deleting it breaks them SILENTLY: a
+  // reference nobody resolves is empty, so the command still runs — with an empty credential where the
+  // secret used to be. Returns a sentence for the confirm dialog, or '' when nothing references it.
+  async function referenceWarning(name, what) {
+    try {
+      const res = await window.api.savedVariableReferences(name);
+      const users = (res && res.ok && res.referencedBy) || [];
+      if (!users.length) return '';
+      const list = users.map(u => u.name).join(', ');
+      return `${what} will break ${users.length === 1 ? 'a template that references' : 'templates that reference'} it: ${list}. `
+        + `The reference then resolves to nothing, so the command still runs — with an empty value.`;
+    } catch { return ''; }
+  }
 
   function findRow(id) { return variables.find(v => v.id === id); }
 
@@ -324,6 +352,7 @@
       // App control dialog instead of native confirm (issue #78).
       const ok = await showControlDialog({
         title: `Delete ${row.name}?`,
+        message: await referenceWarning(row.name, 'Deleting it'),
         confirmLabel: 'Delete',
         tone: 'danger',
       });
