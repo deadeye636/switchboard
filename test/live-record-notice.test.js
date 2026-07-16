@@ -12,7 +12,7 @@ const {
   shouldNoticeMissingRecord,
   missingRecordMessage,
   NO_RECORD_GRACE_MS,
-} = require('../live-record-notice');
+} = require('../src/app/terminal/live-record-notice');
 
 const NOW = 1_800_000_000_000;
 const opened = (agoMs) => NOW - agoMs;

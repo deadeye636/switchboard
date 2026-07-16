@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const sb = require('../session-backends');
+const sb = require('../src/session/session-backends');
 
 function tmpFile() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sbtest-'));

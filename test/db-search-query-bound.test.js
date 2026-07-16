@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const { FTS_QUERY_MAX_CHARS, buildFtsMatch } = require(path.join(root, 'search-query-util'));
+const { FTS_QUERY_MAX_CHARS, buildFtsMatch } = require(path.join(root, 'src', 'db', 'search-query-util'));
 
 // ---------------------------------------------------------------------------
 // 1. The cap itself
@@ -96,13 +96,13 @@ test('titleOnly mode prefixes "title:" before the quoted phrase', () => {
 // ---------------------------------------------------------------------------
 
 test('db.js searchByType uses the shared buildFtsMatch', () => {
-  const dbSrc = fs.readFileSync(path.join(root, 'db.js'), 'utf8');
+  const dbSrc = fs.readFileSync(path.join(root, 'src', 'db', 'db.js'), 'utf8');
   assert.match(dbSrc, /require\(['"]\.\/search-query-util['"]\)/, 'db.js must import search-query-util');
   assert.match(dbSrc, /buildFtsMatch\s*\(/, 'db.js must call buildFtsMatch');
 });
 
 test('search worker uses the shared buildFtsMatch', () => {
-  const workerSrc = fs.readFileSync(path.join(root, 'workers', 'search-query.js'), 'utf8');
-  assert.match(workerSrc, /require\(['"]\.\.\/search-query-util['"]\)/, 'worker must import search-query-util');
+  const workerSrc = fs.readFileSync(path.join(root, 'src', 'workers', 'search-query.js'), 'utf8');
+  assert.match(workerSrc, /require\(['"]\.\.\/db\/search-query-util['"]\)/, 'worker must import search-query-util');
   assert.match(workerSrc, /buildFtsMatch\s*\(/, 'worker must call buildFtsMatch');
 });

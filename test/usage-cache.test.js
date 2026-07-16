@@ -6,7 +6,7 @@ const {
   retrySecondsForUsage,
   buildCachedUsageValue,
   withMainProcessUsageCache,
-} = require('../usage-cache');
+} = require('../src/backends/usage-cache');
 
 // A reading now arrives with backendId / label / live stamped on it by the collector (#191). "Successful"
 // therefore has to mean "it measured something" — a bucket or a quota — and not "some key is set", or an

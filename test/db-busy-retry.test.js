@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { isSqliteBusy, runWithBusyRetry } = require('../sqlite-busy-retry');
+const { isSqliteBusy, runWithBusyRetry } = require('../src/db/sqlite-busy-retry');
 
 test('isSqliteBusy recognizes busy and locked sqlite errors', () => {
   assert.equal(isSqliteBusy({ code: 'SQLITE_BUSY' }), true);

@@ -10,7 +10,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { createFileStore, findOnPath, walkStore, BIRTH_HINT_SKEW_MS } = require('../backends/file-store');
+const { createFileStore, findOnPath, walkStore, BIRTH_HINT_SKEW_MS } = require('../src/backends/file-store');
 
 // A store shaped like a real one: nested folders, a mix of matching and non-matching files.
 // `<root>/2026/07/12/log-<id>.jsonl`, with a sidecar the backend must ignore.

@@ -5,8 +5,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const parser = require('../backends/codex/parser');
-const codex = require('../backends/codex');
+const parser = require('../src/backends/codex/parser');
+const codex = require('../src/backends/codex');
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'codex-session.jsonl');
 const handle = { kind: 'file', path: FIXTURE };

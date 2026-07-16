@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { fetchUsage, transformRateLimits, lastRateLimitsIn } = require('../backends/codex/usage');
+const { fetchUsage, transformRateLimits, lastRateLimitsIn } = require('../src/backends/codex/usage');
 
 // The shape Codex actually writes, copied from a real rollout (docs/backend-formats.md).
 const RATE_LIMITS = {

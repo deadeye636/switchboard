@@ -5,7 +5,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 
-const registry = require('../project-registry');
+const registry = require('../src/projects/project-registry');
 
 const iso = (ms) => new Date(ms).toISOString();
 const NOW = Date.UTC(2026, 6, 13, 12, 0, 0);

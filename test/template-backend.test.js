@@ -11,8 +11,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const backends = require('../backends');
-const profiles = require('../profiles');
+const backends = require('../src/backends');
+const profiles = require('../src/backends/profiles');
 
 // A registry whose profile store we control, restored afterwards.
 function withProfiles(list, fn) {

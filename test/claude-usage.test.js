@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { transformUsageResponse } = require('../backends/claude/usage');
+const { transformUsageResponse } = require('../src/backends/claude/usage');
 
 test('claude usage: the credit pool survives a response with no windows', () => {
   const usage = transformUsageResponse({

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
-const { shouldAutoHide } = require('../session-cache');
+const { shouldAutoHide } = require('../src/index/session-cache');
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-07-01T00:00:00.000Z');
@@ -109,7 +109,7 @@ test('project_meta roundtrip: reset works on a fresh project (INSERT branch)', (
 function readRoot(f) { return fs.readFileSync(path.join(__dirname, '..', f), 'utf8'); }
 
 test('db.js defines the auto-hide columns on project_meta', () => {
-  const src = readRoot('db.js');
+  const src = readRoot('src/db/db.js');
   assert.match(src, /autoHidden INTEGER DEFAULT 0/, 'CREATE TABLE should declare autoHidden');
   assert.match(src, /autoHideResetAt TEXT/, 'CREATE TABLE should declare autoHideResetAt');
   assert.match(src, /ALTER TABLE project_meta ADD COLUMN autoHidden/, 'idempotent ALTER for autoHidden');
@@ -117,7 +117,7 @@ test('db.js defines the auto-hide columns on project_meta', () => {
 });
 
 test('db.js exports the auto-hide getters/setters', () => {
-  const exportsBlock = readRoot('db.js').split('module.exports')[1] || '';
+  const exportsBlock = readRoot('src/db/db.js').split('module.exports')[1] || '';
   for (const name of ['getProjectMeta', 'setProjectAutoHidden', 'resetProjectAutoHide', 'getAutoHiddenProjects']) {
     assert.ok(
       new RegExp(`(^|[^\\w])${name}([^\\w]|$)`, 'm').test(exportsBlock),

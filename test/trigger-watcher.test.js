@@ -117,7 +117,7 @@ test('happy path: trigger → pty.write called, result ok:true, trigger deleted'
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-happy-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -160,7 +160,7 @@ test('unknown sessionId: result ok:false with session not found, no PTY write', 
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const ctx        = makeCtx('real-session');
     const watcher    = start(ctx);
 
@@ -194,7 +194,7 @@ test('malformed JSON: result ok:false with error, trigger deleted, no PTY write'
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const ctx        = makeCtx('any-session');
     const watcher    = start(ctx);
 
@@ -226,7 +226,7 @@ test('missing required field (no command): result ok:false, no PTY write', async
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-nocommand-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -259,7 +259,7 @@ test('wait:idle while busy → flips to idle after 150ms → write happens, wait
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '2000'; // generous timeout
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     let busy = true;
     const SESSION_ID = 'sess-idle-' + Date.now();
     const ctx = makeCtx(SESSION_ID, () => busy);
@@ -301,7 +301,7 @@ test('wait:idle timeout: busy stays true → ok:false, error contains "timeout",
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200'; // short timeout for test
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-timeout-' + Date.now();
     const ctx = makeCtx(SESSION_ID, () => true); // always busy
     const watcher = start(ctx);
@@ -339,7 +339,7 @@ test('C1 size cap: trigger > 64 KB rejected before read, result ok:false', async
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-c1-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -373,7 +373,7 @@ test('C2 symlink: symlinked trigger rejected, result ok:false', async () => {
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-c2-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -409,7 +409,7 @@ test('W1 partial-write retry: truncated JSON on both attempts → ok:false after
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const ctx    = makeCtx('any-session');
     const watcher = start(ctx);
 
@@ -441,7 +441,7 @@ test('W2 command length cap: command > 4 KB rejected, result ok:false', async ()
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-w2-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -476,7 +476,7 @@ test('W3 forbidden control chars: \\r in command rejected, result ok:false', asy
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-w3-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -510,7 +510,7 @@ test('W4 concurrency cap: 12 simultaneous triggers all get processed', async () 
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-w4-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -554,7 +554,7 @@ test('W5 session exits during wait:idle → ok:false, error contains "session ex
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '2000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-w5-' + Date.now();
     const ctx = makeCtx(SESSION_ID, () => true); // stays busy
     const watcher = start(ctx);
@@ -593,7 +593,7 @@ test('PTY write throws: result ok:false with pty write failed error', async () =
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-ptythrow-' + Date.now();
     const ctx        = makeCtx(SESSION_ID, () => false, { ptyThrows: true });
     const watcher    = start(ctx);
@@ -623,7 +623,7 @@ test('inFlight dedup: same filename event fired twice → processed at most once
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-dedup-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -657,7 +657,7 @@ test('I4 NaN timeout: invalid SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS uses default (
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = 'not-a-number'; // I4: triggers NaN guard
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-i4-' + Date.now();
     // Always busy — with a valid timeout this resolves to timedOut; without NaN guard it never resolves
     const ctx = makeCtx(SESSION_ID, () => true);
@@ -697,7 +697,7 @@ test('W6 timeout_ms: per-trigger timeout_ms honored, overrides env-var fallback'
     // env var set to 50 ms — without per-trigger override this would time out
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '50';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     let busy = true;
     const SESSION_ID = 'sess-tmout-override-' + Date.now();
     const ctx = makeCtx(SESSION_ID, () => busy);
@@ -738,7 +738,7 @@ test('W6 timeout_ms invalid: negative → ok:false, error "invalid timeout_ms", 
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-neg-tmout-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -773,7 +773,7 @@ test('W6 timeout_ms invalid: non-integer float (1.5) → ok:false, no PTY write'
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-float-tmout-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -808,7 +808,7 @@ test('W6 timeout_ms invalid: value > 600000 → ok:false, no PTY write', async (
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-cap-tmout-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -843,7 +843,7 @@ test('W6 timeout_ms invalid: string type ("500") → ok:false, no PTY write', as
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-str-tmout-' + Date.now();
     const ctx        = makeCtx(SESSION_ID);
     const watcher    = start(ctx);
@@ -880,7 +880,7 @@ test('W6 timeout_ms absent: falls back to env-var; env-var absent → falls back
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '300'; // env var: 300 ms
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-fallback-' + Date.now();
     // Always busy — with the env-var 300 ms timeout this should time out
     const ctx = makeCtx(SESSION_ID, () => true);
@@ -920,7 +920,7 @@ test('W7 dead on arrival: liveness false at lookup → ok:false, no wait, no wri
     process.env.SWITCHBOARD_TRIGGERS_DIR             = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS  = '5000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-dead-' + Date.now();
     const ctx = makeCtx(SESSION_ID, () => false, { alive: false });
     const watcher = start(ctx);
@@ -954,7 +954,7 @@ test('W7 dies during wait: alive at lookup, dead before write → ok:false with 
     process.env.SWITCHBOARD_TRIGGERS_DIR             = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS  = '5000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-dies-' + Date.now();
     let busy = true;
     const ctx = makeCtx(SESSION_ID, () => busy);
@@ -989,7 +989,7 @@ test('W7 default helper: real-pid mock passes default signal-0 probe → happy p
     process.env.SWITCHBOARD_TRIGGERS_DIR             = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS  = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-default-alive-' + Date.now();
     const ctx = makeCtx(SESSION_ID);
     delete ctx.isPtyAlive; // force the default signal-0 path
@@ -1069,7 +1069,7 @@ test('chain happy path: 3-step chain → 3 PTY writes, result ok:true with steps
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '2000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-happy-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -1123,7 +1123,7 @@ test('chain+command mutually exclusive: both present → ok:false, error mention
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-both-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -1158,7 +1158,7 @@ test('chain validation: empty array → ok:false, error mentions chain', async (
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-empty-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -1188,7 +1188,7 @@ test('chain validation: length > 20 → ok:false, error mentions chain', async (
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-long-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -1221,7 +1221,7 @@ test('chain validation: step without command string → ok:false', async () => {
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-badstep-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -1255,7 +1255,7 @@ test('chain validation: step command too long → ok:false, no PTY write', async
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-longcmd-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -1289,7 +1289,7 @@ test('chain validation: step command with forbidden chars → ok:false, no PTY w
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-ctrlcmd-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -1328,7 +1328,7 @@ test('chain timeout mid-chain: global timeout fires → ok:false, partial:true, 
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '5000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-timeout-' + Date.now();
     let busy = false;
     const ctx = makeChainCtx(SESSION_ID, { noAutoTurn: true });
@@ -1393,7 +1393,7 @@ test('chain session exit mid-chain: session exits during step 1 turn wait → ok
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '5000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-exit-' + Date.now();
     let busy = false;
     const ctx = makeChainCtx(SESSION_ID, { noAutoTurn: true });
@@ -1454,7 +1454,7 @@ test('chain per-step timeout_ms: step with short per-step timeout fires before g
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '5000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-steptmout-' + Date.now();
     let busy = false;
     const ctx = makeChainCtx(SESSION_ID, { noAutoTurn: true });
@@ -1514,7 +1514,7 @@ test('chain validation: invalid per-step timeout_ms → ok:false, no PTY write',
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-badtmout-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -1553,7 +1553,7 @@ test('chain instant-reply mid-chain: step 1 never sets busy → verify-retries t
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '10000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-chain-instant-' + Date.now();
     let busy = false;
     const ctx = makeChainCtx(SESSION_ID, { noAutoTurn: true });
@@ -1626,7 +1626,7 @@ test('submit-verify single: busy never rises → retry Enter, submit_retries:1',
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '2000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-verify-noRise-' + Date.now();
     const ctx = makeCtx(SESSION_ID, () => false); // busy never rises
     const watcher = start(ctx);
@@ -1660,7 +1660,7 @@ test('submit-verify single: busy rises fast → no retry, submit_retries:0', asy
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '2000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-verify-rise-' + Date.now();
     // Busy rises the moment the discrete Enter ('\r') is written — the verify
     // poll observes the rising edge on its first tick → no retry.
@@ -1702,7 +1702,7 @@ test('submit-verify chain final step silent: retry traced on steps[last].submit_
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '10000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-verify-finalsilent-' + Date.now();
     let busy = false;
     const ctx = makeChainCtx(SESSION_ID, { noAutoTurn: true });
@@ -1763,7 +1763,7 @@ test('submit-verify chain happy: auto-turn rises every step → submit_retries:0
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '5000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-verify-happy-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID); // auto-turn: busy@50, idle@200 per '\r'
     const watcher = start(ctx);
@@ -1812,7 +1812,7 @@ test('W9 requeue: chain timeout with unsent steps → requeued:true + new trigge
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '5000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-requeue-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID, { noAutoTurn: true });
     // step 0 completes; step 1 stays busy forever → global timeout fires with step 2 unsent.
@@ -1885,7 +1885,7 @@ test('W9 requeue initial-wait: all steps unsent when idle wait times out → all
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '5000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-requeue-init-' + Date.now();
     // Always busy → initial idle wait times out
     const ctx = makeChainCtx(SESSION_ID, { initiallyBusy: true });
@@ -1932,7 +1932,7 @@ test('W9 requeue cap: requeue_count >= MAX_REQUEUE → requeue_exhausted:true, n
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '5000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-requeue-cap-' + Date.now();
     // Always busy → initial idle wait times out
     const ctx = makeChainCtx(SESSION_ID, { initiallyBusy: true });
@@ -1979,7 +1979,7 @@ test('W9 validation: negative requeue_count → ok:false, no PTY write', async (
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-badrequeue-neg-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -2014,7 +2014,7 @@ test('W9 validation: float requeue_count (1.5) → ok:false', async () => {
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-badrequeue-float-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -2048,7 +2048,7 @@ test('W9 validation: string requeue_count → ok:false', async () => {
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-badrequeue-str-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -2082,7 +2082,7 @@ test('W9 validation: absent requeue_count → treated as 0, no validation error'
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '200';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-requeue-absent-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID);
     const watcher = start(ctx);
@@ -2115,7 +2115,7 @@ test('W9 no requeue on success: completed chain → no new trigger file written'
     process.env.SWITCHBOARD_TRIGGERS_DIR        = tmp;
     process.env.SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS = '5000';
 
-    const { start } = require('../trigger-watcher');
+    const { start } = require('../src/watch/trigger-watcher');
     const SESSION_ID = 'sess-requeue-success-' + Date.now();
     const ctx = makeChainCtx(SESSION_ID); // auto-turn: completes cleanly
     const watcher = start(ctx);

@@ -9,9 +9,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const projects = require('../projects');
-const backends = require('../backends');
-const { encodeProjectPath } = require('../encode-project-path');
+const projects = require('../src/projects/projects');
+const backends = require('../src/backends');
+const { encodeProjectPath } = require('../src/session/encode-project-path');
 
 // A context in the shape main.js hands over. Everything is observable: what was written, what was
 // refreshed, what was deleted.
@@ -850,7 +850,7 @@ test('a backend that cannot delete is refused by name, not silently skipped', ()
 test('a delete never leaves the store it belongs to', () => {
   // The paths come from cached rows. A row is data, and data can be wrong — a stale or tampered
   // filePath must not turn "delete this project's Codex history" into "delete that file over there".
-  const { deleteTranscripts } = require('../backends/delete-sessions');
+  const { deleteTranscripts } = require('../src/backends/delete-sessions');
   const store = fs.mkdtempSync(path.join(os.tmpdir(), 'store-'));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-'));
   try {

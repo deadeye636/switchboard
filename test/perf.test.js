@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { startTimer, timed, timedAsync } = require('../perf');
+const { startTimer, timed, timedAsync } = require('../src/perf');
 
 test('startTimer returns a non-decreasing, non-negative elapsed probe', () => {
   const done = startTimer();

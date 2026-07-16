@@ -32,8 +32,8 @@ Feature-adoption catalogue: closed issue [#1](https://github.com/deadeye636/swit
 Adopt JBR features one at a time, never bulk-merge:
 
 1. `git checkout -b port/<feature> main`
-2. `git cherry-pick <commits>` — resolve conflicts (shared hot-paths: `main.js`, `src/renderer/shell/sidebar.js`,
-   `db.js`, `session-cache.js` collide because both forks rewrote them).
+2. `git cherry-pick <commits>` — resolve conflicts (shared hot-paths: `src/main.js`, `src/renderer/shell/sidebar.js`,
+   `src/db/db.js`, `src/index/session-cache.js` collide because both forks rewrote them).
 3. `npm test` must be green — no new failures vs. the pre-port run.
 4. `git checkout main && git merge --ff-only port/<feature>`.
 
@@ -65,23 +65,40 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 
 ## Architecture
 
-- **Main process** (`main.js` + `main-lifecycle.js`): app lifecycle, IPC handlers, terminal (PTY)
-  management, file watching, MCP IDE bridge (`mcp-bridge.js`), scheduler (`schedule-*.js`).
-- **Preload** (`preload.js`): the **only** IPC surface. Renderer talks to main exclusively through
+**All app code lives under `src/`.** The repo root holds only project metadata and tooling
+(`package.json`, `docs/`, `scripts/`, `test/`, `build/`). `"main"` in package.json is `src/main.js`, and
+`build.files` is `src/**/*` — an **allow-list**, so a new directory outside `src/` is silently absent from
+the installer.
+
+- **Main process** (`src/main.js`): app lifecycle, IPC handlers, terminal (PTY) management, file watching.
+  ~5000 lines and due to be split into `src/app/` + `src/watch/` (#213) — `src/app/` already holds the
+  PTY pure-logic (`terminal/`), the quit guard, the settings transfer and `lifecycle.js`.
+- **Preload** (`src/preload.js`): the **only** IPC surface. Renderer talks to main exclusively through
   `window.api.*` defined here (`ipcRenderer.invoke` for request/response, `.send`/`.on` for streams).
-  Add a binding here when you add an IPC handler in `main.js`.
+  Add a binding here when you add an IPC handler in `src/main.js`.
+- **`src/shared/`**: the four modules **both processes load** — `attention-source`, `custom-launchers`,
+  `variable-insert`, `preview-kind`. They are `require()`d in main and a global in the renderer (which has
+  no require — plain `<script>` tags). The preview in main must compute with the same code the insert runs
+  in the renderer; two copies would be a bug factory. Nothing else belongs here.
 - **Renderer** (`src/renderer/`): **vanilla JS, no framework**. Modules are plain `<script>` tags in
   `src/renderer/index.html` (load order matters — `test/script-tags.test.js` guards it). Sorted into folders
   (`shell/`, `session/`, `terminal/`, `views/`, `jsonl/`, `panels/`, …). DOM reconciliation via morphdom.
   Terminal = `@xterm/xterm`.
   Diffs = CodeMirror (`codemirror-setup.js`, bundled by esbuild into `codemirror-bundle.js`).
-- **Persistence** (`db.js`): `better-sqlite3`. Session cache + full-text search via **FTS5**.
+- **Persistence** (`src/db/`): `db.js` (`better-sqlite3`) + `stats-queries.js`, `search-query-util.js`,
+  `sqlite-busy-retry.js`. Session cache + full-text search via **FTS5**.
   Migrations are an **ordered array** (`const migrations = [...]`); schema version = array length.
   Add a new migration by **appending** to the end — never insert or renumber.
-- **Session data**: read from `~/.claude/projects/**/*.jsonl` (`read-session-file.js`,
-  `derive-project-path.js`, `workers/scan-projects.js`, `session-cache.js`, `session-transitions.js`).
-- **Backends** (`backends/`): the app runs **several coding CLIs** (Claude, Codex, Hermes, Pi; `agy`
-  planned), not just Claude. One folder per backend — `backends/index.js` (registry) + `claude/`
+- **Scan/index** (`src/index/`): `session-cache.js` is a **façade** (#199) over `index-writes.js`,
+  `index-worker-client.js`, `search-worker-client.js`, `projects-view.js`, `folder-index-state.js`.
+  The workers themselves are `src/workers/`.
+- **Session data**: read from `~/.claude/projects/**/*.jsonl` — `src/session/derive-project-path.js`,
+  `src/workers/scan-projects.js`, `src/index/session-cache.js`, `src/session/session-transitions.js`,
+  and Claude's own readers in `src/backends/claude/` (`session-reader.js`, `store-indexer.js`).
+- **Servers** (`src/servers/`): MCP IDE bridge (`mcp-bridge.js`), scheduler (`schedule-*.js`).
+  File-watching lives in `src/watch/`.
+- **Backends** (`src/backends/`): the app runs **several coding CLIs** (Claude, Codex, Hermes, Pi; `agy`
+  planned), not just Claude. One folder per backend — `index.js` (registry) + `claude/`
   (a **thin adapter** over the modules above: the core still imports Claude's readers directly instead of
   going through the descriptor, which is why they are not in that folder) + a folder per Axis-B binary.
   **Everything else derives from the descriptor**: spawn routing, scanning, the watcher, the launch menu,
@@ -92,9 +109,9 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 - **Read first:** `docs/specs/09-multi-llm.md` (the contract + why each decision is what it is) and
   `docs/backend-formats.md` (what each backend actually writes — taken from real installs, because the
   published docs were wrong in three places).
-- **Don't hardcode a backend id outside its own folder.** `main.js` / `session-cache.js` / `src/renderer/**/*.js`
+- **Don't hardcode a backend id outside its own folder.** `src/main.js` / `src/index/session-cache.js` / `src/renderer/**/*.js`
   contain no `if (backendId === 'codex')` and must not gain one.
-- **A file-mode backend composes `backends/file-store.js` — it does not copy the walk.** Discovery,
+- **A file-mode backend composes `src/backends/file-store.js` — it does not copy the walk.** Discovery,
   `watchTargets`, the birth-time `matchLiveSession` and the suffix `liveRefFor` are the same code for every
   backend that keeps one transcript per session; declare `root` (lazy), `matches`, `parseSession` and
   `refSuffix` and take the rest. `findOnPath` lives there too (PATHEXT — the npm CLIs are `.cmd` shims).
@@ -197,8 +214,8 @@ including a schema the migrations never touched (`no such column: parserVersion`
 | the installed app (packaged) | `~/.switchboard` | `~/.switchboard/switchboard.db` |
 | a test sandbox / agent run | `$SWITCHBOARD_DATA_DIR` | there |
 
-Set in `main.js` (~L82): unpackaged **and** no explicit `SWITCHBOARD_DATA_DIR` → `~/.switchboard-dev`, so a dev
-instance never races the installed app on `session_cache`. `db.js` resolves `DATA_DIR` at module load, so the
+Set in `src/main.js` (~L82): unpackaged **and** no explicit `SWITCHBOARD_DATA_DIR` → `~/.switchboard-dev`, so a dev
+instance never races the installed app on `session_cache`. `src/db/db.js` resolves `DATA_DIR` at module load, so the
 env var must be set **before** anything requires it.
 
 **A fix confirmed under `npm start` is confirmed in the DEV database only.** The installed app runs its own
@@ -284,8 +301,8 @@ diagnostic at `debug` that the packaged default hides is what made #120 invisibl
   Escape closes a `showControlDialog` — fine for a question, wrong for anything holding something the user
   cannot get back (a handoff packet an agent spent tokens writing). Pass `dismissible: false`, or ask
   before discarding.
-- When touching `db.js` schema: append a migration, never edit an existing one.
-- When adding IPC: handler in `main.js` + binding in `preload.js` + (if it returns to UI) a renderer caller.
+- When touching `src/db/db.js` schema: append a migration, never edit an existing one.
+- When adding IPC: handler in `src/main.js` + binding in `src/preload.js` + (if it returns to UI) a renderer caller.
 - Prefer `execFile` over shell string interpolation for any external process (security).
 - **User-facing UI text is English** (settings labels/descriptions, sidebar labels, dialogs,
   tooltips) — match the existing strings. Commit messages are English (see above); code

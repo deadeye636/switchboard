@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
-const ENTRIES = ['main.js', 'preload.js'];
+const ENTRIES = ['src/main.js', 'src/preload.js'];
 
 /** `build.files`, as predicates. Kept in step with package.json by the test below. */
 function shippedBy(patterns) {

@@ -5,11 +5,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const sessionCache = require('../session-cache');
-const backends = require('../backends');
-const codex = require('../backends/codex');
-const sessionBackends = require('../session-backends');
-const { encodeProjectPath } = require('../encode-project-path');
+const sessionCache = require('../src/index/session-cache');
+const backends = require('../src/backends');
+const codex = require('../src/backends/codex');
+const sessionBackends = require('../src/session/session-backends');
+const { encodeProjectPath } = require('../src/session/encode-project-path');
 // #208: the Axis-B scan runs in the index worker now — drive the real worker parse + main apply in one call.
 const { runBackendScan } = require('./helpers/run-backend-scan');
 

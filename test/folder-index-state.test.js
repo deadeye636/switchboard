@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { getFolderIndexMtimeMs } = require('../folder-index-state');
+const { getFolderIndexMtimeMs } = require('../src/index/folder-index-state');
 
 test('folder index timestamp advances when an existing session file is appended', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-folder-index-'));

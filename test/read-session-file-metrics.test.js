@@ -4,8 +4,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { readSessionFile, readSessionFileIncremental, extractDailyMetrics, isToolResultOnly } = require('../backends/claude/session-reader');
-const { bucketFromIso } = require('../metrics-bucket');
+const { readSessionFile, readSessionFileIncremental, extractDailyMetrics, isToolResultOnly } = require('../src/backends/claude/session-reader');
+const { bucketFromIso } = require('../src/backends/metrics-bucket');
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-rsfm-'));

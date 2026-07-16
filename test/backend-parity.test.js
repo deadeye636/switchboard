@@ -11,8 +11,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const backends = require('../backends');
-const codexState = require('../backends/codex/state');
+const backends = require('../src/backends');
+const codexState = require('../src/backends/codex/state');
 
 // Registry-driven, not a hand-maintained roster (#195): a newly registered `ready` backend is covered
 // the moment it is seeded, and one that cannot satisfy a contract fails the suite on registration —
@@ -121,8 +121,8 @@ test('Codex says NOTHING rather than "idle" when no lifecycle event exists at al
 // --- the liveness signal (D21), checked on both store-derived backends ---------------------------
 
 test('a long SILENT turn stays busy on every store-derived backend while its PTY still talks', () => {
-  const hermes = require('../backends/hermes/state');
-  const pi = require('../backends/pi/state');
+  const hermes = require('../src/backends/hermes/state');
+  const pi = require('../src/backends/pi/state');
   const now = Date.now();
   const longAgo = now - 10 * 60 * 1000;   // well past every activity window
 
@@ -151,8 +151,8 @@ test('...but the terminal cannot hold a turn busy FOR EVER — every net has a c
   // already shipped twice, through a third door.
   //
   // Past the ceiling the STORE is the state. Output was only ever the tie-breaker.
-  const hermes = require('../backends/hermes/state');
-  const pi = require('../backends/pi/state');
+  const hermes = require('../src/backends/hermes/state');
+  const pi = require('../src/backends/pi/state');
   const now = Date.now();
 
   for (const [name, mod] of [['hermes', hermes], ['pi', pi]]) {

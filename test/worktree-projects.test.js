@@ -8,7 +8,7 @@ const path = require('node:path');
 
 const {
   resolveWorktreePath, isRealGitWorktree, extractCwdFromJsonl,
-} = require('../derive-project-path');
+} = require('../src/session/derive-project-path');
 
 function tmpDir(name) {
   return fs.mkdtempSync(path.join(os.tmpdir(), name));
@@ -68,9 +68,9 @@ test('the FOLDER still identifies itself by the head cwd — that is what keeps 
 // directory, not the session's project — so attributing a session to its raw current cwd (what the issue
 // originally asked for) would scatter those into phantom projects. Their project ROOT never moved.
 
-const { projectRootOf, sessionProjectPath, _resetRootCache } = require('../derive-project-path');
-const { readSessionFile } = require('../backends/claude/session-reader');
-const { encodeProjectPath } = require('../encode-project-path');
+const { projectRootOf, sessionProjectPath, _resetRootCache } = require('../src/session/derive-project-path');
+const { readSessionFile } = require('../src/backends/claude/session-reader');
+const { encodeProjectPath } = require('../src/session/encode-project-path');
 
 // A repo has a `.git` DIRECTORY; a worktree has a `.git` FILE. That is the whole difference, and it is
 // all these functions look at — no git binary needed.

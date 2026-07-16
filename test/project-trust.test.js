@@ -14,8 +14,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const trust = require('../backends/codex/trust');
-const backends = require('../backends');
+const trust = require('../src/backends/codex/trust');
+const backends = require('../src/backends');
 
 // A config in the shape a real one has (read off a live install).
 const REAL = `model = "gpt-5.5-codex"

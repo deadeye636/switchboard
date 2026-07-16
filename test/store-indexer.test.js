@@ -5,12 +5,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const sessionCache = require('../session-cache');
-const storeIndexer = require('../backends/claude/store-indexer');
-const { parseClaudeFile } = require('../backends/claude/folder-parse');
-const backends = require('../backends');
-const sessionBackends = require('../session-backends');
-const { encodeProjectPath } = require('../encode-project-path');
+const sessionCache = require('../src/index/session-cache');
+const storeIndexer = require('../src/backends/claude/store-indexer');
+const { parseClaudeFile } = require('../src/backends/claude/folder-parse');
+const backends = require('../src/backends');
+const sessionBackends = require('../src/session/session-backends');
+const { encodeProjectPath } = require('../src/session/encode-project-path');
 
 // #199 step 5.1a — CHARACTERIZATION tests for the four behaviours the "extract the Claude parse-loop as a
 // PURE function" claim rests on, and which the rest of the suite does NOT cover. They are written GREEN on

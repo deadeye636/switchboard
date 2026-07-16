@@ -14,7 +14,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const sessionCache = require('../session-cache');
+const sessionCache = require('../src/index/session-cache');
 
 const row = (over) => ({
   sessionId: 's', folder: 'f', projectPath: '/p', summary: '', firstPrompt: '',

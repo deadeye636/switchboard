@@ -16,8 +16,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { rewriteTranscript, claudeLine, codexLine, piLine, samePath } = require('../backends/rewrite-cwd');
-const backends = require('../backends');
+const { rewriteTranscript, claudeLine, codexLine, piLine, samePath } = require('../src/backends/rewrite-cwd');
+const backends = require('../src/backends');
 
 const OLD = 'D:\\temp\\project';
 const NEW = 'D:\\temp\\project-moved';

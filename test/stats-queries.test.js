@@ -10,7 +10,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const q = require('../stats-queries');
+const q = require('../src/db/stats-queries');
 
 // The same two drivers the app accepts (backends/hermes/reader.js). better-sqlite3 is a native module
 // built for Electron's ABI, so it may not load under plain `node --test`; node:sqlite (Node >= 22.5) is

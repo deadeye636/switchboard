@@ -10,7 +10,7 @@ const {
   resolveJsonlPath,
   readSubagentMeta,
   enumerateSessionFiles,
-} = require('../backends/claude/session-reader');
+} = require('../src/backends/claude/session-reader');
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-rsf-'));

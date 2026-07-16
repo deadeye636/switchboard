@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 
 const {
   NO_HOUR, localDateKey, bucketOf, bucketFromIso, bucketFromEpochSeconds, bucketKey,
-} = require('../metrics-bucket');
+} = require('../src/backends/metrics-bucket');
 
 test('localDateKey formats the LOCAL calendar day, never the UTC one', () => {
   // Local midnight. toISOString() would render this as the PREVIOUS day anywhere east of Greenwich —

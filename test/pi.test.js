@@ -11,9 +11,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const pi = require('../backends/pi');
-const parser = require('../backends/pi/parser');
-const { deriveState, deriveStateFromFileTail, ACTIVITY_WINDOW_MS } = require('../backends/pi/state');
+const pi = require('../src/backends/pi');
+const parser = require('../src/backends/pi/parser');
+const { deriveState, deriveStateFromFileTail, ACTIVITY_WINDOW_MS } = require('../src/backends/pi/state');
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'pi-session.jsonl');
 
@@ -186,7 +186,7 @@ test('a HUGE final answer still reads as idle — the tail window grows to fit o
 
 test('probe names the bash requirement, not just the binary and Node', () => {
   // The plan asks for it and the docstring claimed it; the code did not check it (Phase-6 gate finding).
-  const src = fs.readFileSync(path.join(__dirname, '..', 'backends', 'pi', 'index.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'backends', 'pi', 'index.js'), 'utf8');
   assert.match(src, /function findBash\(/, 'a bash probe exists');
   assert.match(src, /bash shell/i, 'and its reason says so in words the user can act on');
 });

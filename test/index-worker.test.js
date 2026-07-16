@@ -19,7 +19,7 @@ const os = require('os');
 const path = require('path');
 const { Worker } = require('worker_threads');
 
-const WORKER = path.join(__dirname, '..', 'workers', 'index-worker.js');
+const WORKER = path.join(__dirname, '..', 'src', 'workers', 'index-worker.js');
 
 // A minimal valid Claude transcript: one user line carrying cwd (for deriveProjectPath) + a user message
 // (so readSessionFile yields a non-null session).
@@ -101,10 +101,10 @@ test('a spawned worker answers a file request with {session, sessionId}', async 
 // worker's runClaudeReconcile + the shared applyClaudeFolderReply, each against its own fake DB, and assert
 // the upserted rows match.
 test('the worker reply reconstructs the same rows the synchronous refresh writes', () => {
-  const sessionCache = require('../session-cache');
-  const storeIndexer = require('../backends/claude/store-indexer');
-  const iw = require('../workers/index-worker');
-  const { getFolderIndexMtimeMs } = require('../folder-index-state');
+  const sessionCache = require('../src/index/session-cache');
+  const storeIndexer = require('../src/backends/claude/store-indexer');
+  const iw = require('../src/workers/index-worker');
+  const { getFolderIndexMtimeMs } = require('../src/index/folder-index-state');
 
   const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-iw-equiv-'));
   try {
@@ -160,9 +160,9 @@ test('the worker reply reconstructs the same rows the synchronous refresh writes
 function bootClient(client, { quitting = { v: false }, onFileApplied } = {}) {
   const upserts = [];
   const deletes = [];
-  const sink = require('../index-writes');
-  const storeIndexer = require('../backends/claude/store-indexer');
-  const backendScan = require('../backend-scan');
+  const sink = require('../src/index/index-writes');
+  const storeIndexer = require('../src/backends/claude/store-indexer');
+  const backendScan = require('../src/backends/scan');
   // Point the shared sink at a recording DB (the apply helpers write through it).
   sink.init({
     getMainWindow: () => null, log: console,
@@ -202,7 +202,7 @@ function folderReplyWithSession(sessionId, folder = 'proj-z') {
 }
 
 test('appQuitting guard: a reply that arrives after quit is dropped before any apply', () => {
-  const client = require('../index-worker-client');
+  const client = require('../src/index/index-worker-client');
   const quitting = { v: false };
   const rec = bootClient(client, { quitting });
   client.postReconcile();
@@ -217,7 +217,7 @@ test('appQuitting guard: a reply that arrives after quit is dropped before any a
 });
 
 test('delete-epoch guard: a row deleted since the request is not reverse-resurrected (reconcile lane)', () => {
-  const client = require('../index-worker-client');
+  const client = require('../src/index/index-worker-client');
   const rec = bootClient(client);
   client.postReconcile();
   const req = rec.posted.find(m => m.type === 'reconcile');
@@ -247,7 +247,7 @@ function backendReplyEntry(sessionId, { backendId = 'codex', storeMissing = fals
 // Claude lane must protect msg.backends too. These lock the two guards only the client applies for a backend
 // reply (the worker cannot): the delete-epoch dropIds and the storeMissing skip.
 test('delete-epoch guard covers the Axis-B reconcile lane (a deleted backend row is not resurrected)', () => {
-  const client = require('../index-worker-client');
+  const client = require('../src/index/index-worker-client');
   const rec = bootClient(client);
   client.postReconcile();
   const req = reconcilePosts(rec.posted)[0];
@@ -268,7 +268,7 @@ test('delete-epoch guard covers the Axis-B reconcile lane (a deleted backend row
 });
 
 test('a storeMissing Axis-B reply is skipped at the client — nothing is applied', () => {
-  const client = require('../index-worker-client');
+  const client = require('../src/index/index-worker-client');
   const rec = bootClient(client);
   client.postReconcile();
   const req = reconcilePosts(rec.posted)[0];
@@ -282,7 +282,7 @@ test('a storeMissing Axis-B reply is skipped at the client — nothing is applie
 });
 
 test('delete-epoch guard also covers the file lane', () => {
-  const client = require('../index-worker-client');
+  const client = require('../src/index/index-worker-client');
   const rec = bootClient(client);
   // Simulate a file request in flight: register it by posting through the seam. postFile does DB pre-work
   // (refreshFilePrepare) which returns null for a nonexistent store, so drive _deliverReply directly with a
@@ -300,7 +300,7 @@ test('delete-epoch guard also covers the file lane', () => {
 
 // --- fix 1: postReconcile COALESCING ---------------------------------------------------------------
 test('postReconcile coalescing: a burst posts at most one in-flight + one trailing (not N)', () => {
-  const client = require('../index-worker-client');
+  const client = require('../src/index/index-worker-client');
   const rec = bootClient(client);
 
   // A burst of get-projects → N postReconcile calls while the first is still in flight.
@@ -324,7 +324,7 @@ test('postReconcile coalescing: a burst posts at most one in-flight + one traili
 // client.noteDeleted(id) for each explicitly-deleted session. This asserts the guard that wiring feeds:
 // an in-flight reconcile reply for a session deleted by an explicit action is dropped, not resurrected.
 test('noteDeleted (explicit delete) drops an in-flight reconcile reply for that id', () => {
-  const client = require('../index-worker-client');
+  const client = require('../src/index/index-worker-client');
   const rec = bootClient(client);
   client.postReconcile();
   const req = reconcilePosts(rec.posted)[0];
@@ -342,8 +342,8 @@ test('noteDeleted (explicit delete) drops an in-flight reconcile reply for that 
 // A project removed AFTER the snapshot is not in the posted removedSet, so the worker parsed + indexed it.
 // applyReconcileReply must re-check isRemovedProject FRESH on main and drop that folder's parsed rows.
 test('removed-race: a project removed after the snapshot is not indexed by an in-flight reply', () => {
-  const client = require('../index-worker-client');
-  const storeIndexer = require('../backends/claude/store-indexer');
+  const client = require('../src/index/index-worker-client');
+  const storeIndexer = require('../src/backends/claude/store-indexer');
   const realIsRemoved = storeIndexer.isRemovedProject;
   const rec = bootClient(client);
   try {
@@ -370,7 +370,7 @@ test('removed-race: a project removed after the snapshot is not indexed by an in
 
 // --- fix 4: per-file liveness push COALESCING ------------------------------------------------------
 test('file-lane push coalescing: a burst of file applies collapses to one push', () => {
-  const client = require('../index-worker-client');
+  const client = require('../src/index/index-worker-client');
   let pushes = 0;
   bootClient(client, { onFileApplied: () => { pushes++; } });
 

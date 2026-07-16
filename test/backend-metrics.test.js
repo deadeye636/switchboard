@@ -15,9 +15,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const codexParser = require('../backends/codex/parser');
-const piParser = require('../backends/pi/parser');
-const { bucketFromIso } = require('../metrics-bucket');
+const codexParser = require('../src/backends/codex/parser');
+const piParser = require('../src/backends/pi/parser');
+const { bucketFromIso } = require('../src/backends/metrics-bucket');
 
 const PI_FIXTURE = path.join(__dirname, 'fixtures', 'pi-session.jsonl');
 

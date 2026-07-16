@@ -16,7 +16,7 @@ function readSrc(file) {
   return fs.readFileSync(path.join(root, file), 'utf8');
 }
 
-const dbSrc = readSrc('db.js');
+const dbSrc = readSrc('src/db/db.js');
 
 // ---------------------------------------------------------------------------
 // 1. Schema: external-content FTS5 table

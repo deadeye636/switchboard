@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { shouldUseSingleInstanceLock } = require('../main-lifecycle');
+const { shouldUseSingleInstanceLock } = require('../src/app/lifecycle');
 
 test('single-instance lock is only enabled for packaged builds by default', () => {
   assert.equal(shouldUseSingleInstanceLock({ isPackaged: true, env: {} }), true);

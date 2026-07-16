@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const sessionTransitions = require('../session-transitions');
+const sessionTransitions = require('../src/session/session-transitions');
 const { detectSubagentTransitions, detectSessionTransitions, init, readNewSessionSignals } = sessionTransitions;
 
 function mkTmp() {

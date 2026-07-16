@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
-const { runningSessions, shouldAskBeforeClose, closeWarning } = require('../quit-guard');
+const { runningSessions, shouldAskBeforeClose, closeWarning } = require('../src/app/quit-guard');
 
 const live = (over = {}) => ({ exited: false, projectPath: 'D:\\a', ...over });
 
@@ -76,7 +76,7 @@ test('the native fallback carries the same thing as text — a renderer that can
 });
 
 test('main.js asks BEFORE it tears anything down — a cancelled close must leave the app intact', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
   const handler = src.slice(src.indexOf("mainWindow.on('close'"));
   const guardAt = handler.indexOf('confirmCloseWithRunningSessions()');
   const destroyAt = handler.indexOf('settingsWindow.destroy()');
@@ -90,8 +90,8 @@ test('main.js asks BEFORE it tears anything down — a cancelled close must leav
 });
 
 test('the question goes to the app\'s own dialog, and the yes comes back to close for real', () => {
-  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
-  const preload = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf8');
+  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  const preload = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
 
   assert.match(main, /wc\.send\('confirm-close', warning\)/, 'main asks the renderer');

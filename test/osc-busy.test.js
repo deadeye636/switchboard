@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 
-const { decideOsc94 } = require('../osc-busy.js');
+const { decideOsc94 } = require('../src/app/terminal/osc-busy');
 
 test('progress levels latch busy when no hooks are registered', () => {
   for (const level of ['1', '2', '3']) {

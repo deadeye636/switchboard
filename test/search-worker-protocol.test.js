@@ -14,7 +14,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createSearchWorkerClient } = require('../search-worker-client');
+const { createSearchWorkerClient } = require('../src/index/search-worker-client');
 
 // ---------------------------------------------------------------------------
 // Mock Worker factory

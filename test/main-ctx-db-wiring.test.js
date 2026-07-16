@@ -23,7 +23,7 @@ function read(f) {
 
 // Extract the keys of the `db: { ... }` object literal handed to sessionCache.init.
 function mainCtxDbKeys() {
-  const src = read('main.js');
+  const src = read('src/main.js');
   const start = src.indexOf('db: {');
   assert.ok(start !== -1, 'main.js should pass a db: { ... } object to sessionCache.init');
   // Walk to the matching closing brace of the literal.
@@ -51,11 +51,11 @@ function mainCtxDbKeys() {
 // façade: the ctx.db.* reads moved into the modules it fans init() out to, so the scan follows the code
 // into them (else this guard would pass trivially by reading an empty façade).
 const SESSION_CACHE_FILES = [
-  'session-cache.js',
-  'index-writes.js',
-  'backend-scan.js',
-  'projects-view.js',
-  'backends/claude/store-indexer.js',
+  'src/index/session-cache.js',
+  'src/index/index-writes.js',
+  'src/backends/scan.js',
+  'src/index/projects-view.js',
+  'src/backends/claude/store-indexer.js',
 ];
 function sessionCacheDbDeps() {
   const deps = new Set();
@@ -68,7 +68,7 @@ function sessionCacheDbDeps() {
   return deps;
 }
 
-// Pure static analysis only — does NOT require('../db'), because better-sqlite3 is
+// Pure static analysis only — does NOT require('../src/db/db'), because better-sqlite3 is
 // compiled against Electron's Node ABI and throws when loaded under plain node:test
 // (same constraint db-daily-activity.test.js documents).
 
@@ -92,7 +92,7 @@ test('ctx.db forwards replaceSessionMetrics from the 2026-06-02 stats incident',
 // exported by db.js is undefined just the same). Checked by source-grep, not require,
 // to stay native-module-free.
 test('db.js exports replaceSessionMetrics', () => {
-  const dbSrc = read('db.js');
+  const dbSrc = read('src/db/db.js');
   for (const name of ['replaceSessionMetrics']) {
     assert.ok(
       new RegExp(`(^|[^\\w])${name}([^\\w]|$)`, 'm').test(dbSrc.split('module.exports')[1] || ''),

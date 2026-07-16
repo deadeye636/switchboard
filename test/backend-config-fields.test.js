@@ -13,11 +13,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const claude = require('../backends/claude');
-const codex = require('../backends/codex');
-const agy = require('../backends/agy');
-const hermes = require('../backends/hermes');
-const pi = require('../backends/pi');
+const claude = require('../src/backends/claude');
+const codex = require('../src/backends/codex');
+const agy = require('../src/backends/agy');
+const hermes = require('../src/backends/hermes');
+const pi = require('../src/backends/pi');
 
 const BACKENDS = [claude, codex, agy, hermes, pi];
 
@@ -89,7 +89,7 @@ for (const backend of BACKENDS) {
     const spawnFields = backend.configFields.filter(f => f.appliesAt === 'spawn');
     if (!spawnFields.length) return;
     const mainSrc = require('node:fs').readFileSync(
-      require('node:path').join(__dirname, '..', 'main.js'), 'utf8');
+      require('node:path').join(__dirname, '..', 'src', 'main.js'), 'utf8');
     for (const f of spawnFields) {
       assert.ok(mainSrc.includes(f.id),
         `${backend.id}.${f.id} claims to be applied at the spawn site, but main.js never mentions it`);

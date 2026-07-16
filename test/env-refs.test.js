@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { resolveEnv, resolveEnvRefs, missingRefsMessage, isEnvRef, refVarName } = require('../env-refs');
+const { resolveEnv, resolveEnvRefs, missingRefsMessage, isEnvRef, refVarName } = require('../src/backends/env-refs');
 
 test('literal values are kept verbatim', () => {
   const host = {};
@@ -92,7 +92,7 @@ test('no spawn path in main.js resolves an env bundle in silence', () => {
   // main.js, the resolution goes through resolveSpawnEnv(), which says what it dropped.
   const fs = require('node:fs');
   const path = require('node:path');
-  const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
 
   const bare = src.split('\n')
     .map((line, i) => ({ line, n: i + 1 }))

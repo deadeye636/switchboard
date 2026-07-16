@@ -11,9 +11,9 @@ const assert = require('node:assert');
 const os = require('node:os');
 const path = require('node:path');
 
-const hermes = require('../backends/hermes');
-const reader = require('../backends/hermes/reader');
-const { deriveState, ACTIVITY_WINDOW_MS } = require('../backends/hermes/state');
+const hermes = require('../src/backends/hermes');
+const reader = require('../src/backends/hermes/reader');
+const { deriveState, ACTIVITY_WINDOW_MS } = require('../src/backends/hermes/state');
 const { makeHermesHome, T0 } = require('./fixtures/hermes-fixture');
 
 // Point the reader at a HERMES_HOME holding a freshly built state.db.

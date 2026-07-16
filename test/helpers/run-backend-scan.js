@@ -13,8 +13,8 @@
 // removed-race guards that only the client applies are covered in test/index-worker.test.js via its transport
 // seam — not here.
 
-const backendScan = require('../../backend-scan');
-const indexWorker = require('../../workers/index-worker');
+const backendScan = require('../../src/backends/scan');
+const indexWorker = require('../../src/workers/index-worker');
 
 // Returns { scanned, upserted, skipped, deleted } — the same shape the old refreshBackendSessions did, so a
 // test can read stats.upserted / stats.deleted unchanged.

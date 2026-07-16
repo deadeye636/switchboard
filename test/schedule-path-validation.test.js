@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const path = require('path');
 const os = require('os');
 
-const { validateScheduleFilePath } = require('../schedule-ipc');
+const { validateScheduleFilePath } = require('../src/servers/schedule-ipc');
 
 test('accepts a schedule file under <project>/.claude/commands', () => {
   const p = path.join(path.sep, 'proj', '.claude', 'commands', 'schedule-daily.md');

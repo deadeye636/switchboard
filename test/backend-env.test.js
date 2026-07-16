@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
-const MAIN = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+const MAIN = fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8');
 
 /** Pull a top-level function's source out of main.js (it needs Electron, so it cannot be required). */
 function fnSource(name) {
@@ -27,7 +27,7 @@ function fnSource(name) {
 // The guard is a pure function of a settings blob, so it can be run for real.
 function loadStripper() {
   const src = fnSource('stripBackendEnvSecrets');
-  const profiles = require('../profiles');
+  const profiles = require('../src/backends/profiles');
   // eslint-disable-next-line no-new-func
   const make = new Function('profiles', `${src}; return stripBackendEnvSecrets;`);
   return make(profiles);

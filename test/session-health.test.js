@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { readSessionFile } = require('../backends/claude/session-reader');
-const sessionCache = require('../session-cache');
+const { readSessionFile } = require('../src/backends/claude/session-reader');
+const sessionCache = require('../src/index/session-cache');
 const {
   getSessionHealth,
   buildHandoffTemplate,

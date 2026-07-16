@@ -10,8 +10,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const parser = require('../backends/agy/parser');
-const agy = require('../backends/agy');
+const parser = require('../src/backends/agy/parser');
+const agy = require('../src/backends/agy');
 
 // A protobuf string field (#1, wire type 2): tag 0x0a, a single-byte length, then the bytes. This is
 // what agy's blobs really carry — the identity parser recovers it via a length-prefix scan, and

@@ -5,8 +5,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const backends = require('../backends');
-const claude = require('../backends/claude');
+const backends = require('../src/backends');
+const claude = require('../src/backends/claude');
 
 // --- T-1.1: Claude buildLaunch must return byte-identical argv vs the inline main.js:3052-3086 logic.
 

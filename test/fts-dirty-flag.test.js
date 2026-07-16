@@ -26,7 +26,7 @@ function readSrc(file) {
 // full Electron main-process module graph.
 // ---------------------------------------------------------------------------
 
-const mainSrc = readSrc('main.js');
+const mainSrc = readSrc('src/main.js');
 
 // Locate computeIndexSignature, shouldReindex, invalidateFtsSignature by
 // extracting the block that starts at the _ftsIndexSignature declaration and

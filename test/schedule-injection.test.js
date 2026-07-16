@@ -1,8 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildScheduleCommand } = require('../schedule-runner');
-const { quoteArgForShell, quoteArgvForShell } = require('../shell-profiles');
+const { buildScheduleCommand } = require('../src/servers/schedule-runner');
+const { quoteArgForShell, quoteArgvForShell } = require('../src/app/terminal/shell-profiles');
 
 test('buildScheduleCommand returns argv array, not a shell string', () => {
   const { claudeArgs } = buildScheduleCommand('session-123', {

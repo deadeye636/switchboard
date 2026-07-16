@@ -263,7 +263,7 @@ yet — and the remaining Claude rows then looked like the rows of a single-back
 
 The sessions are the fallback only for the moment before the backend probes have answered. A session whose
 backend is not the default is badged individually regardless, so nothing is ever unlabelled. Rule:
-`computeShowAllBadges` (`public/backend-registry.js`), tested in `test/backend-badges.test.js`.
+`computeShowAllBadges` (`src/renderer/backends/backend-registry.js`), tested in `test/backend-badges.test.js`.
 
 ## The usage capability (#191)
 

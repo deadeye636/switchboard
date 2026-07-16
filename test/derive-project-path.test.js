@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { deriveProjectPath, resolveWorktreePath } = require('../derive-project-path');
+const { deriveProjectPath, resolveWorktreePath } = require('../src/session/derive-project-path');
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-dpp-'));

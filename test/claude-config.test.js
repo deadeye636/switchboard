@@ -11,7 +11,7 @@ const {
   setProjectTrust,
   removeProjectEntry,
   renameProjectEntry,
-} = require('../claude-config');
+} = require('../src/backends/claude/config');
 
 test('normalizeClaudePath: backslashes -> forward slashes, trailing slash stripped', () => {
   assert.equal(normalizeClaudePath('C:\\Users\\x\\proj\\'), normalizeClaudePath('C:/Users/x/proj'));

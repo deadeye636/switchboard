@@ -5,7 +5,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { shellArgs, ptyShellArgs } = require('../shell-profiles');
+const { shellArgs, ptyShellArgs } = require('../src/app/terminal/shell-profiles');
 
 test('shellArgs: bash-like with a command → login+interactive -c', () => {
   assert.deepEqual(shellArgs('/bin/bash', 'ls', null), ['-l', '-i', '-c', 'ls']);

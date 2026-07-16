@@ -19,8 +19,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const backends = require('../backends');
-const profiles = require('../profiles');
+const backends = require('../src/backends');
+const profiles = require('../src/backends/profiles');
 
 /** Run with a given backendEnabled map (and optional templates), then restore the real wiring. */
 function withSettings(backendEnabled, templates, fn) {
@@ -112,7 +112,7 @@ test('with nothing enabled, the default target is null rather than a lie', () =>
 // The scheduler built `claude …` with no gate check at all, so a disabled Claude would still be spawned
 // by a cron tick — silently, because nothing on that path ever asked.
 test('the scheduler asks the gate before spawning the claude binary', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
   const fn = src.slice(src.indexOf('function runScheduleCommand('));
   const body = fn.slice(0, fn.indexOf('\n    }'));
   assert.match(body, /isLaunchable\(['"]claude['"]\)/,
@@ -125,7 +125,7 @@ test('the scheduler asks the gate before spawning the claude binary', () => {
 // Since #199 step 4 Claude's store walk lives in backends/claude/store-indexer.js (session-cache.js is
 // now a façade). The gate must still be there — the rule follows the CODE, not the file.
 test('Claude\'s scanner asks the gate too', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'backends', 'claude', 'store-indexer.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'backends', 'claude', 'store-indexer.js'), 'utf8');
   assert.match(src, /function claudeEnabled\(\)/, 'the gate exists');
   const refresh = src.slice(src.indexOf('function refreshFolder('));
   const body = refresh.slice(0, refresh.indexOf('\nfunction '));
@@ -135,7 +135,7 @@ test('Claude\'s scanner asks the gate too', () => {
 
 // "Disable is not delete" (§5.8). The rows stay; only the scan and the launch stop.
 test('the scanner fails OPEN when the registry cannot answer', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'backends', 'claude', 'store-indexer.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'backends', 'claude', 'store-indexer.js'), 'utf8');
   const fn = src.slice(src.indexOf('function claudeEnabled()'));
   const body = fn.slice(0, fn.indexOf('\n}'));
   assert.match(body, /catch\s*{\s*return true/,

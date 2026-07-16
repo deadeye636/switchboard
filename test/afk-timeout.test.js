@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { afkTimeoutToEnvMs, resolveAfkTimeoutSec, normalizeAfkInput } = require('../afk-timeout');
+const { afkTimeoutToEnvMs, resolveAfkTimeoutSec, normalizeAfkInput } = require('../src/app/terminal/afk-timeout');
 
 // --- afkTimeoutToEnvMs ---
 

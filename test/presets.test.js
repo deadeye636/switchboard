@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { PRESETS, MODEL_VARS, applyModel, getPreset } = require('../backends/presets');
+const { PRESETS, MODEL_VARS, applyModel, getPreset } = require('../src/backends/presets');
 
 const AXIS_A = PRESETS.filter(p => p.id !== 'anthropic');
 

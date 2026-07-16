@@ -4,8 +4,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const sessionCache = require('../session-cache');
-const { getFolderIndexMtimeMs } = require('../folder-index-state');
+const sessionCache = require('../src/index/session-cache');
+const { getFolderIndexMtimeMs } = require('../src/index/folder-index-state');
 
 // Minimal valid session transcript: one line carries `cwd` (for deriveProjectPath)
 // and a user message (so readSessionFile yields a non-null session).
@@ -49,7 +49,7 @@ test('refreshFolder re-reads a changed file incrementally, never via the full-re
   // #199 step 5.2a: the reconcile parse-loop moved into the Electron-free leaf backends/claude/folder-parse.js,
   // which calls the session-reader DIRECTLY (no longer through the `claude` descriptor). The reader module IS
   // the mock seam now — patch it there, not on the descriptor.
-  const reader = require('../backends/claude/session-reader');
+  const reader = require('../src/backends/claude/session-reader');
   const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-incr-'));
   const folder = 'proj-incr';
   const folderPath = path.join(projectsDir, folder);
@@ -106,7 +106,7 @@ test('refreshFolder re-reads a changed file incrementally, never via the full-re
 // not run inline on the response path (they run in queueIndexSweep, off the paint). Source-scan the
 // handler body, matching the established main.js-scanning pattern in claude-disable.test.js.
 test('the get-projects handler does no filesystem reconcile inline', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
   const start = src.indexOf("ipcMain.handle('get-projects'");
   assert.ok(start > 0, 'the handler exists');
   const body = src.slice(start, src.indexOf('ipcMain.handle(', start + 1));
@@ -120,7 +120,7 @@ test('the get-projects handler does no filesystem reconcile inline', () => {
 // indexed, skip an up-to-date one — is the same behaviour reconcileCacheFromFilesystem used to guard; it is
 // now asserted directly against the worker's pure sweep (fs-only, no DB).
 test('the reconcile gate re-reads new and stale folders but skips up-to-date ones (off-thread sweep)', () => {
-  const iw = require('../workers/index-worker');
+  const iw = require('../src/workers/index-worker');
   const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-reconcile-'));
   try {
     // never-indexed (no meta), stale (meta older than disk), and up-to-date folders

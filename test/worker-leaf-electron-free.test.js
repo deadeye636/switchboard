@@ -37,17 +37,17 @@ function requireInWorker(modAbsPath) {
 const abs = (rel) => path.resolve(__dirname, '..', rel);
 
 test('the backends registry requires without throwing in a bare worker_threads Worker (F5 precondition)', async () => {
-  const r = await requireInWorker(abs('backends/index.js'));
+  const r = await requireInWorker(abs('src/backends/index.js'));
   assert.equal(r.ok, true, `require('backends') threw in a worker: ${r.error}`);
 });
 
 test('backends/claude/folder-parse (the Claude parse leaf) requires cleanly in a worker context', async () => {
-  const r = await requireInWorker(abs('backends/claude/folder-parse.js'));
+  const r = await requireInWorker(abs('src/backends/claude/folder-parse.js'));
   assert.equal(r.ok, true, `require('backends/claude/folder-parse') threw in a worker: ${r.error}`);
 });
 
 test('backend-parse (the Axis-B parse leaf) requires cleanly in a worker context', async () => {
-  const r = await requireInWorker(abs('backend-parse.js'));
+  const r = await requireInWorker(abs('src/backends/parse.js'));
   assert.equal(r.ok, true, `require('backend-parse') threw in a worker: ${r.error}`);
 });
 
@@ -56,7 +56,7 @@ test('backend-parse (the Axis-B parse leaf) requires cleanly in a worker context
 // the module that actually runs in the Worker, so it is the real precondition; the leaf tests above guard
 // its pieces, this guards the assembled whole.
 test('workers/index-worker (the persistent index worker) requires cleanly in a worker context', async () => {
-  const r = await requireInWorker(abs('workers/index-worker.js'));
+  const r = await requireInWorker(abs('src/workers/index-worker.js'));
   assert.equal(r.ok, true, `require('workers/index-worker') threw in a worker: ${r.error}`);
 });
 
@@ -81,6 +81,6 @@ test('the parse leaves pull no electron / index-writes / backends-registry into 
     process.exit(0);
   `;
   assert.doesNotThrow(() => {
-    execFileSync(process.execPath, ['-e', script, abs('backends/claude/folder-parse.js'), abs('backend-parse.js')], { stdio: 'pipe' });
+    execFileSync(process.execPath, ['-e', script, abs('src/backends/claude/folder-parse.js'), abs('src/backends/parse.js')], { stdio: 'pipe' });
   }, 'a parse leaf dragged electron / index-writes / the backends registry into its require graph');
 });

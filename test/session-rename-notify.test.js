@@ -4,9 +4,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const sessionCache = require('../session-cache');
-const storeIndexer = require('../backends/claude/store-indexer');
-const { parseClaudeFile } = require('../backends/claude/folder-parse');
+const sessionCache = require('../src/index/session-cache');
+const storeIndexer = require('../src/backends/claude/store-indexer');
+const { parseClaudeFile } = require('../src/backends/claude/folder-parse');
 
 // #60: a rename (Claude /rename -> JSONL custom-title, promoted via setName) must
 // notify the renderer, else the sidebar keeps showing the old name.

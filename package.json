@@ -5,7 +5,7 @@
   "license": "MIT",
   "description": "A desktop app for browsing, searching, and managing CLI coding sessions",
   "author": "Doctly <support@doctly.ai>",
-  "main": "main.js",
+  "main": "src/main.js",
   "scripts": {
     "start": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron .",
     "start:debug": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron --remote-debugging-port=9222 .",
@@ -65,14 +65,10 @@
     "productName": "Switchboard",
     "beforePack": "scripts/ensure-conpty-dll.js",
     "files": [
-      "*.js",
-      "backends/**/*",
+      "src/**/*",
       "build-info.json",
-      "workers/**/*",
-      "public/**/*",
       "build/icon.*",
-      "node_modules/**/*",
-      "src/**/*"
+      "node_modules/**/*"
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/**",

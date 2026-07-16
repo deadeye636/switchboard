@@ -13,7 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const WORKER = path.join(__dirname, '..', 'workers', 'scan-projects.js');
+const WORKER = path.join(__dirname, '..', 'src', 'workers', 'scan-projects.js');
 
 function runWorker(projectsDir) {
   return new Promise((resolve, reject) => {

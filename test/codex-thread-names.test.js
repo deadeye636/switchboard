@@ -13,8 +13,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const parser = require('../backends/codex/parser');
-const threadNames = require('../backends/codex/thread-names');
+const parser = require('../src/backends/codex/parser');
+const threadNames = require('../src/backends/codex/thread-names');
 
 function withCodexHome(entries, body) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-'));

@@ -7,7 +7,7 @@ const {
   validateImportPayload,
   mergeImport,
   importProjects,
-} = require('../settings-transfer');
+} = require('../src/app/settings-transfer');
 
 // --- export ---
 

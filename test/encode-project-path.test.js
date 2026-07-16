@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { encodeProjectPath } = require('../encode-project-path');
+const { encodeProjectPath } = require('../src/session/encode-project-path');
 
 test('replaces non-alphanumerics with dashes (mirrors the Claude CLI naming)', () => {
   assert.equal(encodeProjectPath('/Users/x/My Project'), '-Users-x-My-Project');

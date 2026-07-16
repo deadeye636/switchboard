@@ -36,7 +36,7 @@ function folderDeleteCalls(src) {
   return out;
 }
 
-for (const file of ['main.js', 'projects.js']) {
+for (const file of ['src/main.js', 'src/projects/projects.js']) {
   test(`every folder-wide delete in ${file} is backend-scoped`, () => {
     const calls = folderDeleteCalls(read(file))
       // The destructured import and the ctx.db allow-list are declarations, not calls.
@@ -56,10 +56,10 @@ test('projects.js clears the cache BY ROW, never by folder', () => {
   // STARTED from, so since #157 one store folder can hold rows of several projects — and since #167 a
   // "remove" is a real removal, not a hide, so what it clears it clears for good. Both of this file's
   // purges (remove-project and the hard delete) therefore go row by row, from the project's own rows.
-  const calls = folderDeleteCalls(read('projects.js')).filter(c => c.args !== '');
+  const calls = folderDeleteCalls(read('src/projects/projects.js')).filter(c => c.args !== '');
   assert.deepStrictEqual(calls.map(c => `projects.js:${c.line} ${c.fn}(${c.args})`), []);
 
-  const src = read('projects.js');
+  const src = read('src/projects/projects.js');
   assert.match(src, /deleteCachedSession\s*\(/, 'it deletes the cached rows one by one');
   assert.match(src, /deleteSearchSession\s*\(/, 'and their search rows with them');
 });
@@ -68,7 +68,7 @@ test('the hard delete clears the cache row by row, never by folder', () => {
   // A store folder is keyed on the cwd a session STARTED from, so since #157 it can hold rows belonging
   // to other projects. Deleting this project's history by folder would drop those rows too — while their
   // transcripts sat untouched on disk, which no rescan is guaranteed to notice.
-  const src = read('projects.js');
+  const src = read('src/projects/projects.js');
   const from = src.indexOf('function deleteProjectSessions');
   assert.ok(from !== -1, 'deleteProjectSessions must exist');
   const rest = src.slice(from + 1);
@@ -84,12 +84,12 @@ test('the scoped deletes use the same scope the scanner uses', () => {
   // A folder-wide delete must pass claudeStoreScope() (directly or via the injected ctx), not an ad-hoc
   // literal that could drift from session-cache.js's definition. main.js still has such deletes (the
   // store sweeps); projects.js no longer does any — see the row-by-row test above.
-  assert.match(read('main.js'), /sessionCache\.claudeStoreScope/,
+  assert.match(read('src/main.js'), /sessionCache\.claudeStoreScope/,
     'main.js must reuse session-cache.js claudeStoreScope() rather than redefining the scope');
 });
 
 test('session-cache.js exports claudeStoreScope so main.js can share it', () => {
-  const src = read('session-cache.js');
+  const src = read('src/index/session-cache.js');
   const exportsBlock = src.split('module.exports')[1] || '';
   assert.match(exportsBlock, /claudeStoreScope/, 'claudeStoreScope must be exported');
 });
@@ -99,11 +99,11 @@ test('the session-cache scan paths still scope their own folder deletes', () => 
   // (index-writes.js applyIndexResults) and the Claude store walk (store-indexer.js vanished-folder
   // branch). The rule follows the CODE, not the file — so all of them are checked here.
   const scanFiles = [
-    'session-cache.js',
-    'index-writes.js',
-    'backend-scan.js',
-    'projects-view.js',
-    'backends/claude/store-indexer.js',
+    'src/index/session-cache.js',
+    'src/index/index-writes.js',
+    'src/backends/scan.js',
+    'src/index/projects-view.js',
+    'src/backends/claude/store-indexer.js',
   ];
   const unscoped = [];
   for (const file of scanFiles) {

@@ -17,13 +17,13 @@ const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
 const ROOT = path.join(__dirname, '..');
-const claude = require('../backends/claude');
-const codex = require('../backends/codex');
+const claude = require('../src/backends/claude');
+const codex = require('../src/backends/codex');
 
 // --- main-process half: the cascade must carry backendDefaults ------------------------------------
 
 test('effectiveSettings cascades backendDefaults (not just the SETTING_DEFAULTS keys)', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8');
   const fn = src.slice(src.indexOf('function effectiveSettings('));
   const body = fn.slice(0, fn.indexOf('\n}'));
   assert.match(body, /effective\.backendDefaults\s*=/,
@@ -39,7 +39,7 @@ test('effectiveSettings cascades backendDefaults (not just the SETTING_DEFAULTS 
 // day: later changes to the global defaults could never reach that project again. The merge lives in
 // main.js (Electron), so it is exercised here through the same source the app runs.
 function loadMergeBackendDefaults() {
-  const src = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8');
   const start = src.indexOf('function mergeBackendDefaults(');
   assert.ok(start > 0, 'main.js must expose the per-option merge');
   const rest = src.slice(start);
@@ -91,7 +91,7 @@ test('a project with no overrides at all sees exactly the global defaults', () =
 });
 
 test("Claude's launch options are no longer top-level settings keys (one home: backendDefaults.claude)", () => {
-  const src = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8');
   const defaults = src.slice(src.indexOf('const SETTING_DEFAULTS = {'));
   const block = defaults.slice(0, defaults.indexOf('};'));
   for (const key of ['permissionMode', 'dangerouslySkipPermissions', 'worktree', 'chrome', 'addDirs', 'preLaunchCmd']) {

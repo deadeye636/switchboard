@@ -280,11 +280,24 @@ The macOS build uses custom entitlements (`build/entitlements.mac.plist`) to all
 
 ## Project Structure
 
+All application code lives under `src/`; the repo root holds only project metadata and tooling.
+
 ```
-main.js            Electron main process
-preload.js         Context bridge (IPC bindings)
-db.js              SQLite session cache & metadata
-public/            Renderer (HTML/CSS/JS), incl. pure supervision modules
+src/
+  main.js          Electron main process
+  preload.js       Context bridge — the only IPC surface
+  app/             Main-process areas: lifecycle, quit guard, terminal/ (PTY logic)
+  watch/           File watching
+  db/              SQLite session cache, metadata, stats & search queries
+  index/           Scan/index layer; session-cache.js is a façade over it
+  session/         Transcript reading & session identity
+  projects/        Project list and management
+  servers/         MCP IDE bridge, scheduler
+  backends/        One folder per coding CLI (Claude, Codex, Hermes, Pi, agy)
+  workers/         Off-thread scanning, indexing, search
+  renderer/        HTML/CSS/JS, in folders (shell/, session/, terminal/, views/, …)
+  shared/          The few modules BOTH processes load
+
 test/              Unit tests (node --test) for the pure modules
 docs/              Feature docs (see docs/fork-features.md); backlog = GitHub Issues / docs/BACKLOG.md
 scripts/           Build & postinstall scripts
