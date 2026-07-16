@@ -29,7 +29,11 @@ function walk(dir) {
 
 // A require of db.js at the start of a line = top level. Anything indented sits inside a block, which
 // means it runs when that function is called, not when main.js loads the module.
-const TOP_LEVEL_DB_REQUIRE = /^(?:const|let|var|\s*)?[^\n]*require\((['"])[^'"]*\/db\/db(?:\.js)?\1\)/;
+//
+// `db/connection` counts too, and for the identical reason: since #217 it is the module that resolves
+// DATA_DIR and opens the handle, so requiring IT early pins the wrong database just as surely as db.js
+// did. db.js requires it on its first line, which is what keeps the timing what it always was.
+const TOP_LEVEL_DB_REQUIRE = /^(?:const|let|var|\s*)?[^\n]*require\((['"])[^'"]*\/db\/(?:db|connection)(?:\.js)?\1\)/;
 
 test('no module split out of main.js top-level-requires db.js', () => {
   const dirs = ['app', 'watch'].map(d => path.join(root, d)).filter(d => fs.existsSync(d));
