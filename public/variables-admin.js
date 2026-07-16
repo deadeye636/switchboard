@@ -222,6 +222,7 @@
       </div>`;
     document.body.appendChild(overlay);
 
+    const nameInput = overlay.querySelector('#va-f-name');
     const valueInput = overlay.querySelector('#va-f-value');
     const eyeBtn = overlay.querySelector('#va-f-eye');
     const secretInput = overlay.querySelector('#va-f-secret');
@@ -270,21 +271,18 @@
         const at = preset.indexOf('PGSERVICE=') + 'PGSERVICE='.length;
         templateInput.setSelectionRange(at, at + editable[1].length);
       }
-      renderPreview();
+      // Assigning .value fires nothing — same trap as setRangeText. The input listener re-renders the
+      // preview and marks the dialog dirty; both must happen, and neither does on its own.
+      templateInput.dispatchEvent(new Event('input', { bubbles: true }));
     });
 
     // --- the chips: insert a token at the caret -----------------------------------------------------
+    // insertAtCaret fires an input event, which is what re-renders the preview and marks the dialog dirty.
     overlay.querySelectorAll('.va-chip[data-tok]').forEach((chip) => {
-      chip.addEventListener('click', () => {
-        insertAtCaret(templateInput, chip.dataset.tok);
-        renderPreview();
-      });
+      chip.addEventListener('click', () => insertAtCaret(templateInput, chip.dataset.tok));
     });
     overlay.querySelector('.va-chip[data-varpick]').addEventListener('click', (e) => {
-      openVarPicker(e.currentTarget, (name) => {
-        insertAtCaret(templateInput, `{var:${name}}`);
-        renderPreview();
-      });
+      openVarPicker(e.currentTarget, (name) => insertAtCaret(templateInput, `{var:${name}}`));
     });
 
     function insertAtCaret(el, text) {
@@ -292,6 +290,10 @@
       const end = el.selectionEnd ?? at;
       el.setRangeText(text, at, end, 'end');
       el.focus();
+      // setRangeText fires nothing. Without this the chips would change the template without marking the
+      // dialog dirty — and closing it afterwards would discard that silently, which is the exact case the
+      // dirty check exists for.
+      el.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
     // --- the variable picker ------------------------------------------------------------------------
@@ -362,57 +364,95 @@
       renderPreview();
     });
 
-    function previewRowFor(name) {
+    // The rows this template may reference, and the same name→id binding the resolver applies.
+    function applicableRows() {
       const scopeValue = scopeSel.value;
-      const rows = variables.filter((v) => v.scope !== 'project' || (scopeValue !== 'global' && v.projectPath === scopeValue));
-      const id = VI.buildNameIndex(rows)[name];
-      return { row: rows.find((v) => v.id === id) || null, ambiguous: rows.filter((v) => v.name === name).length > 1 };
+      return variables.filter((v) => v.scope !== 'project' || (scopeValue !== 'global' && v.projectPath === scopeValue));
     }
+
+    const ROOT_ID = '__editing__';
 
     function renderPreview() {
       shellToggle.querySelectorAll('[data-shell]').forEach((b) => b.classList.toggle('active', b.dataset.shell === previewShell));
-      const row = { insertTemplate: templateInput.value, secret: secretInput.checked };
-      const tmpl = VI.effectiveTemplate(row);
       templateInput.placeholder = secretInput.checked
         ? 'Default: {ref} — the shell reads a temp file'
         : 'Default: {value} — inserts the raw value';
 
       const notes = [];
-      let touchesSecret = !!secretInput.checked && tmpl.includes('{value}');
-      const vars = {};
-      const varRefOffsets = {};
-      for (const name of VI.parseVarRefs(tmpl)) {
-        const { row: ref, ambiguous } = previewRowFor(name);
-        if (!ref) { notes.push(['error', `{var:${name}} — no such variable`]); vars[name] = ''; continue; }
-        const childTmpl = VI.finalTemplateFor(ref, false);
-        if (ref.secret) {
-          touchesSecret = true;
-          if (VI.effectiveTemplate(ref).includes('{value}')) {
-            notes.push(['info', `${name} is a secret — inserted as a file read, never as plaintext`]);
-          }
-        }
-        const child = VI.compose(childTmpl, {
-          path: SYNTH_PATH,
-          ref: childTmpl.includes('{ref}') ? VI.shellRefFor(previewShell, SYNTH_PATH) : null,
-          value: childTmpl.includes('{value}') ? `⟨value of ${name}⟩` : null,
-        });
-        vars[name] = child.text;
-        varRefOffsets[name] = child.refOffsets;
-        notes.push([ambiguous ? 'warn' : 'ok',
-          ambiguous
-            ? `{var:${name}} — more than one variable is called this; bound to the ${ref.scope === 'project' ? 'project' : 'global'} one`
-            : `{var:${name}} → ${ref.scope === 'project' ? 'Project' : 'Global'}`]);
+      const rows = applicableRows();
+      const nameIndex = VI.buildNameIndex(rows);
+      // The row being edited is the graph's root, under a synthetic id: it may be brand new, and its
+      // template is whatever is in the textarea right now, not what is stored.
+      const root = { id: ROOT_ID, name: nameInput.value || '(this variable)', secret: secretInput.checked, insertTemplate: templateInput.value };
+      const nodesById = new Map(rows.map((v) => [v.id, v]));
+      nodesById.set(ROOT_ID, root);
+
+      // Walk the WHOLE graph, exactly as the resolver does — not just the direct references. A one-level
+      // walk was the first version of this, and it made the preview lie in the one place it must not: a
+      // secret two hops away (through a non-secret wrapper) showed no pill and rendered as empty text,
+      // while the real insert would refuse it.
+      const graph = VI.resolveVarGraph(ROOT_ID, nodesById, nameIndex);
+      if (graph.cycle) {
+        previewEl.innerHTML = '<span class="va-preview-empty">(cannot resolve)</span>';
+        flagsEl.innerHTML = '';
+        notesEl.innerHTML = `<div class="va-note va-note-error">${escapeHtml(`Variables reference each other in a loop: ${graph.cycle.join(' → ')}. The insert will refuse this.`)}</div>`;
+        return;
+      }
+      if (graph.order.length > VI.MAX_RESOLVED_NODES) {
+        notes.push(['error', `This pulls in ${graph.order.length} variables (limit ${VI.MAX_RESOLVED_NODES}). The insert will refuse this.`]);
+      }
+      for (const missing of new Set(graph.missing || [])) {
+        notes.push(['error', `{var:${missing}} — no such variable`]);
       }
 
-      const own = VI.compose(tmpl, {
-        path: SYNTH_PATH,
-        ref: tmpl.includes('{ref}') ? VI.shellRefFor(previewShell, SYNTH_PATH) : null,
-        value: tmpl.includes('{value}')
-          ? (secretInput.checked ? '⟨value⟩' : (valueInput.value || '⟨value⟩'))
-          : null,
-        vars,
-        varRefOffsets,
-      });
+      // Bottom-up, memoized per id — the resolver's shape, so a diamond composes once and a grandchild's
+      // refs keep their real offsets in the finished string.
+      const textById = new Map();
+      const offsetsById = new Map();
+      let touchesSecret = false;
+      for (const nodeId of graph.order) {
+        const node = nodesById.get(nodeId);
+        const isRoot = nodeId === ROOT_ID;
+        const tmpl = VI.finalTemplateFor(node, isRoot);
+        if (node.secret) touchesSecret = true;
+        if (!isRoot && node.secret && VI.effectiveTemplate(node).includes('{value}')) {
+          notes.push(['info', `${node.name} is a secret — inserted as a file read, never as plaintext`]);
+        }
+        const vars = {};
+        const varRefOffsets = {};
+        for (const name of VI.parseVarRefs(tmpl)) {
+          const childId = nameIndex[name];
+          if (childId == null) continue;
+          vars[name] = textById.get(childId) ?? '';
+          varRefOffsets[name] = offsetsById.get(childId) || [];
+          if (isRoot) {
+            const bound = nodesById.get(childId);
+            const ambiguous = rows.filter((v) => v.name === name).length > 1;
+            notes.push([ambiguous ? 'warn' : 'ok',
+              ambiguous
+                ? `{var:${name}} — more than one variable is called this; bound to the ${bound.scope === 'project' ? 'project' : 'global'} one`
+                : `{var:${name}} → ${bound.scope === 'project' ? 'Project' : 'Global'}`]);
+          }
+        }
+        const composed = VI.compose(tmpl, {
+          path: SYNTH_PATH,
+          ref: tmpl.includes('{ref}') ? VI.shellRefFor(previewShell, SYNTH_PATH) : null,
+          // Never a real value: the root's own is on screen one field up anyway (masked for a secret), and
+          // a referenced variable's value is not something an editor may fetch to paint a picture.
+          value: tmpl.includes('{value}')
+            ? (isRoot
+              ? (secretInput.checked ? '⟨value⟩' : (valueInput.value || '⟨value⟩'))
+              : `⟨value of ${node.name}⟩`)
+            : null,
+          vars,
+          varRefOffsets,
+        });
+        textById.set(nodeId, composed.text);
+        offsetsById.set(nodeId, composed.refOffsets);
+      }
+
+      const own = { text: textById.get(ROOT_ID) ?? '', refOffsets: offsetsById.get(ROOT_ID) || [] };
+      const tmpl = VI.finalTemplateFor(root, true);
 
       // The rule is not taught in a help line nobody reads — it is enforced, visibly, with the reason in the
       // message. This is the SAME check the insert hard-fails on, so the editor shows the future error.
