@@ -7,7 +7,8 @@
 //
 // THE FILTER IS THE WHOLE POINT. It matches only executables under THIS repo's node_modules, so:
 //   - the user's INSTALLED Switchboard is never touched (it lives in Program Files / AppData),
-//   - another checkout's dev run is never touched either.
+//   - another checkout's dev run is never touched either — the prefix ends at a path SEPARATOR, so a
+//     sibling like ../switchboard-jbr (this repo really has one) cannot match on a name prefix.
 // A blanket `taskkill /IM electron.exe` or `pkill electron` takes the installed app down with it. Do not.
 'use strict';
 
@@ -23,7 +24,10 @@ function findWindows() {
   // would otherwise be a command-injection waiting to happen.
   const script =
     'Get-CimInstance Win32_Process -Filter "Name=\'electron.exe\'" | ' +
-    'Where-Object { $_.ExecutablePath -like ($env:SB_DEV_DIST + "*") } | ' +
+    // The prefix must end at a separator: without it, `…\switchboard\node_modules\electron\dist*` is a
+    // name-prefix match, and a sibling checkout could slip in. (`\` is literal in -like; only -match
+    // treats it as an escape.) `\\*` here is JS escaping — PowerShell receives `\*`.
+    'Where-Object { $_.ExecutablePath -like ($env:SB_DEV_DIST + "\\*") } | ' +
     'ForEach-Object { $_.ProcessId }';
   for (const exe of ['pwsh', 'powershell']) {
     try {
@@ -39,12 +43,17 @@ function findWindows() {
 }
 
 function findPosix() {
+  // The match is on DEV_ELECTRON — the absolute path of THIS checkout's electron dist — and nothing else.
+  //
+  // It has to be the full prefix WITH a trailing separator. A bare `startsWith(ROOT)` matches a sibling
+  // whose directory name merely begins with ours: `../switchboard-jbr` is exactly that, and this repo
+  // really has one (CLAUDE.md, the jbr worktree). Killing someone else's dev run because their folder
+  // sorts next to yours is precisely the accident this script exists to avoid.
   const out = execFileSync('ps', ['-A', '-o', 'pid=,args='], { encoding: 'utf8' });
+  const prefix = DEV_ELECTRON.endsWith(path.sep) ? DEV_ELECTRON : DEV_ELECTRON + path.sep;
   return out.split('\n')
     .map(l => l.trim())
-    .filter(l => l.includes(DEV_ELECTRON) || l.includes(path.join('node_modules', 'electron', 'dist')))
-    // Only this checkout: the relative-path fallback above could match a sibling clone.
-    .filter(l => l.includes(ROOT) || l.includes(DEV_ELECTRON))
+    .filter(l => l.includes(prefix))
     .map(l => Number(l.split(/\s+/)[0]))
     .filter(Number.isFinite);
 }

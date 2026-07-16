@@ -35,20 +35,7 @@ function runAt(version) {
   return { fired: [...fired], after };
 }
 
-// 1. An up-to-date database: NOTHING may run, and the version must not move.
-out.upToDate = runAt(SCHEMA_VERSION);
-// 2. One version behind: exactly the last migration runs.
-out.oneBehind = runAt(SCHEMA_VERSION - 1);
-// 3. Two behind: exactly the last two, in order.
-out.twoBehind = runAt(SCHEMA_VERSION - 2);
-// 4. A virgin database: every migration runs, in order.
-out.fromZero = runAt(0);
-
-// 5. And the real runner, on an up-to-date database — the actual code path, not a copy of the loop.
-const real = runMigrations(new Database(dbPath));
-out.realRunnerOnUpToDate = { from: real.from, to: real.to, ranAnything: real.from !== real.to };
-
-// 6. DID THE LAST MIGRATION ACTUALLY DO ANYTHING? "fired" above only proves it was CALLED.
+// 1. DID THE LAST MIGRATION ACTUALLY DO ANYTHING? "fired" below only proves it was CALLED.
 //
 // Every migration wraps itself in try/catch, so one that throws reports success and the runner stamps the
 // new version anyway — the migration is then marked done forever and can never run again. That is not
@@ -57,6 +44,10 @@ out.realRunnerOnUpToDate = { from: real.from, to: real.to, ranAnything: real.fro
 // invisible to every check that only counts calls.
 //
 // So measure the EFFECT: rewind a real database one version and see whether the register fills up.
+//
+// THIS RUNS FIRST, and that is not tidiness. The replays below execute the REAL migrations, and several of
+// them (v2/v3/v4) DELETE FROM session_cache — the very rows the seed reads to decide what to register.
+// Run this after them and it reports BROKEN against perfectly correct code.
 // Needs a database with real rows — on an empty one there is nothing to seed, and that is reported.
 try {
   const d = new Database(dbPath);
@@ -78,5 +69,18 @@ try {
   }
   d.close();
 } catch (e) { out.seedEffect = `THREW: ${e.message}`; }
+
+// 2. An up-to-date database: NOTHING may run, and the version must not move.
+out.upToDate = runAt(SCHEMA_VERSION);
+// 3. One version behind: exactly the last migration runs.
+out.oneBehind = runAt(SCHEMA_VERSION - 1);
+// 4. Two behind: exactly the last two, in order.
+out.twoBehind = runAt(SCHEMA_VERSION - 2);
+// 5. A virgin database: every migration runs, in order.
+out.fromZero = runAt(0);
+
+// 6. And the real runner, on an up-to-date database — the actual code path, not a copy of the loop.
+const real = runMigrations(new Database(dbPath));
+out.realRunnerOnUpToDate = { from: real.from, to: real.to, ranAnything: real.from !== real.to };
 
 console.log(JSON.stringify(out, null, 2));

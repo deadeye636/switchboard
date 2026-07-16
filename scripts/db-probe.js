@@ -68,7 +68,11 @@ probe('getDailyMetrics', () => db.getDailyMetrics());
 probe('getDailyModelTokens', () => db.getDailyModelTokens());
 probe('getDailyBackendTokens', () => db.getDailyBackendTokens());
 probe('isSearchIndexPopulated', () => db.isSearchIndexPopulated());
-probe('searchByType', () => db.searchByType('session', 'the', false));
+// The third argument is `limit`, not `titleOnly`. Passing a boolean bound `false` as the limit,
+// better-sqlite3 rejected it, searchByType's own catch returned [] — so this line reported "array(0)"
+// forever and verified nothing. It was wrong in the pre-split code too, which is why the old/new
+// comparison never noticed.
+probe('searchByType', () => db.searchByType('session', 'the', 50, false));
 probe('getAllFolderMeta', () => db.getAllFolderMeta());
 probe('getProjectTombstones', () => db.getProjectTombstones());
 probe('getProjectDisplayNames', () => db.getProjectDisplayNames());
