@@ -4,10 +4,8 @@ const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const http = require('http');
 const pty = require('node-pty');
 const log = require('electron-log');
-const attentionSource = require('./shared/attention-source');
 // getFolderIndexMtimeMs moved to session-cache.js
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./app/terminal/output-buffer');
 const { decideOsc94 } = require('./app/terminal/osc-busy');
@@ -2186,199 +2184,26 @@ ipcMain.handle('resolve-variable-insert', (_event, id, sessionId) => {
   }
 });
 
-// --- Claude Code hook → attention ingest (spec 05) -----------------------------
-// A tiny loopback HTTP server receives structured hook events from Claude Code
-// (registered as `type: "http"` hooks in ~/.claude/settings.json) and forwards a
-// normalized `attention-signal` to the renderer. The hook payload's `session_id`
-// is the Claude session UUID — exactly Switchboard's realSessionId — so no extra
-// correlation is needed. OSC-9 remains the default heuristic + fallback.
-const CLAUDE_SETTINGS_JSON = path.join(os.homedir(), '.claude', 'settings.json');
-// Sentinel in the hook URL path so we can find & remove only our own handlers.
-const ATTENTION_HOOK_MARK = '/switchboard-attention-hook';
-
-let attentionHookServer = null;
-let attentionHookPort = null;
-let attentionHookToken = null; // random token embedded in the hook URL, verified on POST (issue #77)
-
-function attentionHooksEnabled() {
-  const global = getSetting('global') || {};
-  return global.attentionHooks === true;
-}
-
-function startAttentionHookServer() {
-  if (attentionHookServer) return;
-  attentionHookToken = require('crypto').randomUUID();
-  const server = http.createServer((req, res) => {
-    if (req.method !== 'POST') {
-      res.writeHead(405);
-      res.end();
-      return;
-    }
-    // Verify the per-run token from the hook URL so an unrelated local process
-    // can't forge attention signals or force undebounced reads (issue #77).
-    let reqToken = null;
-    try { reqToken = new URL(req.url, 'http://127.0.0.1').searchParams.get('t'); } catch {}
-    if (!attentionHookToken || reqToken !== attentionHookToken) {
-      res.writeHead(403);
-      res.end();
-      return;
-    }
-    let body = '';
-    req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > 1_000_000) req.destroy(); // guard against runaway payloads
-    });
-    req.on('end', () => {
-      try {
-        const hook = JSON.parse(body || '{}');
-        const sessionId = hook.session_id || hook.sessionId;
-        // Fast-path: a hook POST (Stop/Notification) is an instant push at a turn
-        // boundary. Refresh that session's transcript now — bypassing the watcher +
-        // reindex debounces — so a rename (Claude /rename → custom-title) shows the
-        // moment the turn ends instead of lagging up to several seconds (#60).
-        if (sessionId) {
-          try {
-            const sess = activeSessions.get(sessionId)
-              || [...activeSessions.values()].find(x => x.realSessionId === sessionId);
-            if (sess && sess.projectFolder) {
-              // relFilename is folder-prefixed (refreshFile strips the first segment).
-              const rel = sess.projectFolder + '/' + sessionId + '.jsonl';
-              // The parse runs off-thread, but the reply still jumps the queue (priority lane) so the
-              // rename shows the instant the turn ends — the whole point of the immediate fast-path.
-              indexWorker.postFile(sess.projectFolder, rel, { immediate: true });
-            }
-          } catch (err) {
-            log.warn(`[attention-hook] fast refresh failed: ${err.message}`);
-          }
-        }
-        const signal = attentionSource.classifyAttentionSignal({ source: 'hook', payload: hook });
-        if (sessionId && signal && mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('attention-signal', {
-            sessionId,
-            kind: signal.kind,
-            reason: signal.reason,
-            source: 'hook',
-            // Subagent lifecycle events carry the subagent's identity (#119).
-            agentId: signal.agentId || null,
-            agentType: signal.agentType || null,
-          });
-          const agentSuffix = signal.agentId ? ` agentId=${signal.agentId}` : '';
-          log.info(`[attention-hook] session=${sessionId} kind=${signal.kind}${agentSuffix} reason="${signal.reason}"`);
-        }
-      } catch (err) {
-        log.warn(`[attention-hook] bad payload: ${err.message}`);
-      }
-      // Empty decision object = no-op; never block or alter Claude's behavior.
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end('{}');
-    });
-  });
-  // Set the guard immediately (not inside the listen callback) so a second call
-  // while the socket is still binding cannot create a second server (issue #76).
-  attentionHookServer = server;
-  server.on('error', (err) => log.error(`[attention-hook] server error: ${err.message}`));
-  server.listen(0, '127.0.0.1', () => {
-    attentionHookPort = server.address().port;
-    log.info(`[attention-hook] listening on 127.0.0.1:${attentionHookPort}`);
-    // Re-stamp the live port into settings.json if the feature is already on.
-    try {
-      if (attentionHooksEnabled()) writeClaudeAttentionHook(attentionHookPort);
-    } catch (err) {
-      log.error(`[attention-hook] failed to refresh hook on startup: ${err.message}`);
-    }
-  });
-}
-
-function readClaudeSettings() {
-  try {
-    return JSON.parse(fs.readFileSync(CLAUDE_SETTINGS_JSON, 'utf8'));
-  } catch {
-    return {};
-  }
-}
-
-// Remove only Switchboard-owned HTTP handlers (identified by the sentinel URL),
-// pruning now-empty matcher groups and hook events. Leaves all other user hooks
-// untouched — this is what makes the change reversible.
-function stripSwitchboardHooks(settings) {
-  if (!settings || !settings.hooks || typeof settings.hooks !== 'object') return settings;
-  for (const event of Object.keys(settings.hooks)) {
-    const groups = settings.hooks[event];
-    if (!Array.isArray(groups)) continue;
-    const keptGroups = [];
-    for (const group of groups) {
-      if (group && Array.isArray(group.hooks)) {
-        group.hooks = group.hooks.filter(
-          (h) => !(h && typeof h.url === 'string' && h.url.includes(ATTENTION_HOOK_MARK)),
-        );
-        if (group.hooks.length > 0) keptGroups.push(group);
-      } else {
-        keptGroups.push(group);
-      }
-    }
-    if (keptGroups.length > 0) settings.hooks[event] = keptGroups;
-    else delete settings.hooks[event];
-  }
-  if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
-  return settings;
-}
-
-function writeClaudeAttentionHook(port) {
-  if (!port) return;
-  const url = `http://127.0.0.1:${port}${ATTENTION_HOOK_MARK}?t=${attentionHookToken}`;
-  const settings = stripSwitchboardHooks(readClaudeSettings());
-  if (!settings.hooks) settings.hooks = {};
-  // Claude Code blocks on the hook response. The server is on 127.0.0.1 and answers
-  // in milliseconds, so a long timeout only ever buys latency once nothing is
-  // listening — which is exactly the case a crash leaves behind (#125).
-  const HOOK_TIMEOUT_SEC = 1;
-  const addHook = (event, matcher) => {
-    if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = [];
-    settings.hooks[event].push({ matcher: matcher || '', hooks: [{ type: 'http', url, timeout: HOOK_TIMEOUT_SEC }] });
-  };
-  addHook('Notification', ''); // permission_prompt / idle_prompt / elicitation / …
-  addHook('Stop', ''); // agent finished responding (matcher ignored for Stop)
-  addHook('UserPromptSubmit', ''); // turn start → "Working" (TUI sessions emit no OSC-0 spinner)
-  // Subagent lifecycle → the two-color overlay + the nested running indicator (#119).
-  // Both events carry the parent session_id and the subagent's agent_id, and
-  // SubagentStop fires at the subagent's real end. An empty matcher (which these
-  // events match against the agent *type*) catches every agent type.
-  addHook('SubagentStart', '');
-  addHook('SubagentStop', '');
-  fs.mkdirSync(path.dirname(CLAUDE_SETTINGS_JSON), { recursive: true });
-  fs.writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(settings, null, 2) + '\n');
-  log.info(`[attention-hook] wrote hooks to ${CLAUDE_SETTINGS_JSON} (${url})`);
-}
-
-function removeClaudeAttentionHook() {
-  if (!fs.existsSync(CLAUDE_SETTINGS_JSON)) return;
-  const settings = stripSwitchboardHooks(readClaudeSettings());
-  fs.writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(settings, null, 2) + '\n');
-  log.info(`[attention-hook] removed Switchboard hooks from ${CLAUDE_SETTINGS_JSON}`);
-}
+// --- Claude Code hook → attention ingest (spec 05) -> app/hooks.js ---
+// The loopback server's token check (#77) is the trust boundary; it lives in the module, which stays
+// Electron-free so `node --test` can drive it. getSetting comes in through ctx, not a require: db.js
+// resolves DATA_DIR at module load (see :81-85).
+const hooks = require('./app/hooks');
+hooks.init({
+  getMainWindow: () => mainWindow,
+  getSetting,
+  activeSessions,
+  indexWorker,
+  log,
+});
+hooks.registerIpc(ipcMain);
+const { startAttentionHookServer, removeClaudeAttentionHook, attentionHooksEnabled } = hooks;
 
 // Renderer saved a new log level — apply it live, no restart (#121).
 ipcMain.handle('set-log-level', (_event, level) => {
   const resolved = applyLogLevel(level);
   log.info(`[log] level set to ${resolved}`);
   return { ok: true, level: resolved };
-});
-
-// Renderer toggles the setting then calls this to write/remove the ~/.claude hook.
-ipcMain.handle('configure-attention-hook', (_event, enabled) => {
-  try {
-    if (enabled) {
-      if (!attentionHookServer) startAttentionHookServer();
-      // If the server is still binding, the listen callback will stamp the port.
-      if (attentionHookPort) writeClaudeAttentionHook(attentionHookPort);
-    } else {
-      removeClaudeAttentionHook();
-    }
-    return { ok: true };
-  } catch (err) {
-    log.error(`[attention-hook] configure failed: ${err.message}`);
-    return { ok: false, error: err.message };
-  }
 });
 
 // --- Scheduled tasks ---

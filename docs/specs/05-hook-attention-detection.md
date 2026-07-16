@@ -4,7 +4,7 @@
 
 **Status:** Implemented · **Roadmap:** Opportunity #5 (Phase 4) · **Independent:** Yes
 
-> **As built:** in addition to the `Notification` and `Stop` hooks below, a `SubagentStop` hook is also registered. The HTTP ingest server lives at `src/main.js` ~2287 (not near the OSC parsing region).
+> **As built:** in addition to the `Notification` and `Stop` hooks below, `UserPromptSubmit`, `SubagentStart` and `SubagentStop` hooks are also registered. The HTTP ingest server lives in **`src/app/hooks.js`** — it was in `src/main.js` (never near the OSC parsing region, despite Step 1 below) until #213 split it out. That module requires no Electron on purpose, which is what lets `test/hook-ingest.test.js` drive the token check and the settings.json rewrite for real; before the split neither was asserted by anything.
 
 ## Problem & goal
 
@@ -57,7 +57,7 @@ Move the inline regex from `app.js:409` into this helper (keeps one source of tr
 - If the integration requires writing a hook into the user's Claude config, do it explicitly and reversibly, with a settings toggle and clear messaging (follow the established pattern of touching `~/.claude` carefully).
 
 ## Files to touch
-- **New:** `src/shared/attention-source.js`, `test/attention-source.test.js`.
+- **New:** `src/shared/attention-source.js`, `test/attention-source.test.js`. *(As built the ingest channel is its own module too — `src/app/hooks.js` + `test/hook-ingest.test.js`, since #213.)*
 - **Modified:** `src/main.js` (ingest channel near OSC parsing region; new `attention-signal` send), `src/preload.js` (append `onAttentionSignal`), `src/renderer/app.js` (funnel both sources via `applyAttention`; remove inline regex now living in the helper, ~401–415), `src/renderer/panels/settings-panel.js` (toggle), `src/renderer/index.html` (script tag).
 
 ## Tests (`test/attention-source.test.js`)
@@ -92,7 +92,7 @@ Move the inline regex from `app.js:409` into this helper (keeps one source of tr
 Every hook payload includes `session_id`, and `transcript_path` points at `~/.claude/projects/<folder>/<session_id>.jsonl`. **`session_id` is the Claude session UUID, which is exactly Switchboard's `realSessionId`** (the JSONL filename the app already keys `openSessions`/`activeSessions` on after `src/session/session-transitions.js` rekeys temp→real). So a hook event maps to a Switchboard session with **zero** extra correlation logic. (Edge case: a brand-new session still on its temp id won't match until the real id is detected — the OSC-9 fallback covers that early window.)
 
 ### Chosen design
-- **Ingest = local HTTP server** in `src/main.js`, bound to `127.0.0.1` on an OS-assigned port (consistent with the existing per-session WS MCP servers in `src/servers/mcp-bridge.js`). It parses the hook JSON, normalizes via the shared `src/shared/attention-source.js` helper, and pushes a new `attention-signal` IPC event. It replies `200 {}` (empty decision = no-op, never blocks Claude).
+- **Ingest = local HTTP server** in `src/app/hooks.js` (`src/main.js` as originally built), bound to `127.0.0.1` on an OS-assigned port (consistent with the existing per-session WS MCP servers in `src/servers/mcp-bridge.js`). It parses the hook JSON, normalizes via the shared `src/shared/attention-source.js` helper, and pushes a new `attention-signal` IPC event. It replies `200 {}` (empty decision = no-op, never blocks Claude).
 - **`~/.claude/settings.json` is touched only when the setting is ON, and reversibly:** our handlers are tagged by a sentinel URL path (`/switchboard-attention-hook`). Enable strips any stale Switchboard handlers then writes fresh `Notification` + `Stop` HTTP hooks for the live port; disable strips them and leaves all other user hooks untouched. The port is re-stamped on each app start while enabled (URLs dedup, stale ones are pruned first).
 - **Default OFF (opt-in)** — touching the user's real `~/.claude/settings.json` should be a deliberate choice; the OSC-9 heuristic remains the default and the fallback.
 

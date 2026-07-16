@@ -71,9 +71,9 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 the installer.
 
 - **Main process** (`src/main.js`): app lifecycle, IPC handlers, terminal (PTY) management, file watching.
-  ~4500 lines and being split into `src/app/` + `src/watch/` (#213) — `src/app/` already holds the PTY
-  pure-logic (`terminal/`), the quit guard, the settings transfer, `lifecycle.js`, `notifications.js` and
-  `windows.js`. An extracted module takes shared state through a **ctx object**, and the rule is: a `const`
+  ~4400 lines and being split into `src/app/` + `src/watch/` (#213) — `src/app/` already holds the PTY
+  pure-logic (`terminal/`), the quit guard, the settings transfer, `lifecycle.js`, `notifications.js`,
+  `windows.js` and `hooks.js`. An extracted module takes shared state through a **ctx object**, and the rule is: a `const`
   (a Map, a Set) is passed straight through, a `let` (`mainWindow`, `appQuitting`) **only ever as a getter**
   — a captured `mainWindow` addresses a window that no longer exists after a reopen, and the UI just stops
   updating with no error. It also never top-level-requires `db.js` (that resolves `DATA_DIR` before
