@@ -14,24 +14,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
+// The spawn-side merge still lives in main.js, which needs Electron — so that one half stays a static
+// guard on its source. The settings-side half no longer has to be (see below).
 const MAIN = fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8');
 
-/** Pull a top-level function's source out of main.js (it needs Electron, so it cannot be required). */
-function fnSource(name) {
-  const start = MAIN.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name} must exist in main.js`);
-  const rest = MAIN.slice(start);
-  return rest.slice(0, rest.indexOf('\n}\n') + 2);
-}
-
-// The guard is a pure function of a settings blob, so it can be run for real.
-function loadStripper() {
-  const src = fnSource('stripBackendEnvSecrets');
-  const profiles = require('../src/backends/profiles');
-  // eslint-disable-next-line no-new-func
-  const make = new Function('profiles', `${src}; return stripBackendEnvSecrets;`);
-  return make(profiles);
-}
+// This used to read main.js as TEXT, cut `stripBackendEnvSecrets` out of it with indexOf, and run it
+// through `new Function` — the only way to reach it, because main.js needs Electron and can never be
+// required. #213 moved the guard to app/settings.js, which takes Electron and the DB through ctx. So the
+// test now runs the actual module the app loads, not a copy of its source.
+const settings = require('../src/app/settings');
+const loadStripper = () => settings.stripBackendEnvSecrets;
 
 test('a $VAR reference is kept — that is the supported way to carry a secret', () => {
   const strip = loadStripper();
@@ -72,11 +64,28 @@ test('a blob with no backendEnv passes through untouched', () => {
 
 // The guard has to sit on the ONE path every settings write takes, or it is decorative — a settings
 // IMPORT would walk straight around a renderer-side check.
+//
+// This used to assert that persistSettingsBlob's SOURCE mentions the two strippers, which is as close as
+// you can get to the truth by reading text: it cannot tell you the call does anything. Now the write path
+// runs for real against a fake DB, and the assertion is what actually reached it.
 test('the guard runs on the single write path, next to the launcher one', () => {
-  const persist = fnSource('persistSettingsBlob');
-  assert.match(persist, /stripLauncherSecrets\(/);
-  assert.match(persist, /stripBackendEnvSecrets\(/,
+  const written = [];
+  settings.init({
+    db: { setSetting: (key, value) => written.push({ key, value }) },
+    log: { info() {}, warn() {}, error() {} },
+    // key !== 'global' below, so the re-arm is not reached; give it nothing to call.
+  });
+
+  settings.persistSettingsBlob('project:/x', {
+    backendEnv: { codex: { OPENAI_API_KEY: 'sk-abcdefghijklmnopqrstuvwxyz0123456789', BASE_URL: 'https://x' } },
+    customLaunchers: [{ id: 'l1', name: 'l', env: { GITHUB_TOKEN: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789' } }],
+  });
+
+  assert.equal(written.length, 1, 'it reached the disk exactly once');
+  const blob = written[0].value;
+  assert.deepEqual(blob.backendEnv.codex, { BASE_URL: 'https://x' },
     'a settings import must not be able to smuggle a raw key past this');
+  assert.deepEqual(blob.customLaunchers[0].env, {}, 'and the launcher half of the same guard ran too');
 });
 
 // --- the merge order at spawn ---------------------------------------------------------------------

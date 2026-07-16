@@ -6,8 +6,10 @@
 // UI showed the value, the DB stored it, and nothing used it. No test followed the whole chain, so no test
 // caught it.
 //
-// main.js needs Electron, so the main-process half is a static guard (the idiom this repo already uses for
-// db.js-bound code); the renderer half runs for real in jsdom.
+// The main-process half USED to be a static guard — main.js needs Electron, so the cascade could only be
+// read as source text or scraped out through `new Function`. #213 moved it to app/settings.js, which takes
+// the DB through ctx, so both halves now run for real: this one against a fake settings store, the
+// renderer half in jsdom.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -22,31 +24,57 @@ const codex = require('../src/backends/codex');
 
 // --- main-process half: the cascade must carry backendDefaults ------------------------------------
 
+const settings = require('../src/app/settings');
+
+/** The cascade against a settings store that is just an object. */
+function withSettings(store) {
+  settings.init({
+    db: { getSetting: (key) => store[key] },
+    log: { info() {}, warn() {}, error() {} },
+  });
+  return settings.effectiveSettings;
+}
+
+// D18: `backendDefaults` was not in SETTING_DEFAULTS, so the cascade dropped it and every saved launch
+// default was ignored at spawn. This asserted that the FUNCTION'S SOURCE mentions `effective.backendDefaults`
+// — which cannot tell you the value survives, only that a line exists. It runs the cascade now.
 test('effectiveSettings cascades backendDefaults (not just the SETTING_DEFAULTS keys)', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8');
-  const fn = src.slice(src.indexOf('function effectiveSettings('));
-  const body = fn.slice(0, fn.indexOf('\n}'));
-  assert.match(body, /effective\.backendDefaults\s*=/,
-    'the per-backend launch defaults must be part of the effective settings — without this, every ' +
-    'saved default is silently dropped on the way to the launch (D18)');
-  assert.match(body, /project\.backendDefaults/, 'and the project scope must be able to override them');
+  const effectiveSettings = withSettings({
+    global: { backendDefaults: { codex: { model: 'gpt-5.5' } }, sidebarWidth: 500 },
+    'project:/x': { backendDefaults: { codex: { sandbox: 'read-only' } } },
+  });
+
+  const eff = effectiveSettings('/x');
+  assert.deepEqual(eff.backendDefaults.codex, { model: 'gpt-5.5', sandbox: 'read-only' },
+    'the per-backend launch defaults must reach the launch — without this, every saved default is ' +
+    'silently dropped on the way there (D18), and the project scope must be able to override them');
+  assert.equal(eff.sidebarWidth, 500, 'the ordinary keys still cascade');
+  assert.equal(eff.terminalTheme, 'switchboard', 'and an unset one falls back to its default');
+});
+
+test('a project value of null means inherit, not "set it to null"', () => {
+  const effectiveSettings = withSettings({
+    global: { sidebarWidth: 500 },
+    'project:/x': { sidebarWidth: null },
+  });
+  assert.equal(effectiveSettings('/x').sidebarWidth, 500);
+});
+
+test('with no project, the cascade is default -> global', () => {
+  const effectiveSettings = withSettings({ global: { sidebarWidth: 500 } });
+  const eff = effectiveSettings(null);
+  assert.equal(eff.sidebarWidth, 500);
+  assert.equal(eff.shellProfile, 'auto');
+  assert.deepEqual(eff.backendDefaults, {});
 });
 
 // #149 — the cascade is PER OPTION, not per blob.
 //
 // It used to take the project's whole `backendDefaults` object whenever it was non-empty. So a project
 // that overrode one Codex option silently froze a copy of every backend's defaults as they were that
-// day: later changes to the global defaults could never reach that project again. The merge lives in
-// main.js (Electron), so it is exercised here through the same source the app runs.
-function loadMergeBackendDefaults() {
-  const src = fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8');
-  const start = src.indexOf('function mergeBackendDefaults(');
-  assert.ok(start > 0, 'main.js must expose the per-option merge');
-  const rest = src.slice(start);
-  const body = rest.slice(0, rest.indexOf('\n}') + 2);
-  // eslint-disable-next-line no-new-func
-  return new Function(`${body}; return mergeBackendDefaults;`)();
-}
+// day: later changes to the global defaults could never reach that project again. The merge used to be
+// cut out of main.js's source and rebuilt with `new Function`; it is a real export now (#213).
+const loadMergeBackendDefaults = () => settings.mergeBackendDefaults;
 
 test('a project override of ONE option leaves every other option inheriting', () => {
   const merge = loadMergeBackendDefaults();
@@ -82,6 +110,19 @@ test('an option the project stores nothing for follows the global default, inclu
   assert.equal(eff.claude.permissionMode, 'acceptEdits');
 });
 
+// The other half of "a project stores only what it overrides": a null/undefined IS the absence. Without
+// this branch a project that once touched an option and let it go would pin it to null forever, and the
+// global default could never reach it again — #149 with extra steps.
+test('a null or undefined in the project means inherit, not "set it to nothing"', () => {
+  const merge = loadMergeBackendDefaults();
+  const global = { codex: { model: 'gpt-5.5', sandbox: 'workspace-write' } };
+
+  assert.deepEqual(merge(global, { codex: { model: null } }), global, 'a null inherits');
+  assert.deepEqual(merge(global, { codex: { model: undefined } }), global, 'so does an undefined');
+  assert.equal(merge(global, { codex: { model: '' } }).codex.model, '',
+    'but an empty string is a value the user chose — it overrides');
+});
+
 test('a project with no overrides at all sees exactly the global defaults', () => {
   const merge = loadMergeBackendDefaults();
   const global = { codex: { model: 'gpt-5.5' } };
@@ -90,14 +131,40 @@ test('a project with no overrides at all sees exactly the global defaults', () =
   assert.deepEqual(merge(undefined, undefined), {});
 });
 
+// Was a regex over main.js's source between `const SETTING_DEFAULTS = {` and the closing brace. It is a
+// real export now, so ask the object.
 test("Claude's launch options are no longer top-level settings keys (one home: backendDefaults.claude)", () => {
-  const src = fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8');
-  const defaults = src.slice(src.indexOf('const SETTING_DEFAULTS = {'));
-  const block = defaults.slice(0, defaults.indexOf('};'));
   for (const key of ['permissionMode', 'dangerouslySkipPermissions', 'worktree', 'chrome', 'addDirs', 'preLaunchCmd']) {
-    assert.ok(!new RegExp('^\\s*' + key + ':', 'm').test(block),
+    assert.ok(!(key in settings.SETTING_DEFAULTS),
       `${key} is a Claude launch option and belongs in backendDefaults.claude, not in the settings root`);
   }
+});
+
+// The migration that moved them there. It ran once per scope and has to be idempotent — it is called on
+// every start.
+test('the Claude launch migration moves the legacy keys once, then leaves the blob alone', () => {
+  const store = {
+    global: { permissionMode: 'plan', dangerouslySkipPermissions: true, sidebarWidth: 500 },
+  };
+  const writes = [];
+  settings.init({
+    db: {
+      getSetting: (key) => store[key],
+      setSetting: (key, value) => { store[key] = value; writes.push(key); },
+      listSettings: () => [],
+    },
+    log: { info() {}, warn() {}, error() {} },
+  });
+
+  settings.migrateClaudeLaunchDefaults();
+  assert.deepEqual(store.global.backendDefaults.claude, { permissionMode: 'dangerously-skip' },
+    'the skip flag and the mode are ONE decision — the skip wins, as the CLI itself does');
+  assert.equal('permissionMode' in store.global, false, 'the old key is gone: one home, not two');
+  assert.equal('dangerouslySkipPermissions' in store.global, false);
+  assert.equal(store.global.sidebarWidth, 500, 'and nothing else was touched');
+
+  settings.migrateClaudeLaunchDefaults();
+  assert.equal(writes.length, 1, 'it runs on every start — a second pass must write nothing');
 });
 
 // --- renderer half: the effective defaults become the session's launch options --------------------

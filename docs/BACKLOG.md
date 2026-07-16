@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (26 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-16
 
@@ -42,3 +42,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#217](https://github.com/deadeye636/switchboard/issues/217) db.js is 1997 lines — split it behind a facade like session-cache.js · _chore_
 - [#218](https://github.com/deadeye636/switchboard/issues/218) Renderer monoliths: app.js, settings-panel.js, sidebar.js, grid-view.js (9309 lines in four files) · _chore_
 - [#219](https://github.com/deadeye636/switchboard/issues/219) Dev and installed app fight over the attention hooks in ~/.claude/settings.json · _bug_
+- [#221](https://github.com/deadeye636/switchboard/issues/221) merge-setting writes a renderer-supplied blob straight past the secret scrub · _bug_

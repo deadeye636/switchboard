@@ -308,7 +308,10 @@ that could never show a value. Pi's `usage.cost` is its own *cost estimate*, not
 
 Filed as issues rather than silently carried:
 
-- **#149** `backendDefaults` cascades as a whole block, not per option.
+- ~~**#149** `backendDefaults` cascades as a whole block, not per option.~~ **Fixed** — the cascade is
+  per option (`mergeBackendDefaults` in `src/app/settings.js`, moved there from `main.js` by #213).
+  `test/settings-cascade.test.js` runs it for real now, rather than scraping it out of main.js's source
+  with `new Function`, which is what it had to do while it lived in an Electron-bound file.
 - **#150/#151** Hermes: probe scope, no busy/idle fallback when its DB is unreadable.
 - **#153** leftovers vs. the plan (Tier-2 registration path, a launch-time `$VAR` warning, picker cosmetics).
 - **#155** hot-path cost (Hermes re-parses a session per watcher flush; store walks per flush).

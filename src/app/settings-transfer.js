@@ -5,8 +5,8 @@
 // entries. Secrets never ride along either — a backend PROFILE's env bundle (the one place
 // that can carry an API key) lives in its own store, not in this blob. The single secret-
 // bearing surface that *is* in the blob, `customLaunchers[].env`, is scrubbed by the caller
-// on the way in (main.js `stripLauncherSecrets`, at the same trust boundary a normal save
-// crosses) — an import must not be a back door around that guard.
+// on the way in (`app/settings.js`'s `stripLauncherSecrets`, at the same trust boundary a
+// normal save crosses) — an import must not be a back door around that guard.
 //
 // The blob still carries machine-local values by design (a `preLaunchCmd`, a launcher's
 // `cwd`). Those are the point of the export — a restore that dropped them would arrive with

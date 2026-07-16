@@ -18,7 +18,6 @@ const { shouldUseSingleInstanceLock } = require('./app/lifecycle');
 const backends = require('./backends');
 const sessionBackends = require('./session/session-backends');
 const profiles = require('./backends/profiles');
-const settingsTransfer = require('./app/settings-transfer');
 // Every spawn path goes through resolveSpawnEnv() below — an unresolved $VAR is dropped AND said (#169).
 const { resolveEnvRefs, missingRefsMessage } = require('./backends/env-refs');
 // Tier-3 custom launchers (T-3.10): the entry shape + cascade live in one module shared with the
@@ -1602,135 +1601,25 @@ ipcMain.handle('search', (_event, type, query, titleOnly) => {
   return searchViaWorker(type, query, titleOnly);
 });
 
-// --- IPC: settings ---
-ipcMain.handle('get-setting', (_event, key) => {
-  return getSetting(key);
+// --- Settings: the blob, the per-option cascade (#149), export/import (#145) -> app/settings.js ---
+// persistSettingsBlob is the trust boundary — the ONE door to disk, so the secret scrub and the backend
+// re-arm cannot be walked around. The DB and the two file dialogs go in through ctx, which is what keeps
+// the module requirable: its guards used to be scraped out of THIS file's source text and run through
+// `new Function`, because main.js needs Electron.
+const settings = require('./app/settings');
+settings.init({
+  db: { getSetting, setSetting, deleteSetting, listSettings, getProjectStates, setProjectState },
+  dialog,
+  getParentWindow: (sender) => BrowserWindow.fromWebContents(sender) || mainWindow,
+  broadcastSettingsChanged: () => broadcastSettingsChanged(),
+  startBackendWatchers: () => startBackendWatchers(),
+  indexWorker,
+  notifyRendererProjectsChanged: () => notifyRendererProjectsChanged(),
+  log,
 });
+settings.registerIpc(ipcMain);
+const { effectiveSettings, migrateClaudeLaunchDefaults, SETTING_DEFAULTS } = settings;
 
-/**
- * The one way a settings blob reaches the disk. Every writer goes through here — the settings
- * form, and the settings IMPORT (#145). An importer that called setSetting() directly would be a
- * back door around both halves of this: the secret scrub below, and the backend re-arm.
- */
-function persistSettingsBlob(key, value) {
-  // Custom launchers (Tier-3) carry an env block, and the settings blob goes to DISK. A profile's env is
-  // guarded at exactly this boundary (profiles.save rejects a literal key); the launchers promised "the
-  // same hygiene" in their own comment and never had it — a pasted key was written out verbatim. Strip
-  // it here, at the trust boundary, rather than in the renderer that can be bypassed.
-  try {
-    const stripped = stripLauncherSecrets(value);
-    if (stripped.removed.length) {
-      log.warn(`[launchers] refused to persist literal secret(s): ${stripped.removed.join(', ')} — use a $VAR reference`);
-      value = stripped.value;
-    }
-    const env = stripBackendEnvSecrets(value);
-    if (env.removed.length) {
-      log.warn(`[backends] refused to persist literal secret(s) in backendEnv: ${env.removed.join(', ')} — use a $VAR reference`);
-      value = env.value;
-    }
-  } catch { /* never block a settings save on this */ }
-
-  setSetting(key, value);
-  // Enabling/disabling a backend changes which stores must be watched and scanned. Re-arm here so
-  // the change takes effect immediately instead of only after a restart (§5.8: a newly-enabled
-  // `ready` backend must "appear with no code change" — and with no restart either).
-  if (key === 'global') {
-    try {
-      startBackendWatchers();
-      // The roster the worker scans is recomputed per request, so a full reconcile picks up the
-      // just-enabled/disabled backend; postReconcile pushes projects-changed itself on apply.
-      indexWorker.postReconcile();
-      notifyRendererProjectsChanged();
-    } catch (err) {
-      log.warn('[backends] re-arm after settings change failed:', err?.message || err);
-    }
-  }
-}
-
-ipcMain.handle('set-setting', (_event, key, value) => {
-  persistSettingsBlob(key, value);
-  return { ok: true };
-});
-
-// Atomic partial update of an object-valued setting: read-merge-write happens
-// synchronously inside this single handler, so concurrent callers (tab drag,
-// sidebar resize, a second window) can't clobber each other's unrelated keys
-// the way a renderer-side read-modify-write of the whole blob does (issue #75).
-ipcMain.handle('merge-setting', (_event, key, partial) => {
-  const cur = getSetting(key);
-  const base = (cur && typeof cur === 'object' && !Array.isArray(cur)) ? cur : {};
-  setSetting(key, { ...base, ...(partial || {}) });
-  return { ok: true };
-});
-
-ipcMain.handle('delete-setting', (_event, key) => {
-  deleteSetting(key);
-  return { ok: true };
-});
-
-// --- IPC: settings export / import (#145) ---
-// Global blob only. What goes in the file and what may come out of it is decided in
-// settings-transfer.js; this pair owns the two things that need Electron — the native file
-// dialogs — and nothing else. The dialog parents to the window that ASKED, because these
-// buttons also render in the standalone settings pop-out.
-ipcMain.handle('export-settings', async (event) => {
-  const parent = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-  const stamp = new Date().toISOString().slice(0, 10);
-  const result = await dialog.showSaveDialog(parent, {
-    title: 'Export Settings',
-    defaultPath: `switchboard-settings-${stamp}.json`,
-    filters: [{ name: 'JSON', extensions: ['json'] }],
-  });
-  if (result.canceled || !result.filePath) return { ok: false, canceled: true };
-  try {
-    // The project list rides along explicitly now — it is a table, not a settings key (#167).
-    const payload = settingsTransfer.buildExportPayload(getSetting('global'), new Date().toISOString(), getProjectStates());
-    fs.writeFileSync(result.filePath, JSON.stringify(payload, null, 2), 'utf8');
-    log.info(`[settings] exported ${Object.keys(payload.global).length} global key(s)`);
-    return { ok: true, filePath: result.filePath, keys: Object.keys(payload.global).length };
-  } catch (err) {
-    log.error('[settings] export failed:', err);
-    return { ok: false, error: err.message };
-  }
-});
-
-ipcMain.handle('import-settings', async (event) => {
-  const parent = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-  const result = await dialog.showOpenDialog(parent, {
-    title: 'Import Settings',
-    properties: ['openFile'],
-    filters: [{ name: 'JSON', extensions: ['json'] }],
-  });
-  if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
-  try {
-    let parsed;
-    try {
-      parsed = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
-    } catch {
-      return { ok: false, error: 'The file is not valid JSON.' };
-    }
-    const check = settingsTransfer.validateImportPayload(parsed);
-    if (!check.ok) return { ok: false, error: check.error };
-
-    // Through the same door a normal save uses: secrets scrubbed, backends re-armed.
-    persistSettingsBlob('global', settingsTransfer.mergeImport(getSetting('global'), check.global));
-
-    // The project list (#167). A file that carries none — an older export, or a machine that never had a
-    // project — leaves the list here ALONE: importing "nothing" must not mean "wipe it".
-    const incoming = settingsTransfer.importProjects(parsed);
-    for (const row of incoming) {
-      setProjectState(row.projectPath, { registered: 1, hidden: row.hidden, removedAt: null });
-    }
-
-    broadcastSettingsChanged();   // main-initiated: every window re-applies, incl. the sender
-    const keys = Object.keys(check.global).length;
-    log.info(`[settings] imported ${keys} global key(s), ${incoming.length} project(s)`);
-    return { ok: true, keys, projects: incoming.length };
-  } catch (err) {
-    log.error('[settings] import failed:', err);
-    return { ok: false, error: err.message };
-  }
-});
 
 // --- Saved variables + secret materialization (spec 12) -> app/variables.js ---
 // The secret paths are the trust boundary and they live in the module: plaintext never reaches the
@@ -1831,161 +1720,12 @@ ipcMain.handle('set-log-level', (_event, level) => {
 // --- Scheduled tasks ---
 const scheduleIpc = require('./servers/schedule-ipc');
 
-// NOTE: Claude's launch options (permissionMode, worktree, chrome, addDirs, preLaunchCmd,
-// mcpEmulation, afkTimeoutSec, …) are NOT here. They are a backend's launch options like any other
-// backend's and live under `backendDefaults.claude` (§4a) — see migrateClaudeLaunchDefaults below.
-// What remains here is what belongs to the app, not to a CLI.
-/**
- * A settings blob may carry `customLaunchers[].env` (Tier-3, T-3.10). Those values follow the same rule
- * as a profile's: a `$VAR` reference (resolved at spawn) or a plain literal — but NEVER a raw key. This
- * drops any value that looks like one, so a pasted token cannot reach the disk.
- * Returns { value, removed[] }; `value` is the original object when nothing was stripped.
- */
-function stripLauncherSecrets(blob) {
-  const removed = [];
-  if (!blob || typeof blob !== 'object' || !Array.isArray(blob.customLaunchers)) return { value: blob, removed };
-
-  const launchers = blob.customLaunchers.map(l => {
-    if (!l || typeof l !== 'object' || !l.env || typeof l.env !== 'object') return l;
-    const env = {};
-    for (const [k, v] of Object.entries(l.env)) {
-      if (typeof v === 'string' && profiles.looksLikeRawSecret(v, k)) {
-        removed.push(`${l.name || l.id || 'launcher'}.${k}`);
-        continue;   // dropped: an unresolved $VAR is dropped at spawn too, so this fails visibly, not silently
-      }
-      env[k] = v;
-    }
-    return { ...l, env };
-  });
-
-  if (!removed.length) return { value: blob, removed };
-  return { value: { ...blob, customLaunchers: launchers }, removed };
-}
-
-/**
- * The same rule for a BACKEND's own env bundle (`backendEnv.<id>`). It goes to disk exactly like a
- * launcher's and a template's, so it gets exactly the same guard: a value that looks like a pasted key is
- * dropped here, at the trust boundary, and never written. A `$VAR` reference is the supported way — it is
- * resolved at spawn and lives only in the user's environment.
- */
-function stripBackendEnvSecrets(blob) {
-  const removed = [];
-  if (!blob || typeof blob !== 'object' || !blob.backendEnv || typeof blob.backendEnv !== 'object') {
-    return { value: blob, removed };
-  }
-  const out = {};
-  for (const [backendId, env] of Object.entries(blob.backendEnv)) {
-    if (!env || typeof env !== 'object') continue;
-    const clean = {};
-    for (const [k, v] of Object.entries(env)) {
-      if (typeof v === 'string' && profiles.looksLikeRawSecret(v, k)) {
-        removed.push(`${backendId}.${k}`);
-        continue;   // an unresolved $VAR is dropped at spawn too, so this fails visibly, not silently
-      }
-      clean[k] = v;
-    }
-    out[backendId] = clean;
-  }
-  if (!removed.length) return { value: blob, removed };
-  return { value: { ...blob, backendEnv: out }, removed };
-}
-
-const SETTING_DEFAULTS = {
-  visibleSessionCount: 5,
-  sidebarWidth: 340,
-  terminalTheme: 'switchboard',
-  shellProfile: 'auto',
-  // T-2.5/T-3.7: the Terminal bucket's shell (in-app plain terminal + External Terminal).
-  // 'inherit' = use the CLI shell (`shellProfile`) — the default, so behaviour is unchanged.
-  terminalShellProfile: 'inherit',
-  conptyBackend: 'bundled',
-};
-
-// Claude's launch options used to live at the top of the settings blob (Sessions & CLI). They are
-// launch options like any other backend's, so they now live where every backend's do:
-// `backendDefaults.claude.<opt>` (§4a). Move them once, per settings scope, and delete the old keys —
-// keeping both would recreate exactly the two-homes-one-setting trap this consolidates away.
-//
-// `dangerouslySkipPermissions` collapses into the permissionMode CHOICE 'dangerously-skip': the CLI
-// treats them as one decision (the skip flag wins over --permission-mode), so the schema models one
-// control, not two that can contradict each other.
-const LEGACY_CLAUDE_LAUNCH_KEYS = [
-  'permissionMode', 'dangerouslySkipPermissions', 'worktree', 'worktreeName',
-  'chrome', 'addDirs', 'preLaunchCmd', 'mcpEmulation', 'afkTimeoutSec',
-];
-
-function migrateClaudeLaunchDefaults() {
-  const scopes = [{ key: 'global', value: getSetting('global') }, ...listSettings('project:')];
-  let moved = 0;
-  for (const scope of scopes) {
-    const blob = scope.value;
-    if (!blob || typeof blob !== 'object') continue;
-    if (blob.backendDefaults && blob.backendDefaults.claude) continue;            // already migrated
-    if (!LEGACY_CLAUDE_LAUNCH_KEYS.some(k => blob[k] !== undefined)) continue;    // nothing to move
-
-    const claude = {};
-    for (const k of LEGACY_CLAUDE_LAUNCH_KEYS) {
-      const v = blob[k];
-      if (v === undefined || v === null) continue;
-      if (k === 'dangerouslySkipPermissions') { if (v) claude.permissionMode = 'dangerously-skip'; continue; }
-      if (k === 'permissionMode' && claude.permissionMode === 'dangerously-skip') continue;   // skip wins
-      claude[k] = v;
-    }
-    const next = { ...blob, backendDefaults: { ...(blob.backendDefaults || {}), claude } };
-    for (const k of LEGACY_CLAUDE_LAUNCH_KEYS) delete next[k];
-    setSetting(scope.key, next);
-    moved++;
-  }
-  if (moved) log.info(`[settings] moved Claude's launch options into backendDefaults.claude (${moved} scope(s))`);
-}
-
-// Cascade all settings: default → global → project; null/undefined mean
-// "inherit". Single implementation for the get-effective-settings IPC, the
-// shell-profile resolution and createTerminalSession (#79).
-function effectiveSettings(projectPath) {
-  const global = getSetting('global') || {};
-  const project = projectPath ? (getSetting('project:' + projectPath) || {}) : {};
-  const effective = { ...SETTING_DEFAULTS };
-  for (const key of Object.keys(SETTING_DEFAULTS)) {
-    if (global[key] !== undefined && global[key] !== null) effective[key] = global[key];
-    if (project[key] !== undefined && project[key] !== null) effective[key] = project[key];
-  }
-  // Per-backend launch defaults (§4a) cascade **per option**, like every other setting — not as one
-  // block. Taking the project's whole blob whenever it was non-empty meant a project that overrode a
-  // single Codex option FROZE every backend's defaults at the moment it was saved: later changes to the
-  // global defaults could never reach that project again (#149).
-  //
-  // A project therefore stores only the options it actually overrides.
-  effective.backendDefaults = mergeBackendDefaults(global.backendDefaults, project.backendDefaults);
-  return effective;
-}
-
-/** global ⊕ project, per backend, per option. The project wins where it has a value of its own. */
-function mergeBackendDefaults(globalDefaults, projectDefaults) {
-  const g = globalDefaults && typeof globalDefaults === 'object' ? globalDefaults : {};
-  const p = projectDefaults && typeof projectDefaults === 'object' ? projectDefaults : {};
-  const out = {};
-  for (const id of new Set([...Object.keys(g), ...Object.keys(p)])) {
-    const gOpts = (g[id] && typeof g[id] === 'object') ? g[id] : {};
-    const pOpts = (p[id] && typeof p[id] === 'object') ? p[id] : {};
-    const merged = { ...gOpts };
-    for (const [opt, value] of Object.entries(pOpts)) {
-      if (value === undefined || value === null) continue;   // absent = "inherit this option"
-      merged[opt] = value;
-    }
-    out[id] = merged;
-  }
-  return out;
-}
 
 ipcMain.handle('get-shell-profiles', () => {
   invalidateShellProfiles(); // drop the module-private cache so newly installed shells appear without a restart
   return getShellProfiles();
 });
 
-ipcMain.handle('get-effective-settings', (_event, projectPath) => {
-  return effectiveSettings(projectPath);
-});
 
 // --- IPC: get-active-sessions ---
 ipcMain.handle('get-active-sessions', () => {
