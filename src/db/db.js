@@ -34,6 +34,7 @@ const settingsStore = require('./settings-store');
 const tasksStore = require('./tasks-store');
 const tagsStore = require('./tags-store');
 const metaStore = require('./meta-store');
+const projectRefs = require('./project-refs');
 
 
 
@@ -208,53 +209,6 @@ const stmts = {
 
 // --- Bookmarks + session tags ---
 
-// --- Project path lifecycle (#55) ---
-// Everything Switchboard keys by projectPath: project_meta (favorite, auto-hide),
-// project_tags, project_handoffs, and the `project:<path>` settings blob (display
-// name, permission mode, worktree prefs, AFK timeout).
-//
-// A remap moves the project to a new path; a hard delete removes it for good.
-// Neither used to touch any of this, so a remap silently dropped the project's
-// favorite/tags/settings and left the old path behind as a phantom.
-
-// Move every reference from oldPath to newPath. Where the destination already
-// carries data of its own, the destination wins and the source row is dropped —
-// remapping onto a folder that is already a known project must never clobber it.
-const renameProjectRefsTx = db.transaction((oldPath, newPath) => {
-  const destMeta = metaStore.stmts.projectMetaGet.get(newPath);
-  if (destMeta) metaStore.stmts.projectMetaDelete.run(oldPath);
-  else metaStore.stmts.projectMetaRename.run(newPath, oldPath);
-
-  // Tags merge: a tag the destination already has keeps its own colour.
-  tagsStore.stmts.projectTagsMerge.run(newPath, oldPath);
-  tagsStore.stmts.projectTagDeleteAll.run(oldPath);
-
-  // Handoffs are a list, so they simply accrue to the destination.
-  tasksStore.stmts.projectHandoffsRename.run(newPath, oldPath);
-
-  const destSettings = settingsStore.stmts.settingsGet.get('project:' + newPath);
-  if (destSettings) settingsStore.stmts.settingsDelete.run('project:' + oldPath);
-  else settingsStore.stmts.settingsRename.run('project:' + newPath, 'project:' + oldPath);
-});
-
-function renameProjectRefs(oldPath, newPath) {
-  if (!oldPath || !newPath || oldPath === newPath) return;
-  runWithBusyRetry(() => renameProjectRefsTx(oldPath, newPath));
-}
-
-// Drop every trace of a project. Only for a hard delete — a plain "hide" must
-// keep this data so unhiding restores the project intact.
-const deleteProjectRefsTx = db.transaction((projectPath) => {
-  metaStore.stmts.projectMetaDelete.run(projectPath);
-  tagsStore.stmts.projectTagDeleteAll.run(projectPath);
-  tasksStore.stmts.projectHandoffsDeleteAll.run(projectPath);
-  settingsStore.stmts.settingsDelete.run('project:' + projectPath);
-});
-
-function deleteProjectRefs(projectPath) {
-  if (!projectPath) return;
-  runWithBusyRetry(() => deleteProjectRefsTx(projectPath));
-}
 
 // --- Session cache functions ---
 
@@ -639,7 +593,9 @@ module.exports = {
   setProjectState: metaStore.setProjectState,
   getProjectStates: metaStore.getProjectStates,
   getProjectTombstones: metaStore.getProjectTombstones,
-  renameProjectRefs, deleteProjectRefs,
+  // --- a project's whole footprint, moved or dropped atomically (project-refs.js) ---
+  renameProjectRefs: projectRefs.renameProjectRefs,
+  deleteProjectRefs: projectRefs.deleteProjectRefs,
   // --- bookmarks + tags + tag defs (tags-store.js) ---
   toggleBookmark: tagsStore.toggleBookmark,
   removeBookmark: tagsStore.removeBookmark,
