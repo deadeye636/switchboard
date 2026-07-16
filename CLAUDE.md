@@ -136,6 +136,39 @@ the installer.
   **Everything else derives from the descriptor**: spawn routing, scanning, the watcher, the launch menu,
   the generated settings page and Configure dialog, the sidebar badge, search, stats, resume.
 
+### Where an IPC handler goes
+
+`src/main.js` still holds **86 IPC handlers** — thin, no shared state, deliberately left there by #213.
+That is exactly why the next one wants to go there too, and why it must not: a few more and the split was
+cosmetic. The invariant is **no NEW ones**, not "none", and `test/main-no-new-ipc.test.js` enforces it
+against an allow-list of those 86.
+
+| The handler is about | Home |
+|---|---|
+| Windows, the settings window, zoom, the close guard | `src/app/windows.js` |
+| The settings blob, the cascade, export/import | `src/app/settings.js` |
+| Notifications, the badge, the tray | `src/app/notifications.js` |
+| Saved variables, secret materialization | `src/app/variables.js` |
+| The Claude Code hook server | `src/app/hooks.js` |
+| Opening a terminal | `src/app/terminal/spawn.js` |
+| Terminal input/resize/redraw/flow control | `src/app/terminal/io.js` |
+| **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
+
+(`src/watch/*` is deliberately absent: those modules own watching, not IPC, and none of them registers a
+handler. A watch-related handler goes in an `src/app/` module that calls into them.)
+
+**What stays in `main.js`:** the requires, `DATA_DIR` (before anything requires db.js), the wiring of the
+modules, and those 86 handlers. Nothing else.
+
+A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it, calls both, and
+`src/preload.js` gets the `window.api.*` binding. The ctx rules are above — a `const` passes straight
+through, a `let` **only** as a getter, and the DB and Electron arrive **through ctx**, which is what keeps
+the module loadable in `node --test`. That last one is the whole reason the split was worth doing, so
+don't trade it away for a shorter require line.
+
+If a handler really belongs in `main.js`, add its name to the allow-list in that test **with the reason**.
+Being a deliberate act is the entire point.
+
 ### Working on backends
 
 - **Read first:** `docs/specs/09-multi-llm.md` (the contract + why each decision is what it is) and
