@@ -16,7 +16,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const SRC_DIR = path.join(__dirname, '..', 'src');
 
 function makeTerminalStub(spies) {
   return class TerminalStub {
@@ -108,9 +108,11 @@ function setupDom() {
   }
 
   const ctx = dom.getInternalVMContext();
-  for (const file of ['utils.js', 'shortcuts.js', 'terminal-context-menu.js', 'terminal-manager.js', 'grid-view.js']) {
-    const src = fs.readFileSync(path.join(PUBLIC_DIR, file), 'utf8');
-    vm.runInContext(src, ctx, { filename: file });
+  for (const rel of ['renderer/lib/utils.js', 'renderer/shell/shortcuts.js',
+                     'renderer/terminal/terminal-context-menu.js', 'renderer/terminal/terminal-manager.js',
+                     'renderer/views/grid-view.js']) {
+    const src = fs.readFileSync(path.join(SRC_DIR, rel), 'utf8');
+    vm.runInContext(src, ctx, { filename: path.basename(rel) });
   }
 
   const inCtx = (code) => vm.runInContext(code, ctx);

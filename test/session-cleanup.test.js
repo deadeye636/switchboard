@@ -8,7 +8,7 @@ const {
   getSpringCleaningCandidates,
   getAbandonedShortSessions,
   summarizeSpringCleaningSelection,
-} = require('../public/session-cleanup');
+} = require('../src/renderer/session/session-cleanup');
 
 const NOW = new Date('2026-06-15T12:00:00.000Z');
 

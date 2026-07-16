@@ -10,7 +10,7 @@ const {
   getSessionHealth,
   buildHandoffTemplate,
   buildHandoffRequestPrompt,
-} = require('../public/session-health');
+} = require('../src/renderer/session/session-health');
 
 function writeJsonl(entries) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-health-'));

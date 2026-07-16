@@ -15,7 +15,7 @@ const {
   hsvToRgb,
   hexToHsv,
   hsvToHex,
-} = require('../public/color-utils');
+} = require('../src/renderer/lib/color-utils');
 
 // --- normalizeHex -----------------------------------------------------------
 

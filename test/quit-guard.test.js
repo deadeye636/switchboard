@@ -92,7 +92,7 @@ test('main.js asks BEFORE it tears anything down — a cancelled close must leav
 test('the question goes to the app\'s own dialog, and the yes comes back to close for real', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
   const preload = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf8');
-  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
 
   assert.match(main, /wc\.send\('confirm-close', warning\)/, 'main asks the renderer');
   assert.match(main, /ipcMain\.on\('confirm-close-result'/, 'and listens for the answer');

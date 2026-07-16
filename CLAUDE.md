@@ -32,7 +32,7 @@ Feature-adoption catalogue: closed issue [#1](https://github.com/deadeye636/swit
 Adopt JBR features one at a time, never bulk-merge:
 
 1. `git checkout -b port/<feature> main`
-2. `git cherry-pick <commits>` — resolve conflicts (shared hot-paths: `main.js`, `public/sidebar.js`,
+2. `git cherry-pick <commits>` — resolve conflicts (shared hot-paths: `main.js`, `src/renderer/shell/sidebar.js`,
    `db.js`, `session-cache.js` collide because both forks rewrote them).
 3. `npm test` must be green — no new failures vs. the pre-port run.
 4. `git checkout main && git merge --ff-only port/<feature>`.
@@ -70,8 +70,10 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 - **Preload** (`preload.js`): the **only** IPC surface. Renderer talks to main exclusively through
   `window.api.*` defined here (`ipcRenderer.invoke` for request/response, `.send`/`.on` for streams).
   Add a binding here when you add an IPC handler in `main.js`.
-- **Renderer** (`public/`): **vanilla JS, no framework**. Modules are plain `<script>` tags in
-  `public/index.html` (load order matters). DOM reconciliation via morphdom. Terminal = `@xterm/xterm`.
+- **Renderer** (`src/renderer/`): **vanilla JS, no framework**. Modules are plain `<script>` tags in
+  `src/renderer/index.html` (load order matters — `test/script-tags.test.js` guards it). Sorted into folders
+  (`shell/`, `session/`, `terminal/`, `views/`, `jsonl/`, `panels/`, …). DOM reconciliation via morphdom.
+  Terminal = `@xterm/xterm`.
   Diffs = CodeMirror (`codemirror-setup.js`, bundled by esbuild into `codemirror-bundle.js`).
 - **Persistence** (`db.js`): `better-sqlite3`. Session cache + full-text search via **FTS5**.
   Migrations are an **ordered array** (`const migrations = [...]`); schema version = array length.
@@ -90,7 +92,7 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 - **Read first:** `docs/specs/09-multi-llm.md` (the contract + why each decision is what it is) and
   `docs/backend-formats.md` (what each backend actually writes — taken from real installs, because the
   published docs were wrong in three places).
-- **Don't hardcode a backend id outside its own folder.** `main.js` / `session-cache.js` / `public/*.js`
+- **Don't hardcode a backend id outside its own folder.** `main.js` / `session-cache.js` / `src/renderer/**/*.js`
   contain no `if (backendId === 'codex')` and must not gain one.
 - **A file-mode backend composes `backends/file-store.js` — it does not copy the walk.** Discovery,
   `watchTargets`, the birth-time `matchLiveSession` and the suffix `liveRefFor` are the same code for every

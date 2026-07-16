@@ -1,6 +1,6 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./session-status'));
+    module.exports = factory(require('../session/session-status'));
   } else {
     Object.assign(root, factory(root));
   }

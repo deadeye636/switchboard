@@ -11,7 +11,7 @@
     "start:debug": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron --remote-debugging-port=9222 .",
     "test": "node --test",
     "electron": "electron .",
-    "bundle:codemirror": "esbuild public/codemirror-setup.js --bundle --outfile=public/codemirror-bundle.js --format=iife --platform=browser --minify",
+    "bundle:codemirror": "esbuild src/renderer/jsonl/codemirror-setup.js --bundle --outfile=src/renderer/codemirror-bundle.js --format=iife --platform=browser --minify",
     "generate-icons": "node scripts/generate-icons.js && node scripts/generate-dmg-background.js",
     "upstream:check": "node scripts/upstream-check.js",
     "upstream:seen": "node scripts/upstream-check.js --seen",
@@ -71,7 +71,8 @@
       "workers/**/*",
       "public/**/*",
       "build/icon.*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "src/**/*"
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/**",

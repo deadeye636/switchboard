@@ -18,7 +18,7 @@ const {
   isSessionNavShortcut,
   formatBinding,
   captureBinding,
-} = require('../public/shortcuts');
+} = require('../src/renderer/shell/shortcuts');
 
 // Build a fake KeyboardEvent. `mods` is a string like 'ctrl+alt'.
 function ev(key, mods = '', code) {

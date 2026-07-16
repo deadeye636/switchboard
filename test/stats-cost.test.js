@@ -14,7 +14,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const SRC_DIR = path.join(__dirname, '..', 'src');
 
 const INDEX_HTML = `<!DOCTYPE html><html><body><div id="stats-viewer-body"></div></body></html>`;
 
@@ -44,8 +44,8 @@ function setup(projects) {
     Object.defineProperty(window, k, { value: v, writable: true, configurable: true });
   }
 
-  evalInWindow(dom, path.join(PUBLIC_DIR, 'utils.js'));
-  evalInWindow(dom, path.join(PUBLIC_DIR, 'stats-view.js'));
+  evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'lib', 'utils.js'));
+  evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'views', 'stats-view.js'));
 
   window.buildBackendBreakdown();
   return window;

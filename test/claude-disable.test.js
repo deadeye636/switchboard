@@ -145,7 +145,7 @@ test('the scanner fails OPEN when the registry cannot answer', () => {
 // --- the renderer no longer pretends -----------------------------------------------------------------
 
 test('the settings UI no longer locks the Claude toggle', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'backends-panel.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'panels', 'backends-panel.js'), 'utf8');
   assert.ok(!/const locked = b\.id === 'claude'/.test(src),
     'the "always enabled" lock lived in the renderer, where it could not be enforced anyway');
   assert.ok(!/Built-in — always enabled/.test(src));

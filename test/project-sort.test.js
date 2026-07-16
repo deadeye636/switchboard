@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { sortProjects } = require('../public/project-sort.js');
+const { sortProjects } = require('../src/renderer/lib/project-sort.js');
 
 // Helper to build a project with a single session at `modified`.
 // `empty` → no sessions; `lastActivity` → an empty project that still carries a

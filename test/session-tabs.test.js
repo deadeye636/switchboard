@@ -9,7 +9,7 @@ const {
   resolveAutoCloseMode,
   resolveAutoCloseDelaySec,
   shouldAutoClose,
-} = require('../public/session-tabs');
+} = require('../src/renderer/session/session-tabs');
 
 const S = (sessionId, name, closed = false) => ({ sessionId, name, closed });
 

@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 
-const { buildProjectTagMap, filterProjectsByTags } = require('../public/project-tags-filter.js');
+const { buildProjectTagMap, filterProjectsByTags } = require('../src/renderer/bookmarks/project-tags-filter.js');
 
 test('buildProjectTagMap groups tags per project', () => {
   const rows = [

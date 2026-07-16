@@ -9,7 +9,7 @@ const {
   nextTaskStatus,
   filterTasks,
   sortTasks,
-} = require('../public/tasks-logic.js');
+} = require('../src/renderer/views/tasks-logic.js');
 
 const sample = [
   { id: 1, title: 'Fix scroll bug', note: 'header clipped', quote: null, status: 'open', createdAt: 100, updatedAt: 400, projectDisplayName: 'switchboard', sessionName: 'sess A' },

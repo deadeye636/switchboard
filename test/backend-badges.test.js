@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'public', 'backend-registry.js'), 'utf8');
+const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'backends', 'backend-registry.js'), 'utf8');
 
 // backend-registry.js is a renderer IIFE that hangs everything off `window`. Run it against a stub.
 function load({ backends = [], defaultLaunchTarget = 'claude' } = {}) {

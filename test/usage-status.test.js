@@ -11,7 +11,7 @@ const {
   getUsageTooltip,
   selectedUsageBackends,
   isStaleReading,
-} = require('../public/usage-status');
+} = require('../src/renderer/shell/usage-status');
 
 // One backend's reading, in the shape every backend now reports (#191). Nothing in here names a window:
 // the labels and tiers come from the backend, which is what lets Codex's derived windows — and, later,

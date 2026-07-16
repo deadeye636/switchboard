@@ -8,7 +8,7 @@ const {
   hasRestorableUpdateSessions,
   selectRestorableSessions,
   resolveRestoreFocusId,
-} = require('../public/update-restart');
+} = require('../src/renderer/shell/update-restart');
 
 test('collectUpdateRestartState stores resumable Claude sessions only', () => {
   const state = collectUpdateRestartState(new Map([

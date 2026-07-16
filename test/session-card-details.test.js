@@ -7,7 +7,7 @@ const {
   getQuietDetailParts,
   getMetricTrafficLevel,
   getActivityTrafficLevel,
-} = require('../public/session-card-details');
+} = require('../src/renderer/session/session-card-details');
 
 test('getWorktreeLabel extracts worktree names from Claude worktree paths', () => {
   assert.equal(

@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { calculateGridColumnCount } = require('../public/grid-layout');
+const { calculateGridColumnCount } = require('../src/renderer/views/grid-layout');
 
 test('calculateGridColumnCount avoids cramped three-column layouts', () => {
   assert.equal(calculateGridColumnCount({ width: 1400, cardCount: 6 }), 2);

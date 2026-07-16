@@ -6,7 +6,7 @@ const {
   sessionTagName,
   sessionTagOptions,
   toggleSessionTag,
-} = require('../public/session-tags-logic.js');
+} = require('../src/renderer/session/session-tags-logic.js');
 
 const defs = [
   { name: 'bug', color: '#e06c75', hidden: 0, disabled: 0 },

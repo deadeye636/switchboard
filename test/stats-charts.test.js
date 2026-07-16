@@ -12,7 +12,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const SRC_DIR = path.join(__dirname, '..', 'src');
 const INDEX_HTML = `<!DOCTYPE html><html><body><div id="stats-viewer-body"></div></body></html>`;
 
 const BACKENDS = {
@@ -35,8 +35,8 @@ function setup() {
   for (const [k, v] of Object.entries(stubs)) {
     Object.defineProperty(window, k, { value: v, writable: true, configurable: true });
   }
-  vm.runInContext(fs.readFileSync(path.join(PUBLIC_DIR, 'utils.js'), 'utf8'), dom.getInternalVMContext());
-  vm.runInContext(fs.readFileSync(path.join(PUBLIC_DIR, 'stats-view.js'), 'utf8'), dom.getInternalVMContext());
+  vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'renderer', 'lib', 'utils.js'), 'utf8'), dom.getInternalVMContext());
+  vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'renderer', 'views', 'stats-view.js'), 'utf8'), dom.getInternalVMContext());
   return window;
 }
 

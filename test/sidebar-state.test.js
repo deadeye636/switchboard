@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { shouldRenderProjectGroup, projectHasNothingToRender } = require('../public/sidebar-state');
+const { shouldRenderProjectGroup, projectHasNothingToRender } = require('../src/renderer/shell/sidebar-state');
 
 test('#173: a project left with only subagent rows keeps its empty placeholder row', () => {
   // Every top-level session archived, but the payload still carries subagent rows

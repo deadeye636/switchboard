@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { DEFAULT_HANDOFF_PROMPT, fillHandoffPrompt, buildHandoffRequestPrompt } = require('../public/session-health.js');
+const { DEFAULT_HANDOFF_PROMPT, fillHandoffPrompt, buildHandoffRequestPrompt } = require('../src/renderer/session/session-health.js');
 
 test('DEFAULT_HANDOFF_PROMPT carries placeholders', () => {
   for (const ph of ['{goal}', '{project}', '{sessionId}', '{metrics}']) {
@@ -39,7 +39,7 @@ test('buildHandoffRequestPrompt equals the filled default template', () => {
 // or Hermes it is merely text — the agent answers nothing useful, and the capture step would then offer
 // its PREVIOUS message as the "fresh" packet. Silently wrong, which is the one thing this must not do.
 
-const { resolveHandoffPrompt } = require('../public/session-health.js');
+const { resolveHandoffPrompt } = require('../src/renderer/session/session-health.js');
 
 const CLAUDE = { id: 'claude', label: 'Claude Code' };
 const CODEX = { id: 'codex', label: 'Codex' };
@@ -86,7 +86,7 @@ test('a global slash command reaches every backend — the user decides, not us'
 // There are two ways to produce a handoff, so there are two prompts — and both are overridable globally
 // and per backend. Conflating them is what let the library fill up with metadata skeletons.
 
-const { DEFAULT_HANDOFF_READ_PROMPT } = require('../public/session-health.js');
+const { DEFAULT_HANDOFF_READ_PROMPT } = require('../src/renderer/session/session-health.js');
 
 test('the summarise prompt goes to the OLD agent; the read prompt goes to a NEW one', () => {
   const settings = {

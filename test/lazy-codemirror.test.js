@@ -20,7 +20,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const SRC_DIR = path.join(__dirname, '..', 'src');
 
 const INDEX_HTML = `<!DOCTYPE html>
 <html>
@@ -91,10 +91,10 @@ function setupViewerPanelDom() {
   };
 
   // viewer-toolbar.js defines createViewerToolbar + toggleMarkdownPreview
-  evalInWindow(dom, path.join(PUBLIC_DIR, 'viewer-toolbar.js'));
+  evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'views', 'viewer-toolbar.js'));
 
   // viewer-panel.js defines ViewerPanel + loadCodeMirrorBundle
-  evalInWindow(dom, path.join(PUBLIC_DIR, 'viewer-panel.js'));
+  evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'views', 'viewer-panel.js'));
 
   const container = window.document.getElementById('panel-container');
 
@@ -234,8 +234,8 @@ function setupViewerPanelDomHeld() {
     return el;
   };
 
-  evalInWindow(dom, path.join(PUBLIC_DIR, 'viewer-toolbar.js'));
-  evalInWindow(dom, path.join(PUBLIC_DIR, 'viewer-panel.js'));
+  evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'views', 'viewer-toolbar.js'));
+  evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'views', 'viewer-panel.js'));
 
   const container = window.document.getElementById('panel-container');
 

@@ -20,8 +20,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
-const APP = fs.readFileSync(path.join(ROOT, 'public', 'app.js'), 'utf8');
-const HANDOFF = fs.readFileSync(path.join(ROOT, 'public', 'handoff.js'), 'utf8');
+const APP = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'app.js'), 'utf8');
+const HANDOFF = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'handoff', 'handoff.js'), 'utf8');
 
 /** The one place a prompt is pasted into a session. */
 function seedFn() {

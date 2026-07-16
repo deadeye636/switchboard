@@ -7,7 +7,7 @@ const {
   mergeCustomLaunchers,
   launcherOrigin,
   launcherId,
-} = require('../public/custom-launchers');
+} = require('../src/shared/custom-launchers');
 
 test('normalizeLauncher: fills defaults and keeps the canonical shape', () => {
   const e = normalizeLauncher({ id: 'dev', command: 'npm run dev' });

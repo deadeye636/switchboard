@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { extractLatestAssistantText } = require('../public/handoff-extract.js');
+const { extractLatestAssistantText } = require('../src/renderer/handoff/handoff-extract.js');
 
 test('returns the latest assistant text (string content)', () => {
   const entries = [
@@ -98,7 +98,7 @@ test('a user turn is never mistaken for the packet', () => {
 // a DOM callback, where the "unavailable source" case silently swapped the user onto whatever backend
 // happened to sort first.
 
-const { resolveHandoffTarget } = require('../public/handoff-extract.js');
+const { resolveHandoffTarget } = require('../src/renderer/handoff/handoff-extract.js');
 
 const LAUNCHABLE = [
   { id: 'claude', label: 'Claude Code' },

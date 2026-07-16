@@ -18,7 +18,7 @@ const {
   canGoForward,
   historyBack,
   historyForward,
-} = require('../public/session-history');
+} = require('../src/renderer/session/session-history');
 
 const alive = () => true;
 

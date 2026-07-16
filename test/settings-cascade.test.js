@@ -113,7 +113,7 @@ function loadDialogs(effective, backends) {
     value: (id) => backends[id] || null,
     writable: true, configurable: true,
   });
-  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'dialogs.js'), 'utf8'),
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'dialogs', 'dialogs.js'), 'utf8'),
     dom.getInternalVMContext(), { filename: 'dialogs.js' });
   return window;
 }

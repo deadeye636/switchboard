@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { computeHandoffActions } = require('../public/handoff-actions.js');
+const { computeHandoffActions } = require('../src/renderer/handoff/handoff-actions.js');
 
 // A handoff is a PACKET — a summary of the actual state, written by an agent. There are two ways to get
 // one, and which one you want is a real choice, so the dialog asks instead of guessing:

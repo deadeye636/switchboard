@@ -6,7 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildSessionTagMap, filterProjectSessionsByTags } = require('../public/session-tags-filter');
+const { buildSessionTagMap, filterProjectSessionsByTags } = require('../src/renderer/session/session-tags-filter');
 
 const rows = [
   { sessionId: 's1', tag: 'bug', color: '#f00' },

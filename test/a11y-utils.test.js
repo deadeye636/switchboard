@@ -7,7 +7,7 @@ const {
   makeButtonLike,
   syncTitleToTooltip,
   syncTitleToAriaLabel,
-} = require('../public/a11y-utils');
+} = require('../src/renderer/lib/a11y-utils');
 
 function event(key, type) {
   return {

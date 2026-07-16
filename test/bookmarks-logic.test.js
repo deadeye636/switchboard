@@ -10,7 +10,7 @@ const {
   bookmarkScopeFilter,
   filterBookmarks,
   sortBookmarks,
-} = require('../public/bookmarks-logic.js');
+} = require('../src/renderer/bookmarks/bookmarks-logic.js');
 
 const sample = [
   { id: 1, sessionId: 's1', entryIndex: 5, label: 'Important note', timestamp: null, createdAt: 100, projectDisplayName: 'switchboard', sessionName: 'sess A' },

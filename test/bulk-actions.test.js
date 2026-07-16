@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { bulkTargets } = require('../public/bulk-actions');
+const { bulkTargets } = require('../src/renderer/shell/bulk-actions');
 
 function state(overrides = {}) {
   return {

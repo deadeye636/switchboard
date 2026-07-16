@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { projectDisplayLabel } = require('../public/project-name.js');
+const { projectDisplayLabel } = require('../src/renderer/lib/project-name.js');
 
 test('custom displayName wins over shortName', () => {
   assert.strictEqual(projectDisplayLabel('Mein Projekt', 'dev/foo'), 'Mein Projekt');

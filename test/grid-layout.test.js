@@ -7,7 +7,7 @@ const {
   normalizeSpan,
   applyLayout,
   reorder,
-} = require('../public/grid-layout');
+} = require('../src/renderer/views/grid-layout');
 
 test('calculateGridColumnCount still derives sane column counts', () => {
   assert.equal(calculateGridColumnCount({ width: 1400, cardCount: 6 }), 2);

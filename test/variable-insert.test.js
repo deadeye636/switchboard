@@ -13,7 +13,7 @@ const {
   buildNameIndex,
   compose,
   scanRefSafety,
-} = require('../public/variable-insert');
+} = require('../src/shared/variable-insert');
 
 test('defaultInsertTemplate: secret → {ref}, non-secret → {value}', () => {
   assert.equal(defaultInsertTemplate(true), '{ref}');

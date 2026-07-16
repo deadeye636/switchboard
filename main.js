@@ -7,7 +7,7 @@ const os = require('os');
 const http = require('http');
 const pty = require('node-pty');
 const log = require('electron-log');
-const attentionSource = require('./public/attention-source');
+const attentionSource = require('./src/shared/attention-source');
 // getFolderIndexMtimeMs moved to session-cache.js
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
 const { decideOsc94 } = require('./osc-busy');
@@ -26,7 +26,7 @@ const settingsTransfer = require('./settings-transfer');
 const { resolveEnvRefs, missingRefsMessage } = require('./env-refs');
 // Tier-3 custom launchers (T-3.10): the entry shape + cascade live in one module shared with the
 // renderer; main only re-validates what the renderer hands it before spawning.
-const { normalizeLauncher } = require('./public/custom-launchers');
+const { normalizeLauncher } = require('./src/shared/custom-launchers');
 // Log levels (#121). Raising this from the settings avoids needing a dev build to
 // diagnose a live session. Three tiers, matching electron-log's own ladder:
 //   info  — default. Transitions and lifecycle: busy edges, subagent spawn/complete.
@@ -158,7 +158,7 @@ try { applyLogLevel(getSetting('global')?.logLevel); } catch { /* first run: def
 const {
   shellRefFor, compose, parseVarRefs, finalTemplateFor, effectiveTemplate,
   resolveVarGraph, buildNameIndex, scanRefSafety, MAX_RESOLVED_NODES,
-} = require('./public/variable-insert');
+} = require('./src/shared/variable-insert');
 
 // --- Search query worker ---
 // Routes 'search' IPC off the main thread so that a slow FTS5 phrase query
@@ -320,7 +320,7 @@ function openSettingsWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), nodeIntegration: false, contextIsolation: true },
   });
   settingsWindow.setMenu(null);
-  settingsWindow.loadFile(path.join(__dirname, 'public', 'settings.html'));
+  settingsWindow.loadFile(path.join(__dirname, 'src', 'renderer', 'settings.html'));
   settingsWindow.once('ready-to-show', () => {
     if (!settingsWindow || settingsWindow.isDestroyed()) return;
     settingsWindow.show();
@@ -457,7 +457,7 @@ function createWindow() {
     mainWindow.setBounds({ ...restorePosition, width: bounds.width, height: bounds.height });
   }
 
-  mainWindow.loadFile(path.join(__dirname, 'public', 'index.html'));
+  mainWindow.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html'));
 
   // Open external links in the system browser instead of a child BrowserWindow
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -1224,7 +1224,7 @@ ipcMain.handle('read-file-for-panel', async (_event, filePath) => {
 // Read a file as a base64 data URL for the panel image preview (#49). Guarded by
 // the same sensitive-path check as the text read, with a size cap so a huge file
 // can't blow up the renderer.
-const { mimeForExt: previewMimeForExt } = require('./public/preview-kind.js');
+const { mimeForExt: previewMimeForExt } = require('./src/shared/preview-kind.js');
 const PREVIEW_DATAURL_MAX = 15 * 1024 * 1024; // 15 MB
 ipcMain.handle('read-file-dataurl', async (_event, filePath) => {
   try {

@@ -293,7 +293,7 @@ test('readMessages hands out the session transcript, in the shape the viewer spe
   // The handoff extractor must find the last assistant turn in exactly this shape. NOT guarded by an
   // `if` — a fixture without an assistant turn would silently void this test, and this assertion is the
   // whole point: without it, a handoff from Hermes comes up empty and the user retypes the packet.
-  const { extractLatestAssistantText } = require('../public/handoff-extract.js');
+  const { extractLatestAssistantText } = require('../src/renderer/handoff/handoff-extract.js');
   const assistants = entries.filter(e => e.message.role === 'assistant');
   assert.ok(assistants.length, 'the fixture must contain an assistant turn');
   assert.strictEqual(

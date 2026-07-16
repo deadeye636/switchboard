@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { decideNotifications, COALESCE_WINDOW_MS } = require('../public/notification-policy');
+const { decideNotifications, COALESCE_WINDOW_MS } = require('../src/renderer/shell/notification-policy');
 
 function snapshot(attention = [], ready = []) {
   return { attention: new Set(attention), ready: new Set(ready) };

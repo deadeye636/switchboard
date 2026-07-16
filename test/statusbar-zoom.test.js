@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { clampZoomLevel, zoomToPercent, xtermLabel, electronLabel } = require('../public/statusbar-zoom');
+const { clampZoomLevel, zoomToPercent, xtermLabel, electronLabel } = require('../src/renderer/shell/statusbar-zoom');
 
 test('clampZoomLevel: clamps to [-3, 3]', () => {
   assert.equal(clampZoomLevel(0), 0);

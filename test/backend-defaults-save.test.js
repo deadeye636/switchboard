@@ -16,7 +16,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const SRC_DIR = path.join(__dirname, '..', 'src');
 
 // `enabled` is what backends.list() reports — the panel reads it, and since #162 nothing forces
 // Claude's toggle on any more, so the stub has to be honest about it.
@@ -59,7 +59,7 @@ async function mountGlobal(stored) {
     writable: true, configurable: true,
   });
 
-  vm.runInContext(fs.readFileSync(path.join(PUBLIC_DIR, 'backends-panel.js'), 'utf8'),
+  vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'renderer', 'panels', 'backends-panel.js'), 'utf8'),
     dom.getInternalVMContext(), { filename: 'backends-panel.js' });
 
   const root = window.document.getElementById('root');
@@ -278,7 +278,7 @@ async function mountWithProfiles(storedProfiles) {
     value: async () => true, writable: true, configurable: true,   // the user always says yes here
   });
 
-  vm.runInContext(fs.readFileSync(path.join(PUBLIC_DIR, 'backends-panel.js'), 'utf8'),
+  vm.runInContext(fs.readFileSync(path.join(SRC_DIR, 'renderer', 'panels', 'backends-panel.js'), 'utf8'),
     dom.getInternalVMContext(), { filename: 'backends-panel.js' });
 
   const root = window.document.getElementById('root');

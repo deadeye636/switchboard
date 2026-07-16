@@ -6,7 +6,7 @@ const {
   transcriptSnippet,
   searchTranscript,
   countTranscriptMatches,
-} = require('../public/jsonl-search-logic.js');
+} = require('../src/renderer/jsonl/jsonl-search-logic.js');
 
 const msgs = [
   { entryIndex: 0, role: 'user', text: 'Please fix the scroll bug in the header' },

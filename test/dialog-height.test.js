@@ -15,9 +15,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
-const CSS = fs.readFileSync(path.join(ROOT, 'public', 'style.css'), 'utf8');
-const DIALOGS = fs.readFileSync(path.join(ROOT, 'public', 'dialogs.js'), 'utf8');
-const PANEL = fs.readFileSync(path.join(ROOT, 'public', 'backends-panel.js'), 'utf8');
+const CSS = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'style.css'), 'utf8');
+const DIALOGS = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'dialogs', 'dialogs.js'), 'utf8');
+const PANEL = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'panels', 'backends-panel.js'), 'utf8');
 
 /** The declarations of one CSS rule. */
 function rule(selector) {

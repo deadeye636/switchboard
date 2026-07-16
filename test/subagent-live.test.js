@@ -8,7 +8,7 @@ const {
   isSubagentLive,
   liveSubagentCount,
   liveSubagentParents,
-} = require('../public/subagent-live.js');
+} = require('../src/renderer/session/subagent-live.js');
 
 const P = 'parent-1';
 

@@ -5,7 +5,7 @@ const {
   normalizeControlDialogOptions,
   controlDialogToneClass,
   formatControlDialogDetails,
-} = require('../public/control-dialogs');
+} = require('../src/renderer/dialogs/control-dialogs');
 
 test('normalizeControlDialogOptions applies safe defaults', () => {
   const options = normalizeControlDialogOptions({ title: 'Stop session' });

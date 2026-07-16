@@ -8,7 +8,7 @@ const {
   extOf,
   fileDirUrl,
   htmlWithBase,
-} = require('../public/preview-kind.js');
+} = require('../src/shared/preview-kind.js');
 
 test('previewKindForExt classifies images', () => {
   for (const e of ['png', 'JPG', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']) {

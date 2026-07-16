@@ -8,7 +8,7 @@ const {
   formatTimelineEvent,
   filterTimelineEvents,
   getTimelineKinds,
-} = require('../public/session-timeline');
+} = require('../src/renderer/session/session-timeline');
 
 test('addTimelineEvent records newest events first', () => {
   const store = createTimelineStore();

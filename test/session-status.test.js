@@ -8,7 +8,7 @@ const {
   getStatusCounts,
   getFilteredSessionsByStatus,
   getGridAutoOpenSessionIds,
-} = require('../public/session-status');
+} = require('../src/renderer/session/session-status');
 
 function state(overrides = {}) {
   return {

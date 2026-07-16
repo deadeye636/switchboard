@@ -13,8 +13,8 @@ const assert = require('node:assert');
 const path = require('node:path');
 const { JSDOM } = require('jsdom');
 
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
-const MENU_SRC = path.join(PUBLIC_DIR, 'terminal-context-menu.js');
+const SRC_DIR = path.join(__dirname, '..', 'src');
+const MENU_SRC = path.join(SRC_DIR, 'renderer', 'terminal', 'terminal-context-menu.js');
 
 // require() the real module so c8 instruments it (vm.runInContext-loaded code is
 // not attributed to the source file). The DOM functions reference the bare

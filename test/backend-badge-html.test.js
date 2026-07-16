@@ -18,7 +18,7 @@ const { JSDOM } = require('jsdom');
 function loadBadges() {
   const dom = new JSDOM('<!DOCTYPE html><body></body>', { runScripts: 'outside-only' });
   const ctx = dom.getInternalVMContext();
-  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'backend-icons.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'backends', 'backend-icons.js'), 'utf8');
   vm.runInContext(src, ctx);
   return dom.window;
 }

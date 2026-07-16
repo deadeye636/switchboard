@@ -18,7 +18,7 @@ const {
   isMoveModeChord,
   moveIndex,
   resizeSpan,
-} = require('../public/grid-layout');
+} = require('../src/renderer/views/grid-layout');
 
 // A keydown event as the renderer sees it; every modifier defaults to off.
 function keyEvent(key, mods = {}) {

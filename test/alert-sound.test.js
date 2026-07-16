@@ -5,7 +5,7 @@ const {
   DEFAULT_NEXT_ATTENTION_BINDING,
   shouldPlayAttentionSound,
   isNextAttentionKey,
-} = require('../public/alert-sound');
+} = require('../src/renderer/shell/alert-sound');
 
 test('plays the cue when a session newly enters attention and sound is enabled', () => {
   assert.equal(

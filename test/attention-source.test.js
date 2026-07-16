@@ -5,7 +5,7 @@ const {
   classifyAttentionSignal,
   classifyHookEvent,
   reduceAttention,
-} = require('../public/attention-source');
+} = require('../src/shared/attention-source');
 
 // --- OSC-9 path: parity with the old inline regex from app.js:409 ---
 

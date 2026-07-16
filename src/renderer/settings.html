@@ -23,29 +23,29 @@
   <!-- All scripts external: the app CSP (script-src 'self') blocks inline scripts.
        settings-window.js sets the standalone-window marker and opens the panel;
        it must load AFTER settings-panel.js. -->
-  <script src="utils.js"></script>
+  <script src="lib/utils.js"></script>
   <!-- color-utils.js backs the tag colour picker in settings-panel.js. Without it
        buildColorPopover throws on its first line (hexToHsv is undefined) and the
        picker opens dead — which is what the Tags tab did in THIS window (#174). -->
-  <script src="color-utils.js"></script>
-  <script src="shortcuts.js"></script>
-  <script src="terminal-themes.js"></script>
+  <script src="lib/color-utils.js"></script>
+  <script src="shell/shortcuts.js"></script>
+  <script src="terminal/terminal-themes.js"></script>
   <!-- control-dialogs.js exposes window.showControlDialog — the confirms in settings-panel.js
        (tag delete, rebuild cache) and backends-panel.js (delete profile, secret/unresolved-ref
        warnings) need it here too, not just in the main window. -->
-  <script src="control-dialogs.js"></script>
+  <script src="dialogs/control-dialogs.js"></script>
   <!-- session-health.js exposes window.DEFAULT_HANDOFF_PROMPT, used to prefill the
        Handoff prompt textarea. Must load BEFORE settings-panel.js. -->
-  <script src="session-health.js"></script>
+  <script src="session/session-health.js"></script>
   <!-- Multi-LLM: presets + icons before backends-panel.js (it reads window.BACKEND_PRESETS /
        window.renderBackendIcon); settings-panel.js mounts the Backends section. -->
-  <script src="backend-presets.js"></script>
-  <script src="backend-icons.js"></script>
-  <script src="backends-panel.js"></script>
+  <script src="backends/backend-presets.js"></script>
+  <script src="backends/backend-icons.js"></script>
+  <script src="panels/backends-panel.js"></script>
   <!-- Tier-3 custom launchers (T-3.10): the pure data layer before the panel that edits it. -->
-  <script src="custom-launchers.js"></script>
-  <script src="launchers-panel.js"></script>
-  <script src="settings-panel.js"></script>
-  <script src="settings-window.js"></script>
+  <script src="../shared/custom-launchers.js"></script>
+  <script src="panels/launchers-panel.js"></script>
+  <script src="panels/settings-panel.js"></script>
+  <script src="panels/settings-window.js"></script>
 </body>
 </html>

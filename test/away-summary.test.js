@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildAwaySummary, formatAwayDuration } = require('../public/away-summary');
+const { buildAwaySummary, formatAwayDuration } = require('../src/renderer/shell/away-summary');
 
 const BASE = new Date('2026-06-12T10:00:00.000Z').getTime();
 const minutes = (n) => new Date(BASE + n * 60_000).toISOString();

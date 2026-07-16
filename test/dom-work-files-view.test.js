@@ -12,7 +12,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const SRC_DIR = path.join(__dirname, '..', 'src');
 
 // Minimal HTML that plans-memory-view.js references via globals set in app.js.
 const INDEX_HTML = `<!DOCTYPE html>
@@ -100,10 +100,10 @@ function setupWorkFilesDom() {
   }
 
   // Load dependencies
-  evalInWindow(dom, path.join(PUBLIC_DIR, 'utils.js'));
-  evalInWindow(dom, path.join(PUBLIC_DIR, 'icons.js'));
-  evalInWindow(dom, path.join(PUBLIC_DIR, 'project-name.js'));
-  evalInWindow(dom, path.join(PUBLIC_DIR, 'plans-memory-view.js'));
+  evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'lib', 'utils.js'));
+  evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'lib', 'icons.js'));
+  evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'lib', 'project-name.js'));
+  evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'views', 'plans-memory-view.js'));
 
   return {
     window,

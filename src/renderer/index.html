@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Switchboard</title>
-  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
+  <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -160,104 +160,104 @@
        every status tick, which would clobber grid move-mode announcements mid-gesture. -->
   <div id="grid-live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
   <div id="status-bar"><span id="status-bar-info"></span><span id="status-bar-usage"></span><span id="status-bar-activity"></span><span id="status-bar-zoom"></span></div>
-  <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
-  <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
-  <script src="../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
-  <script src="../node_modules/@xterm/addon-search/lib/addon-search.js"></script>
-  <script src="../node_modules/@xterm/addon-unicode-graphemes/lib/addon-unicode-graphemes.js"></script>
-  <script src="../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
-  <script src="../node_modules/morphdom/dist/morphdom-umd.js"></script>
-  <script src="../node_modules/dompurify/dist/purify.min.js"></script>
-  <script src="icons.js"></script>
-  <script src="preview-kind.js"></script>
-  <script src="viewer-toolbar.js"></script>
-  <script src="viewer-panel.js"></script>
-  <script src="file-panel.js"></script>
+  <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
+  <script src="../../node_modules/@xterm/addon-search/lib/addon-search.js"></script>
+  <script src="../../node_modules/@xterm/addon-unicode-graphemes/lib/addon-unicode-graphemes.js"></script>
+  <script src="../../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
+  <script src="../../node_modules/morphdom/dist/morphdom-umd.js"></script>
+  <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="lib/icons.js"></script>
+  <script src="../shared/preview-kind.js"></script>
+  <script src="views/viewer-toolbar.js"></script>
+  <script src="views/viewer-panel.js"></script>
+  <script src="views/file-panel.js"></script>
   <!-- color-utils.js backs the tag colour picker in settings-panel.js. -->
-  <script src="color-utils.js"></script>
+  <script src="lib/color-utils.js"></script>
   <!-- Multi-LLM: presets + icons must load BEFORE backends-panel.js, which reads
        window.BACKEND_PRESETS / window.renderBackendIcon; settings-panel.js mounts it. -->
-  <script src="backend-presets.js"></script>
-  <script src="backend-icons.js"></script>
-  <script src="backend-registry.js"></script>
-  <script src="backends-panel.js"></script>
+  <script src="backends/backend-presets.js"></script>
+  <script src="backends/backend-icons.js"></script>
+  <script src="backends/backend-registry.js"></script>
+  <script src="panels/backends-panel.js"></script>
   <!-- Tier-3 custom launchers (T-3.10): the pure data layer before the panel that edits it and
        dialogs.js, which merges global ⊕ project for the launch picker. -->
-  <script src="custom-launchers.js"></script>
-  <script src="launchers-panel.js"></script>
-  <script src="settings-panel.js"></script>
-  <script src="utils.js"></script>
-  <script src="a11y-utils.js"></script>
-  <script src="session-status.js"></script>
-  <script src="project-name.js"></script>
-  <script src="project-sort.js"></script>
+  <script src="../shared/custom-launchers.js"></script>
+  <script src="panels/launchers-panel.js"></script>
+  <script src="panels/settings-panel.js"></script>
+  <script src="lib/utils.js"></script>
+  <script src="lib/a11y-utils.js"></script>
+  <script src="session/session-status.js"></script>
+  <script src="lib/project-name.js"></script>
+  <script src="lib/project-sort.js"></script>
   <!-- Pure tag-filter matching (#98 projects, #164 sessions) — shared with the node tests. -->
-  <script src="session-tags-filter.js"></script>
-  <script src="attention-source.js"></script>
-  <script src="alert-sound.js"></script>
-  <script src="bulk-actions.js"></script>
-  <script src="session-health.js"></script>
-  <script src="notification-policy.js"></script>
-  <script src="handoff-extract.js"></script>
-  <script src="handoff-actions.js"></script>
-  <script src="session-card-details.js"></script>
-  <script src="session-cleanup.js"></script>
-  <script src="sidebar-state.js"></script>
-  <script src="usage-status.js"></script>
-  <script src="control-dialogs.js"></script>
-  <script src="session-timeline.js"></script>
-  <script src="away-summary.js"></script>
-  <script src="grid-layout.js"></script>
+  <script src="session/session-tags-filter.js"></script>
+  <script src="../shared/attention-source.js"></script>
+  <script src="shell/alert-sound.js"></script>
+  <script src="shell/bulk-actions.js"></script>
+  <script src="session/session-health.js"></script>
+  <script src="shell/notification-policy.js"></script>
+  <script src="handoff/handoff-extract.js"></script>
+  <script src="handoff/handoff-actions.js"></script>
+  <script src="session/session-card-details.js"></script>
+  <script src="session/session-cleanup.js"></script>
+  <script src="shell/sidebar-state.js"></script>
+  <script src="shell/usage-status.js"></script>
+  <script src="dialogs/control-dialogs.js"></script>
+  <script src="session/session-timeline.js"></script>
+  <script src="shell/away-summary.js"></script>
+  <script src="views/grid-layout.js"></script>
   <!-- session-history.js must load before app.js, which builds its store at module scope. -->
-  <script src="session-history.js"></script>
-  <script src="update-restart.js"></script>
+  <script src="session/session-history.js"></script>
+  <script src="shell/update-restart.js"></script>
   <!-- shortcuts.js defines matchShortcut/appShortcuts helpers used by terminal-manager,
        grid-view, app and settings-panel — must load before those consumers. -->
-  <script src="shortcuts.js"></script>
-  <script src="terminal-themes.js"></script>
-  <script src="terminal-context-menu.js"></script>
+  <script src="shell/shortcuts.js"></script>
+  <script src="terminal/terminal-themes.js"></script>
+  <script src="terminal/terminal-context-menu.js"></script>
   <!-- The insert-template core, shared with main (dual-mode module). The template editor's preview composes
        with these exact functions, so it cannot drift from what the insert actually produces. -->
-  <script src="variable-insert.js"></script>
-  <script src="variables-panel.js"></script>
-  <script src="terminal-fit.js"></script>
-  <script src="terminal-manager.js"></script>
-  <script src="grid-view.js"></script>
-  <script src="stats-view.js"></script>
+  <script src="../shared/variable-insert.js"></script>
+  <script src="panels/variables-panel.js"></script>
+  <script src="terminal/terminal-fit.js"></script>
+  <script src="terminal/terminal-manager.js"></script>
+  <script src="views/grid-view.js"></script>
+  <script src="views/stats-view.js"></script>
   <!-- subagent-live.js (pure source-aware edge rules) must load before jsonl-viewer.js. -->
-  <script src="subagent-live.js"></script>
-  <script src="jsonl-viewer.js"></script>
-  <script src="dialogs.js"></script>
-  <script src="handoff.js"></script>
-  <script src="sidebar.js"></script>
-  <script src="plans-memory-view.js"></script>
-  <script src="session-tabs.js"></script>
+  <script src="session/subagent-live.js"></script>
+  <script src="jsonl/jsonl-viewer.js"></script>
+  <script src="dialogs/dialogs.js"></script>
+  <script src="handoff/handoff.js"></script>
+  <script src="shell/sidebar.js"></script>
+  <script src="views/plans-memory-view.js"></script>
+  <script src="session/session-tabs.js"></script>
   <!-- session-tags-logic.js (pure picker helpers) must load before bookmarks-tags.js. -->
-  <script src="session-tags-logic.js"></script>
+  <script src="session/session-tags-logic.js"></script>
   <!-- bookmarks-tags.js wires window._decorateJsonlEntry / _decorateSessionItem /
        window.bookmarksTags — must load after sidebar.js + jsonl-viewer.js (whose
        render loops call the hooks) and before app.js (keydown dispatcher). -->
-  <script src="bookmarks-tags.js"></script>
-  <script src="projects-admin.js"></script>
-  <script src="variables-admin.js"></script>
+  <script src="bookmarks/bookmarks-tags.js"></script>
+  <script src="panels/projects-admin.js"></script>
+  <script src="panels/variables-admin.js"></script>
   <!-- tasks-logic.js (pure filter/sort helpers) must load before tasks-view.js;
        tasks-view.js uses window.bookmarksTags for jumps (load after it). -->
-  <script src="tasks-logic.js"></script>
-  <script src="tasks-view.js"></script>
+  <script src="views/tasks-logic.js"></script>
+  <script src="views/tasks-view.js"></script>
   <!-- project-tags-filter.js (pure AND-match filter) must load before sidebar.js/app.js use it. -->
-  <script src="project-tags-filter.js"></script>
+  <script src="bookmarks/project-tags-filter.js"></script>
   <!-- bookmarks-logic.js (pure helpers) before bookmarks-view.js; the view uses
        window.bookmarksTags for jumps (bookmarks-tags.js loads earlier). -->
-  <script src="bookmarks-logic.js"></script>
-  <script src="bookmarks-view.js"></script>
+  <script src="bookmarks/bookmarks-logic.js"></script>
+  <script src="bookmarks/bookmarks-view.js"></script>
   <!-- jsonl-search-logic.js (pure match helpers) before jsonl-search.js;
        the search wires the #jsonl-search bar and uses window.bookmarksTags. -->
-  <script src="jsonl-search-logic.js"></script>
-  <script src="jsonl-search.js"></script>
-  <script src="statusbar-zoom.js"></script>
+  <script src="jsonl/jsonl-search-logic.js"></script>
+  <script src="jsonl/jsonl-search.js"></script>
+  <script src="shell/statusbar-zoom.js"></script>
   <script src="app.js"></script>
   <!-- The sidebar's View popover (#181). AFTER app.js: it binds to the state that lives there
        (window._getSortView / _setSortOverride / _resetSortOverride). -->
-  <script src="view-menu.js"></script>
+  <script src="shell/view-menu.js"></script>
 </body>
 </html>

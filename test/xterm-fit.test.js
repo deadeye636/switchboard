@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { clampRowsToContentBox, bottomRowClipped } = require('../public/terminal-fit');
+const { clampRowsToContentBox, bottomRowClipped } = require('../src/renderer/terminal/terminal-fit');
 
 // --- clampRowsToContentBox (regression guard for the original clip fix) ---
 
