@@ -11,8 +11,8 @@
 // shell reference that reads the file at exec time. Shells that can't do inline
 // refs (cmd/unknown/WSL) fall back to clipboard copy.
 //
-// window.variablesInsert exposes resolveShellType + applyVariable so the terminal
-// context-menu (terminal-context-menu.js) shares the exact same secret-safe path.
+// window.variablesInsert exposes applyVariable so the terminal context-menu
+// (terminal-context-menu.js) shares the exact same secret-safe path.
 
 (function () {
   let popover = null;
@@ -36,18 +36,8 @@
     return res.variable.value || '';
   }
 
-  // Resolve the shell family for a project (bash|pwsh|cmd|unknown). Cheap IPC —
-  // resolved fresh each open so a changed shell profile is picked up.
-  async function resolveShellType(projectPath) {
-    try {
-      const res = await window.api.getShellType(projectPath || null);
-      if (res && res.shellType) return res.shellType;
-    } catch {}
-    return 'unknown';
-  }
-
   // Apply a variable to a session. mode: 'insert' | 'send' | 'copy'.
-  // ctx: { sessionId, projectPath, running, shellType? }. Returns true on success.
+  // ctx: { sessionId, projectPath, running }. Returns true on success.
   async function applyVariable(variable, mode, ctx = {}) {
     const id = variable.id;
     if (mode === 'copy') {
@@ -58,9 +48,10 @@
     if (!ctx.running || !ctx.sessionId) { toast('No running terminal'); return false; }
 
     // Main resolves the insert-template (raw value, temp-file path, or shell ref)
-    // so a secret's plaintext only leaves main when the template says so.
-    const shellType = ctx.shellType || await resolveShellType(ctx.projectPath);
-    const res = await window.api.resolveVariableInsert(id, shellType, ctx.sessionId);
+    // so a secret's plaintext only leaves main when the template says so. It reads the shell family off the
+    // session itself — the renderer used to pass it, which meant main was TOLD the one thing the {ref}
+    // decision turns on, and told it from the project's CLI shell profile even for a plain terminal.
+    const res = await window.api.resolveVariableInsert(id, ctx.sessionId);
     let text;
     if (res && res.ok && typeof res.text === 'string') {
       text = res.text;
@@ -78,7 +69,7 @@
     return true;
   }
 
-  window.variablesInsert = { resolveShellType, applyVariable };
+  window.variablesInsert = { applyVariable };
 
   // --- Quick-pick popover ---
 
@@ -155,11 +146,7 @@
       window.openVariablesTab?.();
     });
 
-    // Resolve shell type up front so each secret insert doesn't re-query.
-    const [rows, shellType] = await Promise.all([
-      window.api.listSavedVariables(projectPath).catch(() => []),
-      resolveShellType(projectPath),
-    ]);
+    const rows = await window.api.listSavedVariables(projectPath).catch(() => []);
     if (!popover) return; // closed while awaiting
 
     const list = Array.isArray(rows) ? rows : [];
@@ -183,7 +170,7 @@
       const secret = row.dataset.secret === '1';
       const mode = btn.dataset.vqpAction;
       try {
-        await applyVariable({ id, secret }, mode, { sessionId, projectPath, running, shellType });
+        await applyVariable({ id, secret }, mode, { sessionId, projectPath, running });
       } catch (err) {
         toast(err.message);
       }

@@ -2428,10 +2428,19 @@ ipcMain.handle('get-shell-type', (_event, projectPath) => {
 //   - {path}   → path of a 0600 temp file holding the decrypted value.
 //   - {ref}    → shell-native inline read of that file; if the shell can't do it
 //                (cmd/unknown/WSL) we return { fallback:'copy', value } instead.
-ipcMain.handle('resolve-variable-insert', (_event, id, shellType, sessionId) => {
+// The shell family is taken from the SESSION, not from the caller. It used to be a renderer argument, which
+// made the one security-relevant decision here — "can this shell read a temp file inline?" — something main
+// was told rather than something it knew. It was also derived from the wrong setting: the renderer asked
+// `get-shell-type`, which answers for the project's CLI shell (`shellProfile`), while a plain terminal spawns
+// with `terminalShellProfile`. Set the two differently and main built a pwsh read for a bash session — which
+// emits literal text and leaves the secret's temp-file path in the terminal, and so in the transcript.
+ipcMain.handle('resolve-variable-insert', (_event, id, sessionId) => {
   try {
     const row = getSavedVariable(id);
     if (!row) return { ok: false, error: 'Variable not found' };
+    const session = activeSessions.get(sessionId);
+    if (!session) return { ok: false, error: 'No running session for this insert' };
+    const shellType = session.shellType || 'unknown';
     const value = decryptSavedVariableValue(row);
     const tmpl = (row.insertTemplate && row.insertTemplate.trim()) || defaultInsertTemplate(!!row.secret);
     const needsRef = tmpl.includes('{ref}');
@@ -3819,6 +3828,13 @@ ipcMain.handle('open-terminal', async (_event, sessionId, projectPath, isNew, se
     projectPath, firstResize: true,
     projectFolder, knownJsonlFiles, sessionSlug,
     isPlainTerminal, forkFrom: sessionOptions?.forkFrom || null,
+    // The shell family THIS session resolved to. Recorded here because this is the only place that knows
+    // it: `shellProfile` (the CLI shell) and `terminalShellProfile` (the Terminal bucket) are different
+    // settings, so asking the PROJECT afterwards can answer for the wrong one — and a variable insert that
+    // builds `$(cat …)` for a pwsh session, or `(Get-Content …)` for a bash one, silently emits literal text
+    // and puts the secret's temp-file path in the transcript. `resolve-variable-insert` reads it from here
+    // instead of being told by the renderer.
+    shellType: classifyShellType(shell),
     mcpServer, _openedAt: Date.now(),
     // Did this session already exist in the backend's store before we spawned it? Only then can our id
     // be an id the backend knows — which is the one case where `liveRefFor` has anything to find

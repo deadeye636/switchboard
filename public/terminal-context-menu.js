@@ -144,10 +144,10 @@ async function runTerminalMenuAction(id, ctx) {
     const varId = id.slice('insert-variable:'.length);
     try {
       // SECURITY: never type a secret's plaintext. Main resolves the insert-
-      // template (raw value, temp-file path, or shell ref); fall back to
-      // clipboard for shells without inline-ref support.
-      const shellType = await (window.variablesInsert?.resolveShellType?.(ctx.projectPath) ?? Promise.resolve('unknown'));
-      const res = await window.api.resolveVariableInsert(varId, shellType, sessionId);
+      // template (raw value, temp-file path, or shell ref) and reads the shell
+      // family off the session itself; fall back to clipboard for shells
+      // without inline-ref support.
+      const res = await window.api.resolveVariableInsert(varId, sessionId);
       if (res && res.ok && typeof res.text === 'string') {
         pasteIntoTerminal(terminal, sessionId, res.text);
       } else if (res && res.fallback === 'copy') {

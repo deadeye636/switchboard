@@ -115,7 +115,7 @@ contextBridge.exposeInMainWorld('api', {
   saveSavedVariable: (variable) => ipcRenderer.invoke('save-saved-variable', variable),
   deleteSavedVariable: (id) => ipcRenderer.invoke('delete-saved-variable', id),
   getShellType: (projectPath) => ipcRenderer.invoke('get-shell-type', projectPath),
-  resolveVariableInsert: (id, shellType, sessionId) => ipcRenderer.invoke('resolve-variable-insert', id, shellType, sessionId),
+  resolveVariableInsert: (id, sessionId) => ipcRenderer.invoke('resolve-variable-insert', id, sessionId),
 
   browseFolder: () => ipcRenderer.invoke('browse-folder'),
   addProject: (projectPath) => ipcRenderer.invoke('add-project', projectPath),
