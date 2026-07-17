@@ -3,9 +3,9 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (26 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-16
+**As of:** 2026-07-17
 
 
 ## P1 — next up
@@ -42,3 +42,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#219](https://github.com/deadeye636/switchboard/issues/219) Dev and installed app fight over the attention hooks in ~/.claude/settings.json · _bug_
 - [#221](https://github.com/deadeye636/switchboard/issues/221) merge-setting writes a renderer-supplied blob straight past the secret scrub · _bug_
 - [#224](https://github.com/deadeye636/switchboard/issues/224) db layer: decide the session_cache(projectPath) index, and two queries that skip the stmts object · _chore_
+- [#225](https://github.com/deadeye636/switchboard/issues/225) Renderer: finish the descriptor migration in the eight files #212 did not cover · _chore_
