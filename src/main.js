@@ -1920,7 +1920,7 @@ ipcMain.handle('backends-list', () => {
   // Only JSON-safe descriptor data crosses IPC (hook functions are stripped).
   return {
     backends: backends.list().map(b => ({
-      id: b.id, label: b.label, tier: b.tier, axis: b.axis, status: b.status,
+      id: b.id, label: b.label, description: b.description || null, tier: b.tier, axis: b.axis, status: b.status,
       enabled: !!b.enabled, isProfile: !!b.isProfile, icon: b.icon || null,
       monogram: b.monogram || null, colour: b.colour || null, configFields: b.configFields || [],
       // Is the binary actually installed? Settings shows the reason instead of letting the user enable
@@ -1946,7 +1946,9 @@ ipcMain.handle('backends-list', () => {
       integrations: b.integrations || null,
       // Which env-var family this CLI reads its endpoint from (#212), or null. The profile editor shows
       // its Endpoint fields only for a base that declares one — it used to ask whether the id was
-      // `claude`. A template inherits its base's answer (see profileToDescriptor).
+      // `claude`. A TEMPLATE always sends null: `profileToDescriptor` builds an explicit field list and
+      // does not carry this (nor `integrations`, nor `description`). That is fine and not an oversight —
+      // the editor asks the BASE, off the built-ins, never the template's own descriptor.
       endpointEnv: b.endpointEnv || null,
     })),
     defaultLaunchTarget: backends.getDefaultLaunchTarget(),

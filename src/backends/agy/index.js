@@ -143,6 +143,7 @@ function liveState(ref, ctx = {}) {
 module.exports = {
   id: 'agy',
   label: 'Antigravity CLI',
+  description: "Google's terminal coding agent.",   // shown in the Backends settings list (#212)
   tier: 1,
   axis: 'B',
   status: 'ready',

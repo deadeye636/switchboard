@@ -289,6 +289,15 @@ module.exports = {
   // file (Hermes), so Switchboard writes it out first. Declare it; do not let the code guess.
   transcriptAccess: 'file',
   label: 'Claude Code',
+  // The one-line blurb the Backends settings list shows under the label (#212). It lived in
+  // backends-panel.js as a map keyed by backend id — five id literals in a file that must name no
+  // backend, and the only thing a new backend still had to add to the RENDERER to look finished.
+  //
+  // It used to read "Anthropic — the default backend, always available", and both halves had stopped
+  // being true: Claude can be switched off (#162), and the default launch target is whichever backend
+  // the user picked. Say what the CLI IS, like every sibling does; what it is TO THIS INSTALL is the
+  // list's job, and the list already shows it (the toggle, the "default" pill).
+  description: "Anthropic's terminal coding agent.",
   binary: 'claude',  // the executable name, for callers that build their own argv (the schedule runner)
   tier: 1,
   axis: null,        // default backend, no axis

@@ -99,15 +99,6 @@
     return out;
   }
 
-  // One-line blurb per built-in backend (the descriptor carries no description).
-  const BACKEND_BLURB = {
-    claude: 'Anthropic — the default backend, always available.',
-    codex: "OpenAI's terminal coding agent.",
-    hermes: 'General AI agent with its own session store.',
-    pi: 'Terminal coding agent.',
-    agy: "Google's terminal coding agent (Antigravity CLI, the successor to the retired Gemini CLI).",
-  };
-
   const ENV_REF_RE = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/;
   const envRefName = (value) => {
     const m = ENV_REF_RE.exec(String(value == null ? '' : value).trim());
@@ -415,11 +406,18 @@
       // The template's launch options — values for the BASE backend's configFields. They live in the
       // template record, not in the settings blob: a template is one thing, with one save button.
       let options = Object.assign({}, seed.options || {});
-      let baseId = seed.backendId || LEGACY_TEMPLATE_BASE;   // no backendId -> a record from before #161
       // With no bases at all there is nothing to bind a template to. It used to synthesise a fake Claude
       // here, which put a base in the select that the caller had not offered — and, with Claude disabled,
       // one that cannot launch. An empty list is the truth; `baseOf` already tolerates it.
       const baseList = (bases && bases.length ? bases : []);
+      // ABSENT and EMPTY are different answers, and conflating them made a BRAND-NEW template bind to
+      // Claude whenever nothing was launchable — the legacy constant firing on a record that is not
+      // legacy. A missing key means a template stored before #161, when a template WAS always Claude.
+      // An empty string means the caller had no launchable base to name, so take the first one actually
+      // on offer, and '' if there is none — never a backend the user cannot start.
+      let baseId = seed.backendId === undefined
+        ? LEGACY_TEMPLATE_BASE
+        : (seed.backendId || (baseList[0] || {}).id || '');
       const baseOf = (id) => baseList.find(b => b.id === id) || baseList[0];
       const fieldsOf = (id) => (baseOf(id) || {}).configFields || [];
       // The endpoint fields below write the base's endpoint variables (ANTHROPIC_* today). They only mean
@@ -1003,7 +1001,7 @@
               ${ready ? '<span class="backend-pill">built-in</span>' : '<span class="backend-pill soon">Coming soon</span>'}
               ${ready && b.available === false ? '<span class="backend-pill missing">not installed</span>' : ''}
             </div>
-            <div class="settings-description">${esc(BACKEND_BLURB[b.id] || '')}</div>
+            <div class="settings-description">${esc(b.description || '')}</div>
             ${ready && b.available === false && b.unavailableReason
               ? `<div class="settings-description backend-unavailable">${esc(b.unavailableReason)}</div>`
               : ''}

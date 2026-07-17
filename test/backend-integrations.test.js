@@ -58,12 +58,26 @@ test('claude still declares the attention hook — the save path has no other co
     'claude must declare attentionHooks: settings-panel.js writes the hook on change, but only this declaration renders the toggle that changes it');
 });
 
+// Every backend describes ITSELF. The settings list used to hold the five blurbs in a map keyed by id
+// (#212), so adding a backend meant editing the renderer to make it look finished — and a backend whose
+// author forgot got a blank line under its name, with nothing to say so.
+test('every backend carries its own one-line description', () => {
+  for (const b of BACKENDS) {
+    assert.ok(b.description, `${b.id} declares no description — the Backends list would render a blank line`);
+    assert.ok(!/\n/.test(b.description), `${b.id}'s description must be one line — it renders in a single row`);
+  }
+});
+
 // The declaration is useless if it cannot reach the renderer. `backends-list` hand-picks the JSON-safe
 // fields off the descriptor, so a capability that is not named there simply never arrives — which looks
 // exactly like "the backend declares nothing" and renders nothing, with no error.
 test('backends-list carries the integrations declaration over IPC', () => {
   assert.match(read('src/main.js'), /integrations:\s*b\.integrations/,
     'main.js `backends-list` must pass `integrations` through, or the panel never sees it');
+  assert.match(read('src/main.js'), /endpointEnv:\s*b\.endpointEnv/,
+    'main.js `backends-list` must pass `endpointEnv` through, or the profile editor hides the Endpoint fields for every base');
+  assert.match(read('src/main.js'), /description:\s*b\.description/,
+    'main.js `backends-list` must pass `description` through, or the Backends list renders blank lines');
 });
 
 // Every declared domId must be one settings-panel.js actually reads back. This is the hop with no
@@ -146,10 +160,30 @@ test('the renderer names a backend only where it is binding a documented non-gue
     for (const backend of BACKENDS) {
       // Every surviving occurrence of the id must be the right-hand side of one of the allowed bindings.
       const occurrences = (code.match(new RegExp(`['"]${backend.id}['"]`, 'g')) || []).length;
+      // Anchored to the exact constant name: without the `\b` any `MY_LEGACY_TEMPLATE_BASE = 'claude'`
+      // would count itself as bound and launder a fresh hardcode through the allow-list.
       const bound = allowed.reduce((n, name) =>
-        n + (code.match(new RegExp(`${name}\\s*=\\s*['"]${backend.id}['"]`, 'g')) || []).length, 0);
+        n + (code.match(new RegExp(`\\b${name}\\s*=\\s*['"]${backend.id}['"]`, 'g')) || []).length, 0);
       assert.equal(occurrences, bound,
         `${rel} spells "${backend.id}" ${occurrences}x but binds it ${bound}x — an id literal outside a documented binding is a guess (#212). Resolve it to the first launchable backend, or add a named constant here with the reason.`);
+    }
+  }
+});
+
+// A quoted literal is not the only way to name a backend, and the counter above only sees quoted ones.
+// `BACKEND_BLURB` lived in backends-panel.js for the whole of this issue and both guards walked past it:
+// an object literal keyed by BARE backend ids (`claude: '…'`), holding the one-line descriptions the
+// settings list shows. Its own comment said the quiet part — "the descriptor carries no description" —
+// which is precisely the thing #212 says must not be true. It is the descriptor's job now.
+//
+// So: no `<id>:` key either. Comments are stripped first, so prose is free.
+test('the renderer keeps no table keyed by backend id', () => {
+  for (const rel of Object.keys(ALLOWED_BINDINGS)) {
+    const code = stripComments(read(rel));
+    for (const backend of BACKENDS) {
+      const m = code.match(new RegExp(`(^|[{,\\s])${backend.id}\\s*:`, 'm'));
+      assert.equal(m, null,
+        `${rel} has an object key "${backend.id}:" — a per-backend table in the renderer is the descriptor's data living in the wrong process. Declare it in backends/${backend.id}/index.js and project it through backends-list.`);
     }
   }
 });
