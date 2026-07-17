@@ -5,14 +5,23 @@
 // is require()-able and tested. This file is what that half cannot be: it mounts terminals, drives the
 // progress bar in the placeholder, and reads the renderer's live session state. It came out of app.js.
 //
-// THIS FILE IS A PLAIN CLASSIC SCRIPT ON PURPOSE — no IIFE, no UMD factory. It reads app.js's top-level
-// bindings directly (openSessions, activeSessionId, gridViewActive, sessionMap, appGlobalSettings,
-// restoreProgressEl) and calls its functions (openSession, showSession, showGridView,
-// refreshSessionStatusViews). Those are top-level declarations of another classic script, so they live in
-// the shared global lexical scope and resolve at CALL time — which is why this is a move and not a
-// rewrite, and why no ctx is needed. Wrapping it in a UMD factory would be the mistake #218 measured on
-// grid-gestures.js: the names would resolve against the factory's scope and window properties instead of
-// the bindings, and the suite would stay green while the app misbehaved.
+// THIS FILE IS A PLAIN CLASSIC SCRIPT ON PURPOSE — no IIFE, no UMD factory. Everything it reaches for is
+// a top-level declaration of some OTHER classic script, so it lives in the shared global lexical scope and
+// resolves at CALL time — which is why this is a move and not a rewrite, and why no ctx is needed.
+// Wrapping it in a UMD factory would be the mistake #218 measured on grid-gestures.js: the names would
+// resolve against the factory's scope and window properties instead of the bindings, and the suite would
+// stay green while the app misbehaved.
+//
+// What it reaches into, by file — it is THREE, not just app.js, and the header is the only import graph
+// this renderer has:
+//   app.js                     openSessions, activeSessionId, gridViewActive, sessionMap,
+//                              appGlobalSettings, restoreProgressEl, openSession,
+//                              refreshSessionStatusViews
+//   views/grid-view.js         showGridView
+//   terminal/terminal-manager.js   showSession
+//   shell/update-restart.js    OPEN_SESSIONS_STATE_KEY, collectUpdateRestartState,
+//                              hasRestorableUpdateSessions, selectRestorableSessions,
+//                              resolveRestoreFocusId (UMD → window properties)
 //
 // It reads app.js's state; it writes none of it. Everything it changes is the DOM, localStorage, or
 // window.__restoringOpenSessions.
