@@ -623,89 +623,10 @@ function clearNotifications(sessionId) {
   if (changed || stampCleared) refreshSessionStatusViews();
 }
 
-// --- Native notification + dock badge + tray funnel (Spec 01) ---
-// Every attention/ready transition reaches refreshSessionStatusViews(), which
-// calls syncNativeNotifications() below. The actual decision (what to notify,
-// coalescing, throttle, badge count) lives in the pure, unit-tested
-// notification-policy.js module — this just feeds it state and forwards results
-// to the main process over IPC.
-let notificationSettings = { enabled: true, notifyOnReady: false };
-let windowFocused = typeof document !== 'undefined' ? document.hasFocus() : true;
-let lastNotifiedAt = 0;
-let prevNotificationSnapshot = { attention: new Set(), ready: new Set() };
-
-// Bridge for settings-panel.js so toggles apply without a restart.
-window._setNotificationSettings = (settings) => {
-  notificationSettings = {
-    enabled: settings?.enabled !== false,
-    notifyOnReady: !!settings?.notifyOnReady,
-  };
-  syncNativeNotifications();
-};
-
-function buildTraySummary() {
-  const attention = attentionSessions.size;
-  const ready = responseReadySessions.size;
-  const parts = [];
-  if (attention) parts.push(`${attention} need${attention === 1 ? 's' : ''} you`);
-  if (ready) parts.push(`${ready} ready`);
-  return parts.length ? `Switchboard — ${parts.join(' · ')}` : 'Switchboard';
-}
-
-function syncNativeNotifications() {
-  if (typeof decideNotifications !== 'function' || !window.api) return;
-  const next = {
-    attention: new Set(attentionSessions),
-    ready: new Set(responseReadySessions),
-  };
-  const now = Date.now();
-  const result = decideNotifications({
-    prev: prevNotificationSnapshot,
-    next,
-    windowFocused,
-    settings: notificationSettings,
-    now,
-    lastNotifiedAt,
-  });
-
-  for (const notification of result.notifications) {
-    window.api.notify({
-      title: notification.title,
-      body: notification.body,
-      sessionId: notification.sessionIds[0],
-    });
-  }
-  if (result.notifications.length > 0) lastNotifiedAt = now;
-
-  window.api.setBadge(result.badgeCount);
-  window.api.setTraySummary(buildTraySummary());
-
-  prevNotificationSnapshot = next;
-}
-
-function setWindowFocused(focused) {
-  windowFocused = focused;
-  // Regaining focus may have cleared attended sessions; recompute the badge and
-  // reset the transition baseline so we don't re-notify on the next change.
-  syncNativeNotifications();
-}
-window.addEventListener('focus', () => setWindowFocused(true));
-window.addEventListener('blur', () => setWindowFocused(false));
-document.addEventListener('visibilitychange', () => {
-  setWindowFocused(!document.hidden && document.hasFocus());
-});
-
-// Clicking a native notification focuses the window and opens that session.
-window.api.onFocusSession((sessionId) => {
-  if (!sessionId) return;
-  setWindowFocused(true);
-  let session = sessionMap.get(sessionId);
-  if (!session) {
-    session = getAllKnownSessionsForStatus().find((s) => s.sessionId === sessionId);
-  }
-  if (session) openSession(session);
-  clearNotifications(sessionId);
-});
+// Native notifications, the dock badge and the tray funnel (Spec 01) are shell/native-notifications.js
+// (#218/#228). Like search-bar.js it loads AFTER app.js, because its onFocusSession IPC listener and
+// window-focus listeners reach app.js state (sessionMap, openSession, …) at call time. app.js reaches
+// in at syncNativeNotifications and window._setNotificationSettings, both call-time.
 
 // The "while you were away" recap banner — the file-touch tracking, the banner and its dismissal —
 // is shell/away-summary-banner.js (#218), beside the pure shell/away-summary.js it renders. It owns

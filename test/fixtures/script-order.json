@@ -90,6 +90,7 @@
     "statusbar-zoom.js",
     "app.js",
     "search-bar.js",
+    "native-notifications.js",
     "view-menu.js"
   ],
   "settings.html": [
