@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { readSubagentMeta } = require('../backends/claude/session-reader');
+const { resolveClearParent } = require('./session-lineage');
 
 /**
  * Fork / plan-accept detection for active PTY sessions.
@@ -366,24 +367,41 @@ function detectSessionTransitions(folder) {
       }
 
       // Clear: the fresh file carries a SessionStart:clear marker but NO lineage
-      // backref, so we can't match by metadata. Associate to the single active
-      // PTY session in this folder. If more than one Claude session is active
-      // here we can't tell which one cleared — skip rather than mis-rekey.
-      // Guard activeSessions.has(newId): once the winner has re-keyed, the file
-      // belongs to an existing session and must not be claimed again.
+      // backref, so we can't match by metadata. Resolve the parent by the mtime
+      // freeze (session-lineage.js): the session that cleared stopped writing the
+      // instant the child was born, so among the active sessions in this folder the
+      // parent is the lone one frozen just before the birth. Re-key ONLY on `high`
+      // confidence — a wrong guess collapses two tabs onto one id, which is worse
+      // than leaving both rows alone (#223). Guard activeSessions.has(newId): once
+      // the winner has re-keyed, the file belongs to an existing session.
       if (!matched && signals.clearOrigin && !activeSessions.has(newId)) {
-        const candidates = [...activeSessions].filter(([, s]) =>
-          !s.exited && !s.isPlainTerminal && s.projectFolder === folder);
-        // Only follow a freshly created clear file — avoids adopting stale files
-        // that surface at watcher start.
         let fresh = false;
-        try { fresh = Date.now() - fs.statSync(newFilePath).mtimeMs < 300000; } catch {}
-        if (candidates.length === 1 && fresh) {
-          // The lone candidate is this iterating session (it passed the active/
-          // non-terminal/folder filter above), so this PTY is the one that cleared.
-          matched = true;
-        } else if (candidates.length > 1) {
-          log.info(`[detect] session=${sessionId} clear file=${newId} ambiguous (${candidates.length} active sessions in folder) — skipping`);
+        let childBirthMs = NaN;
+        try {
+          const st = fs.statSync(newFilePath);
+          // birthtime is reliable on Windows/macOS; fall back to mtime where it is 0.
+          childBirthMs = (Number.isFinite(st.birthtimeMs) && st.birthtimeMs > 0) ? st.birthtimeMs : st.mtimeMs;
+          // Only follow a freshly created clear file — avoids adopting stale files at watcher start.
+          fresh = Date.now() - st.mtimeMs < 300000;
+        } catch {}
+        if (fresh) {
+          const candidates = [...activeSessions]
+            .filter(([, s]) => !s.exited && !s.isPlainTerminal && s.projectFolder === folder)
+            .map(([key, s]) => {
+              const fileId = s.realSessionId || key;
+              let mtimeMs = 0;
+              try { mtimeMs = fs.statSync(path.join(folderPath, fileId + '.jsonl')).mtimeMs; } catch {}
+              return { id: key, mtimeMs };
+            });
+          const { parentId, confidence } = resolveClearParent({ childBirthMs, candidates });
+          if (confidence === 'high' && parentId === sessionId) {
+            // This iterating PTY is the resolved parent — re-key it onto the clear child.
+            matched = true;
+          } else if (confidence !== 'high') {
+            log.info(`[detect] session=${sessionId} clear file=${newId} ${confidence} (${candidates.length} active sessions in folder) — skipping`);
+          }
+          // high but parentId !== sessionId: another session in this folder is the parent; it matches on
+          // its own iteration. Stay silent here.
         }
       }
 
