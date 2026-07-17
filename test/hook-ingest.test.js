@@ -66,6 +66,9 @@ function makeCtx(over = {}) {
     activeSessions: new Map(),
     indexWorker: { postFile: () => {} },
     log: { info() {}, warn() {}, error() {} },
+    // Default to a packaged build so the write/strip round-trip tests below actually write; the dev-block
+    // tests override this to false (#219).
+    isPackaged: true,
     ...over,
   };
   hooks.init(ctx);
@@ -185,6 +188,70 @@ test('stripSwitchboardHooks survives a settings.json that has no hooks, or junk 
   assert.deepEqual(hooks.stripSwitchboardHooks({}), {});
   assert.deepEqual(hooks.stripSwitchboardHooks({ hooks: 'nonsense' }), { hooks: 'nonsense' });
   assert.equal(hooks.stripSwitchboardHooks(null), null);
+});
+
+// --- dev builds do not touch the shared ~/.claude/settings.json (#219) ----------------------------
+//
+// A dev run is force-killed by `npm run stop:dev` (no before-quit), so a hook it wrote would be left
+// behind on a dead port; and because the sentinel carries no instance marker, a dev enable/quit strips the
+// INSTALLED app's live hook too. So an unpackaged build is a no-op on the whole write/strip path unless
+// SWITCHBOARD_DEV_ATTENTION_HOOK=1 is set. These tests pin both halves.
+
+test('a dev build does not write to the shared settings.json even when the feature is on', () => {
+  const prev = process.env.SWITCHBOARD_DEV_ATTENTION_HOOK;
+  delete process.env.SWITCHBOARD_DEV_ATTENTION_HOOK;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-hooks-dev-'));
+  const settingsFile = path.join(dir, 'settings.json');
+  const before = { hooks: { Stop: [{ matcher: '', hooks: [{ type: 'command', command: 'user-own' }] }] } };
+  fs.writeFileSync(settingsFile, JSON.stringify(before));
+  try {
+    makeCtx({ isPackaged: false, getSetting: () => ({ attentionHooks: true }), claudeSettingsPath: settingsFile });
+    const server = hooks.startAttentionHookServer();
+    assert.equal(server, null, 'the server does not start in a dev build');
+    assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, 'utf8')), before,
+      'the shared settings.json is byte-for-byte untouched');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    if (prev === undefined) delete process.env.SWITCHBOARD_DEV_ATTENTION_HOOK; else process.env.SWITCHBOARD_DEV_ATTENTION_HOOK = prev;
+  }
+});
+
+test('a dev build\'s removeClaudeAttentionHook leaves the installed app\'s hook alone', () => {
+  const prev = process.env.SWITCHBOARD_DEV_ATTENTION_HOOK;
+  delete process.env.SWITCHBOARD_DEV_ATTENTION_HOOK;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-hooks-dev-'));
+  const settingsFile = path.join(dir, 'settings.json');
+  // A Switchboard hook the INSTALLED app wrote. A dev quit must not strip it (#219).
+  const installed = { hooks: { Stop: [{ matcher: '', hooks: [{ type: 'http', url: `http://127.0.0.1:9999${hooks.ATTENTION_HOOK_MARK}?t=x` }] }] } };
+  fs.writeFileSync(settingsFile, JSON.stringify(installed));
+  try {
+    makeCtx({ isPackaged: false, claudeSettingsPath: settingsFile });
+    hooks.removeClaudeAttentionHook();
+    assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, 'utf8')), installed,
+      'the installed app\'s hook survives a dev build\'s removal');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    if (prev === undefined) delete process.env.SWITCHBOARD_DEV_ATTENTION_HOOK; else process.env.SWITCHBOARD_DEV_ATTENTION_HOOK = prev;
+  }
+});
+
+test('SWITCHBOARD_DEV_ATTENTION_HOOK=1 re-enables the write path in a dev build', async (t) => {
+  const prev = process.env.SWITCHBOARD_DEV_ATTENTION_HOOK;
+  process.env.SWITCHBOARD_DEV_ATTENTION_HOOK = '1';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-hooks-dev-'));
+  const settingsFile = path.join(dir, 'settings.json');
+  t.after(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+    if (prev === undefined) delete process.env.SWITCHBOARD_DEV_ATTENTION_HOOK; else process.env.SWITCHBOARD_DEV_ATTENTION_HOOK = prev;
+  });
+  makeCtx({ isPackaged: false, getSetting: () => ({ attentionHooks: true }), claudeSettingsPath: settingsFile });
+  const server = hooks.startAttentionHookServer();
+  assert.ok(server, 'opted in, the server starts');
+  t.after(() => new Promise((r) => server.close(r)));
+  await new Promise((r) => server.once('listening', r));
+  await new Promise((r) => setTimeout(r, 0));
+  const written = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+  assert.ok(JSON.stringify(written.hooks).includes(hooks.ATTENTION_HOOK_MARK), 'the hook is written when opted in');
 });
 
 // --- the whole thing, wired the way main.js wires it ---------------------------------------------

@@ -1701,6 +1701,8 @@ hooks.init({
   activeSessions,
   indexWorker,
   log,
+  // Dev builds do not touch the user's shared ~/.claude/settings.json unless opted in (#219).
+  isPackaged: app.isPackaged,
 });
 hooks.registerIpc(ipcMain);
 const { startAttentionHookServer, removeClaudeAttentionHook, attentionHooksEnabled } = hooks;

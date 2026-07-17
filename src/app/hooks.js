@@ -59,6 +59,19 @@ function attentionHooksEnabled() {
   return global.attentionHooks === true;
 }
 
+// A dev build must not touch the user's shared ~/.claude/settings.json by default. The file belongs to
+// Claude Code (like ~/.claude/projects/**), and only the DB + userData are separated per instance — the
+// hook is the last thing that leaks into shared user state. A dev run is force-killed by `npm run stop:dev`
+// (no before-quit), so a written hook is left behind pointing at a dead port, and a dev enable/quit also
+// strips the INSTALLED app's hook because the sentinel carries no instance marker (#219). So in an
+// unpackaged build the whole write/strip path is a no-op unless you opt in with
+// SWITCHBOARD_DEV_ATTENTION_HOOK=1 — which you do only when working on the attention hook itself. Attention
+// detection falls back to the OSC-9 heuristic, which is what a dev build wants for everyday work anyway.
+function hookWritingAllowed() {
+  if (ctx && ctx.isPackaged) return true;
+  return process.env.SWITCHBOARD_DEV_ATTENTION_HOOK === '1';
+}
+
 /**
  * The request handler, split out of the server so a test can drive it with a fake req/res and no socket.
  * @param {string} [token] the token to verify against — defaults to this run's, and is only ever passed
@@ -137,12 +150,19 @@ function handleHookRequest(req, res, token = attentionHookToken) {
  */
 function startAttentionHookServer() {
   if (attentionHookServer) return attentionHookServer;
+  if (!hookWritingAllowed()) {
+    ctx.log.info('[attention-hook] disabled in this dev build — set SWITCHBOARD_DEV_ATTENTION_HOOK=1 to enable');
+    return null;
+  }
   attentionHookToken = crypto.randomUUID();
   const server = http.createServer((req, res) => handleHookRequest(req, res));
   // Set the guard immediately (not inside the listen callback) so a second call
   // while the socket is still binding cannot create a second server (issue #76).
   attentionHookServer = server;
   server.on('error', (err) => ctx.log.error(`[attention-hook] server error: ${err.message}`));
+  // A closed server must not be handed back as live on the next start (it would never re-listen). Clearing
+  // the guards on close lets a restart create a fresh one — in production this only happens at quit.
+  server.on('close', () => { if (attentionHookServer === server) { attentionHookServer = null; attentionHookPort = null; } });
   server.listen(0, '127.0.0.1', () => {
     attentionHookPort = server.address().port;
     ctx.log.info(`[attention-hook] listening on 127.0.0.1:${attentionHookPort}`);
@@ -192,6 +212,7 @@ function stripSwitchboardHooks(settings) {
 
 function writeClaudeAttentionHook(port) {
   if (!port) return;
+  if (!hookWritingAllowed()) return; // dev build: never touch the shared ~/.claude/settings.json (#219)
   const url = `http://127.0.0.1:${port}${ATTENTION_HOOK_MARK}?t=${attentionHookToken}`;
   const settings = stripSwitchboardHooks(readClaudeSettings());
   if (!settings.hooks) settings.hooks = {};
@@ -218,6 +239,9 @@ function writeClaudeAttentionHook(port) {
 }
 
 function removeClaudeAttentionHook() {
+  // A dev build never wrote (see hookWritingAllowed), so it must not strip either — stripSwitchboardHooks
+  // removes EVERY sentinel entry, so a dev quit would otherwise clobber the installed app's live hook (#219).
+  if (!hookWritingAllowed()) return;
   if (!fs.existsSync(settingsPath())) return;
   const settings = stripSwitchboardHooks(readClaudeSettings());
   fs.writeFileSync(settingsPath(), JSON.stringify(settings, null, 2) + '\n');
@@ -233,6 +257,9 @@ function registerIpc(ipc) {
   ipc.handle('configure-attention-hook', (_event, enabled) => {
     try {
       if (enabled) {
+        // Dev builds don't write to the user's shared ~/.claude/settings.json unless opted in (#219) — tell
+        // the renderer so it can note why the toggle didn't take effect.
+        if (!hookWritingAllowed()) return { ok: true, devBlocked: true };
         if (!attentionHookServer) startAttentionHookServer();
         // If the server is still binding, the listen callback will stamp the port.
         if (attentionHookPort) writeClaudeAttentionHook(attentionHookPort);

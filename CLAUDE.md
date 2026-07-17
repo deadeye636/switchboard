@@ -396,6 +396,17 @@ migration + reindex the next time *it* starts.
 The **source** stores are shared by both (they belong to the CLIs, not to us): `~/.claude/projects/**`,
 `%LOCALAPPDATA%\hermes\state.db`, `(CODEX_HOME|~/.codex)/sessions`, `~/.pi/agent/sessions`.
 
+**The attention hook is OFF in a dev build (#219).** `~/.claude/settings.json` is one more shared, CLI-owned
+file, and the attention hook (`src/app/hooks.js`) writes an HTTP entry into it. A dev run is force-killed by
+`npm run stop:dev` (no `before-quit`), so a written hook would be left behind on a dead port — and because
+the sentinel carries no instance marker, a dev enable/quit also strips the **installed** app's live hook. So
+an **unpackaged** build makes the whole write/strip path a no-op: enabling the toggle returns
+`{ devBlocked: true }` and writes nothing, disabling strips nothing, and attention falls back to the OSC-9
+heuristic (fine for everyday dev). **To work on the hook itself, opt in:** launch dev with
+`SWITCHBOARD_DEV_ATTENTION_HOOK=1` set (`SWITCHBOARD_DEV_ATTENTION_HOOK=1 npm run start:debug`) — then the
+server starts and the hook is written exactly as in the packaged app. `test/hook-ingest.test.js` pins both
+states.
+
 ## Driving the app (no clicking required)
 
 Electron speaks the same DevTools protocol Chrome does, so the running app can be scripted. This is the missing
