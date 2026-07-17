@@ -19,8 +19,9 @@
 // What it reaches back into sidebar.js for: `getSessionRuntimeState`, and nothing else. Everything else
 // it needs comes from app.js's maps (activePtyIds, attentionSessions, responseReadySessions,
 // sessionBusyState, subagentActiveSessions, lastActivityTime), the UMD helpers (getSessionStatus,
-// getSessionHealth, getQuietDetailParts, getWorktreeLabel, makeButtonLike), `ICONS`, and the backend
-// registry — all at call time, from a render.
+// getSessionHealth, getQuietDetailParts, getWorktreeLabel, ariaButton), `ICONS`, and the backend
+// registry — all at call time, from a render. (The row's click/keyboard activation is delegated to a
+// single listener on sidebarContent in sidebar-events.js — #218 opt6 — so this only sets the ARIA state.)
 //
 // (This list said shortSessionLabel/getSessionProjectLabel/folderId until a verifier checked: none of
 // the three is in this file. In a renderer whose only import graph IS these headers, a wrong one is not
@@ -56,6 +57,7 @@ function buildSessionItem(session) {
   pin.className = 'session-pin' + (session.starred ? ' pinned' : '');
   pin.title = session.starred ? 'Unpin session' : 'Pin session';
   pin.setAttribute('aria-label', pin.title);
+  ariaButton(pin, pin.title); // role/tabindex; the click comes from the delegated sidebar listener (#218 opt6)
   pin.innerHTML = session.starred
     ? '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1-.707.707c-.28-.28-.576-.49-.888-.656L10.073 9.333l-.07 3.181a.5.5 0 0 1-.853.354l-3.535-3.536-4.243 4.243a.5.5 0 1 1-.707-.707l4.243-4.243L1.372 5.11a.5.5 0 0 1 .354-.854l3.18-.07L8.37 .722A3.37 3.37 0 0 1 9.12.074a.5.5 0 0 1 .708.002l-.707.707z"/></svg>'
     : '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1-.707.707c-.28-.28-.576-.49-.888-.656L10.073 9.333l-.07 3.181a.5.5 0 0 1-.853.354l-3.535-3.536-4.243 4.243a.5.5 0 1 1-.707-.707l4.243-4.243L1.372 5.11a.5.5 0 0 1 .354-.854l3.18-.07L8.37 .722A3.37 3.37 0 0 1 9.12.074a.5.5 0 0 1 .708.002l-.707.707z"/></svg>';
@@ -265,6 +267,11 @@ function buildSessionItem(session) {
   // Tag chips (renders synchronously from the bookmarks-tags cache).
   window._decorateSessionItem?.(item, session);
 
+  // Button semantics for the row (#218 opt6): the click/keyboard activation comes from the delegated
+  // listener on sidebarContent, so only the ARIA state is set here, at build time, where morphdom keeps
+  // it. A row under a missing project is neutralised by the slim rebind pass (it must not open).
+  ariaButton(item, 'Open ' + (displayName || session.sessionId));
+
   return item;
 }
 
@@ -308,17 +315,14 @@ function startRename(summaryEl, session) {
     const newSummary = document.createElement('div');
     newSummary.className = 'session-summary';
     newSummary.textContent = nameToSave || fallback;
-    newSummary.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
-      startRename(newSummary, session);
-    });
+    // No per-node dblclick — the delegated listener on sidebarContent re-triggers rename (#218 opt6).
     input.replaceWith(newSummary);
   };
 
   input.addEventListener('blur', save);
-  // Stop key events from bubbling to the row's makeButtonLike handler / global
-  // shortcuts — otherwise Space (which activates a button-like element on keyUP)
-  // ends the rename instead of inserting a space (issue #94).
+  // Stop key events from bubbling to sidebarContent's delegated keyboard handler (the row is a
+  // role="button" ancestor) / global shortcuts — otherwise Space (which activates a button-like element
+  // on keyUP) ends the rename instead of inserting a space (issue #94).
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Enter') input.blur();
@@ -327,10 +331,7 @@ function startRename(summaryEl, session) {
       const restored = document.createElement('div');
       restored.className = 'session-summary';
       restored.textContent = session.name || session.aiTitle || session.summary;
-      restored.addEventListener('dblclick', (ev) => {
-        ev.stopPropagation();
-        startRename(restored, session);
-      });
+      // No per-node dblclick — the delegated listener re-triggers rename (#218 opt6).
       input.replaceWith(restored);
     }
   });

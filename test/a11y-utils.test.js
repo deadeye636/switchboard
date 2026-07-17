@@ -5,6 +5,7 @@ const {
   isKeyboardActivation,
   handleKeyboardActivation,
   makeButtonLike,
+  ariaButton,
   syncTitleToTooltip,
   syncTitleToAriaLabel,
 } = require('../src/renderer/lib/a11y-utils');
@@ -55,6 +56,34 @@ test('makeButtonLike sets role, tabIndex, and keyboard listener', () => {
   assert.equal(el.attributes['aria-label'], 'Open session');
   assert.equal(el.tabIndex, 0);
   assert.equal(called, true);
+});
+
+test('ariaButton sets role/tabIndex/label but binds NO keyboard listener', () => {
+  const listeners = {};
+  const el = {
+    tabIndex: -1,
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+    getAttribute(name) { return this.attributes[name]; },
+    addEventListener(name, cb) { listeners[name] = cb; },
+  };
+  ariaButton(el, 'Open session');
+  assert.equal(el.attributes.role, 'button');
+  assert.equal(el.attributes['aria-label'], 'Open session');
+  assert.equal(el.tabIndex, 0);
+  // Unlike makeButtonLike, the click/keyboard activation is delegated — no per-node listener (#218 opt6).
+  assert.deepEqual(Object.keys(listeners), []);
+});
+
+test('ariaButton does not overwrite an existing aria-label', () => {
+  const el = {
+    tabIndex: 0,
+    attributes: { 'aria-label': 'Already named' },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    getAttribute(name) { return this.attributes[name]; },
+  };
+  ariaButton(el, 'New label');
+  assert.equal(el.attributes['aria-label'], 'Already named');
 });
 
 test('syncTitleToAriaLabel names title-only icon buttons', () => {

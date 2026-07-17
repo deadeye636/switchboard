@@ -19,6 +19,18 @@
     return true;
   }
 
+  // The ARIA half of makeButtonLike, without the per-node keyboard listeners: mark a non-<button>
+  // element as a button (role + focusability + label). Use this when a delegated listener on a stable
+  // ancestor supplies the click/keyboard activation, so nothing has to be re-bound after a morphdom patch
+  // (#218 opt6). A real <button> keeps its native semantics — do not call this on one.
+  function ariaButton(element, label) {
+    if (!element) return element;
+    element.setAttribute('role', 'button');
+    if (element.tabIndex < 0) element.tabIndex = 0;
+    if (label && !element.getAttribute('aria-label')) element.setAttribute('aria-label', label);
+    return element;
+  }
+
   function makeButtonLike(element, callback, label) {
     if (!element) return element;
     element.setAttribute('role', 'button');
@@ -55,6 +67,7 @@
     isKeyboardActivation,
     handleKeyboardActivation,
     makeButtonLike,
+    ariaButton,
     syncTitleToTooltip,
     syncTitleToAriaLabel,
   };

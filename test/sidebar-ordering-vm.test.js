@@ -62,6 +62,8 @@ function setup(g = {}) {
   };
   Object.assign(window, defaults, g);
 
+  // Real a11y-utils so ariaButton (called by the builders) resolves exactly as in the browser.
+  vm.runInContext(fs.readFileSync(path.join(REN, 'lib/a11y-utils.js'), 'utf8'), ctx, { filename: 'lib/a11y-utils.js' });
   vm.runInContext(fs.readFileSync(path.join(REN, 'shell/sidebar.js'), 'utf8'), ctx, { filename: 'shell/sidebar.js' });
 
   const call = (name, ...args) => vm.runInContext(name, ctx)(...args);

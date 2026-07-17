@@ -1,493 +1,65 @@
-// --- Sidebar events: what every click on a row, a header or a chip does (#218) ---
+// --- Sidebar events: one delegated listener for every click on a row, a header or a chip (#218) ---
 //
-// `rebindSidebarEvents` runs after each render and wires the whole tree: open a session, stop it,
-// archive, star, rename, fork, hand off, the project header's menu, favourites, the worktree actions.
-// The two drag helpers and the worktree-delete confirmation come with it — it is their only caller.
+// The sidebar re-renders through `morphdom(sidebarContent, …)` (finalizeSidebar), which patches the tree
+// IN PLACE — old nodes' handlers go with them. The previous version answered that by re-binding every
+// handler on every render: one `.onclick =` per row, per button, per header, ~30 kinds across N sessions,
+// each pass. This version binds ONCE. `sidebarContent` is the morphdom ROOT — it is never replaced, only
+// its children are diffed — so a listener on it survives every patch. `rebindSidebarEvents` no longer
+// wires handlers; it records the current project list and runs the few per-render DOM decorations that are
+// state, not events (the missing-project "can't open" marker, the title→aria sync, the active-slug
+// auto-expand). The button SEMANTICS (role/tabindex/aria-label) moved into the builders (sidebar.js,
+// sidebar-session-row.js) via `ariaButton`, where morphdom keeps them; the ACTIVATION is delegated here.
 //
-// Came out of sidebar.js as the largest thing in it. The reason it is one function and not twenty is
-// morphdom: `finalizeSidebar` patches the DOM in place and the old nodes' handlers go with them, so
-// everything has to be re-bound in one pass over the fresh tree. That is a real constraint, not a mess,
-// and it is why this file is one big function rather than a folder.
+// HOW A CLICK IS ROUTED — `dispatchSidebarActivation` walks `e.target.closest(...)` most-specific first and
+// returns on the first match, so an action button is handled before the row-open it sits inside; the old
+// per-handler `stopPropagation()` (which kept a button click off the row's own handler) is preserved on the
+// branches that had it, now as one call at the container so nothing above sidebarContent sees it either.
+// Context is resolved from the DOM, not a closure: the session from `.session-item[data-session-id]` via
+// sessionMap, the project (or worktree) from the nearest `.worktree-group`/`.project-group`'s
+// `data-project-path` looked up in the render's project list (`sidebarProjects`). The worktree group is the
+// INNER container, so it wins for a worktree button — which is why `.project-new-btn` inside a worktree
+// header resolves to the worktree without a separate branch.
 //
-// The split makes the shape visible: it is all `.onclick =` assignment on nodes that
-// sidebar-session-row.js and sidebar.js built. It creates no DOM and holds no state.
+// KEYBOARD — a real <button> already synthesizes a click on Enter/Space, so the delegated click covers it;
+// the keyboard listener only activates the button-like DIVs/SPANs (`role="button"`, not a <button>), and
+// runs them through the same dispatch via `handleKeyboardActivation` (Enter on keydown, Space on keyup).
 //
 // A classic <script>, like the file it came from: nothing runs at parse time. It reaches back into
-// sidebar.js (renderProjects, refreshSidebar's callers, folderId, getAllRenderableSessions), into
-// app.js's session maps, and out to the dialogs — all at call time, from a click.
+// sidebar.js (getAllRenderableSessions, getSessionRuntimeState, folderId, refreshSidebar's callers), into
+// app.js's session maps and caches, out to the dialogs — all at click time.
 //
 // It WRITES fields on objects other files own (`session.archived`, `session.starred`, `session.name` on
 // app.js's sessionMap rows; `p.favorited` on cachedProjects). Those are field writes on shared objects,
 // not rebindings of another file's `let`, so they cross a file boundary without caring about it. The one
 // that DOES rebind — `sortedOrder = newSortedOrder` — stayed in sidebar.js with finalizeSidebar.
 
+// The render's project list, kept for click-time context resolution. Set by rebindSidebarEvents on every
+// render; read by the delegated handlers, which run later, on a click.
+let sidebarProjects = [];
+// The delegated listeners are attached to sidebarContent exactly once (it outlives every morphdom patch).
+let sidebarEventsDelegated = false;
+
 function rebindSidebarEvents(projects) {
-  const nextAttentionBtn = sidebarContent.querySelector('.attention-inbox-next-btn');
-  if (nextAttentionBtn) {
-    nextAttentionBtn.onclick = (e) => {
-      e.stopPropagation();
-      const next = getNextAttentionInboxItem(getAllRenderableSessions(projects), getSessionRuntimeState(), activeSessionId);
-      focusAttentionItem(next);
-    };
-  }
+  sidebarProjects = projects;
+  ensureSidebarDelegation();
 
-  sidebarContent.querySelectorAll('.attention-inbox-item').forEach(item => {
-    const sessionId = item.dataset.sessionId;
-    const session = sessionMap.get(sessionId);
-    if (!session) return;
-    item.onclick = () => focusAttentionItem({ session });
+  // Sessions under a missing project can't be opened — the path no longer exists. This is DOM state
+  // (a class + a title), not an event, so it is applied per render; the open dispatch also bails on it.
+  sidebarContent.querySelectorAll('.project-group.missing .session-item').forEach(item => {
+    item.classList.add('disabled');
+    item.title = 'Project path no longer exists — use "Change path" to fix';
+    // Not an actionable button — the old code left missing rows without role/tabindex/aria (it never ran
+    // makeButtonLike on them), so strip what the builder set unconditionally.
+    item.removeAttribute('role');
+    item.removeAttribute('tabindex');
+    item.removeAttribute('aria-label');
   });
 
-  for (const project of projects) {
-    const fId = folderId(project.projectPath);
-    const header = document.getElementById('ph-' + fId);
-    if (!header) continue;
-    const dragHandle = header.querySelector('.project-drag-handle');
-    if (dragHandle) {
-      dragHandle.onpointerdown = (e) => { e.stopPropagation(); startProjectDrag(project, header, e); };
-    }
-    const newBtn = header.querySelector('.project-new-btn');
-    if (newBtn) {
-      newBtn.onclick = (e) => { e.stopPropagation(); showNewSessionPopover(project, newBtn); };
-    }
-    const tasksBtn = header.querySelector('.project-tasks-btn');
-    if (tasksBtn) {
-      tasksBtn.onclick = (e) => {
-        e.stopPropagation();
-        if (typeof openTasksView === 'function') {
-          const shortName = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
-          openTasksView({ projectPath: project.projectPath },
-            'Project · ' + projectDisplayLabel(project.displayName, shortName));
-        }
-      };
-    }
-    const bookmarksBtn = header.querySelector('.project-bookmarks-btn');
-    if (bookmarksBtn) {
-      bookmarksBtn.onclick = (e) => {
-        e.stopPropagation();
-        if (typeof openBookmarksView === 'function') {
-          const shortName = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
-          openBookmarksView({ projectPath: project.projectPath },
-            'Project · ' + projectDisplayLabel(project.displayName, shortName));
-        }
-      };
-    }
-    const scheduleBtn = header.querySelector('.project-schedule-btn');
-    if (scheduleBtn) {
-      scheduleBtn.onclick = (e) => { e.stopPropagation(); launchScheduleCreator(project); };
-    }
-    const settingsBtn = header.querySelector('.project-settings-btn');
-    if (settingsBtn) {
-      settingsBtn.onclick = (e) => { e.stopPropagation(); openSettingsViewer('project', project.projectPath); };
-    }
-    const favoriteBtn = header.querySelector('.project-favorite-btn');
-    if (favoriteBtn) {
-      favoriteBtn.onclick = async (e) => {
-        e.stopPropagation();
-        const { favorited } = await window.api.toggleProjectFavorite(project.projectPath);
-        const fav = !!favorited;
-        // Update the flag in both cached lists so either view re-sorts correctly,
-        // then a light re-render — not a full loadProjects() (2× getProjects IPC),
-        // matching the session-pin path (issue #78).
-        for (const list of [cachedProjects, cachedAllProjects]) {
-          const p = list && list.find(x => x.projectPath === project.projectPath);
-          if (p) p.favorited = fav;
-        }
-        refreshSidebar({ resort: true });
-      };
-    }
-    const missingIcon = header.querySelector('.project-missing-icon');
-    if (missingIcon) {
-      // Force an availability re-check: the project-list rebuild re-evaluates path
-      // existence, so a drive mounted after startup (e.g. an encrypted volume) flips
-      // from missing to available without waiting for an unrelated refresh.
-      const recheck = (e) => { e.stopPropagation(); loadProjects(); };
-      missingIcon.onclick = recheck;
-      missingIcon.onkeydown = (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); recheck(e); }
-      };
-    }
-    const remapBtn = header.querySelector('.project-remap-btn');
-    if (remapBtn) {
-      remapBtn.onclick = async (e) => {
-        e.stopPropagation();
-        const newPath = await window.api.browseFolder();
-        if (!newPath) return;
-        const shortName = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
-        const confirmed = await showControlDialog({
-          title: 'Change Project Path',
-          message: 'Switchboard will associate this project group with the selected folder.',
-          confirmLabel: 'Change Path',
-          tone: 'warning',
-          details: {
-            Project: shortName,
-            From: project.projectPath,
-            To: newPath,
-          },
-        });
-        if (!confirmed) return;
-        const result = await window.api.remapProject(project.projectPath, newPath);
-        if (result.error) {
-          await showControlMessage({
-            title: 'Remap Failed',
-            message: result.error,
-            confirmLabel: 'OK',
-            tone: 'danger',
-          });
-        } else {
-          loadProjects();
-        }
-      };
-    }
-    const archiveGroupBtn = header.querySelector('.project-archive-btn');
-    if (archiveGroupBtn) {
-      archiveGroupBtn.onclick = async (e) => {
-        e.stopPropagation();
-        const sessions = project.sessions.filter(s => !s.archived);
-        if (sessions.length === 0) return;
-        const shortName = project.projectPath.split('/').filter(Boolean).slice(-2).join('/');
-        const confirmed = await showControlDialog({
-          title: 'Archive Project Sessions',
-          message: 'Archived sessions are hidden from the default sidebar view. Running sessions will be stopped first.',
-          confirmLabel: `Archive ${sessions.length} Session${sessions.length === 1 ? '' : 's'}`,
-          tone: 'warning',
-          details: {
-            Project: shortName,
-            Sessions: sessions.length,
-            Running: sessions.filter(s => activePtyIds.has(s.sessionId)).length,
-          },
-        });
-        if (!confirmed) return;
-        const archivedIds = sessions.map(s => s.sessionId);
-        for (const s of sessions) {
-          if (activePtyIds.has(s.sessionId)) {
-            window._markUserStopped?.(s.sessionId);
-            await window.api.stopSession(s.sessionId);
-          }
-          await window.api.archiveSession(s.sessionId, 1);
-          s.archived = 1;
-        }
-        pollActiveSessions();
-        loadProjects();
-        showControlToast({
-          message: `Archived ${archivedIds.length} session${archivedIds.length === 1 ? '' : 's'} from ${shortName}.`,
-          actionLabel: 'Undo',
-          onAction: async () => {
-            for (const id of archivedIds) {
-              await window.api.archiveSession(id, 0);
-              const session = sessionMap.get(id);
-              if (session) session.archived = 0;
-            }
-            loadProjects();
-          },
-        });
-      };
-    }
-    const toggleProject = (e) => {
-      if (e.target.closest('.project-new-btn') || e.target.closest('.project-archive-btn') || e.target.closest('.project-settings-btn') || e.target.closest('.project-tasks-btn') || e.target.closest('.project-bookmarks-btn') || e.target.closest('.project-schedule-btn') || e.target.closest('.project-remap-btn') || e.target.closest('.project-favorite-btn') || e.target.closest('.project-missing-icon')) return;
-      header.classList.toggle('collapsed');
-      setProjectCollapsed(project.projectPath, header.classList.contains('collapsed'));
-    };
-    header.onclick = toggleProject;
-    makeButtonLike(header, toggleProject, `Toggle ${project.projectPath.split('/').filter(Boolean).slice(-2).join('/')} sessions`);
-  }
-
-  // Bind worktree header events
-  sidebarContent.querySelectorAll('.worktree-header').forEach(wtHeader => {
-    const wtFId = wtHeader.id.replace('ph-', '');
-    const wtProject = projects.find(p => folderId(p.projectPath) === wtFId);
-    if (!wtProject) return;
-
-    const wtNewBtn = wtHeader.querySelector('.worktree-new-btn');
-    if (wtNewBtn) {
-      wtNewBtn.onclick = (e) => { e.stopPropagation(); showNewSessionPopover(wtProject, wtNewBtn); };
-    }
-    const wtHideBtn = wtHeader.querySelector('.worktree-hide-btn');
-    if (wtHideBtn) {
-      wtHideBtn.onclick = async (e) => {
-        e.stopPropagation();
-        const name = wtProject.projectPath.split('/').pop();
-        const confirmed = await showControlDialog({
-          title: 'Hide Worktree',
-          message: 'This removes the worktree from Switchboard. Session files are not deleted.',
-          confirmLabel: 'Hide Worktree',
-          tone: 'warning',
-          details: {
-            Worktree: name,
-            Path: wtProject.projectPath,
-          },
-        });
-        if (!confirmed) return;
-        // The dialog says "Hide", so it hides (#167). It used to call removeProject — which, back when
-        // hiding and removing were the same act, was the only thing it could do.
-        await window.api.hideProject(wtProject.projectPath);
-        loadProjects();
-      };
-    }
-    const wtDeleteBtn = wtHeader.querySelector('.worktree-delete-btn');
-    if (wtDeleteBtn) {
-      wtDeleteBtn.onclick = async (e) => {
-        e.stopPropagation();
-        const name = wtProject.projectPath.split('/').pop();
-        const confirmed = await showDeleteWorktreeDialog(name, wtProject.projectPath);
-        if (!confirmed) return;
-        const result = await window.api.deleteWorktree(wtProject.projectPath);
-        if (result && result.ok) {
-          loadProjects();
-        } else {
-          const msg = (result && result.error) ? result.error : 'Unknown error';
-          showControlMessage({ title: 'Delete worktree failed', message: msg, tone: 'danger' });
-        }
-      };
-    }
-    const toggleWorktree = (e) => {
-      if (e.target.closest('.worktree-new-btn') || e.target.closest('.worktree-hide-btn') || e.target.closest('.worktree-delete-btn')) return;
-      wtHeader.classList.toggle('collapsed');
-    };
-    wtHeader.onclick = toggleWorktree;
-    makeButtonLike(wtHeader, toggleWorktree, `Toggle ${wtProject.projectPath.split('/').pop()} worktree sessions`);
-  });
-
-  sidebarContent.querySelectorAll('.slug-group-header').forEach(header => {
-    const archiveBtn = header.querySelector('.slug-group-archive-btn');
-    if (archiveBtn) {
-      archiveBtn.onclick = async (e) => {
-        e.stopPropagation();
-        const group = header.parentElement;
-        const sessionItems = group.querySelectorAll('.session-item');
-        const archiveTargets = [];
-        for (const item of sessionItems) {
-          const sid = item.dataset.sessionId;
-          const session = sessionMap.get(sid);
-          if (!session || session.archived) continue;
-          archiveTargets.push(session);
-        }
-        if (archiveTargets.length === 0) return;
-        const name = header.querySelector('.slug-group-name')?.textContent || 'session group';
-        const confirmed = await showControlDialog({
-          title: 'Archive Session Group',
-          message: 'Archived sessions are hidden from the default sidebar view. Running sessions will be stopped first.',
-          confirmLabel: `Archive ${archiveTargets.length} Session${archiveTargets.length === 1 ? '' : 's'}`,
-          tone: 'warning',
-          details: {
-            Group: name,
-            Sessions: archiveTargets.length,
-            Running: archiveTargets.filter(s => activePtyIds.has(s.sessionId)).length,
-          },
-        });
-        if (!confirmed) return;
-        const archivedIds = archiveTargets.map(s => s.sessionId);
-        for (const session of archiveTargets) {
-          const sid = session.sessionId;
-          if (activePtyIds.has(sid)) { window._markUserStopped?.(sid); await window.api.stopSession(sid); }
-          await window.api.archiveSession(sid, 1);
-          session.archived = 1;
-        }
-        pollActiveSessions();
-        loadProjects();
-        showControlToast({
-          message: `Archived ${archivedIds.length} session${archivedIds.length === 1 ? '' : 's'} from ${name}.`,
-          actionLabel: 'Undo',
-          onAction: async () => {
-            for (const id of archivedIds) {
-              await window.api.archiveSession(id, 0);
-              const session = sessionMap.get(id);
-              if (session) session.archived = 0;
-            }
-            loadProjects();
-          },
-        });
-      };
-    }
-    const toggleSlugGroup = (e) => {
-      if (e.target.closest('.slug-group-archive-btn')) return;
-      header.parentElement.classList.toggle('collapsed');
-      saveExpandedSlugs();
-    };
-    header.onclick = toggleSlugGroup;
-    const name = header.querySelector('.slug-group-name')?.textContent || 'session group';
-    makeButtonLike(header, toggleSlugGroup, `Toggle ${name}`);
-  });
-
-  sidebarContent.querySelectorAll('.slug-group-more').forEach(moreBtn => {
-    const expandSlugGroup = () => {
-      const group = moreBtn.closest('.slug-group');
-      if (group) {
-        group.classList.remove('collapsed');
-        saveExpandedSlugs();
-      }
-    };
-    moreBtn.onclick = expandSlugGroup;
-    makeButtonLike(moreBtn, expandSlugGroup, moreBtn.textContent);
-  });
-
-  sidebarContent.querySelectorAll('.sessions-more-toggle').forEach(moreBtn => {
-    const olderList = moreBtn.nextElementSibling;
-    if (!olderList || !olderList.classList.contains('sessions-older')) return;
-    const count = olderList.children.length;
-    const toggleOlderSessions = () => {
-      const showing = olderList.style.display !== 'none';
-      olderList.style.display = showing ? 'none' : '';
-      moreBtn.classList.toggle('expanded', !showing);
-      moreBtn.textContent = showing ? `+ ${count} older` : '- hide older';
-    };
-    moreBtn.onclick = toggleOlderSessions;
-    makeButtonLike(moreBtn, toggleOlderSessions, moreBtn.textContent);
-  });
-
-  sidebarContent.querySelectorAll('.session-item').forEach(item => {
-    const sessionId = item.dataset.sessionId;
-    const session = sessionMap.get(sessionId);
-    if (!session) return;
-
-    // Sessions under missing projects can't be opened — the path no longer exists
-    if (item.closest('.project-group.missing')) {
-      item.classList.add('disabled');
-      item.title = 'Project path no longer exists — use "Change path" to fix';
-      item.onclick = () => {};
-      return;
-    }
-
-    const openSessionFromRow = (e) => {
-      if (e?.target?.closest?.('.session-actions, .session-pin, .session-health-chip')) return;
-      // Subagents are ephemeral child runs — open the dedicated read-only
-      // subagent transcript (reads via readSubagentJsonl(parent, agentId), the
-      // correct on-disk path) instead of resuming a PTY or reading a synthetic id.
-      if (session.parentSessionId) { if (typeof showSubagentTranscript === 'function') showSubagentTranscript(session); return; }
-      openSession(session);
-    };
-    item.onclick = openSessionFromRow;
-    makeButtonLike(item, openSessionFromRow, `Open ${cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId}`);
-
-    const pin = item.querySelector('.session-pin');
-    if (pin) {
-      const togglePin = async (e) => {
-        e.stopPropagation();
-        const { starred } = await window.api.toggleStar(session.sessionId);
-        session.starred = starred;
-        refreshSidebar({ resort: true });
-      };
-      pin.onclick = togglePin;
-      makeButtonLike(pin, togglePin, pin.title);
-    }
-
-    const summaryEl = item.querySelector('.session-summary');
-    if (summaryEl) {
-      summaryEl.ondblclick = (e) => { e.stopPropagation(); startRename(summaryEl, session); };
-    }
-
-    const stopBtn = item.querySelector('.session-stop-btn');
-    if (stopBtn) {
-      stopBtn.onclick = (e) => {
-        e.stopPropagation();
-        confirmAndStopSession(session.sessionId);
-      };
-    }
-
-    const launchConfigBtn = item.querySelector('.session-launch-config-btn');
-    if (launchConfigBtn) {
-      launchConfigBtn.onclick = (e) => {
-        e.stopPropagation();
-        showResumeSessionDialog(session);
-      };
-    }
-
-    item.querySelectorAll('.session-handoff-btn, .session-health-chip').forEach(handoffBtn => {
-      handoffBtn.onclick = (e) => {
-        e.stopPropagation();
-        showHandoffPrompt(session);
-      };
-    });
-
-    const forkBtn = item.querySelector('.session-fork-btn');
-    if (forkBtn) {
-      forkBtn.onclick = async (e) => {
-        e.stopPropagation();
-        // Find the project for this session
-        const project = [...cachedAllProjects, ...cachedProjects].find(p =>
-          p.sessions.some(s => s.sessionId === session.sessionId)
-        );
-        if (project) {
-          forkSession(session, project);
-        }
-      };
-    }
-
-    const jsonlBtn = item.querySelector('.session-jsonl-btn');
-    if (jsonlBtn) {
-      jsonlBtn.onclick = (e) => {
-        e.stopPropagation();
-        showJsonlViewer(session);
-      };
-    }
-
-    const copyIdBtn = item.querySelector('.session-copy-id-btn');
-    if (copyIdBtn) {
-      copyIdBtn.onclick = async (e) => {
-        e.stopPropagation();
-        await window.api.writeClipboard(session.sessionId);
-        showControlToast({ message: 'Session ID copied.' });
-      };
-    }
-
-    const tagsBtn = item.querySelector('.session-tags-btn');
-    if (tagsBtn) {
-      tagsBtn.onclick = (e) => {
-        e.stopPropagation();
-        window.bookmarksTags?.openTagPicker(session, tagsBtn);
-      };
-    }
-
-    const timelineBtn = item.querySelector('.session-timeline-btn');
-    if (timelineBtn) {
-      timelineBtn.onclick = (e) => {
-        e.stopPropagation();
-        showTimelineViewer(session);
-      };
-    }
-
-    const archiveBtn = item.querySelector('.session-archive-btn');
-    if (archiveBtn) {
-      archiveBtn.onclick = async (e) => {
-        e.stopPropagation();
-        const newVal = session.archived ? 0 : 1;
-        if (newVal && activePtyIds.has(session.sessionId)) {
-          const confirmed = await showControlDialog({
-            title: 'Archive Running Session',
-            message: 'Archiving this running session will stop its process first.',
-            confirmLabel: 'Stop And Archive',
-            tone: 'danger',
-            details: {
-              Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
-              Project: session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '',
-            },
-          });
-          if (!confirmed) return;
-          window._markUserStopped?.(session.sessionId);
-          await window.api.stopSession(session.sessionId);
-          pollActiveSessions();
-        }
-        await window.api.archiveSession(session.sessionId, newVal);
-        session.archived = newVal;
-        loadProjects();
-        if (newVal) {
-          showControlToast({
-            message: 'Session archived.',
-            actionLabel: 'Undo',
-            onAction: async () => {
-              await window.api.archiveSession(session.sessionId, 0);
-              session.archived = 0;
-              loadProjects();
-            },
-          });
-        }
-      };
-    }
-  });
   syncTitleToAriaLabel(sidebarContent);
   syncTitleToTooltip(sidebarContent);
 
-  // Auto-expand slug group if it contains the active session
+  // Auto-expand a slug group that holds the active session, so the selection is never hidden in a
+  // collapsed group after a re-render.
   if (activeSessionId) {
     const activeItem = sidebarContent.querySelector(`[data-session-id="${activeSessionId}"]`);
     const collapsedGroup = activeItem?.closest('.slug-group.collapsed');
@@ -495,6 +67,386 @@ function rebindSidebarEvents(projects) {
       collapsedGroup.classList.remove('collapsed');
       saveExpandedSlugs();
     }
+  }
+}
+
+// Attach the delegated listeners once. sidebarContent is the morphdom root, so these outlive every patch.
+function ensureSidebarDelegation() {
+  if (sidebarEventsDelegated || !sidebarContent) return;
+  sidebarEventsDelegated = true;
+  sidebarContent.addEventListener('click', dispatchSidebarActivation);
+  sidebarContent.addEventListener('dblclick', handleSidebarDblclick);
+  sidebarContent.addEventListener('keydown', handleSidebarKeyboard);
+  sidebarContent.addEventListener('keyup', handleSidebarKeyboard);
+  sidebarContent.addEventListener('pointerdown', handleSidebarPointerdown);
+}
+
+// Resolve the project (or worktree) object an element sits in. The worktree group is nested inside its
+// parent project-group, so it is the more specific match and wins — that is what lets a worktree's
+// `.project-new-btn` resolve to the worktree without a dedicated branch.
+function sidebarProjectForEl(el) {
+  const wtGroup = el.closest('.worktree-group');
+  const path = wtGroup ? wtGroup.dataset.projectPath : el.closest('.project-group')?.dataset.projectPath;
+  if (!path) return null;
+  return sidebarProjects.find(p => p.projectPath === path) || null;
+}
+
+function sidebarShortName(projectPath) {
+  return projectPath.split('/').filter(Boolean).slice(-2).join('/');
+}
+
+// The single click router. Most-specific selector first; returns on the first match.
+function dispatchSidebarActivation(e) {
+  const t = e.target;
+
+  // --- Attention inbox ---
+  if (t.closest('.attention-inbox-next-btn')) {
+    e.stopPropagation();
+    const next = getNextAttentionInboxItem(getAllRenderableSessions(sidebarProjects), getSessionRuntimeState(), activeSessionId);
+    focusAttentionItem(next);
+    return;
+  }
+  const inboxItem = t.closest('.attention-inbox-item');
+  if (inboxItem) {
+    const session = sessionMap.get(inboxItem.dataset.sessionId);
+    if (session) focusAttentionItem({ session });
+    return;
+  }
+
+  // --- Session rows and their action buttons (before the row-open) ---
+  const sessionEl = t.closest('.session-item');
+  if (sessionEl) {
+    const session = sessionMap.get(sessionEl.dataset.sessionId);
+    if (!session) return;
+    // A row under a missing project is inert — the path is gone. The old code bound NO handlers on such a
+    // row (it early-returned before any), so no action fires here either, not just the open.
+    if (sessionEl.closest('.project-group.missing')) return;
+
+    if (t.closest('.session-pin')) { e.stopPropagation(); toggleSessionPin(session); return; }
+    if (t.closest('.session-stop-btn')) { e.stopPropagation(); confirmAndStopSession(session.sessionId); return; }
+    if (t.closest('.session-launch-config-btn')) { e.stopPropagation(); showResumeSessionDialog(session); return; }
+    if (t.closest('.session-handoff-btn') || t.closest('.session-health-chip')) { e.stopPropagation(); showHandoffPrompt(session); return; }
+    if (t.closest('.session-fork-btn')) { e.stopPropagation(); forkSessionFromRow(session); return; }
+    if (t.closest('.session-jsonl-btn')) { e.stopPropagation(); showJsonlViewer(session); return; }
+    if (t.closest('.session-copy-id-btn')) { e.stopPropagation(); copySessionId(session); return; }
+    if (t.closest('.session-tags-btn')) { e.stopPropagation(); window.bookmarksTags?.openTagPicker(session, t.closest('.session-tags-btn')); return; }
+    if (t.closest('.session-timeline-btn')) { e.stopPropagation(); showTimelineViewer(session); return; }
+    if (t.closest('.session-archive-btn')) { e.stopPropagation(); archiveSessionFromRow(session); return; }
+
+    // Row open (least specific). Clicks in the actions area / pin / health-chip never open the row.
+    // (Missing-project rows already returned above.)
+    if (t.closest('.session-actions, .session-pin, .session-health-chip')) return;
+    // Subagents are ephemeral child runs — open the read-only subagent transcript, not a PTY resume.
+    if (session.parentSessionId) { if (typeof showSubagentTranscript === 'function') showSubagentTranscript(session); return; }
+    openSession(session);
+    return;
+  }
+
+  // --- Worktree headers ---
+  const wtHeader = t.closest('.worktree-header');
+  if (wtHeader) {
+    const wtProject = sidebarProjectForEl(wtHeader);
+    if (!wtProject) return;
+    if (t.closest('.worktree-new-btn')) { e.stopPropagation(); showNewSessionPopover(wtProject, t.closest('.worktree-new-btn')); return; }
+    if (t.closest('.worktree-hide-btn')) { e.stopPropagation(); hideWorktree(wtProject); return; }
+    if (t.closest('.worktree-delete-btn')) { e.stopPropagation(); deleteWorktree(wtProject); return; }
+    wtHeader.classList.toggle('collapsed');
+    return;
+  }
+
+  // --- Slug groups ---
+  const slugHeader = t.closest('.slug-group-header');
+  if (slugHeader) {
+    if (t.closest('.slug-group-archive-btn')) { e.stopPropagation(); archiveSlugGroup(slugHeader); return; }
+    slugHeader.parentElement.classList.toggle('collapsed');
+    saveExpandedSlugs();
+    return;
+  }
+  const slugMore = t.closest('.slug-group-more');
+  if (slugMore) {
+    const group = slugMore.closest('.slug-group');
+    if (group) { group.classList.remove('collapsed'); saveExpandedSlugs(); }
+    return;
+  }
+
+  // --- "+ N older" toggle ---
+  const olderToggle = t.closest('.sessions-more-toggle');
+  if (olderToggle) {
+    const olderList = olderToggle.nextElementSibling;
+    if (!olderList || !olderList.classList.contains('sessions-older')) return;
+    const count = olderList.children.length;
+    const showing = olderList.style.display !== 'none';
+    olderList.style.display = showing ? 'none' : '';
+    olderToggle.classList.toggle('expanded', !showing);
+    olderToggle.textContent = showing ? `+ ${count} older` : '- hide older';
+    return;
+  }
+
+  // --- Project headers (checked last: everything above is nested inside a project-group) ---
+  const projectHeader = t.closest('.project-header');
+  if (projectHeader) {
+    const project = sidebarProjectForEl(projectHeader);
+    if (!project) return;
+    if (t.closest('.project-new-btn')) { e.stopPropagation(); showNewSessionPopover(project, t.closest('.project-new-btn')); return; }
+    if (t.closest('.project-tasks-btn')) {
+      e.stopPropagation();
+      if (typeof openTasksView === 'function') {
+        openTasksView({ projectPath: project.projectPath }, 'Project · ' + projectDisplayLabel(project.displayName, sidebarShortName(project.projectPath)));
+      }
+      return;
+    }
+    if (t.closest('.project-bookmarks-btn')) {
+      e.stopPropagation();
+      if (typeof openBookmarksView === 'function') {
+        openBookmarksView({ projectPath: project.projectPath }, 'Project · ' + projectDisplayLabel(project.displayName, sidebarShortName(project.projectPath)));
+      }
+      return;
+    }
+    if (t.closest('.project-schedule-btn')) { e.stopPropagation(); launchScheduleCreator(project); return; }
+    if (t.closest('.project-settings-btn')) { e.stopPropagation(); openSettingsViewer('project', project.projectPath); return; }
+    if (t.closest('.project-favorite-btn')) { e.stopPropagation(); toggleProjectFavorite(project); return; }
+    if (t.closest('.project-missing-icon')) { e.stopPropagation(); loadProjects(); return; }
+    if (t.closest('.project-remap-btn')) { e.stopPropagation(); remapProject(project); return; }
+    if (t.closest('.project-archive-btn')) { e.stopPropagation(); archiveProjectGroup(project); return; }
+    // Header toggle (collapse/expand), persisted.
+    projectHeader.classList.toggle('collapsed');
+    setProjectCollapsed(project.projectPath, projectHeader.classList.contains('collapsed'));
+    return;
+  }
+}
+
+// A double-click on a session name starts the inline rename. Delegated, so the rename input's replacement
+// summary is caught here too — sidebar-session-row.js no longer binds dblclick per node.
+function handleSidebarDblclick(e) {
+  const summaryEl = e.target.closest('.session-summary');
+  if (!summaryEl) return;
+  const item = summaryEl.closest('.session-item');
+  const session = item && sessionMap.get(item.dataset.sessionId);
+  if (session) { e.stopPropagation(); startRename(summaryEl, session); }
+}
+
+// Keyboard activation for the button-like DIVs/SPANs (role="button"). A real <button> already fires a
+// click on Enter/Space, so the click delegation covers it — skip it here to avoid a double activation.
+function handleSidebarKeyboard(e) {
+  // A real <button> already emits a synthetic click on Enter/Space (the click delegation handles it), so
+  // resolve to the nearest button-like ancestor and skip it when it is a native button — only the
+  // role="button" DIV/SPANs need explicit keyboard activation.
+  const activatable = e.target.closest('button, [role="button"]');
+  if (!activatable || activatable.tagName === 'BUTTON') return;
+  handleKeyboardActivation(e, () => dispatchSidebarActivation(e));
+}
+
+// The manual project-reorder drag begins on the grip handle (pointerdown, threshold-gated in
+// startProjectDrag/startPointerDrag).
+function handleSidebarPointerdown(e) {
+  const handle = e.target.closest('.project-drag-handle');
+  if (!handle) return;
+  const header = handle.closest('.project-header');
+  const project = sidebarProjectForEl(handle);
+  if (project && header) { e.stopPropagation(); startProjectDrag(project, header, e); }
+}
+
+// --- Action flows (the bodies of the old per-node handlers, unchanged; context now passed in) ---
+
+async function toggleProjectFavorite(project) {
+  const { favorited } = await window.api.toggleProjectFavorite(project.projectPath);
+  const fav = !!favorited;
+  // Update the flag in both cached lists so either view re-sorts correctly, then a light re-render —
+  // not a full loadProjects() (2× getProjects IPC), matching the session-pin path (issue #78).
+  for (const list of [cachedProjects, cachedAllProjects]) {
+    const p = list && list.find(x => x.projectPath === project.projectPath);
+    if (p) p.favorited = fav;
+  }
+  refreshSidebar({ resort: true });
+}
+
+async function remapProject(project) {
+  const newPath = await window.api.browseFolder();
+  if (!newPath) return;
+  const shortName = sidebarShortName(project.projectPath);
+  const confirmed = await showControlDialog({
+    title: 'Change Project Path',
+    message: 'Switchboard will associate this project group with the selected folder.',
+    confirmLabel: 'Change Path',
+    tone: 'warning',
+    details: { Project: shortName, From: project.projectPath, To: newPath },
+  });
+  if (!confirmed) return;
+  const result = await window.api.remapProject(project.projectPath, newPath);
+  if (result.error) {
+    await showControlMessage({ title: 'Remap Failed', message: result.error, confirmLabel: 'OK', tone: 'danger' });
+  } else {
+    loadProjects();
+  }
+}
+
+async function archiveProjectGroup(project) {
+  const sessions = project.sessions.filter(s => !s.archived);
+  if (sessions.length === 0) return;
+  const shortName = sidebarShortName(project.projectPath);
+  const confirmed = await showControlDialog({
+    title: 'Archive Project Sessions',
+    message: 'Archived sessions are hidden from the default sidebar view. Running sessions will be stopped first.',
+    confirmLabel: `Archive ${sessions.length} Session${sessions.length === 1 ? '' : 's'}`,
+    tone: 'warning',
+    details: {
+      Project: shortName,
+      Sessions: sessions.length,
+      Running: sessions.filter(s => activePtyIds.has(s.sessionId)).length,
+    },
+  });
+  if (!confirmed) return;
+  const archivedIds = sessions.map(s => s.sessionId);
+  for (const s of sessions) {
+    if (activePtyIds.has(s.sessionId)) {
+      window._markUserStopped?.(s.sessionId);
+      await window.api.stopSession(s.sessionId);
+    }
+    await window.api.archiveSession(s.sessionId, 1);
+    s.archived = 1;
+  }
+  pollActiveSessions();
+  loadProjects();
+  showControlToast({
+    message: `Archived ${archivedIds.length} session${archivedIds.length === 1 ? '' : 's'} from ${shortName}.`,
+    actionLabel: 'Undo',
+    onAction: async () => {
+      for (const id of archivedIds) {
+        await window.api.archiveSession(id, 0);
+        const session = sessionMap.get(id);
+        if (session) session.archived = 0;
+      }
+      loadProjects();
+    },
+  });
+}
+
+async function hideWorktree(wtProject) {
+  const name = wtProject.projectPath.split('/').pop();
+  const confirmed = await showControlDialog({
+    title: 'Hide Worktree',
+    message: 'This removes the worktree from Switchboard. Session files are not deleted.',
+    confirmLabel: 'Hide Worktree',
+    tone: 'warning',
+    details: { Worktree: name, Path: wtProject.projectPath },
+  });
+  if (!confirmed) return;
+  // The dialog says "Hide", so it hides (#167). It used to call removeProject — which, back when hiding
+  // and removing were the same act, was the only thing it could do.
+  await window.api.hideProject(wtProject.projectPath);
+  loadProjects();
+}
+
+async function deleteWorktree(wtProject) {
+  const name = wtProject.projectPath.split('/').pop();
+  const confirmed = await showDeleteWorktreeDialog(name, wtProject.projectPath);
+  if (!confirmed) return;
+  const result = await window.api.deleteWorktree(wtProject.projectPath);
+  if (result && result.ok) {
+    loadProjects();
+  } else {
+    const msg = (result && result.error) ? result.error : 'Unknown error';
+    showControlMessage({ title: 'Delete worktree failed', message: msg, tone: 'danger' });
+  }
+}
+
+async function archiveSlugGroup(slugHeader) {
+  const group = slugHeader.parentElement;
+  const sessionItems = group.querySelectorAll('.session-item');
+  const archiveTargets = [];
+  for (const item of sessionItems) {
+    const sid = item.dataset.sessionId;
+    const session = sessionMap.get(sid);
+    if (!session || session.archived) continue;
+    archiveTargets.push(session);
+  }
+  if (archiveTargets.length === 0) return;
+  const name = slugHeader.querySelector('.slug-group-name')?.textContent || 'session group';
+  const confirmed = await showControlDialog({
+    title: 'Archive Session Group',
+    message: 'Archived sessions are hidden from the default sidebar view. Running sessions will be stopped first.',
+    confirmLabel: `Archive ${archiveTargets.length} Session${archiveTargets.length === 1 ? '' : 's'}`,
+    tone: 'warning',
+    details: {
+      Group: name,
+      Sessions: archiveTargets.length,
+      Running: archiveTargets.filter(s => activePtyIds.has(s.sessionId)).length,
+    },
+  });
+  if (!confirmed) return;
+  const archivedIds = archiveTargets.map(s => s.sessionId);
+  for (const session of archiveTargets) {
+    const sid = session.sessionId;
+    if (activePtyIds.has(sid)) { window._markUserStopped?.(sid); await window.api.stopSession(sid); }
+    await window.api.archiveSession(sid, 1);
+    session.archived = 1;
+  }
+  pollActiveSessions();
+  loadProjects();
+  showControlToast({
+    message: `Archived ${archivedIds.length} session${archivedIds.length === 1 ? '' : 's'} from ${name}.`,
+    actionLabel: 'Undo',
+    onAction: async () => {
+      for (const id of archivedIds) {
+        await window.api.archiveSession(id, 0);
+        const session = sessionMap.get(id);
+        if (session) session.archived = 0;
+      }
+      loadProjects();
+    },
+  });
+}
+
+async function toggleSessionPin(session) {
+  const { starred } = await window.api.toggleStar(session.sessionId);
+  session.starred = starred;
+  refreshSidebar({ resort: true });
+}
+
+async function copySessionId(session) {
+  await window.api.writeClipboard(session.sessionId);
+  showControlToast({ message: 'Session ID copied.' });
+}
+
+function forkSessionFromRow(session) {
+  // Find the project for this session.
+  const project = [...cachedAllProjects, ...cachedProjects].find(p =>
+    p.sessions.some(s => s.sessionId === session.sessionId)
+  );
+  if (project) forkSession(session, project);
+}
+
+async function archiveSessionFromRow(session) {
+  const newVal = session.archived ? 0 : 1;
+  if (newVal && activePtyIds.has(session.sessionId)) {
+    const confirmed = await showControlDialog({
+      title: 'Archive Running Session',
+      message: 'Archiving this running session will stop its process first.',
+      confirmLabel: 'Stop And Archive',
+      tone: 'danger',
+      details: {
+        Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
+        Project: session.projectPath ? sidebarShortName(session.projectPath) : '',
+      },
+    });
+    if (!confirmed) return;
+    window._markUserStopped?.(session.sessionId);
+    await window.api.stopSession(session.sessionId);
+    pollActiveSessions();
+  }
+  await window.api.archiveSession(session.sessionId, newVal);
+  session.archived = newVal;
+  loadProjects();
+  if (newVal) {
+    showControlToast({
+      message: 'Session archived.',
+      actionLabel: 'Undo',
+      onAction: async () => {
+        await window.api.archiveSession(session.sessionId, 0);
+        session.archived = 0;
+        loadProjects();
+      },
+    });
   }
 }
 

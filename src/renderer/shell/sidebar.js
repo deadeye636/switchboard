@@ -153,6 +153,7 @@ function buildSlugGroup(slug, sessions) {
   row.appendChild(info);
   row.appendChild(archiveSlugBtn);
   header.appendChild(row);
+  ariaButton(header, `Toggle ${displayName}`); // click/keyboard delegated in sidebar-events.js (#218 opt6)
 
   const sessionsContainer = document.createElement('div');
   sessionsContainer.className = 'slug-group-sessions';
@@ -177,6 +178,7 @@ function buildSlugGroup(slug, sessions) {
       moreBtn.className = 'slug-group-more';
       moreBtn.id = 'sgm-' + id;
       moreBtn.textContent = `+ ${rest.length} more`;
+      ariaButton(moreBtn, moreBtn.textContent); // click/keyboard delegated (#218 opt6)
 
       const olderDiv = document.createElement('div');
       olderDiv.className = 'slug-group-older';
@@ -368,6 +370,7 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath) {
     moreBtn.className = 'sessions-more-toggle';
     moreBtn.id = 'older-' + fId;
     moreBtn.textContent = `+ ${older.length} older`;
+    ariaButton(moreBtn, moreBtn.textContent); // click/keyboard delegated in sidebar-events.js (#218 opt6)
     const olderList = document.createElement('div');
     olderList.className = 'sessions-older';
     olderList.id = 'older-list-' + fId;
@@ -461,6 +464,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
     header.title = project.projectPath;
     const missingIcon = project.missing ? '<span class="project-missing-icon" role="button" tabindex="0" title="Unavailable — click to re-check (e.g. after mounting the drive)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span> ' : '';
     header.innerHTML = `<span class="arrow">&#9660;</span> ${missingIcon}<span class="project-name">${escapeHtml(display)}</span>`;
+    ariaButton(header, `Toggle ${shortName} sessions`); // click/keyboard delegated in sidebar-events.js (#218 opt6)
     if (sortable) {
       const dragHandle = document.createElement('span');
       dragHandle.className = 'project-drag-handle';
@@ -570,11 +574,13 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
       const wtGroup = document.createElement('div');
       wtGroup.className = 'worktree-group';
       wtGroup.id = wtFId;
+      wtGroup.dataset.projectPath = wt.projectPath; // lets the delegated listener resolve the worktree (#218 opt6)
 
       const wtHeader = document.createElement('div');
       wtHeader.className = 'worktree-header';
       wtHeader.id = 'ph-' + wtFId;
       wtHeader.innerHTML = `<span class="worktree-branch-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8c0-2.76-2.46-5-5.5-5S2 5.24 2 8h2l1-1 1 1h4"/><path d="M13 7.14A5.82 5.82 0 0 1 16.5 6c3.04 0 5.5 2.24 5.5 5h-3l-1-1-1 1h-3"/><path d="M5.89 9.71c-2.15 2.15-2.3 5.47-.35 7.43l4.24-4.25.7-.7.71-.71 2.12-2.12c-1.95-1.96-5.27-1.8-7.42.35"/><path d="M11 15.5c.5 2.5-.17 4.5-1 6.5h4c2-5.5-.5-12-1-14"/></svg></span> <span class="worktree-name">${escapeHtml(wtName)}</span>`;
+      ariaButton(wtHeader, `Toggle ${wtName} worktree sessions`); // click/keyboard delegated (#218 opt6)
 
       const wtHideBtn = document.createElement('button');
       wtHideBtn.className = 'worktree-hide-btn';

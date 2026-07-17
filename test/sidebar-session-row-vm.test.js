@@ -66,7 +66,8 @@ function setup(backend = {}) {
   window.getBackend = backend.getBackend || (() => null);
   window.backendMonogram = (id) => id.slice(0, 2).toUpperCase();
 
-  for (const rel of ['shell/sidebar-session-row.js']) {
+  // Real a11y-utils so ariaButton (and its siblings) resolve exactly as in the browser.
+  for (const rel of ['lib/a11y-utils.js', 'shell/sidebar-session-row.js']) {
     vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
   }
 
