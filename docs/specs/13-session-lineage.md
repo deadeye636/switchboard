@@ -33,23 +33,31 @@ subagent). The core reads each backend's own field — no `if (backendId === …
 
 `PARSER_SCHEMA_VERSION` (Claude) bumped 4→5 so existing rows re-derive fork lineage on the next scan.
 
-## The `/clear` heuristic (`src/session/session-lineage.js`)
+## The `/clear` resolver (`src/session/session-lineage.js`) — conservative on purpose
 
-A `/clear` records no back-link, so the parent is inferred. The signal is the **mtime freeze**: the PTY now
-writes to the NEW file, so the parent's transcript stops the instant the child is born. Among the folder's
-live sessions the parent is the lone one whose last write sits in a tight window just **before** the child's
-birth; an unrelated session is either idle (far older) or still writing past the birth (excluded).
-`resolveClearParent` returns `{ parentId, confidence: high|low|none }`.
+A `/clear` records no back-link, so the parent must be inferred. `resolveClearParent({ candidates })` returns
+`{ parentId, confidence: 'high' | 'none' }` and re-keys ONLY on `high`, which it gives ONLY when there is
+**exactly one** live session in the folder — that one unambiguously cleared. With two or more, it bails.
 
-- **#223 re-key** (`session-transitions.js`) acts ONLY on `high` — a wrong guess collapses two tabs onto one
-  id, worse than the bail — and otherwise keeps the deliberate bail. The re-key is also the authoritative
-  source of the `/clear` lineage: the scanner cannot correlate it (the parent's file is unchanged and
-  skipped), so the re-key persists the child's link via `setSessionLineage` (kind `clear`). `COALESCE` keeps
-  a hard link from being overwritten by a soft guess and lets the later full scan fill the rest.
-- **#193 display** shows `low`/soft as a labelled guess; genuine ambiguity shows nothing.
+**Why not a heuristic across multiple live sessions?** The first cut tried the **mtime freeze** — the PTY now
+writes to the new file, so the parent's transcript "stops" at the clear, and the parent should be the lone
+session frozen just before the child's birth. A field probe killed it: the parent stops when its last TURN
+ends, and the user's think-time before typing `/clear` sits between that and the child's birth — the true
+parent's freeze was OUTSIDE any tight window in ~95% of real `/clear` children. Worse, a **bystander** that
+finished a turn a second before the clear IS inside the window, so the heuristic would re-key the bystander
+onto another session's child — collapsing two tabs onto one id, the exact failure #223 says must never
+happen. No folder-local signal (mtime, cwd, gitBranch) distinguishes the true parent from a just-idle
+bystander. So the multi-session re-key is **not solved** here; it waits for a signal that ties a clear to a
+specific PTY (a per-session `SessionStart` hook echo — the hook exists but does not name the parent, so the
+correlation is future work).
 
-Tie-in with #219: the `SessionStart` hook (the strongest live signal) is off in dev builds, so the mtime
-correlation is the floor that works everywhere; the hook is the confirmation that lifts certainty.
+- **#223 status/re-key:** reliably fixed for a **single** live session in the folder (the source's row folds
+  onto the child, the tab follows). Multiple live sessions keep the deliberate bail — safe, unsolved.
+- **#193 provenance:** on the single-session re-key, the child's link is persisted via `setSessionLineage`
+  (kind `clear`) — the authoritative source, since the scanner cannot correlate a clear (the parent's file
+  is unchanged and skipped). `COALESCE` keeps a hard link from being overwritten by a soft guess and lets
+  the later full scan fill the rest. An ambiguous clear records nothing — a guess we would not act on is a
+  guess we do not make.
 
 ## Sidebar rendering — Model A (`src/renderer/shell/sidebar-lineage.js`)
 
@@ -72,7 +80,15 @@ open their read-only transcript. The toggle and ancestor clicks are delegated (#
 
 ## Known gaps
 
+- **The multi-session `/clear` re-key (#223's headline) is NOT solved.** With two or more live sessions in
+  one folder, the source still keeps its row/tab until it exits — the same bail as before. No folder-local
+  signal can safely attribute the clear; it needs a PTY→session tie (a per-session `SessionStart` hook echo
+  that names the parent). The single-session case IS fixed, and the resolver refuses to guess so nothing is
+  ever mis-keyed.
 - Pi (`parentSession`), Codex/Claude **compaction** lineage are not wired — their on-disk signals were not
   verified against real transcripts. The mechanism (columns, resolver, rendering) is in place; a backend
   that records a parent only has to set `lineageParentId`/`lineageKind`, no core change.
 - A very long `/clear` chain is not capped in the expander (all ancestors listed).
+- An expanded lineage thread collapses on the next sidebar re-render (morphdom re-applies `display:none`);
+  a live ancestor also still appears inside a descendant's expander (consistent with Model A's shared-ancestor
+  stance). Both cosmetic.

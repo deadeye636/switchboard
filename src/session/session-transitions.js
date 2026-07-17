@@ -370,41 +370,26 @@ function detectSessionTransitions(folder) {
       }
 
       // Clear: the fresh file carries a SessionStart:clear marker but NO lineage
-      // backref, so we can't match by metadata. Resolve the parent by the mtime
-      // freeze (session-lineage.js): the session that cleared stopped writing the
-      // instant the child was born, so among the active sessions in this folder the
-      // parent is the lone one frozen just before the birth. Re-key ONLY on `high`
-      // confidence — a wrong guess collapses two tabs onto one id, which is worse
-      // than leaving both rows alone (#223). Guard activeSessions.has(newId): once
-      // the winner has re-keyed, the file belongs to an existing session.
+      // backref. Resolve the parent conservatively (session-lineage.js): re-key ONLY
+      // when this is the SINGLE live session in the folder — with two or more, no
+      // folder-local signal can tell the true parent from a bystander that just went
+      // idle, and a wrong re-key collapses two tabs onto one id, worse than the bail
+      // (#223). Guard activeSessions.has(newId): once a winner re-keyed, the file
+      // belongs to an existing session.
       if (!matched && signals.clearOrigin && !activeSessions.has(newId)) {
+        // Only follow a freshly created clear file — avoids adopting stale files at watcher start.
         let fresh = false;
-        let childBirthMs = NaN;
-        try {
-          const st = fs.statSync(newFilePath);
-          // birthtime is reliable on Windows/macOS; fall back to mtime where it is 0.
-          childBirthMs = (Number.isFinite(st.birthtimeMs) && st.birthtimeMs > 0) ? st.birthtimeMs : st.mtimeMs;
-          // Only follow a freshly created clear file — avoids adopting stale files at watcher start.
-          fresh = Date.now() - st.mtimeMs < 300000;
-        } catch {}
+        try { fresh = Date.now() - fs.statSync(newFilePath).mtimeMs < 300000; } catch {}
         if (fresh) {
           const candidates = [...activeSessions]
             .filter(([, s]) => !s.exited && !s.isPlainTerminal && s.projectFolder === folder)
-            .map(([key, s]) => {
-              const fileId = s.realSessionId || key;
-              let mtimeMs = 0;
-              try { mtimeMs = fs.statSync(path.join(folderPath, fileId + '.jsonl')).mtimeMs; } catch {}
-              return { id: key, mtimeMs };
-            });
-          const { parentId, confidence } = resolveClearParent({ childBirthMs, candidates });
+            .map(([key]) => ({ id: key }));
+          const { parentId, confidence } = resolveClearParent({ candidates });
           if (confidence === 'high' && parentId === sessionId) {
-            // This iterating PTY is the resolved parent — re-key it onto the clear child.
             matched = true;
-          } else if (confidence !== 'high') {
-            log.info(`[detect] session=${sessionId} clear file=${newId} ${confidence} (${candidates.length} active sessions in folder) — skipping`);
+          } else if (candidates.length > 1) {
+            log.info(`[detect] session=${sessionId} clear file=${newId} ambiguous (${candidates.length} active sessions in folder) — skipping`);
           }
-          // high but parentId !== sessionId: another session in this folder is the parent; it matches on
-          // its own iteration. Stay silent here.
         }
       }
 

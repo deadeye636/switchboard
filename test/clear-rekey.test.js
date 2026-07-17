@@ -52,57 +52,32 @@ function setup(files) {
     cleanup: () => fs.rmSync(projectsDir, { recursive: true, force: true }) };
 }
 
-test('the session frozen at the child\'s birth re-keys; the unrelated live session is untouched', () => {
+test('two live sessions in one folder → neither re-keys (no mis-key), whatever their mtimes', () => {
   const now = Date.now();
+  // Even the tempting shape — one frozen just before the birth, one long idle — is refused: a bystander
+  // that just finished a turn is indistinguishable from the true parent by mtime, and the parent's
+  // think-time usually puts ITS freeze outside any window. So the folder-local signal is not trusted at all
+  // once more than one session is live.
   const s = setup({
-    'parent.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 300 },       // stopped just before the clear
-    'other.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 10 * 60000 }, // unrelated, idle 10 min
-    'child.jsonl': { content: CLEAR_LINE + '\n' },                              // fresh /clear child (birth ~now)
-  });
-  try {
-    s.addSession('parent');
-    s.addSession('other');
-
-    transitions.detectSessionTransitions(s.folder);
-
-    // The parent re-keyed onto the clear child.
-    assert.equal(s.activeSessions.has('parent'), false, 'the dead source id is gone');
-    assert.equal(s.activeSessions.has('child'), true, 're-keyed onto the clear child');
-    assert.equal(s.activeSessions.get('child').realSessionId, 'child');
-    assert.deepEqual(s.sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'parent', 'child'],
-      'the renderer is told to fold the row onto the new id');
-    assert.deepEqual(s.rekeyedMcp, [['parent', 'child']], 'the MCP server followed');
-    assert.deepEqual(s.rekeyedBackend, [['parent', 'child']], 'the backend overlay followed');
-    // #193: the clear child's provenance is recorded (child, folder, parent) for the sidebar thread.
-    assert.deepEqual(s.lineage, [['child', s.folder, 'parent']], 'the /clear lineage is persisted');
-
-    // The unrelated session is left exactly as it was.
-    assert.equal(s.activeSessions.has('other'), true, 'the parallel session is untouched');
-  } finally { s.cleanup(); }
-});
-
-test('two sessions both frozen at the birth stay ambiguous — neither re-keys (no mis-key)', () => {
-  const now = Date.now();
-  const s = setup({
-    'parent.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 200 },
-    'other.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 400 }, // also frozen in the window
+    'parent.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 20000 },    // true parent, idle 20s (think-time)
+    'bystander.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 2000 },  // finished a turn 2s ago
     'child.jsonl': { content: CLEAR_LINE + '\n' },
   });
   try {
     s.addSession('parent');
-    s.addSession('other');
+    s.addSession('bystander');
 
     transitions.detectSessionTransitions(s.folder);
 
-    // Genuine ambiguity → the deliberate bail holds; both rows stay, nothing re-keys.
-    assert.equal(s.activeSessions.has('parent'), true);
-    assert.equal(s.activeSessions.has('other'), true);
+    assert.equal(s.activeSessions.has('parent'), true, 'nothing re-keyed');
+    assert.equal(s.activeSessions.has('bystander'), true, 'the bystander is NOT mis-keyed onto the child');
     assert.equal(s.activeSessions.has('child'), false, 'the child was not claimed by a guess');
-    assert.equal(s.sent.some(([ch]) => ch === 'session-forked'), false, 'no fold was pushed');
+    assert.equal(s.sent.some(([ch]) => ch === 'session-forked'), false, 'no fold pushed');
+    assert.deepEqual(s.lineage, [], 'no lineage recorded on an ambiguous clear');
   } finally { s.cleanup(); }
 });
 
-test('a single live session still re-keys (the pre-existing safe case)', () => {
+test('a single live session re-keys onto its /clear child and records the lineage', () => {
   const now = Date.now();
   const s = setup({
     'parent.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 300 },
@@ -113,7 +88,12 @@ test('a single live session still re-keys (the pre-existing safe case)', () => {
 
     transitions.detectSessionTransitions(s.folder);
 
-    assert.equal(s.activeSessions.has('child'), true, 'the lone session re-keys as before');
-    assert.equal(s.activeSessions.has('parent'), false);
+    assert.equal(s.activeSessions.has('child'), true, 'the lone session re-keys');
+    assert.equal(s.activeSessions.has('parent'), false, 'the dead source id is gone');
+    assert.deepEqual(s.sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'parent', 'child']);
+    assert.deepEqual(s.rekeyedMcp, [['parent', 'child']], 'the MCP server followed');
+    assert.deepEqual(s.rekeyedBackend, [['parent', 'child']], 'the backend overlay followed');
+    // #193: the clear child's provenance is recorded (child, folder, parent) for the sidebar thread.
+    assert.deepEqual(s.lineage, [['child', s.folder, 'parent']], 'the /clear lineage is persisted');
   } finally { s.cleanup(); }
 });

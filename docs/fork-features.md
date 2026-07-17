@@ -49,10 +49,12 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   fold under the live head (a *"N earlier in thread"* toggle), not as separate rows. Lineage is a tree —
   each head walks its own path up, so a shared ancestor can appear under more than one head (Model A).
 - Backend-neutral via `lineageParentId`/`lineageKind`: Hermes `parent_session_id` and a Claude fork's
-  `forkedFrom` are hard links; a Claude `/clear` (no on-disk back-link) is inferred by the **mtime freeze**
-  and labelled a guess — never presented as fact.
-- The same inference fixes #223: a `/clear` with several sessions live in one folder now re-keys the right
-  one (on high confidence only) instead of leaving the source stuck as *running* with the tab on a dead id.
+  `forkedFrom` are hard links; a Claude `/clear` (no on-disk back-link) is inferred and labelled a guess —
+  never presented as fact.
+- #223: a `/clear` folds the old session onto the new one so the tab follows — done **only when a single
+  session is live** in the folder; with several live, no folder-local signal can safely attribute the clear
+  (the resolver refuses to guess rather than mis-key), so it stays as-is. That multi-session case is a known
+  gap (spec 13), waiting on a PTY→session signal.
 - Tested: `test/session-lineage.test.js`, `test/clear-rekey.test.js`, `test/sidebar-lineage-vm.test.js`.
 
 ### Session visit history
