@@ -3,7 +3,7 @@
 // app.js cannot be loaded in jsdom (line 198 calls window.api.onTerminalData at
 // module scope, which fires before our stubs are in place). Instead we test the
 // gating logic in isolation: build a minimal DOM, replicate the function from
-// public/app.js, and assert that:
+// src/renderer/app.js, and assert that:
 //
 //   a) When activePtyIds is unchanged between calls, the two sidebar
 //      querySelectorAll scans are skipped entirely.
@@ -37,7 +37,7 @@ function buildDom() {
   return dom;
 }
 
-// Build the updateRunningIndicators function as it exists in public/app.js
+// Build the updateRunningIndicators function as it exists in src/renderer/app.js
 // (post-Q9 patch). We instantiate it inline rather than eval-ing app.js because
 // app.js registers IPC listeners at module-scope that require a preload bridge
 // we can't stub cleanly in jsdom.

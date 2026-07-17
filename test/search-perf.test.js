@@ -1,4 +1,5 @@
-// Tests for the two search-perf fixes in public/app.js:
+// Tests for the two search-perf fixes in the sidebar search (src/renderer/shell/search-bar.js since #228;
+// was public/app.js, then src/renderer/app.js):
 //
 //   Fix 1 — minimum 3 characters: queries shorter than MIN_SEARCH_CHARS must
 //     NOT call window.api.search, must NOT clear the input value, but MUST
@@ -10,16 +11,17 @@
 //     so clearing with resort:false would sort the full list against a stale index
 //     and produce a scrambled sidebar order.
 //
-// app.js cannot be eval-ed in jsdom (it registers IPC listeners at module
-// scope before stubs are ready). We follow the running-indicators.test.js
-// pattern: replicate the relevant logic inline and test it in isolation.
+// search-bar.js cannot be eval-ed in jsdom (it binds listeners to app.js's DOM
+// consts at module scope, which are not present in isolation). We follow the
+// running-indicators.test.js pattern: replicate the relevant logic inline and
+// test it in isolation.
 
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
 // ---------------------------------------------------------------------------
-// Minimal in-process replica of the search functions from public/app.js.
+// Minimal in-process replica of the search functions from shell/search-bar.js.
 // We keep it as close to the real source as possible so a drift in the real
 // file shows up as a test failure on the next `task check`.
 // ---------------------------------------------------------------------------
@@ -60,7 +62,7 @@ function makeSearchState() {
     state.renderWorkFilesCalls.push(ids);
   }
 
-  // Mirrors clearSearch() in app.js.
+  // Mirrors clearSearch() in shell/search-bar.js.
   function clearSearch() {
     inputEl.value = '';
     if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
@@ -77,7 +79,7 @@ function makeSearchState() {
     }
   }
 
-  // Mirrors resetSearchFilter() in app.js.
+  // Mirrors resetSearchFilter() in shell/search-bar.js.
   function resetSearchFilter() {
     if (state.activeTab === 'sessions') {
       state.searchMatchIds = null;
@@ -92,7 +94,7 @@ function makeSearchState() {
     }
   }
 
-  // Mirrors runSearchQuery() in app.js.
+  // Mirrors runSearchQuery() in shell/search-bar.js.
   async function runSearchQuery(apiSearch) {
     const query = inputEl.value.trim();
     if (!query) {
