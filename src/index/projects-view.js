@@ -104,6 +104,9 @@ function buildProjectsFromCache(showArchived) {
       actualCostUsd: row.actualCostUsd == null ? null : Number(row.actualCostUsd),
       costStatus: row.costStatus || null,
       lineageParentId: row.lineageParentId || null,
+      // How that parent link was established (#193): 'fork'/'parent'/'compaction' are hard (the backend
+      // recorded it), 'clear' is the soft mtime-freeze guess — the sidebar labels a guess as a guess.
+      lineageKind: row.lineageKind || null,
       name: meta?.name || null,
       starred: meta?.starred || 0,
       archived: meta?.archived || 0,

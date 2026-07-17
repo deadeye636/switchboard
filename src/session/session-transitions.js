@@ -7,7 +7,7 @@ const { resolveClearParent } = require('./session-lineage');
  * Fork / plan-accept detection for active PTY sessions.
  * Call init(ctx) once with shared context.
  */
-let PROJECTS_DIR, activeSessions, getMainWindow, log, rekeyMcpServer, rekeySessionBackend;
+let PROJECTS_DIR, activeSessions, getMainWindow, log, rekeyMcpServer, rekeySessionBackend, recordLineage;
 
 function init(ctx) {
   PROJECTS_DIR = ctx.PROJECTS_DIR;
@@ -18,6 +18,9 @@ function init(ctx) {
   // Multi-LLM (T-1.4): rekey the backend/profile overlay on temp->real id transition, so a
   // session's backend follows it across fork/clear. No-op if not injected.
   rekeySessionBackend = ctx.rekeySessionBackend || (() => {});
+  // Record a /clear child's soft lineage link the moment we resolve it (#193). No-op if not injected
+  // (the tests drive detectSessionTransitions without a DB).
+  recordLineage = ctx.recordLineage || (() => {});
 }
 
 // --- Subagent spawn / completion detection ---
@@ -408,6 +411,10 @@ function detectSessionTransitions(folder) {
       if (matched) {
         const kind = signals.clearOrigin ? 'clear' : (signals.forkedFrom || session.forkFrom ? 'fork' : 'plan-accept');
         log.info(`[session-transition] ${sessionId} → ${newId} (${kind})`);
+        // Record the /clear child's provenance (#193). This is the authoritative source for a clear link —
+        // the scanner cannot correlate it (the parent's file is unchanged and skipped), so we persist it
+        // here where the parent is known at high confidence. Fork lineage is written by the scanner.
+        if (kind === 'clear') { try { recordLineage(newId, folder, sessionId); } catch { /* best effort */ } }
         session.knownJsonlFiles = new Set(currentFiles);
         session.realSessionId = newId;
         // Update slug from new session

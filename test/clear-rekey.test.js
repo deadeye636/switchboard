@@ -32,6 +32,7 @@ function setup(files) {
   const sent = [];
   const rekeyedMcp = [];
   const rekeyedBackend = [];
+  const lineage = [];
   const activeSessions = new Map();
   transitions.init({
     PROJECTS_DIR: projectsDir,
@@ -40,13 +41,14 @@ function setup(files) {
     log: { info() {}, warn() {}, debug() {}, error() {} },
     rekeyMcpServer: (from, to) => rekeyedMcp.push([from, to]),
     rekeySessionBackend: (from, to) => rekeyedBackend.push([from, to]),
+    recordLineage: (childId, folder, parentId) => lineage.push([childId, folder, parentId]),
   });
   const addSession = (id, over = {}) => activeSessions.set(id, {
     exited: false, isPlainTerminal: false, projectFolder: folder,
     knownJsonlFiles: new Set(['parent.jsonl', 'other.jsonl']),
     knownSubagents: new Map(), ...over,
   });
-  return { projectsDir, folder, folderPath, activeSessions, sent, rekeyedMcp, rekeyedBackend, addSession,
+  return { projectsDir, folder, folderPath, activeSessions, sent, rekeyedMcp, rekeyedBackend, lineage, addSession,
     cleanup: () => fs.rmSync(projectsDir, { recursive: true, force: true }) };
 }
 
@@ -71,6 +73,8 @@ test('the session frozen at the child\'s birth re-keys; the unrelated live sessi
       'the renderer is told to fold the row onto the new id');
     assert.deepEqual(s.rekeyedMcp, [['parent', 'child']], 'the MCP server followed');
     assert.deepEqual(s.rekeyedBackend, [['parent', 'child']], 'the backend overlay followed');
+    // #193: the clear child's provenance is recorded (child, folder, parent) for the sidebar thread.
+    assert.deepEqual(s.lineage, [['child', s.folder, 'parent']], 'the /clear lineage is persisted');
 
     // The unrelated session is left exactly as it was.
     assert.equal(s.activeSessions.has('other'), true, 'the parallel session is untouched');

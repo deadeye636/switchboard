@@ -128,7 +128,7 @@ const {
   getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedByProjectPath, getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
-  deleteCachedSession, deleteCachedFolder, replaceSessionMetrics,
+  deleteCachedSession, deleteCachedFolder, setSessionLineage, replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
   searchByType, isSearchIndexPopulated, searchFtsRecreated,
@@ -2286,7 +2286,9 @@ terminalIo.registerIpc(ipcMain);
 
 // Session transitions → session-transitions.js
 const sessionTransitions = require('./session/session-transitions');
-sessionTransitions.init({ PROJECTS_DIR, activeSessions, getMainWindow: () => mainWindow, log, rekeyMcpServer, rekeySessionBackend: sessionBackends.rekeySession });
+sessionTransitions.init({ PROJECTS_DIR, activeSessions, getMainWindow: () => mainWindow, log, rekeyMcpServer, rekeySessionBackend: sessionBackends.rekeySession,
+  // #193: persist a /clear child's provenance the moment the re-key resolves it (the scanner can't).
+  recordLineage: (childId, folder, parentId) => setSessionLineage(childId, folder, parentId, 'clear') });
 // Point the Claude backend's file-mode discovery at the app's actual projects dir (may differ from
 // ~/.claude/projects when CLAUDE_DIR is overridden). The scanner adopts discoverSessions() in T-4.2.
 try { require('./backends/claude').setRoots([PROJECTS_DIR]); } catch {}

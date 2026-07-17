@@ -165,6 +165,7 @@ function parseBackendSessions(b, { handles, cachedByFile, cachedById, force = fa
       // and reusing it would make a Hermes child session render as a subagent of its parent.
       if (row.parentSessionId) {
         row.lineageParentId = row.parentSessionId;
+        row.lineageKind = 'parent'; // a backend-recorded hard link (#193), not a heuristic guess
         row.parentSessionId = null;
       }
     }

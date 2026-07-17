@@ -141,6 +141,30 @@ test('readSessionFile returns a top-level row when called without opts', () => {
     assert.equal(row.messageCount, 1);
     assert.equal(row.parentSessionId, undefined);
     assert.equal(row.agentId, undefined);
+    // A plain (non-forked) session has no lineage link.
+    assert.equal(row.lineageParentId, null);
+    assert.equal(row.lineageKind, null);
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+// #193: a forked session names its origin in the head. The scanner records it as a HARD lineage link in
+// lineageParentId (NOT parentSessionId, which is reserved for Claude subagents), kind 'fork'.
+test('readSessionFile records fork lineage from a forkedFrom entry', () => {
+  const tmp = mkTmp();
+  try {
+    const filePath = path.join(tmp, 'forked-session.jsonl');
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ type: 'user', message: 'continue the work', forkedFrom: { sessionId: 'origin-abc' } }) + '\n',
+      'utf8'
+    );
+    const row = readSessionFile(filePath, 'folder-x', '/p');
+    assert.ok(row, 'expected a row');
+    assert.equal(row.lineageParentId, 'origin-abc', 'the fork parent rides in lineageParentId');
+    assert.equal(row.lineageKind, 'fork');
+    assert.equal(row.parentSessionId, undefined, 'not the subagent field');
   } finally {
     cleanup(tmp);
   }

@@ -15,7 +15,7 @@ const { sessionProjectPath } = require('../../session/derive-project-path');
 //   v4: a session that moved DEEPER into its own project stays with it — a nested repository is not a
 //       new project (#182). Same reason for the bump: the sessions v3 scattered into phantom projects
 //       have long-settled mtimes, so only the version marker brings them home.
-const PARSER_SCHEMA_VERSION = 4;
+const PARSER_SCHEMA_VERSION = 5; // v5: fork lineage (lineageParentId/lineageKind) — #193
 
 function contentToText(content) {
   if (typeof content === 'string') return content;
@@ -178,6 +178,9 @@ function createParseState() {
       cacheReadTokens: 0,
     },
     agentId: null,
+    // A forked session names its origin in the head (#193). Captured on the first (full) read and kept in
+    // the incremental memo, so it survives later appends.
+    forkedFrom: null,
     sidechainSeen: false,
     // The last cwd seen — where this session is working NOW, which is not necessarily where it started
     // (#157). Tracked in the parse, so it costs no extra read, and it keeps working on the incremental
@@ -203,6 +206,7 @@ function applyEntryLine(st, line) {
   }
   if (entry.cwd) st.lastCwd = entry.cwd;
   if (entry.slug && !st.slug) st.slug = entry.slug;
+  if (entry.forkedFrom && entry.forkedFrom.sessionId && !st.forkedFrom) st.forkedFrom = entry.forkedFrom.sessionId;
   if (entry.agentId && !st.agentId) st.agentId = entry.agentId;
   if (entry.isSidechain) st.sidechainSeen = true;
   if (entry.type === 'custom-title' && entry.customTitle) {
@@ -297,6 +301,10 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
     largestUserPromptWords: st.largestUserPromptWords,
     startedAt: st.startedAt, lastEntryAt: st.lastEntryAt, activeMinutes,
     ...st.usageTotals,
+    // Fork lineage (#193): a hard link to the session this one was forked from. `parentSessionId` stays
+    // for Claude SUBAGENTS only, so a fork's parent rides in lineageParentId like every other backend's.
+    lineageParentId: st.forkedFrom || null,
+    lineageKind: st.forkedFrom ? 'fork' : null,
     dailyMetrics,
   };
 }

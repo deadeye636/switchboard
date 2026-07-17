@@ -36,10 +36,10 @@ const stmts = {
       slug, aiTitle,
       parentSessionId, agentId, subagentType, description,
       backendId, filePath,
-      changeMarker, estimatedCostUsd, actualCostUsd, costStatus, lineageParentId,
+      changeMarker, estimatedCostUsd, actualCostUsd, costStatus, lineageParentId, lineageKind,
       parserVersion
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET
       folder = excluded.folder, projectPath = excluded.projectPath,
       summary = excluded.summary, firstPrompt = excluded.firstPrompt,
@@ -67,7 +67,19 @@ const stmts = {
       actualCostUsd = COALESCE(excluded.actualCostUsd, session_cache.actualCostUsd),
       costStatus = COALESCE(excluded.costStatus, session_cache.costStatus),
       lineageParentId = COALESCE(excluded.lineageParentId, session_cache.lineageParentId),
+      lineageKind = COALESCE(excluded.lineageKind, session_cache.lineageKind),
       parserVersion = excluded.parserVersion
+  `),
+  // Record a /clear child's lineage the moment the live re-key resolves it (#193). Inserts a sparse row if
+  // the child has not been scanned yet, else fills the lineage on the existing row. COALESCE keeps an
+  // already-recorded link, so a hard fork link is never overwritten by a soft clear guess, and the later
+  // full scan (which passes lineage=null for a /clear) does not wipe what was recorded here.
+  cacheSetLineage: db.prepare(`
+    INSERT INTO session_cache (sessionId, folder, lineageParentId, lineageKind)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(sessionId) DO UPDATE SET
+      lineageParentId = COALESCE(session_cache.lineageParentId, excluded.lineageParentId),
+      lineageKind = COALESCE(session_cache.lineageKind, excluded.lineageKind)
   `),
   cacheGetByParent: db.prepare('SELECT * FROM session_cache WHERE parentSessionId = ? ORDER BY created ASC'),
   cacheGetByFolder: db.prepare('SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath, changeMarker, parserVersion FROM session_cache WHERE folder = ?'),
@@ -188,6 +200,7 @@ const upsertCachedSessionsBatch = db.transaction((sessions) => {
       s.actualCostUsd == null ? null : Number(s.actualCostUsd),
       s.costStatus || null,
       s.lineageParentId || null,
+      s.lineageKind || null,
       // v14 (#152) — which parser wrote this row. The scan compares it to the parser that would read
       // it now, so a bumped parser re-reads its own sessions instead of leaving stale metrics behind.
       s.parserVersion == null ? null : Number(s.parserVersion)
@@ -227,6 +240,12 @@ function getCachedByParent(parentSessionId) {
 
 function upsertCachedSessions(sessions) {
   runWithBusyRetry(() => upsertCachedSessionsBatch(sessions));
+}
+
+// Record a Claude /clear child's soft lineage link at re-key time (#193). See cacheSetLineage.
+function setSessionLineage(sessionId, folder, parentId, kind = 'clear') {
+  if (!sessionId || !folder || !parentId) return;
+  runWithBusyRetry(() => stmts.cacheSetLineage.run(sessionId, folder, parentId, kind));
 }
 
 // `scope` (optional, see backendScopeClause): restricts the rows to one backend's store. Omitted =
@@ -337,7 +356,7 @@ function setFolderMeta(folder, projectPath, indexMtimeMs) {
 module.exports = {
   isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedByProjectPath,
   getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
-  deleteCachedSession, deleteCachedFolder,
+  deleteCachedSession, deleteCachedFolder, setSessionLineage,
   replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   // --- for other src/db modules, not for callers outside it ---

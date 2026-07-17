@@ -117,6 +117,7 @@ module.exports = {
   upsertCachedSessions: sessionStore.upsertCachedSessions,
   deleteCachedSession: sessionStore.deleteCachedSession,
   deleteCachedFolder: sessionStore.deleteCachedFolder,
+  setSessionLineage: sessionStore.setSessionLineage,
   replaceSessionMetrics: sessionStore.replaceSessionMetrics,
   getFolderMeta: sessionStore.getFolderMeta,
   getAllFolderMeta: sessionStore.getAllFolderMeta,
