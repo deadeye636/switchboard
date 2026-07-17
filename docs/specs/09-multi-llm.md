@@ -38,11 +38,20 @@ special case anywhere outside that provider's own folder.
   It is the **default**, not a fixture: Claude can be switched off like any other backend (#162). The
   "always enabled" rule only ever existed as one line of renderer code — `isEnabled()` had no carve-out,
   so a hand-edited blob or a settings import could already set the flag, and the app would half-break on
-  it. The gate is in the model now, and every Claude fallback that assumed it could not fail is gone:
-  the default launch target resolves to something actually launchable, a resume of a provenance-less
-  session says *why* it cannot start, the scheduler refuses instead of quietly spawning a disabled
-  binary, and Claude's own store stops being scanned. *Disable is not delete* — the sessions stay
-  visible and searchable.
+  it. The gate is in the model now: the default launch target resolves to something actually launchable, a
+  resume of a provenance-less session says *why* it cannot start, the scheduler refuses instead of quietly
+  spawning a disabled binary, and Claude's own store stops being scanned. *Disable is not delete* — the
+  sessions stay visible and searchable.
+
+  **This section used to end "and every Claude fallback that assumed it could not fail is gone". It was not
+  true, and it stayed here for eleven issues.** #212 counted them: **23** `|| 'claude'` fallbacks in the
+  renderer alone, plus id branches the word "fallback" does not even cover — the profile editor gated its
+  ANTHROPIC_* fields on `baseId === 'claude'`, and the settings list kept the five backend blurbs in a table
+  keyed by id. #162 moved the *gate* into the model and nothing checked the rest. #212 fixed the three
+  files its acceptance named and left a **test** rather than a claim (`test/backend-integrations.test.js`:
+  an id-comparison guard, a literal counter, and a no-table-keyed-by-id guard, all mutation-tested);
+  **#225** carries the eight remaining renderer files. So: the rule holds where a guard enforces it, and
+  #225 is the honest list of where it does not yet. Do not restore the sentence — extend the guard.
 
 ## Architecture
 
@@ -51,11 +60,15 @@ special case anywhere outside that provider's own folder.
 | Field / hook | Purpose |
 |---|---|
 | `id`, `label`, `monogram`, `colour` | identity + badge |
+| `description` | the one-line blurb the Backends settings list shows under the label. It says what the CLI **is** — never what it is to this install ("the default", "always available"): the list already shows that, and both of those stopped being true once Claude became disablable (#162). |
+| `icon` | which artwork `backend-icons.js` draws, by slug. Declare one and the backend gets a real logo everywhere; declare none — the normal case — and it gets a monogram badge. Anthropic's mark used to be a raw SVG string in `dialogs.js`, emitted only when the id read `claude` (#212). |
 | `status` | `ready` \| `planned` (a "Coming soon" dummy that can never launch or be scanned) |
 | `axis` | `'B'` = own binary + own store. Claude is the default (`axis: null`); a profile is Axis-A and declares no schema of its own (it runs Claude's binary, so it uses Claude's). |
 | `configFields` | this CLI's launch options. **The Settings page and the Configure dialog are generated from it.** A field may declare `appliesAt: 'spawn'` (applied by `app/terminal/spawn.js`, not part of the argv) or `requires: '<other>'` (meaningless on its own). Options that belong to **Switchboard** rather than to a CLI — today `preLaunchCmd` — are added to every backend by the registry (`UNIVERSAL_FIELDS`), not copied into each descriptor. |
 | `supportsFork` | whether Fork is offered for its sessions |
 | `startupHint`, `caveat` | a slow first paint (Hermes ≈ 12 s); a standing gotcha shown in Settings |
+| `endpointEnv` | which env-var family this CLI reads its endpoint from (`'anthropic'`), or nothing. The profile editor offers its Endpoint fields **only** on a base that declares one — on a Codex template they would be two boxes writing variables Codex never reads. Also what an Axis-A preset binds to: a preset IS a bundle of `ANTHROPIC_*` variables, so it needs whichever base declares it reads them (#212). |
+| `integrations` | backend-owned extras that are **not** launch options — they reach no argv and no env, so they are not `configFields`, yet they are not generic app settings either. Claude's attention hook patches Claude's **own** `~/.claude/settings.json` and applies to every Claude session, including ones Switchboard never started. Declared → the gear page renders the section; not declared → nothing there (#212). Details below. |
 | `buildLaunch({cwd, resume, sessionId, forkFrom, options})` | → `{command, args, env, cwd, spawnMode}`. `env` values are `$VAR` refs, resolved at spawn. |
 | `probe()` | → `{ok, reason}` — is the binary (and what it needs) there? |
 | `discoverSessions()` | → handles: `{kind:'file', path}` **or** `{kind:'db', ref, sessionId, marker}` |
@@ -303,6 +316,39 @@ Three things this got wrong before, and now does not:
 
 Hermes and Pi declare no capability and therefore appear nowhere in this UI — not even as an empty control
 that could never show a value. Pi's `usage.cost` is its own *cost estimate*, not a quota.
+
+## The integrations capability (#212)
+
+Some things belong to a backend but are not launch options: they reach no argv and no env, so they cannot
+be `configFields` — yet they are not generic app settings either. Claude's attention hook is the case that
+forced the shape: it patches Claude's **own** `~/.claude/settings.json` and applies to every Claude
+session, including ones Switchboard never started.
+
+It used to be rendered by an `if (backend.id === 'claude')` on the gear page — the last place the settings
+surface named a backend, and the one rule this layer otherwise kept perfectly. Now the backend declares it:
+
+```js
+integrations: {
+  title: 'Integrations',
+  fields: [{ id: 'attentionHooks', domId: 'sv-attention-hooks', type: 'toggle', label: '…', description: '…' }],
+}
+```
+
+- **Only the declaration crosses IPC**, exactly like `usage`. `backends-panel.js` renders whatever arrived
+  and knows no backend; a descriptor that declares nothing gets no section at all.
+- **Each field is a plain GLOBAL setting keyed by `id`**, not a `backendDefaults` option — these reach no
+  argv, so the cascade has nothing to resolve. `settings-panel.js` owns the save path.
+- **`domId` is the load-bearing string, and it is the fragile one.** It is shared across two files with no
+  import between them, and `settings-panel.js` deliberately falls back to the stored value when the control
+  is absent (the gear page is usually not in the DOM). That fallback is what makes a save with the page
+  closed safe — and also exactly what would hide a rename: the toggle would keep rendering, keep taking
+  clicks, and silently stop saving, with the suite green. `test/backend-integrations.test.js` pins both ends.
+- **`toggle` is the only type** the panel renders. An unknown type renders *nothing* rather than falling
+  through to a checkbox — a control that stores something other than what it shows is worse than no control.
+
+A template inherits none of this: `profileToDescriptor` builds an explicit field list and carries neither
+`integrations` nor `endpointEnv` nor `description`. That is deliberate — a template has no gear page, and
+the profile editor asks the **base**, off the built-ins.
 
 ## As built — known gaps
 

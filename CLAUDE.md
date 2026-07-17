@@ -197,8 +197,25 @@ Being a deliberate act is the entire point.
 - **Read first:** `docs/specs/09-multi-llm.md` (the contract + why each decision is what it is) and
   `docs/backend-formats.md` (what each backend actually writes — taken from real installs, because the
   published docs were wrong in three places).
-- **Don't hardcode a backend id outside its own folder.** `src/main.js` / `src/app/**` / `src/watch/**` / `src/index/session-cache.js` / `src/renderer/**/*.js`
-  contain no `if (backendId === 'codex')` and must not gain one.
+- **Don't hardcode a backend id outside its own folder.** `src/main.js` / `src/app/**` / `src/watch/**` /
+  `src/index/session-cache.js` contain no `if (backendId === 'codex')` and must not gain one.
+  **`src/renderer/**` is the exception, and it is a live one:** this rule claimed the renderer was clean
+  for eleven issues while it was not. #212 counted 23 `|| 'claude'` fallbacks plus id branches — a gear
+  page gated on `backend.id === 'claude'`, the profile editor on `baseId === 'claude'`, and the five
+  backend blurbs in a table keyed by id. Three files are clean now and **guarded**
+  (`test/backend-integrations.test.js`, `ALLOWED_BINDINGS`); **#225** is the honest list of the eight that
+  are not. Trust the guard, not this bullet — and when you clean a file, add it to the guard.
+- **Reaching for a backend id nobody named? There are exactly two honest answers** (#212), and the code
+  must say which: it is **reading a record from before the multi-LLM era** (a template with no `backendId`
+  predates #161, when a template was always Claude — bind it to a named `LEGACY_TEMPLATE_BASE`), or it
+  resolves to the **first LAUNCHABLE backend** (`firstLaunchableBackendId()` in `backend-registry.js`; `''`
+  when nothing is launchable, and `''` must not be turned back into an id). `|| 'claude'` is neither:
+  Claude is disablable (#162), so it hands back a backend that cannot spawn.
+- **A per-backend TABLE in the renderer is the descriptor's data in the wrong process.** The blurbs lived
+  in `backends-panel.js` as `{ claude: '…', codex: '…' }` — so a new backend had to edit the renderer to
+  look finished, and one whose author forgot rendered a blank line with nothing to say so. Declare it on
+  the descriptor and project it through `backends-list`. Same for artwork (`icon`), the Endpoint fields
+  (`endpointEnv`) and backend-owned extras (`integrations`).
 - **A file-mode backend composes `src/backends/file-store.js` — it does not copy the walk.** Discovery,
   `watchTargets`, the birth-time `matchLiveSession` and the suffix `liveRefFor` are the same code for every
   backend that keeps one transcript per session; declare `root` (lazy), `matches`, `parseSession` and
