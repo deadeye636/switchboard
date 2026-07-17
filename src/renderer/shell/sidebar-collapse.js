@@ -7,7 +7,7 @@
 // A PLAIN CLASSIC SCRIPT that LOADS AFTER app.js. Its parse-time tail binds a click listener to
 // `collapseAllToggle` — an app.js const (app.js:75) — so parsed before app.js that const would be in its
 // TDZ. app.js reaches back into this controller at two points, both guarded because this file loads later:
-// updateCollapseAllToggle (app.js:819, `typeof` guard, pre-existing) and applyCollapseDefault (app.js:2320,
+// updateCollapseAllToggle (app.js:819, `typeof` guard, pre-existing) and applyCollapseDefault (app.js:2271,
 // guarded here to match). Both are call-time; neither runs at app.js parse.
 //
 // What it reaches into app.js at call time: sidebarContent, collapseAllToggle (DOM handles),
