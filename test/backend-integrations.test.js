@@ -151,6 +151,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/shell/search-bar.js': [],
   'src/renderer/shell/native-notifications.js': [],
   'src/renderer/shell/attention-engine.js': [],
+  'src/renderer/shell/sidebar-collapse.js': [],
   'src/renderer/shell/away-summary-banner.js': [],
   // #225 — the eight files #212's acceptance did not scope. Every one of them is now either a documented
   // migration or a resolution to the first launchable backend, so seven of the eight bind nothing at all.

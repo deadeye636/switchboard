@@ -92,6 +92,7 @@
     "app.js",
     "search-bar.js",
     "native-notifications.js",
+    "sidebar-collapse.js",
     "view-menu.js"
   ],
   "settings.html": [

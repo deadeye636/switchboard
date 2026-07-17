@@ -1055,60 +1055,10 @@ resortBtn.addEventListener('click', () => {
   loadProjects({ resort: true });
 });
 
-// --- Collapse / expand all ---
-// Operates on every collapsible section in the session overview: project and
-// worktree headers, and auto slug groups. They all share the `.collapsed` class,
-// so "collapse all" adds it everywhere and "expand all" removes it. Slug collapse
-// state is persisted via its existing helpers; project/worktree headers persist
-// across re-renders via morphdom.
-const COLLAPSIBLE_SECTION_SELECTOR = '.project-header, .worktree-header, .slug-group';
-
-function getCollapsibleSections() {
-  return Array.from(sidebarContent.querySelectorAll(COLLAPSIBLE_SECTION_SELECTOR));
-}
-
-function updateCollapseAllToggle() {
-  if (!collapseAllToggle) return;
-  const sections = getCollapsibleSections();
-  // "All collapsed" only when there is something to collapse and nothing is open.
-  const allCollapsed = sections.length > 0 && sections.every(s => s.classList.contains('collapsed'));
-  collapseAllToggle.classList.toggle('all-collapsed', allCollapsed);
-  collapseAllToggle.disabled = sections.length === 0;
-  collapseAllToggle.title = allCollapsed ? 'Expand all' : 'Collapse all';
-  collapseAllToggle.setAttribute('aria-label', collapseAllToggle.title);
-  collapseAllToggle.setAttribute('data-tooltip', collapseAllToggle.title);
-  collapseAllToggle.innerHTML = allCollapsed
-    ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 5 12 11 18 5"/><polyline points="6 13 12 19 18 13"/></svg>'
-    : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 11 12 5 18 11"/><polyline points="6 19 12 13 18 19"/></svg>';
-}
-
-// Apply the startup collapse default (sidebarCollapseDefault setting):
-// 'expanded' / 'collapsed' force all sections; 'remember' leaves the persisted
-// state alone. Called once after the initial sidebar render.
-function applyCollapseDefault(mode) {
-  if (mode !== 'expanded' && mode !== 'collapsed') return; // 'remember' = persisted state
-  const sections = getCollapsibleSections();
-  if (sections.length === 0) return;
-  const collapse = mode === 'collapsed';
-  for (const section of sections) section.classList.toggle('collapsed', collapse);
-  saveExpandedSlugs();
-  if (typeof updateCollapseAllToggle === 'function') updateCollapseAllToggle();
-}
-
-function toggleCollapseAllSections() {
-  const sections = getCollapsibleSections();
-  if (sections.length === 0) return;
-  // Collapse everything unless it's already all collapsed (then expand).
-  const collapse = sections.some(s => !s.classList.contains('collapsed'));
-  for (const section of sections) section.classList.toggle('collapsed', collapse);
-  saveExpandedSlugs();
-  updateCollapseAllToggle();
-}
-
-if (collapseAllToggle) {
-  collapseAllToggle.addEventListener('click', toggleCollapseAllSections);
-  updateCollapseAllToggle();
-}
+// The collapse/expand-all controller — fold/unfold every collapsible section, plus the startup collapse
+// default — is shell/sidebar-collapse.js (#218/#228). It loads AFTER app.js (its click listener binds to
+// the collapseAllToggle const here) and app.js calls back into it guarded (updateCollapseAllToggle at
+// :819, applyCollapseDefault below).
 
 // --- Global settings gear button ---
 globalSettingsBtn.innerHTML = ICONS.gear(18);
@@ -2316,7 +2266,9 @@ loadProjects().then(async () => {
   let tabsMode = false;
   try {
     const g = await window.api.getSetting('global');
-    applyCollapseDefault(g?.sidebarCollapseDefault || 'remember');
+    // applyCollapseDefault is in shell/sidebar-collapse.js (loads after app.js, #228); guard so a boot that
+    // reaches here before that script parses degrades to a no-op rather than throwing and skipping tabsMode.
+    if (typeof applyCollapseDefault === 'function') applyCollapseDefault(g?.sidebarCollapseDefault || 'remember');
     tabsMode = g?.sessionDisplayMode === 'tabs';
   } catch { /* ignore */ }
 
