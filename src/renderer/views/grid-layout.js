@@ -73,6 +73,38 @@
     return ids;
   }
 
+  // --- Pointer drag geometry ---
+  // Pure geometry the drag-to-reorder gesture needs; the DOM half that drives it
+  // lives in views/grid-gestures.js. Kept here so it is require()-able and tested.
+
+  // Reading-order insertion index for the cursor among sibling layout rects: the
+  // count of siblings that sort before the cursor (row-major). Result is in
+  // [0, rects.length] and can address every slot — including the dragged card's
+  // origin — so the user can always return to the start position.
+  function cursorInsertionIndex(rects, x, y) {
+    let idx = 0;
+    for (const r of rects) {
+      const cx = r.left + r.width / 2;
+      let before;
+      if (y > r.top + r.height) before = true;       // cursor in a lower row
+      else if (y < r.top) before = false;            // cursor in an upper row
+      else before = x > cx;                           // same row → compare to center
+      if (before) idx++;
+    }
+    return idx;
+  }
+
+  // Index of the placeholder among the container's real sibling cards (excluding
+  // the lifted dragged card) — used to seed/dedup the live insertion index.
+  function placeholderSlotIndex(container, placeholder, exclude) {
+    let idx = 0;
+    for (const n of container.children) {
+      if (n === placeholder) break;
+      if (n.classList && n.classList.contains('grid-card') && n !== exclude) idx++;
+    }
+    return idx;
+  }
+
   // --- Keyboard move mode ---
   // The arrow keys the mode acts on. Bare = reorder, Shift = resize.
   const MOVE_MODE_DIRECTIONS = {
@@ -130,6 +162,8 @@
     normalizeSpan,
     applyLayout,
     reorder,
+    cursorInsertionIndex,
+    placeholderSlotIndex,
     isMoveModeChord,
     moveIndex,
     resizeSpan,

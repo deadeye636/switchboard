@@ -7,6 +7,8 @@ const {
   normalizeSpan,
   applyLayout,
   reorder,
+  cursorInsertionIndex,
+  placeholderSlotIndex,
 } = require('../src/renderer/views/grid-layout');
 
 test('calculateGridColumnCount still derives sane column counts', () => {
@@ -93,4 +95,46 @@ test('reorder does not mutate the input array', () => {
   const out = reorder(input, 'c', 'a');
   assert.deepEqual(input, ['a', 'b', 'c']);
   assert.deepEqual(out, ['c', 'a', 'b']);
+});
+
+// A 2x2 grid of 100x100 cards at (0,0),(100,0),(0,100),(100,100).
+const GRID_2X2 = [
+  { left: 0, top: 0, width: 100, height: 100 },     // 0: top-left
+  { left: 100, top: 0, width: 100, height: 100 },   // 1: top-right
+  { left: 0, top: 100, width: 100, height: 100 },   // 2: bottom-left
+  { left: 100, top: 100, width: 100, height: 100 }, // 3: bottom-right
+];
+
+test('cursorInsertionIndex counts siblings that sort before the cursor', () => {
+  // Before the first card (upper-left corner) → slot 0.
+  assert.equal(cursorInsertionIndex(GRID_2X2, -10, -10), 0);
+  // Past the last card (lower-right) → slot 4 (append).
+  assert.equal(cursorInsertionIndex(GRID_2X2, 300, 300), GRID_2X2.length);
+  // Cursor over the second card's right half sits after cards 0 and 1 → slot 2.
+  assert.equal(cursorInsertionIndex(GRID_2X2, 190, 50), 2);
+});
+
+test('cursorInsertionIndex compares to row band before card center', () => {
+  // A lower row is always "before" every upper-row card (row-major).
+  assert.equal(cursorInsertionIndex(GRID_2X2, 0, 150), 2);
+  // Same row, left of a card's center → not counted as before it.
+  assert.equal(cursorInsertionIndex(GRID_2X2, 10, 50), 0);
+});
+
+// Minimal DOM stub: a container whose children answer classList.contains.
+function fakeCard(isCard = true) {
+  return { classList: { contains: (c) => isCard && c === 'grid-card' } };
+}
+
+test('placeholderSlotIndex counts real cards before the placeholder', () => {
+  const a = fakeCard(), b = fakeCard(), ph = {}, c = fakeCard();
+  const container = { children: [a, b, ph, c] };
+  assert.equal(placeholderSlotIndex(container, ph), 2);
+});
+
+test('placeholderSlotIndex skips the excluded (lifted) card and non-cards', () => {
+  const lifted = fakeCard(), notCard = fakeCard(false), b = fakeCard(), ph = {};
+  const container = { children: [lifted, notCard, b, ph] };
+  // lifted is excluded, notCard is not a grid-card → only b counts.
+  assert.equal(placeholderSlotIndex(container, ph, lifted), 1);
 });

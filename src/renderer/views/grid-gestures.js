@@ -29,7 +29,8 @@
 // The rest of what it reaches for is called, not assigned, and therefore only needs to EXIST by the time
 // a pointer touches a card: gridCards, writeCardSpan, snapshotGridCardBoxes, refitResizedGridCards,
 // persistGridOrder, getContainerColumnCount, updateGridColumns (grid-view.js), terminalsEl, openSessions
-// (app.js), fitAndScroll (terminal-manager.js), GRID_GAP, normalizeSpan, reorder (grid-layout.js).
+// (app.js), fitAndScroll (terminal-manager.js), GRID_GAP, normalizeSpan, reorder, cursorInsertionIndex,
+// placeholderSlotIndex (grid-layout.js — the last two moved there in #218 opt2 so they are testable).
 
 const gridFitTimers = new Map(); // sessionId → debounce timer for fitAndScroll
 
@@ -88,34 +89,6 @@ function gridCardLayoutRect(el) {
     } catch { /* fall through to raw rect */ }
   }
   return { left: r.left, top: r.top, width: r.width, height: r.height };
-}
-
-// Reading-order insertion index for the cursor among sibling layout rects: the
-// count of siblings that sort before the cursor (row-major). Result is in
-// [0, rects.length] and can address every slot — including the dragged card's
-// origin — so the user can always return to the start position.
-function cursorInsertionIndex(rects, x, y) {
-  let idx = 0;
-  for (const r of rects) {
-    const cx = r.left + r.width / 2;
-    let before;
-    if (y > r.top + r.height) before = true;       // cursor in a lower row
-    else if (y < r.top) before = false;            // cursor in an upper row
-    else before = x > cx;                           // same row → compare to center
-    if (before) idx++;
-  }
-  return idx;
-}
-
-// Index of the placeholder among the container's real sibling cards (excluding
-// the lifted dragged card) — used to seed/dedup the live insertion index.
-function placeholderSlotIndex(container, placeholder, exclude) {
-  let idx = 0;
-  for (const n of container.children) {
-    if (n === placeholder) break;
-    if (n.classList && n.classList.contains('grid-card') && n !== exclude) idx++;
-  }
-  return idx;
 }
 
 // FLIP-animate a container's sibling cards as the drop placeholder is moved into
