@@ -830,74 +830,10 @@ if (springCleaningBtn) {
 }
 
 
-// --- Project sort settings (#17) ---
-// projectSortMode + favoritesOwnList live in the global settings blob (chosen in
-// the Session Display settings). Mirror them into the render-time vars (+ a
-// localStorage cache for the first paint) and re-render when they change.
-window._applyProjectSortSettings = (g) => {
-  if (!g) return;
-  savedProjectSortMode = (g.projectSortMode === 'alpha' || g.projectSortMode === 'manual') ? g.projectSortMode : 'activity';
-  savedFavoritesOwnList = !!g.favoritesOwnList;
-  localStorage.setItem('projectSortMode', savedProjectSortMode);
-  localStorage.setItem('favoritesOwnList', savedFavoritesOwnList ? '1' : '0');
-  applyEffectiveSort();
-};
-
-// --- The View menu's sort override (#181) ---
-// Settings holds the sort. The View menu in the sidebar can put a different one in front of you for
-// THIS RUN of the app — never written anywhere, so a restart is back to what Settings says, and a Save
-// in Settings is never something the sidebar did behind your back.
-function applyEffectiveSort() {
-  projectSortMode = sortOverride ? sortOverride.projectSortMode : savedProjectSortMode;
-  favoritesOwnList = sortOverride ? sortOverride.favoritesOwnList : savedFavoritesOwnList;
-  if (typeof updateFavoriteToggleVisibility === 'function') updateFavoriteToggleVisibility();
-  if (typeof window._renderViewMenu === 'function') window._renderViewMenu();
-  if (typeof window._updateViewMenuBtn === 'function') window._updateViewMenuBtn();
-  if (typeof refreshSidebar === 'function') refreshSidebar({ resort: true });
-}
-
-// What the View menu shows and edits. `overridden` is the difference between the two, and it is what the
-// menu has to say out loud — an order you cannot tell from the saved one is how you end up "fixing" a
-// setting that was never wrong.
-window._getSortView = () => ({
-  projectSortMode,
-  favoritesOwnList,
-  savedProjectSortMode,
-  savedFavoritesOwnList,
-  overridden: !!sortOverride
-    && (sortOverride.projectSortMode !== savedProjectSortMode
-      || sortOverride.favoritesOwnList !== savedFavoritesOwnList),
-});
-
-// A patch from the menu. It always lands in the override — even when it happens to equal the saved value,
-// because "I chose this" and "nobody said otherwise" are different states, and only the reset clears it.
-window._setSortOverride = (patch) => {
-  const next = {
-    projectSortMode: projectSortMode,
-    favoritesOwnList: favoritesOwnList,
-    ...(patch || {}),
-  };
-  sortOverride = next;
-  applyEffectiveSort();
-};
-
-window._resetSortOverride = () => {
-  sortOverride = null;
-  applyEffectiveSort();
-};
-// Persist the manual project order (written by drag-reorder in the sidebar).
-window._persistProjectOrder = (arr) => {
-  projectOrder = Array.isArray(arr) ? arr.slice() : [];
-  localStorage.setItem('projectOrder', JSON.stringify(projectOrder));
-};
-
-// --- Refresh button ---
-// Reloads the project list from main (filesystem reconcile + backend scan) and
-// rebuilds the order from it. The only sidebar control that goes back to main —
-// the filter and view toggles re-sort the already-loaded data (#180).
-resortBtn.addEventListener('click', () => {
-  loadProjects({ resort: true });
-});
+// The project-sort controller — saved mode, the View menu session override, manual drag order and the
+// Refresh button — is shell/sidebar-sort.js (#218/#228). It loads AFTER app.js and writes the sort state
+// that lives here (savedProjectSortMode/savedFavoritesOwnList/projectSortMode/favoritesOwnList/
+// sortOverride/projectOrder), read by project-sort.js, sidebar.js, view-menu.js and settings.
 
 // The collapse/expand-all controller — fold/unfold every collapsible section, plus the startup collapse
 // default — is shell/sidebar-collapse.js (#218/#228). It loads AFTER app.js (its click listener binds to
