@@ -61,6 +61,7 @@
     "jsonl-viewer.js",
     "dialogs.js",
     "handoff.js",
+    "spring-cleaning.js",
     "sidebar-subagents.js",
     "sidebar.js",
     "plans-memory-view.js",

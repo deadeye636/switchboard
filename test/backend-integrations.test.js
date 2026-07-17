@@ -152,6 +152,7 @@ const ALLOWED_BINDINGS = {
   // they iterate this map, not the directory — so a split that forgets a line moves code out from
   // under the check and reports nothing. Add the file WITH its split.
   'src/renderer/shell/sidebar-subagents.js': [],
+  'src/renderer/shell/spring-cleaning.js': [],
   'src/renderer/shell/session-nav.js': [],
   'src/renderer/views/grid-view.js': [],
   'src/renderer/views/grid-gestures.js': [],
