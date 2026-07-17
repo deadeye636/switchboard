@@ -181,10 +181,12 @@ async function refreshStatusBarUsage() {
   renderUsageStatus(payload);
 
   // Keep the last payload so the first paint after a restart isn't an empty bar while the first poll
-  // is in flight. Only a payload that actually measured something is worth restoring.
+  // is in flight. Only a payload that actually measured something is worth restoring. Stamp it with the
+  // save time so a stale snapshot (the poll never lands, or the app was closed for days) is not painted
+  // as if it were current — see scheduleUsageStatusRefresh's age gate.
   if (payload.backends.some(u => (u.buckets || []).length > 0 || u.quota)) {
     cachedStatusBarUsage = payload;
-    try { localStorage.setItem(USAGE_CACHE_KEY, JSON.stringify(payload)); } catch { /* storage full */ }
+    try { localStorage.setItem(USAGE_CACHE_KEY, JSON.stringify({ ...payload, savedAt: Date.now() })); } catch { /* storage full */ }
   }
 
   if (usageStatusTimer) clearTimeout(usageStatusTimer);
@@ -192,10 +194,18 @@ async function refreshStatusBarUsage() {
   usageStatusTimer = setTimeout(refreshStatusBarUsage, delay);
 }
 
+// A snapshot older than this is not painted on restore — the buckets it shows would be stale enough to
+// mislead (the shortest usage window refills in ~5h). The poll fired below replaces it either way; this
+// only guards the gap before the first poll lands, and the case where it never does.
+const USAGE_SNAPSHOT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
 function scheduleUsageStatusRefresh() {
   try {
     const cached = JSON.parse(localStorage.getItem(USAGE_CACHE_KEY) || 'null');
-    if (cached && Array.isArray(cached.backends)) {
+    // Restore only a fresh-enough snapshot. A missing savedAt is a pre-#228 snapshot (no timestamp) — take
+    // it, the poll replaces it in seconds anyway; a present-but-old savedAt is skipped.
+    const freshEnough = !cached?.savedAt || (Date.now() - cached.savedAt < USAGE_SNAPSHOT_MAX_AGE_MS);
+    if (cached && Array.isArray(cached.backends) && freshEnough) {
       cachedStatusBarUsage = cached;
       renderUsageStatus(cached);
     }
