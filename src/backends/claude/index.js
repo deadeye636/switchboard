@@ -295,6 +295,11 @@ module.exports = {
   status: 'ready',
   monogram: 'C',
   colour: 'claude',
+  // Which artwork the renderer draws (#212). backend-icons.js keys its ART map the same way it keys
+  // COLOURS and MONOGRAMS, so declaring the slug is all it takes — the launch popover used to carry
+  // Anthropic's logo as a raw SVG string emitted only when the id read `claude`. A backend that names
+  // no icon simply gets the monogram badge, which is still the norm.
+  icon: 'anthropic',
   configFields,
   buildLaunch,
   discoverSessions,

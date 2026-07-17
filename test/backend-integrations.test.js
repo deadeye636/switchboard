@@ -80,6 +80,22 @@ test('every declared integration domId is read by the save path', () => {
   }
 });
 
+// The other half of #212: dialogs.js used to emit Anthropic's logo as a raw SVG string, but only when the
+// backend id read `claude`. The logo now lives in backend-icons.js's ART map and Claude reaches it by
+// declaring `icon: 'anthropic'` — so the popover calls one code path for every backend.
+//
+// That declaration is a bare slug matched against a map in another file, with nothing importing either
+// end: rename one side and Claude quietly falls back to a "C" monogram. Nobody would call that a crash,
+// which is precisely why it needs a test rather than an eye.
+test('a declared icon slug resolves to real artwork', () => {
+  const src = read('src/renderer/backends/backend-icons.js');
+  // The ART keys, read off the source — the renderer has no module system, so it cannot be required.
+  const artBlock = src.slice(src.indexOf('var ART = {'), src.indexOf('function colourFor'));
+  assert.ok(artBlock.includes("anthropic: {"), 'the ART map must still hold the anthropic artwork');
+  assert.equal(claude.icon, 'anthropic',
+    'claude declares the slug the ART map is keyed by; rename either side and the popover silently shows a monogram');
+});
+
 // The point of the whole exercise: the panel renders the declaration, it does not know who declared it.
 test('the settings surface names no backend', () => {
   for (const rel of [

@@ -6041,12 +6041,6 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   flex-shrink: 0;
 }
 
-.popover-option-icon.claude-icon {
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-}
-
 /* Launch picker: one row per enabled backend (T-3.2). The row is a flex container holding the
    launch button (row body) and an inline configure gear, replacing the old two-row
    "Claude" / "Claude (Configure...)" pattern — otherwise the menu would double per backend.

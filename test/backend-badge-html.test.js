@@ -60,6 +60,48 @@ test('backendBadgeHtml cannot break out of the markup — a hostile id injects n
   assert.match(doc.querySelector('svg').getAttribute('class'), /<img/, 'it is attribute TEXT, not markup');
 });
 
+// --- the artwork branch (#212) -----------------------------------------------------------------
+// A backend with a real logo declares `icon: '<slug>'` and backend-icons.js draws it from ART; every
+// other key still gets the monogram badge. This replaced the last hardcoded backend in dialogs.js,
+// where Anthropic's logo was a raw SVG string emitted only when the id read `claude`.
+
+test('a key with artwork renders the logo, not a monogram badge', () => {
+  const w = loadBadges();
+  const svg = w.renderBackendIcon('anthropic', 16);
+  assert.equal(svg.querySelectorAll('path').length, 1, 'the artwork path is drawn');
+  assert.equal(svg.querySelectorAll('rect').length, 0, 'a logo carries no badge square behind it');
+  assert.equal(svg.querySelectorAll('text').length, 0, 'a logo carries no monogram glyph');
+  assert.equal(svg.getAttribute('viewBox'), '0 0 1200 1200', "the artwork's own viewBox is used, not the size box");
+  assert.equal(svg.getAttribute('width'), '16', 'the requested size is honoured');
+  assert.match(svg.querySelector('path').getAttribute('d'), /^M 233\.959793/, 'the path data actually reached the node');
+});
+
+test('a key without artwork still renders the monogram badge — that stays the norm', () => {
+  const w = loadBadges();
+  for (const id of ['codex', 'hermes', 'pi', 'agy', 'some-future-cli']) {
+    const svg = w.renderBackendIcon(id, 16);
+    assert.equal(svg.querySelectorAll('rect').length, 1, `${id} keeps its badge square`);
+    assert.equal(svg.querySelectorAll('text').length, 1, `${id} keeps its glyph`);
+  }
+});
+
+// The icon slug is USER-SUPPLIED for an Axis-A profile, and a plain object answers to every name on
+// Object.prototype. Without an own-property check `ART['constructor']` is truthy, so this profile would
+// take the artwork branch and draw <path d="undefined"> — a broken icon, silently, for a name a user can
+// actually type into the profile editor. Same for COLOURS and MONOGRAMS.
+test('a slug that names an Object.prototype member falls through to the monogram', () => {
+  const w = loadBadges();
+  for (const slug of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+    const svg = w.renderBackendIcon(slug, 16);
+    assert.equal(svg.querySelectorAll('path').length, 0, `"${slug}" must not reach the artwork branch`);
+    assert.equal(svg.querySelectorAll('rect').length, 1, `"${slug}" renders an ordinary badge`);
+    const fill = svg.querySelector('rect').getAttribute('fill');
+    assert.match(fill, /^#[0-9a-f]{6}$/i, `"${slug}" resolves to a real colour, not a stringified function (got ${fill})`);
+    const glyph = svg.querySelector('text').textContent;
+    assert.ok(glyph.length <= 2, `"${slug}" derives a short glyph, not a stringified prototype member (got ${glyph.slice(0, 40)})`);
+  }
+});
+
 test('backendBadgeHtml gives every backend a badge without knowing the backend (descriptor-driven)', () => {
   const w = loadBadges();
   // The views pass whatever `backendId` the row carries — no branching, no list. An id the icon table has
