@@ -103,6 +103,7 @@
     const { initMaintenanceSection } =
       window.settingsMaintenance.create({ body: settingsViewerBody, reopen: openSettingsViewer });
 
+
     const shortName = isProject
       ? projectPath.split('/').filter(Boolean).slice(-2).join('/')
       : 'Global';
@@ -1314,53 +1315,25 @@
     // (#218). Global-only: on a project panel the section is not in the markup and this does nothing.
     initMaintenanceSection();
 
-    // --- Keyboard shortcut rebinding (global only) ---
-    // Capture listeners live on the button element itself (not on document), so
-    // they can never leak app-wide: losing focus (incl. the settings viewer being
-    // dismissed by ANY path) fires `blur` → stops capture, and re-opening the
-    // viewer replaces settingsViewerBody, discarding the old listeners with it.
-    let capturingBtn = null;
-    function stopShortcutCapture() {
-      if (capturingBtn) {
-        capturingBtn.classList.remove('capturing');
-        capturingBtn.textContent = formatBinding(capturingBtn.dataset.scId, scIsMac, scShortcuts);
-        capturingBtn = null;
-      }
-    }
-    settingsViewerBody.querySelectorAll('.settings-shortcut-btn').forEach(btn => {
-      const id = btn.dataset.scId;
-      const def = SHORTCUT_DEFS.find(d => d.id === id);
-      btn.addEventListener('click', () => {
-        // Clicking the button that is already capturing resets it to default.
-        if (capturingBtn === btn) {
-          scShortcuts = { ...scShortcuts, [id]: normalizeShortcuts(null)[id] };
-          stopShortcutCapture();
-          btn.blur();
-          return;
-        }
-        stopShortcutCapture();
-        capturingBtn = btn;
-        btn.classList.add('capturing');
-        btn.textContent = 'Press keys…';
-        btn.focus();
-      });
-      // keydown only acts while THIS button is the one capturing.
-      btn.addEventListener('keydown', (e) => {
-        if (capturingBtn !== btn) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.key === 'Escape') { stopShortcutCapture(); btn.blur(); return; }
-        const binding = captureBinding(e, def, scIsMac);
-        if (!binding) return; // chord incomplete — keep listening
-        scShortcuts = { ...scShortcuts, [id]: binding };
-        stopShortcutCapture();
-        btn.blur();
-      });
-      // Losing focus (click elsewhere, panel dismissed, tab switch) cancels capture.
-      btn.addEventListener('blur', () => {
-        if (capturingBtn === btn) stopShortcutCapture();
-      });
+    // The keyboard shortcut rebinding moved to panels/settings-shortcuts.js (#218). Global-only: on a
+    // project panel there are no shortcut buttons and this does nothing.
+    //
+    // `scShortcuts` stays HERE because both its readers are here — the template above renders the current
+    // bindings, and persistSettings writes them — so the module takes ACCESSORS, not the value. Every
+    // rebind replaces the object rather than mutating it, so a snapshot would leave this `let`, and
+    // therefore the Save, on the bindings from before the user touched anything.
+    //
+    // Built here and not up with the other modules: `scIsMac` is evaluated at this call, and it is
+    // declared further down (with `scShortcuts`) — reading it earlier is a TDZ ReferenceError.
+    // `stopShortcutCapture` is kept because persistSettings calls it — a Save pressed mid-capture has to
+    // end that capture. It is the section's one tie to the rest of this file.
+    const { initShortcutSection, stopShortcutCapture } = window.settingsShortcuts.create({
+      body: settingsViewerBody,
+      isMac: scIsMac,
+      getShortcuts: () => scShortcuts,
+      setShortcuts: (next) => { scShortcuts = next; },
     });
+    initShortcutSection();
 
     // Project tag chip editor (#98): add on Enter, remove on ×, de-dupe.
     // The suggestion list is an in-app combobox (#134) — a native <datalist> ignored
