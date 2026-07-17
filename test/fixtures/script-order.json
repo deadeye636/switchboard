@@ -95,6 +95,7 @@
     "sidebar-collapse.js",
     "sidebar-filters.js",
     "sidebar-sort.js",
+    "session-ipc.js",
     "view-menu.js"
   ],
   "settings.html": [
