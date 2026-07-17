@@ -153,6 +153,7 @@ const ALLOWED_BINDINGS = {
   // under the check and reports nothing. Add the file WITH its split.
   'src/renderer/shell/sidebar-subagents.js': [],
   'src/renderer/shell/spring-cleaning.js': [],
+  'src/renderer/shell/sidebar-session-row.js': [],
   'src/renderer/shell/session-nav.js': [],
   'src/renderer/views/grid-view.js': [],
   'src/renderer/views/grid-gestures.js': [],

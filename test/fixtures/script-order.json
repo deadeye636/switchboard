@@ -61,6 +61,7 @@
     "jsonl-viewer.js",
     "dialogs.js",
     "handoff.js",
+    "sidebar-session-row.js",
     "spring-cleaning.js",
     "sidebar-subagents.js",
     "sidebar.js",
