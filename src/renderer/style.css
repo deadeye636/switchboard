@@ -1814,6 +1814,52 @@ input:focus-visible {
   line-height: 1.35;
 }
 
+/* Session lineage / provenance (#193) */
+.session-lineage-caption {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #7a7f9a;
+  font-size: 9.5px;
+  line-height: 1.35;
+}
+.session-lineage-caption.is-guess {
+  font-style: italic;
+  color: #6f6f86;
+}
+.session-lineage-thread {
+  margin: 2px 0 2px 26px;
+}
+.session-lineage-toggle {
+  color: #74748a;
+  font-size: 9.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  user-select: none;
+}
+.session-lineage-toggle:hover {
+  color: #a9a9c0;
+}
+.session-lineage-ancestors {
+  border-left: 1px solid #2c2c3a;
+  margin-left: 3px;
+  padding-left: 8px;
+}
+.session-lineage-ancestor {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #8a8a9e;
+  font-size: 10px;
+  line-height: 1.7;
+  cursor: pointer;
+}
+.session-lineage-ancestor:hover {
+  color: #c7c7d6;
+}
+
 .session-detail-pill {
   flex-shrink: 0;
   min-width: 0;

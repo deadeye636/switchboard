@@ -72,6 +72,7 @@
     "handoff.js",
     "sidebar-events.js",
     "sidebar-session-row.js",
+    "sidebar-lineage.js",
     "spring-cleaning.js",
     "sidebar-subagents.js",
     "sidebar.js",

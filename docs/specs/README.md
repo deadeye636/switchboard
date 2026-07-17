@@ -22,6 +22,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 10 | [The project list is a list](10-project-registry.md) | #167 | No — touches the scan + the sidebar |
 | 11 | [Performance: keeping the main thread responsive](11-performance.md) | #199, #200 | No — touches the scan hot path + get-projects |
 | 12 | [Saved Variables: how a secret reaches a terminal](12-saved-variables.md) | #205, #204 | No — touches the insert path + the terminal |
+| 13 | [Session lineage: provenance + /clear re-key](13-session-lineage.md) | #223, #193 | No — touches the transition detector, the scan, and the sidebar |
 
 ## Shared architecture (read once, applies to all specs)
 

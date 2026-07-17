@@ -247,6 +247,12 @@ function processProjectSessions(project, resort) {
     // While searching, keep them so a subagent match still surfaces as a hit.
     if (typeof searchMatchIds === 'undefined' || searchMatchIds === null) {
       filtered = filtered.filter(s => !s.parentSessionId);
+      // #193 (Model A): an idle lineage ancestor folds under its descendant's thread expander instead of
+      // showing as its own row. While searching, keep everything so a match still surfaces.
+      if (typeof foldedAncestorIds === 'function') {
+        const folded = foldedAncestorIds(filtered);
+        if (folded.size) filtered = filtered.filter(s => !folded.has(s.sessionId));
+      }
     }
     const anyFilterActive = showStarredOnly || showRunningOnly || showTodayOnly || searchMatchIds !== null;
 

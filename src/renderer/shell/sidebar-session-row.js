@@ -161,6 +161,12 @@ function buildSessionItem(session) {
     detailEl.appendChild(quietLine);
   }
 
+  // Provenance (#193): "↳ continued from …" when this session continued another's work.
+  if (typeof buildLineageCaption === 'function') {
+    const caption = buildLineageCaption(session);
+    if (caption) detailEl.appendChild(caption);
+  }
+
   if (session.type === 'terminal') {
     const badge = document.createElement('span');
     badge.className = 'terminal-badge';
@@ -263,6 +269,13 @@ function buildSessionItem(session) {
   row.appendChild(info);
   row.appendChild(actions);
   item.appendChild(row);
+
+  // The collapsed thread of idle ancestors this session folded (#193 — Model A: they fold under the head,
+  // not as separate rows). The toggle + ancestor clicks are delegated in sidebar-events.js.
+  if (typeof buildLineageThread === 'function') {
+    const thread = buildLineageThread(session);
+    if (thread) item.appendChild(thread);
+  }
 
   // Tag chips (renders synchronously from the bookmarks-tags cache).
   window._decorateSessionItem?.(item, session);

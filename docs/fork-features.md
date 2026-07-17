@@ -42,6 +42,19 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 - Helpers for inbox ordering, status counts, and status filtering — all pure and
   unit-tested (`test/session-status.test.js`).
 
+### Session lineage / provenance (#223, #193)
+`src/session/session-lineage.js`, `src/renderer/shell/sidebar-lineage.js`, spec 13
+
+- A session that continued another's work carries a **"↳ continued from …"** caption; idle ancestors
+  fold under the live head (a *"N earlier in thread"* toggle), not as separate rows. Lineage is a tree —
+  each head walks its own path up, so a shared ancestor can appear under more than one head (Model A).
+- Backend-neutral via `lineageParentId`/`lineageKind`: Hermes `parent_session_id` and a Claude fork's
+  `forkedFrom` are hard links; a Claude `/clear` (no on-disk back-link) is inferred by the **mtime freeze**
+  and labelled a guess — never presented as fact.
+- The same inference fixes #223: a `/clear` with several sessions live in one folder now re-keys the right
+  one (on high confidence only) instead of leaving the source stuck as *running* with the tab on a dead id.
+- Tested: `test/session-lineage.test.js`, `test/clear-rekey.test.js`, `test/sidebar-lineage-vm.test.js`.
+
 ### Session visit history
 `src/renderer/session/session-history.js`
 

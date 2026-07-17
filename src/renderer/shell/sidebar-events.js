@@ -122,6 +122,27 @@ function dispatchSidebarActivation(e) {
     // row (it early-returned before any), so no action fires here either, not just the open.
     if (sessionEl.closest('.project-group.missing')) return;
 
+    // Lineage thread (#193): the "N earlier" toggle folds/unfolds the ancestors; an ancestor row opens its
+    // read-only transcript. Both sit inside the item, so they are checked before the row-open.
+    const lineageToggle = t.closest('.session-lineage-toggle');
+    if (lineageToggle) {
+      e.stopPropagation();
+      const list = lineageToggle.nextElementSibling;
+      if (list && list.classList.contains('session-lineage-ancestors')) {
+        const showing = list.style.display !== 'none';
+        list.style.display = showing ? 'none' : '';
+        lineageToggle.textContent = lineageToggle.textContent.replace(/^[▸▾]/, showing ? '▸' : '▾');
+      }
+      return;
+    }
+    const ancestorRow = t.closest('.session-lineage-ancestor');
+    if (ancestorRow) {
+      e.stopPropagation();
+      const anc = sessionMap.get(ancestorRow.dataset.sessionId);
+      if (anc && typeof showJsonlViewer === 'function') showJsonlViewer(anc);
+      return;
+    }
+
     if (t.closest('.session-pin')) { e.stopPropagation(); toggleSessionPin(session); return; }
     if (t.closest('.session-stop-btn')) { e.stopPropagation(); confirmAndStopSession(session.sessionId); return; }
     if (t.closest('.session-launch-config-btn')) { e.stopPropagation(); showResumeSessionDialog(session); return; }
@@ -133,9 +154,9 @@ function dispatchSidebarActivation(e) {
     if (t.closest('.session-timeline-btn')) { e.stopPropagation(); showTimelineViewer(session); return; }
     if (t.closest('.session-archive-btn')) { e.stopPropagation(); archiveSessionFromRow(session); return; }
 
-    // Row open (least specific). Clicks in the actions area / pin / health-chip never open the row.
-    // (Missing-project rows already returned above.)
-    if (t.closest('.session-actions, .session-pin, .session-health-chip')) return;
+    // Row open (least specific). Clicks in the actions area / pin / health-chip / lineage thread never open
+    // the row. (Missing-project rows already returned above.)
+    if (t.closest('.session-actions, .session-pin, .session-health-chip, .session-lineage-thread')) return;
     // Subagents are ephemeral child runs — open the read-only subagent transcript, not a PTY resume.
     if (session.parentSessionId) { if (typeof showSubagentTranscript === 'function') showSubagentTranscript(session); return; }
     openSession(session);
