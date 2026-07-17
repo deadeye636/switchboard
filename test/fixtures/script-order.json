@@ -49,6 +49,7 @@
     "grid-layout.js",
     "session-history.js",
     "update-restart.js",
+    "session-restore.js",
     "shortcuts.js",
     "terminal-themes.js",
     "terminal-context-menu.js",
