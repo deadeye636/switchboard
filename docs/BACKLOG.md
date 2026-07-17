@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (26 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-17
 
@@ -42,4 +42,3 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#221](https://github.com/deadeye636/switchboard/issues/221) merge-setting writes a renderer-supplied blob straight past the secret scrub · _bug_
 - [#224](https://github.com/deadeye636/switchboard/issues/224) db layer: decide the session_cache(projectPath) index, and two queries that skip the stmts object · _chore_
 - [#226](https://github.com/deadeye636/switchboard/issues/226) Configure gear does nothing when a session's backend is gone · _bug_
-- [#228](https://github.com/deadeye636/switchboard/issues/228) app.js: the five clusters #218 mapped but did not move · _chore_
