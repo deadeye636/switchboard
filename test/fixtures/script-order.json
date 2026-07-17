@@ -50,6 +50,7 @@
     "session-history.js",
     "update-restart.js",
     "session-restore.js",
+    "statusbar-usage.js",
     "shortcuts.js",
     "terminal-themes.js",
     "terminal-context-menu.js",
