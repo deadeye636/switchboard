@@ -8,6 +8,14 @@
 > #213 split it out. The module owns the `Tray` instance and the tooltip text (nothing outside reads
 > them) and takes the window through a **getter**, never a captured value: a notification click focuses
 > the window the app has *now*, not the one that existed when the module was wired.
+>
+> **Moved (#228):** the renderer half below — `syncNativeNotifications`, `buildTraySummary`, the focus
+> tracking and the `onFocusSession` click handler — left `src/renderer/app.js` for
+> **`src/renderer/shell/native-notifications.js`** (beside the pure `shell/notification-policy.js` it
+> feeds). It loads AFTER app.js and app.js's calls into it are guarded. The attention *engine* it reads
+> from — `setActivity` / `applyAttention` — also left app.js, for **`src/renderer/shell/attention-engine.js`**.
+> The state both work on (`attentionSessions`, `responseReadySessions`, `refreshSessionStatusViews`,
+> `clearNotifications`, `getAllKnownSessionsForStatus`) stays in app.js; the line numbers below are pre-#228.
 
 ## Problem & goal
 

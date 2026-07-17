@@ -5,6 +5,8 @@
 **Status:** Implemented · **Roadmap:** Opportunity #2 (Phase 1) · **Independent:** Mostly — shares `src/renderer/panels/settings-panel.js` and the `global.notifications` settings blob with Spec 01. If 01 isn't merged yet, create the settings section; otherwise extend it.
 
 > **As built:** the hotkey lives outside the central `shortcuts.js` registry — a dedicated `nextAttentionBinding` in `src/renderer/app.js` reads the override from `global.shortcuts.nextAttention`, with the key predicate in `src/renderer/shell/alert-sound.js`. The alert sound uses the WebAudio oscillator variant (no bundled audio file).
+>
+> **Moved (#228):** the WebAudio `playAttentionSound` / `maybePlayAttentionSound` described below left `src/renderer/app.js` for **`src/renderer/shell/attention-engine.js`** (the attention policy layer — `setActivity`, `applyAttention`, the announcer and the chime), which loads BEFORE app.js. The `nextAttentionBinding` hotkey itself stays in app.js; `alert-sound.js` still holds the pure `shouldPlayAttentionSound` gate. Line numbers below are pre-#228.
 
 ## Problem & goal
 

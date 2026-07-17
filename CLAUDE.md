@@ -36,8 +36,9 @@ Adopt JBR features one at a time, never bulk-merge:
    `src/renderer/shell/sidebar.js`, `src/db/db.js` and `src/index/session-cache.js`, because both forks
    rewrote them. Three of those are façades now (#213/#217/#199), so a port collides with the **module**
    that owns the code, not with the façade — usually a smaller, clearer conflict. The renderer's four
-   monoliths are composition points now too (#218: 9309 → 5460 across `app.js`, `settings-panel.js`,
-   `sidebar.js` and `grid-view.js`, thirteen modules beside them), so the same applies there — a port
+   monoliths are composition points now too (#218 + #228: 9309 → 4577 across `app.js`, `settings-panel.js`,
+   `sidebar.js` and `grid-view.js`, twenty modules beside them — app.js alone went 3199 → 1893 in #228),
+   so the same applies there — a port
    collides with the module that holds the code.
 3. `npm test` must be green — no new failures vs. the pre-port run.
 4. `git checkout main && git merge --ff-only port/<feature>`.
@@ -137,6 +138,12 @@ the installer.
     something still calls is a `ReferenceError` no test sees — it killed Save for every setting once), and
     treat any caller-count, dependency or "identical" claim in a header as unverified until you have checked
     it against the code.
+  - **`test/renderer-no-undef.test.js` now catches the ReferenceError half mechanically** (#228 follow-up).
+    It builds each HTML environment's shared scope from `script-order.json` — every top-level declaration
+    plus every UMD/window export — and runs eslint `no-undef` over each file, so a name that resolves to
+    nothing fails the suite. A cut that leaves a dangling reference (either direction) is now red without a
+    click. It does NOT replace the click: it sees undefined names, not wrong behaviour (a rebind landing on
+    a `window` shadow, a stale header). eslint is a devDependency — dev tooling, not the shipped renderer.
   Terminal = `@xterm/xterm`.
   Diffs = CodeMirror (`codemirror-setup.js`, bundled by esbuild into `codemirror-bundle.js`).
 - **Persistence** (`src/db/`): `db.js` is a **façade** (#217, 1997 → 158 lines) over modules named after
