@@ -17,9 +17,11 @@
 //
 // It declares and owns all of its own state (notificationSettings, windowFocused, lastNotifiedAt,
 // prevNotificationSnapshot) and writes none of app.js's — nothing here is a foreign `let` write, unlike
-// search-bar.js. app.js reaches IN at two call-time points: syncNativeNotifications (from
-// refreshSessionStatusViews) and window._setNotificationSettings (from the settings re-apply and boot),
-// the latter a window property this file assigns at parse time.
+// search-bar.js. Callers reach IN at two call-time entry points: syncNativeNotifications (from app.js's
+// refreshSessionStatusViews) and window._setNotificationSettings — the latter a window property this file
+// assigns at parse time, called from app.js's settings re-apply and boot AND from panels/settings-panel.js
+// on an in-app Save. Because this file loads after app.js, those app.js call sites are guarded (`typeof`
+// at app.js:364, `?.` at the boot IIFE) so a boot that races this script's fetch degrades to a no-op.
 //
 // What it reaches into, by file:
 //   app.js                          sessionMap, attentionSessions, responseReadySessions, openSession,

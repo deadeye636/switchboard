@@ -361,7 +361,10 @@ function refreshSessionStatusViews() {
     if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
   }
   announceAttentionSummary();
-  syncNativeNotifications();
+  // syncNativeNotifications lives in shell/native-notifications.js, which loads AFTER app.js (#228). A
+  // refreshSessionStatusViews that runs before that script has parsed — a boot path racing the module's
+  // fetch — would otherwise throw here and abort the rest of boot. Guarded like patchTabStatuses above.
+  if (typeof syncNativeNotifications === 'function') syncNativeNotifications();
 }
 
 // --- Running sessions in the attention inbox (configurable) ---
@@ -2399,7 +2402,10 @@ setTimeout(() => {
     if (global.terminalFontFamily) window._setTerminalFontFamily?.(global.terminalFontFamily);
     if (global.terminalFontSize) window._setTerminalFontSize?.(global.terminalFontSize);
     if (global.notifications) {
-      window._setNotificationSettings(global.notifications);
+      // _setNotificationSettings is assigned by shell/native-notifications.js (loads after app.js, #228);
+      // `?.` so a boot that reaches here before that script parses degrades to a no-op, like the font
+      // setters above, rather than throwing and aborting the rest of this IIFE (which ends in refreshSidebar).
+      window._setNotificationSettings?.(global.notifications);
     }
     if (global.runningInbox) {
       window._setRunningInboxSetting(global.runningInbox);
