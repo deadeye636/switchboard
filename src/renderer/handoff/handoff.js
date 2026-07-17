@@ -144,8 +144,12 @@ async function reviewAndPlacePacket(session, project, packet) {
 // A handoff is not a Claude artifact (#148). The fresh session it seeds runs on the backend the packet
 // came FROM — resolving Claude's defaults here would hand a Claude model to `pi --model`, and would put
 // a Codex packet into a Claude session without anyone asking.
+// The guard only fires when backend-registry.js has not loaded — `sessionBackendId` carries its own
+// documented fallback for a session that predates provenance. With no registry there is no id to give,
+// and '' is the honest answer; naming Claude meant exactly the Claude-model-into-`pi --model` this
+// comment warns about (#225).
 function backendOfSession(session) {
-  return (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || 'claude';
+  return (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || '';
 }
 
 async function readLatestHandoffPacket(session) {
@@ -452,7 +456,10 @@ async function showHandoffResumePicker(project) {
         // they are testable — a DOM callback is where behaviour goes to hide.
         const select = row.querySelector('.handoff-backend');
         const source = h.backendId || null;   // NULL = saved before handoffs recorded their origin
-        const target = resolveHandoffTarget(source, launchable, window._defaultBackendId || 'claude');
+        // `_defaultBackendId` is already resolved to something launchable, or '' when nothing is (#225) —
+        // it needs no `|| 'claude'` rescuing, and giving it one meant a disabled backend could be the
+        // handoff's preselected target.
+        const target = resolveHandoffTarget(source, launchable, window._defaultBackendId);
 
         for (const b of target.options) {
           const opt = document.createElement('option');
@@ -474,8 +481,18 @@ async function showHandoffResumePicker(project) {
 
         if (!target.showPicker) select.remove();   // a single-backend user sees no new control
 
-        row.querySelector('.handoff-pick').onclick = async () => {
-          const backendId = select.value || 'claude';
+        // Nothing enabled at all (§5.8): the packet is still readable and deletable, but there is nothing
+        // to run it on. Say that on the button rather than offering a launch that gets refused — which is
+        // what the synthetic Claude in resolveHandoffTarget used to produce (#225).
+        const pick = row.querySelector('.handoff-pick');
+        if (!target.canLaunch) {
+          pick.disabled = true;
+          pick.title = 'No backend is enabled — switch one on in Settings → Backends.';
+        }
+
+        pick.onclick = async () => {
+          const backendId = select.value;
+          if (!backendId) return;
           close();
           const opts = await resolveLaunchOptionsFor(project, backendId);
           await launchNewSession(project, opts, h.content);

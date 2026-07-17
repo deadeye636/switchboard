@@ -144,11 +144,16 @@ function buildBackendFilterBar() {
   //
   // A backend disabled AFTER it produced sessions keeps its history under "All" (disable is not erase)
   // but gets no pill: it is not something you can launch into any more.
+  // The DEFAULT leads, then the rest by label. The intent was always "the one you'd assume, first" — it
+  // was just spelled `'claude'`, so with another backend as the default the list led with a CLI the user
+  // may not even run (#225). '' (nothing launchable, or the registry has not answered) matches nobody and
+  // leaves a plain alphabetical list, which is the right answer when there is no "assumed" one.
+  const defaultId = window._defaultBackendId;
   const pills = [{ id: 'all', label: 'All backends' }].concat(
     launchable
       .filter(b => !b.isProfile)
       .slice()
-      .sort((a, b) => (a.id === 'claude' ? -1 : b.id === 'claude' ? 1 : String(a.label).localeCompare(String(b.label))))
+      .sort((a, b) => (a.id === defaultId ? -1 : b.id === defaultId ? 1 : String(a.label).localeCompare(String(b.label))))
       .map(b => ({ id: b.id, label: b.label, icon: b.icon || b.colour || b.id, monogram: b.monogram }))
   );
   if (!pills.some(p => p.id === statsBackendFilter)) statsBackendFilter = 'all';
@@ -410,7 +415,12 @@ function collectBackendUsage() {
       // A Tier-3 terminal tab is not a backend session at all: it has no transcript and no
       // provenance, so it must not be counted (or invented as "Claude") here.
       if (session.type === 'terminal') continue;
-      const id = typeof sessionBackendId === 'function' ? sessionBackendId(session) : 'claude';
+      // The guard fires only when backend-registry.js has not loaded — `sessionBackendId` carries its own
+      // documented fallback for a session that predates provenance. Answering 'claude' there filed every
+      // session in the corpus under Claude, which is the same "invented as Claude" the line above refuses
+      // (#225). Skip instead: a stat that is wrong is worse than a stat that is absent for one paint.
+      if (typeof sessionBackendId !== 'function') continue;
+      const id = sessionBackendId(session);
       let acc = byBackend.get(id);
       if (!acc) {
         acc = {
@@ -934,7 +944,9 @@ function buildBackendTokensChart(stats) {
   for (const d of days) for (const id of Object.keys(byDate.get(d) || {})) present.add(id);
   if (!present.size) return;   // nothing inside the window — an empty chart is worse than no chart
 
-  const ids = Array.from(present).sort((a, b) => (a === 'claude' ? -1 : b === 'claude' ? 1 : a.localeCompare(b)));
+  // Same rule as the filter pills: the default backend's series leads, the rest are alphabetical (#225).
+  const defaultId = window._defaultBackendId;
+  const ids = Array.from(present).sort((a, b) => (a === defaultId ? -1 : b === defaultId ? 1 : a.localeCompare(b)));
   const totals = days.map(d => {
     const t = byDate.get(d) || {};
     return ids.reduce((sum, id) => sum + (t[id] || 0), 0);

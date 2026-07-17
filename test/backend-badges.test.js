@@ -24,6 +24,20 @@ function load({ backends = [], defaultLaunchTarget = 'claude' } = {}) {
   return win;
 }
 
+// The same module, but driven through `refreshBackendCaches()` so the RESOLUTION of the default target
+// runs — that is what `resolveDefaultTarget` does, and it is internal (only its result reaches `window`).
+async function loadRefreshed({ backends = [], defaultLaunchTarget = 'claude' } = {}) {
+  const win = {};
+  const ctx = vm.createContext({ window: win, console });
+  vm.runInContext(SRC, ctx);
+  win.api = {
+    backends: { list: async () => ({ backends, defaultLaunchTarget }) },
+    sessionBackends: { getAll: async () => ({}) },
+  };
+  await win.refreshBackendCaches();
+  return win;
+}
+
 const ready = (id) => ({ id, status: 'ready', enabled: true });
 const off = (id) => ({ id, status: 'ready', enabled: false });
 
@@ -57,6 +71,56 @@ test('before the backend probes answer, the sessions are all there is to go on',
     { sessionId: 'a', backendId: 'claude' },
     { sessionId: 'b', backendId: 'codex' },
   ]), true);
+});
+
+// --- the default launch target, resolved (#225) --------------------------------------------------
+//
+// `_defaultBackendId` is what the sidebar measures a row against, what the handoff preselects, what the
+// Stats filter leads with, and what a new session launches. It used to be `stored || 'claude'`, so a
+// stored value naming a backend the user had since disabled — or the '' the settings page writes when
+// nothing is launchable at all (#212) — came back out as Claude. Every one of those surfaces inherited
+// it, and each had its own `|| 'claude'` on top, which is how the guess survived being "fixed" in #162.
+//
+// The invariant this establishes, and that lets those `|| 'claude'`s go: **`_defaultBackendId` is always
+// either launchable or empty.** A caller never needs to second-guess it.
+
+test('the default is empty until the registry has answered — not a guess that reads as a fact', () => {
+  const win = {};
+  vm.runInContext(SRC, vm.createContext({ window: win, console }));
+  assert.equal(win._defaultBackendId, '',
+    'before refreshBackendCaches() nothing is known, and "" is what that means');
+});
+
+test('a stored default that is still launchable is kept', async () => {
+  const win = await loadRefreshed({ backends: [ready('claude'), ready('codex')], defaultLaunchTarget: 'codex' });
+  assert.equal(win._defaultBackendId, 'codex', 'what the user picked, while they can still run it');
+});
+
+test('a stored default the user has since DISABLED resolves to one that can launch', async () => {
+  const win = await loadRefreshed({ backends: [off('claude'), ready('codex')], defaultLaunchTarget: 'claude' });
+  assert.equal(win._defaultBackendId, 'codex',
+    'the stored value is what they picked, not what is possible now — a default that cannot spawn is a refused launch');
+});
+
+test('no stored default resolves to the first launchable, in registration order', async () => {
+  const win = await loadRefreshed({ backends: [off('claude'), ready('codex'), ready('pi')], defaultLaunchTarget: '' });
+  assert.equal(win._defaultBackendId, 'codex', 'first LAUNCHABLE, not first listed');
+});
+
+test('nothing launchable at all: the default is empty, never a backend that cannot start', async () => {
+  const win = await loadRefreshed({ backends: [off('claude'), off('codex')], defaultLaunchTarget: 'claude' });
+  assert.equal(win._defaultBackendId, '',
+    'every backend can be disabled (§5.8); naming one anyway is what #225 removed');
+  assert.equal(win.firstLaunchableBackendId(), '');
+});
+
+test('firstLaunchableBackendId skips what is disabled or not ready', async () => {
+  const win = await loadRefreshed({
+    backends: [off('claude'), { id: 'agy', status: 'planned', enabled: true }, ready('hermes')],
+    defaultLaunchTarget: '',
+  });
+  assert.equal(win.firstLaunchableBackendId(), 'hermes',
+    'disabled is skipped, and so is a "Coming soon" backend that can never launch');
 });
 
 test('sessionBackendId: the row\'s own column first, the launch overlay second, Claude last', () => {

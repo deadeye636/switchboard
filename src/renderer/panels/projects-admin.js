@@ -393,7 +393,13 @@
         // WHICH backend's trust — the chip says so (#171). Claude and Codex each keep their own answer,
         // in their own config; granting one has never granted the other, and the single button used to
         // hide that.
-        const bid = trustBackendId || 'claude';
+        //
+        // So this is the one place a missing id must NOT be guessed. Granting trust bypasses that CLI's
+        // own security gate; `|| 'claude'` meant a chip that failed to carry its `data-backend` would
+        // silently write CLAUDE's trust — a real permission, for a CLI the user never pointed at, from a
+        // rendering bug. There is no chip without a backend today; if one appears, do nothing (#225).
+        const bid = trustBackendId;
+        if (!bid) return;
         const label = labelOf(bid);
         const next = !(row.trust && row.trust[bid] === true);
         if (next) {

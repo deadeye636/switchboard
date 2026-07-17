@@ -1724,8 +1724,16 @@ function buildSessionItem(session) {
   // non-default session is always badged so it can never be mistaken for a Claude one.
   if (session.type !== 'terminal' && window.sessionBackendId) {
     const backendId = window.sessionBackendId(session);
-    const isDefault = backendId === (window._defaultBackendId || 'claude');
-    if (window._showAllBadges || !isDefault) {
+    // The badge means "this row is NOT the one you would assume". That claim needs a default to compare
+    // against, and `_defaultBackendId` is '' until the registry answers — and stays '' when nothing is
+    // launchable at all (#225). With no default there is no assumption to correct, so the claim is not
+    // made and `_showAllBadges` decides alone (it has its own registry-less fallback: what the sessions
+    // themselves say). Writing `|| 'claude'` here, as this did, asserted the assumption instead of
+    // checking it — on an install where Claude is switched off, every row was measured against a backend
+    // the user does not run.
+    const knownDefault = window._defaultBackendId;
+    const isNonDefault = !!knownDefault && backendId !== knownDefault;
+    if (window._showAllBadges || isNonDefault) {
       const descriptor = window.getBackend ? window.getBackend(backendId) : null;
       const badge = document.createElement('span');
       badge.className = 'session-backend-badge backend-' + backendId;
@@ -1878,8 +1886,11 @@ function buildSessionItem(session) {
     // Only offer Fork where the backend can actually do it. Offering it anyway does NOT degrade into
     // "nothing happens" — it launches a fresh, empty session that has no relation to the one the user
     // forked, which is worse than not offering it at all.
+    // `getBackend` and `sessionBackendId` live in the same file, so the second guard only fires if the
+    // registry is missing — and then `getBackend` is gone too and this is already null. Naming Claude
+    // there decided Fork's visibility from a backend the session may not be (#225).
     const sessionBackend = typeof getBackend === 'function'
-      ? getBackend(typeof sessionBackendId === 'function' ? sessionBackendId(session) : 'claude')
+      ? getBackend(typeof sessionBackendId === 'function' ? sessionBackendId(session) : '')
       : null;
     // A profile runs the claude binary, so it forks like Claude. An unknown backend (a row from a
     // backend that is no longer registered) is assumed not to fork.

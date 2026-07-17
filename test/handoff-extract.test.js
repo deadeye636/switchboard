@@ -143,8 +143,40 @@ test('a single-backend user WHOSE packet came from elsewhere still sees the pick
   assert.strictEqual(t.warning, 'codex');
 });
 
-test('no launchable backends at all still yields something runnable', () => {
-  const t = resolveHandoffTarget('codex', [], 'claude');
-  assert.strictEqual(t.selected, 'claude');
-  assert.strictEqual(t.options.length, 1);
+// The case that had no test, which is why the defect lived here (#225): with NOTHING launchable this
+// substituted a synthetic `{id:'claude'}` list. Two lies for the price of one — the row offered a New
+// session on a backend that cannot spawn, and hid the picker while doing it, because a fabricated list
+// of exactly one entry trips the single-backend rule and looks deliberate. Every backend can be
+// disabled (§5.8), so this is reachable, not hypothetical.
+test('with no backend enabled it invents none — there is nothing to launch, and it says so', () => {
+  for (const empty of [[], null, undefined]) {
+    const t = resolveHandoffTarget('codex', empty, 'claude');
+    assert.deepStrictEqual(t.options, [], 'the list is empty because the truth is empty');
+    assert.strictEqual(t.canLaunch, false, 'the caller must be able to tell that nothing can run');
+    assert.strictEqual(t.selected, '', 'selecting a backend that does not exist is the bug, not the fix');
+    assert.strictEqual(t.showPicker, false, 'an empty select is not a choice, it is a puzzle');
+  }
 });
+
+test('canLaunch is true whenever there is something to run', () => {
+  assert.strictEqual(resolveHandoffTarget('codex', LAUNCHABLE, 'claude').canLaunch, true);
+  assert.strictEqual(resolveHandoffTarget(null, [{ id: 'pi', label: 'Pi' }], 'pi').canLaunch, true);
+});
+
+// The default is a CANDIDATE, not an answer: a user can disable the backend they once picked as their
+// default, and since #212 the settings page writes '' when nothing is launchable. Neither may select a
+// backend that is not on the list.
+test('a default that is not launchable does not get selected', () => {
+  const t = resolveHandoffTarget(null, [{ id: 'codex', label: 'Codex' }], 'claude');
+  assert.strictEqual(t.selected, 'codex', 'it falls to what CAN run, not to the stale default');
+
+  const noDefault = resolveHandoffTarget(null, [{ id: 'codex', label: 'Codex' }], '');
+  assert.strictEqual(noDefault.selected, 'codex', 'no default at all resolves the same way');
+});
+
+// This file used to end with a test called "no launchable backends at all still yields something
+// runnable", asserting `selected === 'claude'` and `options.length === 1` against an EMPTY list, with no
+// comment saying why. Its own name is the defect: if nothing is launchable then nothing is runnable, and
+// the 'claude' it returned could not spawn — being disabled is precisely why the list was empty. It
+// pinned the fabrication instead of justifying it, which is how the fabrication survived #212.
+// Replaced by the two tests above (#225).

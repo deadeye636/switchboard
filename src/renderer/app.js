@@ -1994,10 +1994,14 @@ async function launchNewSession(project, sessionOptions, seedText) {
     created: new Date().toISOString(),
     // The provenance of a session that does not exist on disk yet. Without it the row falls through
     // sessionBackendId() to the launch overlay — which the renderer only loads at start-up, so it has
-    // never heard of the session being launched right now — and lands on the 'claude' default. A Codex
-    // session therefore wore Claude's badge for as long as it took the cache to catch up. We are the ones
+    // never heard of the session being launched right now — and lands on the default. A Codex session
+    // therefore wore Claude's badge for as long as it took the cache to catch up. We are the ones
     // launching it; we know what it is.
-    backendId: (sessionOptions && sessionOptions.backendId) || window._defaultBackendId || 'claude',
+    //
+    // `_defaultBackendId` is already resolved to something launchable, or '' when nothing is (#225), so
+    // it needs no rescuing here. It used to end `|| 'claude'`, which named a backend that may not even
+    // be enabled — and this row is what the sidebar badges.
+    backendId: (sessionOptions && sessionOptions.backendId) || window._defaultBackendId,
   };
 
   // Track as pending (no .jsonl yet)
@@ -2309,7 +2313,13 @@ async function openSession(session, customOptions, { show = true } = {}) {
   // hand it Claude's launch defaults when the session belongs to another binary — Claude's `model`
   // would land on Codex's `-m`, and its permission mode means nothing there. Resolve the options for
   // the session's OWN backend instead. (No backendId is sent: main reapplies the recorded one.)
-  const resumeBackendId = window.sessionBackendId ? window.sessionBackendId(session) : 'claude';
+  //
+  // The guard here only fires when backend-registry.js has not loaded at all — `sessionBackendId` carries
+  // its own documented fallback for a session that predates provenance. And if the registry is missing,
+  // nothing about backends is known, so there is no id to give: '' resolves no options, and main still
+  // reapplies the session's RECORDED backend, which is what decides the binary either way. Naming Claude
+  // here (as this did) only ever meant "hand Claude's options to whatever this session is".
+  const resumeBackendId = window.sessionBackendId ? window.sessionBackendId(session) : '';
   const resumeOptions = customOptions || await resolveLaunchOptionsFor({ projectPath }, resumeBackendId);
   if (resumeOptions) delete resumeOptions.backendId;
   // The `worktree` default applies to NEW sessions only. Resuming must reuse the
@@ -2375,8 +2385,9 @@ async function attachRunningSession(session) {
   //
   // They must be THIS session's backend's options, not Claude's: resolving Claude's defaults here would
   // hand a Claude model to `pi --model` / `codex -m` in exactly that race. (openSession() was fixed for
-  // this; this caller was missed.)
-  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || 'claude';
+  // this; this caller was missed.) Which is why the fallback must not name Claude either — it only fires
+  // when backend-registry.js has not loaded, and then '' is the honest answer (#225).
+  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || '';
   const resumeOptions = await resolveLaunchOptionsFor({ projectPath }, backendId);
   if (resumeOptions) { delete resumeOptions.worktree; delete resumeOptions.worktreeName; }
   const result = await window.api.openTerminal(sessionId, projectPath, false, resumeOptions);

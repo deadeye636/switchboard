@@ -71,22 +71,31 @@
   //
   // Returns { options, selected, sourceAvailable, warning, showPicker }.
   function resolveHandoffTarget(source, launchable, defaultBackendId) {
-    const options = (Array.isArray(launchable) && launchable.length)
-      ? launchable
-      : [{ id: 'claude', label: 'Claude Code' }];
+    // The list is what it is — an empty one included. This used to substitute a synthetic
+    // `{id:'claude'}` when nothing was launchable, which is the same guess as `|| 'claude'` and worse
+    // for being invisible: with every backend disabled (§5.8) the row offered a New session on a backend
+    // that cannot spawn, and then HID the picker — because the fabricated list had exactly one entry, so
+    // the single-backend rule fired and made it look deliberate (#225).
+    const options = Array.isArray(launchable) ? launchable : [];
+    // Whether there is anything to run the packet on at all. The packet stays readable either way; what
+    // changes is whether the caller may offer to launch it.
+    const canLaunch = options.length > 0;
 
     const sourceAvailable = !!source && options.some(b => b.id === source);
-    const fallback = options.some(b => b.id === defaultBackendId) ? defaultBackendId : options[0].id;
+    const fallback = options.some(b => b.id === defaultBackendId)
+      ? defaultBackendId
+      : (options[0] ? options[0].id : '');
     const selected = sourceAvailable ? source : fallback;
 
     // The source is recorded but cannot run: SAY so. Quietly running the packet on whatever sorted
     // first is the kind of "helpful" that loses a user an hour.
     const warning = (source && !sourceAvailable) ? source : null;
 
-    // A single-backend user must see no new control at all.
-    const showPicker = !(options.length === 1 && (!source || source === options[0].id));
+    // A single-backend user must see no new control at all. Nor does a user with NO backend: an empty
+    // select is not a choice, it is a puzzle.
+    const showPicker = canLaunch && !(options.length === 1 && (!source || source === options[0].id));
 
-    return { options, selected, sourceAvailable, warning, showPicker };
+    return { options, selected, sourceAvailable, warning, showPicker, canLaunch };
   }
 
   return { extractLatestAssistantText, assistantContentOf, resolveHandoffTarget };

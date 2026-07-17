@@ -15,7 +15,10 @@
 
   window._backendsById = {};        // id -> descriptor
   window._sessionBackendMap = {};   // sessionId -> {backendId, profileId}   (launch overlay)
-  window._defaultBackendId = 'claude';
+  // '' until refreshBackendCaches() has answered: nothing is known yet, and that IS the answer (#225).
+  // It used to start at 'claude' — a guess that reads as a fact, so every caller asking before the
+  // registry had spoken was told "Claude", including on an install where Claude is switched off (#162).
+  window._defaultBackendId = '';
   window._showAllBadges = false;
 
   async function refreshBackendCaches() {
@@ -25,7 +28,7 @@
       const byId = {};
       for (const b of list) byId[b.id] = b;
       window._backendsById = byId;
-      window._defaultBackendId = (res && res.defaultLaunchTarget) || 'claude';
+      window._defaultBackendId = resolveDefaultTarget(res && res.defaultLaunchTarget);
     } catch (_) { /* leave the previous cache in place */ }
 
     try {
@@ -64,12 +67,38 @@
     return list.length ? list[0].id : '';
   }
 
+  /**
+   * The default launch target, resolved to something that can actually launch (#225).
+   *
+   * The stored value is what the user PICKED, not what is possible now — they can disable that backend
+   * afterwards, and since #212 the settings page deliberately writes `''` when nothing is launchable at
+   * all. So it is a candidate, not an answer. This used to be `stored || 'claude'`, which turned BOTH
+   * of those into a backend that may not spawn, and every surface downstream inherited it — the sidebar
+   * decided which rows to badge against it, the handoff picked its target from it, a new session launched
+   * with it.
+   *
+   * Same resolution the Backends settings page applies to its own select: the stored target while it is
+   * still launchable, else the first launchable one, else '' (§5.8 — every backend can be disabled). So
+   * `_defaultBackendId` is now always either launchable or empty, and a caller never needs to second-guess
+   * it. If you find yourself writing `_defaultBackendId || <something>`, the something is wrong.
+   */
+  function resolveDefaultTarget(stored) {
+    if (stored && isBackendEnabled(stored)) return stored;
+    return firstLaunchableBackendId();
+  }
+
   // §5.8: only a `ready && enabled` backend counts as one the user actually runs. A disabled backend
   // keeps its cached sessions (disable ≠ erase) but stops making the app "mixed mode".
   function isBackendEnabled(id) {
     const b = window._backendsById[id];
     return !!(b && b.status === 'ready' && b.enabled);
   }
+
+  // A session row indexed before provenance existed carries no `backendId` and is in no overlay: back
+  // then every session WAS Claude, because Claude was the only backend. Reading such a row as Claude
+  // MIGRATES it — it states what was true when the row was written, which is the one thing that
+  // separates this from the guesses #212/#225 removed. Named, so the guard can tell the two apart.
+  const LEGACY_SESSION_BACKEND = 'claude';
 
   // Resolve a session's backend id. Authoritative cached column first, overlay second, default last.
   function sessionBackendId(session) {
@@ -78,7 +107,7 @@
     const id = session.sessionId || session.id;
     const mapped = id && window._sessionBackendMap[id];
     if (mapped && mapped.backendId) return mapped.backendId;
-    return 'claude'; // a session with no provenance predates the multi-LLM era -> it is Claude
+    return LEGACY_SESSION_BACKEND;
   }
 
   /**

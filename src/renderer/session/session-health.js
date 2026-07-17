@@ -252,7 +252,11 @@ Read the transcript first. Do not continue the work yet. Then return only a mark
   //   kind 'read'      — sent to the NEW agent: "read the old session's transcript and write the handoff".
   // Both are overridable globally and per backend; the per-backend value wins.
   function resolveHandoffPrompt(backend, settings = {}, kind = 'summarise') {
-    const id = (backend && backend.id) || 'claude';
+    // No backend named -> no PER-BACKEND override applies, and the lookups below fall through to the
+    // global prompt on their own. It used to answer 'claude' here, which handed Claude's custom wording
+    // to a session whose backend we did not know — including its slash commands, which another CLI reads
+    // as plain text (#225). '' matches no key, which is exactly the intent.
+    const id = (backend && backend.id) || '';
     const pick = (v) => (typeof v === 'string' && v.trim()) ? v.trim() : null;
 
     if (kind === 'read') {
