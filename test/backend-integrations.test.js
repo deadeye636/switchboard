@@ -148,6 +148,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/panels/settings-global-html.js': [],
   'src/renderer/shell/session-restore.js': [],
   'src/renderer/shell/statusbar-usage.js': [],
+  'src/renderer/shell/search-bar.js': [],
   'src/renderer/shell/away-summary-banner.js': [],
   // #225 — the eight files #212's acceptance did not scope. Every one of them is now either a documented
   // migration or a resolution to the first launchable backend, so seven of the eight bind nothing at all.

@@ -89,6 +89,7 @@
     "jsonl-search.js",
     "statusbar-zoom.js",
     "app.js",
+    "search-bar.js",
     "view-menu.js"
   ],
   "settings.html": [
