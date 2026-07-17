@@ -13,10 +13,12 @@
 // _applyProjectSortSettings via window?.() and typeof at the two settings-apply sites; applyEffectiveSort
 // has no app.js caller outside this file (view-menu.js calls it at click time).
 //
-// THE SORT STATE STAYS IN app.js because many files read it — project-sort.js, sidebar.js, view-menu.js,
-// settings-panel.js, sidebar-events.js all read one or more of these. This controller WRITES them through
-// the shared scope (plain assignment onto the app.js binding, never a factory/window shadow — the #218
-// trap):
+// THE SORT STATE STAYS IN app.js because other files read the shared-scope bindings DIRECTLY — sidebar.js,
+// sidebar-events.js and sidebar-filters.js do. (project-sort.js, view-menu.js and settings-panel.js also
+// depend on the sort, but indirectly — through opts params, the _getSortView() return, and the settings
+// blob respectively — so they do not pin the lets to this scope; the direct readers do.) This controller
+// WRITES them through the shared scope (plain assignment onto the app.js binding, never a factory/window
+// shadow — the #218 trap):
 //   savedProjectSortMode, savedFavoritesOwnList   the settings mirror (also localStorage-cached)
 //   projectSortMode, favoritesOwnList             the effective values the render sorts by
 //   sortOverride                                  the View menu's this-session override

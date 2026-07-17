@@ -6,16 +6,18 @@
 // #228 called the "filter toolbar"; the collapse and sort controllers are their own files.
 //
 // A PLAIN CLASSIC SCRIPT that LOADS AFTER app.js — like search-bar.js, and forced for the same reason: its
-// parse-time tail binds click listeners to app.js's toggle consts (archiveToggle etc., app.js:9-22), which
-// would be in their TDZ before app.js. app.js reaches back at two points, both guarded because this loads
-// later (line numbers drift, so by role): _refreshProjectTagFilter via `window._refreshProjectTagFilter?.()`
-// from the loadProjects boot callback and from the top of reapplyGlobalSettings; applyProjectTagFilterVisibility
+// parse-time tail binds click listeners to app.js's toggle consts (archiveToggle, starToggle, runningToggle,
+// todayToggle, favoriteToggle — the `document.getElementById` block near the top of app.js), which would be
+// in their TDZ before app.js. app.js reaches back at two points, both guarded because this loads later
+// (by role, since line numbers drift): _refreshProjectTagFilter via `window._refreshProjectTagFilter?.()`
+// from the loadProjects boot callback and from inside reapplyGlobalSettings; applyProjectTagFilterVisibility
 // via a `typeof` guard from the tab switcher. window._refreshProjectTagFilter is assigned here and also
 // called from settings-panel.js/settings-tags.js when tags change — call-time, so load-after is fine.
 //
-// THE FILTER STATE STAYS IN app.js because the sidebar RENDER reads it (app.js:808-815, filterProjectsByTags
-// / filterProjectSessionsByTags). This controller WRITES it through the shared scope, the way sidebar.js
-// writes sortedOrder — never wrapped in a factory (that would shadow the binding, #218):
+// THE FILTER STATE STAYS IN app.js because the sidebar RENDER reads it (filterProjectsByTags /
+// filterProjectSessionsByTags, in refreshSidebar's project-filter pass). This controller WRITES it through
+// the shared scope, the way sidebar.js writes sortedOrder — never wrapped in a factory (that would shadow
+// the binding, #218):
 //   projectTagMap, sessionTagMap                     reassigned in _refreshProjectTagFilter (foreign let write)
 //   activeProjectTagFilter, activeSessionTagFilter   Sets, mutated in place
 //   showArchived, showStarredOnly, showRunningOnly,
