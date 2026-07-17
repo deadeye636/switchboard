@@ -9,19 +9,22 @@
 // reader is there — the counting-readers rule — and this file assigns them the way sidebar.js assigns
 // `sortedOrder`: same lexical binding, at call time, never wrapped.
 //
-// LOAD ORDER: this file must load AFTER app.js, and it is the first #218/#228 cut that does. Its five
-// parse-time side effects (four addEventListener calls, one getSetting IIFE) touch app.js's DOM handles
-// `searchInput` / `searchBar` / `searchClear` / `searchTitlesToggle` (app.js:11/34 and the two the block
-// declared) — and `searchInput`/`searchBar` are app.js consts that app.js also uses for the tab-placeholder
-// logic, so they cannot move here. If this file parsed BEFORE app.js, those consts would be in their TDZ
-// and every addEventListener would throw. Loading after app.js, they are already bound. app.js needs
-// nothing from this file at its own parse time (no external caller of clearSearch/runSearchQuery/…), so
-// after-app.js is safe both ways.
+// LOAD ORDER: this file must load AFTER app.js, and it is the first #218/#228 cut that does. It has six
+// parse-time side effects (five addEventListener calls, one getSetting IIFE). Exactly one of them reaches
+// a foreign binding at parse time: `searchInput.addEventListener(...)` reads app.js's `searchInput` const
+// (app.js:11). `searchInput` and `searchBar` stay in app.js because app.js's own tab-placeholder logic
+// uses them (app.js ~2107) — all at call time, so it is placement not a parse-time need, but they stay
+// regardless. Parsed BEFORE app.js this file would die where it first touches `searchInput` — the const
+// binding would not yet exist (a ReferenceError), and the listeners bound above that point would have
+// attached to nothing useful. Loaded after app.js, the const is bound. app.js needs nothing from this file
+// at its own parse time (no external caller of clearSearch/runSearchQuery/…), so after-app.js is safe.
 //
-// What it reaches into, by file:
-//   app.js                 searchInput, searchBar, searchClear (DOM handles), activeTab, cachedAllProjects,
-//                          cachedPlans, refreshSidebar, and it WRITES searchMatchIds / searchMatchProjectPaths
-//   views/plans-memory-view.js, views/*  renderPlans, renderMemories, renderWorkFiles
+// What it reaches into, by file (searchClear/searchTitlesToggle/searchRefreshBtn are this file's OWN consts,
+// not app.js's — they are not listed):
+//   app.js                     searchInput, searchBar (DOM handles), activeTab, cachedAllProjects,
+//                              cachedPlans, refreshSidebar, and it WRITES searchMatchIds /
+//                              searchMatchProjectPaths
+//   views/plans-memory-view.js  renderPlans, renderMemories, renderWorkFiles
 
 // --- Search (debounced, per-tab FTS) ---
 // Trigram tokenizer makes 1-2 char queries the most expensive (they match
