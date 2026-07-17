@@ -54,6 +54,7 @@
     "electron-builder": "^26.0.0",
     "electron-reloader": "^1.2.3",
     "esbuild": "^0.27.3",
+    "eslint": "^10.7.0",
     "jsdom": "^29.1.1",
     "patch-package": "^8.0.1",
     "png2icons": "^2.0.1"
