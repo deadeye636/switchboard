@@ -53,7 +53,23 @@
   // save silently dropped EVERY backend setting the user had just made on that page (#163).
   let mountedGlobal = false;      // has the global section been rendered in this settings session?
   let liveEnabled = {};           // backendId -> bool, as last shown in the list
-  let liveLaunchTarget = 'claude';
+  // '' = "nothing has said what the target is yet", which is what this genuinely means before the list is
+  // mounted. It used to start at 'claude' — a guess that outlived its truth once Claude became disablable
+  // (#162): a user with Claude off could have this stale value reach the saved settings as their default.
+  let liveLaunchTarget = '';
+
+  // The two — and only two — honest reasons this panel may name a backend (#212).
+  //
+  // 1. A TEMPLATE RECORD SAVED BEFORE #161 carries no `backendId`. Back then a template was a bundle of
+  //    ANTHROPIC_* variables and nothing else, because Claude was the only backend there was. Resolving
+  //    such a record to Claude is a MIGRATION of an old record — it describes what was already true when
+  //    it was written, not a guess about what should run now.
+  const LEGACY_TEMPLATE_BASE = 'claude';
+  // 2. An env-var FAMILY, which is not a backend id at all: Axis-A presets write ANTHROPIC_* variables,
+  //    so they need whichever base declares it reads them (`endpointEnv`). Today that is Claude; the
+  //    point is that this panel does not need to know.
+  const ANTHROPIC_ENDPOINT_ENV = 'anthropic';
+
 
   // Per-backend ENVIRONMENT variables (`backendEnv.<id>`). A template could always carry an env bundle;
   // a plain backend could not, which meant the only way to give Codex a var was to wrap it in a template.
@@ -399,13 +415,17 @@
       // The template's launch options — values for the BASE backend's configFields. They live in the
       // template record, not in the settings blob: a template is one thing, with one save button.
       let options = Object.assign({}, seed.options || {});
-      let baseId = seed.backendId || 'claude';
-      const baseList = (bases && bases.length ? bases : [{ id: 'claude', label: 'Claude Code', configFields: [] }]);
+      let baseId = seed.backendId || LEGACY_TEMPLATE_BASE;   // no backendId -> a record from before #161
+      // With no bases at all there is nothing to bind a template to. It used to synthesise a fake Claude
+      // here, which put a base in the select that the caller had not offered — and, with Claude disabled,
+      // one that cannot launch. An empty list is the truth; `baseOf` already tolerates it.
+      const baseList = (bases && bases.length ? bases : []);
       const baseOf = (id) => baseList.find(b => b.id === id) || baseList[0];
       const fieldsOf = (id) => (baseOf(id) || {}).configFields || [];
-      // The endpoint fields below write ANTHROPIC_* variables. They only mean anything on a Claude base —
-      // Codex and Pi have no such variables, and offering them there would be a control that lies.
-      const isClaudeBase = () => baseId === 'claude';
+      // The endpoint fields below write the base's endpoint variables (ANTHROPIC_* today). They only mean
+      // anything on a base that READS them — offering them on one that does not would be a control that
+      // lies. The base declares it (`endpointEnv`); this editor does not know which backend that is.
+      const baseHasEndpoint = () => !!(baseOf(baseId) || {}).endpointEnv;
       let icon = seed.icon || 'anthropic';
 
       // The base backend's options, each with the same per-option "is this set?" marker every other scope
@@ -485,9 +505,9 @@
         <div class="settings-section">
           <div class="settings-section-title" id="be-options-title"></div>
           <div class="settings-hint">What this template starts its backend with. An option you leave on <em>Use the backend's default</em> follows that backend's own settings — now and after you change them.</div>
-          <!-- ANTHROPIC_* only exists on a Claude base, so these are hidden elsewhere: on a Codex
-               template they would be two boxes that write variables Codex never reads. -->
-          <div id="be-endpoint" ${isClaudeBase() ? '' : 'hidden'}>
+          <!-- Hidden on a base that declares no endpoint variables: there they would be two boxes
+               writing variables that CLI never reads. -->
+          <div id="be-endpoint" ${baseHasEndpoint() ? '' : 'hidden'}>
             <div class="settings-field">
               <div class="settings-field-info">
                 <span class="settings-label">Endpoint model</span>
@@ -567,7 +587,10 @@
       // options are below it. It used to be written twice — statically in the markup (unsuffixed) and again
       // on `change` — so the backend the dialog OPENS on was the one whose header never got named (#190).
       const paintOptions = () => {
-        optionsTitle.textContent = `Launch options — ${baseOf(baseId).label}`;
+        // `baseOf` answers undefined when there is no base at all (every backend disabled), so name the
+        // section without one rather than throwing halfway through painting the dialog.
+        const base = baseOf(baseId);
+        optionsTitle.textContent = base ? `Launch options — ${base.label}` : 'Launch options';
         optionsBox.innerHTML = optionsHtml();
       };
       paintOptions();
@@ -575,7 +598,7 @@
       // --- base backend: it decides what the rest of this dialog even means.
       baseSelect.addEventListener('change', () => {
         baseId = baseSelect.value;
-        endpointBox.hidden = !isClaudeBase();
+        endpointBox.hidden = !baseHasEndpoint();
         // A different backend has different options. Keeping the old values would carry, say, a Claude
         // permission mode into a Codex template — a setting that backend has never heard of.
         options = {};
@@ -842,12 +865,14 @@
     box.className = 'backends-panel';
 
     let backends = [];
-    let defaultLaunchTarget = 'claude';
+    // '' until the registry answers. Not a backend id: rebuildSelect() below resolves an unset or
+    // unlaunchable target to the first LAUNCHABLE one, which is the only honest guess (#212).
+    let defaultLaunchTarget = '';
     let profiles = [];
     try {
       const res = await window.api.backends.list();
       backends = (res && res.backends) || [];
-      defaultLaunchTarget = (res && res.defaultLaunchTarget) || 'claude';
+      defaultLaunchTarget = (res && res.defaultLaunchTarget) || '';
     } catch {
       root.innerHTML = '<div class="settings-hint">Could not load the backend list.</div>';
       return;
@@ -858,6 +883,19 @@
     } catch { profiles = []; }
 
     const builtins = backends.filter(b => !b.isProfile);
+
+    // The first LAUNCHABLE backend, for the one caller that needs it: a blank template has no base yet, and
+    // seeding it with a hardcoded id bound it to a backend the user may have switched off (#212). The
+    // default-target select needs no such helper — rebuildSelect() below already resolves that, and its
+    // answer is what a save reads.
+    //
+    // Deliberately NOT backend-registry.js's `firstLaunchableBackendId`: this file is loaded by both
+    // index.html and settings.html, and only index.html loads the registry — it would be undefined in the
+    // settings window, which is where this panel actually lives.
+    const firstLaunchableId = () => {
+      const b = backends.find(x => x.status === 'ready' && isEnabledLive(x));
+      return b ? b.id : '';
+    };
 
     // What is actually ON DISK. A template staged in this session is not — and deleting one that never
     // got there must not ask the store to remove it (it would answer "not found", which is a true
@@ -880,14 +918,15 @@
 
     /** A staged template has no descriptor from main yet — synthesise the one the rows need. */
     const templateDescriptor = (p) => {
-      const base = builtins.find(b => b.id === (p.backendId || 'claude'));
+      const baseId = p.backendId || LEGACY_TEMPLATE_BASE;   // no backendId -> a record from before #161
+      const base = builtins.find(b => b.id === baseId);
       return {
         id: p.id,
         label: p.name,
         isProfile: true,
         status: base && base.status === 'ready' ? 'ready' : 'planned',
-        baseId: p.backendId || 'claude',
-        baseLabel: base ? base.label : (p.backendId || 'claude'),
+        baseId,
+        baseLabel: base ? base.label : baseId,
         icon: p.icon || null,
         colour: p.icon || 'default',
         caveat: base ? undefined : `Its backend (${p.backendId}) is not available, so this template cannot start.`,
@@ -1163,7 +1202,7 @@
       const cb = box.querySelector(`.backend-enable[data-id="${CSS.escape(b.id)}"]`);
       if (cb) return cb.checked;
       if (b.isProfile) {
-        const baseCb = box.querySelector(`.backend-enable[data-id="${CSS.escape(b.baseId || 'claude')}"]`);
+        const baseCb = box.querySelector(`.backend-enable[data-id="${CSS.escape(b.baseId || LEGACY_TEMPLATE_BASE)}"]`);
         if (baseCb) return baseCb.checked;
         return true;
       }
@@ -1174,7 +1213,11 @@
     function snapshotList() {
       liveEnabled = {};
       box.querySelectorAll('.backend-enable').forEach(cb => { liveEnabled[cb.dataset.id] = !!cb.checked; });
-      liveLaunchTarget = select.value || defaultLaunchTarget || 'claude';
+      // `select.value` IS the resolved answer: rebuildSelect() runs first and lands it on the stored
+      // default when that is still launchable, on the first launchable backend when it is not, and on ''
+      // when nothing is. Reaching past it to the raw stored `defaultLaunchTarget` — as this did — is what
+      // let a disabled backend survive as the target: the select showed Codex and the save wrote Claude.
+      liveLaunchTarget = select.value;
       mountedGlobal = true;
     }
 
@@ -1189,9 +1232,11 @@
 
     // The backends a template may RUN ON: the ready built-ins. A template on a template would be a
     // chain to resolve and buys nothing; a `planned` backend cannot run at all.
+    // `endpointEnv` rides along: the editor offers its Endpoint fields only on a base that declares one,
+    // and this projection is the only thing it ever sees of the backend (#212).
     const templateBases = builtins
       .filter(b => b.status === 'ready')
-      .map(b => ({ id: b.id, label: b.label, configFields: b.configFields || [] }));
+      .map(b => ({ id: b.id, label: b.label, configFields: b.configFields || [], endpointEnv: b.endpointEnv || null }));
 
     // Templates → editor. The result is STAGED, not written: Save Settings commits it, Cancel drops it.
     box.querySelector('#sv-backend-templates').addEventListener('click', async (e) => {
@@ -1199,11 +1244,15 @@
       if (!chip) return;
       const preset = (window.BACKEND_PRESETS || []).find(p => p.id === chip.dataset.preset);
       const taken = new Set(backends.map(b => b.id));
-      // A preset is a set of ANTHROPIC_* env vars — it only means anything on a Claude base, and says so
-      // (backends/presets.js). A blank template starts on Claude and the user can change it.
+      // An Axis-A preset IS a bundle of ANTHROPIC_* endpoint variables (backend-presets.js), so it can
+      // only run on a base that READS that family. Ask the descriptors which one does — that used to be
+      // spelled `|| 'claude'`, which was right only for as long as Claude was the sole such backend
+      // (#212). 'anthropic' here names an env-var family, not a backend.
+      // A blank template carries no such bundle, so it just starts on the first launchable base.
+      const presetBase = (templateBases.find(b => b.endpointEnv === ANTHROPIC_ENDPOINT_ENV) || {}).id || '';
       const seed = preset
-        ? { name: preset.name, icon: preset.icon, env: Object.assign({}, preset.env), model: preset.model, haikuModel: preset.haikuModel, backendId: preset.backendId || 'claude' }
-        : { name: '', icon: 'anthropic', env: {}, model: '', haikuModel: '', backendId: 'claude' };
+        ? { name: preset.name, icon: preset.icon, env: Object.assign({}, preset.env), model: preset.model, haikuModel: preset.haikuModel, backendId: preset.backendId || presetBase }
+        : { name: '', icon: 'anthropic', env: {}, model: '', haikuModel: '', backendId: firstLaunchableId() };
       const staged = await openEditor(seed, taken, templateBases);
       if (staged) {
         stagedTemplates.set(staged.profile.id, staged);
@@ -1223,7 +1272,7 @@
         const taken = new Set(backends.map(b => b.id).filter(x => x !== id));
         const seed = {
           id: p.id, name: p.name, icon: p.icon, env: p.env,
-          backendId: p.backendId || 'claude', options: p.options || {},
+          backendId: p.backendId || LEGACY_TEMPLATE_BASE, options: p.options || {},   // pre-#161 record
         };
         const staged = await openEditor(seed, taken, templateBases);
         if (staged) {
@@ -1286,7 +1335,10 @@
     }
     return {
       backendEnabled,
-      defaultLaunchTarget: (select && select.value) || liveLaunchTarget || 'claude',
+      // Both sides are already resolved to something launchable (see snapshotList): the select when the
+      // list is on screen, the snapshot when a gear page replaced it. '' when nothing can launch, which
+      // is the truth and must not be turned back into a backend id.
+      defaultLaunchTarget: (select && select.value) || liveLaunchTarget,
       backendDefaults: readDefaults(root),
       backendEnv,
       handoffPromptByBackend: readHandoffPrompts(root, 'summarise'),

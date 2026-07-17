@@ -295,6 +295,13 @@ module.exports = {
   status: 'ready',
   monogram: 'C',
   colour: 'claude',
+  // Which environment-variable family this CLI reads its endpoint from (#212), or nothing if it has
+  // none. An Axis-A template pointed at a third-party endpoint (DeepSeek, GLM, OpenRouter) works by
+  // setting ANTHROPIC_* variables, so the profile editor offers its Endpoint fields only on a base that
+  // reads them: on a Codex template they would be two boxes writing variables Codex never looks at —
+  // a control that lies. The editor used to decide this with `baseId === 'claude'`; it now asks the
+  // descriptor, so a future Anthropic-compatible CLI opts in by declaring the same family.
+  endpointEnv: 'anthropic',
   // Which artwork the renderer draws (#212). backend-icons.js keys its ART map the same way it keys
   // COLOURS and MONOGRAMS, so declaring the slug is all it takes — the launch popover used to carry
   // Anthropic's logo as a raw SVG string emitted only when the id read `claude`. A backend that names

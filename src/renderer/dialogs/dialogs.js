@@ -23,14 +23,33 @@ function applyBackendDefaultsToOptions(options, defaults) {
   return options;
 }
 
+// The two places this file may name a backend, and why each is not a guess (#212). Everything else that
+// used to write `|| 'claude'` now resolves to the first LAUNCHABLE backend — Claude can be disabled
+// (#162), and a fallback that names it offers a row that cannot start.
+//
+// 1. A TEMPLATE RECORD SAVED BEFORE #161 carries no `baseId`: back then a template was always a bundle
+//    of ANTHROPIC_* variables on Claude, because Claude was the only backend. Reading such a record as
+//    Claude MIGRATES it — it states what was true when it was written.
+const LEGACY_TEMPLATE_BASE = 'claude';
+// 2. The scheduler writes Claude's transcript format and only Claude's (see resolveDefaultSessionOptions
+//    below). That is a coupling in `servers/schedule-runner.js`, faithfully reported here.
+const SCHEDULER_BACKEND = 'claude';
+
+// The first LAUNCHABLE backend — what to fall back on when nobody has named one. Never a hardcoded id.
+const firstLaunchableId = () =>
+  (typeof window.firstLaunchableBackendId === 'function' ? window.firstLaunchableBackendId() : '');
+
 // A template (Axis-A) runs its BASE backend's binary, so its launch options are that backend's — it
 // declares no schema of its own. Every dialog and every launch asks these two for "which fields?" and
 // "which values?", so the answer is the same everywhere.
 //
 // This used to say "the CLAUDE binary" and reach for `getBackend('claude')`. A template can now name the
 // backend it runs on (#161), so a Codex template offers Codex' options, not Claude's.
+//
+// Only ever reached for a profile (both callers gate on `isProfile`), so the fallback is exactly the
+// pre-#161 record case and nothing else.
 function baseIdOf(backend) {
-  return (backend && backend.isProfile && backend.baseId) || 'claude';
+  return (backend && backend.isProfile && backend.baseId) || LEGACY_TEMPLATE_BASE;
 }
 
 function schemaBackendOf(backend) {
@@ -125,15 +144,24 @@ function isSessionOverride(field, value, inherit) {
   return value !== '';
 }
 
-// Claude's effective launch defaults, WITHOUT a backendId — for the paths that must not force a backend
-// at all (a plain resume keeps the backend the session was recorded with, §5.11).
+// The SCHEDULE CREATOR's launch defaults, WITHOUT a backendId — it is the one and only caller.
+//
+// This names a backend on purpose, and it is not a guess: the schedule creator resumes into a session
+// the scheduler PRE-CREATED as a Claude transcript (`servers/schedule-runner.js` createScheduleSession
+// writes a .jsonl into Claude's own store), so Claude's defaults are the ones that apply. The backendId
+// is then stripped because a resume must keep the backend the session was recorded with (§5.11) rather
+// than force one.
+//
+// The coupling therefore lives in the SCHEDULER, not here: it speaks only Claude's format today, and
+// this function inherits that. Do not "fix" it by resolving some other backend's defaults — that would
+// hand, say, a Codex sandbox flag to a Claude transcript. Fix the scheduler, and this follows.
 //
 // It is NOT "the Claude-by-definition paths" any more: fork runs on the session's own backend, and so
 // does every handoff path (#148). That stale comment is what let a handoff keep launching Claude long
 // after the commit that claimed to fix it — if you reach for this function, ask first whether you
 // actually mean `resolveLaunchOptionsFor(project, <that session's backend>)`.
 async function resolveDefaultSessionOptions(project) {
-  const options = await resolveLaunchOptionsFor(project, 'claude');
+  const options = await resolveLaunchOptionsFor(project, SCHEDULER_BACKEND);
   delete options.backendId;
   delete options.profileId;
   return options;
@@ -143,7 +171,10 @@ async function resolveDefaultSessionOptions(project) {
 // backend's launch options. Resolving Claude's defaults here (as this did) would hand a Claude model to
 // `pi --fork` — the same class of bug as the reattach path.
 async function forkSession(session, project) {
-  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || 'claude';
+  // `sessionBackendId` carries its own documented fallback for a session that predates provenance, so the
+  // one here only fires when backend-registry.js has not loaded at all — a load-order accident, not a
+  // session without a backend. Answer with something launchable rather than a name that may be disabled.
+  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || firstLaunchableId();
 
   // A backend that names its own sessions (Codex, Hermes, Pi) only knows a session once it has written
   // its store record — i.e. after the agent has answered. Before that the only id we hold is ours, and
@@ -324,7 +355,7 @@ async function showNewSessionPopover(project, anchorEl) {
   // surfaces agree — agy sits under Codex in both, not alphabetically ahead of it. It used to be "Claude
   // first", which is the same thing only as long as Claude is the default: a user who set another one got
   // their default buried under Claude, unmarked, in a list of equals (#153).
-  const defaultId = window._defaultBackendId || 'claude';
+  const defaultId = window._defaultBackendId || firstLaunchableId();
   backendList.sort((a, b) => {
     if (a.id === defaultId) return -1;
     if (b.id === defaultId) return 1;
@@ -664,9 +695,12 @@ async function showGeneratedConfigDialog(project, backend) {
 // backend (00 §4a) — Claude used to have a purpose-built form here; its fields ARE its configFields
 // now, so the generic dialog shows them all, plus the ones the old form silently omitted (Model, IDE
 // emulation). A new backend needs no dialog code: it declares its schema.
+//
+// Called with no backendId, it configures the first LAUNCHABLE backend — it used to reach for Claude,
+// which with Claude disabled offered a Configure dialog for a backend that cannot start (#212).
 async function showNewSessionDialog(project, backendId) {
   const backend = (backendId && window.getBackend ? window.getBackend(backendId) : null)
-    || (window.getBackend ? window.getBackend('claude') : null);
+    || (window.getBackend ? window.getBackend(firstLaunchableId()) : null);
   if (!backend) return;
   return showGeneratedConfigDialog(project, backend);
 }
@@ -756,9 +790,16 @@ async function showGeneratedResumeDialog(session, backend) {
 // only adjusts the recorded backend's own configFields. The dialog is generated from that schema for
 // EVERY backend, Claude included (00 §4a: "this replaces today's hardcoded Claude Configure form").
 async function showResumeSessionDialog(session) {
-  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || 'claude';
-  const backend = (window.getBackend ? window.getBackend(backendId) : null)
-    || (window.getBackend ? window.getBackend('claude') : null);
+  // `sessionBackendId` carries its own documented fallback for a session that predates provenance, so the
+  // one here only fires when backend-registry.js has not loaded at all — a load-order accident, not a
+  // session without a backend. Answer with something launchable rather than a name that may be disabled.
+  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || firstLaunchableId();
+  // No second fallback, deliberately. Resume is binary-bound, so a backend OTHER than the recorded one is
+  // never the right answer here: reaching for Claude (as this did) showed Claude's configFields for a
+  // session that is not Claude's, and every value the user then set was written against the wrong schema.
+  // If the recorded backend is unknown — it was removed, or the registry has not loaded — there is no
+  // honest form to show, and showing none beats showing someone else's.
+  const backend = window.getBackend ? window.getBackend(backendId) : null;
   if (!backend) return;
   return showGeneratedResumeDialog(session, backend);
 }

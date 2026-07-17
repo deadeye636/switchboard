@@ -96,18 +96,60 @@ test('a declared icon slug resolves to real artwork', () => {
     'claude declares the slug the ART map is keyed by; rename either side and the popover silently shows a monogram');
 });
 
-// The point of the whole exercise: the panel renders the declaration, it does not know who declared it.
-test('the settings surface names no backend', () => {
-  for (const rel of [
-    'src/renderer/panels/backends-panel.js',
-    'src/renderer/panels/settings-panel.js',
-  ]) {
-    const src = read(rel);
-    // Strip comments first — prose may name a backend to explain WHY; code may not.
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+// The point of the whole exercise: the renderer renders what the descriptor declares, and does not know
+// who declared it. #212's acceptance: these files "contain no backend id literal except where a comment
+// states it is reading a legacy record".
+//
+// An earlier version of this test searched for the literal string `id === '<id>'` and was GREEN while
+// `backends-panel.js` held `const isClaudeBase = () => baseId === 'claude'` — the capital I in `baseId`
+// was enough to slip past it. A test that only finds the spelling you happened to remove is a test that
+// certifies whatever you did not think of, so match the SHAPE instead: any comparison against a backend
+// id, in either order, either quote style, `==` or `===`.
+const ID_COMPARE = (id) => new RegExp(
+  `(===?\\s*['"]${id}['"])|(['"]${id}['"]\\s*===?)`,
+);
+
+// Strip comments so prose may explain WHY a backend is named while code may not. Deliberately conservative:
+// it does not try to understand string literals containing `//` or `/*`, so it can over-strip. That direction
+// is safe here — over-stripping can only hide a violation from a test that is a backstop, and every file it
+// runs on is checked by the allow-list below as well.
+const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+// The names a file may bind a backend id to, each because it is NOT a guess: a record written before the
+// multi-LLM era, or a coupling in another module that this file only reports. Anything else must resolve to
+// the first launchable backend. Adding a name here is meant to be a deliberate act — say why.
+const ALLOWED_BINDINGS = {
+  'src/renderer/panels/backends-panel.js': [
+    'LEGACY_TEMPLATE_BASE',      // a template record from before #161 carries no backendId
+  ],
+  'src/renderer/dialogs/dialogs.js': [
+    'LEGACY_TEMPLATE_BASE',      // ditto, for a template's baseId
+    'SCHEDULER_BACKEND',         // servers/schedule-runner.js writes Claude's transcript format, only
+  ],
+  'src/renderer/panels/settings-panel.js': [],
+};
+
+test('the renderer never branches on a backend id', () => {
+  for (const rel of Object.keys(ALLOWED_BINDINGS)) {
+    const code = stripComments(read(rel));
     for (const backend of BACKENDS) {
-      assert.ok(!code.includes(`id === '${backend.id}'`),
-        `${rel} branches on the backend id "${backend.id}" — the descriptor must carry that, not the panel`);
+      const m = code.match(ID_COMPARE(backend.id));
+      assert.equal(m, null,
+        `${rel} compares against the backend id "${backend.id}" (${m && m[0]}) — the descriptor must carry that, not the renderer`);
+    }
+  }
+});
+
+test('the renderer names a backend only where it is binding a documented non-guess', () => {
+  for (const [rel, allowed] of Object.entries(ALLOWED_BINDINGS)) {
+    const code = stripComments(read(rel));
+    for (const backend of BACKENDS) {
+      // Every surviving occurrence of the id must be the right-hand side of one of the allowed bindings.
+      const occurrences = (code.match(new RegExp(`['"]${backend.id}['"]`, 'g')) || []).length;
+      const bound = allowed.reduce((n, name) =>
+        n + (code.match(new RegExp(`${name}\\s*=\\s*['"]${backend.id}['"]`, 'g')) || []).length, 0);
+      assert.equal(occurrences, bound,
+        `${rel} spells "${backend.id}" ${occurrences}x but binds it ${bound}x — an id literal outside a documented binding is a guess (#212). Resolve it to the first launchable backend, or add a named constant here with the reason.`);
     }
   }
 });

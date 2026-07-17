@@ -1944,6 +1944,10 @@ ipcMain.handle('backends-list', () => {
       // crosses IPC, exactly like `usage` above: the settings panel renders what is declared and names
       // no backend. A backend without integrations sends null and gets no section.
       integrations: b.integrations || null,
+      // Which env-var family this CLI reads its endpoint from (#212), or null. The profile editor shows
+      // its Endpoint fields only for a base that declares one — it used to ask whether the id was
+      // `claude`. A template inherits its base's answer (see profileToDescriptor).
+      endpointEnv: b.endpointEnv || null,
     })),
     defaultLaunchTarget: backends.getDefaultLaunchTarget(),
   };

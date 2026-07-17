@@ -44,6 +44,26 @@
     return window._backendsById[id] || null;
   }
 
+  /**
+   * The backend to fall back on when nobody has said which one — the first LAUNCHABLE one (#212).
+   *
+   * There are exactly two honest reasons to reach for a backend id nobody named, and this is one of
+   * them; the other is reading a record that predates the multi-LLM era, which is `sessionBackendId`'s
+   * job below and says so. Everything else used to write `|| 'claude'`, which is a guess: Claude can be
+   * disabled (#162), and a default pointing at a disabled backend is a spawn that gets refused — the
+   * launch popover offering a row that cannot start, the profile editor binding a template to a base
+   * the user switched off.
+   *
+   * `launchableBackends()` keeps registration order, so "first" means the same thing here as it does in
+   * Settings > Backends and in the launch picker. Returns '' when nothing is launchable at all: every
+   * backend can be disabled (§5.8), and '' is the honest answer — a caller must not turn it into a
+   * different backend's id.
+   */
+  function firstLaunchableBackendId() {
+    const list = launchableBackends();
+    return list.length ? list[0].id : '';
+  }
+
   // §5.8: only a `ready && enabled` backend counts as one the user actually runs. A disabled backend
   // keeps its cached sessions (disable ≠ erase) but stops making the app "mixed mode".
   function isBackendEnabled(id) {
@@ -97,6 +117,7 @@
   window.refreshBackendCaches = refreshBackendCaches;
   window.launchableBackends = launchableBackends;
   window.getBackend = getBackend;
+  window.firstLaunchableBackendId = firstLaunchableBackendId;
   window.isBackendEnabled = isBackendEnabled;
   window.sessionBackendId = sessionBackendId;
   window.computeShowAllBadges = computeShowAllBadges;
