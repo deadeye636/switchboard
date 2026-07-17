@@ -1,6 +1,6 @@
 // --- Settings: the global settings form's markup (#218) ---
 //
-// One function, one template literal: the whole two-pane global settings form — the nav and all eleven
+// One function, one template literal: the whole two-pane global settings form — the nav and all twelve
 // category panes. It is the largest single thing that was inside `openSettingsViewer`, and the only part
 // of this file's #218 split that is pure string building: it reads values, it touches no DOM and binds no
 // listener. settings-panel.js assigns the result to `settingsViewerBody.innerHTML` and then wires the
@@ -9,23 +9,38 @@
 // WHY IT TAKES ONE OBJECT AND DESTRUCTURES IT
 //
 //   Every name below used to be a local of `openSettingsViewer`, read directly by the template. Rewriting
-//   ~58 reads to `v.thing` would have been ~58 chances to typo one — and a typo here does not throw. It
-//   renders an EMPTY FIELD, silently, in a form nothing tests and nothing loads. So the template text is
-//   unchanged, byte for byte; the destructure below is what makes the old names resolve again. The diff is
-//   a move, not a rewrite, which is the only reason it can be checked by reading it.
+//   ~57 reads to `v.thing` would have been ~57 chances to typo one — and a typo does not throw. It renders
+//   the literal text `undefined` where a value was interpolated, or an empty control where a ternary read
+//   it, silently, in a form nothing tests and nothing loads. So the template text moved unchanged (bar one
+//   dropped leading newline — a whitespace text node before a block element); the destructure below is what
+//   makes the old names resolve again. The diff is a move, not a rewrite, which is the only reason it can
+//   be checked by reading it.
 //
-//   The list is not hand-written: it was computed by walking the template for identifiers and keeping the
-//   ones declared as locals of `openSettingsViewer`. Two of them (handoffPromptValue, handoffReadPromptValue)
-//   only appear in the last ninety lines — a hand-picked list would plausibly have missed exactly those, and
-//   the result would have been two blank textareas and a green suite.
+//   The list was computed, not hand-written: walk the template for identifiers, keep the ones declared as
+//   locals of `openSettingsViewer`. Two of them (handoffPromptValue, handoffReadPromptValue) appear only in
+//   the last ninety lines — a hand-picked list would plausibly have missed exactly those, and the result
+//   would have been two blank textareas and a green suite. The walk is not infallible either: its first
+//   version matched identifiers in the template's TEXT, so it also "found" `current` in the prose "the
+//   current projects stay" and passed a value nothing reads. Match `${...}` expressions, not words.
+//
+// A NAME DROPPED FROM THE DESTRUCTURE THROWS rather than rendering blank — it becomes a free identifier
+// with no global to catch it. That is worth knowing and worth not over-trusting: it holds only as long as
+// no top-level declaration anywhere in the shared scope happens to share the name (nothing guards that),
+// and it does NOT cover the other direction — drop a key from the CALL SITE while it stays in the
+// destructure and you get `undefined`, silently.
 //
 // EVERY VALUE IS A SNAPSHOT, AND THAT IS CORRECT: the form is rendered once per open, before any of the
 // sections wire themselves. `scShortcuts` is a `let` that the shortcut section later rebinds — this
 // renders the bindings as they are at open time, which is exactly what the old inline template did.
 //
-// NOT passed, because they are not locals: escapeHtml (lib/utils.js), SHORTCUT_DEFS / formatBinding
-// (shell/shortcuts.js). Both are top-level declarations of classic scripts, so they resolve at call time
-// from the shared global scope, and both index.html and settings.html load them.
+// NOT passed, because they are not locals — this is the file's silent-capture register, and it is complete:
+//   escapeHtml                                        lib/utils.js
+//   SHORTCUT_DEFS, SHORTCUT_GROUPS,
+//   shortcutDefsByGroup, formatBinding                shell/shortcuts.js
+//   TERMINAL_THEMES                                   terminal/terminal-themes.js
+// All six are top-level declarations of classic scripts, so they resolve at call time from the shared
+// global scope, and both index.html and settings.html load all three defining files. Keep this list
+// honest: it is the only place that records what this file reaches for outside its own arguments.
 
 (function () {
   'use strict';
@@ -33,7 +48,7 @@
   function settingsGlobalHtml(v) {
     const {
       DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
-      collapseDefaultValue, confirmQuitValue, conptyBackendValue, current, displayModeValue,
+      collapseDefaultValue, confirmQuitValue, conptyBackendValue, displayModeValue,
       externalEditorValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,

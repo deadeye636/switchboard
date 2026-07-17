@@ -391,14 +391,14 @@
     } else {
       // ---- Global scope: two-pane layout (nav + category panes) ----
       settingsViewerBody.classList.add('sv-two-pane');
-      // The form itself — the nav and all eleven category panes — is panels/settings-global-html.js
+      // The form itself — the nav and all twelve category panes — is panels/settings-global-html.js
       // (#218). It is pure string building, so it moved out whole and unchanged; what stays here is the
       // values it renders and the wiring below. The names are passed as one object and destructured
       // there, so the template text never had to be rewritten — see that file's header for why that
       // mattered: a mistyped read renders an empty field rather than throwing.
       settingsViewerBody.innerHTML = window.settingsGlobalHtml({
         DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
-        collapseDefaultValue, confirmQuitValue, conptyBackendValue, current, displayModeValue,
+        collapseDefaultValue, confirmQuitValue, conptyBackendValue, displayModeValue,
         externalEditorValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
