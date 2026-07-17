@@ -7,8 +7,8 @@
 // It lived in grid-view.js and was never grid code. `appShortcuts` is THE shortcut table: app.js reads
 // it three times and terminal-manager.js four, all of them unguarded, and it was declared 1600 lines
 // into a file about drawing cards. `setAppShortcuts` is what the settings page calls when the user
-// re-binds a key. Neither has anything to do with a grid; only `navigateGrid` does, and it only reads
-// gridCards to find the neighbour.
+// re-binds a key. Neither has anything to do with a grid; only `navigateGrid` does — it reads gridCards
+// to find the neighbour and defers the neighbour-choice geometry to pickGridNeighbor in grid-layout.js.
 //
 // This is the split's real find. Nothing was broken — it just could not be found: a reader looking for
 // "where are the keyboard shortcuts" had no reason to open grid-view.js, and the last four issues that
@@ -63,6 +63,9 @@ function navigateSession(direction) {
 
 // Navigate the grid in 2D by visual position using bounding rects.
 // Project headings break the simple index math, so we use actual screen positions.
+// The neighbour-choice geometry (dead zone + cross-axis weighting) is the pure
+// pickGridNeighbor in grid-layout.js; this half only gathers the visible cards,
+// measures them, and focuses the winner.
 function navigateGrid(direction) {
   if (!gridViewActive) return;
   // Exclude cards hidden inside a collapsed region — they have no usable
@@ -76,40 +79,10 @@ function navigateGrid(direction) {
     }
     return;
   }
-  const cur = currentCard.getBoundingClientRect();
-  const curCx = cur.left + cur.width / 2;
-  const curCy = cur.top + cur.height / 2;
-  let best = null;
-  let bestDist = Infinity;
-  for (const card of cards) {
-    if (card === currentCard) continue;
-    const r = card.getBoundingClientRect();
-    const cx = r.left + r.width / 2;
-    const cy = r.top + r.height / 2;
-    // Filter by direction
-    const dx = cx - curCx;
-    const dy = cy - curCy;
-    let valid = false;
-    switch (direction) {
-      case 'left':  valid = dx < -10; break;
-      case 'right': valid = dx > 10; break;
-      case 'up':    valid = dy < -10; break;
-      case 'down':  valid = dy > 10; break;
-    }
-    if (!valid) continue;
-    // For left/right prefer same row (small dy), for up/down prefer same column (small dx)
-    let dist;
-    if (direction === 'left' || direction === 'right') {
-      dist = Math.abs(dy) * 3 + Math.abs(dx);
-    } else {
-      dist = Math.abs(dx) * 3 + Math.abs(dy);
-    }
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = card;
-    }
-  }
-  if (!best) return;
+  const rects = cards.map(c => c.getBoundingClientRect());
+  const bestIdx = pickGridNeighbor(rects, cards.indexOf(currentCard), direction);
+  if (bestIdx < 0) return;
+  const best = cards[bestIdx];
   for (const [sid, card] of gridCards) {
     if (card === best) { focusGridCard(sid); return; }
   }

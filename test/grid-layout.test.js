@@ -9,6 +9,7 @@ const {
   reorder,
   cursorInsertionIndex,
   placeholderSlotIndex,
+  pickGridNeighbor,
 } = require('../src/renderer/views/grid-layout');
 
 test('calculateGridColumnCount still derives sane column counts', () => {
@@ -137,4 +138,38 @@ test('placeholderSlotIndex skips the excluded (lifted) card and non-cards', () =
   const container = { children: [lifted, notCard, b, ph] };
   // lifted is excluded, notCard is not a grid-card → only b counts.
   assert.equal(placeholderSlotIndex(container, ph, lifted), 1);
+});
+
+test('pickGridNeighbor picks the adjacent card in each direction', () => {
+  // From the top-left card (index 0): right → 1, down → 2.
+  assert.equal(pickGridNeighbor(GRID_2X2, 0, 'right'), 1);
+  assert.equal(pickGridNeighbor(GRID_2X2, 0, 'down'), 2);
+  // From the bottom-right card (index 3): left → 2, up → 1.
+  assert.equal(pickGridNeighbor(GRID_2X2, 3, 'left'), 2);
+  assert.equal(pickGridNeighbor(GRID_2X2, 3, 'up'), 1);
+});
+
+test('pickGridNeighbor returns -1 when nothing lies that way', () => {
+  // Top-left has no card to its left or above it.
+  assert.equal(pickGridNeighbor(GRID_2X2, 0, 'left'), -1);
+  assert.equal(pickGridNeighbor(GRID_2X2, 0, 'up'), -1);
+  assert.equal(pickGridNeighbor(GRID_2X2, 5, 'right'), -1); // out-of-range fromIndex
+});
+
+test('pickGridNeighbor weights the cross axis so the same row/column wins ties', () => {
+  // Moving right from top-left: same-row card (1) beats the diagonal (3).
+  assert.equal(pickGridNeighbor(GRID_2X2, 0, 'right'), 1);
+  // Moving down from top-left: same-column card (2) beats the diagonal (3).
+  assert.equal(pickGridNeighbor(GRID_2X2, 0, 'down'), 2);
+});
+
+test('pickGridNeighbor honours the dead zone on the primary axis', () => {
+  // Two cards overlapping on x, one 5px lower — below the default 10px dead zone.
+  const rects = [
+    { left: 0, top: 0, width: 100, height: 100 },
+    { left: 0, top: 5, width: 100, height: 100 },
+  ];
+  assert.equal(pickGridNeighbor(rects, 0, 'down'), -1);
+  // A smaller dead zone lets the same candidate qualify.
+  assert.equal(pickGridNeighbor(rects, 0, 'down', 1), 1);
 });

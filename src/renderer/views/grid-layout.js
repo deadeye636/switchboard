@@ -153,9 +153,56 @@
     );
   }
 
+  // --- 2D grid navigation ---
+  // Half-cell dead zone on the primary axis: a candidate must clear the current
+  // card by more than this (px) on the direction's axis to count as "that way",
+  // so a card merely adjacent on the cross axis is not picked.
+  const GRID_NAV_DEADZONE = 10;
+
+  // Pick the nearest neighbour card in `direction` from a laid-out set of rects.
+  // Movement is spatial, not index-based: `rects` are {left,top,width,height} in
+  // screen space, `fromIndex` is the focused card. A candidate qualifies only if
+  // its centre clears the focused centre by more than the dead zone on the
+  // direction's axis; among those, the cross-axis distance is weighted 3× so the
+  // same row (for left/right) or column (for up/down) wins ties. Returns the
+  // winning index, or -1 when nothing lies that way.
+  function pickGridNeighbor(rects, fromIndex, direction, deadzone = GRID_NAV_DEADZONE) {
+    const cur = rects[fromIndex];
+    if (!cur) return -1;
+    const curCx = cur.left + cur.width / 2;
+    const curCy = cur.top + cur.height / 2;
+    const dz = Number.isFinite(deadzone) ? deadzone : GRID_NAV_DEADZONE;
+    let best = -1;
+    let bestDist = Infinity;
+    for (let i = 0; i < rects.length; i++) {
+      if (i === fromIndex) continue;
+      const r = rects[i];
+      const dx = (r.left + r.width / 2) - curCx;
+      const dy = (r.top + r.height / 2) - curCy;
+      let valid = false;
+      switch (direction) {
+        case 'left':  valid = dx < -dz; break;
+        case 'right': valid = dx > dz; break;
+        case 'up':    valid = dy < -dz; break;
+        case 'down':  valid = dy > dz; break;
+      }
+      if (!valid) continue;
+      // left/right prefer the same row (small dy); up/down prefer the same column.
+      const dist = (direction === 'left' || direction === 'right')
+        ? Math.abs(dy) * 3 + Math.abs(dx)
+        : Math.abs(dx) * 3 + Math.abs(dy);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    }
+    return best;
+  }
+
   return {
     MIN_GRID_CARD_WIDTH,
     GRID_GAP,
+    GRID_NAV_DEADZONE,
     MAX_GRID_ROWS,
     MOVE_MODE_DIRECTIONS,
     calculateGridColumnCount,
@@ -164,6 +211,7 @@
     reorder,
     cursorInsertionIndex,
     placeholderSlotIndex,
+    pickGridNeighbor,
     isMoveModeChord,
     moveIndex,
     resizeSpan,

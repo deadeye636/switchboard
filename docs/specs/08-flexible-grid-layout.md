@@ -14,6 +14,8 @@
 > - **the filter chips + bulk bar** → `src/renderer/views/grid-bulk-actions.js`
 > - **`navigateGrid` / `navigateSession` / `appShortcuts`** → `src/renderer/shell/session-nav.js` (they were never grid code)
 > - **still in `grid-view.js`**: the card registry and lifecycle (`gridCards`, `wrapInGridCard`, `showGridView`, the observers), the persisted `gridLayout` and its writers (`persistGridOrder`, `writeCardSpan`, `applyCardSnap`), and the keyboard move mode. The pure span/order maths stays where it always was, in `views/grid-layout.js` — which is require()-able and the only part of this spec with real tests.
+>
+> **Pure geometry pulled into `grid-layout.js` (#218 opt2/opt5):** the drag-insertion index math (`cursorInsertionIndex`, `placeholderSlotIndex` — the placeholder half of the pointer gestures) and the 2D-navigation neighbour choice (`pickGridNeighbor` — the dead zone + cross-axis weighting `navigateGrid` used to inline) now live beside `reorder`/`normalizeSpan`, and are unit-tested. The DOM halves (`grid-gestures.js`, `session-nav.js`) measure the rects and call in.
 
 ## Problem & goal
 
