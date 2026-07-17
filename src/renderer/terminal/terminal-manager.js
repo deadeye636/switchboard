@@ -1301,8 +1301,7 @@ function showSession(sessionId) {
       // If the active filter would hide it, reset the filter so the click still
       // reveals the session (never changes membership).
       if (typeof getGridAllowedSessionIds === 'function' && !getGridAllowedSessionIds().has(sessionId)) {
-        gridStatusFilter = 'all';
-        localStorage.setItem('gridStatusFilter', gridStatusFilter);
+        window._setGridStatusFilter('all');
       }
       showGridView();
       requestAnimationFrame(() => focusGridCard(sessionId));

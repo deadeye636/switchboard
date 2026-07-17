@@ -11,6 +11,13 @@
 let gridCards = new Map(); // sessionId → card wrapper element
 let gridFocusedSessionId = null;
 let gridStatusFilter = localStorage.getItem('gridStatusFilter') || 'all';
+// The one writer of gridStatusFilter: assign + persist in a single place so the three callers (the bulk
+// bar, the terminal-manager reset, and the empty-filter fallback below) cannot drift on the storage key or
+// forget to persist. It is a window property because two of those callers are in other files (#218).
+window._setGridStatusFilter = (value) => {
+  gridStatusFilter = value;
+  localStorage.setItem('gridStatusFilter', value);
+};
 // True while a drag-reorder or resize gesture is in progress. Status ticks must
 // not tear down and rebuild the grid mid-gesture (it would detach the card the
 // user is holding), so refreshGridView() bails out while this is set.
@@ -542,8 +549,7 @@ function showGridView() {
   }
   let allowedSet = getGridAllowedSessionIds();
   if (gridStatusFilter !== 'all' && allowedSet.size === 0) {
-    gridStatusFilter = 'all';
-    localStorage.setItem('gridStatusFilter', gridStatusFilter);
+    window._setGridStatusFilter('all');
     allowedSet = getGridAllowedSessionIds();
     renderGridStatusFilters();
   }

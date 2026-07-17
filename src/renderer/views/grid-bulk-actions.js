@@ -44,8 +44,7 @@ function renderGridStatusFilters() {
     btn.textContent = `${label} ${count}`;
     btn.disabled = key !== 'all' && count === 0;
     btn.addEventListener('click', () => {
-      gridStatusFilter = key;
-      localStorage.setItem('gridStatusFilter', gridStatusFilter);
+      window._setGridStatusFilter(key);
       showGridView();
     });
     container.appendChild(btn);
