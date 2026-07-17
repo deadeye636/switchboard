@@ -312,7 +312,11 @@ const sessionTimelineStore = createTimelineStore();
 
 // Noise patterns — these don't count as activity
 const activityNoiseRe = /file-history-snapshot|^\s*$/;
-let lastAnnouncedAttentionSummary = '';
+// The attention/activity engine — setActivity, applyAttention, announceAttentionSummary and the
+// attention chime — is shell/attention-engine.js (#218/#228). It loads BEFORE app.js (pure function
+// declarations, no parse-time effects), so app.js can call into it without a guard. The state it works
+// on (attentionSessions/responseReadySessions Sets, refreshSessionStatusViews) stays here: the rest of
+// the renderer reads it.
 
 function getAllKnownSessionsForStatus() {
   const sessionsById = new Map();
@@ -323,26 +327,6 @@ function getAllKnownSessionsForStatus() {
   return [...sessionsById.values()];
 }
 
-function announceAttentionSummary() {
-  if (!appLiveRegion || typeof getStatusCounts !== 'function') return;
-  const counts = getStatusCounts(getAllKnownSessionsForStatus(), {
-    activePtyIds,
-    attentionSessions,
-    responseReadySessions,
-    sessionBusyState,
-    openSessions,
-    lastActivityTime,
-    activeSessionId,
-  });
-  const parts = [];
-  if (counts.attention) parts.push(`${counts.attention} need${counts.attention === 1 ? 's' : ''} attention`);
-  if (counts.ready) parts.push(`${counts.ready} ready`);
-  if (counts.active) parts.push(`${counts.active} running`);
-  const next = parts.length ? `Agent status: ${parts.join(', ')}.` : '';
-  if (next === lastAnnouncedAttentionSummary) return;
-  lastAnnouncedAttentionSummary = next;
-  appLiveRegion.textContent = next;
-}
 
 function refreshSessionStatusViews() {
   // During the launch restore the whole view settles once at the end; skip the
@@ -444,42 +428,7 @@ function focusNextAttention() {
   focusAttentionItem(next);
 }
 
-// --- Attention alert sound (synthesized, no bundled binary) ---
-let _attentionAudioCtx = null;
-function playAttentionSound() {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    _attentionAudioCtx = _attentionAudioCtx || new Ctx();
-    if (_attentionAudioCtx.state === 'suspended') _attentionAudioCtx.resume();
-    const ctx = _attentionAudioCtx;
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    // Two-tone rising chime.
-    osc.frequency.setValueAtTime(880, now);
-    osc.frequency.setValueAtTime(1175, now + 0.12);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.15, now + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.34);
-  } catch {
-    // Audio is best-effort; never let it break status handling.
-  }
-}
 
-function maybePlayAttentionSound(prevAttention, nextAttention) {
-  if (typeof shouldPlayAttentionSound !== 'function') return;
-  const settings = {
-    sound: !!(appGlobalSettings.notifications && appGlobalSettings.notifications.sound),
-  };
-  if (shouldPlayAttentionSound({ prev: prevAttention, next: nextAttention, settings })) {
-    playAttentionSound();
-  }
-}
 
 function recordTimelineEvent(sessionId, kind, label, detail) {
   addTimelineEvent(sessionTimelineStore, sessionId, kind, label, { detail });
@@ -504,91 +453,7 @@ function recomputeSubagentActive(sessionId) {
 // Called by sidebar.js whenever the live-subagent set changes.
 window._recomputeSubagentActive = recomputeSubagentActive;
 
-function setActivity(sessionId, active) {
-  if (responseReadySessions.has(sessionId)) {
-    return;
-  }
 
-  const wasActive = sessionBusyState.get(sessionId) || false;
-  sessionBusyState.set(sessionId, active);
-
-  if (active && !wasActive) {
-    // New work started → any earlier "finished" stamp is stale.
-    finishedAt.delete(sessionId);
-  } else if (wasActive && !active) {
-    // busy→idle edge: stamp the finish time. Unfocused sessions become
-    // response-ready below; for the focused-then-left case this stamp is what
-    // lets the configurable running-inbox (after-finish / until-read) surface it.
-    finishedAt.set(sessionId, Date.now());
-  }
-
-  if (wasActive && !active) {
-    // Activity ended → response-ready if user isn't looking at this session
-    if (sessionId !== activeSessionId) {
-      responseReadySessions.add(sessionId);
-      recordTimelineEvent(sessionId, 'response-ready', 'Ready for review', 'Agent stopped producing output while this session was not focused.');
-      const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-      if (item) {
-        item.classList.remove('cli-busy');
-        item.classList.add('response-ready');
-      }
-      refreshSessionStatusViews();
-    }
-  }
-
-  // Sync cli-busy class (only if not response-ready)
-  if (!responseReadySessions.has(sessionId)) {
-    const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-    if (item) item.classList.toggle('cli-busy', active);
-  }
-  if (wasActive !== active) {
-    recordTimelineEvent(sessionId, active ? 'busy' : 'idle', active ? 'Agent working' : 'Agent idle', active ? 'Claude activity started.' : 'Claude activity stopped.');
-  }
-  if (wasActive !== active) refreshSessionStatusViews();
-}
-
-// Single funnel for both attention sources (OSC-9 heuristic + Claude Code hooks).
-// `signal` is the normalized output of classifyAttentionSignal: { kind, reason, source }.
-function applyAttention(sessionId, signal) {
-  if (!signal) return;
-  const { kind, reason, source } = signal;
-
-  if (kind === 'needs-attention') {
-    // Focused session needs no inbox flag — the user is already looking at it.
-    if (sessionId === activeSessionId) return;
-    const winner = reduceAttention(attentionReason.get(sessionId) || null, { reason, source });
-    attentionReason.set(sessionId, winner);
-    const wasAttention = attentionSessions.has(sessionId);
-    const prevAttention = new Set(attentionSessions);
-    attentionSessions.add(sessionId);
-    recordTimelineEvent(sessionId, 'needs-attention', 'Needs human attention', winner.reason);
-    const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-    if (item) item.classList.add('needs-attention');
-    if (!wasAttention) {
-      refreshSessionStatusViews();
-      maybePlayAttentionSound(prevAttention, attentionSessions);
-    }
-  } else if (kind === 'ready' || kind === 'idle') {
-    // Agent finished / went idle → response-ready when unfocused (handled by setActivity).
-    setActivity(sessionId, false);
-  } else if (kind === 'busy') {
-    // A new turn started → clear any stale "ready" so the session flips to Working
-    // even if it was left ready-but-unfocused (setActivity ignores busy while
-    // response-ready is set).
-    if (responseReadySessions.has(sessionId)) {
-      responseReadySessions.delete(sessionId);
-      const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-      if (item) item.classList.remove('response-ready');
-    }
-    setActivity(sessionId, true);
-  } else if (kind === 'subagent-live-start' || kind === 'subagent-live-stop') {
-    // Exact subagent edges from the SubagentStart/SubagentStop hooks (#119). The
-    // JSONL scan writes to the same set, so a subagent seen twice counts once.
-    if (signal.agentId && typeof window._setSubagentLive === 'function') {
-      window._setSubagentLive(sessionId, signal.agentId, kind === 'subagent-live-start', 'hook');
-    }
-  }
-}
 
 // Terminal output activity — updates lastActivityTime only, busy state driven by backend
 function trackActivity(sessionId, data) {

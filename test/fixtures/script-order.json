@@ -34,6 +34,7 @@
     "session-tags-filter.js",
     "attention-source.js",
     "alert-sound.js",
+    "attention-engine.js",
     "bulk-actions.js",
     "session-health.js",
     "notification-policy.js",
