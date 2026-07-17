@@ -148,6 +148,15 @@ const ALLOWED_BINDINGS = {
   ],
   'src/renderer/app.js': [],
   'src/renderer/shell/sidebar.js': [],
+  // #218 splits the monoliths. A new file is NOT covered by these guards until it is listed here —
+  // they iterate this map, not the directory — so a split that forgets a line moves code out from
+  // under the check and reports nothing. Add the file WITH its split.
+  'src/renderer/shell/sidebar-subagents.js': [],
+  'src/renderer/shell/session-nav.js': [],
+  'src/renderer/views/grid-view.js': [],
+  'src/renderer/views/grid-gestures.js': [],
+  'src/renderer/views/grid-bulk-actions.js': [],
+  'src/renderer/views/grid-snap-popover.js': [],
   'src/renderer/handoff/handoff.js': [],
   'src/renderer/handoff/handoff-extract.js': [],
   'src/renderer/panels/projects-admin.js': [],
