@@ -19,9 +19,9 @@ When several agents work on the same project (or across projects on one initiati
 
 ## Current state (grounded)
 
-- Sidebar render pipeline: `renderProjects(projects, resort)` (`public/sidebar.js:379`) → per project `processProjectSessions` (filter/sort) → **slug grouping** via `slugMap` (~443) → `buildSlugGroup(slug, sessions)` (`sidebar.js:283`) which renders a collapsible group (expand state via `getExpandedSlugs()`/`slugId()`, ~285). **This is the pattern to mirror for user groups.**
-- Runtime/status helpers: `getSessionRuntimeState()` (`sidebar.js:20`), `getAllRenderableSessions(projects)` (`sidebar.js:36`), `getStatusCounts`, `getSessionStatus` (`session-status.js`).
-- Grid: cards built in sidebar order in `wrapInGridCard` / `showGridView` (`grid-view.js`); filter bar `renderGridStatusFilters` (~42); no group boundaries today.
+- Sidebar render pipeline: `renderProjects(projects, resort)` (`src/renderer/shell/sidebar.js`) → per project `processProjectSessions` (filter/sort) → **slug grouping** via `slugMap` → `buildSlugGroup(slug, sessions)` (`src/renderer/shell/sidebar.js`) which renders a collapsible group (expand state via `getExpandedSlugs()`/`slugId()`). **This is the pattern to mirror for user groups.**
+- Runtime/status helpers: `getSessionRuntimeState()`, `getAllRenderableSessions(projects)` (`src/renderer/shell/sidebar.js`), `getStatusCounts`, `getSessionStatus` (`src/renderer/session/session-status.js`).
+- Grid: cards built in sidebar order in `wrapInGridCard` / `showGridView` (`src/renderer/views/grid-view.js`); filter bar `renderGridStatusFilters` (`src/renderer/views/grid-bulk-actions.js`); no group boundaries today.
 - Persistence: `window.api.getSetting/setSetting` (blob); per-session flags precedent: `toggleStar`, `archiveSession`.
 - Sidebar uses morphdom (`index.html:122`) for diff-rendering — keep new DOM stable-keyed.
 

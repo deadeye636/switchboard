@@ -21,8 +21,8 @@ The grid is positioned as a "command center" for many agents, but every action i
 
 ## Current state (grounded)
 
-- Grid: `src/renderer/views/grid-view.js`. Cards built in `wrapInGridCard` (per-session header with stop/handoff). Filter bar `renderGridStatusFilters` (~42) with All / Needs You / Ready / Running, counts from `getStatusCounts`. `getGridOpenSessions()` / `getGridAllowedSessionIds()` give the working set.
-- Focus traversal exists: `getNextAttentionInboxItem` (`session-status.js:91`), `focusGridCard(sessionId)` (`grid-view.js:194`), `navigateGrid`/`navigateSession`.
+- Grid: `src/renderer/views/grid-view.js`. Cards built in `wrapInGridCard` (per-session header with stop/handoff). Filter bar `renderGridStatusFilters` (now in `src/renderer/views/grid-bulk-actions.js` — see the callout above) with All / Needs You / Ready / Running, counts from `getStatusCounts`. `getGridOpenSessions()` / `getGridAllowedSessionIds()` give the working set.
+- Focus traversal exists: `getNextAttentionInboxItem` (`src/renderer/session/session-status.js`), `focusGridCard(sessionId)` (`src/renderer/views/grid-view.js`), `navigateGrid`/`navigateSession` (`src/renderer/shell/session-nav.js`).
 - Clearing state: `clearNotifications(sessionId)` / `clearUnread(sessionId)` (`app.js`).
 - Stop with confirmation: `confirmAndStopSession(sessionId)` (used by card stop button). Styled dialogs/toasts: `src/renderer/dialogs/control-dialogs.js` (`showControlDialog`, `showControlToast`).
 

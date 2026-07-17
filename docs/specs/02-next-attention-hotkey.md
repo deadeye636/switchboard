@@ -23,8 +23,8 @@ Power users juggling many agents need to move between them without the mouse, an
 > never grid code (app.js and terminal-manager.js read `appShortcuts` seven times between them). The
 > passthrough pattern this spec tells you to mirror is unchanged; only its address is.
 
-- `getNextAttentionInboxItem(sessions, runtime, currentSessionId)` exists and is tested (`public/session-status.js:91`); already wired to the inbox "Focus next" button (`public/sidebar.js:725`, handler ~729).
-- The renderer keydown handler is in `src/renderer/app.js` ~line 1229 and currently handles only grid toggle (`Cmd/Ctrl+Shift+G`) + delegates to `handleSessionNavKey` (`public/grid-view.js:411`). xterm key handling: `isSessionNavKey` (`grid-view.js:403`) is used to let global shortcuts through the terminal — mirror that pattern so the hotkey works while a terminal is focused.
+- `getNextAttentionInboxItem(sessions, runtime, currentSessionId)` exists and is tested (`src/renderer/session/session-status.js`); already wired to the inbox "Focus next" button (built in `src/renderer/shell/sidebar.js`, handler in `src/renderer/shell/sidebar-events.js`).
+- The renderer keydown handler is in `src/renderer/app.js` and currently handles only grid toggle (`Cmd/Ctrl+Shift+G`) + delegates to `handleSessionNavKey` (`src/renderer/shell/session-nav.js`). xterm key handling: `isSessionNavKey` (`src/renderer/shell/session-nav.js`) is used to let global shortcuts through the terminal — mirror that pattern so the hotkey works while a terminal is focused.
 - No audio anywhere in the app.
 
 ## Scope
@@ -37,20 +37,20 @@ Power users juggling many agents need to move between them without the mouse, an
 ### Hotkey (`src/renderer/app.js`, keydown handler ~1229)
 - Add a default binding: **`Cmd/Ctrl+Shift+A`** ("Attention"). Make it data-driven so it's easy to change; read an override from `global.shortcuts?.nextAttention` if present.
 - On trigger: compute `getNextAttentionInboxItem(getAllKnownSessionsForStatus(), runtime, activeSessionId)`; if found, open/focus that session (reuse the inbox button's existing focus logic — extract it into a shared `focusAttentionItem(item)` helper so both the button and hotkey call it). Wrap-around is already handled by the helper.
-- Make it work while a terminal is focused: add the combo to `isSessionNavKey`-style passthrough so xterm doesn't swallow it (`grid-view.js` `isSessionNavKey`, and the `before-input-event` logic in `src/main.js` ~206 if needed).
+- Make it work while a terminal is focused: add the combo to `isSessionNavKey`-style passthrough so xterm doesn't swallow it (`src/renderer/shell/session-nav.js` `isSessionNavKey`, and the `before-input-event` logic in `src/main.js` if needed).
 - If Spec 01 is merged, also implement `window.api.onFocusNextAttention(() => focusNextAttention())` so the tray menu item works.
 
 ### Alert sound
 - Pure helper `src/renderer/shell/alert-sound.js` (UMD, tested for the *decision*, not playback): `shouldPlayAttentionSound({ prev, next, settings })` → boolean (a session newly entered attention AND `settings.sound` on). Keep DOM/audio out of the tested function.
-- Playback in `app.js`: a small `playAttentionSound()` using `new Audio()` or a WebAudio beep. Bundle a short asset (e.g. `public/sounds/attention.mp3`) or synthesize a tone to avoid a binary asset. Respect `window.matchMedia('(prefers-reduced-motion: reduce)')` is **not** the right gate for sound — instead gate purely on the explicit sound setting.
+- Playback in `app.js`: a small `playAttentionSound()` using `new Audio()` or a WebAudio beep. Bundle a short asset (e.g. `src/renderer/sounds/attention.mp3`) or synthesize a tone to avoid a binary asset. Respect `window.matchMedia('(prefers-reduced-motion: reduce)')` is **not** the right gate for sound — instead gate purely on the explicit sound setting.
 - Funnel through the same transition point Spec 01 uses (`refreshSessionStatusViews`/transition region) — if 01 isn't merged, add a minimal transition snapshot locally and reconcile when 01 lands.
 
 ### Settings (`src/renderer/panels/settings-panel.js`)
 Add to the Notifications section (shared with Spec 01): **Alert sound on attention** (default off). Optionally surface the next-attention shortcut as read-only help text. Persist under `global.notifications.sound` and `global.shortcuts.nextAttention`.
 
 ## Files to touch
-- **New:** `src/renderer/shell/alert-sound.js`, `test/alert-sound.test.js`, optionally `public/sounds/attention.mp3`.
-- **Modified:** `src/renderer/app.js` (keydown ~1229, extract `focusAttentionItem`, sound playback), `src/renderer/shell/sidebar.js` (use the extracted `focusAttentionItem` from the inbox button so logic isn't duplicated), `src/renderer/views/grid-view.js` (`isSessionNavKey` passthrough), `src/renderer/panels/settings-panel.js` (toggle), `src/renderer/index.html` (script tag).
+- **New:** `src/renderer/shell/alert-sound.js`, `test/alert-sound.test.js`, optionally `src/renderer/sounds/attention.mp3`.
+- **Modified:** `src/renderer/app.js` (keydown handler, extract `focusAttentionItem`, sound playback), `src/renderer/shell/sidebar.js` (use the extracted `focusAttentionItem` from the inbox button so logic isn't duplicated), `src/renderer/shell/session-nav.js` (`isSessionNavKey` passthrough), `src/renderer/panels/settings-panel.js` (toggle), `src/renderer/index.html` (script tag).
 
 ## Tests
 - `getNextAttentionInboxItem` is already covered; add a test that the keydown→action mapping picks the right combo (extract the key-matching into a tiny pure predicate, e.g. `isNextAttentionKey(e)`).
