@@ -31,8 +31,8 @@
 // SHORTCUT_DEFS / formatBinding / captureBinding / normalizeShortcuts are NOT in the ctx: shell/shortcuts.js
 // declares them at the top level of a classic script, so they live in the shared global lexical scope that
 // every renderer script sees, and every reference below sits inside a function — resolved at call time,
-// long after all 74 tags have parsed. Script order cannot break them. Both index.html and settings.html
-// load shortcuts.js.
+// once every tag has parsed. Script order cannot break them, and index.html does in fact load shortcuts.js
+// AFTER this file. Both index.html and settings.html load it.
 
 (function () {
   'use strict';
@@ -93,11 +93,15 @@
       });
     }
 
-    // `stopShortcutCapture` is returned because the SAVE path calls it: persistSettings ends a capture
-    // that is still running, so a Save pressed while a button says "Press keys…" leaves no button stuck
-    // mid-capture and no live capture behind the settings it just wrote. That call is the one dependency
-    // of this section that does not live in this section — and leaving it out is not a broken shortcut
-    // section, it is a dead Save for EVERY setting. It cost exactly that during #218, found by clicking.
+    // `stopShortcutCapture` is returned because TWO paths outside this section call it — persistSettings
+    // and the Cancel button — so that leaving the panel by either route ends a capture that is still
+    // running, rather than leaving a button stuck on "Press keys…" and a live capture behind.
+    //
+    // These two calls are what this section is tied to the rest of settings-panel.js by, and the tie does
+    // not announce itself: the first draft of this file simply left the function behind, and BOTH paths
+    // then threw `ReferenceError: stopShortcutCapture is not defined`. Not a broken shortcut section — a
+    // dead Save for every setting in the panel, and a dead Cancel. All 1488 tests were green; only
+    // pressing Save found it. Opening the panel would not have.
     return { initShortcutSection, stopShortcutCapture };
   }
 

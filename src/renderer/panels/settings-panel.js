@@ -1325,8 +1325,9 @@
     //
     // Built here and not up with the other modules: `scIsMac` is evaluated at this call, and it is
     // declared further down (with `scShortcuts`) — reading it earlier is a TDZ ReferenceError.
-    // `stopShortcutCapture` is kept because persistSettings calls it — a Save pressed mid-capture has to
-    // end that capture. It is the section's one tie to the rest of this file.
+    // `stopShortcutCapture` is kept because two paths below call it — persistSettings and the Cancel
+    // button — so leaving the panel by either route ends a capture that is still running. Those two
+    // calls are this section's only tie to the rest of this file.
     const { initShortcutSection, stopShortcutCapture } = window.settingsShortcuts.create({
       body: settingsViewerBody,
       isMac: scIsMac,

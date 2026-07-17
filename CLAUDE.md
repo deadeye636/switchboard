@@ -463,13 +463,13 @@ diagnostic at `debug` that the packaged default hides is what made #120 invisibl
   so on any renderer change the click IS the test — treat a green run as "I have not broken
   the main process", nothing more.
   **A fourth, from the same issue, is worse and shows the pattern:** cutting the shortcut
-  rebinding out left `stopShortcutCapture` behind — and `persistSettings` *calls* it, because a
-  Save pressed mid-capture has to end that capture. So the panel looked perfect, the rebind
-  showed in the button, and **the entire save path threw for every setting**, not just the
-  shortcuts. Again 1488 green. Both times the missing name was one the moved block *defined*
-  and something outside it *called* — so after any cut here, grep the file for every name the
-  new module declares before you believe it. And note what the click had to be: opening the
-  panel was not enough, only pressing Save was.
+  rebinding out left `stopShortcutCapture` behind — and both `persistSettings` *and* the Cancel
+  button *call* it, because leaving the panel mid-capture has to end that capture. So the panel
+  looked perfect, the rebind showed in the button, and **Save threw for every setting** while
+  **Cancel threw too**. Again 1488 green. Both times the missing name was one the moved block
+  *defined* and something outside it *called* — so after any cut here, grep the file for every
+  name the new module declares before you believe it, and expect more than one caller. And note
+  what the click had to be: opening the panel found nothing, only pressing Save did.
 - Don't add a framework, build step, or bundler to the renderer beyond the existing esbuild CodeMirror bundle.
 - **A new control in the renderer inherits NO styling.** A button with only a behaviour class renders as
   the browser's native control — a white box with black text, next to your styled ones. Reuse an existing
