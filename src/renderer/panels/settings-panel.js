@@ -97,6 +97,12 @@
     const { initTagDefsSection, buildColorPopover } =
       window.settingsTags.create({ body: settingsViewerBody, tagColor, tagPalette, signal: listenerSignal });
 
+    // The Maintenance section (export / import / rebuild) moved to panels/settings-maintenance.js
+    // (#218). It takes `openSettingsViewer` as `reopen` because a successful import has to re-render
+    // this form from the blob it just wrote.
+    const { initMaintenanceSection } =
+      window.settingsMaintenance.create({ body: settingsViewerBody, reopen: openSettingsViewer });
+
     const shortName = isProject
       ? projectPath.split('/').filter(Boolean).slice(-2).join('/')
       : 'Global';
@@ -1304,88 +1310,9 @@
       });
     });
 
-    // Export / import the global settings (#145). Both live in Maintenance, so they exist in the
-    // global scope only — the file carries the global blob and nothing else.
-    const exportBtn = settingsViewerBody.querySelector('#sv-export-settings');
-    if (exportBtn) {
-      exportBtn.addEventListener('click', async () => {
-        const res = await window.api.exportSettings();
-        if (!res || res.canceled) return;
-        if (res.ok) {
-          await showControlMessage({
-            title: 'Settings exported',
-            message: `${res.keys} setting${res.keys === 1 ? '' : 's'} written.`,
-            details: { File: res.filePath },
-            tone: 'success',
-          });
-        } else {
-          await showControlMessage({
-            title: 'Export failed',
-            message: res.error || 'The settings could not be written.',
-            tone: 'danger',
-          });
-        }
-      });
-    }
-
-    const importBtn = settingsViewerBody.querySelector('#sv-import-settings');
-    if (importBtn) {
-      importBtn.addEventListener('click', async () => {
-        const confirmed = await showControlDialog({
-          title: 'Import settings?',
-          message: 'Pick a settings file. Every setting it names overwrites yours; the rest are kept. This is applied at once and cannot be undone — export your current settings first if you want a way back.',
-          confirmLabel: 'Choose file…',
-          cancelLabel: 'Cancel',
-          tone: 'warning',
-        });
-        if (!confirmed) return;
-        const res = await window.api.importSettings();
-        if (!res || res.canceled) return;
-        if (!res.ok) {
-          await showControlMessage({
-            title: 'Import failed',
-            message: res.error || 'The settings could not be imported.',
-            tone: 'danger',
-          });
-          return;
-        }
-        // Main has persisted and re-armed, and told every window to re-apply. What is still
-        // stale is THIS form — it was rendered from the old blob. Re-open it on the imported one.
-        await showControlMessage({
-          title: 'Settings imported',
-          message: `${res.keys} setting${res.keys === 1 ? '' : 's'} applied.`,
-          tone: 'success',
-        });
-        await openSettingsViewer('global');
-      });
-    }
-
-    // Rebuild session cache (T-2.7) — the existing rebuild-cache IPC, behind a confirm.
-    const rebuildBtn = settingsViewerBody.querySelector('#sv-rebuild-cache');
-    if (rebuildBtn) {
-      rebuildBtn.addEventListener('click', async () => {
-        const confirmed = typeof showControlDialog === 'function'
-          ? await showControlDialog({
-              title: 'Rebuild session cache?',
-              message: 'The session index is dropped and re-scanned from disk. Full re-scan, may take a while. Your session files are not touched.',
-              confirmLabel: 'Rebuild',
-              cancelLabel: 'Cancel',
-              tone: 'warning',
-            })
-          : window.confirm('Rebuild the session cache? Full re-scan, may take a while.');
-        if (!confirmed) return;
-        const label = rebuildBtn.textContent;
-        rebuildBtn.disabled = true;
-        rebuildBtn.textContent = 'Rebuilding…';
-        try {
-          await window.api.rebuildCache();
-          rebuildBtn.textContent = '✓ Rebuilt';
-        } catch {
-          rebuildBtn.textContent = 'Rebuild failed';
-        }
-        setTimeout(() => { rebuildBtn.textContent = label; rebuildBtn.disabled = false; }, 2500);
-      });
-    }
+    // The Maintenance buttons — export, import, rebuild — moved to panels/settings-maintenance.js
+    // (#218). Global-only: on a project panel the section is not in the markup and this does nothing.
+    initMaintenanceSection();
 
     // --- Keyboard shortcut rebinding (global only) ---
     // Capture listeners live on the button element itself (not on document), so

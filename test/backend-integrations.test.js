@@ -142,6 +142,7 @@ const ALLOWED_BINDINGS = {
   ],
   'src/renderer/panels/settings-panel.js': [],
   'src/renderer/panels/settings-tags.js': [],
+  'src/renderer/panels/settings-maintenance.js': [],
   // #225 — the eight files #212's acceptance did not scope. Every one of them is now either a documented
   // migration or a resolution to the first launchable backend, so seven of the eight bind nothing at all.
   'src/renderer/backends/backend-registry.js': [

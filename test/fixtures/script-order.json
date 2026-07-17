@@ -21,6 +21,7 @@
     "custom-launchers.js",
     "launchers-panel.js",
     "settings-tags.js",
+    "settings-maintenance.js",
     "settings-panel.js",
     "utils.js",
     "a11y-utils.js",
@@ -97,6 +98,7 @@
     "custom-launchers.js",
     "launchers-panel.js",
     "settings-tags.js",
+    "settings-maintenance.js",
     "settings-panel.js",
     "settings-window.js"
   ]
