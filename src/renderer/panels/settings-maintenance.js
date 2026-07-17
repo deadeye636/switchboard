@@ -1,13 +1,18 @@
 // --- Settings: the Maintenance section — export, import, rebuild the session cache (#218, #145) ---
 //
-// Three buttons that talk to main and to nothing else in the panel. They carry no field on the settings
-// blob: export and import move the whole blob past the form, and the rebuild drops an index. That is why
-// the save path in settings-panel.js never mentions this file.
+// Three buttons that talk to main and — on import alone — back to the panel's opener. They carry no field
+// on the settings blob: export and import move the whole blob past the form, and the rebuild drops an
+// index. That is why the save path in settings-panel.js never mentions this file.
 //
 // It came out of `openSettingsViewer` — the same ~2000-line function settings-tags.js is the first cut of,
-// and it takes a ctx for the same reason: every declaration in there closes over that function's locals,
-// so moving one means handing it what it used to close over. Read settings-tags.js's header for the why;
-// this file is the second confirmation of that pattern, not a new one.
+// and it takes a ctx because every declaration in there closes over that function's locals, so moving one
+// means handing it what it used to close over. Read settings-tags.js's header for the why; this file is
+// the second confirmation of that pattern, not a new one.
+//
+// The FACTORY shape is symmetry with settings-tags.js, not necessity — this ctx is two constants that
+// outlive an open, so an `init(ctx)` called once would do. settings-tags.js has to be a factory: its
+// click-away listener hangs off THIS open's AbortSignal. Do not read a per-open requirement into this
+// file that it does not have.
 //
 // ctx: { body: Element, reopen(scope, projectPath) -> Promise }
 //
