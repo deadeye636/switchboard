@@ -23,6 +23,7 @@
     "settings-tags.js",
     "settings-maintenance.js",
     "settings-shortcuts.js",
+    "settings-project-tags.js",
     "settings-panel.js",
     "utils.js",
     "a11y-utils.js",
@@ -101,6 +102,7 @@
     "settings-tags.js",
     "settings-maintenance.js",
     "settings-shortcuts.js",
+    "settings-project-tags.js",
     "settings-panel.js",
     "settings-window.js"
   ]

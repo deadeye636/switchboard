@@ -1336,165 +1336,20 @@
     });
     initShortcutSection();
 
-    // Project tag chip editor (#98): add on Enter, remove on ×, de-dupe.
-    // The suggestion list is an in-app combobox (#134) — a native <datalist> ignored
-    // the app's styling, and picking an entry only filled the input, leaving the user
-    // to guess that Enter was still needed to turn it into a chip.
+    // The project tag chip editor moved to panels/settings-project-tags.js (#218, #98, #134). The chips
+    // it produces ARE the state: persistSettings below re-queries the chip box out of the DOM rather than
+    // being handed anything from here, so nothing about the save path changes with this.
     if (isProject) {
-      const tagsInput = settingsViewerBody.querySelector('#sv-project-tags-input');
-      const chipsBox = settingsViewerBody.querySelector('#sv-project-tags-chips');
-      const suggestBox = settingsViewerBody.querySelector('#sv-project-tags-suggest');
-      const currentTags = () => Array.from(chipsBox.querySelectorAll('.settings-tag-chip')).map(c => c.dataset.tag);
-      const addTag = (raw, color) => {
-        const tag = String(raw || '').trim();
-        if (!tag || currentTags().includes(tag)) return;
-        chipsBox.insertAdjacentHTML('beforeend', renderTagChip(tag, color));
-      };
-
-      if (tagsInput && suggestBox) {
-        let matches = [];       // [{ tag, color }] currently listed
-        let activeIndex = -1;   // highlighted row, -1 = none
-        let createRow = false;  // is the trailing "create" row shown?
-
-        const closeSuggest = () => {
-          suggestBox.hidden = true;
-          suggestBox.innerHTML = '';
-          tagsInput.setAttribute('aria-expanded', 'false');
-          matches = [];
-          activeIndex = -1;
-          createRow = false;
-        };
-
-        // Total rows = matches + the optional create row, so the highlight can walk
-        // onto "create" as the last entry.
-        const rowCount = () => matches.length + (createRow ? 1 : 0);
-
-        const paintActive = () => {
-          const rows = suggestBox.querySelectorAll('.settings-tag-suggest-row');
-          rows.forEach((row, i) => {
-            const on = i === activeIndex;
-            row.classList.toggle('active', on);
-            row.setAttribute('aria-selected', on ? 'true' : 'false');
-          });
-          if (activeIndex >= 0 && rows[activeIndex]) rows[activeIndex].scrollIntoView({ block: 'nearest' });
-        };
-
-        const openSuggest = () => {
-          const query = tagsInput.value.trim().toLowerCase();
-          const taken = new Set(currentTags());
-          matches = allProjectTags
-            .filter(t => !taken.has(t.tag))
-            .filter(t => !query || t.tag.toLowerCase().includes(query))
-            .slice(0, 8);
-          // Offer creation only for a genuinely new tag.
-          const typed = tagsInput.value.trim();
-          createRow = !!typed && !taken.has(typed) && !allProjectTags.some(t => t.tag === typed);
-
-          if (rowCount() === 0) { closeSuggest(); return; }
-
-          const rows = matches.map((t, i) => {
-            const c = t.color || tagColor(t.tag);
-            return `<div class="settings-tag-suggest-row" role="option" aria-selected="false" data-index="${i}" data-tag="${escapeHtml(t.tag)}" data-color="${escapeHtml(c)}"><span class="settings-tag-suggest-dot" style="background:${c}"></span><span>${escapeHtml(t.tag)}</span></div>`;
-          });
-          if (createRow) {
-            rows.push(`<div class="settings-tag-suggest-row settings-tag-suggest-create" role="option" aria-selected="false" data-index="${matches.length}" data-create="1"><span class="settings-tag-suggest-plus">+</span><span>Create “${escapeHtml(typed)}”</span></div>`);
-          }
-          suggestBox.innerHTML = rows.join('');
-          suggestBox.hidden = false;
-          tagsInput.setAttribute('aria-expanded', 'true');
-          // Preselect the first row so Enter always has an obvious target.
-          activeIndex = 0;
-          paintActive();
-        };
-
-        const commitRow = (index) => {
-          if (index < 0 || index >= rowCount()) return false;
-          if (createRow && index === matches.length) addTag(tagsInput.value);
-          else addTag(matches[index].tag, matches[index].color);
-          tagsInput.value = '';
-          closeSuggest();
-          return true;
-        };
-
-        tagsInput.addEventListener('input', openSuggest);
-        tagsInput.addEventListener('focus', openSuggest);
-
-        tagsInput.addEventListener('keydown', (e) => {
-          const open = !suggestBox.hidden;
-          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-            if (!open) { openSuggest(); return; }
-            e.preventDefault();
-            const step = e.key === 'ArrowDown' ? 1 : -1;
-            activeIndex = (activeIndex + step + rowCount()) % rowCount();
-            paintActive();
-          } else if (e.key === 'Enter' || e.key === ',') {
-            e.preventDefault();
-            // A highlighted row wins; otherwise take whatever was typed.
-            if (!(open && commitRow(activeIndex))) {
-              addTag(tagsInput.value);
-              tagsInput.value = '';
-              closeSuggest();
-            }
-          } else if (e.key === 'Escape' && open) {
-            e.preventDefault();
-            e.stopPropagation(); // don't let the settings viewer close too
-            closeSuggest();
-          } else if (e.key === 'Backspace' && tagsInput.value === '') {
-            const chips = chipsBox.querySelectorAll('.settings-tag-chip');
-            if (chips.length) chips[chips.length - 1].remove();
-            closeSuggest();
-          }
-        });
-
-        // mousedown, not click: the input's blur would tear the list down first.
-        suggestBox.addEventListener('mousedown', (e) => {
-          const row = e.target.closest('.settings-tag-suggest-row');
-          if (!row) return;
-          e.preventDefault(); // keep focus in the input for the next tag
-          commitRow(Number(row.dataset.index));
-        });
-
-        tagsInput.addEventListener('blur', () => {
-          addTag(tagsInput.value);
-          tagsInput.value = '';
-          closeSuggest();
-        });
-      }
-      if (chipsBox) {
-        let paletteEl = null;
-        const closePalette = () => { if (paletteEl) { paletteEl.remove(); paletteEl = null; } };
-        chipsBox.addEventListener('click', (e) => {
-          // The palette lives inside the chip, so a click on the picker would
-          // otherwise be read as "chip clicked again" and close it (#134).
-          if (e.target.closest('.settings-tag-palette')) return;
-          const rm = e.target.closest('.settings-tag-remove');
-          if (rm) { rm.closest('.settings-tag-chip').remove(); closePalette(); return; }
-          const chip = e.target.closest('.settings-tag-chip');
-          if (!chip) return;
-          // Toggle a small palette popover to recolor this chip (#98).
-          const reopenSame = paletteEl && paletteEl._chip === chip;
-          closePalette();
-          if (reopenSame) return;
-          const applyColor = (col) => {
-            chip.dataset.color = col;
-            chip.style.background = col + '1a';
-            chip.style.borderColor = col;
-            chip.style.color = col;
-          };
-          // Shared HSV picker (#134/#138). Live-applies to the chip; the value is
-          // persisted when the settings pane is saved.
-          paletteEl = buildColorPopover(chip, chip.dataset.color, applyColor);
-          paletteEl._chip = chip;
-          paletteEl.addEventListener('click', (ev) => {
-            if (ev.target.closest('.settings-tag-swatch')) closePalette();
-          });
-        });
-        // Dismiss the palette on an outside click.
-        document.addEventListener('click', (e) => {
-          if (paletteEl && !e.target.closest('.settings-tag-chip')) closePalette();
-        }, { signal: listenerSignal });
-      }
+      window.settingsProjectTags.create({
+        body: settingsViewerBody,
+        allProjectTags,
+        tagColor,
+        renderTagChip,
+        buildColorPopover,
+        signal: listenerSignal,
+      }).initProjectTagsEditor();
     }
+
 
     // Everything Save writes — the settings blob plus the stores that are not in it
     // (project tags, templates, the profiles default, the attention hook, the log
