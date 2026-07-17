@@ -154,6 +154,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/shell/sidebar-subagents.js': [],
   'src/renderer/shell/spring-cleaning.js': [],
   'src/renderer/shell/sidebar-session-row.js': [],
+  'src/renderer/shell/sidebar-events.js': [],
   'src/renderer/shell/session-nav.js': [],
   'src/renderer/views/grid-view.js': [],
   'src/renderer/views/grid-gestures.js': [],
