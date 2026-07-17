@@ -441,8 +441,9 @@ async function showHandoffResumePicker(project) {
     } else {
       // Resuming a handoff starts a NEW session seeded with context — it is not a continuation of the
       // old one. So, unlike resuming an existing session (which is bound to its binary, §5.11), the
-      // user may run it on ANY backend, and is asked which (#148). The default is the one the packet
-      // came from; a handoff saved before backends existed has none, so it defaults to Claude.
+      // user may run it on ANY backend, and is asked which (#148). The preselection is the one the packet
+      // came from; a handoff saved before handoffs recorded their origin has none, and then it follows the
+      // default launch target — which is resolved to something launchable, or '' when nothing is (#225).
       const launchable = (typeof launchableBackends === 'function') ? launchableBackends() : [];
 
       handoffs.forEach(h => {

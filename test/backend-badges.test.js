@@ -53,9 +53,19 @@ test('one enabled backend, and it is the default: no badges — the app looks un
   assert.equal(win.computeShowAllBadges([{ sessionId: 's1', backendId: 'claude' }]), false);
 });
 
-test('one enabled backend that is NOT the default: badge it — it is not what you would assume', () => {
-  const win = load({ backends: [ready('codex')], defaultLaunchTarget: 'claude' });
-  assert.equal(win.computeShowAllBadges([]), true);
+// There used to be a test here: "one enabled backend that is NOT the default: badge it". It built that
+// state by hand — `load({ backends: [ready('codex')], defaultLaunchTarget: 'claude' })` — and #225 made
+// the state impossible: with exactly one launchable backend, resolveDefaultTarget lands the default ON
+// it. The branch it covered was a patch for the stale default, and it went with it.
+//
+// The test was green for as long as it existed, over a case the app could reach only while the bug was
+// there. That is the same thing this file's neighbours criticise: a fake that cannot distinguish tests
+// nothing, and one that constructs a forbidden state tests something that will never happen.
+test('one launchable backend IS the default, so it cannot be badged for not being it', async () => {
+  const win = await loadRefreshed({ backends: [ready('codex')], defaultLaunchTarget: 'claude' });
+  assert.equal(win._defaultBackendId, 'codex', 'the stale claude default resolved onto the one thing that runs');
+  assert.equal(win.computeShowAllBadges([]), false,
+    'a single-backend user sees an unchanged app — whichever backend it is');
 });
 
 test('a disabled backend does not make the app mixed-mode (its cached sessions survive, §5.8)', () => {

@@ -1718,10 +1718,10 @@ function buildSessionItem(session) {
   indicators.appendChild(pin);
   indicators.appendChild(dot);
 
-  // Provider badge (T-3.4). Deliberately OFF for a single-backend user: badging every row when
-  // everything is Claude would be pure noise. It appears in "mixed mode" — ≥2 distinct backends are
-  // in play, or the only one in play is not the default launch target (computeShowAllBadges). A
-  // non-default session is always badged so it can never be mistaken for a Claude one.
+  // Provider badge (T-3.4). Deliberately OFF for a single-backend user: badging every row when they all
+  // came from the same CLI would be pure noise. It appears in "mixed mode" — ≥2 backends are in play
+  // (computeShowAllBadges) — and on any individual row that is not the default, so a session can never be
+  // mistaken for one of the default backend's. That second half needs a KNOWN default; see below.
   if (session.type !== 'terminal' && window.sessionBackendId) {
     const backendId = window.sessionBackendId(session);
     // The badge means "this row is NOT the one you would assume". That claim needs a default to compare

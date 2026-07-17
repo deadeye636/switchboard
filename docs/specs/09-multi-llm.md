@@ -47,11 +47,24 @@ special case anywhere outside that provider's own folder.
   true, and it stayed here for eleven issues.** #212 counted them: **23** `|| 'claude'` fallbacks in the
   renderer alone, plus id branches the word "fallback" does not even cover — the profile editor gated its
   ANTHROPIC_* fields on `baseId === 'claude'`, and the settings list kept the five backend blurbs in a table
-  keyed by id. #162 moved the *gate* into the model and nothing checked the rest. #212 fixed the three
-  files its acceptance named and left a **test** rather than a claim (`test/backend-integrations.test.js`:
-  an id-comparison guard, a literal counter, and a no-table-keyed-by-id guard, all mutation-tested);
-  **#225** carries the eight remaining renderer files. So: the rule holds where a guard enforces it, and
-  #225 is the honest list of where it does not yet. Do not restore the sentence — extend the guard.
+  keyed by id. #162 moved the *gate* into the model and nothing checked the rest.
+
+  It is true now, for the renderer, and the reason is worth more than the fact: **#225 fixed it in one
+  place, not sixteen.** `_defaultBackendId` was `stored || 'claude'` — and the stored value is what the
+  user PICKED, not what is possible now. Every surface inherited that and added its own `|| 'claude'` on
+  top, which is exactly how "the fallbacks are gone" could be written and be wrong. The registry now
+  resolves it once (the stored target while still launchable, else the first launchable, else `''`), so
+  the invariant carries the rest: **`_defaultBackendId` is always either launchable or empty, and a caller
+  never needs to second-guess it.** If you find yourself writing `_defaultBackendId || <anything>`, the
+  `<anything>` is the bug.
+
+  What replaced the sentence is a **guard**, not a better sentence: `test/backend-integrations.test.js`
+  holds an id-comparison check (either order, either quote style), a literal counter, and a
+  no-table-keyed-by-backend-id check, over all eleven renderer files, each mutation-tested. Two named
+  bindings survive because they are migrations rather than guesses — `LEGACY_TEMPLATE_BASE` (a template
+  from before #161) and `LEGACY_SESSION_BACKEND` (a session row indexed before provenance existed).
+  **#211** is the same migration in `src/projects/projects.js`, main-side, and is still open. Do not
+  restore the sentence — extend the guard.
 
 ## Architecture
 

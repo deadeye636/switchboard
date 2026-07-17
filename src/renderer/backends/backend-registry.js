@@ -98,6 +98,11 @@
   // then every session WAS Claude, because Claude was the only backend. Reading such a row as Claude
   // MIGRATES it — it states what was true when the row was written, which is the one thing that
   // separates this from the guesses #212/#225 removed. Named, so the guard can tell the two apart.
+  //
+  // One row reaches this that is NOT old: a session launched while nothing is launchable carries
+  // `backendId: ''` (app.js), which is falsy and lands here. It is the same answer the spawn path gives
+  // (main falls back to Claude too — its own `|| 'claude'` is #211's, not this file's), so nothing is
+  // inconsistent; but "legacy" is doing a second job there. It stops the day #211 lands.
   const LEGACY_SESSION_BACKEND = 'claude';
 
   // Resolve a session's backend id. Authoritative cached column first, overlay second, default last.
@@ -119,9 +124,14 @@
    * past the fold, or simply not started yet, and the remaining Claude rows then looked like the rows of a
    * single-backend app. If you run more than one CLI, you always need to know which one you are looking at.
    *
-   *   >= 2 enabled backends           -> badge everything (you need to tell them apart)
-   *   exactly 1, and it IS the default -> no badges (a single-backend user sees an unchanged app)
-   *   exactly 1, and it is NOT default -> badge it (it is not what you would assume)
+   *   >= 2 enabled backends -> badge everything (you need to tell them apart)
+   *   exactly 1             -> no badges (a single-backend user sees an unchanged app)
+   *
+   * There used to be a third case: "exactly 1, and it is NOT the default -> badge it". It existed only
+   * because the default could name a backend you were not running — a stale stored value, or the
+   * `|| 'claude'` that produced one out of nothing. #225 made `_defaultBackendId` resolve to something
+   * launchable or to '', so with exactly one launchable backend the default IS that backend, by
+   * construction, and the case cannot arise. It was a patch for the bug, not a rule; removed with it.
    *
    * `sessions` is only the fallback for the moment before the backend probes have answered: with nothing
    * known about the backends, what the sessions say is all there is. A session whose backend is not the
@@ -133,7 +143,7 @@
     if (enabled.length >= 2) {
       show = true;
     } else if (enabled.length === 1) {
-      show = enabled[0].id !== window._defaultBackendId;
+      show = false;
     } else {
       const distinct = new Set();
       for (const s of sessions || []) distinct.add(sessionBackendId(s));

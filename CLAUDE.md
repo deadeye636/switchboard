@@ -198,19 +198,24 @@ Being a deliberate act is the entire point.
   `docs/backend-formats.md` (what each backend actually writes — taken from real installs, because the
   published docs were wrong in three places).
 - **Don't hardcode a backend id outside its own folder.** `src/main.js` / `src/app/**` / `src/watch/**` /
-  `src/index/session-cache.js` contain no `if (backendId === 'codex')` and must not gain one.
-  **`src/renderer/**` is the exception, and it is a live one:** this rule claimed the renderer was clean
-  for eleven issues while it was not. #212 counted 23 `|| 'claude'` fallbacks plus id branches — a gear
-  page gated on `backend.id === 'claude'`, the profile editor on `baseId === 'claude'`, and the five
-  backend blurbs in a table keyed by id. Three files are clean now and **guarded**
-  (`test/backend-integrations.test.js`, `ALLOWED_BINDINGS`); **#225** is the honest list of the eight that
-  are not. Trust the guard, not this bullet — and when you clean a file, add it to the guard.
-- **Reaching for a backend id nobody named? There are exactly two honest answers** (#212), and the code
-  must say which: it is **reading a record from before the multi-LLM era** (a template with no `backendId`
-  predates #161, when a template was always Claude — bind it to a named `LEGACY_TEMPLATE_BASE`), or it
-  resolves to the **first LAUNCHABLE backend** (`firstLaunchableBackendId()` in `backend-registry.js`; `''`
-  when nothing is launchable, and `''` must not be turned back into an id). `|| 'claude'` is neither:
-  Claude is disablable (#162), so it hands back a backend that cannot spawn.
+  `src/index/session-cache.js` / `src/renderer/**` contain no `if (backendId === 'codex')` and must not
+  gain one. **Trust the guard, not this bullet:** it claimed the renderer was clean for eleven issues
+  while it was not (#212 counted 23 `|| 'claude'` fallbacks plus id branches). What enforces it now is
+  `test/backend-integrations.test.js` over all eleven renderer files — an id comparison check, a literal
+  counter, and a no-table-keyed-by-backend-id check. Clean a file → add it to `ALLOWED_BINDINGS`.
+  **#211** is the same migration in `src/projects/projects.js` and is still open.
+- **Reaching for a backend id nobody named? There are exactly two honest answers** (#212/#225), and the
+  code must say which: it is **reading a record from before the multi-LLM era** (a template with no
+  `backendId` predates #161, when a template was always Claude — bind it to a named
+  `LEGACY_TEMPLATE_BASE` / `LEGACY_SESSION_BACKEND`), or it resolves to the **first LAUNCHABLE backend**
+  (`firstLaunchableBackendId()` in `backend-registry.js`; `''` when nothing is launchable, and `''` must
+  not be turned back into an id). `|| 'claude'` is neither: Claude is disablable (#162), so it hands back
+  a backend that cannot spawn.
+- **`window._defaultBackendId` is already resolved — never rescue it.** It is the stored target while that
+  is still launchable, else the first launchable, else `''` (`resolveDefaultTarget`). So it is *always*
+  either launchable or empty, and `_defaultBackendId || <anything>` means the `<anything>` is a bug. This
+  is the whole of #225: sixteen sites across eight files each patched the same unreliable value instead of
+  fixing it once, which is exactly how #162 could "remove the fallbacks" and leave 23 standing.
 - **A per-backend TABLE in the renderer is the descriptor's data in the wrong process.** The blurbs lived
   in `backends-panel.js` as `{ claude: '…', codex: '…' }` — so a new backend had to edit the renderer to
   look finished, and one whose author forgot rendered a blank line with nothing to say so. Declare it on
