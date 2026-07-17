@@ -51,6 +51,7 @@
     "update-restart.js",
     "session-restore.js",
     "statusbar-usage.js",
+    "away-summary-banner.js",
     "shortcuts.js",
     "terminal-themes.js",
     "terminal-context-menu.js",
