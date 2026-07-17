@@ -2743,8 +2743,9 @@ window.api.onProjectsChanged(() => {
 // Status bar
 let activityTimer = null;
 // The usage segments — their state, the colour thresholds, the two window._set* entry points, the
-// snapshot and the poll — are shell/statusbar-usage.js (#218). `activityTimer` below and
-// renderDefaultStatus stay: they paint statusBarInfo, not statusBarUsage, and only shared a heading.
+// snapshot and the poll — are shell/statusbar-usage.js (#218). The status bar is three elements that only
+// ever shared this heading: renderDefaultStatus below paints status-bar-info, activityTimer and the
+// onStatusUpdate listener paint status-bar-activity, and status-bar-usage is the module's.
 
 function renderDefaultStatus() {
   const totalSessions = cachedAllProjects.reduce((n, p) => n + p.sessions.length, 0);

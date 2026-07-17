@@ -8,16 +8,28 @@
 // half, and it is not testable the same way: it writes elements and holds a timer. Same division as
 // shell/update-restart.js (pure) and shell/session-restore.js (DOM).
 //
-// WHAT IS NOT HERE, though the code sat next to it in app.js: `activityTimer` and the `onStatusUpdate`
-// listener (the transient "Scanning projects…" text), and `renderDefaultStatus` (the sessions/projects
-// counter). Those paint `statusBarInfo`; this file paints `statusBarUsage`. They shared a heading called
-// "Status bar" and nothing else — which is exactly why they were adjacent and why they are not one thing.
+// WHAT IS NOT HERE, though the code sat next to it in app.js — the status bar is THREE elements, not two:
+//   status-bar-info      renderDefaultStatus — the "656 sessions · 25 projects" counter
+//   status-bar-activity  activityTimer + the onStatusUpdate listener — the transient "Scanning projects…"
+//   status-bar-usage     this file
+// All three sat under one heading called "Status bar" and share no identifier. That is exactly why they
+// were adjacent and why they are not one thing.
 //
 // A PLAIN CLASSIC SCRIPT, no IIFE, no UMD factory. It reads app.js's top-level `statusBarUsage` (a
-// parse-time getElementById) and calls `formatUsageStatus` / `clampUsageThreshold` from other classic
-// scripts — all resolved at CALL time through the shared global lexical scope, so this is a move rather
-// than a rewrite and needs no ctx. Wrapping it in a factory would put `window._setUsageThresholds` and
-// the module's own `usageThresholds` in different worlds.
+// parse-time getElementById) and calls into other classic scripts — all resolved at CALL time through the
+// shared global lexical scope, so this is a move rather than a rewrite and needs no ctx. To be honest
+// about that choice: a factory would also work here (the setters would close over factory-local state,
+// and nothing outside writes a binding of ours — the grid-gestures hazard needs a foreign file writing
+// our `let`). Plain classic is chosen because nothing here needs wrapping, and not wrapping is what keeps
+// the diff a move.
+//
+// What it reaches into, by file:
+//   app.js                   statusBarUsage
+//   shell/usage-status.js    formatUsageStatus, selectedUsageBackends, getUsageBars, getUsageTooltip,
+//                            isStaleReading, getUsagePollDelayMs (UMD → window properties; the last five
+//                            are typeof-guarded, formatUsageStatus is the hard dependency)
+//   lib/utils.js             clampUsageThreshold
+//   (renderBackendIcon)      window property, guarded
 //
 // THE TWO `window._set*` FUNCTIONS ARE THE PUBLIC EDGE: app.js calls them at boot and on a settings
 // re-apply, and panels/settings-panel.js calls them from the Save path so the bar recolours without a
