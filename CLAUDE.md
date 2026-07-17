@@ -35,8 +35,10 @@ Adopt JBR features one at a time, never bulk-merge:
 2. `git cherry-pick <commits>` — resolve conflicts. The classic hot-paths were `src/main.js`,
    `src/renderer/shell/sidebar.js`, `src/db/db.js` and `src/index/session-cache.js`, because both forks
    rewrote them. Three of those are façades now (#213/#217/#199), so a port collides with the **module**
-   that owns the code, not with the façade — usually a smaller, clearer conflict. `sidebar.js` is a
-   composition point now too (#218: 2161 → 783, four modules beside it), so the same applies there.
+   that owns the code, not with the façade — usually a smaller, clearer conflict. The renderer's four
+   monoliths are composition points now too (#218: 9309 → 5460 across `app.js`, `settings-panel.js`,
+   `sidebar.js` and `grid-view.js`, thirteen modules beside them), so the same applies there — a port
+   collides with the module that holds the code.
 3. `npm test` must be green — no new failures vs. the pre-port run.
 4. `git checkout main && git merge --ff-only port/<feature>`.
 
@@ -124,7 +126,17 @@ the installer.
     reader would never see it, and the suite would stay green. (#218 measured this on `gridInteracting`.)
   - **Adding a file is a THREE-file change**: the `<script>` tag, `test/fixtures/script-order.json`, and
     `ALLOWED_BINDINGS` in `test/backend-integrations.test.js` — those guards iterate that map, not the
-    directory, so a file left out is silently unchecked.
+    directory, so a file left out is silently unchecked. (For app.js's siblings the `<script>` tag and the
+    script-order entry go in the `index.html` set, not `settings.html` — app.js is not loaded there.)
+  - **The header IS the import graph.** A module cut out of a monolith has no `import` line to say what it
+    reaches into — the header comment is the only record, and nothing checks it. #218 shipped a header
+    defect in six of sixteen passes, four of them false claims (an undercounted caller, a stale tag count,
+    "eleven" panes that were twelve, "byte-identical" off by one byte, a free-globals register naming three
+    of six, functions attributed to the wrong file). Every one was caught by a reading verifier, none by
+    the suite. So: after a cut, grep the moved file for every name it declares (a name left behind that
+    something still calls is a `ReferenceError` no test sees — it killed Save for every setting once), and
+    treat any caller-count, dependency or "identical" claim in a header as unverified until you have checked
+    it against the code.
   Terminal = `@xterm/xterm`.
   Diffs = CodeMirror (`codemirror-setup.js`, bundled by esbuild into `codemirror-bundle.js`).
 - **Persistence** (`src/db/`): `db.js` is a **façade** (#217, 1997 → 158 lines) over modules named after
