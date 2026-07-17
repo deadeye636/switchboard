@@ -16,8 +16,15 @@
 // put it before its callers' first CLICK — which is any position on the page. It sits next to sidebar.js
 // because that is where a reader will look for it.
 //
-// What it reaches back into sidebar.js for: shortSessionLabel, getSessionRuntimeState,
-// getSessionProjectLabel, folderId — all at call time, from a render.
+// What it reaches back into sidebar.js for: `getSessionRuntimeState`, and nothing else. Everything else
+// it needs comes from app.js's maps (activePtyIds, attentionSessions, responseReadySessions,
+// sessionBusyState, subagentActiveSessions, lastActivityTime), the UMD helpers (getSessionStatus,
+// getSessionHealth, getQuietDetailParts, getWorktreeLabel, makeButtonLike), `ICONS`, and the backend
+// registry — all at call time, from a render.
+//
+// (This list said shortSessionLabel/getSessionProjectLabel/folderId until a verifier checked: none of
+// the three is in this file. In a renderer whose only import graph IS these headers, a wrong one is not
+// untidy, it is misinformation — the next reader has nothing else to go on.)
 
 function buildSessionItem(session) {
   const item = document.createElement('div');

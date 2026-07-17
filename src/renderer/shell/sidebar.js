@@ -781,3 +781,6 @@ function patchSidebarStatuses() {
 
 // The click wiring (rebindSidebarEvents), the drag scaffold it uses and the worktree-delete dialog
 // moved to shell/sidebar-events.js (#218). finalizeSidebar calls it after every morphdom patch.
+//
+// The session row itself (buildSessionItem), its inline rename and positionPopover moved to
+// shell/sidebar-session-row.js (#218). buildSessionsList above calls it.

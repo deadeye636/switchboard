@@ -14,8 +14,12 @@
 // make the read unguarded on the strength of the tag order alone.
 //
 // A classic <script>, like the file it came from: same shared global lexical scope. It reaches back into
-// sidebar.js for shortSessionLabel/subagentLiveStatusOn's siblings and into app.js for the runtime maps
+// app.js for the runtime maps (sessionMap, activePtyIds, attentionSessions, responseReadySessions,
+// sessionBusyState, appGlobalSettings) and into the UMD helpers for getSessionStatus / getSessionHealth
 // — all at call time, from a click or a render, so tag order does not decide them.
+//
+// `subagentLiveStatusOn` is NOT a reach-back — it is defined right here. This line claimed otherwise
+// until a verifier checked it.
 
 // ===== Subagent sidebar rendering (ported from JBR #1/#2/#9, integrated into
 // HaydnG's buildSessionsList) =====

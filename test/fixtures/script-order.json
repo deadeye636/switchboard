@@ -20,6 +20,7 @@
     "backends-panel.js",
     "custom-launchers.js",
     "launchers-panel.js",
+    "settings-tags.js",
     "settings-panel.js",
     "utils.js",
     "a11y-utils.js",
@@ -95,6 +96,7 @@
     "backends-panel.js",
     "custom-launchers.js",
     "launchers-panel.js",
+    "settings-tags.js",
     "settings-panel.js",
     "settings-window.js"
   ]

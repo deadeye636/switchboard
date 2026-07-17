@@ -498,9 +498,6 @@ function rebindSidebarEvents(projects) {
   }
 }
 
-// The session row itself (buildSessionItem), the inline rename, and positionPopover moved to
-// shell/sidebar-session-row.js (#218).
-
 // Generic pointer-drag scaffold behind the manual project reorder (#79): threshold-gated begin, cursor ghost, elementFromPoint
 // drop-target tracking with a highlight class, listener cleanup. Variant
 // behavior comes from opts:
