@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (26 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-17
 
@@ -22,6 +22,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#207](https://github.com/deadeye636/switchboard/issues/207) Variable quick-pick: keyboard-driven (type-to-filter, arrow nav, Enter inserts + trailing space) · _feature_
 - [#211](https://github.com/deadeye636/switchboard/issues/211) Projects admin: the last Claude-only bits belong behind a backend hook · _chore_
 - [#223](https://github.com/deadeye636/switchboard/issues/223) After /clear with two Claude sessions in one project, both stay running and the tab keeps the dead id · _bug_
+- [#227](https://github.com/deadeye636/switchboard/issues/227) Plans and Memory are pinned to Claude's home: a hardcoded path is a backend id the guards cannot see · _chore_
 
 ## P3 — someday
 
