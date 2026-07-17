@@ -7,6 +7,13 @@
 > **As built:** on top of the mouse interactions below, a keyboard move mode (Ctrl+Shift+M, `gridMoveMode` in `src/renderer/shell/shortcuts.js`) allows resizing/reordering cards without the mouse; spans go up to 3 rows (`MAX_GRID_ROWS` in `src/renderer/views/grid-layout.js`).
 >
 > **Superseded in part (#185):** everything below that couples this spec to Spec 07 — the grouped layout, the group regions, and dropping a card into another group — is **gone**. Groups were removed; the grid is a single flat card grid, and a drag only ever reorders. Read those passages as history, not as the contract.
+>
+> **Moved (#218):** the mechanics below still work exactly as described, but `grid-view.js` no longer holds them — it went 1667 → 886 and is a composition point now. The addresses:
+> - **the pointer gestures** (drag-to-reorder, the corner resize, the FLIP animation, the placeholder, `debouncedFit`) → `src/renderer/views/grid-gestures.js`
+> - **the snap-layout popover** (the preset tiles, the hover-intent state machine) → `src/renderer/views/grid-snap-popover.js`
+> - **the filter chips + bulk bar** → `src/renderer/views/grid-bulk-actions.js`
+> - **`navigateGrid` / `navigateSession` / `appShortcuts`** → `src/renderer/shell/session-nav.js` (they were never grid code)
+> - **still in `grid-view.js`**: the card registry and lifecycle (`gridCards`, `wrapInGridCard`, `showGridView`, the observers), the persisted `gridLayout` and its writers (`persistGridOrder`, `writeCardSpan`, `applyCardSnap`), and the keyboard move mode. The pure span/order maths stays where it always was, in `views/grid-layout.js` — which is require()-able and the only part of this spec with real tests.
 
 ## Problem & goal
 

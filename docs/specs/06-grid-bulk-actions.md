@@ -4,6 +4,15 @@
 
 **Status:** Implemented · **Roadmap:** Opportunity #6 (Phase 4) · **Independent:** Yes (coordinate `grid-view.js` regions with Spec 07 if concurrent)
 
+> **Moved (#218):** the chips and the three buttons live in **`src/renderer/views/grid-bulk-actions.js`**
+> now, not in grid-view.js — `renderGridStatusFilters`, `renderGridBulkActions`, `stepThroughQueue`,
+> `markAllReadySeen`, `stopAllRunning`. Behaviour is unchanged; the file references below are the ground
+> this spec was written against. The STATE they read (`gridStatusFilter`, `getGridRuntimeState`,
+> `getGridOpenSessions`, `getGridAllowedSessionIds`) deliberately stayed in `grid-view.js`: the
+> composition point owns the state, the modules render it. Note `gridStatusFilter` has three writers
+> across three files (here, `showGridView`, and `terminal-manager.js`), each writing localStorage in its
+> own line — a fourth that forgets loses the setting on reload, and nothing would say so.
+
 ## Problem & goal
 
 The grid is positioned as a "command center" for many agents, but every action is **per-session** (focus, stop, handoff via the card). Supervising 6+ agents means repetitive one-by-one clicking.

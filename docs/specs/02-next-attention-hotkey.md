@@ -14,6 +14,13 @@ Power users juggling many agents need to move between them without the mouse, an
 
 ## Current state (grounded)
 
+> **Where the code is NOW.** This section was written before #214 (`public/` → `src/renderer/`) and #218
+> (the renderer split), so its paths are a record of the ground this spec was designed against, not of
+> where to look today. The two that matter: `isSessionNavKey` / `handleSessionNavKey` / `appShortcuts`
+> live in **`src/renderer/shell/session-nav.js`**, not in grid-view.js — #218 moved them because they were
+> never grid code (app.js and terminal-manager.js read `appShortcuts` seven times between them). The
+> passthrough pattern this spec tells you to mirror is unchanged; only its address is.
+
 - `getNextAttentionInboxItem(sessions, runtime, currentSessionId)` exists and is tested (`public/session-status.js:91`); already wired to the inbox "Focus next" button (`public/sidebar.js:725`, handler ~729).
 - The renderer keydown handler is in `src/renderer/app.js` ~line 1229 and currently handles only grid toggle (`Cmd/Ctrl+Shift+G`) + delegates to `handleSessionNavKey` (`public/grid-view.js:411`). xterm key handling: `isSessionNavKey` (`grid-view.js:403`) is used to let global shortcuts through the terminal — mirror that pattern so the hotkey works while a terminal is focused.
 - No audio anywhere in the app.

@@ -35,8 +35,8 @@ Adopt JBR features one at a time, never bulk-merge:
 2. `git cherry-pick <commits>` — resolve conflicts. The classic hot-paths were `src/main.js`,
    `src/renderer/shell/sidebar.js`, `src/db/db.js` and `src/index/session-cache.js`, because both forks
    rewrote them. Three of those are façades now (#213/#217/#199), so a port collides with the **module**
-   that owns the code, not with the façade — usually a smaller, clearer conflict. `sidebar.js` is still a
-   2150-line monolith (#218).
+   that owns the code, not with the façade — usually a smaller, clearer conflict. `sidebar.js` is a
+   composition point now too (#218: 2161 → 783, four modules beside it), so the same applies there.
 3. `npm test` must be green — no new failures vs. the pre-port run.
 4. `git checkout main && git merge --ff-only port/<feature>`.
 
@@ -112,6 +112,19 @@ the installer.
 - **Renderer** (`src/renderer/`): **vanilla JS, no framework**. Modules are plain `<script>` tags in
   `src/renderer/index.html` (load order matters — `test/script-tags.test.js` guards it). Sorted into folders
   (`shell/`, `session/`, `terminal/`, `views/`, `jsonl/`, `panels/`, …). DOM reconciliation via morphdom.
+  **A top-level `const`/`let`/`function` here is NOT on `window`** — it lives in the global lexical scope
+  every classic script shares. So one file's function can read (and rebind) another's `let`, which is how
+  the renderer has always been wired, and the thing to know before moving any of it:
+  - **A reference inside a function resolves at CALL time** — tag order cannot break it. Only what runs at
+    PARSE time (`let x = f()`, `document.getElementById(...)`, a top-level listener) needs its dependency
+    already loaded. That distinction is the whole of "the load order carries meaning".
+  - **`window.foo` is not the same binding as a top-level `let foo`.** It shadows. Never "fix" a
+    cross-file read by reaching through `window`, and never wrap a file that WRITES another's `let` in the
+    UMD factory the pure modules use — the write would land on a window property the `let` shadows, the
+    reader would never see it, and the suite would stay green. (#218 measured this on `gridInteracting`.)
+  - **Adding a file is a THREE-file change**: the `<script>` tag, `test/fixtures/script-order.json`, and
+    `ALLOWED_BINDINGS` in `test/backend-integrations.test.js` — those guards iterate that map, not the
+    directory, so a file left out is silently unchecked.
   Terminal = `@xterm/xterm`.
   Diffs = CodeMirror (`codemirror-setup.js`, bundled by esbuild into `codemirror-bundle.js`).
 - **Persistence** (`src/db/`): `db.js` is a **façade** (#217, 1997 → 158 lines) over modules named after
@@ -442,6 +455,13 @@ diagnostic at `debug` that the packaged default hides is what made #120 invisibl
   Two bugs that shipped green: Codex sat permanently at "working" (a Claude-only OSC title
   heuristic ran on every backend), and a Save with a backend's gear page open silently
   discarded every backend setting. Both needed a click, not a test run, to be seen.
+  **A third, from #218, is the sharpest:** pulling the tag lists out of `openSettingsViewer`
+  left `settingsViewerBody` behind — an IIFE-level const, not a global — and the entire Tags
+  section died with a `ReferenceError` the instant the panel opened. **All 1488 tests passed.**
+  Nothing loads that file; nothing opens that panel. `node scripts/drive-app.js console`
+  found it in four seconds. The renderer's suite has no opinion about most of the renderer,
+  so on any renderer change the click IS the test — treat a green run as "I have not broken
+  the main process", nothing more.
 - Don't add a framework, build step, or bundler to the renderer beyond the existing esbuild CodeMirror bundle.
 - **A new control in the renderer inherits NO styling.** A button with only a behaviour class renders as
   the browser's native control — a white box with black text, next to your styled ones. Reuse an existing
