@@ -51,6 +51,7 @@
     "variables-panel.js",
     "terminal-fit.js",
     "terminal-manager.js",
+    "session-nav.js",
     "grid-bulk-actions.js",
     "grid-gestures.js",
     "grid-snap-popover.js",
