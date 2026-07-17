@@ -201,3 +201,11 @@ async function triggerRebuildAndSearch() {
   // After reindex, refire the current query so the user sees fresh hits.
   await runSearchQuery();
 }
+
+// Cancel a pending search debounce without touching the input or filter state. app.js's tab switcher
+// calls this: it clears the search box itself (the box and searchMatchIds live there), but the debounce
+// timer lives here, and a timer armed just before a tab switch would otherwise fire runSearchQuery on the
+// new tab. Harmless today (an empty query routes to clearSearch, a redundant re-render) but latent.
+window._cancelSearchDebounce = () => {
+  if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
+};

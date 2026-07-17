@@ -1374,11 +1374,14 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     activeTab = tabName;
     document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
 
-    // Clear search on tab switch
+    // Clear search on tab switch. The box and the match state live here; the debounce timer lives in
+    // shell/search-bar.js, so cancel it there too — a timer armed just before the switch would otherwise
+    // fire runSearchQuery on the new tab.
     searchInput.value = '';
     searchBar.classList.remove('has-query');
     searchMatchIds = null;
     searchMatchProjectPaths = null;
+    window._cancelSearchDebounce?.();
 
     // Hide all sidebar content areas
     sidebarContent.style.display = 'none';
