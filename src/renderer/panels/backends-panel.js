@@ -309,10 +309,6 @@
     });
   }
 
-  // Claude-only extras that are NOT launch options (they touch no argv and no env), but ARE Claude's:
-  // the attention hook patches Claude's OWN ~/.claude/settings.json and applies to every Claude session,
-  // including ones Switchboard never started. It belongs to the backend, not to a generic app section —
-  // but it is stored as a plain global setting, not under backendDefaults.
   // The handoff prompt, per backend. NOT a launch option (it reaches no argv and no env) — it is what we
   // TYPE INTO the running agent, so it is stored as its own setting: `handoffPromptByBackend.<id>`.
   // Empty = use the global prompt from Sessions & CLI.
@@ -350,19 +346,36 @@
       </div>`;
   }
 
-  function claudeIntegrationsHtml(attentionHooksOn) {
+  // The backend's declared integrations (#212). This function knows no backend: it renders the
+  // `integrations` block off the descriptor, and a backend that declares none renders nothing at all.
+  // The block used to be gated on `backend.id === 'claude'` — the one `if (backendId === …)` the
+  // settings surface still had, and the one CLAUDE.md says the renderer must not carry.
+  //
+  // Each field is a plain GLOBAL setting keyed by `f.id` (not a backendDefaults option — these reach no
+  // argv), so the value comes from `ctx.fieldValue` and settings-panel.js reads the control back by
+  // `f.domId` at save time. `f.description` is descriptor-authored markup, not user input, so it is
+  // interpolated raw the way handoffPromptHtml's hints are.
+  function integrationsHtml(backend, ctx) {
+    const spec = backend.integrations;
+    if (!spec || !Array.isArray(spec.fields)) return '';
+    // `toggle` is the only type that exists. An unknown type must render NOTHING rather than fall
+    // through to a checkbox — a control that stores something other than what it shows is worse than an
+    // absent one. A new type adds a branch here.
+    const fields = spec.fields.filter(f => f.type === 'toggle');
+    if (!fields.length) return '';
     return `
       <div class="settings-section">
-        <div class="settings-section-title">Integrations</div>
+        <div class="settings-section-title">${esc(spec.title || 'Integrations')}</div>
+        ${fields.map(f => `
         <div class="settings-field">
           <div class="settings-field-info">
-            <span class="settings-label">Claude Code hooks for attention</span>
-            <div class="settings-description">More reliable attention detection than the terminal check alone. Catches permission and tool prompts the terminal heuristic can miss. Adds a reversible hook to <code>~/.claude/settings.json</code>; turning this off removes it again.</div>
+            <span class="settings-label">${esc(f.label || f.id)}</span>
+            <div class="settings-description">${f.description || ''}</div>
           </div>
           <div class="settings-field-control">
-            <label class="settings-toggle"><input type="checkbox" id="sv-attention-hooks" ${attentionHooksOn ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+            <label class="settings-toggle"><input type="checkbox" id="${esc(f.domId)}" ${ctx.fieldValue(f.id, false) ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
           </div>
-        </div>
+        </div>`).join('')}
       </div>`;
   }
 
@@ -1057,9 +1070,7 @@
         { summarise: bySummarise[backend.id], read: byRead[backend.id] },
         { summarise: ctx.fieldValue('handoffPrompt', ''), read: ctx.fieldValue('handoffReadPrompt', '') },
       )
-        + (backend.id === 'claude'
-          ? claudeIntegrationsHtml(!!ctx.fieldValue('attentionHooks', false))
-          : '');
+        + integrationsHtml(backend, ctx);
       const page = document.createElement('div');
       page.className = 'backends-panel';
       page.innerHTML = launchDefaultsPage(backend, mergedDefaults(), false, extras);

@@ -319,4 +319,29 @@ module.exports = {
     live: true,
     fetch: () => require('./usage').fetchUsage(),
   },
+  // Integrations capability (#212). Extras that belong to THIS backend but are NOT launch options: they
+  // reach no argv and no env, so they are not configFields — yet they are not generic app settings
+  // either. The attention hook patches Claude's OWN ~/.claude/settings.json and applies to every Claude
+  // session, including ones Switchboard never started. It is Claude's, so Claude declares it; a backend
+  // that has no such extras declares nothing and its gear page shows no Integrations section.
+  //
+  // Like `usage`, only the DECLARATION crosses IPC — backends-panel.js renders whatever is here and
+  // names no backend. `description` is descriptor-authored markup (the <code> tag is ours, not user
+  // input) and is interpolated raw on purpose.
+  //
+  // Each field is a plain GLOBAL setting keyed by `id`, not a backendDefaults option — settings-panel.js
+  // owns the save path and finds the control by `domId`. That is a string shared across two files with
+  // nothing but `test/backend-integrations.test.js` tying the ends together; do not rename one alone.
+  integrations: {
+    title: 'Integrations',
+    fields: [
+      {
+        id: 'attentionHooks',
+        domId: 'sv-attention-hooks',
+        type: 'toggle',
+        label: 'Claude Code hooks for attention',
+        description: 'More reliable attention detection than the terminal check alone. Catches permission and tool prompts the terminal heuristic can miss. Adds a reversible hook to <code>~/.claude/settings.json</code>; turning this off removes it again.',
+      },
+    ],
+  },
 };

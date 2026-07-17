@@ -1939,6 +1939,11 @@ ipcMain.handle('backends-list', () => {
       // the fetch stays in main. Settings offers a status-bar checkbox only for backends that say yes —
       // Hermes and Pi have no quota at all, so they never get a control that could never show a value.
       usage: b.usage ? { live: !!b.usage.live } : null,
+      // Backend-owned extras that are not launch options (#212) — Claude's attention hook patches its
+      // own settings.json, so it belongs to Claude and not to a generic app section. The DECLARATION
+      // crosses IPC, exactly like `usage` above: the settings panel renders what is declared and names
+      // no backend. A backend without integrations sends null and gets no section.
+      integrations: b.integrations || null,
     })),
     defaultLaunchTarget: backends.getDefaultLaunchTarget(),
   };
