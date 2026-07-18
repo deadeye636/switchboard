@@ -29,10 +29,21 @@ So the demo never reads or writes `~/.claude`, `~/.codex`, `~/.pi`, or the real 
 
 ## What is seeded
 
-`scripts/seed-demo.js` writes valid, minimal transcripts for the **file** backends (Claude, Codex, Pi) —
-two project working dirs (`demo-alpha`, `demo-beta`, each with a `README.md` + `CLAUDE.md` + `AGENTS.md`),
-two Claude sessions under demo-alpha (the second a **fork** of the first, so the lineage thread shows), one
-Codex session under demo-beta, and one Pi session under demo-alpha.
+`scripts/seed-demo.js` writes valid, minimal transcripts for the **file** backends (Claude, Codex, Pi).
+Each project is a working dir under `<demo>/projects/<name>/` with a `README.md` + `CLAUDE.md` + `AGENTS.md`
+(so the Memory tab has content), plus its sessions in the backend stores. The **standard test projects** —
+a fixed base so a scenario is always reproducible:
+
+| Project | Sessions | What it exercises |
+|---|---|---|
+| **demo-alpha** | Claude ×2 (the 2nd a **fork** of the 1st) + Pi ×1 | the lineage "▶ earlier" thread; a project mixing Claude + Pi |
+| **demo-beta** | Codex ×1 | a single-backend, non-Claude project (badge + provenance) |
+| **demo-mixed** | Claude + Codex + Pi (one each, same project) | multi-backend badges + mixed provenance in ONE sidebar group |
+| **demo-chain** | Claude ×3, a three-deep fork chain (C forks B forks A) | a **deeper** lineage thread — the head folds "2 earlier" |
+
+To add a standard project, extend `IDS` and the seed blocks in `scripts/seed-demo.js` and add a row here.
+Keep transcripts valid against the real parsers — seed to a scratch dir (`SWITCHBOARD_DEMO_DIR=<tmp>
+node scripts/seed-demo.js`) and parse the result through `src/backends/<id>/` before relying on it.
 
 - **Hermes and agy stores are created empty on purpose** — no `state.db`, no `.db` files. An absent/empty
   store must degrade gracefully; the seed does not fabricate a SQLite schema for them.

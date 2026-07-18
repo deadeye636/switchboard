@@ -29,6 +29,14 @@ const IDS = {
   claudeChild: '22222222-2222-4222-8222-222222222222',
   pi: '33333333-3333-4333-8333-333333333333',
   codex: '44444444-4444-4444-8444-444444444444',
+  // demo-chain: a three-deep Claude fork chain (head C forks B forks A) -> a "2 earlier" lineage thread.
+  chainA: '55555555-5555-4555-8555-555555555555',
+  chainB: '66666666-6666-4666-8666-666666666666',
+  chainC: '77777777-7777-4777-8777-777777777777',
+  // demo-mixed: three backends in ONE project (multi-backend badges + mixed provenance in one group).
+  mixClaude: '88888888-8888-4888-8888-888888888888',
+  mixCodex: '99999999-9999-4999-8999-999999999999',
+  mixPi: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
 };
 
 // ── Small fs helpers ─────────────────────────────────────────────────────────
@@ -87,9 +95,9 @@ function claudeSession({ cwd, model, prompt, reply, t0, forkedFrom }) {
 
 // Codex: two-layer { timestamp, type, payload }. Identity + cwd from session_meta; model from the LAST
 // turn_context; usage from the LAST token_count; task_complete leaves the tail idle.
-function codexRollout({ cwd, model, prompt, reply, t0 }) {
+function codexRollout({ id = IDS.codex, cwd, model, prompt, reply, t0 }) {
   return jsonl([
-    { timestamp: iso(t0), type: 'session_meta', payload: { id: IDS.codex, cwd, timestamp: iso(t0), cli_version: '0.142.2', git: { branch: 'main' } } },
+    { timestamp: iso(t0), type: 'session_meta', payload: { id, cwd, timestamp: iso(t0), cli_version: '0.142.2', git: { branch: 'main' } } },
     { timestamp: iso(t0), type: 'turn_context', payload: { model } },
     { timestamp: iso(t0 + 2), type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'text', text: prompt }] } },
     { timestamp: iso(t0 + 6), type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'text', text: reply }] } },
@@ -100,9 +108,9 @@ function codexRollout({ cwd, model, prompt, reply, t0 }) {
 
 // Pi: line 1 is the {type:'session'} header (authoritative id + cwd); turn payload is nested under
 // .message; cost is an OBJECT with .total; the last assistant stopReason leaves the tail idle.
-function piSession({ cwd, model, provider, prompt, reply, t0 }) {
+function piSession({ id = IDS.pi, cwd, model, provider, prompt, reply, t0 }) {
   return jsonl([
-    { type: 'session', version: 3, id: IDS.pi, timestamp: iso(t0), cwd },
+    { type: 'session', version: 3, id, timestamp: iso(t0), cwd },
     { type: 'model_change', provider, modelId: model, timestamp: iso(t0) },
     { type: 'message', timestamp: iso(t0 + 2), message: { role: 'user', content: [{ type: 'text', text: prompt }] } },
     {
@@ -174,13 +182,33 @@ function seedDemo(demoDir = resolveDemoDir()) {
     ensureDir(dir);
   }
 
+  // The two extra standard projects (see docs/demo-env.md for the full catalogue).
+  const projectMixed = `${fwd}/projects/demo-mixed`;
+  const projectChain = `${fwd}/projects/demo-chain`;
+  paths.projectMixed = path.join(demoDir, 'projects', 'demo-mixed');
+  paths.projectChain = path.join(demoDir, 'projects', 'demo-chain');
+
   // Project working dirs + context files.
-  for (const [dir, name] of [[paths.projectAlpha, 'demo-alpha'], [paths.projectBeta, 'demo-beta']]) {
+  for (const [dir, name] of [
+    [paths.projectAlpha, 'demo-alpha'], [paths.projectBeta, 'demo-beta'],
+    [paths.projectMixed, 'demo-mixed'], [paths.projectChain, 'demo-chain'],
+  ]) {
     ensureDir(dir);
     writeIfAbsent(path.join(dir, 'README.md'), readmeFor(name), created, skipped);
     writeIfAbsent(path.join(dir, 'CLAUDE.md'), claudeMdFor(name), created, skipped);
     writeIfAbsent(path.join(dir, 'AGENTS.md'), agentsMdFor(name), created, skipped);
   }
+
+  // Placement helpers (same layout each backend's real store uses).
+  const claudeFile = (project, sid) => path.join(paths.storeClaude, encodeProjectPath(project), `${sid}.jsonl`);
+  const piFile = (project, sid, tSec) =>
+    path.join(paths.storePi, encodeProjectPath(project), `${iso(tSec).replace(/:/g, '-').replace('.', '-')}_${sid}.jsonl`);
+  const codexFile = (sid, tSec) => {
+    const d = new Date(BASE_MS + tSec * 1000);
+    const dir = path.join(paths.storeCodex, String(d.getUTCFullYear()),
+      String(d.getUTCMonth() + 1).padStart(2, '0'), String(d.getUTCDate()).padStart(2, '0'));
+    return path.join(dir, `rollout-${iso(tSec).slice(0, 19).replace(/:/g, '-')}-${sid}.jsonl`);
+  };
 
   // Claude: two sessions under demo-alpha, the second a FORK of the first (lineage "▶ earlier" thread).
   const claudeFolder = path.join(paths.storeClaude, encodeProjectPath(projectAlpha));
@@ -243,6 +271,41 @@ function seedDemo(demoDir = resolveDemoDir()) {
       reply: 'demo-alpha is a minimal demo project. It holds a README plus CLAUDE.md and AGENTS.md context files.',
       t0: 0,
     }),
+    created, skipped,
+  );
+
+  // demo-mixed: Claude + Codex + Pi in the SAME project — the multi-backend badges and mixed provenance in
+  // one sidebar group.
+  writeIfAbsent(
+    claudeFile(projectMixed, IDS.mixClaude),
+    claudeSession({ cwd: projectMixed, model: 'claude-opus-4-6', prompt: 'Draft the demo-mixed API surface.', reply: 'Sketched the API surface for demo-mixed.', t0: 0 }),
+    created, skipped,
+  );
+  writeIfAbsent(
+    codexFile(IDS.mixCodex, 120),
+    codexRollout({ id: IDS.mixCodex, cwd: projectMixed, model: 'gpt-5-codex', prompt: 'Wire demo-mixed CI.', reply: 'Added a CI workflow to demo-mixed.', t0: 120 }),
+    created, skipped,
+  );
+  writeIfAbsent(
+    piFile(projectMixed, IDS.mixPi, 240),
+    piSession({ id: IDS.mixPi, cwd: projectMixed, model: 'claude-opus-4-7', provider: 'anthropic', prompt: 'Review the demo-mixed changes.', reply: 'Reviewed - the API and CI look consistent.', t0: 240 }),
+    created, skipped,
+  );
+
+  // demo-chain: a three-deep Claude fork chain (C forks B forks A) — the folded "2 earlier" lineage thread.
+  writeIfAbsent(
+    claudeFile(projectChain, IDS.chainA),
+    claudeSession({ cwd: projectChain, model: 'claude-opus-4-6', prompt: 'Start the demo-chain migration plan.', reply: 'Outlined the migration plan.', t0: 0 }),
+    created, skipped,
+  );
+  writeIfAbsent(
+    claudeFile(projectChain, IDS.chainB),
+    claudeSession({ cwd: projectChain, model: 'claude-opus-4-6', prompt: 'Fork: refine the migration plan.', reply: 'Refined the plan and added rollback steps.', t0: 300, forkedFrom: IDS.chainA }),
+    created, skipped,
+  );
+  writeIfAbsent(
+    claudeFile(projectChain, IDS.chainC),
+    claudeSession({ cwd: projectChain, model: 'claude-opus-4-6', prompt: 'Fork again: execute the migration.', reply: 'Executed the migration per the refined plan.', t0: 600, forkedFrom: IDS.chainB }),
     created, skipped,
   );
 
