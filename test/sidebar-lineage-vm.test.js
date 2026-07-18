@@ -69,23 +69,6 @@ test('foldedAncestorIds ignores a parent that is not itself in the visible set',
   } finally { s.destroy(); }
 });
 
-test('buildLineageCaption names the parent; a soft clear link is marked as a guess, a hard one is not', () => {
-  const s = setup([sess('p', { summary: 'Parent work' })]);
-  try {
-    const soft = s.call('buildLineageCaption', { sessionId: 'c', lineageParentId: 'p', lineageKind: 'clear' });
-    assert.match(soft.textContent, /continued from Parent work/);
-    assert.match(soft.textContent, /guess/);
-    assert.equal(soft.className.includes('is-guess'), true);
-
-    const hard = s.call('buildLineageCaption', { sessionId: 'c', lineageParentId: 'p', lineageKind: 'fork' });
-    assert.doesNotMatch(hard.textContent, /guess/);
-    assert.equal(hard.className.includes('is-guess'), false);
-
-    assert.equal(s.call('buildLineageCaption', { sessionId: 'c', lineageParentId: 'unknown' }), null,
-      'an unresolvable parent renders no caption');
-  } finally { s.destroy(); }
-});
-
 test('buildLineageThread renders a toggle and one collapsed ancestor row per ancestor', () => {
   const s = setup([sess('root', { summary: 'Root' }), sess('mid', { summary: 'Mid', lineageParentId: 'root' })]);
   try {

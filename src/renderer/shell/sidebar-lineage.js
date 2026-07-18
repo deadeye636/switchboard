@@ -43,20 +43,6 @@ function foldedAncestorIds(sessions) {
   return folded;
 }
 
-// The "↳ continued from …" caption for a row whose immediate parent is known. Hard link = plain; a soft
-// /clear guess is marked as a guess so it is never presented as fact.
-function buildLineageCaption(session) {
-  const parent = session && session.lineageParentId ? sessionMap.get(session.lineageParentId) : null;
-  if (!parent) return null;
-  const soft = session.lineageKind === 'clear';
-  const el = document.createElement('div');
-  el.className = 'session-lineage-caption' + (soft ? ' is-guess' : '');
-  const title = cleanDisplayName(parent.name || parent.aiTitle || parent.summary) || parent.sessionId;
-  el.textContent = '↳ continued from ' + title + (soft ? ' · guess' : '');
-  el.title = soft ? 'Heuristic link (Claude /clear) — a best guess, not recorded' : 'Recorded lineage';
-  return el;
-}
-
 // The collapsed thread beneath a head: a toggle plus the idle ancestors it folded, newest → oldest. Each
 // ancestor row opens its read-only transcript on click (delegated). Returns null when there is no chain.
 function buildLineageThread(session) {

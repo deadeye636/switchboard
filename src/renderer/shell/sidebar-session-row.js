@@ -161,11 +161,6 @@ function buildSessionItem(session) {
     detailEl.appendChild(quietLine);
   }
 
-  // Provenance (#193): "↳ continued from …" when this session continued another's work.
-  if (typeof buildLineageCaption === 'function') {
-    const caption = buildLineageCaption(session);
-    if (caption) detailEl.appendChild(caption);
-  }
 
   if (session.type === 'terminal') {
     const badge = document.createElement('span');
