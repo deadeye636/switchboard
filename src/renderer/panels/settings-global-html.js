@@ -208,6 +208,7 @@
             <section class="settings-cat" data-cat="terminal">
               <div class="settings-cat-head"><h2>Terminal</h2><p>Appearance and input for terminal sessions.</p></div>
 
+              <div class="settings-subhead">Appearance</div>
               <div class="settings-section">
                 <div class="settings-field">
                   <div class="settings-field-info">
@@ -257,6 +258,7 @@
                 </div>
               </div>
 
+              <div class="settings-subhead">Input &amp; behaviour</div>
               <div class="settings-section">
                 <div class="settings-field">
                   <div class="settings-field-info">
@@ -384,6 +386,7 @@
             <section class="settings-cat" data-cat="layout">
               <div class="settings-cat-head"><h2>Layout &amp; Tabs</h2><p>How sessions and windows are arranged.</p></div>
 
+              <div class="settings-subhead">Layout</div>
               <div class="settings-section">
                 <div class="settings-field">
                   <div class="settings-field-info">
@@ -425,6 +428,7 @@
                 </div>
               </div>
 
+              <div class="settings-subhead">Tabs</div>
               <div class="settings-section">
                 <div class="settings-field">
                   <div class="settings-field-info">
@@ -784,7 +788,10 @@
             <!-- ===== Handoff ===== -->
             <section class="settings-cat" data-cat="handoff">
               <div class="settings-cat-head"><h2>Handoff</h2><p>Save a session's context and pick it up later.</p></div>
-              <div class="settings-hint">A handoff is a packet that summarises the state of the work, written by an agent. You choose who writes it: <b>this session's agent</b> (it summarises what it is holding — it is resumed for one turn if it is not running), or <b>a new session</b> (a fresh agent reads this session's transcript and writes the packet itself). Each has its own prompt below, and each can be overridden per backend on its page under <b>Backends</b>.</div>
+              <details class="settings-adv settings-explainer">
+                <summary>${advChev}How a handoff works</summary>
+                <div class="settings-explainer-body">A handoff is a packet that summarises the state of the work, written by an agent. You choose who writes it: <b>this session's agent</b> (it summarises what it is holding — it is resumed for one turn if it is not running), or <b>a new session</b> (a fresh agent reads this session's transcript and writes the packet itself). Each has its own prompt below, and each can be overridden per backend on its page under <b>Backends</b>.</div>
+              </details>
 
               <div class="settings-section">
                 <div class="settings-field settings-field-wide">
@@ -811,13 +818,10 @@
 
             <!-- ===== About ===== -->
             <section class="settings-cat" data-cat="about">
-              <div class="settings-cat-head"><h2>About</h2><p>Version, build lineage and runtime.</p></div>
-
               <div class="settings-section">
                 <div class="about-app">
                   <div class="about-name">Switchboard</div>
                   <div class="about-version">Version <span id="sv-about-version">…</span> · <code>deadeye</code> · <code id="sv-about-build">…</code></div>
-                  <div class="about-tagline">Browse, search, launch and monitor Claude Code sessions across projects.</div>
                 </div>
               </div>
 

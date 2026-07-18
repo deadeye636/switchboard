@@ -460,6 +460,11 @@
         if (!q) {
           settingsViewerBody.querySelectorAll('.settings-cat .settings-field').forEach(f => { f.style.display = ''; });
           settingsViewerBody.querySelectorAll('.settings-cat-head, .settings-section, .settings-hint, details.settings-adv').forEach(e => { e.style.display = ''; });
+          // A search force-opens every disclosure so a hit inside one is visible. Leaving the search must
+          // put the EXPLAINERS back — they are prose that defaults to collapsed, and without this one
+          // search left them open for the rest of the session. An Advanced block is a settings surface the
+          // user may have opened deliberately, so it is left as it is.
+          settingsViewerBody.querySelectorAll('details.settings-explainer').forEach(d => { d.open = false; });
           if (noResults) noResults.style.display = 'none';
           const active = navItems.find(n => n.classList.contains('active')) || navItems[0];
           showCat(active ? active.dataset.cat : 'sessions');

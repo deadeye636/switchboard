@@ -5588,6 +5588,16 @@ details.settings-adv > summary::-webkit-details-marker { display: none; }
 details.settings-adv > summary .settings-adv-chev { transition: transform 0.2s; opacity: 0.6; }
 details.settings-adv[open] > summary { border-bottom: 1px solid rgba(255,255,255,0.035); color: #b0b0c4; }
 details.settings-adv[open] > summary .settings-adv-chev { transform: rotate(90deg); }
+/* An explainer reuses the Advanced disclosure's shell, but holds PROSE rather than fields — so it needs
+   the padding the .settings-section inside an Advanced block brings with it. */
+.settings-explainer-body {
+  padding: 12px 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #9a9ab0;
+}
+.settings-explainer-body b { color: #c0c0d4; font-weight: 600; }
+
 details.settings-adv .settings-section { margin: 0; }
 details.settings-adv .settings-section > .settings-field:first-of-type { border-radius: 0; }
 details.settings-adv .settings-section > .settings-field:last-child { border-radius: 0; margin-bottom: 0; }
@@ -7883,7 +7893,6 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .about-app { padding: 2px 0; }
 .about-name { font-size: 18px; font-weight: 600; color: #e0e0e8; }
 .about-version { font-size: 13px; color: #b0b0c0; margin-top: 2px; }
-.about-tagline { font-size: 12px; color: #8a8a9a; margin-top: 6px; }
 .about-list { margin: 8px 0 0; padding-left: 18px; color: #c0c0cc; font-size: 12px; line-height: 1.8; }
 .about-runtime { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .about-kv { display: flex; gap: 10px; font-size: 12px; }
