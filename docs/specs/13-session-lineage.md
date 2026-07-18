@@ -99,11 +99,20 @@ row for a `clear` guess is a deliberate, cheap follow-up if it is ever wanted).
 
 ## Known gaps
 
-- **The multi-session `/clear` re-key (#223's headline) is NOT solved.** With two or more live sessions in
-  one folder, the source still keeps its row/tab until it exits — the same bail as before. No folder-local
-  signal can safely attribute the clear; it needs a PTY→session tie (a per-session `SessionStart` hook echo
-  that names the parent). The single-session case IS fixed, and the resolver refuses to guess so nothing is
-  ever mis-keyed.
+- **The multi-session `/clear` re-key (#223's headline) is BLOCKED, not deferred — Claude exposes no signal
+  that ties a `/clear` to a specific PTY.** A recon against 54 real `/clear` children on a live install
+  confirmed it: the child transcript's `parentUuid` is internal message threading (it resolves to a line in
+  the child file itself, never the parent session); the `SessionStart:clear` hook POST carries only the
+  CHILD `session_id` + `transcript_path` + `cwd` + `source`, no parent and no PTY id; the OSC title is a
+  busy/status string, not the session id; the spawn knows `--session-id X` but nothing maps a new child `Y`
+  back to the PTY that was on `X`. So with two or more live sessions in a folder the source keeps its
+  row/tab until it exits (the safe bail), and the resolver refuses to guess so nothing is ever mis-keyed.
+  The **only** way to close it is to make the hook itself carry the tie: spawn each Claude with a
+  per-session hook URL (via `--settings`) whose query names the spawn id, so the `SessionStart:clear` POST
+  identifies the parent PTY. That is a real feature contingent on Claude's per-session hook support, and it
+  works only where the attention hook is enabled (never in a dev build, #219). Until then, single-session
+  is the fixed case — do NOT re-attempt a folder-local (mtime/cwd) heuristic; it was tried, it mis-keyed,
+  and it was reverted.
 - **Codex / Pi / agy declare `null`** from `resolveLineage` — on purpose, not by omission: Codex records no
   parent on a `/clear` and `compacted` is a state not a reference; Pi's session header carries no parent
   though `--fork` exists; agy's `parent_references` is an unverified protobuf blob. Each is wired to the
