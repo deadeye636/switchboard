@@ -7,7 +7,15 @@
 // it pretends the database is older, runs the real runner, and checks exactly which entries fired.
 //
 // Run under: ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron scripts/db-migrate-probe.js <dataDir>
+// No argument used to mean `SWITCHBOARD_DATA_DIR = undefined`, which connection.js reads as "not set" —
+// so a forgotten argument pointed this at the REAL ~/.switchboard and rewound a live database's version.
+// Its sibling db-probe.js has always refused; this one now does too.
 const dataDir = process.argv[2];
+if (!dataDir) {
+  console.error('usage: ELECTRON_RUN_AS_NODE=1 electron scripts/db-migrate-probe.js <dataDir>');
+  console.error('       point it at a COPY of a database — it rewinds db_version and replays migrations.');
+  process.exit(2);
+}
 process.env.SWITCHBOARD_DATA_DIR = dataDir;
 const path = require('path');
 const repo = path.join(__dirname, '..');
