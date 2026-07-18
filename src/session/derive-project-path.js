@@ -200,6 +200,6 @@ function deriveProjectPath(folderPath) {
 module.exports = {
   deriveProjectPath, resolveWorktreePath,
   extractCwdFromJsonl, isRealGitWorktree,
-  projectRootOf, sessionProjectPath, samePath,
+  projectRootOf, sessionProjectPath, samePath, normPath,
   _resetRootCache: () => _rootCache.clear(),
 };

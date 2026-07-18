@@ -6,7 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { deriveProjectPath } = require('../session/derive-project-path');
+const { deriveProjectPath, normPath } = require('../session/derive-project-path');
 const { encodeProjectPath } = require('../session/encode-project-path');
 const registry = require('../projects/project-registry');
 
@@ -117,23 +117,28 @@ function buildProjectsFromCache(showArchived) {
     // the child out with it. A parent the store has never heard of is a genuine orphan and still shows.
     if (!showArchived && s.parentSessionId
         && knownIds.has(s.parentSessionId) && !shownIds.has(s.parentSessionId)) continue;
-    if (!projectMap.has(row.projectPath)) {
-      projectMap.set(row.projectPath, {
+    // Bucket by the CANONICAL path (normPath collapses \ vs / and case), so the same directory spelled two
+    // ways by different backends does not render as two projects (#8). The value keeps the raw spelling as
+    // the display projectPath; the session loop runs first, so the spelling that actually has sessions wins.
+    const key = normPath(row.projectPath);
+    if (!projectMap.has(key)) {
+      projectMap.set(key, {
         folder: encodeProjectPath(row.projectPath),
         projectPath: row.projectPath,
         missing: !fs.existsSync(row.projectPath),
         sessions: [],
       });
     }
-    projectMap.get(row.projectPath).sessions.push(s);
+    projectMap.get(key).sessions.push(s);
   }
 
   // Every REGISTERED project that has no session to show — the one the user just added and has never run
   // anything in, and the one whose sessions are all archived.
   for (const projectPath of visible) {
-    if (projectMap.has(projectPath)) continue;
+    const key = normPath(projectPath);
+    if (projectMap.has(key)) continue;   // a registered spelling of a project already shown → same project (#8)
     const state = states.get(projectPath) || {};
-    projectMap.set(projectPath, {
+    projectMap.set(key, {
       folder: encodeProjectPath(projectPath),
       projectPath,
       missing: !fs.existsSync(projectPath),
@@ -150,14 +155,15 @@ function buildProjectsFromCache(showArchived) {
     if (session.exited || !session.isPlainTerminal) continue;
     if (!session.projectPath) continue;
     if (!visible.has(session.projectPath)) continue;
-    if (!projectMap.has(session.projectPath)) {
-      projectMap.set(session.projectPath, {
+    const key = normPath(session.projectPath);
+    if (!projectMap.has(key)) {
+      projectMap.set(key, {
         folder: encodeProjectPath(session.projectPath),
         projectPath: session.projectPath,
         sessions: [],
       });
     }
-    const proj = projectMap.get(session.projectPath);
+    const proj = projectMap.get(key);
     if (!proj.sessions.some(s => s.sessionId === sessionId)) {
       proj.sessions.push({
         sessionId, summary: 'Terminal', firstPrompt: '', projectPath: session.projectPath,

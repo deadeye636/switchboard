@@ -4,7 +4,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { deriveProjectPath, resolveWorktreePath } = require('../src/session/derive-project-path');
+const { deriveProjectPath, resolveWorktreePath, normPath, samePath } = require('../src/session/derive-project-path');
+
+// #8: the same directory spelled with \ vs / (and different case on Windows) must normalise to one key —
+// otherwise the register keeps both and the sidebar shows the project twice.
+test('normPath collapses backslash/forward-slash and trailing separators to one canonical key', () => {
+  assert.equal(normPath('one\\two\\three'), normPath('one/two/three'));
+  assert.equal(normPath('one/two/three/'), normPath('one/two/three'));
+  assert.equal(samePath('one\\two\\three', 'one/two/three'), true);
+  // A genuinely different string (separators stripped entirely) is NOT the same directory — it stays distinct.
+  assert.notEqual(normPath('onetwothree'), normPath('one/two/three'));
+});
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-dpp-'));

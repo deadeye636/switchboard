@@ -182,7 +182,11 @@ function refreshProjectFolders(projectPath) {
 
 /** Windows spells the same directory two ways, and a missed tombstone means a resurrected project. */
 function samePathKey(p) {
-  const t = String(p || '').replace(/[\\/]+$/, '');
+  // Normalise separators too (backslash -> forward slash), not just the trailing one and case: on Windows
+  // the same directory gets spelled with either separator by different backends/launches, and without
+  // collapsing them the register keeps BOTH as separate projects — the same cwd then shows two (or three)
+  // times in the sidebar (#8). This matches normPath (derive-project-path.js), the one canonical form.
+  const t = String(p || '').replace(/[\\/]+$/, '').replace(/\\/g, '/');
   return process.platform === 'win32' ? t.toLowerCase() : t;
 }
 
