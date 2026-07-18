@@ -78,11 +78,12 @@ the installer.
 
 - **Main process** (`src/main.js`): the composition root. The lifecycle, the PTY management and the file
   watching it used to hold are modules now (below); what stays here is wiring and the small IPC handlers.
-  **~2470 lines, down from 5011: the split is done (#213).** What is left is a composition root — the
-  requires, `DATA_DIR`, the wiring for eleven modules, and ~86 small IPC handlers that stayed on purpose
-  (thin, no shared state; moving them buys churn). `src/app/` holds `lifecycle.js` (the boot, the
-  scheduler's runner, the ordered teardown), `windows.js`, `notifications.js`, `hooks.js`,
-  `variables.js`, `settings.js`, `quit-guard.js`, `settings-transfer.js` and `terminal/`
+  **~1960 lines, down from 5011: the split is done (#213), and #227 moved nine more handlers out.** What is
+  left is a composition root — the requires, `DATA_DIR`, the wiring for twelve modules, and ~76 small IPC
+  handlers that stayed on purpose (thin, no shared state; moving them buys churn). `src/app/` holds
+  `lifecycle.js` (the boot, the scheduler's runner, the ordered teardown), `windows.js`, `notifications.js`,
+  `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`, `settings-transfer.js`, `plans-memory.js`
+  (the Plans/Memory/Work-Files tabs — #227) and `terminal/`
   (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
   **A new IPC handler belongs in one of those modules, not here** — #222 is the guard that will say so.
 - **The ctx object** — how every `src/app/*` and `src/watch/*` module gets what main.js owns. Three rules,
@@ -189,14 +190,20 @@ the installer.
   (a **thin adapter** over the modules above: the core still imports Claude's readers directly instead of
   going through the descriptor, which is why they are not in that folder) + a folder per Axis-B binary.
   **Everything else derives from the descriptor**: spawn routing, scanning, the watcher, the launch menu,
-  the generated settings page and Configure dialog, the sidebar badge, search, stats, resume.
+  the generated settings page and Configure dialog, the sidebar badge, search, stats, resume — plus session
+  **lineage** (`resolveLineage`, #193/#223), the **transcript path** for a row (`transcriptPathFor`, #211),
+  per-project **config/meta** (`projectMeta`, #211 — Claude's `~/.claude.json`), and where a backend keeps
+  its **plans + memory/instruction files** (`plansDir` / `memorySources`, #227). The core reads no backend's
+  format and hardcodes no `~/.claude` path; `test/backend-path-neutrality.test.js` is the guard for the last
+  one (a hardcoded store PATH is a backend id the id-hunt cannot see).
 
 ### Where an IPC handler goes
 
-`src/main.js` still holds **86 IPC handlers** — thin, no shared state, deliberately left there by #213.
+`src/main.js` still holds **76 IPC handlers** — thin, no shared state, deliberately left there by #213
+(nine more moved to `plans-memory.js` in #227, and the dead `get-stats` was deleted).
 That is exactly why the next one wants to go there too, and why it must not: a few more and the split was
 cosmetic. The invariant is **no NEW ones**, not "none", and `test/main-no-new-ipc.test.js` enforces it
-against an allow-list of those 86.
+against an allow-list of those 76.
 
 | The handler is about | Home |
 |---|---|
@@ -207,13 +214,14 @@ against an allow-list of those 86.
 | The Claude Code hook server | `src/app/hooks.js` |
 | Opening a terminal | `src/app/terminal/spawn.js` |
 | Terminal input/resize/redraw/flow control | `src/app/terminal/io.js` |
+| The Plans, Memory and Work-Files tabs | `src/app/plans-memory.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 (`src/watch/*` is deliberately absent: those modules own watching, not IPC, and none of them registers a
 handler. A watch-related handler goes in an `src/app/` module that calls into them.)
 
 **What stays in `main.js`:** the requires, `DATA_DIR` (before anything requires db.js), the wiring of the
-modules, and those 86 handlers. Nothing else.
+modules, and those 76 handlers. Nothing else.
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it, calls both, and
 `src/preload.js` gets the `window.api.*` binding. The ctx rules are above — a `const` passes straight
@@ -309,6 +317,9 @@ Being a deliberate act is the entire point.
   (Takes ~20 s. `trigger-watcher.test.js` uses real `fs.watch`/timers and is the slowest file at ~19 s, which sets the wall clock since files run in parallel.)
 - `npm start` — bundles CodeMirror, then launches Electron.
 - `npm run start:debug` — the same, with the DevTools port open, so the app can be **driven from the CLI** (below).
+- `npm run demo:start` — launches a fully **isolated** demo instance against seeded stores under
+  `C:\temp\switchboard` (its own DB, userData, and all five backend store roots), so it never touches real
+  data. `demo:seed` seeds without launching. See `docs/demo-env.md`.
 - `npm run stop:dev` — stop **this checkout's** dev Electron run. Filters on this repo's `node_modules`, so
   it never touches the user's installed Switchboard or another checkout. Never `taskkill /IM electron.exe`.
 - `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe`.
@@ -406,6 +417,17 @@ migration + reindex the next time *it* starts.
 
 The **source** stores are shared by both (they belong to the CLIs, not to us): `~/.claude/projects/**`,
 `%LOCALAPPDATA%\hermes\state.db`, `(CODEX_HOME|~/.codex)/sessions`, `~/.pi/agent/sessions`.
+
+**Isolating the source stores (demo / sandbox) — one env var per backend (#227).** Each backend's scan root
+is overridable with a unified `SWITCHBOARD_STORE_<BACKEND>` var, ahead of the CLI's own home env: 
+`SWITCHBOARD_STORE_CLAUDE` (the projects dir — resolved at `src/main.js` `PROJECTS_DIR`, and Claude's
+plans + global memory derive from its parent, so they isolate too), `SWITCHBOARD_STORE_CODEX`,
+`SWITCHBOARD_STORE_HERMES`, `SWITCHBOARD_STORE_PI`, `SWITCHBOARD_STORE_AGY`. Set all five plus
+`SWITCHBOARD_DATA_DIR` + `SWITCHBOARD_USER_DATA` and a dev run scans ONLY the isolated stores, never the
+real ones. **`npm run demo:start`** (`scripts/demo-start.js` + `scripts/seed-demo.js`) does exactly that
+against a seeded demo layout under `C:\temp\switchboard` — see `docs/demo-env.md`. Without the override a
+dev build always scans the real `~/.claude/projects` (the store root was hardcoded before #227), so a DB
+clean alone can never give "only the demo" — the real projects re-appear on the next scan.
 
 **The attention hook is OFF in a dev build (#219).** `~/.claude/settings.json` is one more shared, CLI-owned
 file, and the attention hook (`src/app/hooks.js`) writes an HTTP entry into it. A dev run is force-killed by

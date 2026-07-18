@@ -170,6 +170,19 @@ function profileToDescriptor(p) {
     // forked template session would silently lose its "continued from" — the parser used to stamp it
     // regardless of backendId, so this restores that for the descriptor era.
     resolveLineage: base ? base.resolveLineage : undefined,
+    // A template's rows are the base's rows in the base's store, so the transcript path and the
+    // per-project config/meta are the base's too (#211) — forward both, exactly like rewriteProjectPath
+    // and resolveLineage. Without transcriptPathFor a template's remap/delete could not find its files.
+    transcriptPathFor: base ? base.transcriptPathFor : undefined,
+    // NOT projectMeta (#211): it is the base's ~/.claude.json projects table, keyed by PROJECT PATH, not by
+    // backend — a template shares the base's config, it does not add a second entry. Forwarding it made a
+    // Claude-based template a second "meta backend", so the Projects admin doubled Claude's Info column and
+    // showed two identical Remove-config checkboxes. The base is always launchable when its template is, so
+    // listBackendsWithMeta() covers the config through the base alone.
+    // Plans + memory/instruction files are the base's too (#227): a template writes into the base's store
+    // and works in the same project tree, so it exposes the base's plans dir and instruction files.
+    plansDir: base ? base.plansDir : () => null,
+    memorySources: base ? base.memorySources : () => [],
     probe: base && typeof base.probe === 'function' ? base.probe : undefined,
     liveRefFor: base ? base.liveRefFor : undefined,
     liveState: base ? base.liveState : undefined,
@@ -311,6 +324,9 @@ function plannedDummy({ id, label, monogram, colour }) {
     parseSession() { return null; },
     watchTargets() { return []; },
     deriveState: null, // uniform with claude.js: null = "state derived elsewhere / not applicable"
+    transcriptPathFor: (row) => (row && row.filePath) || null, // #211: uniform hook, even for a stub
+    plansDir: () => null,        // #227
+    memorySources: () => [],     // #227
   };
 }
 

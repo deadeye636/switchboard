@@ -19,9 +19,10 @@ const crypto = require('crypto');
 
 const { encodeProjectPath } = require('../session/encode-project-path');
 const { deriveProjectPath } = require('../session/derive-project-path');
-const { resolveJsonlPath } = require('../backends/claude/session-reader');
-const claudeConfig = require('../backends/claude/config');
 const registry = require('./project-registry');
+// No `require` of a backend-specific module here (#211): per-project trust, meta, config and transcript
+// paths are all declared capabilities the core reaches through `ctx.backends`, so the Projects admin does
+// not know that Claude — or any one backend — exists.
 
 let ctx = null;
 
@@ -206,28 +207,17 @@ function projectHasSessionsLeft(projectPath) {
   return projectHasSessionsOnDisk(projectPath);
 }
 
-function projectIsInClaudeConfig(projectPath) {
-  try {
-    const cfg = claudeConfig.readClaudeConfig();
-    if (!cfg || !cfg.projects) return false;
-    const norm = claudeConfig.normalizeClaudePath(projectPath);
-    return Object.keys(cfg.projects).some(k => claudeConfig.normalizeClaudePath(k) === norm);
-  } catch {
-    return false;
-  }
-}
-
 /**
  * After a hard delete, forget the project entirely (#55). Only when nothing is left to restore — no
- * sessions on disk and no ~/.claude.json entry. A plain "hide" keeps all of this, because unhiding has
- * to bring the project back intact.
+ * sessions on disk and no backend still tracking it in its own config. A plain "hide" keeps all of this,
+ * because unhiding has to bring the project back intact.
  *
  * Called at the end of the two hard-delete handlers rather than from the renderer: the "Remove" dialog
  * runs them in sequence, so whichever finishes last finds the project truly gone and does the pruning.
  */
 function pruneProjectIfGone(projectPath) {
   if (!projectPath) return false;
-  if (projectHasSessionsLeft(projectPath) || projectIsInClaudeConfig(projectPath)) return false;
+  if (projectHasSessionsLeft(projectPath) || projectKnownToAnyBackend(projectPath)) return false;
 
   // The project_meta row goes, and the register row IS that row (#167) — so the entry, the hide flags and
   // the tombstone go with it. There is nothing left to guard: no sessions anywhere, no config entry.
@@ -488,7 +478,9 @@ function rewriteSessionPaths(oldPath, newPath) {
 
   const byBackend = new Map();
   for (const row of rows) {
-    const id = row.backendId || 'claude';
+    // getCachedByProjectPath COALESCEs a legacy NULL backendId to the pre-multi-LLM default already, so
+    // the id is always set here — the core does not re-guess it.
+    const id = row.backendId;
     if (!byBackend.has(id)) byBackend.set(id, []);
     byBackend.get(id).push(row);
   }
@@ -508,11 +500,11 @@ function rewriteSessionPaths(oldPath, newPath) {
 
     let count = 0;
     for (const row of backendRows) {
-      // `filePath` is stored for the backends that need it (v11) — there is nothing to reconstruct a
-      // date-bucketed Codex rollout from. CLAUDE's rows carry none: its transcript's location follows
-      // from the folder and the session id, and that is exactly what resolveJsonlPath knows (subagents
-      // included). Skipping a row without a filePath is what left Claude behind on the first cut.
-      const file = row.filePath || resolveJsonlPath(ctx.PROJECTS_DIR, row);
+      // Where this row's transcript lives is the backend's own answer (#211): a file backend hands back
+      // the filePath stored on the row (v11 — a date-bucketed Codex rollout has nothing to reconstruct
+      // from), Claude reconstructs from folder + session id over its own roots (subagents included). The
+      // core no longer knows how any one backend spells a path.
+      const file = backend.transcriptPathFor(row);
       if (!file) continue;
       try { if (rewrite(file, oldPath, newPath)) count++; } catch (err) {
         ctx.log.warn(`[remap] ${backendId}: ${file}: ${err.message}`);
@@ -533,9 +525,11 @@ function remapProject(oldPath, newPath) {
     // project and must be remappable — it used to be refused outright.
     const { moved, cannotMove } = rewriteSessionPaths(oldPath, newPath);
     const folder = encodeProjectPath(oldPath);
-    const folderPath = path.join(ctx.PROJECTS_DIR, folder);
 
-    if (!Object.keys(moved).length && !cannotMove.length && !fs.existsSync(folderPath)) {
+    // Nothing to move AND nothing that had to stay behind AND no session on disk = there is no project
+    // here. projectHasSessionsOnDisk is the honest store-side check (it already owns the PROJECTS_DIR
+    // scan); the core does not re-derive a Claude store path inline for this.
+    if (!Object.keys(moved).length && !cannotMove.length && !projectHasSessionsOnDisk(oldPath)) {
       return { error: 'No session data found for this project' };
     }
 
@@ -585,19 +579,23 @@ function remapProject(oldPath, newPath) {
       ctx.log.warn('[remap] auto-hide reset failed: ' + err.message);
     }
 
-    // Move the project's ~/.claude.json entry (trust/MCP/cost) to the new path so it survives the
-    // remap. Non-fatal: the session cwd rewrite above already succeeded.
-    try {
-      const res = claudeConfig.renameProjectEntry(oldPath, newPath);
-      if (res && res.error) ctx.log.warn('[remap] ~/.claude.json move failed: ' + res.error);
-    } catch (err) {
-      ctx.log.warn('[remap] ~/.claude.json move threw: ' + err.message);
+    // Move each backend's own per-project CONFIG entry to the new path so it survives the remap — Claude's
+    // ~/.claude.json row carries trust + MCP + cost together (#211). This runs BEFORE the trust loop below
+    // on purpose: moving Claude's whole entry takes its trust with it, so the trust loop then finds nothing
+    // at oldPath for Claude and does not move it a second time. Non-fatal: the cwd rewrite already succeeded.
+    for (const backend of listBackendsWithMeta()) {
+      try {
+        const res = backend.projectMeta.rename(oldPath, newPath);
+        if (res && res.error) ctx.log.warn(`[remap] ${backend.id} config move failed: ${res.error}`);
+      } catch (err) {
+        ctx.log.warn(`[remap] ${backend.id} config move threw: ${err.message}`);
+      }
     }
 
-    // ...and every OTHER backend's per-project trust with it, so a renamed project does not have to be
-    // trusted all over again (#171).
+    // ...and every backend's per-project trust with it, so a renamed project does not have to be trusted
+    // all over again (#171). A backend whose config move above already carried its trust (Claude) reads as
+    // untrusted at oldPath now, so this is a no-op for it — no id special-case needed.
     for (const backend of listBackendsWithTrust()) {
-      if (backend.id === 'claude') continue;   // handled above, together with its MCP/cost entry
       try {
         const was = backend.projectTrust.get(oldPath);
         if (was === true) {
@@ -625,6 +623,29 @@ function listBackendsWithTrust() {
   } catch {
     return [];
   }
+}
+
+/**
+ * Every enabled backend that keeps its OWN per-project config/meta store (#211) — Claude's ~/.claude.json
+ * projects table (trust, MCP, cost). A backend with none declares no `projectMeta`, and the Projects admin
+ * contributes no columns for it rather than borrowing Claude's. The core names no backend to find them.
+ */
+function listBackendsWithMeta() {
+  try {
+    return ctx.backends.launchable().filter(b => b.projectMeta && typeof b.projectMeta.getMany === 'function');
+  } catch {
+    return [];
+  }
+}
+
+/** Does any backend's own config still track this project (Claude's ~/.claude.json, another's config.toml)? */
+function projectKnownToAnyBackend(projectPath) {
+  try {
+    for (const b of listBackendsWithMeta()) {
+      if (typeof b.projectMeta.has === 'function' && b.projectMeta.has(projectPath)) return true;
+    }
+  } catch { /* fall through */ }
+  return false;
 }
 
 /**
@@ -665,49 +686,50 @@ function unlistedProjects() {
 
 /**
  * Aggregated per-project admin view (#32): cache-derived rows (all projects incl. hidden) layered with
- * trust state + read-only ~/.claude.json meta (MCP/allowedTools/cost/tokens), plus any project that only
- * exists in ~/.claude.json (so trust can still be managed).
+ * per-backend trust state + each backend's declared per-project meta (via projectMeta), plus any project
+ * that only exists in a backend's own config store (so it can still be managed). Names no backend (#211).
  *
- * Returns ONLY aggregated fields — never the raw secret-bearing config.
+ * Returns ONLY aggregated, display-ready fields — never the raw secret-bearing config.
  */
 function getProjectsAdmin() {
   try {
     const global = ctx.db.getSetting('global') || {};
     const autoAdd = global.projectAutoAdd !== false;
 
-    // Parse ~/.claude.json once (~160 KB) and derive all three views from it, instead of each helper
-    // re-reading + re-parsing the file.
-    const cfg = claudeConfig.readClaudeConfig();
-    const trustMap = claudeConfig.getProjectTrustMap(undefined, cfg);   // normalized -> bool
-    const metaMap = claudeConfig.getProjectClaudeMeta(undefined, cfg);  // normalized -> {counts...}
-
     const rows = ctx.cache.buildProjectsAdmin();
-    const byNorm = new Map();
-    for (const r of rows) byNorm.set(claudeConfig.normalizeClaudePath(r.projectPath), r);
 
-    // Fold in ~/.claude.json-only projects (have trust/meta but no Switchboard cache).
-    const cfgKeys = cfg && cfg.projects ? Object.keys(cfg.projects) : [];
-    for (const norm of trustMap.keys()) {
-      if (byNorm.has(norm)) continue;
-      const key = cfgKeys.find(k => claudeConfig.normalizeClaudePath(k) === norm) || null;
-      const projectPath = key || norm;
-      const r = {
-        projectPath,
-        folder: encodeProjectPath(projectPath),
-        displayName: '',
-        sessionCount: 0,
-        lastActivity: null,
-        missing: !fs.existsSync(projectPath),
-        // A project known only to ~/.claude.json: it has trust and a cost history, and it is NOT on the
-        // list — which is what the "Listed" toggle is now for. It used to be badged `config-only` and
-        // that was the end of it: no control anywhere could put it in the sidebar (#167).
-        hidden: false,
-        registered: false,
-        favorite: false,
-        configOnly: true,
-      };
-      rows.push(r);
-      byNorm.set(norm, r);
+    // The backends that keep a per-project TRUST gate, and those that keep a per-project CONFIG/META store.
+    // Both are declared capabilities (#171/#211); this file names no backend and reads no backend's format.
+    const trustBackends = listBackendsWithTrust();
+    const metaBackends = listBackendsWithMeta();
+
+    // Fold in projects that exist ONLY in a backend's own config (trust/meta but no Switchboard cache) —
+    // e.g. Claude's ~/.claude.json knows a project we have never scanned. Each such backend declares its
+    // known project paths; add any not already represented, keyed by the one canonical path form (#8).
+    const byKey = new Map();
+    for (const r of rows) byKey.set(samePathKey(r.projectPath), r);
+    for (const b of metaBackends) {
+      let known = [];
+      try { known = b.projectMeta.knownProjects() || []; } catch { known = []; }
+      for (const projectPath of known) {
+        if (byKey.has(samePathKey(projectPath))) continue;
+        const r = {
+          projectPath,
+          folder: encodeProjectPath(projectPath),
+          displayName: '',
+          sessionCount: 0,
+          lastActivity: null,
+          missing: !fs.existsSync(projectPath),
+          // A project known only to a backend's config: it has trust and a cost history, and it is NOT on
+          // the list — which is what the "Listed" toggle is for. Badged `config-only` in the admin.
+          hidden: false,
+          registered: false,
+          favorite: false,
+          configOnly: true,
+        };
+        rows.push(r);
+        byKey.set(samePathKey(projectPath), r);
+      }
     }
 
     // Which backends actually have sessions in each project (#171). `session_cache.backendId` is the
@@ -716,27 +738,22 @@ function getProjectsAdmin() {
     let backendsByPath = new Map();
     try { backendsByPath = ctx.db.getBackendsByProjectPath() || new Map(); } catch { /* leave it empty */ }
 
-    // The backends that HAVE a per-project trust gate. Claude keeps it in ~/.claude.json, Codex in its
-    // own config.toml; Pi and Hermes have none, and the UI says so rather than inventing one.
-    const trustBackends = listBackendsWithTrust();
-
-    // Ask each backend ONCE, for every project at a time. `projectTrust.get` opens and parses that
-    // backend's config file on every call, so asking per row meant re-reading Codex' config.toml once per
-    // project just to draw one table. A backend that has no batch answer is still asked the slow way —
-    // and which backend that is, is not this file's business to know.
+    // Ask each trust/meta backend ONCE, for every project at a time. `projectTrust.get` /
+    // `projectMeta.getMany` open and parse that backend's config file, so asking per row meant re-reading
+    // a config once per project just to draw one table. Which backend that is, is not this file's business.
     const allPaths = rows.map(r => r.projectPath);
     const trustOf = new Map();
     for (const b of trustBackends) {
       if (typeof b.projectTrust.getMany !== 'function') continue;
       try { trustOf.set(b.id, b.projectTrust.getMany(allPaths)); } catch { /* fall back to per-row */ }
     }
+    const metaOf = new Map();
+    for (const b of metaBackends) {
+      try { metaOf.set(b.id, b.projectMeta.getMany(allPaths)); } catch { /* leave it empty */ }
+    }
 
     for (const r of rows) {
-      const norm = claudeConfig.normalizeClaudePath(r.projectPath);
-      // Kept for compatibility: `trusted` is CLAUDE's trust, and always was.
-      r.trusted = trustMap.has(norm) ? trustMap.get(norm) : null;
-
-      // ...and now the truth, per backend: { claude: true, codex: null, ... }. null = never asked.
+      // Per backend: { claude: true, codex: null, ... }. null = never asked / no gate.
       r.trust = {};
       for (const b of trustBackends) {
         const batch = trustOf.get(b.id);
@@ -748,20 +765,26 @@ function getProjectsAdmin() {
 
       r.backends = backendsByPath.get(r.projectPath) || [];
 
-      const m = metaMap.get(norm) || {};
-      r.mcpServersCount = m.mcpServersCount || 0;
-      r.allowedToolsCount = m.allowedToolsCount || 0;
-      r.lastCost = m.lastCost != null ? m.lastCost : null;
-      r.inputTokens = m.inputTokens != null ? m.inputTokens : null;
-      r.outputTokens = m.outputTokens != null ? m.outputTokens : null;
+      // Per backend: display-ready meta columns { claude: [{ id, label, value, title }], ... }. A backend
+      // that declares no projectMeta contributes nothing — no columns, not Claude's blanks (#211).
+      r.meta = {};
+      for (const b of metaBackends) {
+        const batch = metaOf.get(b.id);
+        r.meta[b.id] = (batch && batch.get(r.projectPath)) || [];
+      }
+
       // Kept under its old name for the renderer's column: it now means "on the register", which is what
       // the allowlist was always trying to be — except that it could only ever subtract (#167).
       r.inAllowlist = !!r.registered;
     }
 
-    // What the renderer needs to draw the trust controls: which backends can be trusted at all.
+    // What the renderer needs to draw the controls: which backends can be trusted, and which keep a
+    // config/meta store (for the columns and the Remove-dialog "delete config entry" switch).
     const trustable = trustBackends.map(b => ({ id: b.id, label: b.label || b.id }));
-    return { ok: true, autoAdd, trustable, projects: rows };
+    const metaBackendsOut = metaBackends.map(b => ({
+      id: b.id, label: b.label || b.id, removeLabel: (b.projectMeta && b.projectMeta.removeLabel) || null,
+    }));
+    return { ok: true, autoAdd, trustable, metaBackends: metaBackendsOut, projects: rows };
   } catch (err) {
     return { error: err.message };
   }
@@ -774,14 +797,18 @@ function getProjectsAdmin() {
  * as if it spoke for all of them. Codex has its own gate ("Do you trust this directory?") in its own
  * config, and it kept asking. Now the backend that owns the answer writes it.
  *
- * `backendId` defaults to claude, so an older renderer keeps working. Setting trust to true is a
- * security decision — the renderer gates it behind a warning confirm.
+ * An old two-argument call (no backendId) resolves to the first backend that has a trust gate, not a
+ * hardcoded id. Setting trust to true is a security decision — the renderer gates it behind a confirm.
  */
 function setProjectTrust(projectPath, backendId, trusted) {
-  // Tolerate the old two-argument shape: (projectPath, trusted).
-  if (typeof backendId === 'boolean') { trusted = backendId; backendId = 'claude'; }
+  // Tolerate the old two-argument shape (projectPath, trusted): it predates per-backend trust, when there
+  // was only one gate. Resolve it to the first backend that HAS a trust gate rather than to a hardcoded id.
+  if (typeof backendId === 'boolean') {
+    trusted = backendId;
+    backendId = (listBackendsWithTrust()[0] || {}).id || '';
+  }
 
-  const backend = ctx.backends.get(backendId || 'claude');
+  const backend = ctx.backends.get(backendId);
   if (!backend || !backend.projectTrust || typeof backend.projectTrust.set !== 'function') {
     return { ok: false, error: `${backend ? (backend.label || backend.id) : backendId} has no project trust setting.` };
   }
@@ -801,7 +828,8 @@ function deletableBackends(projectPath) {
 
   const counts = new Map();
   for (const r of rows) {
-    const id = r.backendId || 'claude';
+    // getCachedByProjectPath COALESCEs a legacy NULL backendId already — the id is always set here.
+    const id = r.backendId;
     counts.set(id, (counts.get(id) || 0) + 1);
   }
 
@@ -834,16 +862,21 @@ function deletableBackends(projectPath) {
  * transcripts named on their rows. Hermes cannot, and is not offered.
  *
  * @param {string} projectPath
- * @param {string[]} [backendIds]  which backends to clear. Omitted = Claude only, the old behaviour, so
- *                                 an older renderer keeps working.
+ * @param {string[]} [backendIds]  which backends to clear. Omitted = every backend that has rows in this
+ *                                 project (the renderer always sends the picked set).
  */
 function deleteProjectSessions(projectPath, backendIds) {
   try {
     if (!projectPath) return { error: 'No project path' };
-    const wanted = Array.isArray(backendIds) && backendIds.length ? backendIds : ['claude'];
 
     let rows = [];
     try { rows = ctx.db.getCachedByProjectPath(projectPath) || []; } catch { rows = []; }
+
+    // The renderer always sends the picked backends (the Remove dialog builds them from deletableBackends).
+    // If omitted (an older caller), clear every backend that actually has rows here — not a hardcoded id.
+    const wanted = Array.isArray(backendIds) && backendIds.length
+      ? backendIds
+      : [...new Set(rows.map(r => r.backendId))];
 
     const deleted = {};
     const refused = [];
@@ -856,9 +889,9 @@ function deleteProjectSessions(projectPath, backendIds) {
         continue;
       }
 
-      const mine = rows.filter(r => (r.backendId || 'claude') === backendId);
+      const mine = rows.filter(r => r.backendId === backendId);
       const files = mine
-        .map(r => r.filePath || resolveJsonlPath(ctx.PROJECTS_DIR, r))
+        .map(r => backend.transcriptPathFor(r))
         .filter(Boolean);
 
       let res;
@@ -892,12 +925,18 @@ function deleteProjectSessions(projectPath, backendIds) {
 }
 
 /**
- * Hard-delete the project's entry from ~/.claude.json (trust, MCP, allowedTools, cost). Atomic RMW with
- * a .bak; all other keys/secrets preserved.
+ * Hard-delete the project's entry from a backend's own config store (Claude's ~/.claude.json row: trust,
+ * MCP, allowedTools, cost). The backend does the atomic write; the core just names no backend (#211).
+ * `backendId` omitted picks the first backend that keeps such a store, for an older renderer.
  */
-function removeProjectConfig(projectPath) {
-  const result = claudeConfig.removeProjectEntry(projectPath);
-  if (result.ok) {
+function removeProjectConfig(projectPath, backendId) {
+  const metaBackends = listBackendsWithMeta();
+  const backend = backendId ? metaBackends.find(b => b.id === backendId) : metaBackends[0];
+  if (!backend || typeof backend.projectMeta.remove !== 'function') {
+    return { error: 'No backend keeps a per-project config entry.' };
+  }
+  const result = backend.projectMeta.remove(projectPath);
+  if (result && result.ok) {
     pruneProjectIfGone(projectPath);
     ctx.cache.notifyRendererProjectsChanged();
   }
@@ -926,7 +965,7 @@ function registerIpc(ipcMain) {
   ipcMain.handle('set-project-trust', (_e, projectPath, backendId, trusted) => setProjectTrust(projectPath, backendId, trusted));
   ipcMain.handle('delete-project-sessions', (_e, projectPath, backendIds) => deleteProjectSessions(projectPath, backendIds));
   ipcMain.handle('project-deletable-backends', (_e, projectPath) => deletableBackends(projectPath));
-  ipcMain.handle('remove-project-config', (_e, projectPath) => removeProjectConfig(projectPath));
+  ipcMain.handle('remove-project-config', (_e, projectPath, backendId) => removeProjectConfig(projectPath, backendId));
   ipcMain.handle('toggle-project-favorite', (_e, projectPath) => toggleFavorite(projectPath));
 }
 
@@ -939,7 +978,7 @@ module.exports = {
   removeProjectConfig, toggleFavorite,
   // helpers main.js still calls on other paths (a spawn adds the project; the app start hides stale ones)
   ensureProjectAdded, applyAutoHide, syncRegistry,
-  projectHasSessionsOnDisk, projectIsInClaudeConfig, pruneProjectIfGone,
+  projectHasSessionsOnDisk, pruneProjectIfGone,
   AUTO_HIDE_THROTTLE_MS,
   _resetAutoHideThrottle: () => { lastAutoHideAt = 0; },
 };

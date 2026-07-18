@@ -3,9 +3,9 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   // Invoke (request-response)
   getPlans: () => ipcRenderer.invoke('get-plans'),
-  readPlan: (filename) => ipcRenderer.invoke('read-plan', filename),
+  // A full filePath now (#227): plans can live under any backend's plans dir, not just ~/.claude/plans.
+  readPlan: (filePath) => ipcRenderer.invoke('read-plan', filePath),
   savePlan: (filePath, content) => ipcRenderer.invoke('save-plan', filePath, content),
-  getStats: () => ipcRenderer.invoke('get-stats'),
   // backendId (optional): scope every figure to one backend. Omitted / 'all' = the whole corpus (#159).
   getStatsFromDb: (backendId) => ipcRenderer.invoke('get-stats-from-db', backendId),
   refreshStats: (backendId) => ipcRenderer.invoke('refresh-stats', backendId),
@@ -140,7 +140,7 @@ contextBridge.exposeInMainWorld('api', {
   // Which backends this project has sessions from, and which of them can be cleared at all (Hermes'
   // store is read-only to us). The Remove dialog is built from this.
   projectDeletableBackends: (projectPath) => ipcRenderer.invoke('project-deletable-backends', projectPath),
-  removeProjectConfig: (projectPath) => ipcRenderer.invoke('remove-project-config', projectPath),
+  removeProjectConfig: (projectPath, backendId) => ipcRenderer.invoke('remove-project-config', projectPath, backendId),
   getZoomLevel: () => ipcRenderer.invoke('get-zoom-level'),
   nudgeZoom: (delta) => ipcRenderer.invoke('nudge-zoom', delta),
   onZoomChanged: (cb) => ipcRenderer.on('zoom-changed', (_e, level) => cb(level)),

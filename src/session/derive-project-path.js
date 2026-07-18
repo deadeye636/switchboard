@@ -86,6 +86,13 @@ function samePath(a, b) {
   return normPath(a) === normPath(b);
 }
 
+// The 2-deep tail of a project path ("…/dev/MyApp" -> "dev/MyApp"), the label the sidebar and the
+// Plans/Memory tabs show. One definition so a backend's per-file displayPath and the tab's project-group
+// header derive the same short name (#227).
+function projectShortName(projectPath) {
+  return String(projectPath || '').split(/[\\/]/).filter(Boolean).slice(-2).join('/');
+}
+
 /** Is `child` a directory INSIDE `parent`? (Not the same directory — strictly below it.) */
 function isDescendant(child, parent) {
   if (!child || !parent) return false;
@@ -200,6 +207,6 @@ function deriveProjectPath(folderPath) {
 module.exports = {
   deriveProjectPath, resolveWorktreePath,
   extractCwdFromJsonl, isRealGitWorktree,
-  projectRootOf, sessionProjectPath, samePath, normPath,
+  projectRootOf, sessionProjectPath, samePath, normPath, projectShortName,
   _resetRootCache: () => _rootCache.clear(),
 };

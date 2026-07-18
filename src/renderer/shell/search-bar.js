@@ -138,7 +138,9 @@ async function runSearchQuery() {
     } else if (activeTab === 'plans') {
       const results = await window.api.search('plan', query, searchTitlesOnly);
       const matchIds = new Set(results.map(r => r.id));
-      renderPlans(cachedPlans.filter(p => matchIds.has(p.filename)));
+      // FTS ids for plans are the full filePath now (#227 — plans span every backend's plans dir, so a
+      // bare filename is no longer unique), matching how memory/work-files already filter.
+      renderPlans(cachedPlans.filter(p => matchIds.has(p.filePath)));
     } else if (activeTab === 'memory') {
       const results = await window.api.search('memory', query, searchTitlesOnly);
       const matchIds = new Set(results.map(r => r.id));

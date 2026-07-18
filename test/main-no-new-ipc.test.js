@@ -28,22 +28,25 @@ const MAIN = path.join(__dirname, '..', 'src', 'main.js');
 const GRANDFATHERED = [
   'archive-session', 'backend-can-fork', 'backends-list', 'bookmark-counts-by-project', 'bookmark-list',
   'bookmark-list-admin', 'bookmark-remove', 'bookmark-toggle', 'clipboard-write-text', 'delete-handoff',
-  'delete-work-file', 'delete-worktree', 'env-refs-check', 'get-about-info', 'get-active-sessions',
-  'get-active-terminals', 'get-app-version', 'get-memories', 'get-plans', 'get-projects',
-  'get-shell-profiles', 'get-stats', 'get-stats-from-db', 'get-usage', 'get-windows-build',
-  'get-work-files', 'handoff-transcript-path', 'index-worker-status', 'list-handoffs', 'list-subagents',
+  'delete-worktree', 'env-refs-check', 'get-about-info', 'get-active-sessions',
+  'get-active-terminals', 'get-app-version', 'get-projects',
+  'get-shell-profiles', 'get-stats-from-db', 'get-usage', 'get-windows-build',
+  'handoff-transcript-path', 'index-worker-status', 'list-handoffs', 'list-subagents',
   'mcp-diff-response', 'open-external', 'open-external-terminal', 'open-in-editor', 'open-path',
   'profiles-delete', 'profiles-list', 'profiles-save', 'profiles-set-default', 'profiles-validate',
   'project-tags-all', 'project-tags-get', 'project-tags-list-all', 'project-tags-set', 'read-clipboard',
-  'read-file-dataurl', 'read-file-for-panel', 'read-memory', 'read-plan', 'read-session-jsonl',
-  'read-subagent-jsonl', 'read-work-file', 'rebuild-cache', 'refresh-stats', 'rename-session',
-  'run-custom-launcher', 'save-clipboard-image', 'save-file-for-panel', 'save-handoff', 'save-memory',
-  'save-plan', 'search', 'session-backends-get-all', 'session-tags-all', 'session-tags-get',
+  'read-file-dataurl', 'read-file-for-panel', 'read-session-jsonl',
+  'read-subagent-jsonl', 'rebuild-cache', 'refresh-stats', 'rename-session',
+  'run-custom-launcher', 'save-clipboard-image', 'save-file-for-panel', 'save-handoff',
+  'search', 'session-backends-get-all', 'session-tags-all', 'session-tags-get',
   'session-tags-set', 'set-log-level', 'start-subagent-watch', 'stop-session', 'stop-subagent-watch',
   'tag-def-color', 'tag-def-create', 'tag-def-delete', 'tag-def-flags', 'tag-def-rename', 'tag-defs-list',
   'tags-list-all', 'task-create', 'task-list', 'task-open-counts', 'task-remove', 'task-update',
   'toggle-star', 'unwatch-file', 'watch-file', 'worktree-status',
 ];
+// Shrank by 10 in #227: get-plans/read-plan/save-plan/get-memories/read-memory/save-memory/
+// get-work-files/read-work-file/delete-work-file moved to src/app/plans-memory.js, and the dead
+// get-stats handler was deleted. A name left here would let its handler be written back into main.js.
 
 // Where a new handler goes instead. A red test that only says "no" ends as a new allow-list entry, so it
 // has to name the alternative. CLAUDE.md's "Where an IPC handler goes" carries the same seven modules in
@@ -60,6 +63,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/hooks.js            the Claude Code hook server
   src/app/terminal/spawn.js   opening a terminal
   src/app/terminal/io.js      terminal input/resize/redraw/flow control
+  src/app/plans-memory.js     the Plans, Memory and Work-Files tabs
 
 Wire it the way those do:
 

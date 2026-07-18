@@ -1,8 +1,8 @@
 // Projects-admin tab (#32) — a large-viewport table of ALL projects with per-project
-// management: trust (via ~/.claude.json), hidden, favorite, manual-mode allowlist,
-// rename (display name), remap, remove. Read-only info columns: sessions, last activity,
-// MCP-server count, allowedTools count, last cost. Classic <script> module (no framework),
-// same pattern as plans-memory-view.js / stats-view.js.
+// management: per-backend trust, hidden, favorite, manual-mode allowlist, rename (display
+// name), remap, remove. The Info column is whatever each backend declares per project
+// (projectMeta.getMany, #211) — this file names no backend and knows no column. Classic
+// <script> module (no framework), same pattern as plans-memory-view.js / stats-view.js.
 //
 // Depends on globals: escapeHtml, formatDate (utils.js), hideAllViewers (plans-memory-view.js),
 // showControlDialog, showControlToast (control-dialogs.js), window.api (preload).
@@ -13,6 +13,7 @@
   let data = [];         // rows from get-projects-admin
   let autoAdd = true;    // whether project auto-add is on (allowlist irrelevant then)
   let trustable = [];    // the backends that HAVE a per-project trust gate (#171): Claude, Codex — not Pi/Hermes
+  let metaBackends = []; // the backends that keep a per-project config/meta store (#211): [{id,label,removeLabel}]
   let filter = '';       // search substring (lowercased)
   let unlistedOnly = false;  // show only projects that have sessions but are not on the list (#183)
 
@@ -20,17 +21,9 @@
     return String(p || '').split(/[\\/]/).filter(Boolean).slice(-2).join('/') || p || '';
   }
 
-  function fmtCost(v) {
-    if (v == null) return '';
-    return '$' + Number(v).toFixed(2);
-  }
-
-  function fmtTokens(v) {
-    if (v == null) return '';
-    if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
-    if (v >= 1e3) return (v / 1e3).toFixed(1) + 'k';
-    return String(v);
-  }
+  // The per-project cost/MCP/token formatting used to live here — it was Claude's meta rendered by the
+  // core renderer. Since #211 each backend hands back display-ready meta columns (projectMeta.getMany),
+  // so the renderer just joins their values (rowHtml) and formats nothing backend-specific itself.
 
   function fmtDate(iso) {
     if (!iso) return '';
@@ -171,18 +164,21 @@
   function rowHtml(row) {
     const name = row.displayName || shortName(row.projectPath);
     const allowCol = `<td class="pa-center">${listedCell(row)}</td>`;
-    const info = [
-      row.mcpServersCount ? row.mcpServersCount + ' MCP' : '',
-      row.allowedToolsCount ? row.allowedToolsCount + ' tools' : '',
-      fmtCost(row.lastCost),
-    ].filter(Boolean).join(' · ');
+    // The info cell is whatever the backends declare per project (#211): each row.meta[backendId] is an
+    // array of display-ready { value } columns. The renderer names no backend and knows no column — it
+    // joins the values a backend chose to expose (Claude: MCP / tools / last cost). A backend that
+    // declares none contributes nothing here rather than blank Claude fields.
+    const info = Object.keys(row.meta || {})
+      .flatMap(bid => (row.meta[bid] || []).map(c => c.value))
+      .filter(Boolean)
+      .join(' · ');
     return `
       <tr data-path="${escapeHtml(row.projectPath)}" class="${row.missing ? 'pa-missing' : ''}">
         <td class="pa-name">
           ${row.missing ? missingIcon() : ''}
           <div class="pa-name-main">
             <span class="pa-name-text" title="${escapeHtml(row.projectPath)}">${escapeHtml(name)}</span>
-            ${row.configOnly ? '<span class="pa-badge" title="Only in ~/.claude.json, no Switchboard sessions">config-only</span>' : ''}
+            ${row.configOnly ? '<span class="pa-badge" title="Known only to a backend\'s own config, with no Switchboard sessions">config-only</span>' : ''}
             <div class="pa-path">${escapeHtml(row.projectPath)}</div>
           </div>
         </td>
@@ -237,8 +233,8 @@
           <thead>
             <tr>
               <th>Project</th><th>Sessions</th><th title="Which backends have sessions in this project">Backends</th><th>Last activity</th>
-              <th title="What ~/.claude.json knows about this project: MCP servers, allowed tools, and what its last session cost">Info</th>
-              <th title="Trust is per backend — Claude keeps it in ~/.claude.json, Codex in its own config">Trust</th><th title="Do you want to SEE this project? It stays on the list either way, and its sessions keep being indexed — hiding is about the sidebar, not about the data.&#10;&#10;A hide you make yourself STAYS: new sessions here do not bring it back, only you do.&#10;&#10;A dashed, blue eye means the app hid it because it went stale — that one un-hides itself as soon as you work in the project again.">Hidden</th><th title="A favourite is pinned to the top of the sidebar, ahead of every other project — however old it is.">Favorite</th>${allowHeader}
+              <th title="What each backend knows about this project — e.g. MCP servers, allowed tools, and what its last session cost">Info</th>
+              <th title="Trust is per backend — each keeps it in its own config">Trust</th><th title="Do you want to SEE this project? It stays on the list either way, and its sessions keep being indexed — hiding is about the sidebar, not about the data.&#10;&#10;A hide you make yourself STAYS: new sessions here do not bring it back, only you do.&#10;&#10;A dashed, blue eye means the app hid it because it went stale — that one un-hides itself as soon as you work in the project again.">Hidden</th><th title="A favourite is pinned to the top of the sidebar, ahead of every other project — however old it is.">Favorite</th>${allowHeader}
               <th>Actions</th>
             </tr>
           </thead>
@@ -276,6 +272,7 @@
       data = res.projects || [];
       autoAdd = res.autoAdd !== false;
       trustable = res.trustable || [];
+      metaBackends = res.metaBackends || [];
       render();
     } catch (err) {
       viewer.innerHTML = `<div class="pa-loading">Error: ${escapeHtml(err.message)}</div>`;
@@ -299,6 +296,7 @@
 
     data = res.projects || [];
     autoAdd = res.autoAdd !== false;
+    metaBackends = res.metaBackends || metaBackends;
 
     const fresh = findRow(path);
     if (!fresh) { await load(); return; } // project vanished — the table is stale
@@ -309,9 +307,10 @@
     if (typeof showControlToast === 'function') showControlToast({ message: msg });
   }
 
-  // Remove dialog with two opt-in hard-delete checkboxes (reuses control-dialog CSS).
-  // Resolves to { deleteDisk, deleteConfig } on confirm, or null on cancel.
-  // The Remove dialog asks WHICH backends' history to delete (#171).
+  // Remove dialog with opt-in hard-delete checkboxes (reuses control-dialog CSS).
+  // Resolves to { deleteBackends, deleteConfigBackends } on confirm, or null on cancel.
+  // The Remove dialog asks WHICH backends' history to delete (#171) and WHICH backends'
+  // per-project config entry to drop (#211) — both built from what the backends declare.
   //
   // It used to offer one checkbox — "delete session history on disk" — and clear `~/.claude/projects`.
   // A project's Codex rollouts and Pi transcripts survived it untouched; the user simply stopped seeing
@@ -340,6 +339,14 @@
         )).join('')
         : '<div class="pa-check-note">This project has no cached sessions.</div>';
 
+      // One "delete this backend's config entry" checkbox per backend that keeps a per-project config
+      // store (#211) — its label comes from the backend (projectMeta.removeLabel), so the renderer names
+      // no backend and no file. Only Claude declares one today; a backend without one adds no checkbox.
+      const configRows = metaBackends.map(b =>
+        `<label class="pa-check-row"><input type="checkbox" class="pa-del-config" data-backend="${escapeHtml(b.id)}">
+           ${escapeHtml(b.removeLabel || `Delete ${b.label}'s per-project config entry`)}</label>`
+      ).join('');
+
       dialog.innerHTML = `
         <div class="control-dialog-kicker">Destructive Action</div>
         <h3>Remove project</h3>
@@ -352,8 +359,7 @@
           </div>
         </div>
         ${backendRows}
-        <label class="pa-check-row"><input type="checkbox" id="pa-del-config">
-          Delete entry in <code>~/.claude.json</code> (trust, MCP, cost)</label>
+        ${configRows}
         <div class="control-dialog-actions">
           <button type="button" class="control-dialog-cancel">Cancel</button>
           <button type="button" class="control-dialog-confirm">Remove</button>
@@ -370,7 +376,7 @@
       dialog.querySelector('.control-dialog-cancel').addEventListener('click', () => close(null));
       dialog.querySelector('.control-dialog-confirm').addEventListener('click', () => close({
         deleteBackends: [...dialog.querySelectorAll('.pa-del-backend:checked')].map(c => c.dataset.backend),
-        deleteConfig: dialog.querySelector('#pa-del-config').checked,
+        deleteConfigBackends: [...dialog.querySelectorAll('.pa-del-config:checked')].map(c => c.dataset.backend),
       }));
       overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
       document.addEventListener('keydown', onKey);
@@ -451,8 +457,8 @@
           }
         }
         await window.api.removeProject(path); // always: off the list + clear Switchboard's cache
-        if (choice.deleteConfig) {
-          const r = await window.api.removeProjectConfig(path);
+        for (const bid of (choice.deleteConfigBackends || [])) {
+          const r = await window.api.removeProjectConfig(path, bid);
           if (r && r.error) { toast('Delete config: ' + r.error); }
         }
       } else if (action === 'remap') {

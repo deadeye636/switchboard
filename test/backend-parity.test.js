@@ -69,6 +69,60 @@ test('every backend declares resolveLineage — a link shape or an honest null',
   }
 });
 
+// #211: the Projects admin remaps and deletes a project's transcripts, and they do not all live in
+// Claude's store. It used to reconstruct Claude's path inline (resolveJsonlPath(PROJECTS_DIR, row)) — a
+// backend-specific require in the neutral core. Every backend now answers transcriptPathFor(row): a file
+// backend hands back row.filePath, Claude reconstructs from folder+id over its own roots, a db backend
+// returns null. So the core never reconstructs a Claude path itself.
+test('every backend declares transcriptPathFor — a path or an honest null', () => {
+  for (const b of READY) {
+    const id = b.id;
+    assert.equal(typeof b.transcriptPathFor, 'function', `${id} must declare transcriptPathFor`);
+    assert.equal(b.transcriptPathFor(null), null, `${id}.transcriptPathFor(null) must be null, not a throw`);
+    // A row that carries its own filePath resolves to exactly that, for every backend.
+    assert.equal(b.transcriptPathFor({ filePath: '/x/y.jsonl' }), '/x/y.jsonl',
+      `${id}.transcriptPathFor must honour a row's own filePath`);
+  }
+});
+
+// #227: where a backend keeps its plans and its memory/instruction files is DECLARED, not hardcoded to
+// ~/.claude in the core. Every backend answers both hooks: plansDir() is a string or null (most have no
+// plans store), memorySources(scope) is always an array (a backend with no instruction files returns []).
+test('every backend declares plansDir and memorySources — a store or an honest none', () => {
+  for (const b of READY) {
+    const id = b.id;
+    assert.equal(typeof b.plansDir, 'function', `${id} must declare plansDir`);
+    const pd = b.plansDir();
+    assert.ok(pd === null || typeof pd === 'string', `${id}.plansDir() must be a string path or null`);
+
+    assert.equal(typeof b.memorySources, 'function', `${id} must declare memorySources`);
+    // Global scope and a per-project scope both return arrays and never throw.
+    assert.ok(Array.isArray(b.memorySources({ projectPath: null, storeFolders: [] })), `${id}.memorySources(global) must be an array`);
+    const perProject = b.memorySources({ projectPath: '/tmp/demo', storeFolders: [] });
+    assert.ok(Array.isArray(perProject), `${id}.memorySources(project) must be an array`);
+    for (const s of perProject) {
+      assert.ok(s && (s.kind === 'dir' || s.kind === 'file') && typeof s.path === 'string',
+        `${id}.memorySources returns { kind:'dir'|'file', path } entries`);
+    }
+    assert.ok(Array.isArray(b.memorySources(null)), `${id}.memorySources(null) must not throw`);
+  }
+});
+
+// #211: per-project config/meta is an OPTIONAL capability. A backend that keeps a projects table in its
+// own config (Claude's ~/.claude.json) declares projectMeta; one that keeps none declares nothing, and
+// the admin shows no columns for it rather than borrowing Claude's. When present, it must be complete.
+test('a backend that declares projectMeta declares the whole capability', () => {
+  for (const b of READY) {
+    if (!b.projectMeta) continue;
+    const id = b.id;
+    for (const fn of ['getMany', 'knownProjects', 'has', 'rename', 'remove']) {
+      assert.equal(typeof b.projectMeta[fn], 'function', `${id}.projectMeta.${fn} must be a function`);
+    }
+    assert.ok(b.projectMeta.getMany([]) instanceof Map, `${id}.projectMeta.getMany([]) must be a Map`);
+    assert.ok(Array.isArray(b.projectMeta.knownProjects()), `${id}.projectMeta.knownProjects() must be an array`);
+  }
+});
+
 test('every backend that names its own sessions implements ALL THREE identity hooks (D17)', () => {
   // Two hooks is the resume bug: matchLiveSession only accepts records born after the spawn, which a
   // resumed session's record never is, so it claims the NEXT new session's record instead.

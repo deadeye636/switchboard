@@ -33,6 +33,9 @@ let _home = null;
 // does NOT exist there); Linux/WSL uses ~/.hermes. HERMES_HOME overrides both. Never hardcode ~/.hermes.
 function hermesHome() {
   if (_home) return _home;
+  // SWITCHBOARD_STORE_HERMES isolates our scan (demo/sandbox — scripts/demo-start.js); it names the
+  // home dir holding state.db, ahead of the CLI's own HERMES_HOME.
+  if (process.env.SWITCHBOARD_STORE_HERMES) return process.env.SWITCHBOARD_STORE_HERMES;
   if (process.env.HERMES_HOME) return process.env.HERMES_HOME;
   if (process.platform === 'win32') {
     const base = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');

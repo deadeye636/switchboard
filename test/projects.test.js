@@ -106,6 +106,12 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
     },
   };
 
+  // Point Claude's store roots at this test's store, exactly as main.js does with setRoots([PROJECTS_DIR])
+  // at startup (#211): the Projects admin now asks the backend to reconstruct a transcript path
+  // (transcriptPathFor) over its own roots instead of being handed PROJECTS_DIR, so the roots must match.
+  const claudeRootsBefore = backends.get('claude')._roots();
+  backends.get('claude').setRoots([store]);
+
   projects.init(ctx);
   projects._resetAutoHideThrottle();
   return {
@@ -123,7 +129,10 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
       }
     },
     state: (p) => states.get(p) || null,
-    cleanup: () => fs.rmSync(store, { recursive: true, force: true }),
+    cleanup: () => {
+      backends.get('claude').setRoots(claudeRootsBefore);
+      fs.rmSync(store, { recursive: true, force: true });
+    },
   };
 }
 

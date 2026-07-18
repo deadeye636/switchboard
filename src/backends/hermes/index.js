@@ -177,6 +177,11 @@ module.exports = {
   // Lineage (#193): Hermes records a real parent in its store (`parent_session_id`), which the reader
   // surfaces as `lineageParentRef`. A hard link.
   resolveLineage: (row) => (row && row.lineageParentRef ? { lineageParentId: row.lineageParentRef, lineageKind: 'parent' } : null),
+  // Hermes sessions are rows in state.db, not files — there is no transcript path (#211).
+  transcriptPathFor: (row) => (row && row.filePath) || null,
+  // Hermes keeps no plans store and no per-project instruction files (#227).
+  plansDir: () => null,
+  memorySources: () => [],
   // No `deleteSessions` and no `rewriteProjectPath`: its sessions are rows in a database Switchboard
   // opens read-only and may never write (#2914). The Remove dialog offers no switch for Hermes and shows
   // this sentence instead of a control that could not do anything.

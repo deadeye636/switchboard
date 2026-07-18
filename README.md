@@ -27,7 +27,7 @@ Switchboard is a desktop app that gives you a unified view of all your Claude Co
 - **Fork & Resume** — Branch off from any point in a session's history
 - **Full-Text Search** — Find any session by what was discussed, not just when it happened
 - **IDE Emulation** — Switchboard acts as an IDE for Claude CLI, showing file diffs and opens in a side panel where you can accept, reject, or edit changes before they're applied. Supports both inline and side-by-side diff views. Disable this in Global Settings if you prefer Claude to use your own editor (VS Code, Cursor, etc.)
-- **Plans & Memory** — Browse and edit your plan files and CLAUDE.md memory in one place
+- **Plans & Memory** — Browse and edit your plan files and each backend's memory/instruction files (CLAUDE.md, AGENTS.md, GEMINI.md) in one place, across every project the app knows — not just Claude's
 - **Activity Stats** — Heatmap of your coding activity across all projects
 - **Session Names** — Picks up session names from Claude Code's `/rename` command automatically
 

@@ -553,7 +553,7 @@
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Add projects automatically</span>${help}</div>
                     <div class="settings-description">On: every project you use with Claude Code shows up on its own. Off: add them yourself with +.</div>
-                    <div class="settings-more">On: all <code>~/.claude/projects</code> folders appear automatically. Off: the current projects stay and new ones no longer appear on their own — add them with the + button (starting a session from Switchboard also adds its project). Switching back on restores full auto-discovery.</div>
+                    <div class="settings-more">On: every project a session is discovered in appears automatically, from any backend. Off: the current projects stay and new ones no longer appear on their own — add them with the + button (starting a session from Switchboard also adds its project). Switching back on restores full auto-discovery.</div>
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-project-auto-add" ${projectAutoAddValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>

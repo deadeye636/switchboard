@@ -19,6 +19,15 @@ const path = require('path');
 const fs = require('fs');
 const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId, readSubagentMeta, PARSER_SCHEMA_VERSION: readerVersion } = require('./session-reader');
 const { readFolderSessions } = require('./folder-reader');
+const { encodeProjectPath } = require('../../session/encode-project-path');
+const { projectShortName } = require('../../session/derive-project-path');
+
+// Claude's home directory (~/.claude, or the isolated demo/sandbox home) is the PARENT of its projects
+// store root — always. Deriving it from _roots[0] keeps plans + global memory isolated by the same
+// SWITCHBOARD_STORE_CLAUDE override that isolates the session scan, with no second env var (#227).
+function claudeHome() {
+  return path.dirname(_roots[0]);
+}
 
 // Claude's session store root. Defaults to ~/.claude/projects; main.js overrides it with its own
 // PROJECTS_DIR at init (and tests point it at a fixture) via setRoots().
@@ -214,6 +223,52 @@ const projectTrust = {
   set: (projectPath, trusted) => claudeConfig.setProjectTrust(projectPath, trusted),
 };
 
+// Per-project META and CONFIG ownership (#211). Claude keeps a projects table in ~/.claude.json —
+// trust, MCP servers, allowed tools, last cost, tokens — and the Projects admin used to read it
+// directly, as if it were the app's own store. It is Claude's, so Claude declares it; a backend with no
+// such store declares no `projectMeta`, and the admin shows no columns for it rather than Claude's.
+const projectMeta = {
+  // Display-ready columns per project: Map<projectPath, Array<{ id, label, value, title? }>>. The
+  // renderer draws label/value pairs and names no backend. An unknown project gets [].
+  getMany: (projectPaths) => {
+    const out = new Map();
+    let meta;
+    try { meta = claudeConfig.getProjectClaudeMeta(); } catch { meta = new Map(); }
+    for (const p of projectPaths) {
+      const m = meta.get(claudeConfig.normalizeClaudePath(p));
+      if (!m) { out.set(p, []); continue; }
+      // `value` is display-ready and self-contained (carries its own unit) so a neutral renderer can join
+      // them into one info cell without knowing what any column means.
+      const cols = [];
+      if (m.mcpServersCount) cols.push({ id: 'mcp', label: 'MCP servers', value: m.mcpServersCount + ' MCP', title: 'MCP servers configured' });
+      if (m.allowedToolsCount) cols.push({ id: 'tools', label: 'Allowed tools', value: m.allowedToolsCount + ' tools', title: 'Allowed tools' });
+      if (typeof m.lastCost === 'number') cols.push({ id: 'cost', label: 'Last cost', value: '$' + m.lastCost.toFixed(2), title: 'Last session cost' });
+      out.set(p, cols);
+    }
+    return out;
+  },
+  // Every project path Claude's config knows — the config-only fold-in and the prune gate ask this.
+  knownProjects: () => {
+    try {
+      const cfg = claudeConfig.readClaudeConfig();
+      if (!cfg || !cfg.projects || typeof cfg.projects !== 'object') return [];
+      return Object.keys(cfg.projects).map((k) => claudeConfig.normalizeClaudePath(k));
+    } catch { return []; }
+  },
+  has: (projectPath) => {
+    try {
+      const cfg = claudeConfig.readClaudeConfig();
+      if (!cfg || !cfg.projects || typeof cfg.projects !== 'object') return false;
+      const norm = claudeConfig.normalizeClaudePath(projectPath);
+      return Object.keys(cfg.projects).some((k) => claudeConfig.normalizeClaudePath(k) === norm);
+    } catch { return false; }
+  },
+  // Move / drop this project's WHOLE ~/.claude.json entry (trust + meta together).
+  rename: (oldPath, newPath) => claudeConfig.renameProjectEntry(oldPath, newPath),
+  remove: (projectPath) => claudeConfig.removeProjectEntry(projectPath),
+  removeLabel: 'Delete entry in ~/.claude.json (trust, MCP, cost)',
+};
+
 /** Rewrite this session's transcript so it belongs to `newPath`. Returns whether it changed anything. */
 function rewriteProjectPath(filePath, oldPath, newPath) {
   return rewriteTranscript(filePath, oldPath, newPath, claudeLine);
@@ -282,8 +337,45 @@ module.exports = {
   // is written live by session-transitions, not here. Same-session compaction is not a lineage row.
   resolveLineage: (row) => (row && row.forkedFrom ? { lineageParentId: row.forkedFrom, lineageKind: 'fork' } : null),
   projectTrust,
+  projectMeta,
   rewriteProjectPath,
   deleteSessions,
+  // Where this row's transcript lives when the row carries no `filePath` (#211). Claude reconstructs it
+  // from folder + session id over its own store roots, so the Projects admin no longer passes PROJECTS_DIR
+  // in. A file backend just hands back row.filePath; Claude is the one that reconstructs, so it owns this.
+  transcriptPathFor: (row) => {
+    if (!row) return null;
+    if (row.filePath) return row.filePath;
+    return resolveJsonlPath(_roots[0], row);
+  },
+  // Where Claude keeps its plan documents (#227) — the Plans tab reads every launchable backend's plansDir
+  // and shows nothing for a backend that has none. ~/.claude/plans, or the isolated home under a demo run.
+  plansDir: () => path.join(claudeHome(), 'plans'),
+  // The memory / instruction files Claude exposes for one scope (#227). Global = its home-level files; a
+  // project = its store-side .md files (per store folder — legacy encodings mean several, plus the
+  // canonical encoded name so a not-yet-indexed project still resolves) and the project-root CLAUDE.md +
+  // .claude dirs. Each source is display-ready; the neutral Plans/Memory module scans/stats them and never
+  // hardcodes ~/.claude itself.
+  memorySources: (scope) => {
+    scope = scope || {};
+    if (!scope.projectPath) {
+      return [{ kind: 'dir', path: claudeHome(), displayPath: '~/.claude', source: 'claude-home' }];
+    }
+    const projectPath = scope.projectPath;
+    const short = projectShortName(projectPath);
+    const out = [];
+    const folders = new Set(scope.storeFolders || []);
+    folders.add(encodeProjectPath(projectPath));
+    for (const folder of folders) {
+      const fp = path.join(_roots[0], folder);
+      out.push({ kind: 'dir', path: fp, displayPath: '~/.claude', source: 'claude-home' });
+      out.push({ kind: 'dir', path: path.join(fp, 'memory'), displayPath: '~/.claude', source: 'claude-home' });
+    }
+    out.push({ kind: 'file', path: path.join(projectPath, 'CLAUDE.md'), displayPath: short + '/', source: 'project' });
+    out.push({ kind: 'dir', path: path.join(projectPath, '.claude'), displayPath: short + '/.claude/', source: 'project' });
+    out.push({ kind: 'dir', path: path.join(projectPath, '.claude', 'commands'), displayPath: short + '/.claude/commands/', source: 'project' });
+    return out;
+  },
   // Claude's parser lives in session-reader.js (it predates the backend registry); its version rides
   // on the descriptor like every other backend's, so the scan's staleness gate (#152) is one rule for
   // all of them and not a special case for the default backend.

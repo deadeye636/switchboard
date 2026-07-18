@@ -13,8 +13,12 @@ let currentMemoryContent = "";
 const memoryCollapsedState = new Map();
 
 // --- Plans ---
+let plansHasStore = true; // whether any launchable backend declares a plans dir at all (#227)
 async function loadPlans() {
-  cachedPlans = await window.api.getPlans();
+  const res = await window.api.getPlans();
+  // #227: get-plans returns { plans, hasStore } — plans span every backend's plans dir, not just Claude's.
+  cachedPlans = (res && res.plans) || [];
+  plansHasStore = !res || res.hasStore !== false;
   renderPlans();
 }
 
@@ -24,7 +28,7 @@ function renderPlans(plans) {
   if (plans.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'plans-empty';
-    empty.textContent = 'No plans found in ~/.claude/plans/';
+    empty.textContent = plansHasStore ? 'No plans found.' : 'No backend provides a plans store.';
     plansContent.appendChild(empty);
     return;
   }
@@ -36,9 +40,10 @@ function renderPlans(plans) {
 function buildPlanItem(plan) {
   const item = document.createElement('div');
   item.className = 'session-item plan-item';
-  // Selection key for openPlan's active marking (same data-attribute technique
-  // as the memory list — text comparison broke with same-named files, #79).
-  item.dataset.filename = plan.filename;
+  // Selection key for openPlan's active marking (same data-attribute technique as the memory list — text
+  // comparison broke with same-named files, #79). filePath, not filename: plans span every backend's plans
+  // dir now (#227), so a bare filename is no longer unique.
+  item.dataset.filepath = plan.filePath;
 
   const row = document.createElement('div');
   row.className = 'session-row';
@@ -71,10 +76,10 @@ function buildPlanItem(plan) {
 async function openPlan(plan) {
   // Mark active in sidebar (data attribute, matching openMemory)
   plansContent.querySelectorAll('.plan-item.active').forEach(el => el.classList.remove('active'));
-  const target = plansContent.querySelector(`.plan-item[data-filename="${CSS.escape(plan.filename)}"]`);
+  const target = plansContent.querySelector(`.plan-item[data-filepath="${CSS.escape(plan.filePath)}"]`);
   if (target) target.classList.add('active');
 
-  const result = await window.api.readPlan(plan.filename);
+  const result = await window.api.readPlan(plan.filePath);
   currentPlanContent = result.content;
   currentPlanFilePath = result.filePath;
   currentPlanFilename = plan.filename;

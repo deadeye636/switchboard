@@ -28,7 +28,10 @@ let _root = null;
 
 function conversationsRoot() {
   if (_root) return _root;
-  return path.join(os.homedir(), '.gemini', 'antigravity-cli', 'conversations');
+  // SWITCHBOARD_STORE_AGY isolates our scan (demo/sandbox — scripts/demo-start.js); it names the
+  // conversations dir directly (agy has no CLI env for it).
+  return process.env.SWITCHBOARD_STORE_AGY
+    || path.join(os.homedir(), '.gemini', 'antigravity-cli', 'conversations');
 }
 
 function setRoot(dir) {
@@ -156,6 +159,16 @@ module.exports = {
   // no forked/parent agy conversation was available to reverse-engineer what it points at. Declares none
   // until the reference is verified against a real forked trajectory (honest gap).
   resolveLineage: () => null,
+  // agy keeps sessions in per-conversation SQLite DBs — row.filePath if the row has one, else null (#211).
+  transcriptPathFor: (row) => (row && row.filePath) || null,
+  // agy keeps no plans store (#227).
+  plansDir: () => null,
+  // agy's per-project instruction file is GEMINI.md (#227) — it used to be guessed under Claude's branch.
+  memorySources: (scope) => {
+    if (!scope || !scope.projectPath) return [];
+    const short = require('../../session/derive-project-path').projectShortName(scope.projectPath);
+    return [{ kind: 'file', path: path.join(scope.projectPath, 'GEMINI.md'), displayPath: short + '/', source: 'project' }];
+  },
   // The `.db` is a binary SQLite/protobuf file, NOT a text transcript — so it EXPORTS its messages (like
   // Hermes) rather than being read as JSONL. It is still discovered as a file (the file store scans,
   // watches and reconciles it), but the viewer and the handoff read it through `readMessages`, never the

@@ -89,6 +89,11 @@ special case anywhere outside that provider's own folder.
 | `parseSessionIncremental` + `PARSER_SCHEMA_VERSION` | resume a parse from a byte offset + tail fingerprint |
 | `watchTargets()` | store-level addresses — also how the app knows the store **exists** |
 | `matchLiveSession` / `liveRefFor` / `liveState` | the identity + state seam (below) |
+| `resolveLineage(row)` | → `{lineageParentId, lineageKind}` \| `null` — which session this one continued (Spec 13). Claude: a fork's `forkedFrom`; Hermes: `parent_session_id`; the rest `null`. The core stamps it at one sink and never reads a backend's format (#193/#223). |
+| `transcriptPathFor(row)` | → the path to this row's transcript, or `null`. A file backend hands back `row.filePath`; Claude reconstructs from folder + session id over its own roots. The Projects admin's remap/delete no longer reconstructs a Claude path inline (#211). |
+| `projectTrust` / `projectMeta` | OPTIONAL per-project capabilities. `projectTrust` = the trust gate (Claude's `~/.claude.json`, Codex's config.toml). `projectMeta` = a backend's own projects table (Claude's `~/.claude.json`: `getMany` display-ready columns, `knownProjects`, `has`, `rename`, `remove`, `removeLabel`). A backend with none declares none, and the Projects admin shows no columns for it rather than borrowing Claude's (#171/#211). |
+| `plansDir()` / `memorySources(scope)` | where a backend keeps its **plans** (a dir or `null` — only Claude has one) and its **memory/instruction files** (`scope = {projectPath, storeFolders}` → display-ready `{kind, path, displayPath, source}` sources: Claude's home + store folders + `CLAUDE.md`/`.claude`; Codex `AGENTS.md`; Pi `AGENTS.md`+`CLAUDE.md`; agy `GEMINI.md`; Hermes none). The Plans/Memory tabs read these, never a `~/.claude` literal (#227). |
+| store root override | each backend's session scan root honours a unified `SWITCHBOARD_STORE_<ID>` env var (ahead of the CLI's own home env), which is what makes a fully isolated demo/sandbox possible — `npm run demo:start` (#227). |
 
 ### Dual-mode discovery — built first, not retrofitted
 
@@ -381,6 +386,22 @@ Closed since: **#154** (every backend feeds the charts), **#152** + **#159** (be
 now reads Claude through its descriptor — the format modules moved into `backends/claude/`
 (`session-reader.js` / `folder-reader.js`) and `src/index/session-cache.js` pulls its readers off the descriptor,
 so the folder is no longer half a lie; the Electron-free scan worker imports the reader by path).
+
+**#211** (the Projects admin no longer knows Claude exists — per-project meta/config is `projectMeta`, the
+transcript path is `transcriptPathFor`, and `src/projects/projects.js` requires no backend module and names
+no id) and **#227** (the Plans/Memory/Work-Files tabs read `plansDir`/`memorySources` and the register
+instead of `~/.claude`, and the nine handlers moved to `src/app/plans-memory.js`; a `SWITCHBOARD_STORE_<ID>`
+override per backend makes an isolated demo possible — `npm run demo:start`). `test/backend-path-neutrality.test.js`
+now guards hardcoded per-backend PATHS the way `backend-integrations.test.js` guards ids. A real win of #227:
+a Codex- or Pi-only project's own `AGENTS.md` finally appears in Memory attributed to that backend, where the
+old core read `['CLAUDE.md','GEMINI.md','agents.md']` for every project as if it were Claude's.
+
+Two deliberate #227 behaviour changes, recorded so they are not mistaken for regressions: (1) the instruction
+file is declared with its **canonical** spelling (`AGENTS.md`, `GEMINI.md`), so a project carrying a *lowercase*
+`agents.md` on a case-sensitive filesystem is no longer surfaced — uppercase is the convention, and on Windows
+it never mattered; (2) the Memory/Work-Files project list comes from the **register**, so a store folder whose
+project path cannot be derived (an undecodable legacy name with no `cwd` on disk) no longer appears as its own
+group — it is not in the sidebar either, which is the whole point of "one visibility rule for every view".
 
 ## Metrics: the staleness gate, and what a bucket is (#152, #159)
 

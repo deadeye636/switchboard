@@ -36,7 +36,10 @@ let _root = null;
  */
 function sessionsRoot() {
   if (_root) return _root;
-  return process.env.PI_CODING_AGENT_SESSION_DIR
+  // SWITCHBOARD_STORE_PI isolates our scan (demo/sandbox — scripts/demo-start.js); it names the
+  // sessions dir directly, ahead of the CLI's own PI_CODING_AGENT_SESSION_DIR.
+  return process.env.SWITCHBOARD_STORE_PI
+    || process.env.PI_CODING_AGENT_SESSION_DIR
     || path.join(os.homedir(), '.pi', 'agent', 'sessions');
 }
 
@@ -242,6 +245,20 @@ module.exports = {
   // records NO parent reference (verified against a real store — docs/backend-formats.md), so a fork's
   // origin cannot be read back. Declares none until the format exposes it (honest gap).
   resolveLineage: () => null,
+  // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
+  transcriptPathFor: (row) => (row && row.filePath) || null,
+  // Pi keeps no plans store (#227).
+  plansDir: () => null,
+  // Pi reads AGENTS.md AND CLAUDE.md as its context files (the `noContextFiles` toggle turns both off),
+  // so both are its per-project instruction files (#227). get-memories dedupes by path, so declaring
+  // CLAUDE.md here does not double it with Claude's own.
+  memorySources: (scope) => {
+    if (!scope || !scope.projectPath) return [];
+    const short = require('../../session/derive-project-path').projectShortName(scope.projectPath);
+    return ['AGENTS.md', 'CLAUDE.md'].map(name => ({
+      kind: 'file', path: path.join(scope.projectPath, name), displayPath: short + '/', source: 'project',
+    }));
+  },
   transcriptAccess: 'file',   // one JSONL per session
   // Shown on the backend's settings page. Pi is the only backend where injecting a key can appear to
   // work and quietly do nothing: a stored `pi /login` OAuth session takes PRIORITY over the env vars we

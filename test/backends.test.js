@@ -203,6 +203,22 @@ test('a profile descriptor forwards resolveLineage from its base backend', () =>
   });
 });
 
+// #211: a template's rows are the base's rows in the base's store, so the Projects admin must be able to
+// find its transcripts and its config through the profile descriptor — profileToDescriptor forwards both
+// transcriptPathFor and projectMeta from the base, exactly like resolveLineage.
+test('a profile descriptor forwards transcriptPathFor and projectMeta from its base backend', () => {
+  const prof = { id: 'my-glm', name: 'My GLM', env: {} }; // base defaults to claude
+  withRegistry({}, [prof], () => {
+    const d = backends.get('my-glm');
+    assert.strictEqual(typeof d.transcriptPathFor, 'function', 'remap/delete of a template needs its transcript path');
+    assert.strictEqual(d.transcriptPathFor({ filePath: '/x/y.jsonl' }), '/x/y.jsonl');
+    assert.strictEqual(d.transcriptPathFor(null), null);
+    // But NOT projectMeta: it is the base's ~/.claude.json projects table (keyed by path, not backend), so a
+    // template must not become a second "meta backend" — that doubled Claude's Info column in the admin.
+    assert.ok(!d.projectMeta, 'a template must NOT carry its own projectMeta — it would duplicate the base config');
+  });
+});
+
 test('Axis-A buildLaunch delegates to Claude and merges the profile env bundle', () => {
   const prof = { id: 'ds', name: 'DS', env: { ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic', ANTHROPIC_AUTH_TOKEN: '$DEEPSEEK_API_KEY' } };
   withRegistry({}, [prof], () => {

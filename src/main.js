@@ -178,10 +178,13 @@ searchClient.startWorker();
  */
 const searchViaWorker = searchClient.searchViaWorker;
 
-const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
-const PLANS_DIR = path.join(os.homedir(), '.claude', 'plans');
-const CLAUDE_DIR = path.join(os.homedir(), '.claude');
-const STATS_CACHE_PATH = path.join(CLAUDE_DIR, 'stats-cache.json');
+// SWITCHBOARD_STORE_CLAUDE isolates the Claude session scan at an alternate projects dir (demo/sandbox
+// — scripts/demo-start.js), so a dev/demo run never scans the real ~/.claude/projects. Flows to the
+// claude descriptor via setRoots([PROJECTS_DIR]) below and to the index worker (msg.roots).
+const PROJECTS_DIR = process.env.SWITCHBOARD_STORE_CLAUDE || path.join(os.homedir(), '.claude', 'projects');
+// The Plans/Memory/Work-Files tabs (and their ~/.claude paths) moved to src/app/plans-memory.js (#227),
+// where WHERE a backend keeps plans + instruction files is a declared descriptor capability, not a
+// hardcoded Claude path in the core. The dead get-stats handler + its stats-cache.json path went too.
 // MAX_BUFFER_SIZE imported from output-buffer.js (single source of truth)
 
 // --- Path validation for IPC file operations ---
@@ -214,48 +217,8 @@ function isSensitivePath(filePath) {
   return SENSITIVE_PATH_PATTERNS.some(pattern => pattern.test(resolved));
 }
 
-// All indexed project roots (same enumeration as the get-memories handler).
-// Cached: enumerating PROJECTS_DIR + deriveProjectPath on every read-call is
-// wasteful; refreshed lazily every PROJECT_ROOTS_TTL_MS.
-const PROJECT_ROOTS_TTL_MS = 5000;
-let _projectRootsCache = null;
-let _projectRootsCachedAt = 0;
-function getIndexedProjectRoots() {
-  const now = Date.now();
-  if (_projectRootsCache && now - _projectRootsCachedAt < PROJECT_ROOTS_TTL_MS) {
-    return _projectRootsCache;
-  }
-  const roots = new Set();
-  try {
-    if (fs.existsSync(PROJECTS_DIR)) {
-      for (const d of fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })) {
-        if (!d.isDirectory() || d.name === '.git') continue;
-        const p = deriveProjectPath(path.join(PROJECTS_DIR, d.name));
-        if (p) roots.add(p);
-      }
-    }
-  } catch {}
-  _projectRootsCache = roots;
-  _projectRootsCachedAt = now;
-  return roots;
-}
-
-// Allowlist for memory/plan files: ~/.claude, active-session project dirs, or
-// any indexed project root. The Plans/Memory panel (get-memories) surfaces
-// memory files from EVERY indexed project — not just ones with a live session —
-// so the allowlist must cover every known project root, else reading a memory
-// file for a project without an open session would be rejected.
-function isAllowedMemoryPath(filePath) {
-  const resolved = path.resolve(filePath);
-  if (resolved.startsWith(CLAUDE_DIR + path.sep) || resolved === CLAUDE_DIR) return true;
-  for (const [, session] of activeSessions) {
-    if (session.projectPath && resolved.startsWith(session.projectPath + path.sep)) return true;
-  }
-  for (const root of getIndexedProjectRoots()) {
-    if (resolved === root || resolved.startsWith(root + path.sep)) return true;
-  }
-  return false;
-}
+// (getIndexedProjectRoots + isAllowedMemoryPath moved to src/app/plans-memory.js with the memory
+// handlers — #227. The allowlist is now sourced from the register + each backend's declared home dirs.)
 
 // Active PTY sessions
 const activeSessions = new Map();
@@ -376,24 +339,8 @@ function markClaudeParserRead() {
 // here is `undefined` at runtime, not inherited (test/projects-wiring.test.js checks it against the real
 // module).
 const projects = require('./projects/projects');
-const projectRegistry = require('./projects/project-registry');
 
-/**
- * The projects that are SHOWN — on the list, not hidden, not auto-hidden (#167).
- *
- * One answer for every view. The Memories and Work-files tabs each used to carry their own copy of the
- * rule ("everything on disk, minus `hiddenProjects`"), which is how a project could be absent from the
- * sidebar and present in two other tabs.
- */
-function visibleProjectPaths() {
-  const set = new Set();
-  try {
-    for (const [projectPath, state] of getProjectStates()) {
-      if (projectRegistry.isVisible(state)) set.add(projectPath);
-    }
-  } catch { /* an empty set would blank every view — better to show than to vanish */ }
-  return set;
-}
+// (visibleProjectPaths + the Plans/Memory/Work-Files handlers moved to src/app/plans-memory.js — #227.)
 
 projects.init({
   PROJECTS_DIR,
@@ -433,6 +380,18 @@ projects.init({
   },
 });
 projects.registerIpc(ipcMain);
+
+// Plans, Memory and Work-Files tabs (#227) — the 9 handlers that used to live here, now behind the
+// descriptor's plansDir/memorySources so the core hardcodes no ~/.claude path. Wired before
+// save-file-for-panel below, which invalidates its FTS signature after a panel write.
+const plansMemory = require('./app/plans-memory');
+plansMemory.init({
+  backends,
+  activeSessions,
+  log,
+  db: { getProjectStates, getProjectDisplayNames, getAllFolderMeta, deleteSearchType, upsertSearchEntries },
+});
+plansMemory.registerIpc(ipcMain);
 
 // --- IPC: delete-worktree ---
 // Validated path pattern: <project>/.<segment>/[worktrees/]<name>
@@ -802,8 +761,8 @@ ipcMain.handle('save-file-for-panel', async (_event, filePath, content) => {
     // belongs to a type that the FTS index tracks, invalidate its signature so
     // the next get-work-files / get-memories call triggers a full reindex
     // (matching the explicit invalidation in save-memory / delete-work-file).
-    if (resolved.includes('/.work-files/') || resolved.includes('\\.work-files\\')) invalidateFtsSignature('work-file');
-    if (resolved.endsWith('.md')) invalidateFtsSignature('memory');
+    if (resolved.includes('/.work-files/') || resolved.includes('\\.work-files\\')) plansMemory.invalidateFtsSignature('work-file');
+    if (resolved.endsWith('.md')) plansMemory.invalidateFtsSignature('memory');
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -932,93 +891,8 @@ ipcMain.handle('get-projects', async (_event, showArchived) => {
   }
 });
 
-// --- IPC: get-plans ---
-ipcMain.handle('get-plans', () => {
-  try {
-    if (!fs.existsSync(PLANS_DIR)) return [];
-    const files = fs.readdirSync(PLANS_DIR).filter(f => f.endsWith('.md'));
-    const plans = [];
-    const sigFiles = [];
-    const bodies = new Map(); // filename → content (single read: title + FTS body)
-    for (const file of files) {
-      const filePath = path.join(PLANS_DIR, file);
-      try {
-        const stat = fs.statSync(filePath);
-        const content = fs.readFileSync(filePath, 'utf8');
-        const firstLine = content.split('\n').find(l => l.trim());
-        const title = firstLine && firstLine.startsWith('# ')
-          ? firstLine.slice(2).trim()
-          : file.replace(/\.md$/, '');
-        plans.push({ filename: file, title, modified: stat.mtime.toISOString() });
-        bodies.set(file, content);
-        sigFiles.push({ filePath, mtimeMs: stat.mtimeMs, size: stat.size });
-      } catch {}
-    }
-    plans.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-
-    // Index plans for FTS — skipped when the file set is unchanged (dirty-flag,
-    // same shouldReindex gate as get-memories / get-work-files).
-    try {
-      const sig = computeIndexSignature(sigFiles);
-      if (shouldReindex('plan', sig)) {
-        deleteSearchType('plan');
-        upsertSearchEntries(plans.map(p => ({
-          id: p.filename, type: 'plan', folder: null,
-          title: p.title,
-          body: bodies.get(p.filename) || '',
-        })));
-      }
-    } catch {}
-
-    return plans;
-  } catch (err) {
-    console.error('Error reading plans:', err);
-    return [];
-  }
-});
-
-// --- IPC: read-plan ---
-ipcMain.handle('read-plan', (_event, filename) => {
-  try {
-    const filePath = path.join(PLANS_DIR, path.basename(filename));
-    const content = fs.readFileSync(filePath, 'utf8');
-    return { content, filePath };
-  } catch (err) {
-    console.error('Error reading plan:', err);
-    return { content: '', filePath: '' };
-  }
-});
-
-// --- IPC: save-plan ---
-ipcMain.handle('save-plan', (_event, filePath, content) => {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(PLANS_DIR + path.sep)) {
-      return { ok: false, error: 'path outside plans directory' };
-    }
-    fs.writeFileSync(resolved, content, 'utf8');
-    // Invalidate the FTS signature so the next get-plans call reindexes
-    // (guards against sub-second writes where the mtime might not advance).
-    invalidateFtsSignature('plan');
-    return { ok: true };
-  } catch (err) {
-    console.error('Error saving plan:', err);
-    return { ok: false, error: err.message };
-  }
-});
-
-// --- IPC: get-stats ---
-ipcMain.handle('get-stats', () => {
-  try {
-    if (!fs.existsSync(STATS_CACHE_PATH)) return null;
-    const raw = fs.readFileSync(STATS_CACHE_PATH, 'utf8');
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error('Error reading stats cache:', err);
-    return null;
-  }
-});
-
+// (get-plans/read-plan/save-plan moved to src/app/plans-memory.js — #227. The dead get-stats
+// handler + its stats-cache.json path were removed with them.)
 // --- IPC: get-stats-from-db ---
 // Builds a stats object from session_cache so the heatmap reflects real usage
 // including subagent sessions (which claude /stats silently ignores) and
@@ -1190,404 +1064,8 @@ ipcMain.handle('get-usage', async () => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// FTS dirty-flag: skip full reindex when file set hasn't changed.
-// Each tab handler (get-memories, get-work-files) computes a cheap signature
-// from the collected file list (sorted filePath + mtimeMs + size) and compares
-// it to the last-indexed signature stored here. If equal, the expensive
-// deleteSearchType + upsertSearchEntries block is skipped entirely — including
-// the full-file readFileSync calls on every file.
-//
-// Invariant: the result payload (file tree returned to the UI) is built and
-// returned unconditionally; only the FTS side-effect is gated.
-//
-// Invalidation: save-memory and delete-work-file mutations clear the stored
-// signature for their respective type, forcing a fresh reindex on the next
-// tab open (even if mtime precision rounds to the same second on some FSes).
-// ---------------------------------------------------------------------------
-
-/** @type {Map<string, string>} type → last-indexed signature */
-const _ftsIndexSignature = new Map();
-
-/**
- * Compute a cheap stable signature for an array of indexed file descriptors.
- * @param {Array<{filePath: string, mtimeMs: number, size: number}>} files
- * @returns {string}
- */
-function computeIndexSignature(files) {
-  // Sort by filePath for determinism regardless of scan order.
-  const sorted = [...files].sort((a, b) => a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0);
-  return sorted.map(f => `${f.filePath}\x00${f.mtimeMs}\x00${f.size}`).join('\n');
-}
-
-/**
- * Returns true when the file set for the given FTS type has changed since
- * the last reindex (or was never indexed), and updates the stored signature.
- * @param {string} type - FTS type key ('memory' | 'work-file' | 'plan')
- * @param {string} sig  - result of computeIndexSignature()
- * @returns {boolean}
- */
-function shouldReindex(type, sig) {
-  if (_ftsIndexSignature.get(type) === sig) return false;
-  _ftsIndexSignature.set(type, sig);
-  return true;
-}
-
-/**
- * Invalidate the stored signature for a given FTS type, forcing a full
- * reindex on the next get-memories / get-work-files call.
- * @param {string} type
- */
-function invalidateFtsSignature(type) {
-  _ftsIndexSignature.delete(type);
-}
-
-// --- IPC: get-memories ---
-function folderToShortPath(folder) {
-  // Convert "-Users-home-dev-MyClaude" → "dev/MyClaude"
-  const parts = folder.replace(/^-/, '').split('-');
-  const meaningful = parts.filter(Boolean);
-  return meaningful.slice(-2).join('/');
-}
-
-/** Scan a directory for .md files (non-recursive). Returns array of { filename, filePath, modified, size }.
- *  Emptiness is judged by stat.size instead of reading every file's content —
- *  get-memories runs this over dozens of directories per call, and the FTS
- *  block below reads the bodies anyway when a reindex is actually due.
- *  (Whitespace-only files now count as non-empty; harmless.) */
-function scanMdFiles(dir) {
-  const results = [];
-  try {
-    if (!fs.existsSync(dir)) return results;
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const e of entries) {
-      if (e.isFile() && e.name.endsWith('.md')) {
-        const fp = path.join(dir, e.name);
-        try {
-          const stat = fs.statSync(fp);
-          if (stat.size > 0) {
-            results.push({ filename: e.name, filePath: fp, modified: stat.mtime.toISOString(), size: stat.size });
-          }
-        } catch {}
-      }
-    }
-  } catch {}
-  return results;
-}
-
-ipcMain.handle('get-memories', () => {
-  const visible = visibleProjectPaths();
-  const projectDisplayNames = getProjectDisplayNames();
-
-  // --- Global files ---
-  const globalFiles = scanMdFiles(CLAUDE_DIR).map(f => ({ ...f, displayPath: '~/.claude' }));
-
-  // --- Per-project files ---
-  const projects = [];
-  try {
-    if (fs.existsSync(PROJECTS_DIR)) {
-      const folders = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
-        .filter(d => d.isDirectory() && d.name !== '.git')
-        .map(d => d.name);
-
-      for (const folder of folders) {
-        const folderPath = path.join(PROJECTS_DIR, folder);
-        const projectPath = deriveProjectPath(folderPath);
-        if (projectPath && !visible.has(projectPath)) continue;
-
-        // Use same 2-deep short path as Sessions tab (e.g. "dev/MyClaude")
-        const shortName = projectPath
-          ? projectPath.split('/').filter(Boolean).slice(-2).join('/')
-          : folderToShortPath(folder);
-        const files = [];
-        const seenPaths = new Set();
-
-        // 1. ~/.claude/projects/{folder}/ — claude-home .md files
-        const claudeHomeFiles = scanMdFiles(folderPath);
-        for (const f of claudeHomeFiles) {
-          files.push({ ...f, displayPath: '~/.claude', source: 'claude-home' });
-          seenPaths.add(f.filePath);
-        }
-        // memory/MEMORY.md
-        const memoryDir = path.join(folderPath, 'memory');
-        const memoryFiles = scanMdFiles(memoryDir);
-        for (const f of memoryFiles) {
-          files.push({ ...f, displayPath: '~/.claude', source: 'claude-home' });
-          seenPaths.add(f.filePath);
-        }
-
-        // 2. {projectPath}/ — project root CLAUDE.md, agents.md
-        if (projectPath) {
-          for (const name of ['CLAUDE.md', 'GEMINI.md', 'agents.md']) {
-            const fp = path.join(projectPath, name);
-            try {
-              if (fs.existsSync(fp)) {
-                // Same stat-only emptiness check as scanMdFiles — no content read here.
-                const stat = fs.statSync(fp);
-                if (stat.size > 0 && !seenPaths.has(fp)) {
-                  files.push({ filename: name, filePath: fp, modified: stat.mtime.toISOString(), size: stat.size, displayPath: shortName + '/', source: 'project' });
-                  seenPaths.add(fp);
-                }
-              }
-            } catch {}
-          }
-
-          // 3. {projectPath}/.claude/ — commands/*.md and other .md files
-          const dotClaudeDir = path.join(projectPath, '.claude');
-          const dotClaudeFiles = scanMdFiles(dotClaudeDir);
-          for (const f of dotClaudeFiles) {
-            if (!seenPaths.has(f.filePath)) {
-              files.push({ ...f, displayPath: shortName + '/.claude/', source: 'project' });
-              seenPaths.add(f.filePath);
-            }
-          }
-          // commands/*.md
-          const commandsDir = path.join(dotClaudeDir, 'commands');
-          const commandFiles = scanMdFiles(commandsDir);
-          for (const f of commandFiles) {
-            if (!seenPaths.has(f.filePath)) {
-              files.push({ ...f, displayPath: shortName + '/.claude/commands/', source: 'project' });
-              seenPaths.add(f.filePath);
-            }
-          }
-        }
-
-        if (files.length > 0) {
-          const displayName = (projectPath && projectDisplayNames.get(projectPath)) || '';
-          projects.push({ folder, projectPath: projectPath || '', shortName, displayName, files });
-        }
-      }
-    }
-  } catch (err) {
-    console.error('Error scanning memories:', err);
-  }
-
-  // Sort projects by most recent file modified date
-  projects.sort((a, b) => {
-    const aMax = Math.max(...a.files.map(f => new Date(f.modified).getTime()));
-    const bMax = Math.max(...b.files.map(f => new Date(f.modified).getTime()));
-    return bMax - aMax;
-  });
-
-  const result = { global: { files: globalFiles }, projects };
-
-  // Index all files for FTS — skipped when the file set is unchanged (dirty-flag).
-  try {
-    const allFiles = [
-      ...globalFiles.map(f => ({ ...f, label: 'Global' })),
-      ...projects.flatMap(p => p.files.map(f => ({ ...f, label: p.displayName || p.shortName }))),
-    ];
-    const sig = computeIndexSignature(allFiles.map(f => ({
-      filePath: f.filePath,
-      mtimeMs: new Date(f.modified).getTime(),
-      size: f.size || 0,
-    })));
-    if (shouldReindex('memory', sig)) {
-      // Only a due reindex reads file contents at all — the list above is
-      // built from stats alone.
-      deleteSearchType('memory');
-      upsertSearchEntries(allFiles.map(f => ({
-        id: f.filePath, type: 'memory', folder: null,
-        title: f.label + ' ' + f.filename,
-        body: fs.readFileSync(f.filePath, 'utf8'),
-      })));
-    }
-  } catch {}
-
-  return result;
-});
-
-// --- IPC: read-memory ---
-ipcMain.handle('read-memory', (_event, filePath) => {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!resolved.endsWith('.md')) return '';
-    if (!isAllowedMemoryPath(resolved)) return '';
-    return fs.readFileSync(resolved, 'utf8');
-  } catch (err) {
-    console.error('Error reading memory file:', err);
-    return '';
-  }
-});
-
-// --- IPC: save-memory ---
-ipcMain.handle('save-memory', (_event, filePath, content) => {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!resolved.endsWith('.md')) return { ok: false, error: 'not a .md file' };
-    if (!isAllowedMemoryPath(resolved)) return { ok: false, error: 'path not allowed' };
-    if (!fs.existsSync(resolved)) return { ok: false, error: 'file does not exist' };
-    fs.writeFileSync(resolved, content, 'utf8');
-    // Invalidate the FTS signature so the next get-memories call reindexes
-    // (mtime change is caught by the signature, but an explicit invalidation
-    // guards against sub-second writes where the mtime might not advance).
-    invalidateFtsSignature('memory');
-    return { ok: true };
-  } catch (err) {
-    console.error('Error saving memory file:', err);
-    return { ok: false, error: err.message };
-  }
-});
-
-// --- IPC: get-work-files ---
-// Walks <projectPath>/.work-files/ recursively for all known projects.
-// Returns { projects: WorkFilesProject[] } — empty projects are skipped.
-// Caps at WORK_FILES_CAP files per project (most recent by mtime) to guard
-// against huge .work-files trees (e.g. tagpay has ~39k files).
-const WORK_FILES_CAP = 200;
-
-function walkWorkFiles(dir, baseDir, results) {
-  let entries;
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const e of entries) {
-    const fullPath = path.join(dir, e.name);
-    if (e.isDirectory()) {
-      walkWorkFiles(fullPath, baseDir, results);
-    } else if (e.isFile()) {
-      try {
-        const stat = fs.statSync(fullPath);
-        const relativePath = path.relative(baseDir, fullPath);
-        results.push({
-          filename: e.name,
-          filePath: fullPath,
-          relativePath,
-          modified: stat.mtime.toISOString(),
-          size: stat.size,
-        });
-      } catch {}
-    }
-  }
-}
-
-ipcMain.handle('get-work-files', () => {
-  const visible = visibleProjectPaths();
-  const projectDisplayNames = getProjectDisplayNames();
-  const projects = [];
-
-  try {
-    if (fs.existsSync(PROJECTS_DIR)) {
-      const folders = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
-        .filter(d => d.isDirectory() && d.name !== '.git')
-        .map(d => d.name);
-
-      for (const folder of folders) {
-        const folderPath = path.join(PROJECTS_DIR, folder);
-        const projectPath = deriveProjectPath(folderPath);
-        if (!projectPath) continue;
-        if (!visible.has(projectPath)) continue;
-
-        const workFilesDir = path.join(projectPath, '.work-files');
-        if (!fs.existsSync(workFilesDir)) continue;
-
-        const shortName = projectPath.split('/').filter(Boolean).slice(-2).join('/');
-
-        const allFiles = [];
-        walkWorkFiles(workFilesDir, workFilesDir, allFiles);
-
-        // Sort by modified desc
-        allFiles.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-
-        const totalCount = allFiles.length;
-        const files = allFiles.slice(0, WORK_FILES_CAP);
-
-        if (files.length > 0) {
-          const displayName = projectDisplayNames.get(projectPath) || '';
-          projects.push({ projectPath, shortName, displayName, files, totalCount });
-        }
-      }
-    }
-  } catch (err) {
-    console.error('Error scanning work-files:', err);
-  }
-
-  // Sort projects by most recent file modified date
-  projects.sort((a, b) => {
-    const aMax = a.files.length > 0 ? new Date(a.files[0].modified).getTime() : 0;
-    const bMax = b.files.length > 0 ? new Date(b.files[0].modified).getTime() : 0;
-    return bMax - aMax;
-  });
-
-  // Index for FTS — text files ≤ 64KB, skip .jsonl — skipped when file set is unchanged.
-  try {
-    const allFiles = projects.flatMap(proj => proj.files.map(f => ({ ...f, proj })));
-    const sig = computeIndexSignature(allFiles.map(f => ({
-      filePath: f.filePath,
-      mtimeMs: new Date(f.modified).getTime(),
-      size: f.size,
-    })));
-    if (shouldReindex('work-file', sig)) {
-      deleteSearchType('work-file');
-      const TEXT_MAX = 64 * 1024;
-      const entries = allFiles.map(f => {
-        let body = '';
-        if (!f.relativePath.endsWith('.jsonl') && f.size <= TEXT_MAX) {
-          try { body = fs.readFileSync(f.filePath, 'utf8'); } catch {}
-        }
-        return {
-          id: f.filePath, type: 'work-file', folder: null,
-          title: (f.proj.displayName || f.proj.shortName) + ' ' + f.relativePath,
-          body,
-        };
-      });
-      upsertSearchEntries(entries);
-    }
-  } catch {}
-
-  return { projects };
-});
-
-// A work-file path is only allowed if it sits inside the `.work-files` dir of a
-// project Claude actually knows about — otherwise a compromised renderer could
-// read/delete arbitrary `.work-files` dirs anywhere on disk (issue #77).
-function isAllowedWorkFilePath(resolved) {
-  const m = resolved.match(/[\\/]\.work-files[\\/]/);
-  if (!m) return false;
-  const projectRoot = resolved.slice(0, m.index);
-  try {
-    return fs.existsSync(path.join(PROJECTS_DIR, encodeProjectPath(projectRoot)));
-  } catch { return false; }
-}
-
-// --- IPC: read-work-file ---
-ipcMain.handle('read-work-file', (_event, filePath) => {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!isAllowedWorkFilePath(resolved)) return '[access denied]';
-    if (!fs.existsSync(resolved)) return '';
-    const stat = fs.statSync(resolved);
-    if (stat.size > 2 * 1024 * 1024) return '[file too large to display]';
-    // Detect binary: try reading as utf8; if it fails or contains null bytes, treat as binary
-    const buf = fs.readFileSync(resolved);
-    if (buf.includes(0)) return '[binary file]';
-    return buf.toString('utf8');
-  } catch (err) {
-    console.error('Error reading work file:', err);
-    return '';
-  }
-});
-
-// --- IPC: delete-work-file ---
-ipcMain.handle('delete-work-file', (_event, filePath) => {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!isAllowedWorkFilePath(resolved)) return { ok: false, error: 'access denied' };
-    if (!fs.existsSync(resolved)) return { ok: false, error: 'not found' };
-    fs.unlinkSync(resolved);
-    // Invalidate the FTS signature so the next get-work-files call reindexes.
-    // Deletion changes the path set, which the signature would catch; the explicit
-    // invalidation is a belt-and-braces guard for path-set mutations.
-    invalidateFtsSignature('work-file');
-    return { ok: true };
-  } catch (err) {
-    console.error('Error deleting work file:', err);
-    return { ok: false, error: err.message };
-  }
-});
-
+// (FTS dirty-flag block + get-memories/read-memory/save-memory + get-work-files/read-work-file/
+// delete-work-file moved to src/app/plans-memory.js — #227.)
 // --- IPC: search ---
 // Routed through the search-query worker so that slow FTS5 phrase queries
 // (e.g. a 60-char pasted URL) do not block the Electron main event loop.

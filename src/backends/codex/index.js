@@ -38,7 +38,9 @@ function setHome(dir) {
 }
 
 function sessionsRoot() {
-  return path.join(codexHome(), 'sessions');
+  // SWITCHBOARD_STORE_CODEX points our scan at an isolated store (demo/sandbox) — see
+  // scripts/demo-start.js. It names the sessions dir directly, unlike CODEX_HOME (the CLI's own home).
+  return process.env.SWITCHBOARD_STORE_CODEX || path.join(codexHome(), 'sessions');
 }
 
 // Codex's own launch options (00 §4a) — NOT interchangeable with Claude's (a permission mode means
@@ -177,6 +179,17 @@ module.exports = {
   // Lineage (#193): Codex records no parent link on disk — a `/clear` starts a new rollout with no
   // back-ref, and `compacted` is a per-message state, not a parent reference. Declares none (honest gap).
   resolveLineage: () => null,
+  // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
+  transcriptPathFor: (row) => (row && row.filePath) || null,
+  // Codex keeps no plans store (#227).
+  plansDir: () => null,
+  // Codex's per-project instruction file is AGENTS.md (#227). It used to be read under Claude's branch in
+  // the core, so a Codex project's own file was attributed to Claude; now Codex declares it.
+  memorySources: (scope) => {
+    if (!scope || !scope.projectPath) return [];
+    const short = require('../../session/derive-project-path').projectShortName(scope.projectPath);
+    return [{ kind: 'file', path: path.join(scope.projectPath, 'AGENTS.md'), displayPath: short + '/', source: 'project' }];
+  },
   transcriptAccess: 'file',   // rollout JSONL on disk
   configFields,
   buildLaunch,
