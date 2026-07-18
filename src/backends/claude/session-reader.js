@@ -301,10 +301,10 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
     largestUserPromptWords: st.largestUserPromptWords,
     startedAt: st.startedAt, lastEntryAt: st.lastEntryAt, activeMinutes,
     ...st.usageTotals,
-    // Fork lineage (#193): a hard link to the session this one was forked from. `parentSessionId` stays
-    // for Claude SUBAGENTS only, so a fork's parent rides in lineageParentId like every other backend's.
-    lineageParentId: st.forkedFrom || null,
-    lineageKind: st.forkedFrom ? 'fork' : null,
+    // Fork lineage (#193): expose the RAW origin id. The Claude descriptor's resolveLineage turns it into
+    // lineageParentId/lineageKind at the neutral sink — the parser does not stamp the shared field itself.
+    // `parentSessionId` stays for Claude SUBAGENTS only.
+    forkedFrom: st.forkedFrom || null,
     dailyMetrics,
   };
 }

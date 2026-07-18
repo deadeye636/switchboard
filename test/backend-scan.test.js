@@ -133,6 +133,9 @@ function fakeDbBackend(id, { sessions, bucketPath }) {
     },
     watchTargets() { return [{ kind: 'db', path: 'store.db' }]; },
     deriveState: null,
+    // #193: a db backend declares its parent link the neutral way — its reader exposes `lineageParentRef`
+    // and the descriptor turns it into lineageParentId at the sink (mirrors hermes/index.js).
+    resolveLineage: (row) => (row && row.lineageParentRef ? { lineageParentId: row.lineageParentRef, lineageKind: 'parent' } : null),
     sessionBucketPath: () => bucketPath,
   };
 }
@@ -325,9 +328,10 @@ test('a db-mode row keeps null filePath + changeMarker + the lineageParentId rem
       bucketPath: w.root,
       sessions: [{
         sessionId: id, marker: 'mk-42',
-        // The parser reports the backend's own parent as `parentSessionId` (hermes/reader.js). The SCANNER
-        // moves it to `lineageParentId` so a Hermes child does not render as a Claude subagent.
-        row: { cwd: w.projectCwd, summary: 'db row', messageCount: 2, parentSessionId: 'hsess-parent-0' },
+        // The reader exposes the backend's own parent as `lineageParentRef` (hermes/reader.js); the
+        // descriptor's resolveLineage turns it into lineageParentId at the sink so a db child never
+        // renders as a Claude subagent.
+        row: { cwd: w.projectCwd, summary: 'db row', messageCount: 2, lineageParentRef: 'hsess-parent-0' },
       }],
     }));
 
@@ -336,8 +340,8 @@ test('a db-mode row keeps null filePath + changeMarker + the lineageParentId rem
     assert.ok(row, 'cached');
     assert.equal(row.filePath, null, 'a db session has no file path (v11 tolerates null)');
     assert.equal(row.changeMarker, 'mk-42', 'the change gate rides on the backend marker');
-    assert.equal(row.lineageParentId, 'hsess-parent-0', 'the backend parent is remapped into lineageParentId');
-    assert.equal(row.parentSessionId, null, 'and cleared from parentSessionId (not a Claude subagent)');
+    assert.equal(row.lineageParentId, 'hsess-parent-0', 'the descriptor stamped the backend parent into lineageParentId');
+    assert.equal(row.parentSessionId, undefined, 'never the Claude subagent field');
     assert.equal(row.folder, w.folder, 'grouped by its cwd like any other backend');
   } finally { cleanup(w); }
 });

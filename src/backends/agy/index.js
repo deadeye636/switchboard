@@ -152,6 +152,10 @@ module.exports = {
   // No confirmed fork flag — declaring false HIDES the Fork button for agy's sessions rather than
   // launching an unrelated empty session when it is pressed.
   supportsFork: false,
+  // Lineage (#193): agy's `.db` has a `parent_references` table, but it is an unschema'd protobuf blob and
+  // no forked/parent agy conversation was available to reverse-engineer what it points at. Declares none
+  // until the reference is verified against a real forked trajectory (honest gap).
+  resolveLineage: () => null,
   // The `.db` is a binary SQLite/protobuf file, NOT a text transcript — so it EXPORTS its messages (like
   // Hermes) rather than being read as JSONL. It is still discovered as a file (the file store scans,
   // watches and reconciles it), but the viewer and the handoff read it through `readMessages`, never the

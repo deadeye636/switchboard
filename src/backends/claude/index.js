@@ -277,6 +277,10 @@ function deleteSessions(filePaths, { projectsDir } = {}) {
 module.exports = {
   id: 'claude',
   supportsFork,
+  // Lineage (#193): a forked Claude session names its origin (`forkedFrom`) in the head — the only
+  // cross-session link Claude records on disk. A /clear records NO back-ref, so its (single-session) link
+  // is written live by session-transitions, not here. Same-session compaction is not a lineage row.
+  resolveLineage: (row) => (row && row.forkedFrom ? { lineageParentId: row.forkedFrom, lineageKind: 'fork' } : null),
   projectTrust,
   rewriteProjectPath,
   deleteSessions,

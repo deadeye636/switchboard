@@ -478,6 +478,8 @@ function fakeDbBackend(id, { sessions, bucketPath }) {
     },
     watchTargets() { return [{ kind: 'db', path: 'store.db' }]; },
     deriveState: null,
+    // #193: neutral lineage — reader exposes lineageParentRef, descriptor stamps lineageParentId at the sink.
+    resolveLineage: (row) => (row && row.lineageParentRef ? { lineageParentId: row.lineageParentRef, lineageKind: 'parent' } : null),
     sessionBucketPath: () => bucketPath,
   };
 }
@@ -509,7 +511,7 @@ test('db-mode: a {kind:db} session is indexed and grouped by its cwd like any ot
 
 // T-5.5 — the cost/lineage columns are worthless if they stop at the cache: Stats reads them off the
 // renderer's session rows, so the whole chain parser -> upsert -> buildProjectsFromCache must carry
-// them. (Hermes' own parent link rides in `lineageParentId`, NOT `parentSessionId` = Claude subagent.)
+// them. (A backend's own parent link rides in `lineageParentId`, NOT `parentSessionId` = Claude subagent.)
 test('db-mode: cost + lineage reach the renderer session rows', () => {
   const w = setup({ enabledMap: { dbtest: true } });
   try {
@@ -517,13 +519,12 @@ test('db-mode: cost + lineage reach the renderer session rows', () => {
       bucketPath: w.root,
       sessions: [{
         sessionId: 'hsess-1', marker: 'm1',
-        // The parser reports the backend's own parent as `parentSessionId` (see hermes/reader.js) —
-        // the scanner is what moves it to `lineageParentId`, so the fixture must use the real shape
-        // or the remap under test never runs.
+        // The reader exposes the backend's own parent as `lineageParentRef`; the descriptor's
+        // resolveLineage stamps it into lineageParentId at the neutral sink (see hermes/index.js).
         row: {
           cwd: w.projectCwd, summary: 'costed', messageCount: 2,
           estimatedCostUsd: 0.0123, actualCostUsd: null, costStatus: 'estimated',
-          parentSessionId: 'hsess-0',
+          lineageParentRef: 'hsess-0',
         },
       }],
     }));
@@ -535,7 +536,7 @@ test('db-mode: cost + lineage reach the renderer session rows', () => {
     assert.equal(session.estimatedCostUsd, 0.0123);
     assert.equal(session.actualCostUsd, null, 'an unsettled cost stays null — never coerced to 0');
     assert.equal(session.costStatus, 'estimated', 'so Stats can label the figure as an estimate');
-    assert.equal(session.lineageParentId, 'hsess-0');
+    assert.equal(session.lineageParentId, 'hsess-0', 'the descriptor stamped the backend parent');
     assert.equal(session.parentSessionId, null, 'a backend lineage parent is not a Claude subagent');
   } finally { cleanup(w); }
 });

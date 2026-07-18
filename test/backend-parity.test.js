@@ -53,6 +53,22 @@ test('every backend states whether it can fork — and only a forker gets forkFr
   }
 });
 
+// #193: session lineage is a NEUTRAL feature — the core stamps lineageParentId at one sink by calling each
+// backend's resolveLineage(row). Every backend must ANSWER the hook, even if only to decline (return null),
+// so no backend's provenance can quietly hard-wire itself into the core. A backend that DOES record a link
+// returns { lineageParentId, lineageKind }; one that does not (or cannot verify it) returns null on purpose.
+test('every backend declares resolveLineage — a link shape or an honest null', () => {
+  for (const b of READY) {
+    const id = b.id;
+    assert.equal(typeof b.resolveLineage, 'function', `${id} must declare resolveLineage (return null if it records none)`);
+    // A bare/empty row must not throw and must not invent a link.
+    const bare = b.resolveLineage({});
+    assert.ok(bare === null || (bare && typeof bare.lineageParentId === 'string' && typeof bare.lineageKind === 'string'),
+      `${id}.resolveLineage({}) must be null or a { lineageParentId, lineageKind } pair`);
+    assert.equal(b.resolveLineage(null), null, `${id}.resolveLineage(null) must be null, not a throw`);
+  }
+});
+
 test('every backend that names its own sessions implements ALL THREE identity hooks (D17)', () => {
   // Two hooks is the resume bug: matchLiveSession only accepts records born after the spawn, which a
   // resumed session's record never is, so it claims the NEXT new session's record instead.

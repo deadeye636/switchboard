@@ -291,8 +291,10 @@ function parseSession(handle) {
       estimatedCostUsd: s.estimated_cost_usd == null ? null : Number(s.estimated_cost_usd),
       actualCostUsd: s.actual_cost_usd == null ? null : Number(s.actual_cost_usd),
       costStatus: s.cost_status || null,
-      // Lineage.
-      parentSessionId: s.parent_session_id || null,
+      // Lineage (#193): Hermes' own parent link. Kept in a Hermes-specific field, NOT `parentSessionId`
+      // (which is Claude's SUBAGENT link — reusing it would render a Hermes child as a subagent). The
+      // Hermes descriptor's resolveLineage turns this into lineageParentId at the neutral sink.
+      lineageParentRef: s.parent_session_id || null,
       toolCallCount: Number(s.tool_call_count || 0),
       // Busy/idle inputs (state.js). `ended_at` sounded like the signal and is not — on a real store it is
       // null on every session, finished or not (#165). What says whose turn it is, is the LAST row: an

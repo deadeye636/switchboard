@@ -121,10 +121,16 @@ test('a session with a real actual cost reports both figures', () => {
   assert.strictEqual(row.costStatus, 'actual');
 });
 
-test('lineage: parent_session_id is surfaced', () => {
+test('lineage: parent_session_id is surfaced as lineageParentRef, and the descriptor makes it a link', () => {
   useFixture();
   const h = reader.discoverSessions().find(x => x.sessionId === 'sess-cli-2');
-  assert.strictEqual(reader.parseSession(h).parentSessionId, 'sess-cli-1');
+  const row = reader.parseSession(h);
+  // The reader exposes the RAW parent in a Hermes-specific field, NOT the Claude subagent field (#193).
+  assert.strictEqual(row.lineageParentRef, 'sess-cli-1');
+  assert.strictEqual(row.parentSessionId, undefined, 'never the Claude subagent field');
+  // The neutral hook turns it into the shared lineage shape at the sink.
+  const hermes = require('../src/backends/hermes');
+  assert.deepEqual(hermes.resolveLineage(row), { lineageParentId: 'sess-cli-1', lineageKind: 'parent' });
 });
 
 test('message text feeds OUR FTS body + first prompt', () => {

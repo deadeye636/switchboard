@@ -14,6 +14,11 @@
 const backends = require('../backends');
 const sessionBackends = require('../session/session-backends');
 
+// A session_cache row with no explicit backendId predates the multi-LLM era and is Claude by definition —
+// the same named default the renderer uses (backend-registry.js). Only used to route a row to its
+// descriptor here; NOT a `|| 'claude'` rescue of a live value (see CLAUDE.md).
+const LEGACY_SESSION_BACKEND = 'claude';
+
 let getMainWindow, log;
 let upsertCachedSessions, deleteCachedSession, replaceSessionMetrics;
 let deleteSearchFolder, deleteSearchSession, upsertSearchEntries, deleteCachedFolder;
@@ -174,6 +179,22 @@ function applyIndexResults({ sessions = [], wipeFolders = [], deleteIds = [], me
     // Build the search rows BEFORE any setName below (see the doc comment) so the FTS title reflects
     // the same name the scattered paths captured in their parse loops.
     const entries = sessions.map(buildSearchEntry);
+
+    // Session lineage (#193): the ONE neutral seam. Each backend DECLARES its own parent link via its
+    // descriptor's resolveLineage(row) — the core never branches on backendId and never reaches into a
+    // backend's format here. A backend that records no lineage (or a signal we cannot verify against its
+    // real format) returns null, and that is an honest gap, not a hard-wired special case.
+    for (const s of sessions) {
+      // A scanned Claude-root row carries no explicit backendId — db.js COALESCEs its NULL to Claude at
+      // read time, so here it is the pre-multi-LLM default (LEGACY_SESSION_BACKEND, the same named default
+      // the renderer uses). Axis-B rows always set backendId, so this fallback only ever names Claude.
+      const b = backends.get(s.backendId || LEGACY_SESSION_BACKEND);
+      const lin = b && typeof b.resolveLineage === 'function' ? b.resolveLineage(s) : null;
+      if (lin && lin.lineageParentId) {
+        s.lineageParentId = lin.lineageParentId;
+        s.lineageKind = lin.lineageKind || null;
+      }
+    }
 
     upsertCachedSessions(sessions);
     for (const s of sessions) {

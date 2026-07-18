@@ -18,20 +18,35 @@ unrelated rows, and one case broke worse than cosmetics:
 
 Both need the same answer — *which session did this one come from* — so it is built once.
 
-## The lineage source, per backend (no island)
+## The lineage source, per backend — one neutral seam, no island
 
 A session's parent rides in `session_cache.lineageParentId` (+ `lineageKind`), separate from
 `parentSessionId`, which is reserved for Claude **subagents** (reusing it would render a continuation as a
-subagent). The core reads each backend's own field — no `if (backendId === …)`:
+subagent). **The core never reads a backend's format and never branches on a backend id.** There is exactly
+ONE place lineage is stamped — the scan sink (`src/index/index-writes.js applyIndexResults`) — and it does
+it by calling `backends.get(row.backendId).resolveLineage(row)`. Each backend's descriptor DECLARES that
+hook; a backend that records no parent link (or one that cannot be verified against its real format) returns
+`null`, and that is an honest gap, not a special case. `test/backend-parity.test.js` requires every backend
+to answer the hook.
 
-| Backend | Source | `lineageKind` |
-|---|---|---|
-| Hermes | `parent_session_id` (store column) → `parse.js` remap | `parent` (hard) |
-| Claude fork | `forkedFrom` in the head, read by the scanner (`session-reader.js`) | `fork` (hard) |
-| Claude `/clear` | the mtime-freeze heuristic, recorded at the live re-key | `clear` (soft) |
-| Pi / Codex / compaction | not yet wired (signals unverified against real transcripts) | — |
+Each backend's reader exposes only its OWN raw field; the descriptor turns it into the shared shape:
 
-`PARSER_SCHEMA_VERSION` (Claude) bumped 4→5 so existing rows re-derive fork lineage on the next scan.
+| Backend | Raw field (reader) | `resolveLineage` → | Note |
+|---|---|---|---|
+| Claude | `forkedFrom` (head) | `{ parent, 'fork' }` | hard. `/clear` records nothing on disk → handled live (below). |
+| Hermes | `lineageParentRef` (`parent_session_id` column) | `{ parent, 'parent' }` | hard |
+| Codex | — | `null` | `/clear` starts a new rollout with no back-ref; `compacted` is a state, not a parent |
+| Pi | — | `null` | `--fork` exists but the session header records no parent (verified) |
+| agy | — | `null` | a `parent_references` protobuf blob exists but is unverified |
+
+`PARSER_SCHEMA_VERSION` (Claude) bumped 4→5 so existing rows re-derive fork lineage on the next scan. Adding
+a backend to this feature is a descriptor edit (`resolveLineage`) plus its reader exposing a raw field — no
+core change, which is the whole point.
+
+**Claude `/clear` (soft) is the one live exception:** it records no on-disk link, so it is written at the
+live re-key (`session-transitions.js`, `lineageKind: 'clear'`), not through the scan sink. That path is
+Claude-specific by nature — it is Claude's live PTY-id transition; other backends adopt their own ids via
+`watch/adopt.js`. It is single-session only (see the resolver note below).
 
 ## The `/clear` resolver (`src/session/session-lineage.js`) — conservative on purpose
 
@@ -85,9 +100,12 @@ open their read-only transcript. The toggle and ancestor clicks are delegated (#
   signal can safely attribute the clear; it needs a PTY→session tie (a per-session `SessionStart` hook echo
   that names the parent). The single-session case IS fixed, and the resolver refuses to guess so nothing is
   ever mis-keyed.
-- Pi (`parentSession`), Codex/Claude **compaction** lineage are not wired — their on-disk signals were not
-  verified against real transcripts. The mechanism (columns, resolver, rendering) is in place; a backend
-  that records a parent only has to set `lineageParentId`/`lineageKind`, no core change.
+- **Codex / Pi / agy declare `null`** from `resolveLineage` — on purpose, not by omission: Codex records no
+  parent on a `/clear` and `compacted` is a state not a reference; Pi's session header carries no parent
+  though `--fork` exists; agy's `parent_references` is an unverified protobuf blob. Each is wired to the
+  neutral seam and answers the hook; wiring a real link later is a descriptor + reader edit, no core change.
+  Same-session **compaction** (Claude `logicalParentUuid`, Codex `compacted`) is deliberately out of scope —
+  it is not a cross-session parent, so it is not a lineage row.
 - A very long `/clear` chain is not capped in the expander (all ancestors listed).
 - An expanded lineage thread collapses on the next sidebar re-render (morphdom re-applies `display:none`);
   a live ancestor also still appears inside a descendant's expander (consistent with Model A's shared-ancestor

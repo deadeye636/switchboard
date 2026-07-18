@@ -226,6 +226,17 @@ Being a deliberate act is the entire point.
 
 ### Working on backends
 
+- **THE DESIGN RULE FOR ANY CROSS-BACKEND FEATURE — the core is neutral, the backend declares what it can
+  do.** A capability that varies per backend (lineage/provenance, cost, usage, fork, compaction, live-id
+  adoption, …) is NOT a `switch (backendId)` in the core and NOT a Claude implementation with the others
+  bolted on. It is a **descriptor hook** each backend implements to declare *whether* it supports the thing
+  and *how* it reads it from its own format; the core calls the hook and treats a missing/`null` answer as
+  "this backend doesn't do that." Build the neutral seam FIRST, then fill it in per backend — never ship
+  the Claude path and call the rest a follow-up, because that is exactly how a feature ends up hard-wired
+  and an "island" (#193 shipped Claude+Hermes only and had to be redone). If you cannot verify a backend's
+  signal against its real format (`docs/backend-formats.md` / a real install), the hook returns `null` for
+  it *on purpose* and that is documented — an honest gap, not a fake read. `test/backend-parity.test.js`
+  is where you assert every backend answers the hook (even if to decline).
 - **Read first:** `docs/specs/09-multi-llm.md` (the contract + why each decision is what it is) and
   `docs/backend-formats.md` (what each backend actually writes — taken from real installs, because the
   published docs were wrong in three places).

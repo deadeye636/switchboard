@@ -161,13 +161,9 @@ function parseBackendSessions(b, { handles, cachedByFile, cachedById, force = fa
       // A db-store session has no file. `filePath` stays null (resolveRowFilePath must tolerate that)
       // and the change gate rides on the backend's own marker instead.
       row.changeMarker = changeKey;
-      // Hermes lineage lives in its OWN column: `parentSessionId` is this app's Claude-subagent link,
-      // and reusing it would make a Hermes child session render as a subagent of its parent.
-      if (row.parentSessionId) {
-        row.lineageParentId = row.parentSessionId;
-        row.lineageKind = 'parent'; // a backend-recorded hard link (#193), not a heuristic guess
-        row.parentSessionId = null;
-      }
+      // Lineage is NOT remapped here any more (#193): each backend's reader exposes its own raw parent
+      // field and its descriptor's resolveLineage turns it into lineageParentId at the neutral sink. This
+      // generic path stays free of any per-backend lineage shape.
     }
 
     seenIds.add(row.sessionId);

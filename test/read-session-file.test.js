@@ -141,17 +141,17 @@ test('readSessionFile returns a top-level row when called without opts', () => {
     assert.equal(row.messageCount, 1);
     assert.equal(row.parentSessionId, undefined);
     assert.equal(row.agentId, undefined);
-    // A plain (non-forked) session has no lineage link.
-    assert.equal(row.lineageParentId, null);
-    assert.equal(row.lineageKind, null);
+    // A plain (non-forked) session exposes no raw fork origin.
+    assert.equal(row.forkedFrom, null);
   } finally {
     cleanup(tmp);
   }
 });
 
-// #193: a forked session names its origin in the head. The scanner records it as a HARD lineage link in
-// lineageParentId (NOT parentSessionId, which is reserved for Claude subagents), kind 'fork'.
-test('readSessionFile records fork lineage from a forkedFrom entry', () => {
+// #193: a forked session names its origin in the head. The parser exposes the RAW origin id as
+// `forkedFrom` (NOT the shared lineage field) — the Claude descriptor's resolveLineage, at the neutral
+// sink, is what turns it into lineageParentId/lineageKind. This keeps the parser free of the shared shape.
+test('readSessionFile exposes the raw forkedFrom origin, and the descriptor turns it into lineage', () => {
   const tmp = mkTmp();
   try {
     const filePath = path.join(tmp, 'forked-session.jsonl');
@@ -162,9 +162,14 @@ test('readSessionFile records fork lineage from a forkedFrom entry', () => {
     );
     const row = readSessionFile(filePath, 'folder-x', '/p');
     assert.ok(row, 'expected a row');
-    assert.equal(row.lineageParentId, 'origin-abc', 'the fork parent rides in lineageParentId');
-    assert.equal(row.lineageKind, 'fork');
-    assert.equal(row.parentSessionId, undefined, 'not the subagent field');
+    assert.equal(row.forkedFrom, 'origin-abc', 'the parser exposes the raw origin id');
+    assert.equal(row.lineageParentId, undefined, 'the parser does NOT stamp the shared field — the sink does');
+    assert.equal(row.parentSessionId, undefined, 'not the subagent field either');
+
+    // The neutral hook: the Claude descriptor turns the raw field into the shared lineage shape.
+    const claude = require('../src/backends/claude');
+    assert.deepEqual(claude.resolveLineage(row), { lineageParentId: 'origin-abc', lineageKind: 'fork' });
+    assert.equal(claude.resolveLineage({ forkedFrom: null }), null, 'no origin → no lineage');
   } finally {
     cleanup(tmp);
   }
