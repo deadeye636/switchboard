@@ -3893,6 +3893,64 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 #jsonl-viewer-body::-webkit-scrollbar-track { background: transparent; }
 #jsonl-viewer-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
 
+/* Subagent transcript: the read-only banner + its escape hatch. Both classes shipped with no rule at
+   all, so the button rendered as the browser's native control — a white box in a dark viewer. */
+.jsonl-subagent-escape-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 2px 0 10px;
+  padding: 7px 10px;
+  background: rgba(240, 160, 80, 0.08);
+  border: 1px solid rgba(240, 160, 80, 0.25);
+  border-radius: 4px;
+}
+
+.jsonl-subagent-escape-label {
+  font-size: 11.5px;
+  color: #c0a080;
+  flex: 1;
+  min-width: 180px;
+}
+
+.jsonl-subagent-resume-btn {
+  font-size: 11px;
+  font-family: inherit;
+  color: #c0c0d4;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.jsonl-subagent-resume-btn:hover {
+  background: rgba(255,255,255,0.12);
+  color: #e0e0f0;
+}
+
+/* Live tail marker (#232) — shown while a subagent transcript is actually following the file. */
+.jsonl-subagent-live-indicator {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #2ea043;
+  border: 1px solid rgba(46, 160, 67, 0.4);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-left: 6px;
+  white-space: nowrap;
+  animation: subagent-live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes subagent-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
 /* In-viewer transcript search (#86) */
 #jsonl-search {
   position: relative;

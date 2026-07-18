@@ -352,6 +352,49 @@ module.exports = {
     if (row.filePath) return row.filePath;
     return resolveJsonlPath(_roots[0], row);
   },
+  // --- The subagent seam (#235) ---------------------------------------------------------------
+  // #230 declared THAT Claude has subagents; these three say HOW they are found, named and described,
+  // so the core stops walking `<folder>/<parent>/subagents/` and stops minting `sub:<parent>:<agent>`
+  // itself. A backend that declares supportsSubagents: false implements none of them and is never
+  // asked. Everything Claude-shaped about a subagent now lives in this folder.
+  //
+  // The core owns the spawn/complete STATE MACHINE (mtime stability, bootstrap quiet, reopen, GC —
+  // session-transitions.js); this hook only reports what exists right now.
+  // `opts.folderPath` is the session's directory in this backend's store, passed because the caller
+  // already resolved it; a backend that keeps no such directory ignores it.
+  //
+  // `null` and `[]` MEAN DIFFERENT THINGS and the core acts on the difference: `null` = "nothing to
+  // watch here yet" (Claude: the subagents directory does not exist), `[]` = "watched, currently
+  // empty". Only the second one starts the bootstrap bookkeeping, which is what makes the NEXT file
+  // to appear a real spawn instead of a silently-recorded leftover (#122).
+  listSubagents: (parentSessionId, opts) => {
+    const base = (opts && opts.folderPath) || (_roots[0] ? path.join(_roots[0], (opts && opts.folder) || '') : null);
+    if (!base || !parentSessionId) return null;
+    const dir = path.join(base, parentSessionId, 'subagents');
+    let files;
+    try { files = fs.readdirSync(dir); } catch { return null; }   // not spawned yet — normal, not an error
+    const out = [];
+    for (const file of files) {
+      const m = file.match(/^agent-(.+)\.jsonl$/);
+      if (!m) continue;
+      let stat;
+      try { stat = fs.statSync(path.join(dir, file)); } catch { continue; }
+      out.push({ agentId: m[1], mtimeMs: stat.mtimeMs });
+    }
+    return out;
+  },
+  // Claude writes `<transcript>.meta.json` beside the agent file. The core needs the type and the
+  // description for the spawn event and knows neither the sidecar nor its name.
+  subagentMeta: (parentSessionId, agentId, opts) => {
+    const base = (opts && opts.folderPath) || (_roots[0] ? path.join(_roots[0], (opts && opts.folder) || '') : null);
+    if (!base || !parentSessionId || !agentId) return null;
+    const file = path.join(base, parentSessionId, 'subagents', `agent-${agentId}.jsonl`);
+    const meta = readSubagentMeta(file);
+    return meta ? { subagentType: meta.agentType || null, description: meta.description || null } : null;
+  },
+  // The row id a subagent is cached under. `sub:<parent>:<agent>` is CLAUDE's shape — the core used to
+  // concatenate it by hand, which silently made it the universal one.
+  subagentSessionId,
   // Where Claude keeps its plan documents (#227) — the Plans tab reads every launchable backend's plansDir
   // and shows nothing for a backend that has none. ~/.claude/plans, or the isolated home under a demo run.
   plansDir: () => path.join(claudeHome(), 'plans'),
@@ -427,8 +470,7 @@ module.exports = {
   readSessionFileIncremental,
   enumerateSessionFiles,
   resolveJsonlPath,
-  subagentSessionId,
-  readSubagentMeta,
+  // subagentSessionId + the subagent hooks are declared with the rest of the subagent seam above (#235).
   readFolderSessions,
   watchTargets,
   deriveState: null, // Claude state comes from session-transitions folder-watch, not a per-event fn

@@ -278,7 +278,10 @@ sessionCache.init({
 const { readSessionFile, readFolderFromFilesystem, refreshFolder,
         buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide, notifyRendererProjectsChanged, sendStatus,
         populateCacheViaWorker } = sessionCache;
-const { resolveJsonlPath, PARSER_SCHEMA_VERSION: CLAUDE_PARSER_VERSION } = require('./backends/claude/session-reader');
+// Only the parser version is Claude's to read here. The transcript PATH goes through the descriptor's
+// transcriptPathFor (#211/#233) — a direct resolveJsonlPath import is how the subagent handlers came to
+// resolve every backend's row inside Claude's store.
+const { PARSER_SCHEMA_VERSION: CLAUDE_PARSER_VERSION } = require('./backends/claude/session-reader');
 
 // #199 — the off-thread index worker is the ONE runtime path. The SWITCHBOARD_INDEX_WORKER flag and the
 // inline parse orchestration it used to gate were removed once the worker was validated in a live install
@@ -1680,10 +1683,19 @@ ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
   return readJsonlEntries(path.join(PROJECTS_DIR, folder, sessionId + '.jsonl'));
 });
 
+// A subagent row's transcript, resolved through its BACKEND (#233) — the same way read-session-jsonl
+// resolves a top-level one. Both subagent handlers used to call Claude's resolveJsonlPath directly, which
+// was harmless only because Claude is the sole backend declaring supportsSubagents (#230): the first
+// other one would have resolved to a path under Claude's store. `transcriptPathFor` (#211) is the hook
+// that answers this, and Claude's reconstructs from folder + parent id + agent id exactly as before.
+const { resolveSubagentFile: resolveSubagentFileWith } = require('./session/subagent-transcript');
+const resolveSubagentFile = (parentSessionId, agentId) =>
+  resolveSubagentFileWith({ backends, getCachedSession }, parentSessionId, agentId);
+
 ipcMain.handle('read-subagent-jsonl', async (_event, parentSessionId, agentId) => {
-  const row = getCachedSession('sub:' + parentSessionId + ':' + agentId);
-  if (!row) return { error: 'Subagent session not found in cache' };
-  return readJsonlEntries(resolveJsonlPath(PROJECTS_DIR, row));
+  const resolved = resolveSubagentFile(parentSessionId, agentId);
+  if (resolved.error) return { error: resolved.error };
+  return readJsonlEntries(resolved.filePath);
 });
 
 ipcMain.handle('list-subagents', (_event, parentSessionId) => {
@@ -1700,9 +1712,9 @@ ipcMain.handle('list-subagents', (_event, parentSessionId) => {
 // ── Subagent live-tail watchers ──────────────────────────────────────────────
 
 ipcMain.handle('start-subagent-watch', (_event, parentSessionId, agentId) => {
-  const row = getCachedSession('sub:' + parentSessionId + ':' + agentId);
-  if (!row) return { error: 'Subagent not found in cache' };
-  const filePath = resolveJsonlPath(PROJECTS_DIR, row);
+  const resolved = resolveSubagentFile(parentSessionId, agentId);
+  if (resolved.error) return { error: resolved.error };
+  const filePath = resolved.filePath;
 
   const watchId = ++subagentWatcherSeq;
   let offset = 0;
@@ -1768,6 +1780,9 @@ terminalIo.registerIpc(ipcMain);
 // Session transitions → session-transitions.js
 const sessionTransitions = require('./session/session-transitions');
 sessionTransitions.init({ PROJECTS_DIR, activeSessions, getMainWindow: () => mainWindow, log, rekeyMcpServer, rekeySessionBackend: sessionBackends.rekeySession,
+  // #235: which backend spawned a live session — the launch overlay is what knows, so the subagent
+  // dispatch asks it instead of reading a field an activeSessions entry never carries.
+  getSessionBackend: (id) => sessionBackends.get(id),
   // #193: persist a /clear child's provenance the moment the re-key resolves it (the scanner can't).
   recordLineage: (childId, folder, parentId) => setSessionLineage(childId, folder, parentId, 'clear') });
 // Point the Claude backend's file-mode discovery at the app's actual projects dir (may differ from

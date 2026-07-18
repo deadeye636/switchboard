@@ -55,6 +55,83 @@ function drainViewerWatches() {
   activeViewerWatches.clear();
 }
 
+// Live-tail one subagent transcript (#232). Both places that render a subagent — the sidebar's
+// read-only view and the inline Agent-block expansion — go through here, so there is ONE start,
+// one teardown and one live marker.
+//
+// The IPC for this existed on both sides since #76 and had no caller at all: nothing set
+// `data-subagent-watch-key`, so the `subagent-watch-data` event this module dispatches (see
+// initSubagentListeners) landed nowhere, `activeWatchId` stayed null, and every subagent transcript
+// in the app was a snapshot that looked finished.
+//
+// container    — gets the watch key; it is what onSubagentWatchEvent targets.
+// indicatorHost — where the "live" marker is appended (the escape banner, or the Agent block).
+// entries      — what is already rendered. Kept so the tool-result map spans the whole transcript:
+//                a tool_result arriving in a later append must still find its tool_use.
+// renderInto   — called with (freshEntries, toolResultMap) to append the new entries.
+// Returns its own stop function, already registered in activeViewerWatches.
+function attachSubagentLiveTail({ container, indicatorHost, parentSessionId, agentId, entries, renderInto }) {
+  const noop = () => {};
+  if (!window.api || typeof window.api.startSubagentWatch !== 'function') return noop;
+  if (!parentSessionId || !agentId) return noop;
+
+  const all = (entries || []).slice();
+  let watchId = null;
+  let stopped = false;
+
+  const indicator = document.createElement('span');
+  indicator.className = 'jsonl-subagent-live-indicator';
+  indicator.textContent = 'live';
+  // Only claim "live" when something vouches for it. An append is itself proof (see onData), so a
+  // transcript that starts growing while open picks the marker up without waiting for the scan.
+  if (indicatorHost && typeof isSubagentLive === 'function'
+      && isSubagentLive(liveSubagents, parentSessionId, agentId)) {
+    indicatorHost.appendChild(indicator);
+  }
+
+  function onData(ev) {
+    const payload = ev && ev.detail;
+    if (!payload || !payload.entries || !payload.entries.length) return;
+    const fresh = mergeLocalCommandEntries(payload.entries);
+    all.push(...fresh);
+    if (indicatorHost && !indicator.isConnected) indicatorHost.appendChild(indicator);
+    try { renderInto(fresh, buildToolResultMap(all)); } catch {}
+  }
+
+  function stopWatch() {
+    if (stopped) return;
+    stopped = true;
+    container.removeEventListener('subagent-watch-data', onData);
+    container.removeEventListener('subagent-completed-internal', stopWatch);
+    delete container.dataset.subagentWatchKey;
+    indicator.remove();
+    activeViewerWatches.delete(stopWatch);
+    // The id may not have arrived yet — the invoke below stops it in that case.
+    if (watchId !== null) {
+      window.api.stopSubagentWatch(watchId).catch(() => {});
+      watchId = null;
+    }
+  }
+
+  container.dataset.subagentWatchKey = parentSessionId + ':' + agentId;
+  container.addEventListener('subagent-watch-data', onData);
+  // setSubagentLive fires this at the falling edge, so a finished subagent stops polling itself.
+  container.addEventListener('subagent-completed-internal', stopWatch);
+  activeViewerWatches.add(stopWatch);
+
+  window.api.startSubagentWatch(parentSessionId, agentId).then(res => {
+    if (stopped) {
+      // Torn down while the invoke was in flight — release the watcher main just created.
+      if (res && res.watchId != null) window.api.stopSubagentWatch(res.watchId).catch(() => {});
+      return;
+    }
+    if (res && res.watchId != null) watchId = res.watchId;
+    else stopWatch();   // the backend declined (no subagents, no file) — no marker, no poll
+  }).catch(() => stopWatch());
+
+  return stopWatch;
+}
+
 // Register IPC listeners for subagent lifecycle events (called once at module load).
 (function initSubagentListeners() {
   if (!window.api) return; // guard for non-Electron contexts
@@ -301,25 +378,12 @@ const toolRenderers = {
 
     let expanded = false;
     let nestedContainer = null;
-    let activeWatchId = null;
-    let liveIndicator = null;
-
-    function stopWatch() {
-      if (activeWatchId !== null) {
-        window.api.stopSubagentWatch(activeWatchId).catch(() => {});
-        activeWatchId = null;
-      }
-      if (liveIndicator) {
-        liveIndicator.remove();
-        liveIndicator = null;
-      }
-      activeViewerWatches.delete(stopWatch);
-    }
-    activeViewerWatches.add(stopWatch);
+    let stopWatch = null;
 
     el.addEventListener('click', async () => {
       if (expanded && nestedContainer) {
-        // Collapse
+        // Collapse — and stop the tail with it, or the poll outlives what it was feeding.
+        if (stopWatch) { stopWatch(); stopWatch = null; }
         nestedContainer.remove();
         nestedContainer = null;
         expanded = false;
@@ -347,18 +411,32 @@ const toolRenderers = {
 
       const nestedResultMap = buildToolResultMap(nestedEntries);
 
-      const prevSessionId = currentViewerSessionId;
-      currentViewerSessionId = subSessionId;
-      for (const entry of nestedEntries) {
-        const entryEl = renderJsonlEntry(entry, nestedResultMap);
-        if (entryEl) nestedContainer.appendChild(entryEl);
+      // Nested entries render in the SUBAGENT's session context (its own agent blocks resolve
+      // against it), so the swap has to wrap every render — the live tail below included.
+      function renderNested(list, map) {
+        const prev = currentViewerSessionId;
+        currentViewerSessionId = subSessionId;
+        for (const entry of list) {
+          const entryEl = renderJsonlEntry(entry, map);
+          if (entryEl) nestedContainer.appendChild(entryEl);
+        }
+        currentViewerSessionId = prev;
       }
-      currentViewerSessionId = prevSessionId;
+      renderNested(nestedEntries, nestedResultMap);
 
       el.after(nestedContainer);
       expanded = true;
       const caret = el.querySelector('.jsonl-agent-caret');
       if (caret) caret.innerHTML = '&#9660;';
+
+      stopWatch = attachSubagentLiveTail({
+        container: nestedContainer,
+        indicatorHost: el,
+        parentSessionId,
+        agentId: match.agentId,
+        entries: nestedEntries,
+        renderInto: renderNested,
+      });
     });
 
     return el;
@@ -857,16 +935,37 @@ async function showSubagentTranscript(session) {
 
   let rendered = 0;
   let entryIndex = 0;
-  for (const entry of entries) {
-    const el = renderJsonlEntry(entry, toolResultMap);
-    if (el) {
-      // Stable anchor for the in-viewer search jump (#86), same as the main viewer.
-      el.dataset.entryIndex = entryIndex;
-      jsonlViewerBody.appendChild(el);
-      rendered++;
+  function renderEntries(list, map) {
+    for (const entry of list) {
+      const el = renderJsonlEntry(entry, map);
+      if (el) {
+        // Stable anchor for the in-viewer search jump (#86), same as the main viewer.
+        el.dataset.entryIndex = entryIndex;
+        jsonlViewerBody.appendChild(el);
+        rendered++;
+      }
+      entryIndex++;
     }
-    entryIndex++;
   }
+  renderEntries(entries, toolResultMap);
+
+  // Follow the file while this view is open (#232). Appended entries land at the bottom; the
+  // watch is registered in activeViewerWatches, so leaving the viewer drains it.
+  attachSubagentLiveTail({
+    container: jsonlViewerBody,
+    indicatorHost: escapeBanner,
+    parentSessionId: session.parentSessionId,
+    agentId: session.agentId,
+    entries,
+    renderInto: (fresh, map) => {
+      const atBottom = jsonlViewerBody.scrollHeight - jsonlViewerBody.scrollTop - jsonlViewerBody.clientHeight < 40;
+      // The "no messages" placeholder is a lie the moment something arrives.
+      if (rendered === 0) jsonlViewerBody.querySelectorAll('.plans-empty').forEach(el => el.remove());
+      renderEntries(fresh, map);
+      // Only chase the tail if the user was already at it — otherwise reading scrollback fights back.
+      if (atBottom) jsonlViewerBody.scrollTop = jsonlViewerBody.scrollHeight;
+    },
+  });
 
   if (rendered === 0) {
     const emptyEl = document.createElement('div');

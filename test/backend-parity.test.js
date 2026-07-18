@@ -68,6 +68,50 @@ test('every backend declares supportsSubagents — and only Claude has them toda
   }
 });
 
+// #235: declaring supportsSubagents (#230) was only half the seam. A backend that HAS subagents must also
+// say how they are found, named and described, because the core stopped walking Claude's
+// `<folder>/<parent>/subagents/` and stopped minting `sub:<parent>:<agent>` itself. The rule is symmetric,
+// and the second half is the one that matters: a backend WITHOUT subagents must not carry the hooks, or
+// "declines" and "forgot to implement" become the same thing to every caller.
+test('a backend with subagents implements the whole seam — and one without carries none of it', () => {
+  const SEAM = ['listSubagents', 'subagentMeta', 'subagentSessionId'];
+  for (const b of READY) {
+    if (b.supportsSubagents === true) {
+      for (const hook of SEAM) {
+        assert.equal(typeof b[hook], 'function', `${b.id} claims subagents — it must implement ${hook}`);
+      }
+    } else {
+      for (const hook of SEAM) {
+        assert.equal(b[hook], undefined, `${b.id} declines subagents — it must not implement ${hook}`);
+      }
+    }
+  }
+});
+
+// The id space belongs to the backend that mints it (#235). Two properties the core relies on when it asks
+// every subagent-capable backend for "its" id and takes the first that resolves: the id is deterministic,
+// and it round-trips the two parts it was built from.
+test('subagentSessionId is deterministic and distinct per (parent, agent)', () => {
+  for (const b of READY) {
+    if (b.supportsSubagents !== true) continue;
+    const a = b.subagentSessionId('p1', 'a1');
+    assert.equal(typeof a, 'string', `${b.id}: subagentSessionId must return a string`);
+    assert.equal(b.subagentSessionId('p1', 'a1'), a, `${b.id}: same input must give the same id`);
+    assert.notEqual(b.subagentSessionId('p1', 'a2'), a, `${b.id}: a different agent must give a different id`);
+    assert.notEqual(b.subagentSessionId('p2', 'a1'), a, `${b.id}: a different parent must give a different id`);
+  }
+});
+
+// listSubagents answers with null vs [] on purpose, and the core acts on the difference (bootstrap-quiet,
+// #122). Pin it here so a backend cannot collapse the two and silently turn leftovers into spawn events.
+test('listSubagents returns null when there is nothing to watch', () => {
+  for (const b of READY) {
+    if (b.supportsSubagents !== true) continue;
+    const res = b.listSubagents('no-such-parent', { folderPath: path.join(os.tmpdir(), 'switchboard-absent-store') });
+    assert.equal(res, null, `${b.id}: an absent store is "nothing to watch" (null), not "watched and empty" ([])`);
+  }
+});
+
 // #193: session lineage is a NEUTRAL feature — the core stamps lineageParentId at one sink by calling each
 // backend's resolveLineage(row). Every backend must ANSWER the hook, even if only to decline (return null),
 // so no backend's provenance can quietly hard-wire itself into the core. A backend that DOES record a link

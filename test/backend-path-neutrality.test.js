@@ -35,7 +35,11 @@ function stripComments(src) {
 // Each backend's OWN store tokens: its dot-dir / config file (as a quoted or slash-bounded path segment)
 // and its store env var. These are legal only under src/backends/<id>/**.
 const TOKENS = {
-  claude: [/['"`\\/]\.claude(\.json)?['"`\\/]/, /\bCLAUDE_CONFIG_DIR\b/],
+  // `subagents` is Claude's on-disk LAYOUT (<folder>/<parent>/subagents/agent-<id>.jsonl), not its store
+  // root — and it hid from this guard for exactly that reason while the core walked it directly (#235).
+  // Since the subagent seam (listSubagents / subagentMeta / subagentSessionId) the layout is Claude's
+  // alone, so the literal belongs in its folder like any other store token.
+  claude: [/['"`\\/]\.claude(\.json)?['"`\\/]/, /\bCLAUDE_CONFIG_DIR\b/, /['"`\\/]subagents['"`\\/]/],
   codex:  [/['"`\\/]\.codex['"`\\/]/, /\bCODEX_HOME\b/],
   pi:     [/['"`\\/]\.pi['"`\\/]/, /\bPI_CODING_AGENT_SESSION_DIR\b/],
   hermes: [/['"`\\/]\.hermes['"`\\/]/, /\bHERMES_HOME\b/],
@@ -65,6 +69,11 @@ const ALLOWLIST = {
   // path a shipped migration reads) — not a live Claude store access, and append-only migration history.
   'src/db/connection.js': "one-time migration of Switchboard's own legacy ~/.claude/browser DB location",
   'src/db/migrations.js': 'a shipped (append-only) migration that reads the pre-multi-LLM ~/.claude/projects store',
+  // Project-path derivation reads a transcript to learn its cwd, and a subagent file is the only one it
+  // can find for a session whose parent it has not seen. It walks the STORE it was handed, not a path it
+  // composed from a backend id — the layout knowledge is the last of it, and retiring it means teaching
+  // discovery to hand back the file, which is #211's territory, not #235's.
+  'src/session/derive-project-path.js': "walks Claude's subagents/ layout to find any transcript in a folder",
 };
 
 function walk(dir) {

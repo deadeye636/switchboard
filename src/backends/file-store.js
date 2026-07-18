@@ -71,12 +71,15 @@ function walkStore(dir, matches, out = [], stats = null) {
  */
 const BIRTH_HINT_SKEW_MS = 24 * 60 * 60 * 1000;
 
-function createFileStore({ root, matches, parseSession, refSuffix, birthHint } = {}) {
+function createFileStore({ root, matches, parseSession, refSuffix, birthHint, subagentOf } = {}) {
   if (typeof root !== 'function') throw new Error('file-store: root must be a function (the root moves)');
   if (typeof matches !== 'function') throw new Error('file-store: matches must be a function');
   if (typeof parseSession !== 'function') throw new Error('file-store: parseSession must be a function');
   if (typeof refSuffix !== 'function') throw new Error('file-store: refSuffix must be a function');
   if (birthHint != null && typeof birthHint !== 'function') throw new Error('file-store: birthHint must be a function');
+  // Optional (#235): (filePath, storeRoot) -> the parent session id when this transcript is a subagent's,
+  // else null. Only a backend that declares supportsSubagents has any reason to pass it.
+  if (subagentOf != null && typeof subagentOf !== 'function') throw new Error('file-store: subagentOf must be a function');
 
   /** FILE-mode discovery: one {kind:'file'} handle per transcript. */
   function discoverSessions() {
@@ -87,7 +90,11 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint } =
       path: p,
       // The filename usually carries the id too, but the header is authoritative — the parser reads it there.
       sessionId: null,
-      parentSessionId: null,
+      // Whether this transcript belongs to a subagent is the BACKEND's to say (#235): the shared walk
+      // cannot know, and hardcoding `null` here meant a composing backend structurally could not have
+      // subagents — it would have had to abandon the shared discovery to declare one. `subagentOf` is
+      // optional: a backend without subagents does not pass it and gets exactly today's `null`.
+      parentSessionId: typeof subagentOf === 'function' ? (subagentOf(p, storeRoot) || null) : null,
       root: storeRoot,
     }));
     // A subtree that could not be read makes this result PARTIAL: its sessions are missing, not gone. Flag

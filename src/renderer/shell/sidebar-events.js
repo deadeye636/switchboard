@@ -154,6 +154,11 @@ function dispatchSidebarActivation(e) {
     // the row. (Missing-project rows already returned above.)
     if (t.closest('.session-actions, .session-pin, .session-health-chip, .session-lineage-thread')) return;
     // Subagents are ephemeral child runs — open the read-only subagent transcript, not a PTY resume.
+    // The branch keys on the SESSION FIELD, never on the row's markup, and that is load-bearing (#234):
+    // during a search the sidebar flattens subagents into ordinary top-level rows (nestSubagents === false
+    // in sidebar.js), so they carry none of the `.sidebar-subagent` nesting. A class check would look right
+    // and would try to resume every subagent as a terminal session in the search view alone.
+    // test/sidebar-subagent-routing.test.js pins both shapes.
     if (session.parentSessionId) { if (typeof showSubagentTranscript === 'function') showSubagentTranscript(session); return; }
     openSession(session);
     return;

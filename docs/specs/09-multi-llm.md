@@ -80,6 +80,9 @@ special case anywhere outside that provider's own folder.
 | `configFields` | this CLI's launch options. **The Settings page and the Configure dialog are generated from it.** A field may declare `appliesAt: 'spawn'` (applied by `app/terminal/spawn.js`, not part of the argv) or `requires: '<other>'` (meaningless on its own). Options that belong to **Switchboard** rather than to a CLI — today `preLaunchCmd` — are added to every backend by the registry (`UNIVERSAL_FIELDS`), not copied into each descriptor. |
 | `supportsFork` | whether Fork is offered for its sessions |
 | `supportsSubagents` | whether this backend has subagents (#230). Only Claude does today; the sidebar's subagent settings (show/hide + row layout, #231) gate on it, so a backend without subagents shows none. Declared like `supportsFork`, crosses the `backends-list` IPC projection, asserted by `backend-parity`. |
+| `listSubagents(parentId, {folderPath})` | → `[{agentId, mtimeMs}]`, `[]`, or **`null`** — the subagents that exist for a session right now (#235). The two empty answers differ and the core acts on it: `null` = "nothing to watch here yet" (Claude: no `subagents/` directory), `[]` = "watched, currently empty", and only the second starts the bootstrap bookkeeping that makes the NEXT file a real spawn instead of a silently-recorded leftover (#122). The core owns the lifecycle STATE MACHINE (mtime stability, reopen, GC — `session/session-transitions.js`); the hook only reports. |
+| `subagentMeta(parentId, agentId, {folderPath})` | → `{subagentType, description}` \| `null`. Claude reads its `<transcript>.meta.json` sidecar; the core knows neither the sidecar nor its name (#235). |
+| `subagentSessionId(parentId, agentId)` | → the row id this backend's subagents are cached under. `sub:<parent>:<agent>` is **Claude's** shape — the core used to concatenate it inline, which quietly made it everyone's. Must be deterministic and distinct per pair (`backend-parity`). |
 | `startupHint`, `caveat` | a slow first paint (Hermes ≈ 12 s); a standing gotcha shown in Settings |
 | `endpointEnv` | which env-var family this CLI reads its endpoint from (`'anthropic'`), or nothing. The profile editor offers its Endpoint fields **only** on a base that declares one — on a Codex template they would be two boxes writing variables Codex never reads. Also what an Axis-A preset binds to: a preset IS a bundle of `ANTHROPIC_*` variables, so it needs whichever base declares it reads them (#212). |
 | `integrations` | backend-owned extras that are **not** launch options — they reach no argv and no env, so they are not `configFields`, yet they are not generic app settings either. Claude's attention hook patches Claude's **own** `~/.claude/settings.json` and applies to every Claude session, including ones Switchboard never started. Declared → the gear page renders the section; not declared → nothing there (#212). Details below. |
@@ -396,6 +399,33 @@ override per backend makes an isolated demo possible — `npm run demo:start`). 
 now guards hardcoded per-backend PATHS the way `backend-integrations.test.js` guards ids. A real win of #227:
 a Codex- or Pi-only project's own `AGENTS.md` finally appears in Memory attributed to that backend, where the
 old core read `['CLAUDE.md','GEMINI.md','agents.md']` for every project as if it were Claude's.
+
+**#235** (subagents behind the seam). #230 declared *whether* a backend has subagents; #235 is *how* they are
+found, named and described — `listSubagents` / `subagentMeta` / `subagentSessionId` above. What moved out of
+the core: `session/session-transitions.js` walked `<folder>/<parent>/subagents/agent-*.jsonl` and read
+Claude's `.meta.json` sidecar; `main.js` built the `sub:<parent>:<agent>` row id by hand and resolved the
+transcript with a direct import of Claude's `resolveJsonlPath`; `backends/file-store.js` hardcoded
+`parentSessionId: null`, so a backend composing the shared walk *structurally could not* have subagents (it
+now takes an optional `subagentOf`). The lifecycle state machine — bootstrap quiet, mtime stability, reopen
+(#121), GC (#122) — stayed in the core on purpose: it is not backend knowledge, it is what the app does with
+the answer. `subagents` is now a Claude path token in `backend-path-neutrality`, so the layout cannot leak
+back out.
+
+Which backend a LIVE session belongs to comes from the launch overlay (`session/session-backends.js`),
+injected as `getSessionBackend`. An `activeSessions` entry carries no `backendId` field, so reading one off
+it would have looked like dispatch while resolving to the legacy default for every session — the first
+draft of #235 did exactly that, and the verifier caught it. **The remaining honest limit on that path:** the
+only caller of `detectSessionTransitions` is the fs.watch on *Claude's* store (`src/watch/projects.js`), so
+nothing else reaches the detection today regardless. Generalising the watch is its own issue; the dispatch
+is real, so the day a second store is watched it asks the right backend.
+
+**The one part with no neutral equivalent, stated rather than left to look like an oversight:** the exact
+spawn/stop signal comes from Claude Code's own `SubagentStart` / `SubagentStop` hooks (`src/app/hooks.js`,
+`src/shared/attention-source.js`) — a Claude integration, declared as such under `integrations`. Every other
+backend falls back to the scan-based heuristic the state machine implements, which is the same fallback
+Claude itself uses when the attention hook is off (and always, in a dev build — #219). So a future backend
+with subagents gets discovery, identity, metadata, transcript and live tail from the seam, and *approximate*
+live status from the heuristic. That is a real difference in precision, not a gap in the seam.
 
 Two deliberate #227 behaviour changes, recorded so they are not mistaken for regressions: (1) the instruction
 file is declared with its **canonical** spelling (`AGENTS.md`, `GEMINI.md`), so a project carrying a *lowercase*
