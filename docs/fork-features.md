@@ -434,6 +434,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   async subagents the parent keeps generating rather than waiting, because the Agent tool call
   returns seconds after launch while the subagent runs on.
 - **Exact subagent edges from hooks** — `SubagentStart` / `SubagentStop` drive the live set.
+- **Subagent display settings** — a *Show subagents* toggle (off hides the caret and both the nested and
+  the orphan subagent rows) and a *Subagent row layout* choice — **A** title-first with the type demoted
+  into the meta line, **B** three-line (title / badge / stats), **C** a badge only when the type differs
+  from `general-purpose` — with the per-type colour kept in every layout. Both are shown only for a backend
+  that declares the `supportsSubagents` capability (so a Codex-only setup sees none).
   Both carry the *parent* `session_id` plus the subagent's `agent_id`, and `SubagentStop`
   fires at the subagent's real end, so both edges land with ~no lag. `SubagentStop` is
   explicitly *not* treated as `ready`: its session is the parent's, and doing so would end the
