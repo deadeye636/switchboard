@@ -317,9 +317,12 @@ Being a deliberate act is the entire point.
   (Takes ~20 s. `trigger-watcher.test.js` uses real `fs.watch`/timers and is the slowest file at ~19 s, which sets the wall clock since files run in parallel.)
 - `npm start` — bundles CodeMirror, then launches Electron.
 - `npm run start:debug` — the same, with the DevTools port open, so the app can be **driven from the CLI** (below).
-- `npm run demo:start` — launches a fully **isolated** demo instance against seeded stores under
-  `C:\temp\switchboard` (its own DB, userData, and all five backend store roots), so it never touches real
-  data. `demo:seed` seeds without launching. See `docs/demo-env.md`.
+- `npm run demo:start` — **the default for dev/testing**: a fully **isolated** demo instance against seeded
+  stores under `C:\temp\switchboard` (its own DB, userData, and all five backend store roots), so it never
+  touches real data and gives a consistent set of test projects (`demo-alpha`/`demo-beta`) + sessions every
+  run. `demo:seed` seeds without launching. See `docs/demo-env.md`. Prefer this over `npm start` for any
+  dev/verify work (incl. `drive-app.js`); plain `npm start` scans the **real** `~/.claude` store and is the
+  exception, for when you deliberately want live data.
 - `npm run stop:dev` — stop **this checkout's** dev Electron run. Filters on this repo's `node_modules`, so
   it never touches the user's installed Switchboard or another checkout. Never `taskkill /IM electron.exe`.
 - `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe`.
