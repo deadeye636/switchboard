@@ -65,13 +65,18 @@ function buildLineageThread(session) {
   const wrap = document.createElement('div');
   wrap.className = 'session-lineage-thread';
 
+  // Same affordance as the subagent caret (▶ that rotates to ▼ via `.expanded`) so a folded thread reads
+  // like every other collapsible nesting in the sidebar. `session-lineage-toggle` stays for the delegated
+  // click selector; `sidebar-children-caret` brings the shared caret look.
   const toggle = document.createElement('div');
-  toggle.className = 'session-lineage-toggle';
-  toggle.textContent = `▸ ${chain.length} earlier in thread`;
+  toggle.className = 'session-lineage-toggle sidebar-children-caret';
+  toggle.innerHTML = `<span class="caret-arrow">&#9654;</span> ${chain.length} earlier`;
   ariaButton(toggle, `Show ${chain.length} earlier session${chain.length === 1 ? '' : 's'} in this thread`);
 
+  // Reuse the subagent children container so the ancestors indent the same way. The lineage class stays
+  // for the toggle handler's sibling check.
   const list = document.createElement('div');
-  list.className = 'session-lineage-ancestors';
+  list.className = 'session-lineage-ancestors sidebar-subagents-container';
   list.style.display = 'none';
   for (const anc of chain) {
     const row = document.createElement('div');

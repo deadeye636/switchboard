@@ -90,7 +90,10 @@ test('buildLineageThread renders a toggle and one collapsed ancestor row per anc
   const s = setup([sess('root', { summary: 'Root' }), sess('mid', { summary: 'Mid', lineageParentId: 'root' })]);
   try {
     const thread = s.call('buildLineageThread', { sessionId: 'leaf', lineageParentId: 'mid' });
-    assert.match(thread.querySelector('.session-lineage-toggle').textContent, /2 earlier in thread/);
+    const toggle = thread.querySelector('.session-lineage-toggle');
+    assert.match(toggle.textContent, /2 earlier/);
+    assert.ok(toggle.classList.contains('sidebar-children-caret'), 'reuses the subagent caret look');
+    assert.ok(toggle.querySelector('.caret-arrow'), 'has the shared caret arrow');
     const rows = thread.querySelectorAll('.session-lineage-ancestor');
     assert.equal(rows.length, 2);
     assert.equal(rows[0].dataset.sessionId, 'mid');

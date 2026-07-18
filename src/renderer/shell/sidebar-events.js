@@ -131,7 +131,8 @@ function dispatchSidebarActivation(e) {
       if (list && list.classList.contains('session-lineage-ancestors')) {
         const showing = list.style.display !== 'none';
         list.style.display = showing ? 'none' : '';
-        lineageToggle.textContent = lineageToggle.textContent.replace(/^[▸▾]/, showing ? '▸' : '▾');
+        // The ▶/▼ rotation comes from the shared `.expanded` class, like the subagent caret.
+        lineageToggle.classList.toggle('expanded', !showing);
       }
       return;
     }

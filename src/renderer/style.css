@@ -1830,21 +1830,12 @@ input:focus-visible {
   color: #6f6f86;
 }
 .session-lineage-thread {
-  margin: 2px 0 2px 26px;
+  margin: 2px 0;
 }
-.session-lineage-toggle {
-  color: #74748a;
-  font-size: 9.5px;
-  line-height: 1.5;
-  cursor: pointer;
-  user-select: none;
-}
-.session-lineage-toggle:hover {
-  color: #a9a9c0;
-}
+/* The toggle reuses .sidebar-children-caret for the ▶/▼ look (see subagents); no own layout needed. */
 .session-lineage-ancestors {
   border-left: 1px solid #2c2c3a;
-  margin-left: 3px;
+  margin-left: 34px;   /* line up under the caret label (caret sits at margin-left:28px + arrow) */
   padding-left: 8px;
 }
 .session-lineage-ancestor {
