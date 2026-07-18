@@ -790,18 +790,39 @@ async function showGeneratedResumeDialog(session, backend) {
 // only adjusts the recorded backend's own configFields. The dialog is generated from that schema for
 // EVERY backend, Claude included (00 §4a: "this replaces today's hardcoded Claude Configure form").
 async function showResumeSessionDialog(session) {
-  // `sessionBackendId` carries its own documented fallback for a session that predates provenance, so the
-  // one here only fires when backend-registry.js has not loaded at all — a load-order accident, not a
-  // session without a backend. Answer with something launchable rather than a name that may be disabled.
-  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || firstLaunchableId();
-  // No second fallback, deliberately. Resume is binary-bound, so a backend OTHER than the recorded one is
-  // never the right answer here: reaching for Claude (as this did) showed Claude's configFields for a
-  // session that is not Claude's, and every value the user then set was written against the wrong schema.
-  // If the recorded backend is unknown — it was removed, or the registry has not loaded — there is no
-  // honest form to show, and showing none beats showing someone else's.
-  const backend = window.getBackend ? window.getBackend(backendId) : null;
-  if (!backend) return;
-  return showGeneratedResumeDialog(session, backend);
+  // Resume is binary-bound (§5.11): the Configure form can only be the RECORDED backend's, never another's.
+  // `sessionBackendId` returns the id the row actually carries (a deleted template's id survives here); the
+  // `firstLaunchableId` fallback only covers a session with no provenance at all. No second fallback to
+  // Claude — reaching for it (as this once did) showed Claude's configFields for a session that is not
+  // Claude's, and every value the user then set was written against the wrong schema.
+  const recordedId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || firstLaunchableId();
+  const backend = window.getBackend ? window.getBackend(recordedId) : null;
+  if (backend) return showGeneratedResumeDialog(session, backend);
+
+  // The recorded backend is not in the registry, so there is no honest form to show. A gear that does
+  // nothing reads as a broken button, though — so say WHY instead of returning in silence (#226). Two
+  // causes, told apart by whether the registry has loaded at all:
+  const loaded = window._backendsById && Object.keys(window._backendsById).length > 0;
+  if (!loaded) {
+    // Cold start: the backend probes have not answered yet. Transient — pressing again works.
+    if (typeof showControlToast === 'function') {
+      showControlToast({ message: 'Backends are still loading — press Configure again in a moment.' });
+    }
+    return;
+  }
+  // Removed: the registry has loaded but this session's backend is gone — almost always a template that has
+  // since been deleted. Name it; never offer another backend's form. Same informational shape as the
+  // "Cannot fork this session yet" message above (showControlMessage + tone: 'warning').
+  if (typeof showControlMessage === 'function') {
+    showControlMessage({
+      title: 'Backend unavailable',
+      tone: 'warning',
+      message: `This session ran on "${recordedId}", which is no longer available — most likely a template that has since been deleted. `
+        + `Configure cannot show launch options for a backend that is gone; start a fresh session `
+        + `(or recreate the template) to change how it launches.`,
+      details: [{ label: 'Backend', value: recordedId }],
+    });
+  }
 }
 
 function showAddProjectDialog() {
