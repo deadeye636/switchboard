@@ -128,6 +128,18 @@ function getAutoHiddenProjects() {
 // this is the one place a typo would silently write nothing — or, worse, something else.
 const PROJECT_STATE_COLUMNS = ['registered', 'registeredAt', 'hidden', 'autoHidden', 'autoHideResetAt', 'removedAt'];
 
+// The patch decides the column set, so this cannot be ONE prepared statement — but the set of shapes a
+// caller ever produces is tiny, so memoize by SQL text the way prepScoped does in session-store.js (#224).
+// The key is the SQL, so it is one entry per literal call-site shape, not per column SET: two call sites
+// patching the same columns in a different key order get two entries. Harmless and bounded — the keys are
+// filtered through PROJECT_STATE_COLUMNS and every caller passes a static object literal.
+const _patchStmts = new Map();
+function prepPatch(sql) {
+  let s = _patchStmts.get(sql);
+  if (!s) { s = db.prepare(sql); _patchStmts.set(sql, s); }
+  return s;
+}
+
 /**
  * Write part of a project's state. Only the keys given are touched — "not mentioned" is not "set to
  * null", or registering a project would wipe its favourite.
@@ -144,7 +156,7 @@ function setProjectState(projectPath, patch) {
     const v = patch[k];
     return typeof v === 'boolean' ? (v ? 1 : 0) : v;
   })];
-  runWithBusyRetry(() => db.prepare(sql).run(...values));
+  runWithBusyRetry(() => prepPatch(sql).run(...values));
 }
 
 /** Every project the app knows about: projectPath -> its row. THIS IS THE LIST. */

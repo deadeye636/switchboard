@@ -208,6 +208,13 @@ function applySchema(db) {
   // Index for fast folder lookups
   db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_folder ON session_cache(folder)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_slug ON session_cache(slug)');
+  // getCachedByProjectPath ran as a full SCAN until #224 — and projects.js calls it ONCE PER PROJECT
+  // (registry build, auto-hide, rename, delete), so the cost is projects x sessions. Measured on a real
+  // store (34 projects / 735 sessions): 2.70 ms -> 1.02 ms per full pass, and on the same store blown up
+  // 10x: 25.7 ms -> 9.9 ms. The write side is what an index has to pay for, and it is nearly free here:
+  // the hot path is a single-row upsert per JSONL append (+12 us at 10x, noise below that), a full folder
+  // re-upsert costs +6..12%, and a full reindex is unchanged. +28 KB on disk today.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_projectPath ON session_cache(projectPath)');
 }
 
 module.exports = { applySchema };

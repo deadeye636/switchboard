@@ -83,6 +83,20 @@ const stmts = {
   `),
   cacheGetByParent: db.prepare('SELECT * FROM session_cache WHERE parentSessionId = ? ORDER BY created ASC'),
   cacheGetByFolder: db.prepare('SELECT sessionId, modified, parentSessionId, agentId, backendId, filePath, changeMarker, parserVersion FROM session_cache WHERE folder = ?'),
+  // parentSessionId + agentId ride along because Claude's rows carry no `filePath`: their transcript is
+  // reconstructed from folder + session id, and a SUBAGENT's file sits under the parent's directory.
+  // Without these two columns every subagent transcript resolved to a path that does not exist, so the
+  // remap skipped them and the delete missed them.
+  cacheGetByProjectPath: db.prepare(
+    "SELECT sessionId, folder, projectPath, filePath, parentSessionId, agentId,"
+    + " COALESCE(backendId, 'claude') AS backendId"
+    + ' FROM session_cache WHERE projectPath = ?'
+  ),
+  cacheBackendsByProjectPath: db.prepare(
+    "SELECT projectPath, COALESCE(backendId, 'claude') AS backendId, COUNT(*) AS n"
+    + ' FROM session_cache WHERE projectPath IS NOT NULL'
+    + ' GROUP BY projectPath, COALESCE(backendId, \'claude\') ORDER BY n DESC'
+  ),
   cacheGetFolder: db.prepare('SELECT folder FROM session_cache WHERE sessionId = ?'),
   cacheGetSession: db.prepare('SELECT * FROM session_cache WHERE sessionId = ?'),
   cacheDeleteSession: db.prepare('DELETE FROM session_cache WHERE sessionId = ?'),
@@ -267,15 +281,7 @@ function getCachedByFolder(folder, scope) {
  */
 function getCachedByProjectPath(projectPath) {
   if (!projectPath) return [];
-  // parentSessionId + agentId ride along because Claude's rows carry no `filePath`: their transcript is
-  // reconstructed from folder + session id, and a SUBAGENT's file sits under the parent's directory.
-  // Without these two columns every subagent transcript resolved to a path that does not exist, so the
-  // remap skipped them and the delete missed them.
-  return db.prepare(
-    "SELECT sessionId, folder, projectPath, filePath, parentSessionId, agentId,"
-    + " COALESCE(backendId, 'claude') AS backendId"
-    + ' FROM session_cache WHERE projectPath = ?'
-  ).all(projectPath);
+  return stmts.cacheGetByProjectPath.all(projectPath);
 }
 
 /**
@@ -284,11 +290,7 @@ function getCachedByProjectPath(projectPath) {
  */
 function getBackendsByProjectPath() {
   const map = new Map();
-  const rows = db.prepare(
-    "SELECT projectPath, COALESCE(backendId, 'claude') AS backendId, COUNT(*) AS n"
-    + ' FROM session_cache WHERE projectPath IS NOT NULL'
-    + ' GROUP BY projectPath, COALESCE(backendId, \'claude\') ORDER BY n DESC'
-  ).all();
+  const rows = stmts.cacheBackendsByProjectPath.all();
   for (const r of rows) {
     if (!map.has(r.projectPath)) map.set(r.projectPath, []);
     map.get(r.projectPath).push(r.backendId);

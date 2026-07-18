@@ -362,6 +362,14 @@ const migrations = [
   (db) => {
     try { db.exec('ALTER TABLE session_cache ADD COLUMN lineageKind TEXT'); } catch {}
   },
+
+  // Index session_cache(projectPath) (#224). `folder`, `slug`, `parentSessionId` and `backendId` all had
+  // one; `projectPath` was the one that was missed, so getCachedByProjectPath full-scanned the table --
+  // once per project, on every registry build, auto-hide, rename and delete. The numbers behind the trade
+  // are in schema.js next to the matching CREATE INDEX.
+  (db) => {
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_projectPath ON session_cache(projectPath)'); } catch {}
+  },
 ];
 
 /**
