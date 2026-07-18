@@ -45,9 +45,10 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 ### Session lineage / provenance (#223, #193)
 `src/session/session-lineage.js`, `src/renderer/shell/sidebar-lineage.js`, spec 13
 
-- A session that continued another's work carries a **"↳ continued from …"** caption; idle ancestors
-  fold under the live head (a *"N earlier in thread"* toggle), not as separate rows. Lineage is a tree —
-  each head walks its own path up, so a shared ancestor can appear under more than one head (Model A).
+- A session that continued another's work folds its earlier sessions under the live head behind a
+  **"▶ N earlier"** caret (the subagent-nesting affordance), each a **full session row** with all its
+  actions; a live earlier session stays its own row. Lineage is a tree — each head walks its own path up,
+  so a shared ancestor can appear under more than one head (Model A).
 - Backend-neutral via `lineageParentId`/`lineageKind`: Hermes `parent_session_id` and a Claude fork's
   `forkedFrom` are hard links; a Claude `/clear` (no on-disk back-link) is inferred and labelled a guess —
   never presented as fact.

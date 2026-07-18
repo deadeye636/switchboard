@@ -77,11 +77,14 @@ correlation is future work).
 ## Sidebar rendering — Model A (`src/renderer/shell/sidebar-lineage.js`)
 
 Lineage is a **tree**: resuming an ancestor and clearing it again branches it. So each live/leaf session is
-the face row and walks its OWN path UP the `lineageParentId` chain; **idle** ancestors fold under it (a
-"▸ N earlier in thread" toggle), a **live** ancestor stays its own row. Nothing groups by root, so a shared
-ancestor may legitimately appear under more than one head. A row that continued another's work carries a
-"↳ continued from …" caption — plain for a hard link, marked as a guess for a soft `/clear`. Ancestor rows
-open their read-only transcript. The toggle and ancestor clicks are delegated (#218 opt6).
+the face row and walks its OWN path UP the `lineageParentId` chain; **idle** ancestors fold under it behind
+a caret ("▶ N earlier", the same `.sidebar-children-caret` affordance the subagent nesting uses), a **live**
+ancestor stays its own row. Nothing groups by root, so a shared ancestor may legitimately appear under more
+than one head. Each ancestor renders as a **full session row** (`buildSessionItem`, with a `noLineageThread`
+flag so the flat chain does not recurse) — it is a real session, so every normal action (open, transcript,
+timeline, tags, fork, archive) works through the delegated sidebar events (#218 opt6), no special case. The
+hard-vs-soft distinction lives only in the data (`lineageKind`) for now — no visual marker (a dimmed/italic
+row for a `clear` guess is a deliberate, cheap follow-up if it is ever wanted).
 
 ## As built / tests
 
@@ -89,8 +92,9 @@ open their read-only transcript. The toggle and ancestor clicks are delegated (#
 - `test/clear-rekey.test.js` — the real `detectSessionTransitions`: the frozen session re-keys, the parallel
   one is untouched, two-frozen stays ambiguous, the `/clear` link is recorded.
 - `test/read-session-file.test.js` — the scanner records fork lineage.
-- `test/sidebar-lineage-vm.test.js` — the chain walk, the idle-ancestor fold, the caption (hard/soft), the
-  collapsed thread. Live-verified in the app (caption, fold, toggle, ancestor open; console silent).
+- `test/sidebar-lineage-vm.test.js` — the chain walk, the idle-ancestor fold, the collapsed thread with
+  full-session-row ancestors. Live-verified in the app (fold, caret toggle, ancestor is a full row with its
+  actions, no recursion; console silent).
 - DB layer verified with `scripts` probe against a copied real DB and an empty one.
 
 ## Known gaps
