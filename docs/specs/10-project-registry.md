@@ -169,7 +169,7 @@ removed is not offered back until a session newer than the removal turns up.
 | Piece | Where |
 |---|---|
 | The decisions (register / skip / resurrect / sweep / visible) — pure, no db, no fs | `src/projects/project-registry.js` |
-| The columns + the seeding migration | `src/db/db.js` |
+| The columns + the seeding migration | `src/db/schema.js` (columns) + `src/db/migrations.js` (the seed) |
 | The sidebar reads the register; the scan reports what the stores hold | `src/index/session-cache.js` |
 | add / hide / unhide / remove / discovery + sweep (it releases too, #184) | `src/projects/projects.js` |
 | What is indexed but not listed (`unlistedProjects`, #183) | `src/projects/projects.js` |

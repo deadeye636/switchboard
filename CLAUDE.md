@@ -162,15 +162,21 @@ the installer.
     user database. `test/db-migrations.test.js` pins every shipped entry by fingerprint (appending is
     free) and is the first real test this layer has ever had.
   - **`schema.js` is a BASELINE, not the final shape.** `applySchema` then `runMigrations` runs on *every*
-    database including a brand-new one (version 0 → all of them run), so both paths converge. A column a
-    migration adds does **not** have to be repeated in the CREATE TABLE.
+    database including a brand-new one (version 0 → all of them run), so both paths converge. A column **or
+    index** a migration adds does **not** have to be repeated in `schema.js` — the codebase does it both
+    ways (`idx_session_cache_parent`/`_backend` live only in the migration, `idx_session_cache_projectPath`
+    is in both), and either is correct.
   - **A store is required BELOW `runMigrations(db)`** — it prepares its statements at load, so requiring
     it at the top dies on a **fresh** database with `no such table:` while every existing install is fine.
     `test/db-store-load-order.test.js` guards it.
   - **No test loads `db.js`** (better-sqlite3 is built against Electron's ABI), so a green suite says
     *nothing* here. Verify with `scripts/db-probe.js` under `ELECTRON_RUN_AS_NODE=1` against a
     **copy** of a real DB **and** an empty one — several of the bugs found during #217 were visible only
-    on the fresh one.
+    on the fresh one. An **appended migration** is verified with `scripts/db-migrate-probe.js` (same
+    invocation, same copy-of-a-real-DB rule): it must show the database moving exactly one version, the
+    register seed still taking effect, and an already-current database firing nothing. Every migration
+    swallows its own throw, so "it ran" is not "it did something" — that probe is the only thing that can
+    tell the two apart, and it sat broken from #193 to #224 because nothing pointed at it.
 - **Scan/index** (`src/index/`): `session-cache.js` is a **façade** (#199) over `index-writes.js`,
   `index-worker-client.js`, `search-worker-client.js`, `projects-view.js`, `folder-index-state.js`.
   The workers themselves are `src/workers/`.
@@ -547,10 +553,11 @@ diagnostic at `debug` that the packaged default hides is what made #120 invisibl
   Escape closes a `showControlDialog` — fine for a question, wrong for anything holding something the user
   cannot get back (a handoff packet an agent spent tokens writing). Pass `dismissible: false`, or ask
   before discarding.
-- **Schema changes live in `src/db/`, not in `db.js`** (a façade since #217): the CREATE TABLEs are in
-  `schema.js`, the migrations in `migrations.js`. **Append** a migration, never insert, reorder or edit a
-  shipped one — `migrations.length` IS the schema version, and renumbering corrupts user databases.
-  `test/db-migrations.test.js` pins every shipped entry by fingerprint.
+- **Schema changes live in `src/db/`, not in `db.js`** (a façade since #217): the CREATE TABLEs and
+  CREATE INDEXes are in `schema.js`, the migrations in `migrations.js`. **Append** a migration, never
+  insert, reorder or edit a shipped one — `migrations.length` IS the schema version, and renumbering
+  corrupts user databases. `test/db-migrations.test.js` pins every shipped entry by fingerprint, and
+  `scripts/db-migrate-probe.js` is what proves the appended one had an EFFECT.
 - **When adding IPC: the handler does NOT go in `src/main.js`** — see "Where an IPC handler goes" above. It
   goes in the `src/app/` module that owns the area (`init(ctx)` + `registerIpc(ipc)`), plus a binding in
   `src/preload.js` + (if it returns to UI) a renderer caller. `test/main-no-new-ipc.test.js` (#222) fails on
