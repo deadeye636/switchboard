@@ -1672,11 +1672,15 @@ input:focus-visible {
   position: relative;
 }
 
-.session-item:hover .session-row {
+/* Hover + active are scoped to the ROW under the pointer, not `.session-item:hover` — a lineage ancestor is
+   a full `.session-item` NESTED inside the head, so the descendant selector lit every row in the stack at
+   once (the toolbar, the hover/active background). Each row is its own `.session-row`; `:hover` on it is
+   per-row, and `.active > .session-row` scopes the active background to the selected item's own row. */
+.session-row:hover {
   background: rgba(255,255,255,0.06);
 }
 
-.session-item.active .session-row {
+.session-item.active > .session-row {
   background: rgba(120,130,255,0.14);
 }
 
@@ -1789,7 +1793,7 @@ input:focus-visible {
   font-weight: 450;
 }
 
-.session-item.active .session-summary {
+.session-item.active > .session-row .session-summary {
   color: #d0d0e8;
 }
 
@@ -1979,7 +1983,7 @@ input:focus-visible {
   z-index: 1;
 }
 
-.session-item:hover .session-actions {
+.session-row:hover .session-actions {
   opacity: 1;
 }
 
@@ -7011,6 +7015,12 @@ body.grid-dragging .grid-card-header {
 .sidebar-subagent .session-meta {
   font-size: 10px;
   color: #6a6a80;
+}
+
+/* The row top-aligns its children (align-items: flex-start), so the status dot sits above the title's
+   centre — nudge it down onto the title line (#8). */
+.sidebar-subagent .session-status-dot {
+  margin-top: 4px;
 }
 
 /* Subagent type pill */
