@@ -9,8 +9,8 @@
 //
 // Every write funnels through the neutral sink in index-writes.js. The Axis-B "prepare" is a no-op — the
 // parser already set `backendId` — so the row-shaping that is NOT the reader's (the folder key, the
-// sessionBucketPath cwd fallback, the Hermes lineageParentId remap, the changeMarker for db rows) stays
-// in THIS parse loop, not in a prepare and not in the sink.
+// sessionBucketPath cwd fallback, the changeMarker for db rows) stays in THIS parse loop, not in a
+// prepare and not in the sink. Lineage is the sink's job: it calls each backend's resolveLineage (#193).
 
 const backends = require('./index');
 const { applyIndexResults, markPersisted, noteStoreProject, isRemovedProject } = require('../index/index-writes');

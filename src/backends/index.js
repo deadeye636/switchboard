@@ -165,6 +165,11 @@ function profileToDescriptor(p) {
     parseSession: usable ? base.parseSession : () => null,
     watchTargets: usable ? base.watchTargets : () => [],
     deriveState: base ? base.deriveState : null,
+    // A template's sessions are written by the base binary in the base's format, so lineage reads exactly
+    // like the base's (#193). Without forwarding this the neutral sink would skip a template's rows and a
+    // forked template session would silently lose its "continued from" — the parser used to stamp it
+    // regardless of backendId, so this restores that for the descriptor era.
+    resolveLineage: base ? base.resolveLineage : undefined,
     probe: base && typeof base.probe === 'function' ? base.probe : undefined,
     liveRefFor: base ? base.liveRefFor : undefined,
     liveState: base ? base.liveState : undefined,

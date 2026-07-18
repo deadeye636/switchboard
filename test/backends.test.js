@@ -190,6 +190,19 @@ test('get(): resolves a user profile id to a descriptor', () => {
   });
 });
 
+// #193: a template's sessions are written by its base binary in the base's format, so lineage must read
+// like the base's. profileToDescriptor MUST forward resolveLineage — the neutral sink dispatches on the
+// row's backendId (the profile id), so without this a forked template session silently loses its lineage.
+test('a profile descriptor forwards resolveLineage from its base backend', () => {
+  const prof = { id: 'my-glm', name: 'My GLM', env: {} }; // base defaults to claude
+  withRegistry({}, [prof], () => {
+    const d = backends.get('my-glm');
+    assert.strictEqual(typeof d.resolveLineage, 'function', 'the sink dispatches on backendId — the profile must answer');
+    assert.deepStrictEqual(d.resolveLineage({ forkedFrom: 'origin-1' }), { lineageParentId: 'origin-1', lineageKind: 'fork' });
+    assert.strictEqual(d.resolveLineage({}), null);
+  });
+});
+
 test('Axis-A buildLaunch delegates to Claude and merges the profile env bundle', () => {
   const prof = { id: 'ds', name: 'DS', env: { ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic', ANTHROPIC_AUTH_TOKEN: '$DEEPSEEK_API_KEY' } };
   withRegistry({}, [prof], () => {

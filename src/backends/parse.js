@@ -41,9 +41,11 @@ const FILE_READ_STATE_MAX = 512;
 // descriptor `b` is a PARAMETER (main passes it), so this leaf need not require the registry.
 //
 // Reply fields (all load-bearing — see the step-5 "Corrections" in the plan):
-//   sessions      — SHAPED rows (folder/projectPath/backendId/parserVersion + the db-mode changeMarker and
-//                   the Hermes lineageParentId remap already applied — this is the row-shaping that is NOT
-//                   the reader's, so it rides in the reply, not a prepare). Axis-B has no `prepare`.
+//   sessions      — SHAPED rows (folder/projectPath/backendId/parserVersion + the db-mode changeMarker
+//                   applied — this is the row-shaping that is NOT the reader's, so it rides in the reply,
+//                   not a prepare). Lineage is NOT shaped here: the reader exposes its own raw parent field
+//                   and the descriptor's resolveLineage stamps lineageParentId at the sink (#193). Axis-B
+//                   has no `prepare`.
 //   seenIds       — every cached id STILL present (skipped-unchanged + re-read + shaped); with `seenFiles`
 //                   it drives main's snapshot-scoped, per-cached-row delete-diff (file rows key on the file,
 //                   db rows on the id — a db session has no file).
