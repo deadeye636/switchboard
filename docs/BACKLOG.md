@@ -5,7 +5,7 @@
 
 Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (26 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-17
+**As of:** 2026-07-18
 
 
 ## P1 — next up
@@ -38,7 +38,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#193](https://github.com/deadeye636/switchboard/issues/193) Session provenance: show where a session came from (clear heuristic + explicit parent links) · _feature_
 - [#201](https://github.com/deadeye636/switchboard/issues/201) agy backend: add a usage capability (status bar + Usage & Notifications), like Claude/Codex · _feature, blocked-on-upstream_
 - [#210](https://github.com/deadeye636/switchboard/issues/210) perf: run the live-session identity match (matchLiveSession) in the index worker · _chore_
-- [#219](https://github.com/deadeye636/switchboard/issues/219) Dev and installed app fight over the attention hooks in ~/.claude/settings.json · _bug_
 - [#221](https://github.com/deadeye636/switchboard/issues/221) merge-setting writes a renderer-supplied blob straight past the secret scrub · _bug_
 - [#224](https://github.com/deadeye636/switchboard/issues/224) db layer: decide the session_cache(projectPath) index, and two queries that skip the stmts object · _chore_
 - [#226](https://github.com/deadeye636/switchboard/issues/226) Configure gear does nothing when a session's backend is gone · _bug_
+- [#229](https://github.com/deadeye636/switchboard/issues/229) Session lineage — remaining work (provenance + /clear re-key) · _feature_
