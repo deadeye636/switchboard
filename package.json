@@ -9,6 +9,8 @@
   "scripts": {
     "start": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron .",
     "start:debug": "node scripts/check-debug-port.js && node scripts/gen-build-info.js && npm run bundle:codemirror && electron --remote-debugging-port=9222 .",
+    "demo:start": "node scripts/demo-start.js",
+    "demo:seed": "node scripts/seed-demo.js",
     "test": "node --test",
     "electron": "electron .",
     "stop:dev": "node scripts/stop-dev.js",
