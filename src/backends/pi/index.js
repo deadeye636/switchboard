@@ -241,6 +241,7 @@ module.exports = {
   monogram: 'Pi',
   colour: 'pi',
   supportsFork: true,     // `pi --fork <id>`
+  supportsSubagents: false,   // fork, yes; subagents, no (#230)
   // Lineage (#193): Pi supports `--fork`, but its session header ({type:'session', id, timestamp, cwd})
   // records NO parent reference (verified against a real store — docs/backend-formats.md), so a fork's
   // origin cannot be read back. Declares none until the format exposes it (honest gap).

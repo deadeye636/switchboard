@@ -53,6 +53,21 @@ test('every backend states whether it can fork — and only a forker gets forkFr
   }
 });
 
+// #230: subagents are a Claude concept the core used to assume. Every backend now DECLARES whether it has
+// them (supportsSubagents), the same way it declares supportsFork, so a feature or setting built on top has
+// an honest per-backend answer instead of hard-wiring Claude. Claude is the one that does; the rest decline.
+test('every backend declares supportsSubagents — and only Claude has them today', () => {
+  for (const b of READY) {
+    assert.equal(typeof b.supportsSubagents, 'boolean', `${b.id} must state supportsSubagents`);
+  }
+  const claude = READY.find(b => b.id === 'claude');
+  assert.equal(claude && claude.supportsSubagents, true, 'Claude spawns Task subagents — it must declare so');
+  for (const b of READY) {
+    if (b.id === 'claude') continue;
+    assert.equal(b.supportsSubagents, false, `${b.id} has no subagent concept — it must not claim one`);
+  }
+});
+
 // #193: session lineage is a NEUTRAL feature — the core stamps lineageParentId at one sink by calling each
 // backend's resolveLineage(row). Every backend must ANSWER the hook, even if only to decline (return null),
 // so no backend's provenance can quietly hard-wire itself into the core. A backend that DOES record a link

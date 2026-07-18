@@ -41,6 +41,9 @@ function setRoots(roots) {
 // this: a backend that cannot fork must not OFFER it, because "cannot fork" degrades silently into
 // "launch an unrelated empty session" — which is what Codex and Hermes did until the final review.
 const supportsFork = true;
+// Claude spawns Task-tool subagents that write <parent>/subagents/agent-<id>.jsonl (#230). It is the only
+// backend with the concept today; declared so the core/renderer/settings ask rather than assume Claude.
+const supportsSubagents = true;
 
 // Claude's launch options — the schema the Settings "Launch defaults" panel and the generated Configure
 // dialog are both built from (§4a). These option ids are the ones the spawn path already speaks, so a
@@ -332,6 +335,7 @@ function deleteSessions(filePaths, { projectsDir } = {}) {
 module.exports = {
   id: 'claude',
   supportsFork,
+  supportsSubagents,
   // Lineage (#193): a forked Claude session names its origin (`forkedFrom`) in the head — the only
   // cross-session link Claude records on disk. A /clear records NO back-ref, so its (single-session) link
   // is written live by session-transitions, not here. Same-session compaction is not a lineage row.

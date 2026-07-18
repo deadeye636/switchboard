@@ -174,6 +174,7 @@ module.exports = {
   monogram: 'H',
   colour: 'hermes',
   supportsFork: false,   // no confirmed fork flag — do not offer what we cannot do (see codex/index.js)
+  supportsSubagents: false,   // no subagent concept (#230)
   // Lineage (#193): Hermes records a real parent in its store (`parent_session_id`), which the reader
   // surfaces as `lineageParentRef`. A hard link.
   resolveLineage: (row) => (row && row.lineageParentRef ? { lineageParentId: row.lineageParentRef, lineageKind: 'parent' } : null),

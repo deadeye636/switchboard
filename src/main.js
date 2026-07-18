@@ -1409,6 +1409,9 @@ ipcMain.handle('backends-list', () => {
       // Can this backend fork a session? The sidebar hides the Fork button when it cannot — offering
       // it launches an unrelated empty session, which is worse than not offering it.
       supportsFork: b.supportsFork === true || (!!b.isProfile),
+      // Does this backend have subagents (#230)? The renderer gates the subagent sidebar settings on it —
+      // like usage/integrations above, the DECLARATION has to cross IPC or the gate is always false.
+      supportsSubagents: b.supportsSubagents === true,
       // A standing gotcha the user cannot see from inside the app (Pi: a stored OAuth login silently
       // beats an injected key). Rendered on the backend's settings page.
       caveat: b.caveat || null,

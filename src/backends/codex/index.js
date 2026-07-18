@@ -176,6 +176,7 @@ module.exports = {
   // alternative is what shipped before: the button stays, `forkFrom` is dropped in buildLaunch, and the
   // user gets a brand-new empty session that has nothing to do with the one they forked.
   supportsFork: false,
+  supportsSubagents: false,   // no subagent concept (#230)
   // Lineage (#193): Codex records no parent link on disk — a `/clear` starts a new rollout with no
   // back-ref, and `compacted` is a per-message state, not a parent reference. Declares none (honest gap).
   resolveLineage: () => null,

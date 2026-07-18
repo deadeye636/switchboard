@@ -143,6 +143,7 @@ function profileToDescriptor(p) {
     configFields: usable ? base.configFields : [],
     PARSER_SCHEMA_VERSION: base ? base.PARSER_SCHEMA_VERSION : undefined,
     supportsFork: base ? base.supportsFork : false,
+    supportsSubagents: base ? base.supportsSubagents === true : false,   // #230
     transcriptAccess: base ? base.transcriptAccess : undefined,
     // A template's sessions are written by the base binary, into the base's store, in the base's format —
     // so the base is also the one that can move them and delete them. Without these two the project
@@ -327,6 +328,7 @@ function plannedDummy({ id, label, monogram, colour }) {
     transcriptPathFor: (row) => (row && row.filePath) || null, // #211: uniform hook, even for a stub
     plansDir: () => null,        // #227
     memorySources: () => [],     // #227
+    supportsSubagents: false,    // #230
   };
 }
 
