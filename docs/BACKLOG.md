@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-18
 
@@ -21,6 +21,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#206](https://github.com/deadeye636/switchboard/issues/206) Add Codex support to scheduled tasks (Claude + Codex) · _feature_
 - [#207](https://github.com/deadeye636/switchboard/issues/207) Variable quick-pick: keyboard-driven (type-to-filter, arrow nav, Enter inserts + trailing space) · _feature_
 - [#223](https://github.com/deadeye636/switchboard/issues/223) After /clear with two Claude sessions in one project, both stay running and the tab keeps the dead id · _bug_
+- [#237](https://github.com/deadeye636/switchboard/issues/237) visibleSessionCount has two defaults: 5 in the main process, 10 in the renderer · _bug_
 
 ## P3 — someday
 
@@ -38,3 +39,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#210](https://github.com/deadeye636/switchboard/issues/210) perf: run the live-session identity match (matchLiveSession) in the index worker · _chore_
 - [#221](https://github.com/deadeye636/switchboard/issues/221) merge-setting writes a renderer-supplied blob straight past the secret scrub · _bug_
 - [#229](https://github.com/deadeye636/switchboard/issues/229) Session lineage — remaining work (provenance + /clear re-key) · _feature_
+- [#236](https://github.com/deadeye636/switchboard/issues/236) Flaky test: terminal-io "a redraw nudges once" fails under parallel load · _bug_
+- [#238](https://github.com/deadeye636/switchboard/issues/238) runningInbox.mode default disagrees between the panel (until-read) and the consumer (always) · _chore_
+- [#239](https://github.com/deadeye636/switchboard/issues/239) sessionMaxAgeDays and autoHideDays do not cascade per project · _chore_
+- [#240](https://github.com/deadeye636/switchboard/issues/240) PATHEXT fallback differs between main.js and file-store.js · _chore_
