@@ -1,7 +1,9 @@
 // Does an EXISTING database get re-migrated? (#217's acceptance line.)
 //
 // Reading db_version afterwards is not enough: on an up-to-date database no migration runs anyway, so the
-// number stays 15 whether the runner works or is broken into a no-op. This drives the arithmetic instead:
+// number stays at the current schema version whether the runner works or is broken into a no-op (no
+// literal here on purpose — the array is append-only, so any version written down goes stale on the next
+// append, which is how the seed check below came to test the wrong migration). This drives the arithmetic:
 // it pretends the database is older, runs the real runner, and checks exactly which entries fired.
 //
 // Run under: ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron scripts/db-migrate-probe.js <dataDir>
@@ -43,27 +45,36 @@ function runAt(version) {
 // threw ReferenceError, swallowed it, seeded NOTHING, and stamped db_version 15. Silent, permanent, and
 // invisible to every check that only counts calls.
 //
-// So measure the EFFECT: rewind a real database one version and see whether the register fills up.
+// So measure the EFFECT: rewind a real database to just before the SEED and see whether the register
+// fills up. It is the seed specifically, not "the last migration": the array is append-only, so anything
+// appended after it (#193's lineageKind, #224's projectPath index) moves it away from the end. Rewinding
+// by one version therefore stopped testing the seed the moment the next migration landed, and reported
+// BROKEN against correct code — which is exactly what it did from #193 until #224 found it. The seed is
+// located by what it writes, so appending stays free.
 //
 // THIS RUNS FIRST, and that is not tidiness. The replays below execute the REAL migrations, and several of
 // them (v2/v3/v4) DELETE FROM session_cache — the very rows the seed reads to decide what to register.
 // Run this after them and it reports BROKEN against perfectly correct code.
 // Needs a database with real rows — on an empty one there is nothing to seed, and that is reported.
+const seedIndex = migrations.findIndex(fn => /registered\s*=\s*1/.test(String(fn)));
 try {
   const d = new Database(dbPath);
   const projects = d.prepare('SELECT COUNT(*) c FROM project_meta').get().c;
-  if (!projects) {
+  if (seedIndex < 0) {
+    out.seedEffect = 'skipped: no register-seed migration found in the array';
+  } else if (!projects) {
     out.seedEffect = 'skipped: no project_meta rows in this database (use a copy of a real one)';
   } else {
-    d.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version', ?)").run(JSON.stringify(SCHEMA_VERSION - 1));
+    d.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version', ?)").run(JSON.stringify(seedIndex));
     d.prepare('UPDATE project_meta SET registered = NULL, registeredAt = NULL').run();
     const before = d.prepare('SELECT COUNT(*) c FROM project_meta WHERE registered = 1').get().c;
     const res = runMigrations(d);
     const after = d.prepare('SELECT COUNT(*) c FROM project_meta WHERE registered = 1').get().c;
     out.seedEffect = {
+      seedMigrationIndex: seedIndex,
       from: res.from, to: res.to, registeredBefore: before, registeredAfter: after,
       verdict: after > before
-        ? 'OK — the last migration had a real effect'
+        ? 'OK — the register seed had a real effect'
         : 'BROKEN — it reported success and did nothing. Look for a swallowed throw inside it.',
     };
   }
