@@ -192,8 +192,10 @@ the installer.
   **Everything else derives from the descriptor**: spawn routing, scanning, the watcher, the launch menu,
   the generated settings page and Configure dialog, the sidebar badge, search, stats, resume — plus session
   **lineage** (`resolveLineage`, #193/#223), the **transcript path** for a row (`transcriptPathFor`, #211),
-  per-project **config/meta** (`projectMeta`, #211 — Claude's `~/.claude.json`), and where a backend keeps
-  its **plans + memory/instruction files** (`plansDir` / `memorySources`, #227). The core reads no backend's
+  per-project **config/meta** (`projectMeta`, #211 — Claude's `~/.claude.json`), where a backend keeps
+  its **plans + memory/instruction files** (`plansDir` / `memorySources`, #227), and whether it has
+  **subagents** (`supportsSubagents`, #230 — only Claude does; the sidebar's subagent settings gate on it).
+  The core reads no backend's
   format and hardcodes no `~/.claude` path; `test/backend-path-neutrality.test.js` is the guard for the last
   one (a hardcoded store PATH is a backend id the id-hunt cannot see).
 
