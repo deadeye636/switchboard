@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (24 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (23 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-18
 
@@ -38,5 +38,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#210](https://github.com/deadeye636/switchboard/issues/210) perf: run the live-session identity match (matchLiveSession) in the index worker · _chore_
 - [#221](https://github.com/deadeye636/switchboard/issues/221) merge-setting writes a renderer-supplied blob straight past the secret scrub · _bug_
 - [#224](https://github.com/deadeye636/switchboard/issues/224) db layer: decide the session_cache(projectPath) index, and two queries that skip the stmts object · _chore_
-- [#226](https://github.com/deadeye636/switchboard/issues/226) Configure gear does nothing when a session's backend is gone · _bug_
 - [#229](https://github.com/deadeye636/switchboard/issues/229) Session lineage — remaining work (provenance + /clear re-key) · _feature_
