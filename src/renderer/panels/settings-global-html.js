@@ -515,6 +515,7 @@
             <section class="settings-cat" data-cat="projects">
               <div class="settings-cat-head"><h2>Projects &amp; Sidebar</h2><p>Which projects appear and how the session list is trimmed.</p></div>
 
+              <div class="settings-subhead">Projects</div>
               <div class="settings-section">
                 <div class="settings-field">
                   <div class="settings-field-info">
@@ -540,12 +541,26 @@
                     <label class="settings-toggle"><input type="checkbox" id="sv-favorites-own-list" ${favoritesOwnListValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
-                ${hasSubagentsValue ? `
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Add projects automatically</span>${help}</div>
+                    <div class="settings-description">On: every project you use with Claude Code shows up on its own. Off: add them yourself with +.</div>
+                    <div class="settings-more">On: every project a session is discovered in appears automatically, from any backend. Off: the current projects stay and new ones no longer appear on their own — add them with the + button (starting a session from Switchboard also adds its project). Switching back on restores full auto-discovery.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-project-auto-add" ${projectAutoAddValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+              </div>
+
+              ${hasSubagentsValue ? `
+              <div class="settings-subhead">Subagents</div>
+              <div class="settings-section">
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Show subagents</span>${help}</div>
                     <div class="settings-description">Show a session's Task subagents as nested rows in the sidebar.</div>
-                    <div class="settings-more">Off hides the subagent caret and its nested rows entirely — the parent session still shows normally. This section is shown only for backends that have subagents.</div>
+                    <div class="settings-more">Off hides the subagent caret and its nested rows entirely — the parent session still shows normally.</div>
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-show-subagents" ${showSubagentsValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
@@ -565,29 +580,20 @@
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Subagent row layout</span>${help}</div>
                     <div class="settings-description">How each subagent row is laid out. The per-type colour is kept in every option.</div>
-                    <div class="settings-more">A: title on its own line, the type small in the meta line (calmest). B: title, then a small type badge, then the stats (three lines). C: a badge only when the type differs from general-purpose.</div>
+                    <div class="settings-more"><b>Title first, type demoted</b>: title on its own line, the type small in the meta line (calmest). <b>Three lines</b>: title, then a small type badge, then the stats. <b>Badge only when non-default</b>: a badge only when the type differs from general-purpose.</div>
                   </div>
                   <div class="settings-field-control">
                     <select class="settings-select" id="sv-subagent-layout">
-                      <option value="a" ${subagentLayoutValue === 'a' ? 'selected' : ''}>A — title first, type demoted</option>
-                      <option value="b" ${subagentLayoutValue === 'b' ? 'selected' : ''}>B — three lines</option>
-                      <option value="c" ${subagentLayoutValue === 'c' ? 'selected' : ''}>C — badge only when non-default</option>
+                      <option value="a" ${subagentLayoutValue === 'a' ? 'selected' : ''}>Title first, type demoted</option>
+                      <option value="b" ${subagentLayoutValue === 'b' ? 'selected' : ''}>Three lines</option>
+                      <option value="c" ${subagentLayoutValue === 'c' ? 'selected' : ''}>Badge only when non-default</option>
                     </select>
                   </div>
                 </div>
-                ` : ''}
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Add projects automatically</span>${help}</div>
-                    <div class="settings-description">On: every project you use with Claude Code shows up on its own. Off: add them yourself with +.</div>
-                    <div class="settings-more">On: every project a session is discovered in appears automatically, from any backend. Off: the current projects stay and new ones no longer appear on their own — add them with the + button (starting a session from Switchboard also adds its project). Switching back on restores full auto-discovery.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-project-auto-add" ${projectAutoAddValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-                  </div>
-                </div>
               </div>
+              ` : ''}
 
+              <div class="settings-subhead">Session list</div>
               <div class="settings-section">
                 <div class="settings-field">
                   <div class="settings-field-info">
