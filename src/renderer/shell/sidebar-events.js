@@ -136,13 +136,8 @@ function dispatchSidebarActivation(e) {
       }
       return;
     }
-    const ancestorRow = t.closest('.session-lineage-ancestor');
-    if (ancestorRow) {
-      e.stopPropagation();
-      const anc = sessionMap.get(ancestorRow.dataset.sessionId);
-      if (anc && typeof showJsonlViewer === 'function') showJsonlViewer(anc);
-      return;
-    }
+    // Ancestor rows are now full `.session-item`s inside the thread — their actions and open route through
+    // the normal delegated handling below, no special case (#193).
 
     if (t.closest('.session-pin')) { e.stopPropagation(); toggleSessionPin(session); return; }
     if (t.closest('.session-stop-btn')) { e.stopPropagation(); confirmAndStopSession(session.sessionId); return; }

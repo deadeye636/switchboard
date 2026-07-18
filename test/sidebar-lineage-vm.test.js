@@ -26,6 +26,14 @@ function setup(sessions = [], { running = [], active = null } = {}) {
   window.activeSessionId = active;
   window.cleanDisplayName = (s) => s || '';
   window.ariaButton = (el) => el; // a11y decoration is not the subject here
+  // Ancestors render as full session rows (buildSessionItem lives in sidebar-session-row.js, not loaded
+  // here); stub it to an id-bearing .session-item so the thread structure is testable.
+  window.buildSessionItem = (s) => {
+    const el = window.document.createElement('div');
+    el.className = 'session-item';
+    el.dataset.sessionId = s.sessionId;
+    return el;
+  };
 
   vm.runInContext(fs.readFileSync(path.join(REN, 'shell/sidebar-lineage.js'), 'utf8'), ctx, { filename: 'shell/sidebar-lineage.js' });
   const call = (name, ...args) => vm.runInContext(name, ctx)(...args);
@@ -77,7 +85,8 @@ test('buildLineageThread renders a toggle and one collapsed ancestor row per anc
     assert.match(toggle.textContent, /2 earlier/);
     assert.ok(toggle.classList.contains('sidebar-children-caret'), 'reuses the subagent caret look');
     assert.ok(toggle.querySelector('.caret-arrow'), 'has the shared caret arrow');
-    const rows = thread.querySelectorAll('.session-lineage-ancestor');
+    // Ancestors are full .session-item rows (via buildSessionItem), newest → oldest.
+    const rows = thread.querySelectorAll('.session-lineage-ancestors .session-item');
     assert.equal(rows.length, 2);
     assert.equal(rows[0].dataset.sessionId, 'mid');
     assert.equal(rows[1].dataset.sessionId, 'root');

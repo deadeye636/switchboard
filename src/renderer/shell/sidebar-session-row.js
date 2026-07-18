@@ -27,7 +27,9 @@
 // the three is in this file. In a renderer whose only import graph IS these headers, a wrong one is not
 // untidy, it is misinformation — the next reader has nothing else to go on.)
 
-function buildSessionItem(session) {
+// opts.noLineageThread — do NOT append this row's own folded-ancestors thread. Set when a row is itself
+// being rendered AS an ancestor inside another head's thread, so the flat chain does not recurse (#193).
+function buildSessionItem(session, opts = {}) {
   const item = document.createElement('div');
   item.className = 'session-item';
   item.id = 'si-' + session.sessionId;
@@ -266,8 +268,8 @@ function buildSessionItem(session) {
   item.appendChild(row);
 
   // The collapsed thread of idle ancestors this session folded (#193 — Model A: they fold under the head,
-  // not as separate rows). The toggle + ancestor clicks are delegated in sidebar-events.js.
-  if (typeof buildLineageThread === 'function') {
+  // not as separate rows). Suppressed when this row is itself an ancestor inside another thread (no recursion).
+  if (!opts.noLineageThread && typeof buildLineageThread === 'function') {
     const thread = buildLineageThread(session);
     if (thread) item.appendChild(thread);
   }

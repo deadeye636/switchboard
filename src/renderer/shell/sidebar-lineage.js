@@ -59,18 +59,14 @@ function buildLineageThread(session) {
   toggle.innerHTML = `<span class="caret-arrow">&#9654;</span> ${chain.length} earlier`;
   ariaButton(toggle, `Show ${chain.length} earlier session${chain.length === 1 ? '' : 's'} in this thread`);
 
-  // Reuse the subagent children container so the ancestors indent the same way. The lineage class stays
-  // for the toggle handler's sibling check.
+  // Each ancestor is a REAL session, so render it as a full session row — every normal action (open,
+  // transcript, timeline, tags, …) works through the delegated sidebar events, no special-casing. Pass
+  // noLineageThread so the flat chain does not recurse (this head already lists the whole chain).
   const list = document.createElement('div');
-  list.className = 'session-lineage-ancestors sidebar-subagents-container';
+  list.className = 'session-lineage-ancestors';
   list.style.display = 'none';
   for (const anc of chain) {
-    const row = document.createElement('div');
-    row.className = 'session-lineage-ancestor';
-    row.dataset.sessionId = anc.sessionId;
-    row.textContent = cleanDisplayName(anc.name || anc.aiTitle || anc.summary) || anc.sessionId;
-    row.title = 'Open transcript (read-only)';
-    list.appendChild(row);
+    list.appendChild(buildSessionItem(anc, { noLineageThread: true }));
   }
 
   wrap.appendChild(toggle);

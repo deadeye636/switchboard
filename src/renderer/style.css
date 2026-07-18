@@ -1818,21 +1818,12 @@ input:focus-visible {
 .session-lineage-thread {
   margin: 2px 0;
 }
-/* The toggle reuses .sidebar-children-caret for the ▶/▼ look; the ancestor rows sit at the SAME indent as
-   subagent children (.sidebar-subagent) so a thread and a subagent list line up. */
-.session-lineage-ancestor {
-  padding-left: 28px;
-  margin-left: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #8a8a9e;
-  font-size: 11.5px;
-  line-height: 1.9;
-  cursor: pointer;
-}
-.session-lineage-ancestor:hover {
-  color: #c7c7d6;
+/* The toggle reuses .sidebar-children-caret for the ▶/▼ look. Ancestor rows are full .session-item rows
+   (#193) — indent + a thread line so they read as nested under the head, like the subagent nesting. */
+.session-lineage-ancestors {
+  margin-left: 20px;
+  padding-left: 6px;
+  border-left: 1px solid #2c2c3a;
 }
 
 .session-detail-pill {
