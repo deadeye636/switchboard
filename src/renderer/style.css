@@ -7028,6 +7028,35 @@ body.grid-dragging .grid-card-header {
   line-height: 1.6;
 }
 
+/* Subagent row layouts (#231). The per-type colour is kept in every one. */
+/* Small badge variant (layouts B + C). */
+.sidebar-subagent-type.sm {
+  font-size: 8.5px;
+  padding: 0 4px;
+  align-self: flex-start;
+}
+/* B — the badge sits on its own line between title and stats. */
+.subagent-badge-line {
+  margin: 2px 0;
+}
+/* A — the type demoted into the meta line, coloured (inline colour set per row). */
+.subagent-meta-type {
+  font-weight: 600;
+}
+/* C — a non-default type badges beside the title, which keeps ellipsising. */
+.sidebar-subagent .session-summary.has-inline-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.sidebar-subagent .subagent-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 /* Orphan subagent group label */
 .sidebar-orphan-subagents {
   margin-top: 4px;

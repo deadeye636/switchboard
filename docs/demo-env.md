@@ -36,7 +36,7 @@ a fixed base so a scenario is always reproducible:
 
 | Project | Sessions | What it exercises |
 |---|---|---|
-| **demo-alpha** | Claude ×2 (the 2nd a **fork** of the 1st) + Pi ×1 | the lineage "▶ earlier" thread; a project mixing Claude + Pi |
+| **demo-alpha** | Claude ×2 (the 2nd a **fork** of the 1st) + Pi ×1; the 1st Claude session has **3 subagents** (general-purpose, explore, review) | the lineage "▶ earlier" thread; a Claude+Pi project; the **subagent** rows, their type colours and the row-layout setting (#230/#231) |
 | **demo-beta** | Codex ×1 | a single-backend, non-Claude project (badge + provenance) |
 | **demo-mixed** | Claude + Codex + Pi (one each, same project) | multi-backend badges + mixed provenance in ONE sidebar group |
 | **demo-chain** | Claude ×3, a three-deep fork chain (C forks B forks A) | a **deeper** lineage thread — the head folds "2 earlier" |

@@ -232,6 +232,15 @@
     const projectSortValue = !isProject ? (current.projectSortMode || 'activity') : 'activity';
     const favoritesOwnListValue = !isProject ? !!current.favoritesOwnList : false;
     const subagentLiveStatusValue = !isProject ? current.subagentLiveStatus !== false : true;
+    // Subagent sidebar (#231), gated on the capability (#230): the section is hidden entirely when no
+    // launchable backend has subagents, so a Codex-only user sees no subagent controls at all.
+    const showSubagentsValue = !isProject ? current.showSubagents !== false : true;
+    const subagentLayoutValue = !isProject ? (current.subagentLayout || 'a') : 'a';
+    // Fail-open: the standalone settings window does not load backend-registry.js, so launchableBackends is
+    // absent there — hiding the section then would make the setting UNREACHABLE. When we cannot tell, show
+    // it (worst case a Codex-only window-mode user sees a section that does not apply, which is harmless).
+    const hasSubagentsValue = typeof window.launchableBackends !== 'function'
+      || window.launchableBackends().some(b => b && b.supportsSubagents);
     const logLevelValue = !isProject ? (current.logLevel || 'info') : 'info';
     const projectAutoAddValue = !isProject ? (current.projectAutoAdd !== false) : true;
     // Handoff library (global only): toggle + editable request prompt.
@@ -405,7 +414,8 @@
         projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, settingsOpenModeValue, shellProfileValue, shellProfiles,
-        stickyAttentionInboxValue, subagentLiveStatusValue, tabAutoCloseDelayValue, tabAutoCloseModeValue,
+        stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
+        tabAutoCloseDelayValue, tabAutoCloseModeValue,
         tabCloseValue, tabDragValue, tabMiddleClickValue, tabPositionValue, tabsLiveRenderValue,
         terminalCloseValue, terminalFontCustomValue, terminalFontSelectValue, terminalFontSizeValue,
         terminalShellProfileValue, themeValue, usage5hCritValue, usage5hWarnValue, usage7dCritValue,
@@ -706,7 +716,13 @@
         settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'grid';
         settings.projectSortMode = settingsViewerBody.querySelector('#sv-project-sort')?.value || 'activity';
         settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
-        settings.subagentLiveStatus = !!settingsViewerBody.querySelector('#sv-subagent-live-status')?.checked;
+        // The subagent controls are absent when the capability gate hid the section (#230/#231). set-setting
+        // REPLACES the blob (no merge), so an omitted key is an ERASED key — a bare `if (el)` would reset a
+        // stored preference to its default on the next unrelated Save. Write the remembered value when the
+        // control is absent, exactly like the attention-hook toggle below.
+        { const el = settingsViewerBody.querySelector('#sv-subagent-live-status'); settings.subagentLiveStatus = el ? !!el.checked : subagentLiveStatusValue; }
+        { const el = settingsViewerBody.querySelector('#sv-show-subagents'); settings.showSubagents = el ? !!el.checked : showSubagentsValue; }
+        { const el = settingsViewerBody.querySelector('#sv-subagent-layout'); settings.subagentLayout = el ? (el.value || 'a') : subagentLayoutValue; }
         settings.stickyAttentionInbox = !!settingsViewerBody.querySelector('#sv-sticky-attention-inbox')?.checked;
         {
           // The two handoff prompts. Empty, or unchanged from the built-in default ⇒ store '' so the

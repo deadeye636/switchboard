@@ -93,12 +93,6 @@ function buildSubagentItem(session) {
   const row = document.createElement('div');
   row.className = 'session-row';
 
-  const typePill = document.createElement('span');
-  typePill.className = 'sidebar-subagent-type';
-  typePill.textContent = session.subagentType || 'sub';
-  typePill.style.background = bg;
-  typePill.style.borderColor = border;
-
   const dot = document.createElement('span');
   const subLive = subagentLiveStatusOn() && typeof window._isSubagentLive === 'function'
     && session.parentSessionId && session.agentId
@@ -108,23 +102,71 @@ function buildSubagentItem(session) {
   const info = document.createElement('div');
   info.className = 'session-info';
 
+  const titleText = session.description || session.summary || session.aiTitle || session.sessionId;
+  const type = session.subagentType || 'sub';
+  // "Distinct" = a type worth badging on its own — anything other than the default general-purpose, which
+  // is the common case and carries no information when every row shares it.
+  const distinct = !!session.subagentType && session.subagentType.toLowerCase() !== 'general-purpose';
+  const layout = subagentLayoutMode();
+
+  // The same relative time the session cards show, from the same `modified` value (#179).
+  const subAge = session.modified ? formatDate(new Date(session.modified)) : '';
+  const statsText = [session.messageCount ? session.messageCount + ' msgs' : '', subAge].filter(Boolean).join(' · ');
+
+  // A small coloured type badge (layouts B and C). The colour is the type's, kept in every layout.
+  const makeBadge = () => {
+    const b = document.createElement('span');
+    b.className = 'sidebar-subagent-type sm';
+    b.textContent = type;
+    b.style.background = bg;
+    b.style.borderColor = border;
+    return b;
+  };
+
   const summaryEl = document.createElement('div');
   summaryEl.className = 'session-summary';
-  summaryEl.textContent = session.description || session.summary || session.aiTitle || session.sessionId;
-
   const metaEl = document.createElement('div');
   metaEl.className = 'session-meta';
-  // Count, then the same relative time the session cards show, from the same
-  // value (`modified`) — two cards under each other must not print the same
-  // number with different meanings (#179).
-  const subAge = session.modified ? formatDate(new Date(session.modified)) : '';
-  metaEl.textContent = [session.messageCount ? session.messageCount + ' msgs' : '', subAge]
-    .filter(Boolean).join(' · ');
 
-  info.appendChild(summaryEl);
-  info.appendChild(metaEl);
+  if (layout === 'b') {
+    // B — three lines: title (full width), a small type badge, then the stats.
+    summaryEl.textContent = titleText;
+    const badgeLine = document.createElement('div');
+    badgeLine.className = 'subagent-badge-line';
+    badgeLine.appendChild(makeBadge());
+    metaEl.textContent = statsText;
+    info.appendChild(summaryEl);
+    info.appendChild(badgeLine);
+    info.appendChild(metaEl);
+  } else if (layout === 'c') {
+    // C — badge only for a non-default type, beside the title (which still ellipsises). general-purpose
+    // shows no badge at all — just the coloured left stripe, the title and the stats.
+    if (distinct) {
+      summaryEl.classList.add('has-inline-badge');
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'subagent-title-text';
+      titleSpan.textContent = titleText;
+      summaryEl.appendChild(titleSpan);
+      summaryEl.appendChild(makeBadge());
+    } else {
+      summaryEl.textContent = titleText;
+    }
+    metaEl.textContent = statsText;
+    info.appendChild(summaryEl);
+    info.appendChild(metaEl);
+  } else {
+    // A (default) — title on its own line; the type demoted (coloured) into the meta line beside the stats.
+    summaryEl.textContent = titleText;
+    const tySpan = document.createElement('span');
+    tySpan.className = 'subagent-meta-type';
+    tySpan.textContent = type;
+    tySpan.style.color = border;
+    metaEl.appendChild(tySpan);
+    if (statsText) metaEl.appendChild(document.createTextNode(' · ' + statsText));
+    info.appendChild(summaryEl);
+    info.appendChild(metaEl);
+  }
 
-  row.appendChild(typePill);
   row.appendChild(dot);
   row.appendChild(info);
   item.appendChild(row);
@@ -137,6 +179,18 @@ function buildSubagentItem(session) {
 // Whether the running-subagent indicator is enabled (default on, #111).
 function subagentLiveStatusOn() {
   return typeof appGlobalSettings === 'undefined' || appGlobalSettings.subagentLiveStatus !== false;
+}
+
+// Whether subagent rows are shown at all (#231, default on). Off hides the caret + nested rows.
+function showSubagentsOn() {
+  return typeof appGlobalSettings === 'undefined' || appGlobalSettings.showSubagents !== false;
+}
+
+// The subagent row layout (#231): 'a' (default, title first + type demoted), 'b' (three lines), 'c'
+// (badge only when the type differs from general-purpose). The per-type colour is kept in all three.
+function subagentLayoutMode() {
+  const v = typeof appGlobalSettings !== 'undefined' && appGlobalSettings.subagentLayout;
+  return v === 'b' || v === 'c' ? v : 'a';
 }
 
 // Recompute a parent caret's "N running" badge from its live children (#111).
@@ -183,6 +237,7 @@ function buildSubagentIndex(sessions) {
 
 // Attach a collapsible caret + nested subagent children beneath a parent item.
 function appendSubagentChildren(parentEl, parentSessionId, subagentIndex) {
+  if (!showSubagentsOn()) return;   // #231: subagents hidden entirely — no caret, no rows
   const children = subagentIndex && subagentIndex.get(parentSessionId);
   if (!children || children.length === 0) return;
   const expandedSet = getExpandedSubagents();

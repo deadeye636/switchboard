@@ -39,6 +39,15 @@ const IDS = {
   mixPi: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
 };
 
+// demo-alpha's Claude parent spawns three subagents of DIFFERENT types, so the subagent-row layouts and
+// the per-type colour coding (#230/#231) are visible in the demo: general-purpose (grey), explore (green),
+// review (blue). Each is agent-<id>.jsonl + an agent-<id>.meta.json sidecar under <parent>/subagents/.
+const SUBAGENTS = [
+  { id: 'gp01', type: 'general-purpose', task: 'Audit the demo-alpha config for gaps', msgs: 46 },
+  { id: 'ex01', type: 'explore', task: 'Map the demo-alpha module layout', msgs: 18 },
+  { id: 'rv01', type: 'review', task: 'Review the demo-alpha test coverage', msgs: 12 },
+];
+
 // ── Small fs helpers ─────────────────────────────────────────────────────────
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -132,6 +141,16 @@ function piSession({ id = IDS.pi, cwd, model, provider, prompt, reply, t0 }) {
         },
       },
     },
+  ]);
+}
+
+// A Claude subagent transcript (a sidechain): `isSidechain` + `agentId` mark it as one, messageCount comes
+// from the message lines, and the type + task live in the agent-<id>.meta.json sidecar the reader reads.
+function subagentTranscript({ agentId, cwd, model, task, reply, t0 }) {
+  return jsonl([
+    { type: 'user', isSidechain: true, agentId, cwd, timestamp: iso(t0), message: { role: 'user', content: task } },
+    { type: 'assistant', isSidechain: true, agentId, cwd, timestamp: iso(t0 + 3),
+      message: { role: 'assistant', model, content: [{ type: 'text', text: reply }], usage: { input_tokens: 400, output_tokens: 120 } } },
   ]);
 }
 
@@ -308,6 +327,21 @@ function seedDemo(demoDir = resolveDemoDir()) {
     claudeSession({ cwd: projectChain, model: 'claude-opus-4-6', prompt: 'Fork again: execute the migration.', reply: 'Executed the migration per the refined plan.', t0: 600, forkedFrom: IDS.chainB }),
     created, skipped,
   );
+
+  // Subagents under demo-alpha's Claude parent — three types so the row layouts + colour coding show (#231).
+  const subDir = path.join(paths.storeClaude, encodeProjectPath(projectAlpha), IDS.claudeParent, 'subagents');
+  SUBAGENTS.forEach((s, i) => {
+    writeIfAbsent(
+      path.join(subDir, `agent-${s.id}.jsonl`),
+      subagentTranscript({ agentId: s.id, cwd: projectAlpha, model: 'claude-opus-4-6', task: s.task, reply: `Completed: ${s.task}.`, t0: 30 + i * 5 }),
+      created, skipped,
+    );
+    writeIfAbsent(
+      path.join(subDir, `agent-${s.id}.meta.json`),
+      JSON.stringify({ agentType: s.type, description: s.task }, null, 2) + '\n',
+      created, skipped,
+    );
+  });
 
   return { demoDir: fwd, paths, created, skipped };
 }

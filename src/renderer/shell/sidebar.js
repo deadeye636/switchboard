@@ -393,7 +393,9 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath) {
   }
 
   // Orphan subagents: children whose parent has no top-level session shown here.
-  if (nestSubagents) {
+  // Gated on showSubagentsOn (#231) too — the nested path (appendSubagentChildren) is not the only one
+  // that renders subagent rows, so hiding subagents must cover the orphan group as well.
+  if (nestSubagents && (typeof showSubagentsOn !== 'function' || showSubagentsOn())) {
     const topLevelIds = new Set([...visible, ...older]
       .map(i => i.element.dataset && i.element.dataset.sessionId).filter(Boolean));
     const orphans = [];
