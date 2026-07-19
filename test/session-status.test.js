@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  RUNNING_INBOX_DEFAULT_MODE,
   getSessionStatus,
   getAttentionInboxItems,
   getNextAttentionInboxItem,
@@ -91,6 +92,9 @@ test('attention inbox orders human-critical sessions first then recent activity'
     activePtyIds: new Set(['running-old']),
     responseReadySessions: new Set(['ready']),
     attentionSessions: new Set(['attention']),
+    // This test is about ORDER, not about which running sessions qualify — say so rather than leaning on
+    // whatever the default mode happens to be (#238 changed it).
+    runningInboxMode: 'always',
   }));
 
   assert.deepEqual(result.map(item => item.session.sessionId), ['attention', 'ready', 'running-old']);
@@ -103,8 +107,20 @@ function runInbox(overrides) {
     .map(item => item.session.sessionId);
 }
 
-test('running-in-inbox: default/unspecified mode keeps the historical always-on behavior', () => {
-  assert.deepEqual(runInbox({}), ['run']);
+// #238: an unspecified mode used to mean 'always' HERE and 'until-read' in app.js — one question, two
+// answers in two layers. Every real caller builds its runtime through attentionInboxRuntimeFields(), so
+// the fallback was unreachable in the app; the only way to reach it was a NEW caller that forgot the
+// field, and it would then quietly show a different inbox than the setting says.
+//
+// The trade-off, stated because it is a real one: 'always' fails OPEN (a forgotten field shows more, so
+// nothing is missed), 'until-read' fails CONSISTENT (a forgotten field behaves like the setting). Chosen
+// consistent — the divergence only ever appears through a caller bug, and silent disagreement is worse
+// there than showing the configured behaviour.
+test('running-in-inbox: an unspecified mode is the shared default, not a second one', () => {
+  assert.equal(RUNNING_INBOX_DEFAULT_MODE, 'until-read', 'and app.js starts from this same constant');
+  assert.deepEqual(runInbox({}), [], 'until-read needs a finish stamp, so a never-worked session stays out');
+  assert.deepEqual(runInbox({ finishedAt: new Map([['run', 1000]]) }), ['run'],
+    'and one that finished is in, exactly as if the mode had been passed');
 });
 
 test('running-in-inbox: always shows running regardless of finish stamp', () => {

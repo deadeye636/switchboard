@@ -361,7 +361,8 @@ function refreshSessionStatusViews() {
 // current setting + `finishedAt` map. Default 'until-read': a session that
 // finished while you were looking at it stays in the inbox until you open it,
 // nothing silently drops.
-let runningInboxSetting = { mode: 'until-read', minutes: 5 };
+// The default lives ONCE, in session-status.js, and both layers read it from there (#238).
+let runningInboxSetting = { mode: RUNNING_INBOX_DEFAULT_MODE, minutes: RUNNING_INBOX_DEFAULT_MINUTES };
 const RUNNING_INBOX_MODES = ['always', 'never', 'after-finish', 'until-read', 'timed'];
 
 // Runtime fields the inbox filter needs, merged into every runtime snapshot that
@@ -392,8 +393,8 @@ function ensureRunningInboxTick() {
 // Bridge for settings-panel.js so the toggle applies live without a restart.
 window._setRunningInboxSetting = (cfg) => {
   runningInboxSetting = {
-    mode: RUNNING_INBOX_MODES.includes(cfg?.mode) ? cfg.mode : 'until-read',
-    minutes: cfg?.minutes > 0 ? cfg.minutes : 5,
+    mode: RUNNING_INBOX_MODES.includes(cfg?.mode) ? cfg.mode : RUNNING_INBOX_DEFAULT_MODE,
+    minutes: cfg?.minutes > 0 ? cfg.minutes : RUNNING_INBOX_DEFAULT_MINUTES,
   };
   ensureRunningInboxTick();
   refreshSessionStatusViews();

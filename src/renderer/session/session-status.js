@@ -82,6 +82,12 @@
   }
 
   const RUNNING_INBOX_DEFAULT_MINUTES = 5;
+  // The mode a caller gets when it passes none (#238). It used to be 'always' here and 'until-read' in
+  // app.js — two answers to one question, in two layers. Every real caller builds its runtime through
+  // attentionInboxRuntimeFields(), so the fallback was unreachable in the app and the divergence could
+  // only ever bite a NEW caller that forgot a field: it would quietly get a different inbox than the
+  // setting says. One constant, exported, used by both.
+  const RUNNING_INBOX_DEFAULT_MODE = 'until-read';
 
   // Whether a session's status should appear in the attention inbox. Every status
   // except `running` is fixed via `inInbox`. `running` is user-configurable
@@ -97,11 +103,11 @@
   //                  helper: opening the session does NOT clear the stamp, so it
   //                  stays for the full window regardless of being read
   // The finishedAt gate means a session that never worked (no stamp) is never
-  // surfaced as running clutter. Default mode is 'always' so callers that don't
-  // pass a mode keep the historical behaviour.
+  // surfaced as running clutter. A caller that passes no mode gets
+  // RUNNING_INBOX_DEFAULT_MODE — the same value app.js starts from (#238).
   function inboxIncludes(status, session, runtime) {
     if (status.key !== 'running') return status.inInbox;
-    const mode = runtime.runningInboxMode || 'always';
+    const mode = runtime.runningInboxMode || RUNNING_INBOX_DEFAULT_MODE;
     if (mode === 'always') return true;
     if (mode === 'never') return false;
     const finishedAt = getMapValue(runtime.finishedAt, session.sessionId);
@@ -177,6 +183,8 @@
   }
 
   return {
+    RUNNING_INBOX_DEFAULT_MODE,
+    RUNNING_INBOX_DEFAULT_MINUTES,
     getSessionStatus,
     getAttentionInboxItems,
     getNextAttentionInboxItem,
