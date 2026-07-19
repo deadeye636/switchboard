@@ -18,7 +18,14 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// Codex' home, following the isolated store first (#241). SWITCHBOARD_STORE_CODEX names the sessions dir;
+// the home is its parent. CODEX_HOME is the CLI's own variable and stays the next-best answer.
+//
+// This one WRITES: the Projects admin's trust toggle edits `config.toml`, so without the override a demo
+// instance edited the user's real Codex config — the same defect that was fixed for Claude's `.claude.json`.
 function codexHome() {
+  const store = process.env.SWITCHBOARD_STORE_CODEX;
+  if (store) return path.dirname(store);
   return process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
 }
 

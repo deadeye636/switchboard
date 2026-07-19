@@ -31,27 +31,28 @@ function stripComments(src) {
     .split('\n').map(l => l.replace(/\/\/.*$/, '')).join('\n');
 }
 
-// Files that legitimately compose a path inside Claude's home. Each must resolve it against the override.
+// Files that legitimately compose a path inside a CLI's home. Each must resolve it against that backend's
+// store override. Codex is here because it repeated the defect one backend over: its trust module WRITES
+// `config.toml` from the Projects admin, and its thread-name overlay is read on every session parse.
 const MUST_FOLLOW_OVERRIDE = [
-  'src/backends/claude/config.js',
-  'src/servers/schedule-runner.js',
-  'src/servers/schedule-ipc.js',
-  'src/servers/mcp-bridge.js',
-  'src/app/hooks.js',
-  'src/main.js',
+  ['src/backends/claude/config.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],
+  ['src/servers/schedule-runner.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],
+  ['src/servers/schedule-ipc.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],
+  ['src/servers/mcp-bridge.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],
+  ['src/app/hooks.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],
+  ['src/main.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],
+  ['src/backends/codex/trust.js', 'SWITCHBOARD_STORE_CODEX', /homedir\(\)[^;\n]*['"]\.codex/],
+  ['src/backends/codex/thread-names.js', 'SWITCHBOARD_STORE_CODEX', /homedir\(\)[^;\n]*['"]\.codex/],
 ];
 
-// Composing Claude's home out of the real user home: `os.homedir()` in the same expression as '.claude'.
-const HOMEDIR_CLAUDE = /homedir\(\)[^;\n]*['"]\.claude/;
-
-test('every place that composes Claude\'s home follows the store override (#241)', () => {
-  for (const rel of MUST_FOLLOW_OVERRIDE) {
+test('every place that composes a CLI home follows that backend\'s store override (#241)', () => {
+  for (const [rel, envVar, homePattern] of MUST_FOLLOW_OVERRIDE) {
     const src = stripComments(fs.readFileSync(path.join(ROOT, rel), 'utf8'));
-    assert.match(src, HOMEDIR_CLAUDE, `${rel}: expected it to still compose ~/.claude — update this list if that moved`);
+    assert.match(src, homePattern, `${rel}: expected it to still compose the real home — update this list if that moved`);
     assert.ok(
-      src.includes('SWITCHBOARD_STORE_CLAUDE'),
-      `${rel} builds a path under ~/.claude but never consults SWITCHBOARD_STORE_CLAUDE — an isolated ` +
-      `(demo/sandbox) run would read or WRITE the user's real Claude home from there`,
+      src.includes(envVar),
+      `${rel} builds a path under the CLI's home but never consults ${envVar} — an isolated ` +
+      `(demo/sandbox) run would read or WRITE the user's real store from there`,
     );
   }
 });
@@ -74,5 +75,29 @@ test('the override is resolved per call, not frozen at module load (#241)', () =
   } finally {
     if (saved === undefined) delete process.env.SWITCHBOARD_STORE_CLAUDE;
     else process.env.SWITCHBOARD_STORE_CLAUDE = saved;
+  }
+});
+
+// Codex' own admin surface: the same read/write pair, one backend over. `trust.set()` writes config.toml
+// from the Projects admin, so an isolated run resolving to the real home edits the user's real Codex config.
+test('Codex\'s trust config and thread-name index follow the isolated store (#241)', () => {
+  const saved = process.env.SWITCHBOARD_STORE_CODEX;
+  const savedHome = process.env.CODEX_HOME;
+  try {
+    delete process.env.SWITCHBOARD_STORE_CODEX;
+    process.env.CODEX_HOME = path.join('C:', 'real', 'codex');
+    const trust = require('../src/backends/codex/trust');
+    const before = trust.configPath();
+    assert.equal(before, path.join('C:', 'real', 'codex', 'config.toml'), 'without the override, the CLI\'s own variable still decides');
+
+    process.env.SWITCHBOARD_STORE_CODEX = path.join('C:', 'demo', 'stores', 'codex', 'sessions');
+    const after = trust.configPath();
+    assert.equal(after, path.join('C:', 'demo', 'stores', 'codex', 'config.toml'),
+      'the store override must win over CODEX_HOME — it is the one that says "this run is isolated"');
+  } finally {
+    if (saved === undefined) delete process.env.SWITCHBOARD_STORE_CODEX;
+    else process.env.SWITCHBOARD_STORE_CODEX = saved;
+    if (savedHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = savedHome;
   }
 });

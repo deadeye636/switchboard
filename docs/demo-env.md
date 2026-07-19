@@ -74,6 +74,9 @@ touches nothing real. `test/store-isolation.test.js` is the guard.
   usage history) shows nothing at all.
 - **agy cannot be isolated.** Its CLI has no env var for its store, so a demo-launched agy session writes to
   the real `~/.gemini/antigravity-cli`. Its descriptor declines the hook rather than pretending.
+- **One shipped DB migration reads the real `~/.claude/projects`** (`src/db/migrations.js`) to backfill
+  project paths. A migration is append-only and must never be edited once shipped, so it stays as it is —
+  read-only, and its result is dominated by the `session_cache` rows it seeds from.
 
 ## What is seeded
 

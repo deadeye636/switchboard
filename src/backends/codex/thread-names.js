@@ -21,8 +21,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// Same resolution order as trust.js (#241): the isolated store's parent, then the CLI's own variable, then
+// the real home. Read on every Codex session parse, so without it an isolated run reads the user's real
+// index on every scan tick.
 function indexPath() {
-  return path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'session_index.jsonl');
+  const store = process.env.SWITCHBOARD_STORE_CODEX;
+  const home = store ? path.dirname(store) : (process.env.CODEX_HOME || path.join(os.homedir(), '.codex'));
+  return path.join(home, 'session_index.jsonl');
 }
 
 let cache = { key: null, names: new Map() };
