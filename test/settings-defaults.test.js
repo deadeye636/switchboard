@@ -38,3 +38,40 @@ test('the renderer reads the effective setting at boot instead of trusting its l
   assert.match(APP_JS, /getEffectiveSettings\(null\)/,
     'the boot must ask the cascade for visibleSessionCount; without it an unsaved key keeps the literal');
 });
+
+// #239: sessionMaxAgeDays and autoHideDays are global-only ON PURPOSE — but that is a statement about
+// SCOPE, not a licence to scatter their defaults. They were four literals over three files, which is the
+// same shape #237 had to be dug out of: independent numbers that agree until someone edits one.
+//
+// GLOBAL_ONLY_DEFAULTS is the single source; projects.js requires it directly, and the renderer — which
+// cannot require a main-process module — is pinned against it here.
+const PANEL_JS = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'panels', 'settings-panel.js'), 'utf8');
+
+test('the renderer\'s sessionMaxAgeDays literals match GLOBAL_ONLY_DEFAULTS', () => {
+  const want = settings.GLOBAL_ONLY_DEFAULTS.sessionMaxAgeDays;
+
+  const boot = /let sessionMaxAgeDays = (\d+);/.exec(APP_JS);
+  assert.ok(boot, 'app.js must still declare a starting sessionMaxAgeDays (renamed? update this test)');
+  assert.equal(Number(boot[1]), want, 'app.js and the single source must agree');
+
+  const read = /fieldValue\('sessionMaxAgeDays', (\d+)\)/.exec(PANEL_JS);
+  assert.ok(read, 'the panel must still read sessionMaxAgeDays with a fallback');
+  assert.equal(Number(read[1]), want, 'what the panel SHOWS when unset must be the same number');
+
+  const write = /parseLimit\('#sv-max-age', (\d+)\)/.exec(PANEL_JS);
+  assert.ok(write, 'the panel must still parse #sv-max-age with a fallback');
+  assert.equal(Number(write[1]), want, 'and what it WRITES back on an empty field must match too');
+});
+
+test('the renderer\'s autoHideDays literals match GLOBAL_ONLY_DEFAULTS', () => {
+  const want = settings.GLOBAL_ONLY_DEFAULTS.autoHideDays;
+
+  const read = /fieldValue\('autoHideDays', (\d+)\)/.exec(PANEL_JS);
+  assert.ok(read, 'the panel must still read autoHideDays with a fallback');
+  assert.equal(Number(read[1]), want);
+
+  // The write path is `parseInt(...) || 0` — the `|| 0` IS the default, so it has to be the same number.
+  const write = /querySelector\('#sv-auto-hide-days'\)\.value\) \|\| (\d+)/.exec(PANEL_JS);
+  assert.ok(write, 'the panel must still parse #sv-auto-hide-days with a fallback');
+  assert.equal(Number(write[1]), want);
+});

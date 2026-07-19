@@ -192,7 +192,7 @@ recorded rather than silently aligned. Four of the five are settled:
 |---|---|
 | `visibleSessionCount` | One value, `10` (#237). The main process's `5` reached nobody: the sidebar reads the raw blob, and `get-effective-settings`' callers do not read this key. |
 | `runningInbox.mode` | One constant, `until-read`, exported by `session-status.js` and used by both layers (#238). The old `always` fallback was unreachable in the app and could only ever bite a new caller that forgot a runtime field. |
-| `sessionMaxAgeDays`, `autoHideDays` | Stay global by decision (#239, above). |
+| `sessionMaxAgeDays`, `autoHideDays` | Stay global by decision (#239, above) — and their defaults live once, in `GLOBAL_ONLY_DEFAULTS` (`src/app/settings.js`). Global-only is a statement about scope, not a licence to scatter the number: it was four literals across three files. |
 | `PATHEXT` | One fallback, `.COM;.EXE;.BAT;.CMD`, owned by `pathExtensions()` in `file-store.js`; `main.js` calls `findOnPath` instead of walking PATH itself (#240). |
 
 Still open:

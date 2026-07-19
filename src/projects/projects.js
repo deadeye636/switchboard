@@ -20,6 +20,9 @@ const crypto = require('crypto');
 const { encodeProjectPath } = require('../session/encode-project-path');
 const { deriveProjectPath } = require('../session/derive-project-path');
 const registry = require('./project-registry');
+// Global-only setting defaults (#239). Requiring app/settings.js here is safe: it pulls in no Electron
+// and no db at load — both arrive through its own ctx.
+const { GLOBAL_ONLY_DEFAULTS } = require('../app/settings');
 // No `require` of a backend-specific module here (#211): per-project trust, meta, config and transcript
 // paths are all declared capabilities the core reaches through `ctx.backends`, so the Projects admin does
 // not know that Claude — or any one backend — exists.
@@ -93,7 +96,8 @@ function releaseAllAutoHidden() {
 function applyAutoHide(force) {
   try {
     const global = ctx.db.getSetting('global') || {};
-    const days = Number(global.autoHideDays) || 0;
+    // The default lives once, in app/settings.js (#239) — not as a fourth literal here.
+    const days = Number(global.autoHideDays ?? GLOBAL_ONLY_DEFAULTS.autoHideDays) || 0;
     if (!(days > 0)) {
       // The feature is off. Nothing may STAY auto-hidden by a machine that is no longer running —
       // switching it off has to give back every project it took (#184).

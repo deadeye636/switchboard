@@ -71,12 +71,21 @@ const SETTING_DEFAULTS = {
   terminalShellProfile: 'inherit',
   conptyBackend: 'bundled',
 };
-// DELIBERATELY NOT HERE (#239): `sessionMaxAgeDays` and `autoHideDays`. They read like per-project
-// settings — one project is an archive worth keeping visible, another is noise — but they are how the
-// sidebar as a WHOLE is trimmed, and a per-project answer would mean the same list is pruned by different
-// rules depending on which project a row belongs to. They stay global and are set in Settings; their
-// defaults (3 and 0) live with the controls that write them. Revisit only with a UI that makes the
-// per-project override visible, or the setting becomes invisible state.
+// NOT IN THE CASCADE (#239): `sessionMaxAgeDays` and `autoHideDays`. They read like per-project settings
+// — one project is an archive worth keeping visible, another is noise — but they are how the sidebar as a
+// WHOLE is trimmed, and a per-project answer would mean the same list is pruned by different rules
+// depending on which project a row belongs to, with nothing showing which rule applied. They stay global
+// and are set in Settings. Revisit only together with a UI that makes such an override visible.
+//
+// Their DEFAULTS still live in one place, here — being global-only is not a licence to scatter them. They
+// were spread over four literals across three files (app.js, settings-panel.js twice, projects.js), which
+// is exactly the shape #237 had to be dug out of: independent numbers that happen to agree until one of
+// them is edited. The renderer cannot require this module, so its literals are pinned against these by
+// test/settings-defaults.test.js — same technique as visibleSessionCount.
+const GLOBAL_ONLY_DEFAULTS = {
+  sessionMaxAgeDays: 3,   // hide sessions older than N days; 0 = no limit
+  autoHideDays: 0,        // auto-hide inactive projects after N days; 0 = off
+};
 
 /**
  * A settings blob may carry `customLaunchers[].env` (Tier-3, T-3.10). Those values follow the same rule
@@ -376,6 +385,7 @@ module.exports = {
   effectiveSettings,
   migrateClaudeLaunchDefaults,
   SETTING_DEFAULTS,
+  GLOBAL_ONLY_DEFAULTS,
   // The trust boundary and the cascade. Exported so the tests can REQUIRE them — they used to be
   // scraped out of main.js's source and run through `new Function`, because main.js needs Electron.
   persistSettingsBlob,
