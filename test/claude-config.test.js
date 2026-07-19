@@ -6,12 +6,33 @@ const path = require('node:path');
 
 const {
   normalizeClaudePath,
+  claudeConfigPath,
   getProjectTrustMap,
   getProjectClaudeMeta,
   setProjectTrust,
   removeProjectEntry,
   renameProjectEntry,
 } = require('../src/backends/claude/config');
+
+// #241: an isolated (demo/sandbox) run must read and WRITE the isolated config, not the user's own. It
+// did not — the Projects admin listed the real project catalogue inside a demo window, and Remove-entry
+// from there would have edited the real file. The isolated CLI keeps its config INSIDE its home
+// (`<home>/.claude.json`, measured on a real demo launch); the normal one keeps it beside `~/.claude`.
+test('claudeConfigPath follows the isolated Claude home, and only then (#241)', () => {
+  const saved = process.env.SWITCHBOARD_STORE_CLAUDE;
+  try {
+    delete process.env.SWITCHBOARD_STORE_CLAUDE;
+    assert.equal(claudeConfigPath(), path.join(os.homedir(), '.claude.json'));
+
+    process.env.SWITCHBOARD_STORE_CLAUDE = path.join('C:', 'demo', 'stores', 'claude', 'projects');
+    const isolated = claudeConfigPath();
+    assert.equal(isolated, path.join('C:', 'demo', 'stores', 'claude', '.claude.json'));
+    assert.ok(!isolated.includes(os.homedir()), 'an isolated run must not resolve back into the real home');
+  } finally {
+    if (saved === undefined) delete process.env.SWITCHBOARD_STORE_CLAUDE;
+    else process.env.SWITCHBOARD_STORE_CLAUDE = saved;
+  }
+});
 
 test('normalizeClaudePath: backslashes -> forward slashes, trailing slash stripped', () => {
   assert.equal(normalizeClaudePath('C:\\Users\\x\\proj\\'), normalizeClaudePath('C:/Users/x/proj'));

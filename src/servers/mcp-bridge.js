@@ -12,7 +12,14 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const IDE_DIR = path.join(os.homedir(), '.claude', 'ide');
+// Where Claude looks for IDE lock files. Follows the isolated home (#241): SWITCHBOARD_STORE_CLAUDE
+// names the projects dir, the home is its parent. Resolved per call — the bridge is required at load,
+// long before a lock is written. Without this a demo/sandbox run dropped its lock files into the user's
+// real `~/.claude/ide`, where their real CLI sessions would find them.
+function ideDir() {
+  const store = process.env.SWITCHBOARD_STORE_CLAUDE;
+  return store ? path.join(path.dirname(store), 'ide') : path.join(os.homedir(), '.claude', 'ide');
+}
 
 // sessionId → ServerEntry
 const servers = new Map();
@@ -20,7 +27,7 @@ const servers = new Map();
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function ensureIdeDir() {
-  fs.mkdirSync(IDE_DIR, { recursive: true });
+  fs.mkdirSync(ideDir(), { recursive: true });
 }
 
 // How long a pending openDiff waits for the renderer before the CLI's tools/call
@@ -339,7 +346,7 @@ async function startMcpServer(sessionId, workspaceFolders, mainWindow, log) {
   });
   const port = wss.address().port;
 
-  const lockFilePath = path.join(IDE_DIR, `${port}.lock`);
+  const lockFilePath = path.join(ideDir(), `${port}.lock`);
   const lockData = JSON.stringify({
     pid: process.pid,
     workspaceFolders,
@@ -480,10 +487,10 @@ function rekeyMcpServer(oldId, newId) {
 function cleanStaleLockFiles(log) {
   try {
     ensureIdeDir();
-    const files = fs.readdirSync(IDE_DIR);
+    const files = fs.readdirSync(ideDir());
     for (const file of files) {
       if (!file.endsWith('.lock')) continue;
-      const lockPath = path.join(IDE_DIR, file);
+      const lockPath = path.join(ideDir(), file);
       try {
         const data = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
         // Remove Switchboard-owned locks whose recorded process is no longer

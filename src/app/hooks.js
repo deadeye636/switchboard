@@ -25,7 +25,16 @@ const attentionSource = require('../shared/attention-source');
 
 const clearClaims = require('../session/clear-claims');
 
-const CLAUDE_SETTINGS_JSON = path.join(os.homedir(), '.claude', 'settings.json');
+// Claude's shared settings file — in the ISOLATED home when there is one (#241). A demo/sandbox run is
+// normally a no-op here anyway (the whole write path is dev-gated, #219), but the sanctioned way to work
+// on the hook is `SWITCHBOARD_DEV_ATTENTION_HOOK=1`, and combined with an isolated run that used to write
+// into the user's REAL settings.json. Resolved per call, like every other isolated path.
+function claudeSettingsJson() {
+  const store = process.env.SWITCHBOARD_STORE_CLAUDE;
+  return store
+    ? path.join(path.dirname(store), 'settings.json')
+    : path.join(os.homedir(), '.claude', 'settings.json');
+}
 // Sentinel in the hook URL path so we can find & remove only our own handlers.
 const ATTENTION_HOOK_MARK = '/switchboard-attention-hook';
 // The second thing this server answers (#223): a per-spawn hook, registered through the backend's OWN
@@ -57,7 +66,7 @@ function init(context) {
 
 /** The settings.json this run rewrites. */
 function settingsPath() {
-  return (ctx && ctx.claudeSettingsPath) || CLAUDE_SETTINGS_JSON;
+  return (ctx && ctx.claudeSettingsPath) || claudeSettingsJson();
 }
 
 function attentionHooksEnabled() {
@@ -315,7 +324,7 @@ module.exports = {
   handleHookRequest,
   stripSwitchboardHooks,
   ATTENTION_HOOK_MARK,
-  CLAUDE_SETTINGS_JSON,
+  claudeSettingsJson,
   // #223: the spawn path asks for the URL a terminal's binding hook should post to. Null while the
   // server has no port yet — the caller then launches without a binding and falls back to the
   // single-live-session rule, which is what happens on every backend that declares no binding at all.

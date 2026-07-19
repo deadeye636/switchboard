@@ -4,8 +4,17 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 
-const CLAUDE_DIR = path.join(os.homedir(), '.claude');
-const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
+// Claude's store, following the same isolation as the rest of the app (#241). SWITCHBOARD_STORE_CLAUDE
+// names the projects dir; the home is its parent. Resolved per call, not at load, because the scheduler
+// module is required long before anyone reads a path from it.
+//
+// This mattered: the scheduler ticks every 60 s on EVERY boot, dev and demo included. With the real path
+// baked in, a demo instance scanned the user's real projects for schedules and pre-seeded real session
+// files there — the one path still writing into `~/.claude` from a run that promises it touches nothing
+// real.
+function projectsDir() {
+  return process.env.SWITCHBOARD_STORE_CLAUDE || path.join(os.homedir(), '.claude', 'projects');
+}
 
 /** Parse YAML-like frontmatter from a markdown file (simple key: value parser). */
 function parseFrontmatter(content) {
@@ -116,8 +125,8 @@ function readProjectPathFromJsonl(folderPath) {
 function scanSchedules(log) {
   const schedules = [];
   try {
-    if (!fs.existsSync(PROJECTS_DIR)) return schedules;
-    const folders = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
+    if (!fs.existsSync(projectsDir())) return schedules;
+    const folders = fs.readdirSync(projectsDir(), { withFileTypes: true })
       .filter(d => d.isDirectory());
 
     // Prefer the cached folder→projectPath mapping; only read JSONLs for
@@ -126,7 +135,7 @@ function scanSchedules(log) {
     const folderMeta = loadFolderMetaMap();
 
     for (const folder of folders) {
-      const folderPath = path.join(PROJECTS_DIR, folder.name);
+      const folderPath = path.join(projectsDir(), folder.name);
       let projectPath = folderMeta.get(folder.name) || null;
       if (!projectPath) {
         projectPath = readProjectPathFromJsonl(folderPath);
@@ -166,7 +175,7 @@ function scanSchedules(log) {
 function createScheduleSession(schedule) {
   const sessionId = crypto.randomUUID();
   const timestamp = new Date().toISOString();
-  const claudeProjectDir = path.join(PROJECTS_DIR, schedule.folder);
+  const claudeProjectDir = path.join(projectsDir(), schedule.folder);
 
   fs.mkdirSync(claudeProjectDir, { recursive: true });
   const jsonlPath = path.join(claudeProjectDir, `${sessionId}.jsonl`);

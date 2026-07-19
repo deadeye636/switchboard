@@ -6,9 +6,18 @@ const os = require('os');
 const crypto = require('crypto');
 const { encodeProjectPath } = require('../session/encode-project-path');
 
-const CLAUDE_DIR = path.join(os.homedir(), '.claude');
-const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects');
-const SCHEDULE_COMMANDS_DIR = path.join(CLAUDE_DIR, 'commands');
+// Claude's store and its `commands/` dir, following the same isolation as everything else (#241).
+// SWITCHBOARD_STORE_CLAUDE names the projects dir; the home is its parent. Resolved per call.
+//
+// `ensureScheduleCreatorCommand()` runs on EVERY boot and writes a command file into that dir — so with
+// the real path baked in, a demo/sandbox instance wrote into the user's real `~/.claude/commands`.
+function projectsDir() {
+  return process.env.SWITCHBOARD_STORE_CLAUDE || path.join(os.homedir(), '.claude', 'projects');
+}
+
+function scheduleCommandsDir() {
+  return path.join(path.dirname(projectsDir()), 'commands');
+}
 
 const SCHEDULE_CREATOR_TEMPLATE = `---
 name: create-switchboard-schedule
@@ -137,7 +146,7 @@ function parseTemplateVersion(text) {
 
 function ensureScheduleCreatorCommand() {
   try {
-    const commandPath = path.join(SCHEDULE_COMMANDS_DIR, 'create-switchboard-schedule.md');
+    const commandPath = path.join(scheduleCommandsDir(), 'create-switchboard-schedule.md');
     let write = !fs.existsSync(commandPath);
     if (!write) {
       // Refresh a stale shipped template after an app update. A user who wants
@@ -147,7 +156,7 @@ function ensureScheduleCreatorCommand() {
       write = parseTemplateVersion(existing) < CURRENT_TEMPLATE_VERSION;
     }
     if (write) {
-      fs.mkdirSync(SCHEDULE_COMMANDS_DIR, { recursive: true });
+      fs.mkdirSync(scheduleCommandsDir(), { recursive: true });
       fs.writeFileSync(commandPath, SCHEDULE_CREATOR_TEMPLATE);
     }
   } catch (err) {
@@ -160,7 +169,7 @@ function init(log, runCommand) {
 
   ipcMain.handle('get-schedule-creator-command', () => {
     try {
-      const commandPath = path.join(SCHEDULE_COMMANDS_DIR, 'create-switchboard-schedule.md');
+      const commandPath = path.join(scheduleCommandsDir(), 'create-switchboard-schedule.md');
       ensureScheduleCreatorCommand();
       return fs.readFileSync(commandPath, 'utf8');
     } catch (err) {
@@ -172,14 +181,14 @@ function init(log, runCommand) {
   ipcMain.handle('create-schedule-session', (_event, projectPath) => {
     try {
       ensureScheduleCreatorCommand();
-      const commandPath = path.join(SCHEDULE_COMMANDS_DIR, 'create-switchboard-schedule.md');
+      const commandPath = path.join(scheduleCommandsDir(), 'create-switchboard-schedule.md');
       const systemPrompt = fs.readFileSync(commandPath, 'utf8');
 
       const sessionId = crypto.randomUUID();
       const msgId = crypto.randomUUID();
       const timestamp = new Date().toISOString();
       const folder = encodeProjectPath(projectPath);
-      const claudeProjectDir = path.join(PROJECTS_DIR, folder);
+      const claudeProjectDir = path.join(projectsDir(), folder);
 
       fs.mkdirSync(claudeProjectDir, { recursive: true });
       const jsonlPath = path.join(claudeProjectDir, `${sessionId}.jsonl`);

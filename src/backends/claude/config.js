@@ -11,7 +11,22 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const CLAUDE_CONFIG_PATH = path.join(os.homedir(), '.claude.json');
+// WHERE that file is depends on which home the CLI is using (#241). Normally `~/.claude.json`, a sibling
+// of `~/.claude`. Under an isolated (demo/sandbox) run, SWITCHBOARD_STORE_CLAUDE names the projects dir
+// and the CLI's home is its parent — and a CLI started with CLAUDE_CONFIG_DIR keeps its config INSIDE
+// that home, as `<home>/.claude.json`. Measured on a real demo launch, not assumed.
+//
+// Getting this wrong is not cosmetic: the Projects admin read the user's REAL project list inside a demo
+// instance (52 of their projects, in a window that promises it touches nothing real), and Remove-entry
+// would have WRITTEN to their real config from there.
+//
+// Resolved per call, not at load: the env var is set before boot, but a test may point it anywhere.
+function claudeConfigPath() {
+  const store = process.env.SWITCHBOARD_STORE_CLAUDE;
+  return store
+    ? path.join(path.dirname(store), '.claude.json')
+    : path.join(os.homedir(), '.claude.json');
+}
 
 // Normalize a filesystem path to a stable key for matching between Switchboard's
 // `projectPath` (may use backslashes on Windows) and `~/.claude.json` `projects`
@@ -28,7 +43,7 @@ function normalizeClaudePath(p) {
 // Parse `~/.claude.json`. Returns the parsed object, or null if missing/unreadable.
 // Callers must treat the result as containing secrets. `configPath` is overridable
 // for tests only; production callers use the default.
-function readClaudeConfig(configPath = CLAUDE_CONFIG_PATH) {
+function readClaudeConfig(configPath = claudeConfigPath()) {
   try {
     const raw = fs.readFileSync(configPath, 'utf8');
     return JSON.parse(raw);
@@ -40,7 +55,7 @@ function readClaudeConfig(configPath = CLAUDE_CONFIG_PATH) {
 // Map normalizedPath -> boolean (hasTrustDialogAccepted) for every project entry.
 // `preloadedCfg` (optional) lets callers that need several derived views pass an
 // already-parsed config instead of re-reading the ~160 KB file per helper.
-function getProjectTrustMap(configPath = CLAUDE_CONFIG_PATH, preloadedCfg = undefined) {
+function getProjectTrustMap(configPath = claudeConfigPath(), preloadedCfg = undefined) {
   const map = new Map();
   const cfg = preloadedCfg !== undefined ? preloadedCfg : readClaudeConfig(configPath);
   if (!cfg || !cfg.projects || typeof cfg.projects !== 'object') return map;
@@ -52,7 +67,7 @@ function getProjectTrustMap(configPath = CLAUDE_CONFIG_PATH, preloadedCfg = unde
 
 // Extra read-only per-project meta (MCP count, allowedTools count, last cost, tokens),
 // keyed by normalizedPath. Never includes secrets — only the aggregated counts/values.
-function getProjectClaudeMeta(configPath = CLAUDE_CONFIG_PATH, preloadedCfg = undefined) {
+function getProjectClaudeMeta(configPath = claudeConfigPath(), preloadedCfg = undefined) {
   const map = new Map();
   const cfg = preloadedCfg !== undefined ? preloadedCfg : readClaudeConfig(configPath);
   if (!cfg || !cfg.projects || typeof cfg.projects !== 'object') return map;
@@ -106,7 +121,7 @@ function mutateClaudeConfig(configPath, mutate) {
 
 // Atomically set `hasTrustDialogAccepted` for one project. Changes ONLY the one
 // field, writes temp + rename, keeps a `.bak` copy. Returns { ok } or { error }.
-function setProjectTrust(projectPath, trusted, configPath = CLAUDE_CONFIG_PATH) {
+function setProjectTrust(projectPath, trusted, configPath = claudeConfigPath()) {
   if (!projectPath) return { error: 'No project path' };
   return mutateClaudeConfig(configPath, (cfg) => {
     if (!cfg.projects || typeof cfg.projects !== 'object') cfg.projects = {};
@@ -127,7 +142,7 @@ function setProjectTrust(projectPath, trusted, configPath = CLAUDE_CONFIG_PATH) 
 // allowedTools, cost — the whole per-project block). Removes every key that normalizes
 // to the target (guards against duplicate slash/case variants). Writes temp + rename
 // with a `.bak` copy; leaves all other keys/secrets untouched. Returns { ok, removed }.
-function removeProjectEntry(projectPath, configPath = CLAUDE_CONFIG_PATH) {
+function removeProjectEntry(projectPath, configPath = claudeConfigPath()) {
   if (!projectPath) return { error: 'No project path' };
   return mutateClaudeConfig(configPath, (cfg) => {
     if (!cfg.projects || typeof cfg.projects !== 'object') return { skipWrite: true, result: { ok: true, removed: 0 } };
@@ -144,7 +159,7 @@ function removeProjectEntry(projectPath, configPath = CLAUDE_CONFIG_PATH) {
 // (moved:false). If the target key already exists, the source block is merged over it
 // (source values win for overlapping fields, target's other fields are kept). Writes
 // temp + rename with a `.bak`. Returns { ok, moved }.
-function renameProjectEntry(oldPath, newPath, configPath = CLAUDE_CONFIG_PATH) {
+function renameProjectEntry(oldPath, newPath, configPath = claudeConfigPath()) {
   if (!oldPath || !newPath) return { error: 'Missing path' };
   return mutateClaudeConfig(configPath, (cfg) => {
     if (!cfg.projects || typeof cfg.projects !== 'object') return { skipWrite: true, result: { ok: true, moved: false } };
@@ -164,7 +179,7 @@ function renameProjectEntry(oldPath, newPath, configPath = CLAUDE_CONFIG_PATH) {
 }
 
 module.exports = {
-  CLAUDE_CONFIG_PATH,
+  claudeConfigPath,
   normalizeClaudePath,
   readClaudeConfig,
   getProjectTrustMap,
