@@ -60,9 +60,6 @@ const ALLOWLIST = {
   'src/renderer/session/session-card-details.js': "parses the CLI's own .claude/worktrees on-disk layout",
   // The MCP IDE bridge emulates Claude's own ~/.claude/ide discovery protocol.
   'src/servers/mcp-bridge.js': "emulates Claude's ~/.claude/ide IDE-discovery protocol",
-  // The scheduler writes Claude's command format (same rationale as SCHEDULER_BACKEND in the id-hunt).
-  'src/servers/schedule-ipc.js': "writes Claude's .claude/commands format (scheduler is Claude-bound)",
-  'src/servers/schedule-runner.js': "writes Claude's .claude/commands format (scheduler is Claude-bound)",
   // The attention hook is Claude's own declared integration; it patches ~/.claude/settings.json.
   'src/app/hooks.js': "patches Claude's own ~/.claude/settings.json (Claude's declared integration)",
   // Switchboard's OWN legacy data locations under ~/.claude (its old DB home, and the pre-multi-LLM store

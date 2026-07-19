@@ -504,12 +504,6 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
     }
     header.appendChild(bookmarksBtn);
 
-    const scheduleBtn = document.createElement('button');
-    scheduleBtn.className = 'project-schedule-btn';
-    scheduleBtn.title = 'Create scheduled task';
-    scheduleBtn.innerHTML = ICONS.schedule(16);
-    header.appendChild(scheduleBtn);
-
     const settingsBtn = document.createElement('button');
     settingsBtn.className = 'project-settings-btn';
     settingsBtn.title = 'Project settings';

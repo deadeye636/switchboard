@@ -4624,65 +4624,12 @@ mark.jsonl-search-hit-active {
   color: #8888a8;
 }
 
-.memory-schedule-icon {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  margin-top: 5px;
-  color: #e0a030;
-}
 
-.schedule-play-btn {
-  flex-shrink: 0;
-  background: transparent;
-  border: 1px solid rgba(100,220,120,0.3);
-  color: #5ec46a;
-  width: 24px;
-  height: 24px;
-  border-radius: 5px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  line-height: 0;
-  opacity: 0;
-  transition: all 0.15s;
-  margin-left: auto;
-  align-self: center;
-}
 
-.memory-item:hover .schedule-play-btn {
-  opacity: 0.7;
-}
 
-.schedule-play-btn:hover {
-  opacity: 1 !important;
-  background: rgba(100,220,120,0.1);
-  color: #5ec46a;
-}
 
-.schedule-play-btn.running {
-  opacity: 1 !important;
-  color: #e0a030;
-  border-color: rgba(224,160,48,0.3);
-}
 
-.schedule-play-btn.running svg {
-  animation: spin-schedule 1s linear infinite;
-}
 
-.schedule-play-btn.done {
-  opacity: 1 !important;
-  color: #5ec46a;
-  border-color: rgba(100,220,120,0.4);
-  background: rgba(100,220,120,0.1);
-}
-
-@keyframes spin-schedule {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
 
 .memory-file-count {
   font-size: 10px;
@@ -4962,8 +4909,7 @@ mark.jsonl-search-hit-active {
   color: #8088ff;
 }
 
-/* Project header schedule + tasks buttons */
-.project-schedule-btn,
+/* Project header tasks + bookmarks buttons */
 .project-tasks-btn,
 .project-bookmarks-btn {
   background: transparent;
@@ -4983,13 +4929,11 @@ mark.jsonl-search-hit-active {
   opacity: 0.7;
 }
 
-.project-schedule-btn svg,
 .project-tasks-btn svg,
 .project-bookmarks-btn svg {
   display: block;
 }
 
-.project-header:hover .project-schedule-btn,
 .project-header:hover .project-tasks-btn,
 .project-header:hover .project-bookmarks-btn {
   opacity: 1;
@@ -5037,10 +4981,6 @@ mark.jsonl-search-hit-active {
   cursor: default;
 }
 
-.project-schedule-btn:hover {
-  background: rgba(255,180,50,0.1);
-  color: #e0a030;
-}
 
 .project-tasks-btn:hover {
   background: rgba(152,195,121,0.12);

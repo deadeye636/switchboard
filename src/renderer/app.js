@@ -676,7 +676,7 @@ window.openVariablesTab = () => {
 // openSession, launchTerminalSession, onSessionDetected/Forked) calls
 // pollActiveSessions() explicitly, which re-arms the fast cadence immediately.
 // The 30s idle floor still catches sessions started outside the renderer
-// (scheduler-spawned PTYs, other windows) within at most 30s.
+// (a PTY started by another window, a resume from outside) within at most 30s.
 const POLL_FAST_MS = 3000;
 const POLL_IDLE_MS = 30000;
 let pollTimer = null;

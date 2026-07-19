@@ -273,7 +273,7 @@ function shellArgs(shellPath, cmd, extraArgs) {
 // (unix throws), but the cmd.exe branch can only resolve on Windows (COMSPEC
 // fallback or explicit cmd profile) — every other shell keeps the array form,
 // so macOS/Linux behaviour is unchanged. Do NOT use this for child_process
-// spawns (those need an array; see runScheduleCommand's verbatim flag instead).
+// spawns (those need an array — pass argv and let the caller quote it).
 function ptyShellArgs(shellPath, cmd, extraArgs) {
   const args = shellArgs(shellPath, cmd, extraArgs);
   if (Array.isArray(args) && args.length === 2 && args[0] === '/C') {

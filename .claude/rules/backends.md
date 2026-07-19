@@ -105,14 +105,13 @@ Its Claude-home reader **and writer** was one of the four modules that composed 
 
 ## `src/servers/**`
 
-`mcp-bridge.js` (the MCP IDE bridge) and `schedule-*.js` (the scheduler). Two things bite here:
+`mcp-bridge.js`, the MCP IDE bridge. It writes lock files into Claude's home — resolve that home per
+call from `SWITCHBOARD_STORE_CLAUDE`, never from `os.homedir()` (#241), or an isolated instance drops
+its locks where the user's real CLI finds them.
 
-- The scheduler **ticks every 60 s on EVERY boot** and pre-seeds session files, and the bridge writes
-  lock files. Both did that against the real Claude home from an instance that promises it touches
-  nothing real — resolve the home per call (#241).
-- The scheduler's enable gate (#162) had no test while it sat in Electron-bound main.js. Anything
-  moved here takes `ctx`, not a top-level `require('electron')` — see
-  `.claude/rules/main-process.md`.
+Anything moved here takes `ctx`, not a top-level `require('electron')`, or it cannot be tested — see
+`.claude/rules/main-process.md`. The scheduler used to live here and was removed in #246; spec 14
+records how it worked, and `docs/ai/lessons.md` records what it cost.
 
 ## Session data sources
 

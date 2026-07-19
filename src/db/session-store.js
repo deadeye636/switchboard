@@ -286,7 +286,7 @@ function getCachedByProjectPath(projectPath) {
 
 /**
  * projectPath -> the backends that actually have sessions in it (#171). `backendId` is the authoritative
- * provenance, and NULL means Claude (rows written before the column existed, and every scheduled run).
+ * provenance, and NULL means Claude (rows written before the column existed).
  */
 function getBackendsByProjectPath() {
   const map = new Map();

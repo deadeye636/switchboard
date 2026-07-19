@@ -230,9 +230,7 @@ function applyEntryLine(st, line) {
   if (!st.summary && (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user'))) {
     // Skip local command messages (! prefix) — use the next real user message
     if (text && !/<bash-input>|<bash-stdout>|<local-command-caveat>/.test(text)) {
-      // Use scheduled task name if present
-      const taskMatch = text.match(/<scheduled-task\s+name="([^"]+)"/);
-      st.summary = taskMatch ? 'Scheduled: ' + taskMatch[1] : text.slice(0, 120);
+      st.summary = text.slice(0, 120);
     }
   }
   if (text && st.textContent.length < 8000) {

@@ -9,8 +9,8 @@
 //   * every session with no recorded backend (i.e. every row from before multi-LLM) fell back to
 //     'claude' and was then refused, with no explanation;
 //   * getDefaultLaunchTarget() kept returning 'claude' — a default the spawn gate rejects;
-//   * while the claude BINARY kept running anyway, from the scheduler and via Claude's own scanner,
-//     neither of which asked the gate at all.
+//   * while the claude BINARY kept running anyway — via Claude's own scanner, which did not ask the gate
+//     at all (and, until #246 removed it, via the scheduler's cron tick as well).
 //
 // These tests pin the model's half. The renderer's lock is gone; the model is now the thing that decides.
 
@@ -108,68 +108,6 @@ test('with nothing enabled, the default target is null rather than a lie', () =>
 });
 
 // --- the places that used to run Claude anyway ------------------------------------------------------
-
-// The scheduler built `claude …` with no gate check at all, so a disabled Claude would still be spawned
-// by a cron tick — silently, because nothing on that path ever asked.
-//
-// This used to assert that the SOURCE of runScheduleCommand mentions isLaunchable — which cannot tell you
-// the check does anything. Since #213 the runner is a factory in app/lifecycle.js, so the cron tick runs
-// for real here and the assertion is whether a child process was spawned at all.
-const lifecycle = require('../src/app/lifecycle');
-
-function scheduleCtx({ launchable }) {
-  const spawned = [];
-  const ctx = {
-    spawned,
-    getSetting: () => ({}),
-    SETTING_DEFAULTS: { shellProfile: 'auto' },
-    resolveShell: () => ({ path: '/bin/bash', args: [] }),
-    backends: { isLaunchable: () => launchable, get: () => ({ binary: 'claude' }) },
-    ensureProjectAdded: () => {},
-    quoteArgvForShell: (_s, argv) => argv.join(' '),
-    shellArgs: (_s, cmd) => ['-c', cmd],
-    cleanPtyEnv: {},
-    spawnChild: (cmd, args, opts) => {
-      spawned.push({ cmd, args, opts });
-      return { stderr: { on() {} }, on() {} };
-    },
-    log: { info() {}, warn() {}, error() {} },
-  };
-  return ctx;
-}
-
-test('the scheduler asks the gate before spawning the claude binary', () => {
-  const ctx = scheduleCtx({ launchable: false });
-  const run = lifecycle.makeRunScheduleCommand(ctx);
-
-  let err = null;
-  run(['-p', 'hi'], 'D:/x', 'nightly', (e) => { err = e; });
-
-  assert.deepEqual(ctx.spawned, [], 'a disabled backend must not be spawned by a cron tick');
-  assert.match(err.message, /Claude Code is disabled/,
-    'and the task says why — one that quietly stops running is worse than one that refuses');
-});
-
-test('with the gate open, the scheduled run spawns the descriptor\'s binary', () => {
-  const ctx = scheduleCtx({ launchable: true });
-  const run = lifecycle.makeRunScheduleCommand(ctx);
-
-  run(['-p', 'hi'], 'D:/x', 'nightly');
-
-  assert.equal(ctx.spawned.length, 1);
-  assert.match(ctx.spawned[0].args.join(' '), /claude -p hi/,
-    'the binary name comes from the backend descriptor, not a literal (T-1.7)');
-  assert.equal(ctx.spawned[0].opts.cwd, 'D:/x');
-});
-
-// #167: a schedule pointed at a project the user never added writes transcripts that show up nowhere.
-test('a scheduled run puts its project on the list, like any other launch (#167)', () => {
-  const ctx = scheduleCtx({ launchable: true });
-  const added = [];
-  ctx.ensureProjectAdded = (p) => added.push(p);
-  lifecycle.makeRunScheduleCommand(ctx)(['-p', 'hi'], 'D:/proj', 'nightly');
-  assert.deepEqual(added, ['D:/proj']);
-});
 
 // Claude's store is walked by its own path (PROJECTS_DIR), NOT by the generic Axis-B store scan — which
 // skips Claude deliberately. So the enable gate had to be added to that path, or "disabled" would have

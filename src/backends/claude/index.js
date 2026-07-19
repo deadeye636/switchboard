@@ -476,7 +476,6 @@ module.exports = {
   // the user picked. Say what the CLI IS, like every sibling does; what it is TO THIS INSTALL is the
   // list's job, and the list already shows it (the toggle, the "default" pill).
   description: "Anthropic's terminal coding agent.",
-  binary: 'claude',  // the executable name, for callers that build their own argv (the schedule runner)
   tier: 1,
   axis: null,        // default backend, no axis
   status: 'ready',

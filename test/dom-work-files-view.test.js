@@ -69,7 +69,6 @@ function setupWorkFilesDom() {
     getWorkFiles: () => Promise.resolve({ projects: [] }),
     readWorkFile: () => Promise.resolve(''),
     readMemory: () => Promise.resolve(''),
-    runScheduleNow: () => Promise.resolve({ ok: true }),
   };
 
   // DOM handles that plans-memory-view.js reads as globals (set by app.js normally)

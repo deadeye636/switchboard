@@ -59,8 +59,7 @@ Hermes has no confirmed credential file, so `demo:auth` skips it and says so; lo
 it asks.
 
 **Everything that writes into Claude's home follows the override too** — it is not only the transcripts.
-The scheduler (which scans for `schedule-*.md` and pre-seeds session files **on every boot**, dev and demo
-included), the MCP IDE bridge's lock files, the attention hook's `settings.json` patch and the Projects
+The MCP IDE bridge's lock files, the attention hook's `settings.json` patch and the Projects
 admin's `.claude.json` reader/writer all resolve their paths from `SWITCHBOARD_STORE_CLAUDE`. Before #241
 each of those still pointed at the real home, so a demo instance scanned the user's real projects, wrote
 into their real `~/.claude/commands`, and showed their real project catalogue in a window that promises it

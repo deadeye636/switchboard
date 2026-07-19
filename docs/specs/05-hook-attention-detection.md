@@ -21,7 +21,7 @@ Attention detection is a **heuristic**: `src/main.js` parses iTerm2 OSC-9 escape
 - OSC-9 parse + emit: `main.js:1285–1308` → `webContents.send('terminal-notification', sessionId, payload)`.
 - Renderer consumes via `onTerminalNotification` (`preload.js:57`) → handler at `app.js:401–415` which regex-matches and does `attentionSessions.add(sessionId)`.
 - Busy/idle is independently tracked via OSC-0 title spinner + OSC-9;4 progress (`main.js:1262–1301`) → `cli-busy-state`.
-- The app already understands Claude Code's project layout: sessions are JSONL files under `~/.claude/projects/<folder>/`; scheduling reads `.claude/commands/` (`src/servers/schedule-runner.js`). So writing/reading Claude config is an established pattern.
+- The app already understands Claude Code's project layout: sessions are JSONL files under `~/.claude/projects/<folder>/`; scheduling read `.claude/commands/` (`src/servers/schedule-runner.js`, removed in #246 — spec 14). So writing/reading Claude config is an established pattern.
 
 ## Scope
 
@@ -34,7 +34,7 @@ Attention detection is a **heuristic**: `src/main.js` parses iTerm2 OSC-9 escape
 Confirm the current Claude Code hooks contract (events, payload shape, how a hook delivers data back to a local app). Options to evaluate:
 - **Hooks → local IPC:** a hook command that POSTs to a tiny local HTTP/Unix-socket endpoint Switchboard runs in `src/main.js`, including the session id and event type. (Switchboard already runs an MCP server per session — `src/servers/mcp-bridge.js`, `startMcpServer` in `main.js:1211` — so a local listener is architecturally consistent.)
 - **Hooks → file:** a hook appends structured events to a known file Switchboard watches (it already watches files via `watch-file`/`chokidar`-style handlers, `main.js:475`).
-- Map the hook's working dir / session to a Switchboard `sessionId` (use the JSONL/`cwd` correlation already in `src/servers/schedule-runner.js` `readProjectPathFromJsonl` / `src/db/db.js` `getAllFolderMeta`).
+- Map the hook's working dir / session to a Switchboard `sessionId` (use the JSONL/`cwd` correlation in `src/db/db.js` `getAllFolderMeta` (it was also in the scheduler's `readProjectPathFromJsonl`, removed in #246)).
 
 Document findings in this spec's "Spike notes" before building.
 

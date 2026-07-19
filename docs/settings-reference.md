@@ -279,7 +279,7 @@ timeout was actually chosen (otherwise Claude's own default stands).
 `ENV`/`BASH_ENV` that intercepts a bare `claude` and points at the sidebar's + button. PowerShell and cmd
 get the equivalent as an init command instead.
 
-**The scheduler's child** overrides `FORCE_COLOR=0` — it runs headless and ANSI would only pollute the
+**A headless child** overrides `FORCE_COLOR=0` — it runs headless and ANSI would only pollute the
 captured stderr.
 
 ### Axis-A presets — the `ANTHROPIC_*` family

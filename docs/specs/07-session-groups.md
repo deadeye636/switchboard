@@ -13,7 +13,7 @@
 
 ## Problem & goal
 
-When several agents work on the same project (or across projects on one initiative), the sidebar and grid get hard to scan. There's automatic grouping by **project** and by **slug** (forks/scheduled tasks), but **no user-defined grouping** — no way to say "these 3 agents are my 'checkout refactor' crew."
+When several agents work on the same project (or across projects on one initiative), the sidebar and grid get hard to scan. There's automatic grouping by **project** and by **slug** (forks; scheduled tasks used one too, until #246 removed them), but **no user-defined grouping** — no way to say "these 3 agents are my 'checkout refactor' crew."
 
 **Goal:** Let users create named, colored **groups** ("visual folders"), assign sessions to them, and have those groups render as collapsible sections in the sidebar and as bounded regions in the grid — with attention counts rolled up so a collapsed group still signals status.
 

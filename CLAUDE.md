@@ -96,7 +96,7 @@ absent from the installer.
 | `src/workers/**` | the scan + search workers |
 | `src/watch/**` | `projects.js`, `stores.js`, `adopt.js`, `trigger-watcher.js` |
 | `src/backends/**` | one folder per coding CLI + `index.js` registry + `file-store.js` |
-| `src/servers/**` | MCP IDE bridge (`mcp-bridge.js`), scheduler (`schedule-*.js`) |
+| `src/servers/**` | MCP IDE bridge (`mcp-bridge.js`) |
 | `src/projects/**` | the project registry — the last place the backend-id migration is still open (#211) |
 
 ## Commands

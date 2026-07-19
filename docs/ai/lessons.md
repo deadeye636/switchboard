@@ -32,10 +32,11 @@ than one caller.
 
 - The same backend defect got fixed in **one** backend four separate times while its siblings quietly
   kept it. → `test/backend-parity.test.js`.
-- Four separate modules composed a path under Claude's home from `os.homedir()` (the scheduler — which
-  ticks every 60 s on every boot and pre-seeds session files, the MCP bridge's lock files, the
-  attention hook's `settings.json`, the Projects admin's `.claude.json` reader **and writer**), all
-  inside an instance that promises it touches nothing real. → `test/store-isolation.test.js` (#241).
+- Four separate modules composed a path under Claude's home from `os.homedir()` (the MCP bridge's lock
+  files, the attention hook's `settings.json`, the Projects admin's `.claude.json` reader **and
+  writer**, and the scheduler — which ticked every 60 s on every boot and pre-seeded session files,
+  removed since in #246), all inside an instance that promises it touches nothing real. →
+  `test/store-isolation.test.js` (#241).
 - #193 shipped lineage for Claude+Hermes only and had to be redone as a descriptor hook (#223). That
   is why the neutral seam gets built first, always.
 

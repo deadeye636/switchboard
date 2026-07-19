@@ -224,7 +224,6 @@ function dispatchSidebarActivation(e) {
       }
       return;
     }
-    if (t.closest('.project-schedule-btn')) { e.stopPropagation(); launchScheduleCreator(project); return; }
     if (t.closest('.project-settings-btn')) { e.stopPropagation(); openSettingsViewer('project', project.projectPath); return; }
     if (t.closest('.project-favorite-btn')) { e.stopPropagation(); toggleProjectFavorite(project); return; }
     if (t.closest('.project-missing-icon')) { e.stopPropagation(); loadProjects(); return; }

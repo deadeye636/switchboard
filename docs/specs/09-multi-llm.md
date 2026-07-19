@@ -39,7 +39,7 @@ special case anywhere outside that provider's own folder.
   "always enabled" rule only ever existed as one line of renderer code — `isEnabled()` had no carve-out,
   so a hand-edited blob or a settings import could already set the flag, and the app would half-break on
   it. The gate is in the model now: the default launch target resolves to something actually launchable, a
-  resume of a provenance-less session says *why* it cannot start, the scheduler refuses instead of quietly
+  resume of a provenance-less session says *why* it cannot start, a headless run refuses instead of quietly
   spawning a disabled binary, and Claude's own store stops being scanned. *Disable is not delete* — the
   sessions stay visible and searchable.
 

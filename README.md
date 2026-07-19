@@ -8,7 +8,7 @@ Switchboard is a desktop app that gives you a unified view of all your Claude Co
 >
 > This repository (codename **deadeye**) is a **personal, unofficial downstream fork**, maintained for our own use.
 >
-> - **Built on upstream work** ([Doctly](https://github.com/doctly/switchboard) → [HaydnG](https://github.com/HaydnG/switchboard) → [JeanBaptisteRenard](https://github.com/JeanBaptisteRenard/switchboard)), whose authors deserve the credit for the foundation. **It has since been substantially rewritten.** New here: multi-LLM backends, the tabbed layout, project and session tags, and a rebuilt settings surface. Much of what was already there — the attention inbox, handoff, scheduling, the grid overview, usage — has been extended rather than replaced. See [What this fork adds](#what-this-fork-adds) and [Credits](#license--credits).
+> - **Built on upstream work** ([Doctly](https://github.com/doctly/switchboard) → [HaydnG](https://github.com/HaydnG/switchboard) → [JeanBaptisteRenard](https://github.com/JeanBaptisteRenard/switchboard)), whose authors deserve the credit for the foundation. **It has since been substantially rewritten.** New here: multi-LLM backends, the tabbed layout, project and session tags, and a rebuilt settings surface. Much of what was already there — the attention inbox, handoff, the grid overview, usage — has been extended rather than replaced. See [What this fork adds](#what-this-fork-adds) and [Credits](#license--credits).
 > - **This is not an official product.** It is **not affiliated with, endorsed by, or supported by** Anthropic, Doctly, or any upstream author.
 > - **No warranty. No support. No liability.** The software is provided *"as is"* under the MIT license, with **no guarantees of any kind**. You use it **entirely at your own risk**. Neither this fork's maintainer nor the upstream authors are liable for any damage, data loss, security incident, or other consequence arising from its use.
 > - **Builds are unsigned.** For anything you care about, **build it yourself from source** and run the code you audited — see [Security & Trust](#security--trust).
@@ -295,7 +295,7 @@ src/
   index/           Scan/index layer; session-cache.js is a façade over it
   session/         Transcript reading & session identity
   projects/        Project list and management
-  servers/         MCP IDE bridge, scheduler
+  servers/         MCP IDE bridge
   backends/        One folder per coding CLI (Claude, Codex, Hermes, Pi, agy)
   workers/         Off-thread scanning, indexing, search
   renderer/        HTML/CSS/JS, in folders (shell/, session/, terminal/, views/, …)
@@ -317,7 +317,7 @@ Licensed under the **MIT License** — see [`LICENSE`](LICENSE). MIT includes an
 substantially extended by **[HaydnG](https://github.com/HaydnG/switchboard)** and
 **[JeanBaptisteRenard](https://github.com/JeanBaptisteRenard/switchboard)**. **The foundation is
 theirs, and so is the credit for it** — this fork exists because they built the thing worth forking,
-and much of what it does today (the attention inbox, handoff, scheduling, the grid overview, usage)
+and much of what it does today (the attention inbox, handoff, the grid overview, usage)
 started with them and was extended here rather than replaced. It has since been substantially
 rewritten (deadeye); some of those additions are themselves ports of other community forks
 (brianstanley, kreaddis), credited in the commit history.

@@ -277,7 +277,7 @@ Smaller but important changes (mostly in main/Node-side files).
 - Harden the interactive `claude` spawn and the MCP lock file.
 - Use `execFileSync` for Keychain reads (avoids shell interpolation).
 - Add `dompurify` for safe HTML rendering.
-- Renderer IPC security hardening and scheduler/shell hardening (integrated
+- Renderer IPC security hardening and shell hardening (integrated
   upstream-safe PRs).
 
 ### Packaging & release
@@ -557,7 +557,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 The fork adds **47 test files** under `test/` (72 total, `node --test`), covering all the
 pure modules above — attention/status, health, timeline, usage, cleanup,
 notifications, hotkey/sound, away-summary, handoff, bulk actions, groups, grid
-layout, accessibility, update-restart, cache reconcile, schedule injection,
+layout, accessibility, update-restart, cache reconcile, shell quoting,
 DB busy-retry, and more. Run with:
 
 ```bash

@@ -138,7 +138,6 @@ const ALLOWED_BINDINGS = {
   ],
   'src/renderer/dialogs/dialogs.js': [
     'LEGACY_TEMPLATE_BASE',      // ditto, for a template's baseId
-    'SCHEDULER_BACKEND',         // servers/schedule-runner.js writes Claude's transcript format, only
   ],
   'src/renderer/panels/settings-panel.js': [],
   'src/renderer/panels/settings-tags.js': [],

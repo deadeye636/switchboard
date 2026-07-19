@@ -133,7 +133,6 @@ const cleanPtyEnv = Object.fromEntries(
 
 // Shell profiles → shell-profiles.js
 const { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, shellArgs, ptyShellArgs, quoteArgvForShell } = require('./app/terminal/shell-profiles');
-const { startScheduler } = require('./servers/schedule-runner');
 const { encodeProjectPath } = require('./session/encode-project-path');
 
 
@@ -1214,10 +1213,6 @@ ipcMain.handle('set-log-level', (_event, level) => {
   return { ok: true, level: resolved };
 });
 
-// --- Scheduled tasks ---
-const scheduleIpc = require('./servers/schedule-ipc');
-
-
 ipcMain.handle('get-shell-profiles', () => {
   invalidateShellProfiles(); // drop the module-private cache so newly installed shells appear without a restart
   return getShellProfiles();
@@ -1980,13 +1975,10 @@ const lifecycleCtx = {
   startBackendWatchers,
   startAttentionHookServer,
   cleanStaleLockFiles,
-  scheduleIpc,
-  startScheduler,
   populateCacheViaWorker,
   applyAutoHide: (onStartup) => projects.applyAutoHide(onStartup),
   startTriggerWatcher: (opts) => require('./watch/trigger-watcher').start(opts),
   searchFtsRecreated: () => searchFtsRecreated,
-  // the scheduler's runner
   getSetting,
   SETTING_DEFAULTS,
   resolveShell,

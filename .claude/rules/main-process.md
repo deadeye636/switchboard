@@ -14,7 +14,7 @@ paths:
 left: the requires, `DATA_DIR` (before anything requires db.js), the wiring for twelve modules, and
 **76 small IPC handlers** that stayed on purpose (thin, no shared state; moving them buys churn).
 
-`src/app/` holds `lifecycle.js` (boot, the scheduler's runner, ordered teardown), `windows.js`,
+`src/app/` holds `lifecycle.js` (boot, ordered teardown), `windows.js`,
 `notifications.js`, `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`,
 `settings-transfer.js`, `plans-memory.js` (Plans/Memory/Work-Files tabs — #227) and `terminal/`
 (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
@@ -61,8 +61,8 @@ How every `src/app/*` and `src/watch/*` module gets what main.js owns.
 - **Electron arrives through ctx too** (`dialog`, `safeStorage`, `app`, even `ipcMain` via
   `registerIpc(ipc)`) — not for purity, but because it is what makes the module loadable in
   `node --test`. That is the whole reason #213 was worth doing: the hook server's token check (#77),
-  the secret resolver, the settings write path, the cascade (#149) and the scheduler's enable gate
-  (#162) had NO tests while they sat in Electron-bound main.js. Their guards could only grep
+  the secret resolver, the settings write path and the cascade (#149) had NO tests while they sat in
+  Electron-bound main.js. Their guards could only grep
   main.js's source — and a grep cannot tell you the line does anything.
 - **Where a `let` lives is decided by counting readers, not taste.** Still read in main.js → it
   stays there and the module takes a getter. Read nowhere else → it moves into the module.
@@ -94,9 +94,9 @@ into the session's env — below the user's and a template's, so an explicit var
 wins, and a non-isolated launch carries nothing.
 
 A path under Claude's home composed from `os.homedir()` is the bug this keeps re-creating: four of
-them (the scheduler — which ticks every 60 s on EVERY boot and pre-seeds session files, the MCP IDE
-bridge's lock files, the attention hook's `settings.json`, and the Projects admin's `.claude.json`
-reader/**writer**) kept using the real home from an instance that promises it touches nothing real.
+them (the MCP IDE bridge's lock files, the attention hook's `settings.json`, the Projects admin's
+`.claude.json` reader/**writer**, and the scheduler that #246 has since removed entirely) kept using
+the real home from an instance that promises it touches nothing real.
 **Resolve it from `SWITCHBOARD_STORE_CLAUDE`, per call** (these modules are required long before a
 path is read). `test/store-isolation.test.js` is the guard; `backend-path-neutrality` does NOT cover
 this — it sees that a file knows Claude's layout, not whether it resolves that layout against the

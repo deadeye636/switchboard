@@ -7,10 +7,10 @@
 //
 //   - the Projects admin's config reader/writer   (~/.claude.json — it listed the user's real projects
 //     inside a demo window, and Remove-entry would have edited their real file)
-//   - the scheduler                                (scans ~/.claude/projects every 60 s on EVERY boot and
-//     pre-seeds real session files there; also writes ~/.claude/commands/…)
 //   - the MCP IDE bridge                           (drops lock files into ~/.claude/ide)
 //   - the attention hook                           (patches ~/.claude/settings.json)
+//   - the scheduler (scanned ~/.claude/projects every 60 s on EVERY boot and pre-seeded real session
+//     files there) — since removed entirely, #246
 //
 // test/backend-path-neutrality.test.js allows these files to KNOW Claude's layout — that is a separate
 // (and legitimate) thing. What it cannot see is whether they RESOLVE it against the isolated home. This
@@ -36,8 +36,6 @@ function stripComments(src) {
 // `config.toml` from the Projects admin, and its thread-name overlay is read on every session parse.
 const MUST_FOLLOW_OVERRIDE = [
   ['src/backends/claude/config.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],
-  ['src/servers/schedule-runner.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],
-  ['src/servers/schedule-ipc.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],
   ['src/servers/mcp-bridge.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],
   ['src/app/hooks.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],
   ['src/main.js', 'SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"]\.claude/],

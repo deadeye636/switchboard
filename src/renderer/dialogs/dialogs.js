@@ -23,17 +23,15 @@ function applyBackendDefaultsToOptions(options, defaults) {
   return options;
 }
 
-// The two places this file may name a backend, and why each is not a guess (#212). Everything else that
+// The ONE place this file may name a backend, and why it is not a guess (#212). Everything else that
 // used to write `|| 'claude'` now resolves to the first LAUNCHABLE backend — Claude can be disabled
-// (#162), and a fallback that names it offers a row that cannot start.
+// (#162), and a fallback that names it offers a row that cannot start. (There were two until #246
+// removed the scheduler, whose Claude-only transcript format was the second.)
 //
-// 1. A TEMPLATE RECORD SAVED BEFORE #161 carries no `baseId`: back then a template was always a bundle
-//    of ANTHROPIC_* variables on Claude, because Claude was the only backend. Reading such a record as
-//    Claude MIGRATES it — it states what was true when it was written.
+// A TEMPLATE RECORD SAVED BEFORE #161 carries no `baseId`: back then a template was always a bundle
+// of ANTHROPIC_* variables on Claude, because Claude was the only backend. Reading such a record as
+// Claude MIGRATES it — it states what was true when it was written.
 const LEGACY_TEMPLATE_BASE = 'claude';
-// 2. The scheduler writes Claude's transcript format and only Claude's (see resolveDefaultSessionOptions
-//    below). That is a coupling in `servers/schedule-runner.js`, faithfully reported here.
-const SCHEDULER_BACKEND = 'claude';
 
 // The first LAUNCHABLE backend — what to fall back on when nobody has named one. Never a hardcoded id.
 const firstLaunchableId = () =>
@@ -144,29 +142,6 @@ function isSessionOverride(field, value, inherit) {
   return value !== '';
 }
 
-// The SCHEDULE CREATOR's launch defaults, WITHOUT a backendId — it is the one and only caller.
-//
-// This names a backend on purpose, and it is not a guess: the schedule creator resumes into a session
-// the scheduler PRE-CREATED as a Claude transcript (`servers/schedule-runner.js` createScheduleSession
-// writes a .jsonl into Claude's own store), so Claude's defaults are the ones that apply. The backendId
-// is then stripped because a resume must keep the backend the session was recorded with (§5.11) rather
-// than force one.
-//
-// The coupling therefore lives in the SCHEDULER, not here: it speaks only Claude's format today, and
-// this function inherits that. Do not "fix" it by resolving some other backend's defaults — that would
-// hand, say, a Codex sandbox flag to a Claude transcript. Fix the scheduler, and this follows.
-//
-// It is NOT "the Claude-by-definition paths" any more: fork runs on the session's own backend, and so
-// does every handoff path (#148). That stale comment is what let a handoff keep launching Claude long
-// after the commit that claimed to fix it — if you reach for this function, ask first whether you
-// actually mean `resolveLaunchOptionsFor(project, <that session's backend>)`.
-async function resolveDefaultSessionOptions(project) {
-  const options = await resolveLaunchOptionsFor(project, SCHEDULER_BACKEND);
-  delete options.backendId;
-  delete options.profileId;
-  return options;
-}
-
 // Fork = a NEW session seeded from an existing one, so it runs on THAT session's backend with THAT
 // backend's launch options. Resolving Claude's defaults here (as this did) would hand a Claude model to
 // `pi --fork` — the same class of bug as the reattach path.
@@ -198,48 +173,6 @@ function findProjectForSession(session) {
     p.sessions && p.sessions.some(s => s.sessionId === session.sessionId)
   );
   return project || (session.projectPath ? { projectPath: session.projectPath } : null);
-}
-
-async function launchScheduleCreator(project) {
-  const options = await resolveDefaultSessionOptions(project);
-  // Pre-create a JSONL session with the schedule creation prompt, then resume into it
-  const result = await window.api.createScheduleSession(project.projectPath);
-  if (!result || !result.sessionId) return;
-
-  const session = {
-    sessionId: result.sessionId,
-    summary: 'Create scheduled task',
-    firstPrompt: '',
-    projectPath: project.projectPath,
-    name: null,
-    starred: 0,
-    archived: 0,
-    messageCount: 1,
-    modified: new Date().toISOString(),
-    created: new Date().toISOString(),
-  };
-
-  // Inject into sidebar
-  const folder = encodeProjectPath(project.projectPath);
-  pendingSessions.set(result.sessionId, { session, projectPath: project.projectPath, folder });
-  sessionMap.set(result.sessionId, session);
-  injectPendingSession(session, project.projectPath, folder);
-  refreshSidebar();
-
-  const entry = createTerminalEntry(session);
-  // Resume the pre-seeded session
-  options.appendSystemPrompt = result.systemPrompt;
-  const openResult = await window.api.openTerminal(result.sessionId, project.projectPath, false, options);
-  if (!openResult.ok) {
-    entry.terminal.write(`\r\nError: ${openResult.error}\r\n`);
-    entry.closed = true;
-    showSession(result.sessionId); // surface the failure instead of leaving it in an invisible terminal (issue #78)
-    return;
-  }
-  if (typeof setSessionMcpActive === 'function') setSessionMcpActive(result.sessionId, !!openResult.mcpActive);
-  syncPtySize(result.sessionId); // PTY spawned at 120x30 — push the real dimensions (#81)
-  showSession(result.sessionId);
-  pollActiveSessions();
 }
 
 // --- Tier-3 custom launchers (T-3.10) ---

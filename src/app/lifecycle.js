@@ -9,9 +9,7 @@
 //                order gives "The database connection is not open" (#76).
 //
 // Electron arrives through ctx (app, session, BrowserWindow), which keeps this file loadable in
-// `node --test` — that is what lets `makeRunScheduleCommand` be tested. A scheduled run is the one path
-// here with a rule of its own: it must ask Claude's enable gate (#162), because a cron tick that silently
-// keeps spawning a disabled backend is exactly what it used to do.
+// `node --test`.
 'use strict';
 
 const path = require('path');
@@ -43,78 +41,6 @@ function shouldUseSingleInstanceLock({ isPackaged, env = process.env } = {}) {
   if (env.SWITCHBOARD_FORCE_SINGLE_INSTANCE === '1') return true;       // the old opt-in, still honoured
   if (env.SWITCHBOARD_ALLOW_MULTIPLE_INSTANCES === '1') return false;   // deliberately running two
   return true;
-}
-
-/**
- * The scheduler's runner, shared by the cron tick and "run now". Takes argv, not a shell string.
- *
- * Built as a factory so it can be tested: it is the one lifecycle path with a rule that broke silently.
- * @returns {(claudeArgv: string[], cwd: string, name: string, onDone?: (err?: Error) => void) => void}
- */
-function makeRunScheduleCommand(ctx) {
-  return function runScheduleCommand(claudeArgv, cwd, name, onDone) {
-    const globalSettings = ctx.getSetting('global') || {};
-    const profileId = globalSettings.shellProfile || ctx.SETTING_DEFAULTS.shellProfile;
-    const profile = ctx.resolveShell(profileId);
-    const shell = profile.path;
-
-    // Scheduled runs are Claude-only by design: the schedule UI composes Claude's headless argv. So
-    // they answer to Claude's enable gate like everything else (#162) — a disabled backend must not
-    // keep spawning its binary from a cron tick, which is exactly what this path did, silently,
-    // because it never asked. Refuse loudly instead: a scheduled task that quietly stops running is
-    // worse than one that says why.
-    if (!ctx.backends.isLaunchable('claude')) {
-      const msg = `[schedule] "${name}" skipped: Claude Code is disabled (scheduled runs are Claude-only).`;
-      ctx.log.warn(msg);
-      if (typeof onDone === 'function') onDone(new Error('Claude Code is disabled — scheduled runs need it.'));
-      return;
-    }
-
-    // A scheduled run is a session the user asked for, so its project goes on the list (#167) — in both
-    // modes, like any other launch. Without this, a schedule pointed at a project the user has not added
-    // writes transcripts that never show up anywhere: real sessions, invisible, with no way to find them.
-    if (cwd) { try { ctx.ensureProjectAdded(cwd); } catch { /* the scan will get it in auto mode */ } }
-
-    // The binary name comes from the backend descriptor, not a literal (T-1.7) — so no `'claude '`
-    // command build survives outside backends/.
-    const cmd = (ctx.backends.get('claude')?.binary || 'claude') + ' ' + ctx.quoteArgvForShell(shell, claudeArgv);
-    const args = ctx.shellArgs(shell, cmd, profile.args || []);
-
-    // cmd.exe: Node's default arg joining escapes embedded `"` as `\"`, which
-    // cmd does not understand — pass the pre-quoted line verbatim instead
-    // (same failure class as the node-pty launch path, see ptyShellArgs).
-    const isCmdShell = path.basename(shell).toLowerCase().startsWith('cmd');
-
-    ctx.log.info(`[schedule] Running: ${shell} ${args.join(' ')}`);
-    const child = ctx.spawnChild(shell, args, {
-      cwd,
-      stdio: ['ignore', 'ignore', 'pipe'],
-      // Same isolation the interactive spawn path applies (#241): under a demo/sandbox run the CLI must
-      // write into the isolated home, not the user's real one. A scheduled run is still a real session —
-      // without this it was the one path that kept writing into `~/.claude/projects` from an instance
-      // that promises it touches nothing real. Null (the normal case) merges nothing.
-      env: {
-        ...ctx.cleanPtyEnv,
-        FORCE_COLOR: '0',
-        ...(ctx.backends.get('claude')?.cliHomeEnv?.() || {}),
-      },
-      windowsVerbatimArguments: isCmdShell,
-    });
-
-    let stderr = '';
-    child.stderr.on('data', (data) => { stderr += data.toString(); });
-
-    child.on('exit', (code) => {
-      if (stderr.trim()) ctx.log.error(`[schedule] ${name} stderr:\n${stderr.trim()}`);
-      ctx.log.info(`[schedule] ${name} finished (exit ${code})`);
-      if (onDone) onDone();
-    });
-
-    child.on('error', (err) => {
-      ctx.log.error(`[schedule] ${name} error:`, err.message);
-      if (onDone) onDone();
-    });
-  };
 }
 
 /**
@@ -190,12 +116,6 @@ function start(ctx) {
     // Remove IDE lock files left behind by a crashed instance whose PID was
     // reused (the function only unlinks locks matching our own pid).
     ctx.cleanStaleLockFiles(ctx.log);
-    ctx.scheduleIpc.ensureScheduleCreatorCommand();
-
-    const runScheduleCommand = makeRunScheduleCommand(ctx);
-    ctx.scheduleIpc.init(ctx.log, runScheduleCommand);
-    ctx.startScheduler(ctx.log, runScheduleCommand);
-
     // Full cache rebuild on every startup — prunes stale rows for deleted
     // transcripts (sub-agent/workflow runs cleaned up between sessions leave
     // ghost rows in session_cache that show in the sidebar but are
@@ -305,4 +225,4 @@ function registerQuitHandlers(ctx) {
   });
 }
 
-module.exports = { shouldUseSingleInstanceLock, makeRunScheduleCommand, start, registerQuitHandlers };
+module.exports = { shouldUseSingleInstanceLock, start, registerQuitHandlers };
