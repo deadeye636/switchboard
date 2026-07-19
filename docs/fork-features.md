@@ -52,10 +52,11 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 - Backend-neutral via `lineageParentId`/`lineageKind`: Hermes `parent_session_id`, a Claude fork's
   `forkedFrom` and a Pi fork's `parentSession` are hard links; a Claude `/clear` (no on-disk back-link) is inferred and labelled a guess —
   never presented as fact.
-- #223: a `/clear` folds the old session onto the new one so the tab follows — done **only when a single
-  session is live** in the folder; with several live, no folder-local signal can safely attribute the clear
-  (the resolver refuses to guess rather than mis-key), so it stays as-is. That multi-session case is a known
-  gap (spec 13), waiting on a PTY→session signal.
+- #223: a `/clear` folds the old session onto the new one so the tab follows — **including with several
+  sessions live in one folder**. No folder-local signal (mtime, cwd, gitBranch) can attribute a clear, so
+  Switchboard asks the CLI instead: each launch gets a per-spawn hook settings file whose `SessionEnd`
+  hook names the terminal, and the CLI then reports which terminal cleared which session. A fact, not a
+  guess. Two terminals clearing in the same folder at the same moment still bail on purpose (#242).
 - Tested: `test/session-lineage.test.js`, `test/clear-rekey.test.js`, `test/sidebar-lineage-vm.test.js`.
 
 ### Session visit history
