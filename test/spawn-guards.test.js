@@ -235,3 +235,36 @@ test('a newline in the pre-launch command is refused', async () => {
   const r = await spawn.openTerminal('s', CWD, true, { backendId: 'codex', preLaunchCmd: 'nvm use 20\nrm -rf /' });
   assert.deepEqual(r, { ok: false, error: 'The pre-launch command must not contain newlines.' });
 });
+
+// #243 — what a spawned session must NOT inherit. `cleanPtyEnv` lives in main.js (Electron-bound), so
+// this reads the source: the filter is a chain of `k !== '…'` and the four keys below must be in it.
+//
+// Why these four: a RUNNING Claude Code session exports them into everything it spawns, so a Switchboard
+// started FROM such a session (`npm start` in an agent's terminal) passed them on to every session IT
+// spawned. With CLAUDE_CODE_CHILD_SESSION inherited the CLI writes NO TRANSCRIPT AT ALL — no row, no
+// lineage, no /clear re-key, no error. Measured one variable at a time: deleting only that one made the
+// transcript appear within 5 s in an otherwise identical run. The other three carry the PARENT's identity
+// and IDE-bridge port into a session that is not it.
+//
+// The rest of the family is legitimate user configuration (CLAUDE_CODE_MAX_OUTPUT_TOKENS,
+// CLAUDE_CODE_USE_BEDROCK, CLAUDE_CONFIG_DIR, …) and must keep passing through — so this test also
+// refuses a blanket prefix filter.
+test("cleanPtyEnv strips a parent Claude session's markers, and only those (#243)", () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  const filter = src.slice(src.indexOf('const cleanPtyEnv'), src.indexOf('const cleanPtyEnv') + 3000);
+
+  for (const key of ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_SESSION_ID', 'CLAUDECODE']) {
+    assert.ok(
+      filter.includes(`k !== '${key}'`),
+      `cleanPtyEnv must strip ${key} — inherited from the session that launched Switchboard, it breaks ` +
+      `the session we spawn (transcript, identity or IDE bridge)`,
+    );
+  }
+  assert.ok(
+    !/startsWith\('CLAUDE/.test(filter),
+    'do not strip the whole CLAUDE_* family — CLAUDE_CODE_MAX_OUTPUT_TOKENS, CLAUDE_CONFIG_DIR and ' +
+    'friends are the user\'s own configuration and must reach the CLI',
+  );
+});

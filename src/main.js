@@ -107,7 +107,27 @@ const cleanPtyEnv = Object.fromEntries(
     // authoritative — "empty" must really mean Claude's default, not a leaked
     // shell value (#51).
     k !== 'CLAUDE_AFK_TIMEOUT_MS' &&
-    k !== 'CLAUDE_AFK_COUNTDOWN_MS'
+    k !== 'CLAUDE_AFK_COUNTDOWN_MS' &&
+    // A RUNNING Claude Code session exports these into everything it spawns, and they must not reach a
+    // session WE spawn (#243). Measured, one variable at a time:
+    //   CLAUDE_CODE_CHILD_SESSION  — with it inherited, the CLI writes NO TRANSCRIPT AT ALL. No row, no
+    //     lineage, no /clear re-key, no search — and no error anywhere. Deleting only this one made the
+    //     transcript appear within 5 s in an otherwise identical run.
+    //   CLAUDE_CODE_SSE_PORT       — the parent's IDE bridge. We set our own when the MCP server starts,
+    //     but with `mcpEmulation: false` we set none, so an inherited one would point the spawned CLI at
+    //     the bridge of the session that launched Switchboard.
+    //   CLAUDE_CODE_SESSION_ID / CLAUDECODE — the parent's identity; anything keying on it (a hook, a
+    //     status line) would address the wrong session.
+    // Everything else in the family is legitimate user configuration (CLAUDE_CODE_MAX_OUTPUT_TOKENS,
+    // CLAUDE_CODE_USE_BEDROCK, CLAUDE_CONFIG_DIR, …) and must pass through untouched.
+    //
+    // This bites whenever Switchboard is started FROM a Claude session — `npm start` typed in an agent's
+    // terminal, which is how every agent verification runs. Launched from the Start menu there is nothing
+    // to inherit, which is why it stayed invisible for so long.
+    k !== 'CLAUDE_CODE_CHILD_SESSION' &&
+    k !== 'CLAUDE_CODE_SSE_PORT' &&
+    k !== 'CLAUDE_CODE_SESSION_ID' &&
+    k !== 'CLAUDECODE'
   )
 );
 
