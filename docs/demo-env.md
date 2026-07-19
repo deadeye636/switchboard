@@ -10,6 +10,13 @@ npm run demo:seed           # just (re)seed the stores, no launch
 npm run demo:auth           # copy your CLI logins into the demo home (once), so a LIVE session can run
 ```
 
+`demo:start` also **enables every ready backend** in the demo's own settings (`scripts/demo-settings.js`,
+run under Electron-as-node because better-sqlite3 needs Electron's ABI). A fresh install enables **Claude
+only** — anything else is opt-in (#162) — which meant the seeded Codex and Pi sessions parsed fine and were
+never scanned: `demo-beta` sat empty and `demo-mixed` showed one row of three (#244). The script is
+idempotent and refuses to run unless `SWITCHBOARD_DATA_DIR` points inside the demo tree, so it can never
+touch a real install's settings.
+
 ## What is isolated
 
 Everything the demo run reads or writes lives under `SWITCHBOARD_DEMO_DIR` (default `C:/temp/switchboard`).

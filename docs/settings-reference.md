@@ -302,6 +302,7 @@ Hermes inject nothing and use their own auth.
 | `npm start` | Stamp build info → bundle CodeMirror → launch Electron (dev: `~/.switchboard-dev`) |
 | `npm run start:debug` | The same with `--remote-debugging-port=9222`; refuses if the port is already bound |
 | `npm run demo:start` | **The default for dev/testing**: seeds and launches a fully isolated instance (own DB, userData, all five stores). `-- --debug` adds the CDP port. |
+| — | `demo:start` also runs `scripts/demo-settings.js`, which **enables every ready backend** in the demo DB (#244). A fresh install enables Claude only; without this the seeded Codex/Pi sessions are never scanned. Idempotent, and it refuses any data dir outside the demo tree. |
 | `npm run demo:seed` | Seed the demo layout without launching |
 | `npm run demo:auth` | Copy your existing CLI logins into the demo home once, so a **live** demo session can run (`-- --force` overwrites). `demo:start` never touches real credential files itself. |
 | `npm test` | `node --test` over the suite — no Electron needed |
