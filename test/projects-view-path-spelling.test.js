@@ -21,6 +21,15 @@ const REGISTERED = 'C:/temp/demo/alpha';       // how the project is on the regi
 const OTHER_SPELLING = 'C:\\temp\\demo\\alpha'; // how a live CLI wrote it into the transcript
 const CASE_SPELLING = 'c:/TEMP/demo/alpha';    // and how a third record spelled it
 
+// Separators fold everywhere; CASE folds only on Windows, and that is not a shortcut — on a
+// case-sensitive filesystem `/x/A` and `/x/a` ARE two directories, so merging them would be the bug.
+// The fixture therefore carries the case spelling only where it denotes the same directory, which is
+// also what stops these tests from asserting Windows behaviour on the Linux CI (they did, and it went red).
+const CASE_FOLDS = process.platform === 'win32';
+const SPELLINGS = CASE_FOLDS
+  ? [['a', REGISTERED], ['b', OTHER_SPELLING], ['c', CASE_SPELLING]]
+  : [['a', REGISTERED], ['b', OTHER_SPELLING]];
+
 const REGISTERED_STATE = { registered: true, registeredAt: '2026-01-01T00:00:00Z' };
 
 function setup(rows, { favorited = [], displayNames = [], states } = {}) {
@@ -44,15 +53,12 @@ const row = (sessionId, projectPath, modified) => ({
 });
 
 test('a session whose cwd is spelled differently still lands in its registered project (#245)', () => {
-  setup([
-    row('a', REGISTERED, '2026-01-02T00:00:00Z'),
-    row('b', OTHER_SPELLING, '2026-01-03T00:00:00Z'),
-    row('c', CASE_SPELLING, '2026-01-04T00:00:00Z'),
-  ]);
+  const dates = { a: '2026-01-02T00:00:00Z', b: '2026-01-03T00:00:00Z', c: '2026-01-04T00:00:00Z' };
+  setup(SPELLINGS.map(([id, spelling]) => row(id, spelling, dates[id])));
 
   const projects = view.buildProjectsFromCache(false);
   assert.equal(projects.length, 1, `one directory must be one project, got: ${projects.map(p => p.projectPath).join(' | ')}`);
-  assert.deepEqual(projects[0].sessions.map(s => s.sessionId).sort(), ['a', 'b', 'c'],
+  assert.deepEqual(projects[0].sessions.map(s => s.sessionId).sort(), SPELLINGS.map(([id]) => id),
     'every spelling belongs to the same project — the differently-spelled ones used to vanish entirely');
 });
 
@@ -93,11 +99,9 @@ test('genuinely different directories stay separate (#245)', () => {
 // two rows carried the register entry — so the row the user saw first could be the one that knew nothing
 // about their project. The sidebar half above says nothing about this path.
 test('the admin list shows one row per directory, however its sessions are spelled (#245)', () => {
-  setup([
-    row('a', REGISTERED, '2026-01-02T00:00:00Z'),
-    row('b', OTHER_SPELLING, '2026-06-01T00:00:00Z'),
-    row('c', CASE_SPELLING, '2026-03-01T00:00:00Z'),
-  ], { favorited: [REGISTERED], displayNames: [[REGISTERED, 'Alpha']] });
+  const dates = { a: '2026-01-02T00:00:00Z', b: '2026-06-01T00:00:00Z', c: '2026-03-01T00:00:00Z' };
+  setup(SPELLINGS.map(([id, spelling]) => row(id, spelling, dates[id])),
+    { favorited: [REGISTERED], displayNames: [[REGISTERED, 'Alpha']] });
 
   // buildProjectsAdmin returns the rows themselves; the `{ ok, projects }` envelope is the IPC handler's.
   const projects = view.buildProjectsAdmin();
@@ -105,7 +109,7 @@ test('the admin list shows one row per directory, however its sessions are spell
   assert.equal(mine.length, 1, `one directory, one admin row — got: ${mine.map(p => p.projectPath).join(' | ')}`);
 
   const [entry] = mine;
-  assert.equal(entry.sessionCount, 3, 'every spelling counts towards the same project');
+  assert.equal(entry.sessionCount, SPELLINGS.length, 'every spelling counts towards the same project');
   assert.equal(entry.registered, true, 'the register entry must reach the row the user sees');
   assert.equal(entry.projectPath, REGISTERED, 'the REGISTERED spelling is the one to display');
   assert.equal(entry.favorite, true, 'the star was stored against the registered spelling');
