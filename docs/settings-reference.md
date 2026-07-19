@@ -89,9 +89,19 @@ back on Save.
 | `showSubagents` | Show subagents | bool | `true` | global — hidden unless a backend declares `supportsSubagents` |
 | `subagentLiveStatus` | Subagent live status | bool | `true` | global |
 | `subagentLayout` | Subagent row layout | `a` \| `b` \| `c` | `a` | global |
-| `visibleSessionCount` | Max visible sessions | 0–100, `0` = all | **see conflicts** | **cascades** |
-| `sessionMaxAgeDays` | Hide sessions older than (days) | 0–365, `0` = no limit | `3` | global |
-| `autoHideDays` | Auto-hide inactive projects after (days) | 0–3650, `0` = off | `0` | global |
+| `visibleSessionCount` | Max visible sessions | 0–100, `0` = all | `10` | **cascades** |
+| `sessionMaxAgeDays` | Hide sessions older than (days) | 0–365, `0` = no limit | `3` | global — [deliberately not per project](#why-two-of-these-are-global-only) |
+| `autoHideDays` | Auto-hide inactive projects after (days) | 0–3650, `0` = off | `0` | global — same |
+
+`visibleSessionCount` limits how many sessions a project lists directly; the rest fold into "older".
+Running and pinned sessions are always shown regardless of it.
+
+### Why two of these are global-only
+
+`sessionMaxAgeDays` and `autoHideDays` trim the sidebar **as a whole**. A per-project override would mean
+one list pruned by different rules depending on which project a row came from, and the rule that applied
+would not be visible anywhere. They stay global on purpose (#239) — revisit only together with a UI that
+shows the override, or it becomes invisible state.
 
 ## Usage & Notifications
 
@@ -176,14 +186,15 @@ choices are one-off launch parameters, not a scope.
 ## Known default conflicts
 
 Found while writing this page. They are recorded rather than silently fixed, because each is a decision
-about which number is right, not a typo.
+about which number is right, not a typo. Two are settled: `visibleSessionCount` is one value now (`10`,
+#237 — the main process's `5` reached nobody), and `sessionMaxAgeDays`/`autoHideDays` stay global by
+decision (#239, above).
 
 | Setting | The two values | Effect |
 |---|---|---|
-| `visibleSessionCount` | `5` in `src/app/settings.js`, `10` in the renderer (panel + `app.js`) | Until the key is saved once, the sidebar shows 10 while the main process computes with 5. The first Save writes 10. |
-| `runningInbox.mode` | `until-read` in the panel, `always` as the consumer fallback in `session-status.js` | If the runtime object never carries the key, the inbox behaves as `always`. |
+| `runningInbox.mode` | `until-read` in the panel, `always` as the consumer fallback in `session-status.js` | If the runtime object never carries the key, the inbox behaves as `always`. (#238) |
 | `terminalMouseReporting` | read as `select`, written back as `native` when the control is empty | Unreachable through the UI (the select always has a value), but two answers to one question in one file. |
-| `sessionMaxAgeDays`, `autoHideDays` | renderer-side only | They do **not** cascade per project although they read like they should. |
+| `PATHEXT` | `.COM;.EXE;.BAT;.CMD` in `src/main.js`, `.EXE;.CMD;.BAT` in `src/backends/file-store.js` | Only reachable with `PATHEXT` unset, but it decides whether a backend's CLI is found at all. (#240) |
 
 ---
 

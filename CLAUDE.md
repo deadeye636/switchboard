@@ -569,6 +569,13 @@ diagnostic at `debug` that the packaged default hides is what made #120 invisibl
 - **New fork feature → document it.** When you add a feature unique to this fork (not inherited
   from upstream), add it to the **README "What this fork adds"** list **and** to
   `docs/fork-features.md` (Wave 4). Keep entries terse and matched to the existing style.
+- **A setting added, renamed, re-scoped or given a different default → `docs/settings-reference.md`.**
+  It lists every key with its **real code default**, which scope it lives in, and what a backend's
+  `configFields` default means. A change that leaves it stale is worse than no page: the whole point is
+  that it beats reading the settings screen, which shows what the UI falls back to rather than what
+  applies. Same for a new `SWITCHBOARD_*` env var or a new script — they are on that page too. And when
+  a documented conflict is decided (#237, #239), the entry moves from "known conflict" to the table with
+  the decision, rather than being deleted.
 - **No personal or local identifiers in public artifacts.** Never write absolute paths, local
   machine references (`C:\Users\<name>`, drive letters, home dirs), or personal names/emails into
   issues, commit messages, code, or docs — use generic placeholders (`~`, `<project>`, `<user>`).

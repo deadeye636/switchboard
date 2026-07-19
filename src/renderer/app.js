@@ -202,6 +202,9 @@ let activePtyIds = new Set();
 let sortedOrder = []; // [{ projectPath, itemIds: [itemId, ...] }, ...] — single source of truth for sidebar order
 let activeTab = 'sessions';
 let cachedPlans = [];
+// The value the sidebar limits on until the boot has read the settings (below). It is NOT the default —
+// that lives once, in SETTING_DEFAULTS (#237); this only has to be sane for the first paint, and the two
+// must not drift, which test/settings-defaults.test.js pins.
 let visibleSessionCount = 10;
 let sessionMaxAgeDays = 3;
 const pendingSessions = new Map(); // sessionId → { session, projectPath, folder }
@@ -1738,6 +1741,12 @@ setTimeout(() => {
     if (global.sidebarWidth) {
       document.getElementById('sidebar').style.width = global.sidebarWidth + 'px';
     }
+    // Take it from the CASCADE, not from the raw blob (#237): an unsaved key used to leave the renderer
+    // on its own literal, which is how a second default came to exist and disagree.
+    try {
+      const eff = await window.api.getEffectiveSettings(null);
+      if (eff && eff.visibleSessionCount != null) visibleSessionCount = eff.visibleSessionCount;
+    } catch { /* keep the boot value */ }
     if (global.visibleSessionCount != null) {
       visibleSessionCount = global.visibleSessionCount;
     }
