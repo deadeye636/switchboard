@@ -18,7 +18,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { encodeProjectPath } = require('../session/encode-project-path');
-const { deriveProjectPath } = require('../session/derive-project-path');
+const { deriveProjectPath, normPath } = require('../session/derive-project-path');
 const registry = require('./project-registry');
 // Global-only setting defaults (#239). Requiring app/settings.js here is safe: it pulls in no Electron
 // and no db at load — both arrive through its own ctx.
@@ -185,15 +185,14 @@ function refreshProjectFolders(projectPath) {
   }
 }
 
-/** Windows spells the same directory two ways, and a missed tombstone means a resurrected project. */
-function samePathKey(p) {
-  // Normalise separators too (backslash -> forward slash), not just the trailing one and case: on Windows
-  // the same directory gets spelled with either separator by different backends/launches, and without
-  // collapsing them the register keeps BOTH as separate projects — the same cwd then shows two (or three)
-  // times in the sidebar (#8). This matches normPath (derive-project-path.js), the one canonical form.
-  const t = String(p || '').replace(/[\\/]+$/, '').replace(/\\/g, '/');
-  return process.platform === 'win32' ? t.toLowerCase() : t;
-}
+// Windows spells the same directory two ways, and a missed tombstone means a resurrected project. The
+// same cwd would otherwise show two (or three) times in the sidebar (#8).
+//
+// This WAS a verbatim copy of `normPath`, under a comment that admitted it matched "the one canonical
+// form". Two copies of the canonical form is the wrong starting point for a bug that is entirely about
+// paths being compared in different forms (#245) — so it is now that function, keeping the local name
+// because at its seven call sites "same path key" is what the code means.
+const samePathKey = normPath;
 
 /**
  * Is there ANY session left in this project — from any backend?

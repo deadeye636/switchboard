@@ -77,7 +77,11 @@ function resolveWorktreePath(cwd) {
 // Windows says D:\x and d:\X are the same directory. A real store carries both spellings of the same
 // path, and compared naively they become two projects.
 function normPath(p) {
-  const trimmed = String(p).replace(/[\\/]+$/, '').replace(/\\/g, '/');
+  // `p || ''`, not `String(p)`: this answer is used as a MAP KEY for project buckets, and `String(null)`
+  // is the four-character string "null" — a bucket named after a bug. The register's own copy of this
+  // function guarded it; when the two were merged into one (#245) the guard had to come along, or a row
+  // with no projectPath would have started grouping under "null" instead of being ignored.
+  const trimmed = String(p || '').replace(/[\\/]+$/, '').replace(/\\/g, '/');
   return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed;
 }
 

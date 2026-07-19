@@ -38,10 +38,19 @@ function buildProjectsFromCache(showArchived) {
   const cachedRows = getAllCached();
   const states = typeof getProjectStates === 'function' ? getProjectStates() : new Map();
   // A project is shown when it is on the list and neither hidden by the user nor auto-hidden by staleness.
-  const visible = new Set();
+  //
+  // Keyed on the CANONICAL path, exactly like the buckets below (#245). It used to be the raw string, and
+  // that half-normalization was the bug: a row whose cwd is spelled differently from the registered path —
+  // `C:\x\y` against `C:/x/y`, or a different drive-letter case, which real transcripts do contain — was
+  // dropped HERE, before it ever reached the bucket that would have merged it. The session was indexed and
+  // invisible: no row, in a project the sidebar was already showing.
+  // A Map, not a Set: the canonical key is what every lookup compares on, but the loop over registered
+  // projects further down still needs the REGISTERED spelling to reach `states` (and to display).
+  const visible = new Map();
   for (const [projectPath, state] of states) {
-    if (registry.isVisible(state)) visible.add(projectPath);
+    if (registry.isVisible(state)) visible.set(normPath(projectPath), projectPath);
   }
+  const isVisiblePath = (p) => visible.has(normPath(p));
 
   // Group by projectPath, not on-disk folder name. Multiple ~/.claude/projects/<folder>/ directories can
   // resolve to the same projectPath, so we merge them into a single sidebar group to avoid duplicate-id
@@ -52,7 +61,7 @@ function buildProjectsFromCache(showArchived) {
   for (const row of cachedRows) {
     if (!row.projectPath) continue;
     knownIds.add(row.sessionId);
-    if (!visible.has(row.projectPath)) continue;
+    if (!isVisiblePath(row.projectPath)) continue;
     if (!showArchived && metaMap.get(row.sessionId)?.archived) continue;
     shownIds.add(row.sessionId);
   }
@@ -63,11 +72,14 @@ function buildProjectsFromCache(showArchived) {
   const lastActivityByPath = new Map();
   for (const row of cachedRows) {
     if (!row.projectPath) continue;
+    // ONE canonical key per row (#245), used for all three things below — visibility, activity and the
+    // bucket. They must agree, and deriving it three times is both slower and easier to get out of step.
+    const key = normPath(row.projectPath);
     // Not on the list, or on it and not shown: its sessions belong to no visible group.
-    if (!visible.has(row.projectPath)) continue;
+    if (!visible.has(key)) continue;
     if (row.modified) {
-      const prev = lastActivityByPath.get(row.projectPath);
-      if (!prev || row.modified > prev) lastActivityByPath.set(row.projectPath, row.modified);
+      const prev = lastActivityByPath.get(key);
+      if (!prev || row.modified > prev) lastActivityByPath.set(key, row.modified);
     }
     const meta = metaMap.get(row.sessionId);
     const s = {
@@ -117,10 +129,9 @@ function buildProjectsFromCache(showArchived) {
     // the child out with it. A parent the store has never heard of is a genuine orphan and still shows.
     if (!showArchived && s.parentSessionId
         && knownIds.has(s.parentSessionId) && !shownIds.has(s.parentSessionId)) continue;
-    // Bucket by the CANONICAL path (normPath collapses \ vs / and case), so the same directory spelled two
-    // ways by different backends does not render as two projects (#8). The value keeps the raw spelling as
-    // the display projectPath; the session loop runs first, so the spelling that actually has sessions wins.
-    const key = normPath(row.projectPath);
+    // Bucketed by that canonical key (normPath collapses \ vs / and case), so the same directory spelled
+    // two ways by different backends does not render as two projects (#8). The value keeps the raw spelling
+    // as the display projectPath; the session loop runs first, so the spelling that has sessions wins.
     if (!projectMap.has(key)) {
       projectMap.set(key, {
         folder: encodeProjectPath(row.projectPath),
@@ -134,8 +145,7 @@ function buildProjectsFromCache(showArchived) {
 
   // Every REGISTERED project that has no session to show — the one the user just added and has never run
   // anything in, and the one whose sessions are all archived.
-  for (const projectPath of visible) {
-    const key = normPath(projectPath);
+  for (const [key, projectPath] of visible) {
     if (projectMap.has(key)) continue;   // a registered spelling of a project already shown → same project (#8)
     const state = states.get(projectPath) || {};
     projectMap.set(key, {
@@ -145,7 +155,7 @@ function buildProjectsFromCache(showArchived) {
       sessions: [],
       // Its recency: the last real activity when its sessions are merely archived; otherwise the moment
       // it was put on the list.
-      lastActivity: lastActivityByPath.get(projectPath) || state.registeredAt || null,
+      lastActivity: lastActivityByPath.get(key) || state.registeredAt || null,
     });
   }
 
@@ -154,7 +164,7 @@ function buildProjectsFromCache(showArchived) {
   for (const [sessionId, session] of activeSessions) {
     if (session.exited || !session.isPlainTerminal) continue;
     if (!session.projectPath) continue;
-    if (!visible.has(session.projectPath)) continue;
+    if (!isVisiblePath(session.projectPath)) continue;
     const key = normPath(session.projectPath);
     if (!projectMap.has(key)) {
       projectMap.set(key, {
@@ -178,11 +188,16 @@ function buildProjectsFromCache(showArchived) {
   const favorited = typeof getFavoritedProjects === 'function' ? getFavoritedProjects() : new Set();
   const displayNames = typeof getProjectDisplayNames === 'function' ? getProjectDisplayNames() : new Map();
 
+  // Canonical lookups (#245): a star and a display name are stored against the spelling the user acted
+  // on, while a bucket carries whichever spelling had sessions. Comparing raw strings lost both.
+  const favoritedKeys = new Set([...favorited].map(normPath));
+  const displayNameByKey = new Map([...displayNames].map(([k, v]) => [normPath(k), v]));
+
   const projects = [];
-  for (const proj of projectMap.values()) {
+  for (const [key, proj] of projectMap) {
     proj.sessions.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-    proj.favorited = favorited.has(proj.projectPath);
-    proj.displayName = displayNames.get(proj.projectPath) || '';
+    proj.favorited = favoritedKeys.has(key);
+    proj.displayName = displayNameByKey.get(key) || '';
     projects.push(proj);
   }
 
@@ -217,10 +232,22 @@ function buildProjectsAdmin() {
   const favorited = typeof getFavoritedProjects === 'function' ? getFavoritedProjects() : new Set();
   const displayNames = typeof getProjectDisplayNames === 'function' ? getProjectDisplayNames() : new Map();
 
-  const map = new Map(); // projectPath -> { sessionCount, lastActivity }
-  const ensure = (projectPath) => {
-    if (!map.has(projectPath)) map.set(projectPath, { sessionCount: 0, lastActivity: null });
-    return map.get(projectPath);
+  // Keyed on the CANONICAL path (#245). With the raw string as the key, one directory spelled two ways —
+  // `C:\x\y` from a live CLI against `C:/x/y` from a seed or an older record — listed TWICE, and only one
+  // of the two carried the register entry. The value keeps a display spelling: the first one seen, unless a
+  // REGISTERED one shows up later, because that is the one the user's actions are stored against.
+  const statesByKey = new Map([...states].map(([k, v]) => [normPath(k), v]));
+  // Same canonicalisation for the two user-owned attributes (#245): a star or a rename is stored against
+  // the spelling the user acted on, which need not be the one this entry ended up displaying.
+  const favoritedKeysAdmin = new Set([...favorited].map(normPath));
+  const displayNameByKeyAdmin = new Map([...displayNames].map(([k, v]) => [normPath(k), v]));
+  const map = new Map(); // canonical key -> { projectPath, sessionCount, lastActivity }
+  const ensure = (projectPath, registered) => {
+    const key = normPath(projectPath);
+    if (!map.has(key)) map.set(key, { projectPath, sessionCount: 0, lastActivity: null });
+    const entry = map.get(key);
+    if (registered) entry.projectPath = projectPath;
+    return entry;
   };
 
   for (const row of getAllCached()) {
@@ -248,16 +275,17 @@ function buildProjectsAdmin() {
 
   // ...and every registered project, including one that has neither sessions nor a store folder.
   for (const [projectPath, state] of states) {
-    if (state.registered) ensure(projectPath);
+    if (state.registered) ensure(projectPath, true);
   }
 
   const rows = [];
-  for (const [projectPath, e] of map) {
-    const state = states.get(projectPath) || {};
+  for (const [key, e] of map) {
+    const projectPath = e.projectPath;
+    const state = states.get(projectPath) || statesByKey.get(key) || {};
     rows.push({
       projectPath,
       folder: encodeProjectPath(projectPath),
-      displayName: displayNames.get(projectPath) || '',
+      displayName: displayNames.get(projectPath) || displayNameByKeyAdmin.get(key) || '',
       sessionCount: e.sessionCount,
       lastActivity: e.lastActivity,
       missing: !fs.existsSync(projectPath),
@@ -266,7 +294,7 @@ function buildProjectsAdmin() {
       hidden: !!state.hidden,
       autoHidden: !!state.autoHidden,
       removedAt: state.removedAt || null,
-      favorite: favorited.has(projectPath),
+      favorite: favorited.has(projectPath) || favoritedKeysAdmin.has(key),
     });
   }
   return rows;
