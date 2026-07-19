@@ -197,20 +197,32 @@ test('stripSwitchboardHooks survives a settings.json that has no hooks, or junk 
 // INSTALLED app's live hook too. So an unpackaged build is a no-op on the whole write/strip path unless
 // SWITCHBOARD_DEV_ATTENTION_HOOK=1 is set. These tests pin both halves.
 
-test('a dev build does not write to the shared settings.json even when the feature is on', () => {
+test('a dev build does not write to the shared settings.json even when the feature is on', async () => {
   const prev = process.env.SWITCHBOARD_DEV_ATTENTION_HOOK;
   delete process.env.SWITCHBOARD_DEV_ATTENTION_HOOK;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-hooks-dev-'));
   const settingsFile = path.join(dir, 'settings.json');
   const before = { hooks: { Stop: [{ matcher: '', hooks: [{ type: 'command', command: 'user-own' }] }] } };
   fs.writeFileSync(settingsFile, JSON.stringify(before));
+  let server = null;
   try {
     makeCtx({ isPackaged: false, getSetting: () => ({ attentionHooks: true }), claudeSettingsPath: settingsFile });
-    const server = hooks.startAttentionHookServer();
-    assert.equal(server, null, 'the server does not start in a dev build');
+    server = hooks.startAttentionHookServer();
+    // #223 changed one half of this on purpose: the SERVER now starts in a dev build too. It is a
+    // loopback listener that touches nothing outside this process, and the per-spawn clear binding posts
+    // to it through the backend's OWN settings file — so it has to work everywhere the app runs.
+    //
+    // What #219 promised is the OTHER half, and it is unchanged and still asserted below: the user's
+    // shared ~/.claude/settings.json is never written by a dev build. That file is the shared state; the
+    // socket never was.
+    assert.notEqual(server, null, 'the loopback server starts — it is not what #219 blocked');
     assert.deepEqual(JSON.parse(fs.readFileSync(settingsFile, 'utf8')), before,
       'the shared settings.json is byte-for-byte untouched');
   } finally {
+    // Close the one we started and WAIT for it: the module keeps a single server and only clears that
+    // guard on the 'close' event, so a later test asking for one would otherwise be handed this dying
+    // socket and wait forever for a listen callback that never comes again.
+    if (server) await new Promise((resolve) => server.close(resolve));
     fs.rmSync(dir, { recursive: true, force: true });
     if (prev === undefined) delete process.env.SWITCHBOARD_DEV_ATTENTION_HOOK; else process.env.SWITCHBOARD_DEV_ATTENTION_HOOK = prev;
   }

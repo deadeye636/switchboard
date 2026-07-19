@@ -23,9 +23,15 @@ const path = require('path');
 const crypto = require('crypto');
 const attentionSource = require('../shared/attention-source');
 
+const clearClaims = require('../session/clear-claims');
+
 const CLAUDE_SETTINGS_JSON = path.join(os.homedir(), '.claude', 'settings.json');
 // Sentinel in the hook URL path so we can find & remove only our own handlers.
 const ATTENTION_HOOK_MARK = '/switchboard-attention-hook';
+// The second thing this server answers (#223): a per-spawn hook, registered through the backend's OWN
+// settings file rather than the user's, telling us which TERMINAL just reset its session. Its own path so
+// the two are never confused — and so an attention payload can never be mistaken for a binding.
+const CLEAR_BIND_MARK = '/switchboard-clear-bind';
 
 let ctx = null;
 let attentionHookServer = null;
@@ -92,6 +98,12 @@ function handleHookRequest(req, res, token = attentionHookToken) {
     res.end();
     return;
   }
+  // Which of the two ingests is this? Decided from the PATH, before the payload is even parsed — the
+  // binding route must not depend on payload shape, and an attention POST must never land in the claims.
+  let reqPath = '';
+  try { reqPath = new URL(req.url, 'http://127.0.0.1').pathname; } catch {}
+  const isClearBind = reqPath === CLEAR_BIND_MARK;
+
   let body = '';
   req.on('data', (chunk) => {
     body += chunk;
@@ -101,6 +113,24 @@ function handleHookRequest(req, res, token = attentionHookToken) {
     try {
       const hook = JSON.parse(body || '{}');
       const sessionId = hook.session_id || hook.sessionId;
+
+      // #223: "terminal <tag> just ended session <id> because of a clear". The tag rides the URL because
+      // the payload has no room for it — it is the CLI's schema, not ours. This is a FACT from the CLI,
+      // which is the whole reason the re-key may act on it; everything else in this area is inference.
+      if (isClearBind) {
+        let tag = null;
+        try { tag = new URL(req.url, 'http://127.0.0.1').searchParams.get('tag'); } catch {}
+        const reason = hook.reason || null;
+        if (tag && sessionId && reason === 'clear') {
+          clearClaims.recordClearClaim({ tag, sessionId, folder: null });
+          ctx.log.info(`[clear-bind] terminal=${tag.slice(0, 8)} cleared session=${sessionId}`);
+        } else {
+          ctx.log.debug(`[clear-bind] ignored: tag=${tag ? 'yes' : 'no'} session=${sessionId ? 'yes' : 'no'} reason=${reason}`);
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end('{}');
+        return;
+      }
       // Fast-path: a hook POST (Stop/Notification) is an instant push at a turn
       // boundary. Refresh that session's transcript now — bypassing the watcher +
       // reindex debounces — so a rename (Claude /rename → custom-title) shows the
@@ -150,10 +180,10 @@ function handleHookRequest(req, res, token = attentionHookToken) {
  */
 function startAttentionHookServer() {
   if (attentionHookServer) return attentionHookServer;
-  if (!hookWritingAllowed()) {
-    ctx.log.info('[attention-hook] disabled in this dev build — set SWITCHBOARD_DEV_ATTENTION_HOOK=1 to enable');
-    return null;
-  }
+  // The SERVER is not what #219 blocked — writing into the user's shared ~/.claude/settings.json is. This
+  // is a loopback listener that touches nothing outside this process, and since #223 a dev build needs it
+  // too: the per-spawn clear binding goes through our OWN settings file, so it works everywhere the app
+  // runs. `hookWritingAllowed()` still gates every write to the shared file, which is where it belongs.
   attentionHookToken = crypto.randomUUID();
   const server = http.createServer((req, res) => handleHookRequest(req, res));
   // Set the guard immediately (not inside the listen callback) so a second call
@@ -286,4 +316,13 @@ module.exports = {
   stripSwitchboardHooks,
   ATTENTION_HOOK_MARK,
   CLAUDE_SETTINGS_JSON,
+  // #223: the spawn path asks for the URL a terminal's binding hook should post to. Null while the
+  // server has no port yet — the caller then launches without a binding and falls back to the
+  // single-live-session rule, which is what happens on every backend that declares no binding at all.
+  CLEAR_BIND_MARK,
+  clearBindUrl: (tag) => (
+    attentionHookPort && attentionHookToken && tag
+      ? `http://127.0.0.1:${attentionHookPort}${CLEAR_BIND_MARK}?t=${attentionHookToken}&tag=${encodeURIComponent(tag)}`
+      : null
+  ),
 };

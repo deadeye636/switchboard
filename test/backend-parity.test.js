@@ -112,6 +112,40 @@ test('listSubagents returns null when there is nothing to watch', () => {
   }
 });
 
+// #223: a backend that can re-identify a LIVE session mid-flight (Claude's /clear mints a new id while the
+// PTY keeps running; Codex's /new is the same shape) declares it and implements the pair the spawn path
+// uses. The symmetric half matters as much: a backend that cannot must carry NEITHER function, or the core
+// cannot tell "declines" from "half-implemented" — and a half-implemented binding would leave temp files
+// nobody releases.
+test('a backend that re-identifies live sessions implements the pair — one that cannot carries neither', () => {
+  const PAIR = ['buildLiveBinding', 'releaseLiveBinding'];
+  for (const b of READY) {
+    if (b.supportsLiveRebinding === true) {
+      for (const fn of PAIR) {
+        assert.equal(typeof b[fn], 'function', `${b.id} claims live rebinding — it must implement ${fn}`);
+      }
+    } else {
+      for (const fn of PAIR) {
+        assert.equal(b[fn], undefined, `${b.id} does not claim live rebinding — it must not implement ${fn}`);
+      }
+    }
+  }
+});
+
+// The binding must never be able to break a launch: no URL (server not up yet), no directory, no tag — all
+// of them mean "no binding", which is the conservative path the core already handles.
+test('buildLiveBinding declines rather than throwing when it cannot bind', () => {
+  for (const b of READY) {
+    if (b.supportsLiveRebinding !== true) continue;
+    assert.equal(b.buildLiveBinding({}), null, `${b.id}: no inputs must mean no binding`);
+    assert.equal(b.buildLiveBinding({ tag: 't', url: 'http://127.0.0.1:1/x' }), null, `${b.id}: no dir must mean no binding`);
+    assert.equal(b.buildLiveBinding({ dir: os.tmpdir(), tag: 't' }), null, `${b.id}: no url must mean no binding`);
+    // And releasing something that was never created is a no-op, not a throw.
+    assert.doesNotThrow(() => b.releaseLiveBinding(null));
+    assert.doesNotThrow(() => b.releaseLiveBinding(path.join(os.tmpdir(), 'switchboard-no-such-binding.json')));
+  }
+});
+
 // #193: session lineage is a NEUTRAL feature — the core stamps lineageParentId at one sink by calling each
 // backend's resolveLineage(row). Every backend must ANSWER the hook, even if only to decline (return null),
 // so no backend's provenance can quietly hard-wire itself into the core. A backend that DOES record a link

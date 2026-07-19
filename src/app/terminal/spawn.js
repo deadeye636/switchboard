@@ -25,6 +25,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const pty = require('node-pty');
 const { resolveShell, isWindows, isWslShell, windowsToWslPath, ptyShellArgs, quoteArgvForShell } = require('./shell-profiles');
 const { normalizeLauncher } = require('../../shared/custom-launchers');
@@ -182,6 +183,11 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // session object below. Same reason `isClaudeBinary` exists, hoisted because the session is built out
   // here while the descriptor is only in scope in the branch.
   let oscTitleState = false;
+  // #223: the terminal's identity for live re-binding. Minted here — before the backend branch — because
+  // it must be STABLE across every re-key this terminal goes through; the session id is not, it is the
+  // thing that changes. What the backend built (a temp file, typically) is cleaned up on exit.
+  const terminalTag = crypto.randomUUID();
+  let liveBindingCleanup = null;
   try {
     if (isPlainTerminal) {
       // Plain terminal: interactive login shell, no claude command. Override `claude`
@@ -359,6 +365,35 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         forkFrom: sessionOptions?.forkFrom,
         options: sessionOptions || {},
       });
+      // LIVE RE-IDENTIFICATION (#223). A backend that can tell us mid-flight that this terminal moved to
+      // a new session id gets the chance to set that up now: it receives the terminal's tag and the URL
+      // our ingest listens on, and answers with whatever its launch needs. Claude writes a per-spawn hook
+      // settings file and asks for `--settings <file>`.
+      //
+      // The tag identifies the TERMINAL and must outlive every re-key — the session id will not.
+      // Everything here is best-effort: no URL (server not up), no hook (backend declines), or a failed
+      // write all mean the same thing, which is today's behaviour — the conservative single-live-session
+      // rule, and a bail when it is ambiguous. A binding never becomes a launch failure.
+      if (backend.supportsLiveRebinding === true && typeof backend.buildLiveBinding === 'function') {
+        try {
+          const url = ctx.clearBindUrl ? ctx.clearBindUrl(terminalTag) : null;
+          const binding = url ? backend.buildLiveBinding({ dir: ctx.bindingDir, tag: terminalTag, url, log: ctx.log }) : null;
+          if (binding && Array.isArray(binding.args) && binding.args.length) {
+            launch.args = [...launch.args, ...binding.args];
+            // Keep the RELEASE, not the descriptor: the exit handler runs far from here, where `backend`
+            // is out of scope, and a re-lookup there could pick a different descriptor than the one that
+            // created this. The backend decides what "release" means; the core only calls it.
+            const release = binding.cleanup && typeof backend.releaseLiveBinding === 'function'
+              ? (log) => backend.releaseLiveBinding(binding.cleanup, log)
+              : null;
+            liveBindingCleanup = release;
+            ctx.log.info(`[clear-bind] session=${sessionId} terminal=${terminalTag.slice(0, 8)} bound via ${backend.id}`);
+          }
+        } catch (err) {
+          ctx.log.warn(`[clear-bind] session=${sessionId} could not set up: ${err.message}`);
+        }
+      }
+
       // How this backend wants to be spawned (00 §4). Claude runs as a shell-quoted command string
       // (today's path). An Axis-B binary may ask for ARGV mode instead: Codex is happiest with clean
       // execFile-style argv, and Windows shell quoting mangles it.
@@ -523,6 +558,11 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // "working" forever while it sits at its prompt. Every other backend reports its own state through
     // `liveState`; this heuristic exists precisely because Claude does not.
     _oscTitleState: oscTitleState,
+    // #223: this terminal's stable identity for live re-binding, and whatever the backend created for it.
+    // On the session (not in a side map) so a re-key carries them along for free — the record moves to
+    // the new id, and the terminal keeps the same tag through every clear.
+    _terminalTag: terminalTag,
+    _liveBindingCleanup: liveBindingCleanup,
   };
   ctx.activeSessions.set(sessionId, session);
 
@@ -688,6 +728,15 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // Release the Codex rollout claim + busy latch for this session (T-4.5), so the file can be
     // re-claimed and the maps don't grow for the life of the app.
     for (const id of [realId, sessionId]) { ctx.liveStoreRef.delete(id); ctx.liveBusy.delete(id); }
+    // #223: this terminal is gone. Drop any clear claim it left behind — a claim from a dead terminal
+    // can never be paired with a child, and leaving it would let it win a pairing that is not its own.
+    // Then remove whatever the backend wrote for the binding.
+    try {
+      ctx.forgetClearClaims(session._terminalTag);
+      if (typeof session._liveBindingCleanup === 'function') session._liveBindingCleanup(ctx.log);
+    } catch (err) {
+      ctx.log.debug(`[clear-bind] cleanup failed for session=${realId}: ${err.message}`);
+    }
     // Wipe this session's secret-ref temp files (default on; the prompt that used
     // them is done). Quit/startup wipe still covers the setting-off case.
     if (ctx.getSetting('global')?.secretRefCleanupOnSessionStop !== false) {

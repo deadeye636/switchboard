@@ -16,23 +16,43 @@
 // a just-idle bystander; only a signal that ties the clear to a specific PTY (a per-session SessionStart
 // hook echo) could, and we do not have one.
 //
-// So: re-key ONLY when there is exactly one live session in the folder (it is unambiguously the one that
-// cleared — the pre-existing safe case). With two or more, bail — the caller keeps both rows rather than
-// guess. #223's multi-session re-key is therefore NOT solved here; it waits for a reliable PTY→session
-// signal. See spec 13.
+// THE SIGNAL THAT WAS MISSING NOW EXISTS (#223). A backend that can re-identify a live session tells us
+// out of band which TERMINAL cleared which session: Claude does it through a per-spawn hook settings file
+// (`--settings`) whose URL carries the terminal's tag, and `SessionEnd` fires with `reason: "clear"` and
+// the OLD session id. That is a fact reported by the CLI, not an inference from the file system — so when
+// a claim names one of the folder's live sessions, the parent is KNOWN and the number of live sessions no
+// longer matters.
 //
-// Pure and Electron-free: the caller passes the folder's live candidates; this returns { parentId,
-// confidence: 'high' | 'none' }. ('low' is intentionally never returned — a guess we would not act on is a
-// guess we do not make.)
+// The order below is therefore: a claim wins; without one, the pre-existing single-live-session rule; with
+// neither, bail. Two claims in one folder inside the window is the one case that is still ambiguous (both
+// terminals cleared at once) — the caller's claim lookup returns nothing then, and we fall through to the
+// count rule, which also declines. Nothing is ever guessed.
+//
+// Pure and Electron-free: the caller passes the folder's live candidates and (if any) the claim; this
+// returns { parentId, confidence: 'high' | 'none' }. ('low' is intentionally never returned — a guess we
+// would not act on is a guess we do not make.)
 
-// candidates: [{ id }] — the active, non-terminal sessions in the folder.
-// Returns { parentId, confidence }.
-function resolveClearParent({ candidates } = {}) {
-  if (!Array.isArray(candidates) || candidates.length !== 1) {
-    return { parentId: null, confidence: 'none' };
+// candidates: [{ id, tag }] — the active, non-terminal sessions in the folder.
+// claim: { tag, sessionId } | null — a backend-reported "this terminal cleared that session".
+// Returns { parentId, confidence, via }.
+function resolveClearParent({ candidates, claim } = {}) {
+  const list = Array.isArray(candidates) ? candidates : [];
+
+  // 1. A reported claim. Matched against the LIVE candidates by terminal tag, so a claim from a terminal
+  //    that has since exited (or belongs to another folder) cannot resurrect a dead row. The claim's own
+  //    sessionId is the parent Switchboard should re-key — it is what the CLI said it ended.
+  if (claim && claim.tag && claim.sessionId) {
+    const owner = list.find(c => c && c.tag && c.tag === claim.tag);
+    if (owner) return { parentId: claim.sessionId, confidence: 'high', via: 'claim' };
   }
-  const only = candidates[0];
-  return only && only.id ? { parentId: only.id, confidence: 'high' } : { parentId: null, confidence: 'none' };
+
+  // 2. The pre-existing safe case: exactly one live session in the folder is unambiguously the one that
+  //    cleared, claim or no claim.
+  if (list.length !== 1) return { parentId: null, confidence: 'none', via: null };
+  const only = list[0];
+  return only && only.id
+    ? { parentId: only.id, confidence: 'high', via: 'single-session' }
+    : { parentId: null, confidence: 'none', via: null };
 }
 
 module.exports = { resolveClearParent };

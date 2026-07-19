@@ -99,20 +99,38 @@ row for a `clear` guess is a deliberate, cheap follow-up if it is ever wanted).
 
 ## Known gaps
 
-- **The multi-session `/clear` re-key (#223's headline) is BLOCKED, not deferred — Claude exposes no signal
-  that ties a `/clear` to a specific PTY.** A recon against 54 real `/clear` children on a live install
-  confirmed it: the child transcript's `parentUuid` is internal message threading (it resolves to a line in
-  the child file itself, never the parent session); the `SessionStart:clear` hook POST carries only the
-  CHILD `session_id` + `transcript_path` + `cwd` + `source`, no parent and no PTY id; the OSC title is a
-  busy/status string, not the session id; the spawn knows `--session-id X` but nothing maps a new child `Y`
-  back to the PTY that was on `X`. So with two or more live sessions in a folder the source keeps its
-  row/tab until it exits (the safe bail), and the resolver refuses to guess so nothing is ever mis-keyed.
-  The **only** way to close it is to make the hook itself carry the tie: spawn each Claude with a
-  per-session hook URL (via `--settings`) whose query names the spawn id, so the `SessionStart:clear` POST
-  identifies the parent PTY. That is a real feature contingent on Claude's per-session hook support, and it
-  works only where the attention hook is enabled (never in a dev build, #219). Until then, single-session
-  is the fixed case — do NOT re-attempt a folder-local (mtime/cwd) heuristic; it was tried, it mis-keyed,
-  and it was reverted.
+- **The multi-session `/clear` tie is CLOSED (#223) — the signal is a per-spawn hook settings file.** The
+  gap above said the only way out was to make the hook carry the tie, and that is what shipped: every
+  Claude launch gets `--settings <file>` written for that terminal (`backends/claude/live-binding.js`),
+  registering one `SessionEnd` hook with matcher `clear` whose URL carries the terminal's tag. The CLI then
+  reports "terminal `<tag>` ended session `<id>` by clearing", which `app/hooks.js` turns into a claim
+  (`session/clear-claims.js`) and `resolveClearParent` consumes ahead of the single-session rule.
+
+  Measured against the real CLI (v2.1.215), three PTY runs, because each detail decided the design:
+  `--settings` does install hooks and survives repeated clears in one process; `SessionEnd` fires with
+  `reason: "clear"` carrying the **old** id (reports that it does not fire on `/clear` are stale for this
+  version); `SessionStart` did **not** fire from a `--settings` file in any run — not as `http`, not as
+  `command`, matcher `clear` or empty — though it does from a project-level `settings.json`. So the CHILD
+  id is not available this way, and the core pairs the claim with the new transcript instead. An empty
+  matcher means "every reason".
+
+  What that leaves ambiguous, on purpose: two terminals in ONE folder clearing inside the same window. The
+  claim lookup returns nothing then and the old bail stands. Nothing is ever guessed.
+
+  This does **not** depend on the attention hook being enabled — the file is ours, passed on argv, and
+  never touches the user's `~/.claude/settings.json`, so it also works in a dev build. What #219 blocks is
+  writing to that shared file; the loopback server itself now starts in dev too, because this ingest needs
+  it.
+
+  Still do NOT re-attempt a folder-local (mtime/cwd) heuristic — tried, mis-keyed, reverted — and do not
+  reach for the keystroke stream either: the slash-menu path never puts `/clear` on the wire while a
+  typed-then-aborted `/clear` in another terminal does, so "exactly one match" manufactures confidence.
+
+  **Verified:** the binding live in the app (two live sessions in one folder; the claim named exactly the
+  cleared session and its terminal, and held across a second clear with the same tag), the decision by
+  tests. The re-key that follows the claim is NOT live-verified: sessions launched for the test wrote no
+  transcript at all, and the same is true with the binding disabled — so it is the test setup, not this
+  change. See #241 for why a live CLI session cannot be driven inside the demo environment.
 - **Codex / Pi / agy declare `null`** from `resolveLineage` — on purpose, not by omission: Codex records no
   parent on a `/clear` and `compacted` is a state not a reference; Pi's session header carries no parent
   though `--fork` exists; agy's `parent_references` is an unverified protobuf blob. Each is wired to the

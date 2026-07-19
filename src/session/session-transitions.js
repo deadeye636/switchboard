@@ -18,6 +18,11 @@ let PROJECTS_DIR, activeSessions, getMainWindow, log, rekeyMcpServer, rekeySessi
 // this module stays loadable under `node --test`. Absent (tests, a pre-#161 session) → null, and the
 // caller falls back to the named legacy default.
 let getSessionBackend = () => null;
+// #223: "which terminal cleared which session", reported by the backend through the hook ingest. Injected
+// so this module keeps loading under `node --test`; absent (tests without the ingest) → no claim, and the
+// resolver falls back to the single-live-session rule exactly as before.
+let getClearClaim = () => null;
+let releaseClearClaim = () => {};
 
 function init(ctx) {
   PROJECTS_DIR = ctx.PROJECTS_DIR;
@@ -33,6 +38,9 @@ function init(ctx) {
   recordLineage = ctx.recordLineage || (() => {});
   // #235: the subagent dispatch reads the launch overlay, not a field on the session object.
   getSessionBackend = typeof ctx.getSessionBackend === 'function' ? ctx.getSessionBackend : () => null;
+  // #223: the clear-claim registry, injected for the same reason.
+  getClearClaim = typeof ctx.getClearClaim === 'function' ? ctx.getClearClaim : () => null;
+  releaseClearClaim = typeof ctx.releaseClearClaim === 'function' ? ctx.releaseClearClaim : () => {};
 }
 
 // --- Subagent spawn / completion detection ---
@@ -410,26 +418,34 @@ function detectSessionTransitions(folder) {
         }
       }
 
-      // Clear: the fresh file carries a SessionStart:clear marker but NO lineage
-      // backref. Resolve the parent conservatively (session-lineage.js): re-key ONLY
-      // when this is the SINGLE live session in the folder — with two or more, no
-      // folder-local signal can tell the true parent from a bystander that just went
-      // idle, and a wrong re-key collapses two tabs onto one id, worse than the bail
-      // (#223). Guard activeSessions.has(newId): once a winner re-keyed, the file
-      // belongs to an existing session.
+      // Clear: the fresh file carries a SessionStart:clear marker but NO lineage backref, so the parent
+      // has to come from somewhere else (session-lineage.js). Two sources, in order: a CLAIM reported by
+      // the backend ("terminal <tag> ended session <id> by clearing" — a fact from the CLI, #223), else
+      // the pre-existing rule that a single live session in the folder is unambiguously the one that
+      // cleared. With neither, bail: no folder-local signal can tell the true parent from a bystander
+      // that just went idle, and a wrong re-key collapses two tabs onto one id.
+      // Guard activeSessions.has(newId): once a winner re-keyed, the file belongs to an existing session.
       if (!matched && signals.clearOrigin && !activeSessions.has(newId)) {
         // Only follow a freshly created clear file — avoids adopting stale files at watcher start.
         let fresh = false;
         try { fresh = Date.now() - fs.statSync(newFilePath).mtimeMs < 300000; } catch {}
         if (fresh) {
-          const candidates = [...activeSessions]
-            .filter(([, s]) => !s.exited && !s.isPlainTerminal && s.projectFolder === folder)
-            .map(([key]) => ({ id: key }));
-          const { parentId, confidence } = resolveClearParent({ candidates });
+          const live = [...activeSessions]
+            .filter(([, s]) => !s.exited && !s.isPlainTerminal && s.projectFolder === folder);
+          const candidates = live.map(([key, s]) => ({ id: key, tag: s._terminalTag || null }));
+          // Only claims from terminals still live IN THIS FOLDER can explain this child.
+          const claim = getClearClaim({ liveTags: candidates.map(c => c.tag).filter(Boolean) });
+          const { parentId, confidence, via } = resolveClearParent({ candidates, claim });
           if (confidence === 'high' && parentId === sessionId) {
             matched = true;
-          } else if (candidates.length > 1) {
-            log.info(`[detect] session=${sessionId} clear file=${newId} ambiguous (${candidates.length} active sessions in folder) — skipping`);
+            if (via === 'claim') {
+              // Consume it: the claim has done its job, and leaving it open would let it win a second,
+              // unrelated pairing inside its TTL.
+              try { releaseClearClaim(claim.tag); } catch { /* best effort */ }
+              log.info(`[detect] session=${sessionId} clear file=${newId} matched by terminal claim`);
+            }
+          } else if (candidates.length > 1 && !claim) {
+            log.info(`[detect] session=${sessionId} clear file=${newId} ambiguous (${candidates.length} active sessions in folder, no terminal claim) — skipping`);
           }
         }
       }

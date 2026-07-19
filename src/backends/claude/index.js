@@ -18,6 +18,8 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId, readSubagentMeta, PARSER_SCHEMA_VERSION: readerVersion } = require('./session-reader');
+// The per-spawn hook settings that tie a /clear to its terminal (#223).
+const liveBinding = require('./live-binding');
 const { readFolderSessions } = require('./folder-reader');
 const { encodeProjectPath } = require('../../session/encode-project-path');
 const { projectShortName } = require('../../session/derive-project-path');
@@ -395,6 +397,21 @@ module.exports = {
   // The row id a subagent is cached under. `sub:<parent>:<agent>` is CLAUDE's shape — the core used to
   // concatenate it by hand, which silently made it the universal one.
   subagentSessionId,
+  // --- Live re-identification (#223) -----------------------------------------------------------
+  // A backend that can tell us, mid-flight, that a running terminal moved to a NEW session id declares
+  // this hook; one that cannot simply does not, and the core keeps its conservative rule. It is NOT
+  // "detect /clear": Codex's `/new` is the same shape and would implement it differently.
+  //
+  // The core hands the terminal's tag and the URL its ingest listens on; the backend answers with what
+  // its launch needs (extra argv, and anything to clean up afterwards). Claude writes a per-spawn
+  // settings file registering a SessionEnd:clear hook — see live-binding.js for what was measured.
+  supportsLiveRebinding: true,
+  buildLiveBinding: ({ dir, tag, url, log } = {}) => {
+    const file = liveBinding.writeBindingSettings({ dir, tag, url, log });
+    if (!file) return null;
+    return { args: ['--settings', file], cleanup: file };
+  },
+  releaseLiveBinding: (cleanup, log) => liveBinding.removeBindingSettings(cleanup, log),
   // Where Claude keeps its plan documents (#227) — the Plans tab reads every launchable backend's plansDir
   // and shows nothing for a backend that has none. ~/.claude/plans, or the isolated home under a demo run.
   plansDir: () => path.join(claudeHome(), 'plans'),

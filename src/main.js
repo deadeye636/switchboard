@@ -1172,6 +1172,9 @@ function resolveTerminalShellProfileId(projectPath) {
 // Electron-free so `node --test` can drive it. getSetting comes in through ctx, not a require: db.js
 // resolves DATA_DIR at module load (see :81-85).
 const hooks = require('./app/hooks');
+// #223: which terminal cleared which session. State only — the hook ingest fills it, the transition
+// detector reads it, and neither owns it.
+const clearClaims = require('./session/clear-claims');
 hooks.init({
   getMainWindow: () => mainWindow,
   getSetting,
@@ -1779,6 +1782,10 @@ sessionTransitions.init({ PROJECTS_DIR, activeSessions, getMainWindow: () => mai
   // #235: which backend spawned a live session — the launch overlay is what knows, so the subagent
   // dispatch asks it instead of reading a field an activeSessions entry never carries.
   getSessionBackend: (id) => sessionBackends.get(id),
+  // #223: the clear claim a backend reported for one of this folder's live terminals, and the way to
+  // consume it once it has been paired with a child.
+  getClearClaim: (opts) => clearClaims.resolveSingleClaim(opts),
+  releaseClearClaim: (tag) => clearClaims.releaseClaim(tag),
   // #193: persist a /clear child's provenance the moment the re-key resolves it (the scanner can't).
   recordLineage: (childId, folder, parentId) => setSessionLineage(childId, folder, parentId, 'clear') });
 // Point the Claude backend's file-mode discovery at the app's actual projects dir (may differ from
@@ -1866,6 +1873,11 @@ spawn.init({
   ensureProjectAdded: (p) => projects.ensureProjectAdded(p),
   startMcpServer,
   shutdownMcpServer,
+  // #223 live re-binding: where a backend may put its per-spawn binding file (userData — never the
+  // user's own CLI config), the URL its hook posts to, and the way to forget a dead terminal's claim.
+  bindingDir: path.join(app.getPath('userData'), 'clear-bindings'),
+  clearBindUrl: hooks.clearBindUrl,
+  forgetClearClaims: (tag) => clearClaims.forgetTag(tag),
   log,
 });
 spawn.registerIpc(ipcMain);
