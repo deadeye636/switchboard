@@ -4624,13 +4624,6 @@ mark.jsonl-search-hit-active {
   color: #8888a8;
 }
 
-
-
-
-
-
-
-
 .memory-file-count {
   font-size: 10px;
   color: #7a7a90;
@@ -4980,7 +4973,6 @@ mark.jsonl-search-hit-active {
   opacity: 0.4;
   cursor: default;
 }
-
 
 .project-tasks-btn:hover {
   background: rgba(152,195,121,0.12);
