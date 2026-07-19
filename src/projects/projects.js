@@ -113,7 +113,9 @@ function applyAutoHide(force) {
     const runningPaths = new Set();
     for (const [, session] of ctx.activeSessions) {
       if (session.exited) continue;
-      if (session.projectPath) runningPaths.add(session.projectPath);
+      // Canonical (#245): a terminal opened under the other spelling of this directory is still a live
+      // session in it, and must still protect the project from being auto-hidden.
+      if (session.projectPath) runningPaths.add(samePathKey(session.projectPath));
     }
 
     let changed = false;
@@ -126,7 +128,7 @@ function applyAutoHide(force) {
       const resetMs = meta && meta.autoHideResetAt ? new Date(meta.autoHideResetAt).getTime() : 0;
       const eff = Math.max(activityMs, resetMs);
       // A project with a live (non-exited) session is active by definition, whatever its timestamps say.
-      const stale = !runningPaths.has(row.projectPath) && ctx.cache.shouldAutoHide(eff, now, days);
+      const stale = !runningPaths.has(samePathKey(row.projectPath)) && ctx.cache.shouldAutoHide(eff, now, days);
 
       if (stale && !row.autoHidden) {
         // ONLY the flag. It used to also push the path onto `hiddenProjects` — the same list a manual
@@ -158,7 +160,9 @@ function projectHasSessionsOnDisk(projectPath) {
   try {
     return fs.readdirSync(ctx.PROJECTS_DIR, { withFileTypes: true })
       .filter(d => d.isDirectory() && d.name !== '.git')
-      .some(d => d.name === encoded || deriveProjectPath(path.join(ctx.PROJECTS_DIR, d.name)) === projectPath);
+      // samePathKey on both sides (#245): a folder whose transcripts spell the cwd the other way is the
+      // SAME project, and answering "no sessions" for it is what lets the prune sweep take a live project.
+      .some(d => d.name === encoded || samePathKey(deriveProjectPath(path.join(ctx.PROJECTS_DIR, d.name))) === samePathKey(projectPath));
   } catch {
     return false;
   }
@@ -177,7 +181,9 @@ function refreshProjectFolders(projectPath) {
   const folders = new Set([encodeProjectPath(projectPath)]);
   try {
     for (const [folder, meta] of ctx.db.getAllFolderMeta()) {
-      if (meta && meta.projectPath === projectPath) folders.add(folder);
+      // Spelling-proof (#245): a folder recorded under the other spelling belongs to this project too,
+      // and skipping it means its sessions never get refreshed.
+      if (meta && samePathKey(meta.projectPath) === samePathKey(projectPath)) folders.add(folder);
     }
   } catch { /* the canonical folder alone is better than nothing */ }
   for (const folder of folders) {

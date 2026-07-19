@@ -18,6 +18,8 @@
 
 const { db } = require('./connection');
 const { runWithBusyRetry } = require('./sqlite-busy-retry');
+// The one canonical form for a project path (#245). Pure string work — no fs, no db.
+const { normPath } = require('../session/derive-project-path');
 
 const stmts = {
   // Session cache statements
@@ -91,6 +93,11 @@ const stmts = {
     "SELECT sessionId, folder, projectPath, filePath, parentSessionId, agentId,"
     + " COALESCE(backendId, 'claude') AS backendId"
     + ' FROM session_cache WHERE projectPath = ?'
+  ),
+  // Every distinct project path in the cache — one row per project, served by
+  // idx_session_cache_projectPath, so finding a directory's other spellings costs no scan (#245).
+  cacheDistinctProjectPaths: db.prepare(
+    'SELECT DISTINCT projectPath FROM session_cache WHERE projectPath IS NOT NULL'
   ),
   cacheBackendsByProjectPath: db.prepare(
     "SELECT projectPath, COALESCE(backendId, 'claude') AS backendId, COUNT(*) AS n"
@@ -281,7 +288,24 @@ function getCachedByFolder(folder, scope) {
  */
 function getCachedByProjectPath(projectPath) {
   if (!projectPath) return [];
-  return stmts.cacheGetByProjectPath.all(projectPath);
+  const rows = stmts.cacheGetByProjectPath.all(projectPath);
+
+  // ...and every OTHER spelling of the same directory (#245). A row records the cwd its CLI wrote —
+  // `C:\\x\\y` from one, `C:/x/y` from another, a different drive-letter case from a third — so an exact
+  // match is only ever part of a project. Every caller here is asking "this project's sessions" for
+  // something destructive or structural (remove, delete, remap, does-it-still-exist), and each of those
+  // silently did half the job: sessions survived a Remove, a remap left a phantom behind, and a project
+  // whose only sessions were spelled the other way looked empty and was pruned.
+  //
+  // The sidebar merges the spellings now, which is exactly why this had to follow: a half-done delete
+  // that LOOKS complete is worse than one that visibly is not.
+  const key = normPath(projectPath);
+  for (const row of stmts.cacheDistinctProjectPaths.all()) {
+    if (row.projectPath === projectPath) continue;          // already have it, exactly
+    if (normPath(row.projectPath) !== key) continue;         // a different directory
+    rows.push(...stmts.cacheGetByProjectPath.all(row.projectPath));
+  }
+  return rows;
 }
 
 /**
