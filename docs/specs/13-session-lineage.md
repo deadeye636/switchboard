@@ -37,10 +37,10 @@ Each backend's reader exposes only its OWN raw field; the descriptor turns it in
 | Claude | `forkedFrom` (head) | `{ parent, 'fork' }` | hard. `/clear` records nothing on disk → handled live (below). |
 | Hermes | `lineageParentRef` (`parent_session_id` column) | `{ parent, 'parent' }` | hard |
 | Codex | — | `null` | `/clear` starts a new rollout with no back-ref; `compacted` is a state, not a parent |
-| Pi | — | `null` | `--fork` exists but the session header records no parent (verified) |
+| Pi | `parentSession` (the parent transcript's PATH, on a FORKED session only) | `{ parent, 'fork' }` | hard. The id is read out of Pi's filename convention `<ISO>_<uuid>.jsonl` in the descriptor — the WHOLE name must match, or a path like `backup_copy.jsonl` yields a confident link to a session that does not exist |
 | agy | — | `null` | a `parent_references` protobuf blob exists but is unverified |
 
-`PARSER_SCHEMA_VERSION` (Claude) bumped 4→5 so existing rows re-derive fork lineage on the next scan. Adding
+`PARSER_SCHEMA_VERSION` bumped so existing rows re-derive fork lineage on the next scan: Claude 4→5, and Pi 3→4 when its `parentSession` was added. Adding
 a backend to this feature is a descriptor edit (`resolveLineage`) plus its reader exposing a raw field — no
 core change, which is the whole point.
 
@@ -154,12 +154,18 @@ row for a `clear` guess is a deliberate, cheap follow-up if it is ever wanted).
 
   One cosmetic follow-up this exposed: the re-keyed row takes its title from the child transcript's first
   line, which for a `/clear` is the command text itself.
-- **Codex / Pi / agy declare `null`** from `resolveLineage` — on purpose, not by omission: Codex records no
-  parent on a `/clear` and `compacted` is a state not a reference; Pi's session header carries no parent
-  though `--fork` exists; agy's `parent_references` is an unverified protobuf blob. Each is wired to the
-  neutral seam and answers the hook; wiring a real link later is a descriptor + reader edit, no core change.
-  Same-session **compaction** (Claude `logicalParentUuid`, Codex `compacted`) is deliberately out of scope —
-  it is not a cross-session parent, so it is not a lineage row.
+- **Codex / agy declare `null`** from `resolveLineage` — on purpose, not by omission: Codex records no
+  parent on a `/clear` and `compacted` is a state not a reference; agy's `parent_references` is an
+  unverified protobuf blob.
+- **Pi WAS in that list, wrongly, for several issues.** "The session header records no parent (verified)"
+  was written from a survey of real sessions — none of which happened to be a fork, which is the only kind
+  that carries the key. A single `pi --fork` transcript disproved it. The lesson is not "check harder": it
+  is that a negative claim about a format needs a case that WOULD have shown the thing, and the note should
+  say which case that was.
+- Codex and agy are wired to the neutral seam and answer the hook by declining; wiring a real link later is
+  a descriptor + reader edit, no core change. Same-session **compaction** (Claude `logicalParentUuid`,
+  Codex `compacted`) is deliberately out of scope — it is not a cross-session parent, so it is not a
+  lineage row.
 - A very long `/clear` chain is not capped in the expander (all ancestors listed).
 - An expanded lineage thread collapses on the next sidebar re-render (morphdom re-applies `display:none`);
   a live ancestor also still appears inside a descendant's expander (consistent with Model A's shared-ancestor

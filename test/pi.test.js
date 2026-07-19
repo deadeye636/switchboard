@@ -338,3 +338,72 @@ test('probe caches the toolchain — it does not shell out to `node --version` o
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// --- lineage: a fork names its parent (#193) -----------------------------------------------------
+//
+// Pi's session header carries `parentSession` — the full PATH of the parent transcript — but ONLY on a
+// forked session. A survey that happens to look at four unforked sessions concludes Pi records no
+// parent, which is what the descriptor claimed for several issues (and what spec 13 said). One real
+// `pi --fork` transcript settles it, and these tests keep it settled.
+//
+// The path→id step is the descriptor's on purpose: `<ISO-timestamp>_<uuid>.jsonl` is Pi's naming
+// convention, not the core's.
+
+function piSessionFile(dir, { id, cwd, parentSession }) {
+  const header = { type: 'session', version: 3, id, timestamp: '2026-07-12T09:29:25.877Z', cwd };
+  if (parentSession) header.parentSession = parentSession;
+  const lines = [
+    JSON.stringify(header),
+    JSON.stringify({ type: 'message', timestamp: '2026-07-12T09:29:30.000Z',
+      message: { role: 'user', content: 'hello' } }),
+  ];
+  const file = path.join(dir, `2026-07-12T09-29-25-877Z_${id}.jsonl`);
+  fs.writeFileSync(file, lines.join('\n') + '\n');
+  return file;
+}
+
+test('a forked Pi session reports its parent as a hard link (#193)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-lineage-'));
+  try {
+    const parentId = '019f55a8-fc75-7062-a523-5af87a5e5971';
+    const childId = '019f56c9-b0f6-7400-bfe4-38ce21890906';
+    const parentFile = piSessionFile(dir, { id: parentId, cwd: 'C:/p' });
+    const childFile = piSessionFile(dir, { id: childId, cwd: 'C:/p', parentSession: parentFile });
+
+    const child = pi.parseSession({ kind: 'file', path: childFile });
+    assert.strictEqual(child.lineageParentRef, parentFile, 'the parser passes the raw path through');
+
+    const lineage = pi.resolveLineage(child);
+    assert.deepStrictEqual(lineage, { lineageParentId: parentId, lineageKind: 'fork' });
+
+    // And the id it derived is really the parent's own id, not just a substring that looks like one.
+    const parent = pi.parseSession({ kind: 'file', path: parentFile });
+    assert.strictEqual(parent.sessionId, lineage.lineageParentId);
+    assert.strictEqual(pi.resolveLineage(parent), null, 'an unforked session declares no parent');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a parentSession Pi did not write yields no link rather than a guess (#193)', () => {
+  // Better no lineage than a wrong one: a `fork` link is rendered as FACT, not as a guess, and a wrong
+  // ancestor is not something the reader can recover from.
+  //
+  // The middle three are the ones that matter and the reason the whole filename is matched rather than
+  // split on the first underscore: that looser rule answered `backup_copy.jsonl` with the id `copy` —
+  // a confident link to a session that does not exist.
+  const refs = [
+    null, '', undefined,
+    'backup_copy.jsonl',                                   // an underscore, but not Pi's shape
+    'a_b_c.jsonl',                                         // several underscores
+    '2026-07-12T09-29-25-877Z_019f55a8.txt',               // right prefix, wrong extension and short id
+    'no-underscore.jsonl',
+    '2026-07-12T09-29-25-877Z_.jsonl',                     // prefix, no id
+    '2026-07-12T09-29-25-877Z_019f55a8-fc75-7062-a523-5af87a5e5971.jsonl.bak',
+  ];
+  for (const ref of refs) {
+    assert.strictEqual(pi.resolveLineage({ lineageParentRef: ref }), null, `ref=${JSON.stringify(ref)}`);
+  }
+  assert.strictEqual(pi.resolveLineage({}), null);
+  assert.strictEqual(pi.resolveLineage(null), null);
+});

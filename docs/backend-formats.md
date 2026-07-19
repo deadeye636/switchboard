@@ -164,6 +164,10 @@ The only backend whose history is **not** in files — the reason the discovery 
 
 - First line is the **header**: `{type:'session', version, id, timestamp, cwd}` — identity and cwd come
   from here, never from the folder name.
+- **A FORKED session's header carries one more key: `parentSession`** — the full PATH of the parent
+  transcript (#193). Only a fork has it, which is how four surveys of real sessions concluded Pi records no
+  parent at all: none of the sessions read happened to be one. The parent's session id is the filename
+  after the underscore (`<ISO>_<uuid>.jsonl`), so the link is exact rather than a lookup.
 - The turn payload is nested **one level down**, under `.message`:
   `{type:'message', message:{role, content:[{type:'text',text}], model, provider, stopReason, usage}}`.
 - **Pi is multi-provider *within* one session** — a real session switched from `anthropic/claude-opus-4-7`

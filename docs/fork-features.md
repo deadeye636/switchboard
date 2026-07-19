@@ -49,8 +49,8 @@ extracts it into tested pure modules and builds a full supervision UI on top.
   **"▶ N earlier"** caret (the subagent-nesting affordance), each a **full session row** with all its
   actions; a live earlier session stays its own row. Lineage is a tree — each head walks its own path up,
   so a shared ancestor can appear under more than one head (Model A).
-- Backend-neutral via `lineageParentId`/`lineageKind`: Hermes `parent_session_id` and a Claude fork's
-  `forkedFrom` are hard links; a Claude `/clear` (no on-disk back-link) is inferred and labelled a guess —
+- Backend-neutral via `lineageParentId`/`lineageKind`: Hermes `parent_session_id`, a Claude fork's
+  `forkedFrom` and a Pi fork's `parentSession` are hard links; a Claude `/clear` (no on-disk back-link) is inferred and labelled a guess —
   never presented as fact.
 - #223: a `/clear` folds the old session onto the new one so the tab follows — done **only when a single
   session is live** in the folder; with several live, no folder-local signal can safely attribute the clear

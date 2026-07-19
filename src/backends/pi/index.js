@@ -19,6 +19,7 @@
 
 const os = require('os');
 const path = require('path');
+
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 
@@ -27,6 +28,12 @@ const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, piLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromFileTail } = require('./state');
+
+// A Pi transcript's filename: `<ISO-timestamp>_<uuid>.jsonl`. Anchored at BOTH ends on purpose — it is
+// what tells a real parent reference from any other path that happens to contain an underscore (#193).
+// The uuid group is what a fork's parent id is read from.
+const PI_TRANSCRIPT_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_([0-9a-fA-F-]{36})\.jsonl$/;
+
 
 let _root = null;
 
@@ -251,10 +258,28 @@ module.exports = {
   colour: 'pi',
   supportsFork: true,     // `pi --fork <id>`
   supportsSubagents: false,   // fork, yes; subagents, no (#230)
-  // Lineage (#193): Pi supports `--fork`, but its session header ({type:'session', id, timestamp, cwd})
-  // records NO parent reference (verified against a real store — docs/backend-formats.md), so a fork's
-  // origin cannot be read back. Declares none until the format exposes it (honest gap).
-  resolveLineage: () => null,
+  // Lineage (#193): a FORKED Pi session records its origin in the header as `parentSession` — the full
+  // path of the parent transcript. A hard link, like Claude's `forkedFrom` and Hermes' parent column.
+  //
+  // This said "records NO parent reference (verified against a real store)" for several issues, and the
+  // survey behind that was not wrong so much as unlucky: only a fork carries the key, and there was no
+  // forked session in the store that got looked at. One `pi --fork` transcript settles it, which is why
+  // the claim is now backed by the id-bearing filename below rather than by a sentence.
+  //
+  // The path→id step lives HERE because the convention is Pi's: it names a transcript
+  // `<ISO-timestamp>_<uuid>.jsonl`, so the parent's session id is its basename after the underscore. The
+  // parser hands over the raw path and stays out of it (§5.9).
+  //
+  // The WHOLE filename must match that shape, not merely contain an underscore. A looser split answered
+  // `backup_copy.jsonl` with the id `copy` — a wrong link, and a `fork` link is rendered as FACT, not as
+  // a guess. So a name Pi did not write yields nothing: the sidebar showing no ancestor is right, and
+  // showing the wrong one is not recoverable by the reader.
+  resolveLineage: (row) => {
+    const ref = row && row.lineageParentRef;
+    if (!ref) return null;
+    const m = PI_TRANSCRIPT_NAME.exec(path.basename(String(ref)));
+    return m ? { lineageParentId: m[1], lineageKind: 'fork' } : null;
+  },
   // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Pi keeps no plans store (#227).

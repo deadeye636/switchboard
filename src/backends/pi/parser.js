@@ -26,7 +26,9 @@ const { bucketFromIso, bucketKey } = require('../metrics-bucket');
 
 //   v2: the parse state carries per-(date, model) metrics (#154)
 //   v3: per-(date, HOUR, model), bucketed in LOCAL time, with cost booked on the turn that spent it (#159)
-const PARSER_SCHEMA_VERSION = 3;
+// 4 (#193): the session header's `parentSession` is read now. Existing rows were parsed without it and
+// carry no lineage; bumping is what makes them re-read themselves — a parser change moves no mtime.
+const PARSER_SCHEMA_VERSION = 4;
 
 const FINGERPRINT_BYTES = 64;
 
@@ -34,6 +36,9 @@ function createParseState() {
   return {
     sessionId: null,
     cwd: null,
+    // A fork's parent, as Pi writes it: the FULL PATH of the parent transcript (#193). Only a forked
+    // session has it — which is exactly why it was missed until a real `pi --fork` session was read.
+    parentSessionPath: null,
     startedAt: null,
     lastEntryAt: null,
     model: null,
@@ -119,6 +124,7 @@ function applyEntry(st, entry) {
       if (typeof entry.id === 'string') st.sessionId = entry.id;
       if (typeof entry.cwd === 'string') st.cwd = entry.cwd;
       if (typeof entry.timestamp === 'string') st.startedAt = entry.timestamp;
+      if (typeof entry.parentSession === 'string' && entry.parentSession) st.parentSessionPath = entry.parentSession;
       break;
     }
     case 'model_change': {
@@ -245,6 +251,9 @@ function buildRow(st, filePath, opts = {}) {
     sessionId: st.sessionId,
     backendId: 'pi',
     cwd: st.cwd,                        // header value -> central project grouping (§5.9)
+    // The parent transcript's PATH, untouched — turning it into a session id is the descriptor's job
+    // (resolveLineage), because the id-in-the-filename convention is Pi's, not the core's (#193).
+    lineageParentRef: st.parentSessionPath,
     folder: opts.folder != null ? opts.folder : null,
     projectPath: opts.projectPath != null ? opts.projectPath : null,
     summary: st.summary,
