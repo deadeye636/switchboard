@@ -185,16 +185,21 @@ choices are one-off launch parameters, not a scope.
 
 ## Known default conflicts
 
-Found while writing this page. They are recorded rather than silently fixed, because each is a decision
-about which number is right, not a typo. Two are settled: `visibleSessionCount` is one value now (`10`,
-#237 — the main process's `5` reached nobody), and `sessionMaxAgeDays`/`autoHideDays` stay global by
-decision (#239, above).
+Found while writing this page — each was a decision about which value is right, not a typo, so they were
+recorded rather than silently aligned. Four of the five are settled:
+
+| Setting | Decision |
+|---|---|
+| `visibleSessionCount` | One value, `10` (#237). The main process's `5` reached nobody: the sidebar reads the raw blob, and `get-effective-settings`' callers do not read this key. |
+| `runningInbox.mode` | One constant, `until-read`, exported by `session-status.js` and used by both layers (#238). The old `always` fallback was unreachable in the app and could only ever bite a new caller that forgot a runtime field. |
+| `sessionMaxAgeDays`, `autoHideDays` | Stay global by decision (#239, above). |
+| `PATHEXT` | One fallback, `.COM;.EXE;.BAT;.CMD`, owned by `pathExtensions()` in `file-store.js`; `main.js` calls `findOnPath` instead of walking PATH itself (#240). |
+
+Still open:
 
 | Setting | The two values | Effect |
 |---|---|---|
-| `runningInbox.mode` | `until-read` in the panel, `always` as the consumer fallback in `session-status.js` | If the runtime object never carries the key, the inbox behaves as `always`. (#238) |
 | `terminalMouseReporting` | read as `select`, written back as `native` when the control is empty | Unreachable through the UI (the select always has a value), but two answers to one question in one file. |
-| `PATHEXT` | `.COM;.EXE;.BAT;.CMD` in `src/main.js`, `.EXE;.CMD;.BAT` in `src/backends/file-store.js` | Only reachable with `PATHEXT` unset, but it decides whether a backend's CLI is found at all. (#240) |
 
 ---
 

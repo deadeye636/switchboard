@@ -24,13 +24,24 @@ const fs = require('fs');
 const path = require('path');
 
 /**
+ * What counts as executable when Windows does not say (#240).
+ *
+ * There were two of these — `.EXE;.CMD;.BAT` here and `.COM;.EXE;.BAT;.CMD` in main.js — one question with
+ * two answers, on the path that decides whether a backend's CLI is found at all. This is the union, in
+ * Windows' own order. `.CMD` is the one that must never be dropped: the npm-installed CLIs are `.cmd`
+ * shims, so a probe without it reports an installed backend as missing.
+ */
+function pathExtensions() {
+  if (process.platform !== 'win32') return [''];
+  return (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map(e => e.trim()).filter(Boolean);
+}
+
+/**
  * Resolve an executable NAME on PATH. On Windows the extension matters: npm ships these CLIs as `.cmd`
  * shims, so a bare `codex` never stats — hence PATHEXT.
  */
 function findOnPath(name) {
-  const exts = process.platform === 'win32'
-    ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').map(e => e.trim()).filter(Boolean)
-    : [''];
+  const exts = pathExtensions();
   for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
     for (const ext of exts) {
       const p = path.join(dir, name + ext);
@@ -179,4 +190,4 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
   return { discoverSessions, watchTargets, matchLiveSession, liveRefFor };
 }
 
-module.exports = { createFileStore, findOnPath, walkStore, BIRTH_HINT_SKEW_MS };
+module.exports = { createFileStore, findOnPath, pathExtensions, walkStore, BIRTH_HINT_SKEW_MS };

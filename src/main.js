@@ -16,6 +16,9 @@ const sessionBackends = require('./session/session-backends');
 const profiles = require('./backends/profiles');
 // Every spawn path goes through resolveSpawnEnv() below — an unresolved $VAR is dropped AND said (#169).
 const { resolveEnvRefs, missingRefsMessage } = require('./backends/env-refs');
+// The PATH/PATHEXT walk lives with the file store, which is where every backend's availability probe
+// already asks for it (#240). Not backend-specific — it names no backend and knows no store.
+const { findOnPath } = require('./backends/file-store');
 // Tier-3 custom launchers (T-3.10): the entry shape + cascade live in one module shared with the
 // renderer; main only re-validates what the renderer hands it before spawning.
 const { normalizeLauncher } = require('./shared/custom-launchers');
@@ -1146,18 +1149,11 @@ function resolveArgvExecutable(command) {
   // POSIX: let execvp resolve it via PATH.
   if (!isWindows) return command;
 
-  const exts = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map(e => e.trim()).filter(Boolean);
-  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
-    for (const ext of exts) {
-      const candidate = path.join(dir, command + ext);
-      try {
-        if (fs.statSync(candidate).isFile()) {
-          return directlyExecutable(candidate) ? candidate : null; // a shim -> use the shell instead
-        }
-      } catch { /* keep looking */ }
-    }
-  }
-  return null;
+  // One PATH walk, one PATHEXT list — findOnPath owns both (#240). It answers "where is it"; the
+  // shim check below is this function's own question, and the reason it cannot just return that path.
+  const found = findOnPath(command);
+  if (!found) return null;
+  return directlyExecutable(found) ? found : null;   // a `.cmd` shim -> use the shell instead
 }
 
 // The TERMINAL bucket's shell (T-3.7): the in-app plain terminal + the External Terminal action.

@@ -10,7 +10,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { createFileStore, findOnPath, walkStore, BIRTH_HINT_SKEW_MS } = require('../src/backends/file-store');
+const { createFileStore, findOnPath, pathExtensions, walkStore, BIRTH_HINT_SKEW_MS } = require('../src/backends/file-store');
 
 // A store shaped like a real one: nested folders, a mix of matching and non-matching files.
 // `<root>/2026/07/12/log-<id>.jsonl`, with a sidecar the backend must ignore.
@@ -294,4 +294,28 @@ test('findOnPath honours PATHEXT — the npm CLIs are .cmd shims on Windows', ()
     if (oldExt === undefined) delete process.env.PATHEXT; else process.env.PATHEXT = oldExt;
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// #240: there used to be a second PATHEXT fallback in main.js (`.COM;.EXE;.BAT;.CMD` there,
+// `.EXE;.CMD;.BAT` here) — one question, two answers, on the path that decides whether a backend's CLI is
+// found at all. Now there is one list and one walk; main.js's resolveArgvExecutable calls findOnPath and
+// only adds its own shim check. Read as text because main.js needs Electron and cannot be required.
+test('the PATHEXT fallback exists once, and keeps .CMD', () => {
+  const oldExt = process.env.PATHEXT;
+  try {
+    delete process.env.PATHEXT;
+    const exts = pathExtensions();
+    if (process.platform === 'win32') {
+      assert.ok(exts.includes('.CMD'), 'the npm CLIs are .cmd shims — dropping it hides installed backends');
+      assert.ok(exts.includes('.EXE') && exts.includes('.BAT') && exts.includes('.COM'));
+    } else {
+      assert.deepEqual(exts, [''], 'no extension juggling off Windows');
+    }
+  } finally {
+    if (oldExt === undefined) delete process.env.PATHEXT; else process.env.PATHEXT = oldExt;
+  }
+
+  const MAIN = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  assert.doesNotMatch(MAIN, /process\.env\.PATHEXT/,
+    'main.js must not grow its own PATHEXT list back — it calls findOnPath');
 });
