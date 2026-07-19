@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (24 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-19
 
@@ -20,6 +20,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#206](https://github.com/deadeye636/switchboard/issues/206) Add Codex support to scheduled tasks (Claude + Codex) · _feature_
 - [#207](https://github.com/deadeye636/switchboard/issues/207) Variable quick-pick: keyboard-driven (type-to-filter, arrow nav, Enter inserts + trailing space) · _feature_
+- [#243](https://github.com/deadeye636/switchboard/issues/243) A Switchboard-launched Claude session sometimes writes no transcript at all · _bug_
 
 ## P3 — someday
 
@@ -37,3 +38,5 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#210](https://github.com/deadeye636/switchboard/issues/210) perf: run the live-session identity match (matchLiveSession) in the index worker · _chore_
 - [#229](https://github.com/deadeye636/switchboard/issues/229) Session lineage — remaining work (per-backend provenance + display polish) · _feature_
 - [#242](https://github.com/deadeye636/switchboard/issues/242) Two terminals clearing the same folder at the same moment stay ambiguous · _feature_
+- [#244](https://github.com/deadeye636/switchboard/issues/244) Demo: seeded Codex and Pi sessions never show up — only the Claude ones do · _chore_
+- [#245](https://github.com/deadeye636/switchboard/issues/245) A project bucket is keyed on the raw cwd string, so two spellings of one directory split it in two · _bug_
