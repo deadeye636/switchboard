@@ -20,7 +20,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#206](https://github.com/deadeye636/switchboard/issues/206) Add Codex support to scheduled tasks (Claude + Codex) · _feature_
 - [#207](https://github.com/deadeye636/switchboard/issues/207) Variable quick-pick: keyboard-driven (type-to-filter, arrow nav, Enter inserts + trailing space) · _feature_
-- [#223](https://github.com/deadeye636/switchboard/issues/223) After /clear with two Claude sessions in one project, both stay running and the tab keeps the dead id · _bug_
+- [#241](https://github.com/deadeye636/switchboard/issues/241) demo:start isolates where Switchboard looks, not where the CLI writes — a live session lands in the real store · _chore_
 
 ## P3 — someday
 
