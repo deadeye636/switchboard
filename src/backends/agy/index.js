@@ -145,6 +145,11 @@ function liveState(ref, ctx = {}) {
 
 module.exports = {
   id: 'agy',
+  // Where the CLI ITSELF writes (#241) — agy offers NO env var for its conversations dir (see
+  // conversationsRoot: the path is fixed under ~/.gemini/antigravity-cli). So an isolated instance can
+  // point our scan at a demo store, but cannot move agy's own writes there. Declining is the honest
+  // answer; a made-up variable would look like isolation and silently not be one.
+  cliHomeEnv: () => null,
   label: 'Antigravity CLI',
   description: "Google's terminal coding agent.",   // shown in the Backends settings list (#212)
   tier: 1,

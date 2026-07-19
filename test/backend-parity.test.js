@@ -146,6 +146,49 @@ test('buildLiveBinding declines rather than throwing when it cannot bind', () =>
   }
 });
 
+// #241: a SWITCHBOARD_STORE_* override moves where Switchboard LOOKS. Where the CLI WRITES is the CLI's
+// own business, and each CLI names that with its own variable — so the backend declares it, the core just
+// merges the answer into the PTY env. Two halves matter equally: an isolated run must hand the CLI a home
+// INSIDE the isolated tree, and a normal run must hand it nothing at all (an unasked-for CLAUDE_CONFIG_DIR
+// would silently redirect a real session). A backend whose CLI has no such variable declines (agy).
+test('every backend declares cliHomeEnv — an isolated CLI home or an honest null (#241)', () => {
+  const STORE_VAR = {
+    claude: 'SWITCHBOARD_STORE_CLAUDE',
+    codex: 'SWITCHBOARD_STORE_CODEX',
+    hermes: 'SWITCHBOARD_STORE_HERMES',
+    pi: 'SWITCHBOARD_STORE_PI',
+    agy: 'SWITCHBOARD_STORE_AGY',
+  };
+  const demo = path.join(os.tmpdir(), 'switchboard-cli-home-test');
+
+  for (const b of READY) {
+    const id = b.id;
+    assert.equal(typeof b.cliHomeEnv, 'function', `${id} must declare cliHomeEnv (return null if its CLI has no home variable)`);
+
+    // Half one — NOT isolated: nothing may be injected, whatever else is in the environment.
+    const storeVar = STORE_VAR[id];
+    const saved = storeVar ? process.env[storeVar] : undefined;
+    if (storeVar) delete process.env[storeVar];
+    assert.equal(b.cliHomeEnv(), null, `${id}: without its store override the launch must carry no home variable`);
+
+    // Half two — isolated: either an honest decline, or a home that actually points INTO the isolated tree.
+    if (storeVar) {
+      process.env[storeVar] = path.join(demo, id, 'sessions');
+      const env = b.cliHomeEnv();
+      if (env !== null) {
+        assert.equal(typeof env, 'object', `${id}.cliHomeEnv() returns an env object or null`);
+        const keys = Object.keys(env);
+        assert.equal(keys.length, 1, `${id}: one home variable, not a bundle`);
+        assert.ok(
+          path.resolve(env[keys[0]]).startsWith(path.resolve(demo)),
+          `${id}: ${keys[0]}=${env[keys[0]]} must point inside the isolated store, not at the user's real home`,
+        );
+      }
+      if (saved === undefined) delete process.env[storeVar]; else process.env[storeVar] = saved;
+    }
+  }
+});
+
 // #193: session lineage is a NEUTRAL feature — the core stamps lineageParentId at one sink by calling each
 // backend's resolveLineage(row). Every backend must ANSWER the hook, even if only to decline (return null),
 // so no backend's provenance can quietly hard-wire itself into the core. A backend that DOES record a link

@@ -184,6 +184,10 @@ function profileToDescriptor(p) {
     // and works in the same project tree, so it exposes the base's plans dir and instruction files.
     plansDir: base ? base.plansDir : () => null,
     memorySources: base ? base.memorySources : () => [],
+    // A template's binary IS the base's, writing into the base's store — so the CLI-home isolation is the
+    // base's too (#241). Without forwarding it, a template launched from an isolated instance would write
+    // into the user's real store while its base backend wrote into the demo one.
+    cliHomeEnv: base && typeof base.cliHomeEnv === 'function' ? base.cliHomeEnv : () => null,
     probe: base && typeof base.probe === 'function' ? base.probe : undefined,
     liveRefFor: base ? base.liveRefFor : undefined,
     liveState: base ? base.liveState : undefined,

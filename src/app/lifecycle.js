@@ -89,7 +89,15 @@ function makeRunScheduleCommand(ctx) {
     const child = ctx.spawnChild(shell, args, {
       cwd,
       stdio: ['ignore', 'ignore', 'pipe'],
-      env: { ...ctx.cleanPtyEnv, FORCE_COLOR: '0' },
+      // Same isolation the interactive spawn path applies (#241): under a demo/sandbox run the CLI must
+      // write into the isolated home, not the user's real one. A scheduled run is still a real session —
+      // without this it was the one path that kept writing into `~/.claude/projects` from an instance
+      // that promises it touches nothing real. Null (the normal case) merges nothing.
+      env: {
+        ...ctx.cleanPtyEnv,
+        FORCE_COLOR: '0',
+        ...(ctx.backends.get('claude')?.cliHomeEnv?.() || {}),
+      },
       windowsVerbatimArguments: isCmdShell,
     });
 

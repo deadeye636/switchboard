@@ -47,6 +47,14 @@ function setRoot(dir) {
   _root = dir || null;
 }
 
+// Where the CLI ITSELF writes (#241). Pi's own env names the sessions dir directly, exactly like our
+// override, so isolation hands the same path straight over. Null unless isolated.
+function cliHomeEnv() {
+  const store = process.env.SWITCHBOARD_STORE_PI;
+  if (!store) return null;
+  return { PI_CODING_AGENT_SESSION_DIR: store };
+}
+
 // Pi's own launch options (§4a) — taken from its real `--help` (#160).
 //
 // Deliberately NOT here:
@@ -233,6 +241,7 @@ function liveState(ref, ctx = {}) {
 
 module.exports = {
   id: 'pi',
+  cliHomeEnv,
   label: 'Pi',
   description: 'Terminal coding agent.',   // shown in the Backends settings list (#212)
   tier: 1,

@@ -164,8 +164,17 @@ function liveState(ref, ctx = {}) {
   return deriveState(row, Date.now(), ctx);
 }
 
+// Where the CLI ITSELF writes (#241). Our scan override and the CLI's own env name the same thing here
+// (the home dir holding state.db), so isolation is a straight hand-over. Null unless isolated.
+function cliHomeEnv() {
+  const store = process.env.SWITCHBOARD_STORE_HERMES;
+  if (!store) return null;
+  return { HERMES_HOME: store };
+}
+
 module.exports = {
   id: 'hermes',
+  cliHomeEnv,
   label: 'Hermes',
   description: 'General AI agent with its own session store.',   // shown in the Backends settings list (#212)
   tier: 1,

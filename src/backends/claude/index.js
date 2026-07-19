@@ -39,6 +39,23 @@ function setRoots(roots) {
   if (Array.isArray(roots) && roots.length) _roots = roots.slice();
 }
 
+// Where the CLI ITSELF writes (#241). SWITCHBOARD_STORE_CLAUDE isolates where Switchboard LOOKS; it does
+// not move the CLI's own store, so a session launched from an isolated (demo/sandbox) instance still
+// landed in the user's real ~/.claude and the isolated app never saw it. Claude resolves everything it
+// owns from CLAUDE_CONFIG_DIR — including `<dir>/projects` — so pointing it at claudeHome() puts the
+// transcript exactly where we are scanning.
+//
+// Returns null unless the scan is actually isolated: a normal launch must NOT carry a CLAUDE_CONFIG_DIR
+// nobody asked for, or the app would start dictating the CLI's home to every user.
+// Derived from the env var itself, not from _roots: the two agree in the app (main.js seeds the roots
+// from exactly this variable), but reading it here means the answer cannot depend on whether setRoots()
+// has run yet — a hook that silently hands back the REAL home would look like isolation and not be one.
+function cliHomeEnv() {
+  const store = process.env.SWITCHBOARD_STORE_CLAUDE;
+  if (!store) return null;
+  return { CLAUDE_CONFIG_DIR: path.dirname(store) };
+}
+
 // Claude can fork a session (`--resume <id> --fork-session`). The sidebar's Fork button is gated on
 // this: a backend that cannot fork must not OFFER it, because "cannot fork" degrades silently into
 // "launch an unrelated empty session" — which is what Codex and Hermes did until the final review.
@@ -336,6 +353,7 @@ function deleteSessions(filePaths, { projectsDir } = {}) {
 
 module.exports = {
   id: 'claude',
+  cliHomeEnv,
   supportsFork,
   supportsSubagents,
   // Lineage (#193): a forked Claude session names its origin (`forkedFrom`) in the head — the only

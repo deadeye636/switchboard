@@ -453,6 +453,13 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       const ptyEnv = {
         ...ctx.cleanPtyEnv,
         ...ctx.backends.backendCoreEnv({ mcpPort: mcpServer ? mcpServer.port : undefined }),
+        // ISOLATED STORES (#241): a SWITCHBOARD_STORE_* override moves where Switchboard LOOKS, never
+        // where the CLI WRITES — so a demo/sandbox session used to land in the user's real store and stay
+        // invisible to the instance that launched it. The backend declares its own home variable
+        // (CLAUDE_CONFIG_DIR, CODEX_HOME, …) and returns null when it isn't isolated, or has no such
+        // variable at all (agy). Placed here, before the user's and the template's env, so an explicit
+        // variable of theirs still wins.
+        ...(typeof backend.cliHomeEnv === 'function' ? (backend.cliHomeEnv() || {}) : {}),
       };
 
       // Per-session AskUserQuestion timeout (#51): cascade session > project >

@@ -43,6 +43,16 @@ function sessionsRoot() {
   return process.env.SWITCHBOARD_STORE_CODEX || path.join(codexHome(), 'sessions');
 }
 
+// Where the CLI ITSELF writes (#241). The store override moves our scan, not Codex' own store — so an
+// isolated instance has to hand the CLI a matching CODEX_HOME, which is the PARENT of the sessions dir
+// (Codex keeps sessions/, session_index.jsonl, config.toml and auth.json side by side under it).
+// Null unless isolated: a normal launch must not carry a CODEX_HOME the user never set.
+function cliHomeEnv() {
+  const store = process.env.SWITCHBOARD_STORE_CODEX;
+  if (!store) return null;
+  return { CODEX_HOME: path.dirname(store) };
+}
+
 // Codex's own launch options (00 §4a) — NOT interchangeable with Claude's (a permission mode means
 // nothing here). Drives the generated Configure dialog + the per-backend Launch-defaults panel.
 // Codex' own launch options — taken from its real `--help` (#160).
@@ -165,6 +175,7 @@ function liveState(ref) {
 
 module.exports = {
   id: 'codex',
+  cliHomeEnv,
   label: 'Codex',
   description: "OpenAI's terminal coding agent.",   // shown in the Backends settings list (#212)
   tier: 1,
