@@ -88,6 +88,39 @@ test('the guard runs on the single write path, next to the launcher one', () => 
   assert.deepEqual(blob.customLaunchers[0].env, {}, 'and the launcher half of the same guard ran too');
 });
 
+// ...and the OTHER door (#221). `merge-setting` takes a renderer-supplied partial and used to write it
+// straight through ctx.db.setSetting, so a caller sending customLaunchers or backendEnv through that
+// channel bypassed the guard entirely. Its real callers only ever send sidebarWidth/tabOrder — which is
+// exactly why nothing noticed, and exactly why the channel has to enforce it rather than trusting them.
+//
+// This drives the REGISTERED HANDLER, not the internal function: the point is that the door is guarded,
+// and only the handler can prove that.
+test('merge-setting scrubs the renderer-supplied partial too, and keeps the merge atomic (#221)', () => {
+  const written = [];
+  const stored = { global: { sidebarWidth: 340, backendEnv: { codex: { BASE_URL: 'https://keep' } } } };
+  const handlers = new Map();
+  settings.init({
+    db: {
+      getSetting: (key) => stored[key],
+      setSetting: (key, value) => { written.push({ key, value }); stored[key] = value; },
+    },
+    log: { info() {}, warn() {}, error() {} },
+  });
+  settings.registerIpc({ on() {}, handle: (ch, fn) => handlers.set(ch, fn) });
+
+  handlers.get('merge-setting')(null, 'global', {
+    sidebarWidth: 420,
+    backendEnv: { codex: { OPENAI_API_KEY: 'sk-abcdefghijklmnopqrstuvwxyz0123456789', BASE_URL: 'https://x' } },
+    customLaunchers: [{ id: 'l1', name: 'l', env: { GITHUB_TOKEN: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789' } }],
+  });
+
+  assert.equal(written.length, 1, 'one atomic read-merge-write (#75)');
+  const blob = written[0].value;
+  assert.deepEqual(blob.backendEnv.codex, { BASE_URL: 'https://x' }, 'a raw key must not reach the disk here either');
+  assert.deepEqual(blob.customLaunchers[0].env, {}, 'and the launcher half of the guard ran too');
+  assert.equal(blob.sidebarWidth, 420, 'the partial still applies');
+});
+
 // --- the merge order at spawn ---------------------------------------------------------------------
 //
 // A template's descriptor merges its bundle OVER its base's, so `launch.env` already contains both. The

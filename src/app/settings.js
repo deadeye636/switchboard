@@ -1,17 +1,21 @@
 // Settings: the blob on disk, the cascade that turns it into what a launch actually uses, and the
 // export/import pair (#145).
 //
-// THE TRUST BOUNDARY IS persistSettingsBlob: the settings form and the import both go through it, and it
-// is what strips a pasted secret before the blob reaches the disk. The scrub lives on the main side of
-// the IPC on purpose, because the renderer can be bypassed — which is also why it cannot be the renderer
-// that decides to call it.
+// THE TRUST BOUNDARY IS scrubBlobForDisk: nothing a RENDERER supplied reaches the disk without it. The
+// scrub lives on the main side of the IPC on purpose, because the renderer can be bypassed — which is also
+// why it cannot be the renderer that decides to call it.
 //
-// It is NOT the only writer, and this comment used to claim it was. `merge-setting` below writes through
-// ctx.db.setSetting directly, and so do windows.js (window bounds, zoom) and projects.js. The last two
-// read-modify-write a blob that was already scrubbed on its way in, so they carry nothing new; but
-// `merge-setting` takes a renderer-supplied partial, so a caller that sent `customLaunchers` through it
-// would walk straight around the guard. Its real callers only ever send sidebarWidth/tabOrder. That is
-// #221, and it predates this file — do not "fix" it by weakening this comment again.
+// TWO doors take renderer input, and both go through it (#221): `set-setting` (via persistSettingsBlob,
+// which adds the backend re-arm) and `merge-setting` (which must NOT re-arm — it fires on every sidebar
+// drag). This comment used to say the second one walked around the guard; it no longer does, and the test
+// in test/backend-env.test.js drives both channels rather than reading this paragraph.
+//
+// windows.js (window bounds, zoom) and projects.js also call ctx.db.setSetting directly, and stay that
+// way ON PURPOSE: neither takes a blob from the renderer. They read-modify-write a blob that was already
+// scrubbed on its way in and add values the MAIN process computed (a window rectangle, a zoom factor, the
+// project register). Routing them through the scrub would cost a walk of every launcher and backendEnv
+// entry on every window move and buy nothing — there is no untrusted input on that path. If one of them
+// ever starts writing something a renderer handed it, it belongs on one of the two doors above.
 //
 // THE CASCADE IS PER OPTION, not per blob (#149). `backendDefaults` used to be taken as one object
 // whenever the project's was non-empty, which froze every backend's defaults at the moment a project
@@ -53,7 +57,12 @@ function init(context) {
 // backend's and live under `backendDefaults.claude` (§4a) — see migrateClaudeLaunchDefaults below.
 // What remains here is what belongs to the app, not to a CLI.
 const SETTING_DEFAULTS = {
-  visibleSessionCount: 5,
+  // 10, not 5 (#237). This said 5 for as long as it existed and reached nobody: the sidebar — the only
+  // consumer — reads the RAW `global` blob, so with the key unsaved it kept the renderer's own 10, and the
+  // 5 only ever left here through get-effective-settings, whose callers (launch dialogs, spawn) do not
+  // read it. Correcting the dead value to what actually applies keeps every existing sidebar as it is;
+  // choosing 5 would have shortened everyone's session list without them touching anything.
+  visibleSessionCount: 10,
   sidebarWidth: 340,
   terminalTheme: 'switchboard',
   shellProfile: 'auto',
@@ -62,6 +71,12 @@ const SETTING_DEFAULTS = {
   terminalShellProfile: 'inherit',
   conptyBackend: 'bundled',
 };
+// DELIBERATELY NOT HERE (#239): `sessionMaxAgeDays` and `autoHideDays`. They read like per-project
+// settings — one project is an archive worth keeping visible, another is noise — but they are how the
+// sidebar as a WHOLE is trimmed, and a per-project answer would mean the same list is pruned by different
+// rules depending on which project a row belongs to. They stay global and are set in Settings; their
+// defaults (3 and 0) live with the controls that write them. Revisit only with a UI that makes the
+// per-project override visible, or the setting becomes invisible state.
 
 /**
  * A settings blob may carry `customLaunchers[].env` (Tier-3, T-3.10). Those values follow the same rule
@@ -123,11 +138,18 @@ function stripBackendEnvSecrets(blob) {
  * form, and the settings IMPORT (#145). An importer that called setSetting() directly would be a
  * back door around both halves of this: the secret scrub below, and the backend re-arm.
  */
-function persistSettingsBlob(key, value) {
-  // Custom launchers (Tier-3) carry an env block, and the settings blob goes to DISK. A profile's env is
-  // guarded at exactly this boundary (profiles.save rejects a literal key); the launchers promised "the
-  // same hygiene" in their own comment and never had it — a pasted key was written out verbatim. Strip
-  // it here, at the trust boundary, rather than in the renderer that can be bypassed.
+/**
+ * THE SCRUB ITSELF — everything a renderer-supplied blob has to survive before it may reach the disk.
+ *
+ * Custom launchers (Tier-3) carry an env block, and the settings blob goes to DISK. A profile's env is
+ * guarded at exactly this boundary (profiles.save rejects a literal key); the launchers promised "the same
+ * hygiene" in their own comment and never had it — a pasted key was written out verbatim.
+ *
+ * Its own function since #221, because there is more than one door: `merge-setting` also takes a partial
+ * from the renderer, and it used to write straight through. A guard that sits on only one of two doors is
+ * decorative. It never throws — a settings save must not fail on this.
+ */
+function scrubBlobForDisk(value) {
   try {
     const stripped = stripLauncherSecrets(value);
     if (stripped.removed.length) {
@@ -140,6 +162,11 @@ function persistSettingsBlob(key, value) {
       value = env.value;
     }
   } catch { /* never block a settings save on this */ }
+  return value;
+}
+
+function persistSettingsBlob(key, value) {
+  value = scrubBlobForDisk(value);
 
   ctx.db.setSetting(key, value);
   // Enabling/disabling a backend changes which stores must be watched and scanned. Re-arm here so
@@ -256,7 +283,15 @@ function registerIpc(ipc) {
   ipc.handle('merge-setting', (_event, key, partial) => {
     const cur = ctx.db.getSetting(key);
     const base = (cur && typeof cur === 'object' && !Array.isArray(cur)) ? cur : {};
-    ctx.db.setSetting(key, { ...base, ...(partial || {}) });
+    // `partial` is renderer-supplied, so it takes the same scrub set-setting does (#221). Its callers only
+    // ever send sidebarWidth/tabOrder today — the point is that the channel enforces it regardless of who
+    // calls it next, which is the whole reason the guard is on the main side.
+    //
+    // Deliberately NOT persistSettingsBlob: that also re-arms the backend watchers and posts a full
+    // reconcile on the `global` key, and this handler fires on every sidebar drag and tab reorder. A
+    // partial that changes `backendEnabled` would need that re-arm — no caller does, and one that starts
+    // to belongs on set-setting.
+    ctx.db.setSetting(key, scrubBlobForDisk({ ...base, ...(partial || {}) }));
     return { ok: true };
   });
 
