@@ -20,7 +20,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#206](https://github.com/deadeye636/switchboard/issues/206) Add Codex support to scheduled tasks (Claude + Codex) · _feature_
 - [#207](https://github.com/deadeye636/switchboard/issues/207) Variable quick-pick: keyboard-driven (type-to-filter, arrow nav, Enter inserts + trailing space) · _feature_
-- [#241](https://github.com/deadeye636/switchboard/issues/241) demo:start isolates where Switchboard looks, not where the CLI writes — a live session lands in the real store · _chore_
 
 ## P3 — someday
 
@@ -36,4 +35,5 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#193](https://github.com/deadeye636/switchboard/issues/193) Session provenance: show where a session came from (clear heuristic + explicit parent links) · _feature_
 - [#201](https://github.com/deadeye636/switchboard/issues/201) agy backend: add a usage capability (status bar + Usage & Notifications), like Claude/Codex · _feature, blocked-on-upstream_
 - [#210](https://github.com/deadeye636/switchboard/issues/210) perf: run the live-session identity match (matchLiveSession) in the index worker · _chore_
-- [#229](https://github.com/deadeye636/switchboard/issues/229) Session lineage — remaining work (provenance + /clear re-key) · _feature_
+- [#229](https://github.com/deadeye636/switchboard/issues/229) Session lineage — remaining work (per-backend provenance + display polish) · _feature_
+- [#242](https://github.com/deadeye636/switchboard/issues/242) Two terminals clearing the same folder at the same moment stay ambiguous · _feature_
