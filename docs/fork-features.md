@@ -543,7 +543,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 ### Infra / hardening / tooling
 - **Build provenance in About** — every build is stamped (`scripts/gen-build-info.js` → bundled `build-info.json`) with its git branch @ short-commit and a `dirty` flag, shown in the About pane so an installation is traceable to its source commit.
 - Ported **security hardening** (kreaddis #46) + dependency audit fixes.
-- **Isolated demo/sandbox env** — `npm run demo:start`: a fully isolated instance (own DB, userData, and every backend's session store root via a unified `SWITCHBOARD_STORE_<ID>` env var) against a seeded layout under `C:\temp\switchboard`, so it never touches real data (`docs/demo-env.md`).
+- **Isolated demo/sandbox env** — `npm run demo:start`: a fully isolated instance (own DB, userData, and every backend's session store root via a unified `SWITCHBOARD_STORE_<ID>` env var) against a seeded layout under `C:\temp\switchboard`, so it never touches real data (`docs/demo-env.md`). Since #241 the isolation also covers where each **CLI**
+  writes (`cliHomeEnv()` per backend), so a session actually launched in the demo lands in the demo store —
+  and `npm run demo:auth` copies your existing CLI logins into it so such a session can run at all.
 - **`upstream:check`** tooling to detect portable upstream changes across all fork branches.
 - **Issue-based workflow** — Conventional-Commits (English), backlog migrated to GitHub Issues (mirrored to `docs/BACKLOG.md`).
 - Windows build path for **VS 2026** (node-gyp 13 override, node-pty Spectre-off patch).

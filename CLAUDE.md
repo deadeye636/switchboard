@@ -440,6 +440,21 @@ against a seeded demo layout under `C:\temp\switchboard` — see `docs/demo-env.
 dev build always scans the real `~/.claude/projects` (the store root was hardcoded before #227), so a DB
 clean alone can never give "only the demo" — the real projects re-appear on the next scan.
 
+**That override moves where Switchboard LOOKS. Where the CLI WRITES is a second thing (#241)** — and it is
+the one that decides whether an isolated run is actually isolated. Each backend declares its own home
+variable through the `cliHomeEnv()` descriptor hook (Claude `CLAUDE_CONFIG_DIR`, Codex `CODEX_HOME`, Hermes
+`HERMES_HOME`, Pi `PI_CODING_AGENT_SESSION_DIR`; agy has none and declines), and `app/terminal/spawn.js`
+merges the answer into the session's env — below the user's and a template's, so an explicit variable of
+theirs still wins, and a non-isolated launch carries nothing. **A path under Claude's home that you compose
+from `os.homedir()` is the bug this keeps re-creating:** four of them (the scheduler — which ticks every
+60 s on EVERY boot and pre-seeds session files, the MCP IDE bridge's lock files, the attention hook's
+`settings.json`, and the Projects admin's `.claude.json` reader/**writer**) kept using the real home from an
+instance that promises it touches nothing real. Resolve it from `SWITCHBOARD_STORE_CLAUDE`, **per call**
+(these modules are required long before a path is read) — `test/store-isolation.test.js` is the guard, and
+`backend-path-neutrality` does NOT cover this: it sees that a file knows Claude's layout, not whether it
+resolves that layout against the isolated home. Credentials live in the CLI's home, so an isolated CLI
+starts logged out: `npm run demo:auth` copies them over (separate command on purpose).
+
 **The attention hook is OFF in a dev build (#219).** `~/.claude/settings.json` is one more shared, CLI-owned
 file, and the attention hook (`src/app/hooks.js`) writes an HTTP entry into it. A dev run is force-killed by
 `npm run stop:dev` (no `before-quit`), so a written hook would be left behind on a dead port — and because

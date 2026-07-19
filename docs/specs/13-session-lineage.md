@@ -13,7 +13,8 @@ unrelated rows, and one case broke worse than cosmetics:
   transcript. Switchboard re-keys the live session onto the new id — but it **bailed** whenever more than
   one Claude session was live in the same project folder (the normal case for parallel work). The source
   then kept its PTY and read as `running`, the `/clear` child was scanned as a second independent row, and
-  the open tab stayed attached to the dead id.
+  the open tab stayed attached to the dead id. **Closed:** the CLI now names the terminal that cleared
+  (below), so the multi-session case re-keys correctly.
 - **#193 (feature):** provenance was invisible. A session that continued another's work should read as one.
 
 Both need the same answer — *which session did this one come from* — so it is built once.
@@ -46,13 +47,23 @@ core change, which is the whole point.
 **Claude `/clear` (soft) is the one live exception:** it records no on-disk link, so it is written at the
 live re-key (`session-transitions.js`, `lineageKind: 'clear'`), not through the scan sink. That path is
 Claude-specific by nature — it is Claude's live PTY-id transition; other backends adopt their own ids via
-`watch/adopt.js`. It is single-session only (see the resolver note below).
+`watch/adopt.js`. Which live session it re-keys is decided by the resolver below — a terminal claim first,
+the single-live-session rule as fallback.
 
 ## The `/clear` resolver (`src/session/session-lineage.js`) — conservative on purpose
 
-A `/clear` records no back-link, so the parent must be inferred. `resolveClearParent({ candidates })` returns
-`{ parentId, confidence: 'high' | 'none' }` and re-keys ONLY on `high`, which it gives ONLY when there is
-**exactly one** live session in the folder — that one unambiguously cleared. With two or more, it bails.
+A `/clear` records no back-link in the transcript, so the parent has to come from somewhere else.
+`resolveClearParent({ candidates, claim })` returns `{ parentId, confidence: 'high' | 'none' }` and re-keys
+ONLY on `high`. Two ways to earn it, in this order:
+
+1. **A terminal claim** (#223, the normal case) — the CLI itself reported which terminal cleared which
+   session, through a per-spawn hook settings file. A fact, not an inference, so it wins even with several
+   live sessions in the folder. See "Known gaps" below for how the signal is obtained and measured.
+2. **Exactly one live session in the folder** — that one unambiguously cleared. The pre-#223 rule, still the
+   fallback when no claim arrived (no loopback server, a backend that declines the hook, a claim that lost
+   the race and has not landed yet).
+
+With neither, it bails — and the file is re-checked once a claim shows up.
 
 **Why not a heuristic across multiple live sessions?** The first cut tried the **mtime freeze** — the PTY now
 writes to the new file, so the parent's transcript "stops" at the clear, and the parent should be the lone
@@ -62,13 +73,13 @@ parent's freeze was OUTSIDE any tight window in ~95% of real `/clear` children. 
 finished a turn a second before the clear IS inside the window, so the heuristic would re-key the bystander
 onto another session's child — collapsing two tabs onto one id, the exact failure #223 says must never
 happen. No folder-local signal (mtime, cwd, gitBranch) distinguishes the true parent from a just-idle
-bystander. So the multi-session re-key is **not solved** here; it waits for a signal that ties a clear to a
-specific PTY (a per-session `SessionStart` hook echo — the hook exists but does not name the parent, so the
-correlation is future work).
+bystander. That is why the multi-session case waited for a signal tying a clear to a specific PTY — which is
+what the terminal claim above now is. The reasoning is kept because it is also the reason **not** to
+re-attempt a folder-local heuristic if the claim is ever unavailable: bailing is correct, guessing is not.
 
-- **#223 status/re-key:** reliably fixed for a **single** live session in the folder (the source's row folds
-  onto the child, the tab follows). Multiple live sessions keep the deliberate bail — safe, unsolved.
-- **#193 provenance:** on the single-session re-key, the child's link is persisted via `setSessionLineage`
+- **#223 status/re-key:** solved for several live sessions in one folder via the terminal claim, with the
+  single-live-session rule as the fallback. Two terminals clearing at the *same moment* still bail (#242).
+- **#193 provenance:** on a re-key, the child's link is persisted via `setSessionLineage`
   (kind `clear`) — the authoritative source, since the scanner cannot correlate a clear (the parent's file
   is unchanged and skipped). `COALESCE` keeps a hard link from being overwritten by a soft guess and lets
   the later full scan fill the rest. An ambiguous clear records nothing — a guess we would not act on is a
@@ -126,11 +137,23 @@ row for a `clear` guess is a deliberate, cheap follow-up if it is ever wanted).
   reach for the keystroke stream either: the slash-menu path never puts `/clear` on the wire while a
   typed-then-aborted `/clear` in another terminal does, so "exactly one match" manufactures confidence.
 
-  **Verified:** the binding live in the app (two live sessions in one folder; the claim named exactly the
-  cleared session and its terminal, and held across a second clear with the same tag), the decision by
-  tests. The re-key that follows the claim is NOT live-verified: sessions launched for the test wrote no
-  transcript at all, and the same is true with the binding disabled — so it is the test setup, not this
-  change. See #241 for why a live CLI session cannot be driven inside the demo environment.
+  **Verified live, end to end**, in the installed app with **two Claude sessions in one project folder** —
+  the case that used to bail:
+
+  ```
+  [clear-bind] terminal=<tag> cleared session=<old id>
+  [detect] session=<old id> clear file=<new id> matched by terminal claim
+  [session-transition] <old> → <new> (clear)
+  ```
+
+  The neighbouring session evaluated the same new transcript and did **not** re-key — one claim, one winner.
+  In the sidebar the cleared session kept a single row that moved to the new id, the old one folded into the
+  lineage history as `Idle` (no stale "running"), no orphan row appeared, and the MCP bridge reconnected.
+  The claim arrived ~2 s before the file event, so the re-key landed on the first pass; when the race goes
+  the other way the `ambiguous … will re-check` line is expected and the re-key follows late.
+
+  One cosmetic follow-up this exposed: the re-keyed row takes its title from the child transcript's first
+  line, which for a `/clear` is the command text itself.
 - **Codex / Pi / agy declare `null`** from `resolveLineage` — on purpose, not by omission: Codex records no
   parent on a `/clear` and `compacted` is a state not a reference; Pi's session header carries no parent
   though `--fork` exists; agy's `parent_references` is an unverified protobuf blob. Each is wired to the
