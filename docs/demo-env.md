@@ -7,6 +7,7 @@ shown against without ever touching real data.
 npm run demo:start          # seed (idempotent) + launch, isolated
 npm run demo:start -- --debug   # same, with DevTools on port 9222 (mirrors start:debug)
 npm run demo:seed           # just (re)seed the stores, no launch
+npm run demo:auth           # copy your CLI logins into the demo home (once), so a LIVE session can run
 ```
 
 ## What is isolated
@@ -26,6 +27,53 @@ Everything the demo run reads or writes lives under `SWITCHBOARD_DEMO_DIR` (defa
 
 So the demo never reads or writes `~/.claude`, `~/.codex`, `~/.pi`, or the real `~/.switchboard` /
 `~/.switchboard-dev`. Point the base elsewhere with `SWITCHBOARD_DEMO_DIR=<path>`.
+
+## Live sessions in the demo (#241)
+
+Those seven variables move where **Switchboard looks**. They do not move where **a CLI writes** — each CLI
+resolves its own store from its own variable — so a session actually *launched* from the demo used to land
+in the user's real store, invisible to the instance that started it. That is fixed by a descriptor hook:
+each backend declares its CLI home variable (`cliHomeEnv()`), and the spawn path merges the answer into the
+session's environment. It sits **below** the user's and a template's env, so an explicit variable of yours
+still wins.
+
+| Backend | Variable the demo sets | Effect |
+|---|---|---|
+| Claude | `CLAUDE_CONFIG_DIR` = `<demo>/stores/claude` | transcripts, plans and global memory land in the demo |
+| Codex | `CODEX_HOME` = `<demo>/stores/codex` | rollouts, `session_index.jsonl`, `config.toml` |
+| Hermes | `HERMES_HOME` = `<demo>/stores/hermes` | its `state.db` home |
+| Pi | `PI_CODING_AGENT_SESSION_DIR` = `<demo>/stores/pi` | sessions only — Pi's config/login stay real |
+| agy | *(none)* | agy has **no** env var for its store, so its writes cannot be isolated — an honest gap, not a silent one |
+
+**The login.** Credentials live in the CLI's home, so an isolated home starts out logged out. Two ways:
+
+- `npm run demo:auth` — copies the credentials you already have (`~/.claude/.credentials.json`,
+  `~/.codex/auth.json`) into the demo home. Deliberately a **separate command**: `demo:start` never reaches
+  into your real credential files. The copy is a snapshot — re-run it when a demo session claims it is
+  logged out, and `--force` to overwrite. Your real project history (`~/.claude.json`) is **not** copied;
+  the demo stays clean.
+- Or log in once inside the demo home yourself: run the CLI with `CLAUDE_CONFIG_DIR=<demo>/stores/claude`
+  and follow the prompt.
+
+Hermes has no confirmed credential file, so `demo:auth` skips it and says so; log in inside its demo home if
+it asks.
+
+**Everything that writes into Claude's home follows the override too** — it is not only the transcripts.
+The scheduler (which scans for `schedule-*.md` and pre-seeds session files **on every boot**, dev and demo
+included), the MCP IDE bridge's lock files, the attention hook's `settings.json` patch and the Projects
+admin's `.claude.json` reader/writer all resolve their paths from `SWITCHBOARD_STORE_CLAUDE`. Before #241
+each of those still pointed at the real home, so a demo instance scanned the user's real projects, wrote
+into their real `~/.claude/commands`, and showed their real project catalogue in a window that promises it
+touches nothing real. `test/store-isolation.test.js` is the guard.
+
+**Known gaps, on purpose:**
+
+- **Usage/quota is the real account's.** `src/backends/claude/usage.js` reads the CLI home from Switchboard's
+  OWN environment, and the isolated home is only ever handed to the spawned session — so the status bar and
+  the Usage panel show real quota even in the demo. Read-only, and the alternative (an isolated home with no
+  usage history) shows nothing at all.
+- **agy cannot be isolated.** Its CLI has no env var for its store, so a demo-launched agy session writes to
+  the real `~/.gemini/antigravity-cli`. Its descriptor declines the hook rather than pretending.
 
 ## What is seeded
 

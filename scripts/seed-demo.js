@@ -177,10 +177,14 @@ function resolveDemoDir() {
 function seedDemo(demoDir = resolveDemoDir()) {
   const fwd = demoDir.replace(/\\/g, '/');
 
-  // The two project working dirs, addressed with forward slashes INSIDE the JSON (avoids the \t escape
-  // trap and matches how the CLIs record cwd on Windows).
-  const projectAlpha = `${fwd}/projects/demo-alpha`;
-  const projectBeta = `${fwd}/projects/demo-beta`;
+  // The project working dirs as they appear in the transcripts' `cwd`. NATIVE separators, because that is
+  // what the real CLI writes — measured (#241): a live Claude session in the demo records the demo dir
+  // with BACKSLASHES, and the forward-slash form this used to seed made the SAME folder look like two
+  // different projects (a project bucket is keyed on the cwd string). The seeded sessions sat in one group
+  // and anything actually launched in the demo in another, unregistered one that the sidebar never showed.
+  // JSON.stringify escapes the backslashes; the `\t` trap the old comment feared is not a real one.
+  const projectAlpha = path.join(demoDir, 'projects', 'demo-alpha');
+  const projectBeta = path.join(demoDir, 'projects', 'demo-beta');
 
   const paths = {
     demoDir: fwd,
@@ -202,8 +206,8 @@ function seedDemo(demoDir = resolveDemoDir()) {
   }
 
   // The two extra standard projects (see docs/demo-env.md for the full catalogue).
-  const projectMixed = `${fwd}/projects/demo-mixed`;
-  const projectChain = `${fwd}/projects/demo-chain`;
+  const projectMixed = path.join(demoDir, 'projects', 'demo-mixed');
+  const projectChain = path.join(demoDir, 'projects', 'demo-chain');
   paths.projectMixed = path.join(demoDir, 'projects', 'demo-mixed');
   paths.projectChain = path.join(demoDir, 'projects', 'demo-chain');
 

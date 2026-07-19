@@ -233,6 +233,14 @@ Still open:
 `npm run demo:start` does. `SWITCHBOARD_DATA_DIR` alone is **not** isolation: `userData` is a separate
 switch, and the instance lock is scoped to it.
 
+**They isolate what Switchboard READS. What a CLI WRITES is the CLI's own variable** — and since #241 a
+`SWITCHBOARD_STORE_*` also makes the spawn path hand that variable to the session, so a session launched
+from an isolated instance lands in the isolated store: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `HERMES_HOME`,
+`PI_CODING_AGENT_SESSION_DIR` (agy has none, so it cannot be isolated). Each backend declares its own via
+the `cliHomeEnv()` descriptor hook; the injected value sits **below** your `backendEnv` variables and a
+template's, so an explicit setting of yours still wins. Credentials live in that home — see
+`docs/demo-env.md` and `npm run demo:auth`.
+
 ### Other CLIs' home variables
 
 | Variable | Effect | When unset |
@@ -295,6 +303,7 @@ Hermes inject nothing and use their own auth.
 | `npm run start:debug` | The same with `--remote-debugging-port=9222`; refuses if the port is already bound |
 | `npm run demo:start` | **The default for dev/testing**: seeds and launches a fully isolated instance (own DB, userData, all five stores). `-- --debug` adds the CDP port. |
 | `npm run demo:seed` | Seed the demo layout without launching |
+| `npm run demo:auth` | Copy your existing CLI logins into the demo home once, so a **live** demo session can run (`-- --force` overwrites). `demo:start` never touches real credential files itself. |
 | `npm test` | `node --test` over the suite — no Electron needed |
 | `npm run stop:dev` | Stop **this checkout's** dev Electron processes (never the installed app) |
 | `npm run bundle:codemirror` | esbuild the CodeMirror bundle |
