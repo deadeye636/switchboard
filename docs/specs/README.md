@@ -2,7 +2,7 @@
 
 Each file in this folder is a **self-contained spec for one feature**, written so a single agent can pick it up and implement it without needing the original planning conversation. They derive from the productivity roadmap (since migrated to GitHub Issues — see `docs/BACKLOG.md`).
 
-**All specs are implemented.** They remain as design records; each spec's `Status:` line and an "As built" note (where the implementation diverged) reflect the final state. Line-number references below describe the codebase at spec-writing time and have drifted.
+**All specs were implemented; two features have since been removed** (07 and 14 — their specs stay as design/rebuild records, marked in the table and in their own `Status:` line). Each spec's `Status:` line and an "As built" note (where the implementation diverged) reflect the final state. Line-number references below describe the codebase at spec-writing time and have drifted.
 
 **Every agent must read this README first**, then their assigned spec.
 
@@ -23,6 +23,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 11 | [Performance: keeping the main thread responsive](11-performance.md) | #199, #200 | No — touches the scan hot path + get-projects |
 | 12 | [Saved Variables: how a secret reaches a terminal](12-saved-variables.md) | #205, #204 | No — touches the insert path + the terminal |
 | 13 | [Session lineage: provenance + /clear re-key](13-session-lineage.md) | #223, #193 | No — touches the transition detector, the scan, and the sidebar |
+| 14 | [Scheduled tasks (cron-driven headless runs)](14-scheduled-tasks.md) — **removed (#246)**, kept as a rebuild record | #206 | Was: Claude-only |
 
 ## Shared architecture (read once, applies to all specs)
 
