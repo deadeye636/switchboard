@@ -10,6 +10,29 @@ const assert = require('node:assert/strict');
 
 const io = require('../src/app/terminal/io');
 
+// Waiting for a nudge, without a fixed sleep (#236).
+//
+// The nudge is two chained 50 ms timers, so "it has happened" is ~100 ms away — and a full `npm test` runs
+// the files in parallel, so a fixed 120 ms wait misses it often enough to be noticed. The failure looked
+// like a real one (one resize short) and never reproduced when the file ran alone, which is the expensive
+// kind: a red run that means nothing trains everyone to re-run instead of read.
+//
+// So: poll for the state the nudge produces, up to a generous ceiling. Under load it waits longer; idle it
+// finishes as soon as the timers fire. The ceiling only ever turns a hang into a readable failure.
+async function until(fn, what, timeoutMs = 4000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (fn()) return;
+    if (Date.now() > deadline) throw new Error(`timed out after ${timeoutMs}ms waiting for: ${what}`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+// The other half: "and then nothing else happens". A negative check cannot be made load-proof by waiting
+// longer — but it also cannot fail spuriously, since extra load only ever delays a call that would make it
+// fail. Kept short on purpose.
+const settle = (ms = 120) => new Promise((r) => setTimeout(r, ms));
+
 // A stand-in ipcMain that just records the handlers, so a test can call them like the renderer would.
 function fakeIpc() {
   const on = new Map();
@@ -118,7 +141,7 @@ test('the first resize nudges the TUI once, so a reattached TUI repaints', async
   const { ipc } = setup([['s', s]]);
 
   ipc.send('terminal-resize', 's', 100, 40);
-  await new Promise((r) => setTimeout(r, 160));
+  await until(() => s.pty.calls.resize.length >= 3, 'the first-resize nudge to complete');
 
   assert.deepEqual(s.pty.calls.resize, [[100, 40], [101, 40], [100, 40]]);
   assert.equal(s.firstResize, false, 'and only ever once');
@@ -134,7 +157,7 @@ test('a resize that arrives before the nudge fires cancels it rather than repain
 
   ipc.send('terminal-resize', 's', 100, 40);   // schedules the nudge
   ipc.send('terminal-resize', 's', 120, 50);   // …the layout settled elsewhere first
-  await new Promise((r) => setTimeout(r, 160));
+  await settle(160);   // negative check: the nudge must NOT arrive
 
   assert.deepEqual(s.pty.calls.resize, [[100, 40], [120, 50]], 'no 101/100 nudge landing on top of 120/50');
 });
@@ -145,7 +168,7 @@ test('a plain terminal is never nudged — it duplicates the prompt', async () =
 
   ipc.send('terminal-resize', 's', 100, 40);
   assert.equal(s._suppressBuffer, true, 'buffering is suppressed so prompt redraws do not pollute the replay');
-  await new Promise((r) => setTimeout(r, 260));
+  await settle(260);   // negative check
   assert.deepEqual(s.pty.calls.resize, [[100, 40]], 'no nudge');
   assert.equal(s._suppressBuffer, false, 'and the suppression is lifted again');
 });
@@ -157,7 +180,7 @@ test('the settle nudge stays off even when the renderer asks for it (#27)', asyn
   const { ipc } = setup([['s', s]]);
 
   ipc.send('terminal-resize', 's', 100, 40, true);
-  await new Promise((r) => setTimeout(r, 250));
+  await settle(250);   // negative check
   assert.deepEqual(s.pty.calls.resize, [[100, 40]]);
   assert.equal(io.RESIZE_SETTLE_ENABLED, false, 'flip this to bring the cursor fix back, and the flicker with it');
 });
@@ -167,13 +190,17 @@ test('a redraw nudges once — and does nothing before a size is known', async (
   const { ipc } = setup([['s', s]]);
 
   ipc.send('terminal-redraw', 's');
-  await new Promise((r) => setTimeout(r, 120));
+  await settle();
   assert.deepEqual(s.pty.calls.resize, [], 'nothing to nudge back to yet');
 
   ipc.send('terminal-resize', 's', 90, 30);
   ipc.send('terminal-redraw', 's');
-  await new Promise((r) => setTimeout(r, 120));
+  await until(() => s.pty.calls.resize.length >= 3, 'the redraw nudge to complete');
   assert.deepEqual(s.pty.calls.resize, [[90, 30], [91, 30], [90, 30]]);
+
+  // ONCE: nothing further arrives after the pair.
+  await settle();
+  assert.deepEqual(s.pty.calls.resize, [[90, 30], [91, 30], [90, 30]], 'and it does not keep nudging');
 });
 
 test('a redraw skips a plain terminal and an exited one', async () => {
@@ -183,7 +210,7 @@ test('a redraw skips a plain terminal and an exited one', async () => {
 
   ipc.send('terminal-redraw', 'plain');
   ipc.send('terminal-redraw', 'dead');
-  await new Promise((r) => setTimeout(r, 120));
+  await settle();      // negative check
   assert.deepEqual(plain.pty.calls.resize, []);
   assert.deepEqual(dead.pty.calls.resize, []);
 });
