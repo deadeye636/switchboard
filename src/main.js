@@ -1940,6 +1940,18 @@ const lifecycleCtx = {
   log,
   // boot
   cleanupSecretRefs,
+  // #223: the per-terminal binding files a backend wrote at spawn. Removed on PTY exit, but a crash or a
+  // force-kill skips that — so sweep whatever survived, the way secret refs are swept.
+  cleanupClearBindings: () => {
+    const dir = path.join(app.getPath('userData'), 'clear-bindings');
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { return; }   // never created: nothing to do
+    let removed = 0;
+    for (const name of names) {
+      try { fs.unlinkSync(path.join(dir, name)); removed++; } catch { /* in use or already gone */ }
+    }
+    if (removed) log.info(`[clear-bind] swept ${removed} leftover binding file(s)`);
+  },
   migrateClaudeLaunchDefaults,
   buildMenu,
   createWindow,

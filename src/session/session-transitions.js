@@ -445,7 +445,14 @@ function detectSessionTransitions(folder) {
               log.info(`[detect] session=${sessionId} clear file=${newId} matched by terminal claim`);
             }
           } else if (candidates.length > 1 && !claim) {
-            log.info(`[detect] session=${sessionId} clear file=${newId} ambiguous (${candidates.length} active sessions in folder, no terminal claim) — skipping`);
+            // RETRY, don't forget it. The claim arrives over HTTP from the CLI while this runs off an fs
+            // event — the two race, and the file event can win. Marking the file as known here (which the
+            // bookkeeping below does for everything not in `emptyFiles`) would mean a claim landing a
+            // moment later could never be paired with THIS child, and the terminal would stay on a dead
+            // id for good. Re-checking costs one stat per cycle until the claim shows up or the file ages
+            // out of the freshness window.
+            emptyFiles.add(newFile);
+            log.info(`[detect] session=${sessionId} clear file=${newId} ambiguous (${candidates.length} active sessions in folder, no terminal claim yet) — will re-check`);
           }
         }
       }

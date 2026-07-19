@@ -151,6 +151,11 @@ function start(ctx) {
     // Wipe any secret-ref temp files left behind by a previous run that didn't
     // quit cleanly (crash) — plaintext must not survive a restart.
     try { ctx.cleanupSecretRefs(); } catch {}
+    // Same for the per-terminal binding files a backend writes at spawn (#223). They are removed when the
+    // PTY exits, but a crash — or `npm run stop:dev`, which sends no before-quit — skips that handler, and
+    // one file per session would then accumulate for the life of the install. Harmless individually (the
+    // CLI that read it is long gone), which is exactly why nothing would ever notice the pile.
+    try { ctx.cleanupClearBindings(); } catch {}
     // One-time: Claude's launch options move from the settings root into backendDefaults.claude.
     // Runs before any window reads settings, so the panel never sees the half-migrated shape.
     try { ctx.migrateClaudeLaunchDefaults(); } catch (err) {
