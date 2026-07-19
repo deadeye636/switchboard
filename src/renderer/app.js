@@ -1742,15 +1742,14 @@ setTimeout(() => {
     if (global.sidebarWidth) {
       document.getElementById('sidebar').style.width = global.sidebarWidth + 'px';
     }
-    // Take it from the CASCADE, not from the raw blob (#237): an unsaved key used to leave the renderer
-    // on its own literal, which is how a second default came to exist and disagree.
+    // From the CASCADE, not from the raw blob (#237): an unsaved key used to leave the renderer on its own
+    // literal, which is how a second default came to exist and disagree. The cascade already layers the
+    // stored global over the default, so there is no raw-blob read for this key any more — one that only
+    // ever assigned the same value would be a second answer waiting to drift again.
     try {
       const eff = await window.api.getEffectiveSettings(null);
       if (eff && eff.visibleSessionCount != null) visibleSessionCount = eff.visibleSessionCount;
     } catch { /* keep the boot value */ }
-    if (global.visibleSessionCount != null) {
-      visibleSessionCount = global.visibleSessionCount;
-    }
     if (global.sessionMaxAgeDays != null) {
       sessionMaxAgeDays = global.sessionMaxAgeDays;
     }
