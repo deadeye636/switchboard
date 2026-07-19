@@ -7,7 +7,7 @@ the main process's default disagree, both are listed under [Known default confli
 ## Where a setting lives
 
 Settings are **one JSON blob per scope** in the `settings` table of `switchboard.db`
-(`~/.switchboard` packaged, `~/.switchboard-dev` for a dev run — see CLAUDE.md):
+(`~/.switchboard` packaged, `~/.switchboard-dev` for a dev run — see `docs/ai/running-and-data.md`):
 
 | Scope | Key in the table | Written by |
 |---|---|---|

@@ -22,9 +22,9 @@ const path = require('path');
 
 const MAIN = path.join(__dirname, '..', 'src', 'main.js');
 
-// The 86 handlers #213 deliberately left in main.js. Append to this list ONLY with a reason, and only
-// after asking whether the handler belongs in one of the modules in CLAUDE.md's "Where an IPC handler
-// goes" table. Shrinking it is always right.
+// The 76 handlers #213 deliberately left in main.js. Append to this list ONLY with a reason, and only
+// after asking whether the handler belongs in one of the modules in the "Where an IPC handler goes"
+// table (.claude/rules/main-process.md). Shrinking it is always right.
 const GRANDFATHERED = [
   'archive-session', 'backend-can-fork', 'backends-list', 'bookmark-counts-by-project', 'bookmark-list',
   'bookmark-list-admin', 'bookmark-remove', 'bookmark-toggle', 'clipboard-write-text', 'delete-handoff',
@@ -49,7 +49,8 @@ const GRANDFATHERED = [
 // get-stats handler was deleted. A name left here would let its handler be written back into main.js.
 
 // Where a new handler goes instead. A red test that only says "no" ends as a new allow-list entry, so it
-// has to name the alternative. CLAUDE.md's "Where an IPC handler goes" carries the same seven modules in
+// has to name the alternative. .claude/rules/main-process.md's "Where an IPC handler goes" carries the
+// same modules in
 // prose — a rule with no mechanism gets skipped, a mechanism with no rule just gets an entry added to its
 // list. Change one, change the other. The test below checks that every module named here still exists, so
 // at least the advice cannot rot into a dead path.
@@ -121,7 +122,7 @@ test('the modules this guard points a new handler at still exist', () => {
   const missing = paths.filter(p => !fs.existsSync(path.join(__dirname, '..', p)));
   assert.deepEqual(missing, [],
     `this guard's failure message sends a new handler to module(s) that do not exist: ${missing.join(', ')}\n` +
-    'Fix WHERE_IT_GOES here and the matching table in CLAUDE.md.');
+    'Fix WHERE_IT_GOES here and the matching table in .claude/rules/main-process.md.');
 });
 
 test('main.js registers no IPC handler this guard cannot read', () => {

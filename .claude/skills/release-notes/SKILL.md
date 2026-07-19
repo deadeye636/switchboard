@@ -76,8 +76,8 @@ leak, but the point is not to write one.
 
 **The build has to have been INSTALLED.** A release whose installer was never run is not tested: install
 it, start it, and — if the release carries a migration — point it at a COPY of a real database and check
-the sidebar looks the same afterwards. (Where the installer goes and how to fetch it: CLAUDE.md,
-"Release artifacts".)
+the sidebar looks the same afterwards. (Where the installer goes and how to fetch it:
+`docs/ai/release.md`.)
 
 This is not a formality. 0.7.5's first draft shipped without `backends/` and the app died on its first
 `require`. The repo ran, `npm start` ran, 1244 tests passed; only the installer was missing anything, and
