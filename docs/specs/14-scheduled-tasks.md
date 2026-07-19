@@ -3,12 +3,12 @@
 > Read `docs/specs/README.md` first.
 
 **Status:** **Removed (#246)** — kept as a rebuild record · **Was:** Claude-only, shipped since the fork's
-early days · **Removal commit:** see the last section
+early days · **Removal commit:** `f136616`
 
 This spec is written *from the working code, before it was deleted*. It records what the feature did, the
 contracts it owned (one of which is still sitting in users' project folders), why each awkward part was
 awkward, and what a rebuild would have to do differently. The code itself is not reproduced here — it is
-559 lines in git; `git show <removal-sha>^:src/servers/schedule-runner.js` returns it verbatim. What git
+559 lines in git; `git show f136616^:src/servers/schedule-runner.js` returns it verbatim. What git
 cannot give back is the *why*, so that is what this file is.
 
 ## What it did
