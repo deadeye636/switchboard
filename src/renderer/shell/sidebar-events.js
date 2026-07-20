@@ -196,11 +196,14 @@ function dispatchSidebarActivation(e) {
   if (olderToggle) {
     const olderList = olderToggle.nextElementSibling;
     if (!olderList || !olderList.classList.contains('sessions-older')) return;
-    const count = olderList.children.length;
+    // The count comes from the dataset, not from the DOM: this list also holds the subagent carets
+    // and containers as siblings, so recounting it inflated the number on every collapse (#249).
+    const count = olderToggle.dataset.olderCount || olderList.children.length;
     const showing = olderList.style.display !== 'none';
     olderList.style.display = showing ? 'none' : '';
     olderToggle.classList.toggle('expanded', !showing);
-    olderToggle.textContent = showing ? `+ ${count} older` : '- hide older';
+    olderToggle.setAttribute('aria-expanded', showing ? 'false' : 'true');
+    olderToggle.innerHTML = `<span class="caret-arrow">&#9654;</span> ${count} older`;
     return;
   }
 

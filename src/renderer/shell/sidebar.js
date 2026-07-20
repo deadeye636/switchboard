@@ -374,11 +374,17 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath, know
     }
   }
   if (older.length > 0) {
+    // Same ▶/▼ caret as the subagent tree and the lineage thread (#193) — three expanders in one
+    // list should not be three shapes. The count is stamped here and never recounted from the DOM:
+    // appendSubagentChildren drops carets and containers into this very list as siblings, so
+    // `children.length` is sessions + carets + containers (#249).
     const moreBtn = document.createElement('div');
-    moreBtn.className = 'sessions-more-toggle';
+    moreBtn.className = 'sidebar-children-caret sessions-more-toggle';
     moreBtn.id = 'older-' + fId;
-    moreBtn.textContent = `+ ${older.length} older`;
-    ariaButton(moreBtn, moreBtn.textContent); // click/keyboard delegated in sidebar-events.js (#218 opt6)
+    moreBtn.dataset.olderCount = String(older.length);
+    moreBtn.innerHTML = `<span class="caret-arrow">&#9654;</span> ${older.length} older`;
+    moreBtn.setAttribute('aria-expanded', 'false');
+    ariaButton(moreBtn, `${older.length} older sessions`); // click/keyboard delegated in sidebar-events.js (#218 opt6)
     const olderList = document.createElement('div');
     olderList.className = 'sessions-older';
     olderList.id = 'older-list-' + fId;
@@ -674,8 +680,10 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder) {
         toEl.style.display = '';
       }
       if (fromEl.classList.contains('sessions-more-toggle') && fromEl.classList.contains('expanded')) {
+        // Only the open/closed state carries over — the label is the same in both states now, and
+        // rewriting it here is what used to plant "- hide older" on a rebuilt node.
         toEl.classList.add('expanded');
-        toEl.textContent = '- hide older';
+        toEl.setAttribute('aria-expanded', 'true');
       }
       if (fromEl.classList.contains('slug-group-older') && fromEl.style.display !== 'none') {
         toEl.style.display = '';

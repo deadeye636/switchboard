@@ -1506,24 +1506,8 @@ input:focus-visible {
   display: none;
 }
 
-.sessions-more-toggle {
-  padding: 3px 8px;
-  margin: 3px 10px 8px 34px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #7a7a90;
-  cursor: pointer;
-  user-select: none;
-  transition: all 0.15s;
-  border-radius: 5px;
-  display: inline-block;
-  background: rgba(255,255,255,0.03);
-}
-
-.sessions-more-toggle:hover {
-  color: #8088ff;
-  background: rgba(120,130,255,0.08);
-}
+/* .sessions-more-toggle carries .sidebar-children-caret too — its own rules live down with that class,
+   which comes later in this file and would otherwise win on equal specificity. */
 
 /* ---- Slug groups ---- */
 .slug-group-header {
@@ -6974,6 +6958,30 @@ body.grid-dragging .grid-card-header {
 
 .sidebar-children-caret.expanded .caret-arrow {
   transform: rotate(90deg);
+}
+
+/* The "+ N older" toggle borrows the caret mechanics above but ends a PROJECT's list rather than
+   belonging to one session, so it reads louder: a rule across the list closes it off, the label is
+   brighter and heavier, and it sits at the session edge instead of the subagent carets' 28px. The
+   quiet version was easy to scroll straight past in a long list. Must stay AFTER the block above —
+   equal specificity, so source order is what decides. */
+.sessions-more-toggle {
+  margin: 6px 10px 8px 8px;
+  padding: 7px 6px 3px;
+  border-top: 1px solid #33334a;
+  border-radius: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9a9ab8;
+}
+
+.sessions-more-toggle:hover {
+  color: #8088ff;
+  background: transparent;
+}
+
+.sessions-more-toggle .caret-arrow {
+  font-size: 9px;
 }
 
 /* Container for the child subagent items */
