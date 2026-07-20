@@ -69,6 +69,25 @@ test('session status distinguishes busy, running, exited, and idle', () => {
   assert.equal(getSessionStatus(idle, runtime).key, 'idle');
 });
 
+test('a session mid-launch reports as running, matching the sidebar promotion (#255)', () => {
+  const s = { sessionId: 'launching', modified: '2026-06-12T10:00:00.000Z' };
+  // No PTY yet — pendingSessions is a Map keyed by sessionId.
+  const runtime = state({ pendingSessions: new Map([['launching', { session: s }]]) });
+  assert.equal(getSessionStatus(s, runtime).key, 'running',
+    'the row already sorts with the running ones; the indicator must not say Idle');
+});
+
+test('a live PTY still outranks a stale pending entry (#255)', () => {
+  const s = { sessionId: 's', modified: '2026-06-12T10:00:00.000Z' };
+  // Both set: the real states above running still win, and running itself is unambiguous.
+  const runtime = state({
+    activePtyIds: new Set(['s']),
+    pendingSessions: new Map([['s', { session: s }]]),
+    sessionBusyState: new Map([['s', true]]),
+  });
+  assert.equal(getSessionStatus(s, runtime).key, 'busy');
+});
+
 test('subagent activity does not change the parent status (#112 overlay)', () => {
   // Subagent work is an overlay (a two-color dot), never a status of its own:
   // with async subagents the parent keeps generating, so it stays "busy".

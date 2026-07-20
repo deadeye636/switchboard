@@ -415,6 +415,7 @@ window._setRunningInboxSetting = (cfg) => {
 function sessionRuntimeState() {
   return {
     activePtyIds,
+    pendingSessions,
     attentionSessions,
     responseReadySessions,
     sessionBusyState,
@@ -996,6 +997,9 @@ async function launchNewSession(project, sessionOptions, seedText) {
   if (!result.ok) {
     entry.terminal.write(`\r\nError: ${result.error}\r\n`);
     entry.closed = true;
+    // The launch that would have cleared this never happened. Left behind, the pending entry keeps the
+    // row sorting and grouping as if it were starting, forever — while its chip reads Exited (#255).
+    pendingSessions.delete(sessionId);
     showSession(sessionId);
     return null;
   }

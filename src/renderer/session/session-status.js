@@ -66,7 +66,13 @@
     if (hasSetValue(runtime.attentionSessions, sessionId)) return STATUS.needsAttention;
     if (hasSetValue(runtime.responseReadySessions, sessionId)) return STATUS.responseReady;
     if (getMapValue(runtime.sessionBusyState, sessionId)) return STATUS.busy;
-    if (hasSetValue(runtime.activePtyIds, sessionId)) return STATUS.running;
+    // A session mid-launch has no PTY yet but is about to. The sidebar already sorts it with the
+    // running ones (pendingSessions); reporting it as running keeps the indicator honest instead of
+    // saying Idle while the row sits at the top. `pendingSessions` is a Map, but .has works the same
+    // (#255). It is cleared the instant the PTY appears or the launch fails.
+    if (hasSetValue(runtime.activePtyIds, sessionId) || hasSetValue(runtime.pendingSessions, sessionId)) {
+      return STATUS.running;
+    }
 
     const openEntry = getMapValue(runtime.openSessions, sessionId);
     if (openEntry && openEntry.closed) return STATUS.exited;
