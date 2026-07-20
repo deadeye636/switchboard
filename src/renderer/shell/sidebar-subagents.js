@@ -97,7 +97,10 @@ function buildSubagentItem(session) {
   const subLive = subagentLiveStatusOn() && typeof window._isSubagentLive === 'function'
     && session.parentSessionId && session.agentId
     && window._isSubagentLive(session.parentSessionId, session.agentId);
-  dot.className = 'session-status-dot' + (activePtyIds.has(session.sessionId) || subLive ? ' running' : '');
+  // A live subagent's dot is green, an idle one grey — via the shared palette classes, the same way
+  // regular rows do it now (#254). The bare `.running` class this used to set lost its CSS in that change.
+  const subDotLive = activePtyIds.has(session.sessionId) || subLive;
+  dot.className = 'session-status-dot ' + (subDotLive ? 'status-running' : 'status-idle');
 
   const info = document.createElement('div');
   info.className = 'session-info';
@@ -225,7 +228,11 @@ window._updateSubagentLive = function (parentSessionId, agentId, isLive) {
   document.querySelectorAll(`.sidebar-subagent[data-sub-live-key="${CSS.escape(key)}"]`).forEach(item => {
     item.classList.toggle('subagent-live', on && isLive);
     const dot = item.querySelector('.session-status-dot');
-    if (dot && !activePtyIds.has(item.dataset.sessionId)) dot.classList.toggle('running', on && isLive);
+    if (dot && !activePtyIds.has(item.dataset.sessionId)) {
+      const live = on && isLive;
+      dot.classList.toggle('status-running', live);
+      dot.classList.toggle('status-idle', !live);
+    }
   });
   updateSubagentCaret(parentSessionId);
   // The parent's two-color overlay follows the live-subagent set (#112).

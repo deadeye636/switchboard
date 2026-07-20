@@ -6273,9 +6273,9 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   top: -1px;
 }
 
-/* Terminal sessions: green status dot */
-.session-item.is-terminal .session-status-dot.running {
-  background: #3ecf5a;
+/* Terminal sessions: green status dot with a glow, keyed on the status class the dot carries now (#254). */
+.session-item.is-terminal .session-status-dot.status-running {
+  background: var(--status-running);
   box-shadow: 0 0 6px rgba(62,207,90,0.5);
 }
 
