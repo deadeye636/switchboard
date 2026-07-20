@@ -48,9 +48,27 @@ const SUBAGENTS = [
   { id: 'rv01', type: 'review', task: 'Review the demo-alpha test coverage', msgs: 12 },
 ];
 
+// demo-older exists to make the "+ N older" toggle appear at all: a project needs more sessions than the
+// visible limit (10) before anything folds away. Eighteen sessions put eight below the fold, and three of
+// those eight carry subagents — the shape #249 needs, because the subagent caret and its container are
+// inserted into that same list as siblings, so counting the list's children counts them too.
+//
+// The sidebar sorts and ages sessions by the file's MTIME, not by the timestamps inside the transcript,
+// so these get their mtime stamped from the same fixed base (below). Every one of them is older than the
+// default 3-day age cut — set "Hide sessions older than (days)" to 0 in the demo to see the count limit
+// do the folding instead, which is the interesting case.
+const OLDER_COUNT = 18;
+const OLDER_SUBAGENTS = { 11: 2, 13: 2, 15: 2 }; // rank (1 = newest) → how many subagents
+
 // ── Small fs helpers ─────────────────────────────────────────────────────────
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+/** Stamp a file's mtime from the fixed base — the sidebar sorts and ages on it, not on the transcript. */
+function touch(filePath, offsetSec) {
+  const d = new Date(BASE_MS + offsetSec * 1000);
+  try { fs.utimesSync(filePath, d, d); } catch {}
 }
 
 /** Write only if absent. Returns 'created' or 'skipped' so the run can report what it did. */
@@ -205,16 +223,19 @@ function seedDemo(demoDir = resolveDemoDir()) {
     ensureDir(dir);
   }
 
-  // The two extra standard projects (see docs/demo-env.md for the full catalogue).
+  // The extra standard projects (see docs/demo-env.md for the full catalogue).
   const projectMixed = path.join(demoDir, 'projects', 'demo-mixed');
   const projectChain = path.join(demoDir, 'projects', 'demo-chain');
+  const projectOlder = path.join(demoDir, 'projects', 'demo-older');
   paths.projectMixed = path.join(demoDir, 'projects', 'demo-mixed');
   paths.projectChain = path.join(demoDir, 'projects', 'demo-chain');
+  paths.projectOlder = path.join(demoDir, 'projects', 'demo-older');
 
   // Project working dirs + context files.
   for (const [dir, name] of [
     [paths.projectAlpha, 'demo-alpha'], [paths.projectBeta, 'demo-beta'],
     [paths.projectMixed, 'demo-mixed'], [paths.projectChain, 'demo-chain'],
+    [paths.projectOlder, 'demo-older'],
   ]) {
     ensureDir(dir);
     writeIfAbsent(path.join(dir, 'README.md'), readmeFor(name), created, skipped);
@@ -346,6 +367,51 @@ function seedDemo(demoDir = resolveDemoDir()) {
       created, skipped,
     );
   });
+
+  // demo-older: eighteen Claude sessions, one per hour walking backwards from the base, so the sidebar
+  // has more than the visible limit and folds the rest behind "+ N older".
+  const olderFolder = path.join(paths.storeClaude, encodeProjectPath(projectOlder));
+  for (let rank = 1; rank <= OLDER_COUNT; rank++) {
+    const pad = String(rank).padStart(2, '0');
+    const sid = `ba5e${pad}00-0000-4000-8000-${pad.padStart(12, '0')}`;
+    const t0 = -rank * 3600;
+    const file = claudeFile(projectOlder, sid);
+    if (writeIfAbsent(
+      file,
+      claudeSession({
+        cwd: projectOlder,
+        model: 'claude-opus-4-6',
+        prompt: `Demo session ${pad}: a routine change in demo-older.`,
+        reply: `Handled demo session ${pad}. Nothing here is real work.`,
+        t0,
+      }),
+      created, skipped,
+    ) === 'created') touch(file, t0);
+
+    // Subagents only on ranks that fall below the fold — that is what #249 needs to reproduce.
+    const subCount = OLDER_SUBAGENTS[rank] || 0;
+    for (let n = 1; n <= subCount; n++) {
+      const agentId = `d${pad}${n}`;
+      const subFile = path.join(olderFolder, sid, 'subagents', `agent-${agentId}.jsonl`);
+      if (writeIfAbsent(
+        subFile,
+        subagentTranscript({
+          agentId,
+          cwd: projectOlder,
+          model: 'claude-opus-4-6',
+          task: `Sub-task ${n} of demo session ${pad}`,
+          reply: `Finished sub-task ${n} of demo session ${pad}.`,
+          t0: t0 + n * 60,
+        }),
+        created, skipped,
+      ) === 'created') touch(subFile, t0 + n * 60);
+      writeIfAbsent(
+        path.join(olderFolder, sid, 'subagents', `agent-${agentId}.meta.json`),
+        JSON.stringify({ agentType: 'general-purpose', description: `Sub-task ${n} of demo session ${pad}` }, null, 2) + '\n',
+        created, skipped,
+      );
+    }
+  }
 
   return { demoDir: fwd, paths, created, skipped };
 }

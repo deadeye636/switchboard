@@ -91,12 +91,17 @@ Each project is a working dir under `<demo>/projects/<name>/` with a `README.md`
 (so the Memory tab has content), plus its sessions in the backend stores. The **standard test projects** —
 a fixed base so a scenario is always reproducible:
 
+Where the order or the age of sessions is part of the scenario, the seed also stamps each file's
+**mtime** from that same fixed base — the sidebar sorts and ages on the mtime, not on the timestamps
+inside the transcript, so seeding content alone leaves the order down to whatever the copy did.
+
 | Project | Sessions | What it exercises |
 |---|---|---|
 | **demo-alpha** | Claude ×2 (the 2nd a **fork** of the 1st) + Pi ×1; the 1st Claude session has **3 subagents** (general-purpose, explore, review) | the lineage "▶ earlier" thread; a Claude+Pi project; the **subagent** rows, their type colours and the row-layout setting (#230/#231) |
 | **demo-beta** | Codex ×1 | a single-backend, non-Claude project (badge + provenance) |
 | **demo-mixed** | Claude + Codex + Pi (one each, same project) | multi-backend badges + mixed provenance in ONE sidebar group |
 | **demo-chain** | Claude ×3, a three-deep fork chain (C forks B forks A) | a **deeper** lineage thread — the head folds "2 earlier" |
+| **demo-older** | Claude ×18, one per hour walking backwards; ranks 11, 13 and 15 carry 2 subagents each | the **"+ N older"** fold — more sessions than the visible limit, with subagents BELOW the fold (#249). Set "Hide sessions older than (days)" to 0, or all 18 fold at once: they are older than the 3-day default |
 
 To add a standard project, extend `IDS` and the seed blocks in `scripts/seed-demo.js` and add a row here.
 Keep transcripts valid against the real parsers — seed to a scratch dir (`SWITCHBOARD_DEMO_DIR=<tmp>
