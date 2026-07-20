@@ -17,11 +17,13 @@
 // A PLAIN CLASSIC SCRIPT that LOADS BEFORE app.js. That is the opposite of search-bar.js /
 // native-notifications.js and it is deliberate: this file is pure function declarations with NO
 // parse-time side effects (no listener, no IIFE, no top-level read), so loading it early is free — and it
-// buys the thing those two had to guard for. app.js reaches into this engine at call time
-// (refreshSessionStatusViews calls announceAttentionSummary; the terminal/hook/busy-state callbacks call
-// applyAttention and setActivity — all app.js's own, no external file calls these five). Loaded BEFORE
-// app.js, every one of those names is already declared when app.js parses, so none of them needs the
-// `typeof` / `?.` guard native-notifications.js forced. The two `let`s it owns (lastAnnouncedAttentionSummary,
+// buys the thing those two had to guard for. app.js reaches in only for announceAttentionSummary (via
+// refreshSessionStatusViews). The callers of applyAttention / setActivity are elsewhere: the IPC
+// callbacks in shell/session-ipc.js (onTerminalNotification, onAttentionSignal, onCliBusyState) drive
+// both, and views/grid-bulk-actions.js restores a previous ready set through markResponseReady rather
+// than writing the Set itself — that guard is the whole point of the function (#252). All are call-time.
+// Loaded BEFORE app.js, every one of those names is already declared when app.js parses, so none of
+// them needs the `typeof` / `?.` guard native-notifications.js forced. The two `let`s it owns (lastAnnouncedAttentionSummary,
 // _attentionAudioCtx) have no reader outside the engine, so they move with it; everything else it touches
 // it reads or mutates at call time, when app.js is long parsed.
 //
@@ -96,8 +98,25 @@ function maybePlayAttentionSound(prevAttention, nextAttention) {
   }
 }
 
+// "Ready" and "Working" describe the same session at the same moment and cannot both be true. This is
+// the only door into responseReadySessions from outside the engine — it refuses a session that is
+// working, so a caller restoring a previous set cannot recreate a state the engine keeps impossible.
+// Returns whether the session is now ready.
+function markResponseReady(sessionId) {
+  if (!sessionId || sessionBusyState.get(sessionId)) return false;
+  responseReadySessions.add(sessionId);
+  return true;
+}
+
 function setActivity(sessionId, active) {
-  if (responseReadySessions.has(sessionId)) {
+  // A ready session ignores an OSC "busy" guess: the heuristic fires on spinner frames, and a session
+  // waiting to be read should not flicker back to Working because of one. A hook `busy` signal is
+  // exact, and applyAttention clears ready before it gets here.
+  //
+  // The GUARD IS ON THE BUSY EDGE ONLY. It used to cover both, which made the contradictory state
+  // unrecoverable: with ready and busy somehow both set, the busy→idle edge that would have cleared
+  // busy was itself swallowed, and nothing short of the PTY dying got the session out (#252).
+  if (active && responseReadySessions.has(sessionId)) {
     return;
   }
 
@@ -117,7 +136,9 @@ function setActivity(sessionId, active) {
   if (wasActive && !active) {
     // Activity ended → response-ready if user isn't looking at this session
     if (sessionId !== activeSessionId) {
-      responseReadySessions.add(sessionId);
+      // Through the same door as every other caller. sessionBusyState was set to false above, so this
+      // always takes — the point is that there is one place where "ready" can be set.
+      markResponseReady(sessionId);
       recordTimelineEvent(sessionId, 'response-ready', 'Ready for review', 'Agent stopped producing output while this session was not focused.');
       const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
       if (item) {

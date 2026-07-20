@@ -113,6 +113,11 @@ function stepThroughQueue(queue) {
 
 // Mark N ready seen — clear the unread flag for each ready session, with an
 // Undo toast that re-adds them to responseReadySessions.
+//
+// Undo restores a set the user saw a moment ago, and the sessions have kept running in between: one
+// of them may have started a new turn since. Restoring it as "ready" on top of that would assert two
+// states at once, so it goes through markResponseReady, which drops the ones that are working (#252).
+// Those sessions are not lost — they show as Working, which is what they are.
 function markAllReadySeen(readyToClear) {
   if (!readyToClear || readyToClear.length === 0) return;
   const cleared = readyToClear.slice();
@@ -125,7 +130,7 @@ function markAllReadySeen(readyToClear) {
     actionLabel: 'Undo',
     onAction: () => {
       for (const sid of cleared) {
-        if (activePtyIds.has(sid)) responseReadySessions.add(sid);
+        if (activePtyIds.has(sid)) markResponseReady(sid);
       }
       refreshSessionStatusViews();
     },
