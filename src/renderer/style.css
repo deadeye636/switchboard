@@ -1735,6 +1735,7 @@ input:focus-visible {
    The status vocabulary lives in session-status.js (six keys); this is where each key gets its colour,
    once. A dot in any view keys on `.status-<key>` and reads these, so the three views cannot drift. */
 :root {
+  /* Dot / accent solids */
   --status-attention: #f0a050;
   --status-ready: #4fc3f7;
   --status-busy: #4fc3f7;
@@ -1742,6 +1743,14 @@ input:focus-visible {
   --status-exited: #a082ff;
   --status-idle-dot: #6a6a80;
   --status-subagent: rgba(64,200,180,0.78);
+  /* Chip foreground / background per state — the sidebar and grid chips both read these instead of
+     each carrying their own byte-identical copy (#257). */
+  --status-attention-fg: #ffd6a0; --status-attention-bg: rgba(240,160,80,0.18);
+  --status-ready-fg: #9ee4ff;     --status-ready-bg: rgba(79,195,247,0.18);
+  --status-busy-fg: #9ee4ff;      --status-busy-bg: rgba(79,195,247,0.14);
+  --status-running-fg: #9ef0ac;   --status-running-bg: rgba(62,207,90,0.14);
+  --status-exited-fg: #c0a0ff;    --status-exited-bg: rgba(160,130,255,0.13);
+  --status-idle-fg: #8a8aa0;      --status-idle-bg: rgba(255,255,255,0.06);
 }
 
 /* ---- Status dot (sidebar) — coloured by status.className, so it always agrees with the chip (#254).
@@ -1975,38 +1984,39 @@ input:focus-visible {
   filter: brightness(1.15);
 }
 
+/* Status chips (sidebar rows + attention inbox) — colours from the shared palette (#257). */
 .status-needs-attention .session-status-chip,
 .attention-inbox-item.status-needs-attention .attention-inbox-status {
-  color: #ffd6a0;
-  background: rgba(240,160,80,0.18);
+  color: var(--status-attention-fg);
+  background: var(--status-attention-bg);
 }
 
 .status-response-ready .session-status-chip,
 .attention-inbox-item.status-response-ready .attention-inbox-status {
-  color: #9ee4ff;
-  background: rgba(79,195,247,0.18);
+  color: var(--status-ready-fg);
+  background: var(--status-ready-bg);
 }
 
 .status-busy .session-status-chip,
 .attention-inbox-item.status-busy .attention-inbox-status {
-  color: #9ee4ff;
-  background: rgba(79,195,247,0.14);
+  color: var(--status-busy-fg);
+  background: var(--status-busy-bg);
 }
 
 .status-running .session-status-chip,
 .attention-inbox-item.status-running .attention-inbox-status {
-  color: #9ef0ac;
-  background: rgba(62,207,90,0.14);
+  color: var(--status-running-fg);
+  background: var(--status-running-bg);
 }
 
 .status-exited .session-status-chip {
-  color: #c0a0ff;
-  background: rgba(160,130,255,0.13);
+  color: var(--status-exited-fg);
+  background: var(--status-exited-bg);
 }
 
 .status-idle .session-status-chip {
-  color: #8a8aa0;
-  background: rgba(255,255,255,0.06);
+  color: var(--status-idle-fg);
+  background: var(--status-idle-bg);
 }
 
 /* ---- Session action buttons ---- */
@@ -2939,34 +2949,35 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   font-weight: 700;
 }
 
+/* Grid card chips — the same palette the sidebar chips read, no longer a byte-identical copy (#257). */
 .grid-card-status-chip.status-needs-attention {
-  color: #ffd6a0;
-  background: rgba(240,160,80,0.18);
+  color: var(--status-attention-fg);
+  background: var(--status-attention-bg);
 }
 
 .grid-card-status-chip.status-response-ready {
-  color: #9ee4ff;
-  background: rgba(79,195,247,0.18);
+  color: var(--status-ready-fg);
+  background: var(--status-ready-bg);
 }
 
 .grid-card-status-chip.status-busy {
-  color: #9ee4ff;
-  background: rgba(79,195,247,0.14);
+  color: var(--status-busy-fg);
+  background: var(--status-busy-bg);
 }
 
 .grid-card-status-chip.status-running {
-  color: #9ef0ac;
-  background: rgba(62,207,90,0.14);
+  color: var(--status-running-fg);
+  background: var(--status-running-bg);
 }
 
 .grid-card-status-chip.status-exited {
-  color: #c0a0ff;
-  background: rgba(160,130,255,0.13);
+  color: var(--status-exited-fg);
+  background: var(--status-exited-bg);
 }
 
 .grid-card-status-chip.status-idle {
-  color: #8a8aa0;
-  background: rgba(255,255,255,0.06);
+  color: var(--status-idle-fg);
+  background: var(--status-idle-bg);
 }
 
 .grid-card-stop-btn {
@@ -7802,24 +7813,27 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .session-tab:hover { background: #23232d; }
 .session-tab.active { background: #2a2a36; color: #fff; border-color: #3a3a4a; }
 .session-tab.dragging { opacity: 0.5; }
-.session-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #4a4a5a; flex-shrink: 0; }
-/* Tab status dot — saturated hues aligned to the sidebar/grid status palette (#97). */
-.session-tab.status-idle .session-tab-dot            { background: #8a8aa0; }
-.session-tab.status-exited .session-tab-dot          { background: #a082ff; }
-.session-tab.status-running .session-tab-dot         { background: #3fb950; }
-.session-tab.status-response-ready .session-tab-dot  { background: #4fc3f7; }
-.session-tab.status-needs-attention .session-tab-dot { background: #f0a050; }
-.session-tab.status-busy .session-tab-dot            { background: #4fc3f7; animation: tab-dot-pulse 1.2s ease-in-out infinite; }
+/* Base = the palette's idle grey, so a tab with no status class reads as idle rather than a seventh
+   off-palette colour (#257). */
+.session-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--status-idle-dot); flex-shrink: 0; }
+/* Tab status dot — one colour per state, from the shared palette (#257). Running used to be #3fb950 and
+   idle #8a8aa0, both off the palette every other view uses. */
+.session-tab.status-idle .session-tab-dot            { background: var(--status-idle-dot); }
+.session-tab.status-exited .session-tab-dot          { background: var(--status-exited); }
+.session-tab.status-running .session-tab-dot         { background: var(--status-running); }
+.session-tab.status-response-ready .session-tab-dot  { background: var(--status-ready); }
+.session-tab.status-needs-attention .session-tab-dot { background: var(--status-attention); }
+.session-tab.status-busy .session-tab-dot            { background: var(--status-busy); animation: tab-dot-pulse 1.2s ease-in-out infinite; }
 
 /* Subagent activity overlay (#123): green core = a subagent is working; the halo
    keeps the parent's own meaning — blue while it generates, teal while it waits.
    Listed after the status rules so equal specificity resolves in its favour. */
 .session-tab.subagent-active .session-tab-dot {
-  background: #3ecf5a;
+  background: var(--status-running);
   animation: tab-dot-pulse-sub 1.4s ease-in-out infinite;
 }
 .session-tab.subagent-active.status-busy .session-tab-dot {
-  background: #3ecf5a;
+  background: var(--status-running);
   animation: tab-dot-pulse 1.2s ease-in-out infinite;
 }
 @keyframes tab-dot-pulse-sub {
