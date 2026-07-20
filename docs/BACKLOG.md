@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (26 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (25 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-20
 
@@ -11,7 +11,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 ## P1 — next up
 
 - [#2](https://github.com/deadeye636/switchboard/issues/2) Session display Phase 3 — Detach (detachable windows) · _feature_
-- [#252](https://github.com/deadeye636/switchboard/issues/252) Ready and Working can be set at once, and the session sticks there · _bug_
 
 ## P2 — after that
 
