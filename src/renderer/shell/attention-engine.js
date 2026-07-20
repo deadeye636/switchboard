@@ -41,15 +41,8 @@ let lastAnnouncedAttentionSummary = '';
 
 function announceAttentionSummary() {
   if (!appLiveRegion || typeof getStatusCounts !== 'function') return;
-  const counts = getStatusCounts(getAllKnownSessionsForStatus(), {
-    activePtyIds,
-    attentionSessions,
-    responseReadySessions,
-    sessionBusyState,
-    openSessions,
-    lastActivityTime,
-    activeSessionId,
-  });
+  // The one runtime snapshot builder (window.sessionRuntimeState, #260) — this was a fourth inline copy.
+  const counts = getStatusCounts(getAllKnownSessionsForStatus(), window.sessionRuntimeState());
   const parts = [];
   if (counts.attention) parts.push(`${counts.attention} need${counts.attention === 1 ? 's' : ''} attention`);
   if (counts.ready) parts.push(`${counts.ready} ready`);

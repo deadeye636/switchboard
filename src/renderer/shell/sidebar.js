@@ -17,19 +17,10 @@ function folderId(projectPath) {
   return 'project-' + projectPath.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+// The one runtime snapshot builder lives in app.js (window.sessionRuntimeState, #260). This name is
+// what the sidebar row + tabs call; keep it as a thin delegate so those callers are untouched.
 function getSessionRuntimeState() {
-  return {
-    activePtyIds,
-    attentionSessions,
-    responseReadySessions,
-    sessionBusyState,
-    openSessions,
-    lastActivityTime,
-    activeSessionId,
-    // Running-in-inbox config + finish stamps (app.js). Spread last so the inbox
-    // filter (session-status.js inboxIncludes) sees the live setting.
-    ...attentionInboxRuntimeFields(),
-  };
+  return window.sessionRuntimeState();
 }
 
 function getSessionProjectLabel(session) {

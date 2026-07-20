@@ -404,8 +404,15 @@ window._setRunningInboxSetting = (cfg) => {
   refreshSessionStatusViews();
 };
 
-// --- Next-attention focus (shared by the inbox button and the hotkey) ---
-function statusRuntime() {
+// --- The runtime snapshot every view feeds getSessionStatus ---
+// ONE builder (#260). It used to have four near-copies — here, in sidebar.js, in grid-view.js, and
+// inline in attention-engine.js — so a field added to the status helper had to be added in four places
+// and a copy whose author forgot silently reported a stale state. The status maps are the base; the
+// inbox fields (finishedAt / mode / minutes / now) matter only to getAttentionInboxItems, but they are
+// harmless to the others (getSessionStatus never reads them), so one shape serves every caller.
+// Exposed on window so the sibling scripts (sidebar.js, grid-view.js) share this exact object rather
+// than restating it.
+function sessionRuntimeState() {
   return {
     activePtyIds,
     attentionSessions,
@@ -417,6 +424,9 @@ function statusRuntime() {
     ...attentionInboxRuntimeFields(),
   };
 }
+window.sessionRuntimeState = sessionRuntimeState;
+// statusRuntime kept as the name the inbox-focus callers already use; now just the shared builder.
+const statusRuntime = sessionRuntimeState;
 
 // Open/focus a single attention inbox item. Shared so the sidebar "Focus next"
 // button and the keyboard shortcut stay in sync.

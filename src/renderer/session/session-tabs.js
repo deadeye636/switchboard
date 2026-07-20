@@ -9,8 +9,8 @@
 // tests for the pure buildTabModel(). Keep buildTabModel free of DOM/globals.
 //
 // Depends on renderer globals: openSessions, activeSessionId, showSession,
-// destroySession (terminal-manager.js), cleanDisplayName (utils.js), activePtyIds,
-// attentionSessions, window.api.
+// destroySession (terminal-manager.js), cleanDisplayName (utils.js), sessionMap,
+// getSessionStatus + getSessionRuntimeState (the tab dot's status), window.api.
 
 // Pure: order the open sessions into a tab list. `sessions` is a plain array of
 // { sessionId, name, closed }; `order` is the persisted sessionId order (unknown
@@ -91,12 +91,6 @@ if (typeof module !== 'undefined' && module.exports) {
     return out;
   }
 
-  function isRunning(sessionId) {
-    return typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId);
-  }
-  function needsAttention(sessionId) {
-    return typeof attentionSessions !== 'undefined' && attentionSessions.has(sessionId);
-  }
 
   // Tear down a tab's view and, when it was the active session, fall back to the
   // next open tab (or the idle placeholder if none remain) so the main area is

@@ -53,16 +53,11 @@ function saveGridLayout() {
 // gridReducedMotion(), debouncedFit() and gridFitTimers moved to views/grid-gestures.js (#218) — the
 // pointer gestures were their only callers.
 
+// The one runtime snapshot builder lives in app.js (window.sessionRuntimeState, #260). This used to be
+// a near-copy that dropped the inbox fields — harmless for getSessionStatus, which never reads them,
+// but a divergence waiting to bite. Delegate so the grid reads the same shape as everything else.
 function getGridRuntimeState() {
-  return {
-    activePtyIds,
-    attentionSessions,
-    responseReadySessions,
-    sessionBusyState,
-    openSessions,
-    lastActivityTime,
-    activeSessionId,
-  };
+  return window.sessionRuntimeState();
 }
 
 function getGridOpenSessions() {
