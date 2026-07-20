@@ -111,7 +111,9 @@ function wrapInGridCard(sessionId, parent, layout) {
   const header = document.createElement('div');
   header.className = 'grid-card-header';
   const dot = document.createElement('span');
-  dot.className = 'grid-card-dot';
+  // Driven by status.className, same as the chip on this card (#253). It used to get no state class at
+  // build and stayed invisible until the first patch pass, because .grid-card-dot has no default fill.
+  dot.className = 'grid-card-dot ' + status.className;
   header.appendChild(dot);
   const name = document.createElement('span');
   name.className = 'grid-card-name';
@@ -453,8 +455,6 @@ function updateGridCardStatuses() {
     }
     const status = getSessionStatus(session, runtime);
     const health = getSessionHealth(session);
-    const running = status.key === 'running' || status.key === 'busy'
-      || status.key === 'needs-attention' || status.key === 'response-ready';
     // Keep the card title in sync with the live session metadata (user renames,
     // AI titles, /title). Title updates arrive via loadProjects() without a full
     // grid rebuild, so refresh the name in place here rather than leaving it stale.
@@ -464,7 +464,9 @@ function updateGridCardStatuses() {
       if (name.textContent !== displayName) name.textContent = displayName;
     }
     const dot = card.querySelector('.grid-card-dot');
-    if (dot) dot.className = 'grid-card-dot ' + (status.key === 'busy' ? 'busy' : (running ? 'running' : 'stopped'));
+    // The dot follows the resolved status, no longer a three-way collapse that painted attention/ready
+    // green and contradicted the chip on the same card (#253).
+    if (dot) dot.className = 'grid-card-dot ' + status.className;
     card.classList.remove(...GRID_STATUS_CLASSES, 'health-healthy', 'health-growing', 'health-marathon-risk', 'health-handoff-recommended');
     card.classList.add(status.className, health.className);
     // Subagent activity is an overlay on the dot, not a status of its own (#123).
@@ -483,7 +485,9 @@ function updateGridCardStatuses() {
     const footer = card.querySelector('.grid-card-footer');
     if (footer && footer.children[0]) footer.children[0].textContent = status.label;
     const stopBtn = card.querySelector('.grid-card-stop-btn');
-    if (stopBtn) stopBtn.style.display = running ? '' : 'none';
+    // Stop applies to a live process, so it keys on the pty — matching the build path (wrapInGridCard),
+    // which used activePtyIds. The old `running` collapse also showed it for an idle attention/ready row.
+    if (stopBtn) stopBtn.style.display = activePtyIds.has(sid) ? '' : 'none';
   }
 }
 

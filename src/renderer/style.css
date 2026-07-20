@@ -2876,22 +2876,36 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   flex-shrink: 0;
 }
 
-.grid-card-dot.running {
-  background: #3ecf5a;
+/* ---- Grid card dot — coloured by status.className from the shared palette, matching the chip on the
+   card (#253, #257). Same six states as the sidebar dot; the form is lighter (no ripple) because the
+   card already carries the labelled chip beside it. ---- */
+.grid-card-dot.status-running {
+  background: var(--status-running);
   box-shadow: 0 0 6px rgba(62,207,90,0.5);
 }
+.grid-card-dot.status-exited { background: var(--status-exited); }
+.grid-card-dot.status-idle   { background: var(--status-idle-dot); }
 
-.grid-card-dot.stopped { background: #6a6a80; }
+.grid-card-dot.status-response-ready {
+  background: var(--status-ready);
+  box-shadow: 0 0 6px rgba(79,195,247,0.6);
+}
 
-.grid-card-dot.busy {
-  background: #3ecf5a;
+.grid-card-dot.status-busy {
+  background: var(--status-busy);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.grid-card-dot.status-needs-attention {
+  background: var(--status-attention);
+  box-shadow: 0 0 6px rgba(240,160,80,0.6);
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
 /* Subagent activity overlay (#123). The grid dot already encodes the parent's own
    state, so the subagent adds a teal ring rather than recolouring the core. */
 .grid-card.subagent-active .grid-card-dot {
-  box-shadow: 0 0 0 2px rgba(64,200,180,0.85);
+  box-shadow: 0 0 0 2px var(--status-subagent);
   animation: pulse-dot 1.4s ease-in-out infinite;
 }
 
