@@ -109,15 +109,12 @@ test('a string confirmLabel is unaffected by the checkbox state', () => {
   assert.equal(controlDialogConfirmText(options, true), 'Archive');
 });
 
-// The archive dialog names its subagent share so its count can be reconciled with the sidebar, which
-// counts render items — but a project without subagents must not gain a "Subagents 0" row (#250).
+// A caller builds its detail table as one object literal and leaves a row out by giving it `undefined`,
+// rather than assembling the object conditionally. `0` is a value and stays — a "Running 0" row is
+// information.
 test('an undefined detail value drops out, so an optional row can be omitted by passing nothing', () => {
-  assert.deepEqual(formatControlDialogDetails({ Sessions: 94, Subagents: 0 || undefined, Running: 0 }), [
-    { label: 'Sessions', value: '94' },
+  assert.deepEqual(formatControlDialogDetails({ Sessions: 9, Optional: undefined, Running: 0 }), [
+    { label: 'Sessions', value: '9' },
     { label: 'Running', value: '0' },
-  ]);
-  assert.deepEqual(formatControlDialogDetails({ Sessions: 94, Subagents: 84 || undefined }), [
-    { label: 'Sessions', value: '94' },
-    { label: 'Subagents', value: '84' },
   ]);
 });

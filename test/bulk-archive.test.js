@@ -7,6 +7,11 @@
 //   normally sees nothing: the previous pass tested `normalizeControlDialogOptions` and called it
 //   covered, while the branch that actually decides WHICH sessions get stopped had no test at all.
 //
+//   THE COUNTING RULE, which two passes got wrong before it was written down: every number the dialog
+//   shows counts SESSIONS — top-level rows, what the sidebar shows. Subagents are never counted and
+//   never named: they follow their parent, and the ones under a session that stays running stay with
+//   it. The dialog has two numbers, idle and running, because that is what the decision is about.
+//
 //   So this loads the REAL dialog and the REAL sidebar-events into one jsdom context and drives the
 //   thing end to end — render the confirm, tick the checkbox, press the button, assert what was
 //   stopped and archived. A test that only exercises the option normalizer cannot tell the two
@@ -99,6 +104,7 @@ test('by default the running session is left alone — archiving is for what is 
 
     assert.equal(t.confirmBtn().textContent, 'Archive 2 Sessions',
       'the button names what it will archive, not how many sessions exist');
+    assert.deepEqual(t.details(), { Project: 'Projekte/switchboard', Sessions: '2', Running: '1' });
     t.confirmBtn().click();
     await done;
 
@@ -185,32 +191,83 @@ test('cancel archives nothing, and neither does Escape', async () => {
 
 // --- #250: the count the dialog reports ---
 
-test('the dialog names the subagent share, so its count can be read against the sidebar', async () => {
+test('the counts are sessions, not rows — subagents are never counted or named', async () => {
   const t = setup();
   try {
     const sessions = [
-      t.session('p1'), t.session('p2'),
+      t.session('p1'), t.session('p2'), t.session('live', { running: true }),
       t.session('s1', { parent: 'p1' }), t.session('s2', { parent: 'p1' }), t.session('s3', { parent: 'p2' }),
     ];
     const done = t.call('archiveProjectGroup')(project(sessions));
     await t.tick();
 
-    assert.deepEqual(t.details(), {
-      Project: 'Projekte/switchboard', Sessions: '5', Subagents: '3', Running: '0',
-    });
+    // Six rows in the project, but the decision is about two idle sessions and one running one.
+    assert.deepEqual(t.details(), { Project: 'Projekte/switchboard', Sessions: '2', Running: '1' });
+    assert.equal(t.confirmBtn().textContent, 'Archive 2 Sessions',
+      'the button counts the sidebar rows it will archive, not the rows it touches');
+
     t.confirmBtn().click();
     await done;
-    assert.equal(t.calls.archived.length, 5, 'naming the subagents must not change what is archived');
+
+    assert.deepEqual(t.calls.archived, ['p1', 'p2', 's1', 's2', 's3'],
+      'a session takes its subagents with it, even though the button counted only the parents');
+    assert.match(t.toastText(), /Archived 2 sessions/, 'the toast counts the same way the button did');
   } finally { t.destroy(); }
 });
 
-test('a project without subagents gets no "Subagents 0" row', async () => {
+// A running session that keeps its own subagents is the whole point of leaving it running. Archiving
+// the tree underneath it would gut the live session while it works.
+test('the subagents of a running session are protected with it', async () => {
   const t = setup();
   try {
-    const done = t.call('archiveProjectGroup')(project([t.session('a')]));
+    const sessions = [
+      t.session('idle'), t.session('idlesub', { parent: 'idle' }),
+      t.session('live', { running: true }),
+      t.session('livesub', { parent: 'live' }), t.session('livedeep', { parent: 'livesub' }),
+    ];
+    const done = t.call('archiveProjectGroup')(project(sessions));
     await t.tick();
 
-    assert.deepEqual(Object.keys(t.details()), ['Project', 'Sessions', 'Running']);
+    assert.equal(t.confirmBtn().textContent, 'Archive 1 Session');
+    t.confirmBtn().click();
+    await done;
+
+    assert.deepEqual(t.calls.archived, ['idle', 'idlesub']);
+    assert.equal(sessions[3].archived, 0, "the running session's subagent must survive");
+    assert.equal(sessions[4].archived, 0, '...and so must the one below it');
+  } finally { t.destroy(); }
+});
+
+test('with the box ticked the running session and its subagents go too', async () => {
+  const t = setup();
+  try {
+    const sessions = [
+      t.session('idle'), t.session('live', { running: true }), t.session('livesub', { parent: 'live' }),
+    ];
+    const done = t.call('archiveProjectGroup')(project(sessions));
+    await t.tick();
+
+    t.checkbox().click();
+    assert.equal(t.confirmBtn().textContent, 'Archive 2 Sessions',
+      'the checkbox adds the running SESSION to the count, not its subagent rows');
+    t.confirmBtn().click();
+    await done;
+
+    assert.deepEqual(t.calls.archived, ['idle', 'live', 'livesub']);
+    assert.deepEqual(t.calls.stopped, ['live']);
+  } finally { t.destroy(); }
+});
+
+test('the table stays at two numbers — nothing about subagents leaks into it', async () => {
+  const t = setup();
+  try {
+    const done = t.call('archiveProjectGroup')(project([
+      t.session('a'), t.session('sub', { parent: 'a' }),
+    ]));
+    await t.tick();
+
+    assert.deepEqual(Object.keys(t.details()), ['Project', 'Sessions', 'Running'],
+      'a subagent row must not add a row to the dialog');
     t.window.document.querySelector('.control-dialog-cancel').click();
     await done;
   } finally { t.destroy(); }

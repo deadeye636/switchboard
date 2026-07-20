@@ -313,39 +313,60 @@ async function remapProject(project) {
 // decides the scope, so the next bulk-archive caller cannot reintroduce the old behaviour by copying
 // a sibling.
 //
-// The session count is the RAW row count, and it will not match what the sidebar shows: subagents
-// render nested under their parent, a folded lineage ancestor hides behind its descendant, and a slug
-// group of n sessions is one row. Nothing is wrong with either number — the dialog names the subagent
-// share so the gap is readable instead of looking like a miscount (#250).
+// EVERY NUMBER IN THE DIALOG COUNTS SESSIONS THE WAY THE USER DOES — the rows the sidebar shows.
+// A subagent is not something you archive on its own; it belongs to its parent and goes where the
+// parent goes, so it is never counted and never named. The dialog has exactly two numbers, and they
+// are the two the decision is about: how many idle sessions this archives, and how many running ones
+// it would have to stop.
+//
+// This replaced a version that reported the raw row count (95) beside the subagent share (85) and the
+// running one (1) — three overlapping numbers for the same 95 rows, none of which matched the sidebar.
+// Naming the subagents only papered over the real defect, which was counting rows instead of sessions.
 //
 // Returns the sessions to archive, or null when the user backed out or the scope came to nothing.
+function sessionsWithSubagents(roots, sessions) {
+  const ids = new Set(roots.map(s => s.sessionId));
+  // A subagent tree is shallow, but walk it to a fixed point rather than assuming one level.
+  for (let pass = 0; pass < 25; pass++) {
+    const before = ids.size;
+    for (const s of sessions) {
+      if (s.parentSessionId && ids.has(s.parentSessionId)) ids.add(s.sessionId);
+    }
+    if (ids.size === before) break;
+  }
+  return ids;
+}
+
 async function confirmArchiveScope(title, scopeDetails, sessions) {
   const running = sessions.filter(s => activePtyIds.has(s.sessionId));
-  const idle = sessions.filter(s => !activePtyIds.has(s.sessionId));
-  const subagents = sessions.filter(s => s.parentSessionId).length;
+  // Leaving a session running while archiving the subagents underneath it would gut the live session's
+  // own tree. Whatever hangs off a running session is protected with it.
+  const live = sessionsWithSubagents(running, sessions);
+  const idle = sessions.filter(s => !live.has(s.sessionId));
+  const topLevel = list => list.filter(s => !s.parentSessionId);
+  const idleCount = topLevel(idle).length;
+  const runningCount = topLevel(running).length;
   const countLabel = n => `Archive ${n} Session${n === 1 ? '' : 's'}`;
   const options = {
     title,
-    message: 'Archived sessions are hidden from the default sidebar view. Running sessions are left alone unless you include them.',
-    confirmLabel: countLabel(idle.length),
-    confirmDisabled: idle.length === 0,
+    message: 'Archived sessions are hidden from the default sidebar view. A session takes its subagents with it. Running sessions are left alone unless you include them.',
+    confirmLabel: countLabel(idleCount),
+    confirmDisabled: idleCount === 0,
     tone: 'warning',
     details: {
       ...scopeDetails,
-      Sessions: sessions.length,
-      // Only when there are any — a scope without subagents must not gain a "0" row.
-      Subagents: subagents || undefined,
-      Running: running.length,
+      Sessions: idleCount,
+      Running: runningCount,
     },
   };
   // The checkbox only exists when there is something for it to include, so the dialog's result shape
   // follows it: an object with it, the bare boolean without.
   if (running.length > 0) {
     options.checkbox = {
-      label: `Also stop and archive ${running.length} running session${running.length === 1 ? '' : 's'}`,
+      label: `Also stop and archive ${runningCount} running session${runningCount === 1 ? '' : 's'}`,
       checked: false,
     };
-    const scopeSize = withRunning => (withRunning ? sessions.length : idle.length);
+    const scopeSize = withRunning => idleCount + (withRunning ? runningCount : 0);
     options.confirmLabel = withRunning => countLabel(scopeSize(withRunning));
     // Everything running and the box unchecked → the button says "Archive 0 Sessions" AND cannot be
     // pressed. A confirm that silently does nothing is worse than no confirm at all.
@@ -356,12 +377,14 @@ async function confirmArchiveScope(title, scopeDetails, sessions) {
   const includeRunning = running.length > 0 ? result.checked : false;
   if (!confirmed) return null;
   const targets = includeRunning ? sessions : idle;
-  return targets.length > 0 ? targets : null;
+  return topLevel(targets).length > 0 ? targets : null;
 }
 
 // Stop-then-archive the confirmed set, and offer an undo that restores exactly it.
 async function applyBulkArchive(targets, scopeName) {
   const archivedIds = targets.map(s => s.sessionId);
+  // The toast counts what the button counted — sessions, not rows. Undo still restores every row.
+  const shown = targets.filter(s => !s.parentSessionId).length;
   for (const s of targets) {
     if (activePtyIds.has(s.sessionId)) {
       window._markUserStopped?.(s.sessionId);
@@ -373,7 +396,7 @@ async function applyBulkArchive(targets, scopeName) {
   pollActiveSessions();
   loadProjects();
   showControlToast({
-    message: `Archived ${archivedIds.length} session${archivedIds.length === 1 ? '' : 's'} from ${scopeName}.`,
+    message: `Archived ${shown} session${shown === 1 ? '' : 's'} from ${scopeName}.`,
     actionLabel: 'Undo',
     onAction: async () => {
       for (const id of archivedIds) {
