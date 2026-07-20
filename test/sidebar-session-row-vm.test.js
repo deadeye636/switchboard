@@ -101,7 +101,11 @@ test('the map state paints the row classes it drives', () => {
     for (const c of ['has-running-pty', 'needs-attention', 'response-ready', 'cli-busy', 'subagent-active']) {
       assert.equal(item.classList.contains(c), true, `expected class ${c}`);
     }
-    assert.equal(item.querySelector('.session-status-dot').classList.contains('running'), true);
+    // The dot is driven by status.className now (#254), not a bare `running` toggle. getSessionStatus is
+    // stubbed here, so the dot wears the stub's className — the point is the WIRING: dot follows status,
+    // no longer the raw activePtyIds flag. (The status resolution itself is covered in session-status.test.js.)
+    assert.equal(item.querySelector('.session-status-dot').classList.contains('status-active'), true);
+    assert.equal(item.querySelector('.session-status-dot').classList.contains('running'), false);
   } finally { destroy(); }
 });
 

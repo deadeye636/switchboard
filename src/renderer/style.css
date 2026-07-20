@@ -1731,48 +1731,74 @@ input:focus-visible {
   color: #f5be3c;
 }
 
-/* ---- Running dot ---- */
+/* ==== Status palette: one colour per state, shared by the sidebar/grid/tab dots and chips (#257) ====
+   The status vocabulary lives in session-status.js (six keys); this is where each key gets its colour,
+   once. A dot in any view keys on `.status-<key>` and reads these, so the three views cannot drift. */
+:root {
+  --status-attention: #f0a050;
+  --status-ready: #4fc3f7;
+  --status-busy: #4fc3f7;
+  --status-running: #3ecf5a;
+  --status-exited: #a082ff;
+  --status-idle-dot: #6a6a80;
+  --status-subagent: rgba(64,200,180,0.78);
+}
+
+/* ---- Status dot (sidebar) — coloured by status.className, so it always agrees with the chip (#254).
+   The helper already ranks the states (attention > ready > busy > running > exited > idle), so the dot
+   just paints the winning one — no CSS :not() precedence juggling. ---- */
 .session-status-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.18);
+  background: var(--status-idle-dot);
+}
+.session-status-dot.status-running { background: var(--status-running); }
+.session-status-dot.status-exited  { background: var(--status-exited); }
+.session-status-dot.status-idle    { background: var(--status-idle-dot); }
+
+.session-status-dot.status-response-ready {
+  background: var(--status-ready);
+  box-shadow: 0 0 8px rgba(79,195,247,0.7);
 }
 
-.session-status-dot.running {
-  background: #3ecf5a;
+/* Busy = the braille spinner is turning: a spinning ring, not a filled dot. */
+.session-status-dot.status-busy {
+  background: transparent;
+  border: 1.5px solid var(--status-busy);
+  border-top-color: transparent;
+  animation: spin-dot 0.8s linear infinite;
+}
+
+/* Needs-you = filled amber with an expanding ripple. */
+.session-status-dot.status-needs-attention {
+  background: var(--status-attention);
+  position: relative;
+}
+.session-status-dot.status-needs-attention::before,
+.session-status-dot.status-needs-attention::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(240,160,80,0.7);
+  animation: ripple-out 2s ease-out infinite;
+}
+.session-status-dot.status-needs-attention::after { animation-delay: 1s; }
+
+/* Subagent-activity overlay (#112): the parent keeps its own dot; a live subagent adds a teal halo.
+   Over a busy (spinning) parent, fill the core green inside the ring so both read at once. */
+.session-item.subagent-active .session-status-dot.status-busy {
+  background: var(--status-running);
+}
+.session-item.subagent-active .session-status-dot:not(.status-busy):not(.status-needs-attention) {
+  box-shadow: 0 0 0 2px var(--status-subagent);
+  animation: pulse-dot 1.4s ease-in-out infinite;
 }
 
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
-}
-
-/* ---- CLI busy spinner (braille spinner detected) ---- */
-/* needs-attention takes precedence — when both are set, attention ripple shows */
-.session-item.cli-busy:not(.needs-attention) .session-status-dot,
-.session-item.cli-busy:not(.needs-attention) .session-status-dot.running {
-  background: transparent !important;
-  border: 1.5px solid #4fc3f7;
-  border-top-color: transparent;
-  animation: spin-dot 0.8s linear infinite !important;
-  box-shadow: none !important;
-}
-
-/* Subagent-activity overlay (#112): the parent keeps its own status; the dot goes
-   two-color while a subagent works inside the session. Busy parent → the blue
-   cli-busy ring keeps spinning (main agent generating) around a green core
-   (subagent working). Higher specificity beats the cli-busy background rule. */
-.session-item.subagent-active.cli-busy:not(.needs-attention) .session-status-dot,
-.session-item.subagent-active.cli-busy:not(.needs-attention) .session-status-dot.running {
-  background: #3ecf5a !important;
-}
-
-/* Idle/running parent with a live subagent: green core, teal halo. */
-.session-item.subagent-active:not(.cli-busy):not(.needs-attention) .session-status-dot {
-  background: #3ecf5a;
-  box-shadow: 0 0 0 2px rgba(64,200,180,0.75);
-  animation: pulse-dot 1.4s ease-in-out infinite;
 }
 
 @keyframes spin-dot {
@@ -2245,13 +2271,9 @@ input:focus-visible {
   opacity: 0.55;
 }
 
-/* ---- Response ready indicator (Claude finished, unread output) ---- */
-.session-item.response-ready .session-status-dot {
-  background: #4fc3f7;
-  box-shadow: 0 0 8px rgba(79,195,247,0.7);
-  animation: none;
-}
-
+/* ---- Row TEXT effects for ready / needs-attention. The DOT for these states is defined once, with
+   the rest of the status dots, up near the palette (#254). These rules only colour the row text, which
+   is why they still key on the item-level classes patchSidebarStatuses keeps in sync. ---- */
 .session-item.response-ready .session-name {
   color: #4fc3f7;
   font-weight: 600;
@@ -2263,29 +2285,6 @@ input:focus-visible {
 
 .session-item.response-ready .session-time {
   color: rgba(79,195,247,0.6);
-}
-
-/* ---- Needs attention indicator (ripple) ---- */
-.session-item.needs-attention .session-status-dot,
-.session-item.needs-attention .session-status-dot.running {
-  background: #f0a050;
-  box-shadow: none;
-  animation: none;
-  position: relative;
-}
-
-.session-item.needs-attention .session-status-dot::before,
-.session-item.needs-attention .session-status-dot::after {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(240,160,80,0.7);
-  animation: ripple-out 2s ease-out infinite;
-}
-
-.session-item.needs-attention .session-status-dot::after {
-  animation-delay: 1s;
 }
 
 @keyframes ripple-out {

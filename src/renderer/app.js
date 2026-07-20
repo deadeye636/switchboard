@@ -748,8 +748,9 @@ function updateRunningIndicators() {
         if (sessionBusyState.delete(id)) statusChanged = true;
         item.classList.remove('cli-busy');
       }
-      const dot = item.querySelector('.session-status-dot');
-      if (dot) dot.classList.toggle('running', running);
+      // The dot no longer follows activePtyIds directly (#254) — a pty-set change always flips
+      // has-running-pty above, so statusChanged is set and the refreshSessionStatusViews below runs
+      // patchSidebarStatuses, which repaints the dot from status.className.
     });
     // Update slug group running dots
     document.querySelectorAll('.slug-group').forEach(group => {

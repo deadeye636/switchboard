@@ -775,6 +775,8 @@ function patchSidebarStatuses() {
   }
   for (const item of sidebarContent.querySelectorAll('.session-item[data-session-id]')) {
     const sid = item.dataset.sessionId;
+    // These item-level classes still drive the row TEXT effects (the busy shimmer, the ready/attention
+    // name colouring). The DOT no longer reads them — it carries status.className now (#254).
     item.classList.toggle('has-running-pty', activePtyIds.has(sid));
     item.classList.toggle('needs-attention', attentionSessions.has(sid));
     item.classList.toggle('response-ready', responseReadySessions.has(sid));
@@ -782,16 +784,20 @@ function patchSidebarStatuses() {
     // Subagent-activity overlay (#112): parent keeps its status, dot goes two-color.
     item.classList.toggle('subagent-active', subagentActiveSessions.has(sid));
     const dot = item.querySelector('.session-status-dot');
-    if (dot) dot.classList.toggle('running', activePtyIds.has(sid));
     if (item.dataset.subagent) continue; // subagent rows carry no status chip
     const session = sessionMap.get(sid);
     if (!session) {
       // The session dropped out of the map between renders. Clear its status rather than leaving the
       // last one asserted — a row still glowing needs-attention for a session nobody can look up (#258).
       item.classList.remove(...SESSION_STATUS_CLASSES);
+      if (dot) dot.classList.remove(...SESSION_STATUS_CLASSES);
       continue;
     }
     const status = getSessionStatus(session, runtime);
+    if (dot && !dot.classList.contains(status.className)) {
+      dot.classList.remove(...SESSION_STATUS_CLASSES);
+      dot.classList.add(status.className);
+    }
     if (!item.classList.contains(status.className)) {
       item.classList.remove(...SESSION_STATUS_CLASSES);
       item.classList.add(status.className);
