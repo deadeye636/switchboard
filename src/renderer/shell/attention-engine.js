@@ -29,9 +29,10 @@
 //
 // What it reaches into, by file (all at call time):
 //   app.js   attentionSessions, responseReadySessions (mutate), refreshSessionStatusViews,
-//            getAllKnownSessionsForStatus, recordTimelineEvent, appLiveRegion, activePtyIds,
-//            sessionBusyState, openSessions, lastActivityTime, activeSessionId, appGlobalSettings,
-//            finishedAt, attentionReason
+//            getAllKnownSessionsForStatus, recordTimelineEvent, appLiveRegion, sessionBusyState,
+//            activeSessionId, appGlobalSettings, finishedAt, attentionReason,
+//            window.sessionRuntimeState (the one snapshot builder, #260 — announceAttentionSummary
+//            reads the status maps through it now, not by naming activePtyIds/openSessions/lastActivityTime)
 //   session/session-status.js   getStatusCounts (UMD → window/global)
 //   shared/attention-source.js  reduceAttention (UMD → window/global)
 //   shell/alert-sound.js        shouldPlayAttentionSound (UMD → window/global)
