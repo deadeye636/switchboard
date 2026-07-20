@@ -359,7 +359,9 @@ function processProjectSessions(project, resort) {
 // Build the sessions list DOM (shared between projects and worktrees).
 // subagentIndex/projectPath are optional — when provided (and not searching),
 // subagents render nested under their parent + an "Orphan subagents" section.
-function buildSessionsList(fId, visible, older, subagentIndex, projectPath) {
+// knownSessionIds carries the project's full, unfiltered id set so the orphan section can tell a
+// parent that is GONE from one that is merely filtered away (#247).
+function buildSessionsList(fId, visible, older, subagentIndex, projectPath, knownSessionIds) {
   const nestSubagents = subagentIndex && (typeof searchMatchIds === 'undefined' || searchMatchIds === null);
   const sessionsList = document.createElement('div');
   sessionsList.className = 'project-sessions';
@@ -398,24 +400,29 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath) {
   if (nestSubagents && (typeof showSubagentsOn !== 'function' || showSubagentsOn())) {
     const topLevelIds = new Set([...visible, ...older]
       .map(i => i.element.dataset && i.element.dataset.sessionId).filter(Boolean));
-    const orphans = [];
-    for (const [parentId, kids] of subagentIndex) {
-      if (!topLevelIds.has(parentId)) orphans.push(...kids);
-    }
-    if (orphans.length > 0) {
+    // Who belongs here and who is too old for it lives in sidebar-state.js (#247/#248) — the same
+    // place the other "does this even render" decisions do, and the only one of them that is tested.
+    const shown = orphanSubagents({
+      subagentIndex,
+      renderedParentIds: topLevelIds,
+      knownSessionIds,
+      maxAgeDays: typeof orphanSubagentMaxAgeDays === 'function' ? orphanSubagentMaxAgeDays() : 0,
+      now: Date.now(),
+    });
+    if (shown.length > 0) {
       const orphanStateKey = 'orphanExpanded:' + (projectPath || fId);
       const expanded = localStorage.getItem(orphanStateKey) === '1';
       const orphanGroup = document.createElement('div');
       orphanGroup.className = 'sidebar-orphan-subagents' + (expanded ? '' : ' collapsed');
       const orphanLabel = document.createElement('div');
       orphanLabel.className = 'sidebar-orphan-label';
-      orphanLabel.innerHTML = `<span class="orphan-caret">&#9656;</span> Orphan subagents <span class="orphan-count">${orphans.length}</span>`;
+      orphanLabel.innerHTML = `<span class="orphan-caret">&#9656;</span> Orphan subagents <span class="orphan-count">${shown.length}</span>`;
       orphanLabel.addEventListener('click', () => {
         const isCollapsed = orphanGroup.classList.toggle('collapsed');
         localStorage.setItem(orphanStateKey, isCollapsed ? '0' : '1');
       });
       orphanGroup.appendChild(orphanLabel);
-      for (const orphan of orphans) orphanGroup.appendChild(buildSubagentItem(orphan));
+      for (const orphan of shown) orphanGroup.appendChild(buildSubagentItem(orphan));
       sessionsList.appendChild(orphanGroup);
     }
   }
@@ -539,7 +546,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
     newBtn.title = 'New session';
     header.appendChild(newBtn);
 
-    const sessionsList = buildSessionsList(fId, visible, older, buildSubagentIndex(project.sessions), project.projectPath);
+    const sessionsList = buildSessionsList(fId, visible, older, buildSubagentIndex(project.sessions), project.projectPath, buildKnownSessionIds(project.sessions));
 
     // Explicit user collapse/expand (persisted) overrides the age heuristic, so the
     // "last state" startup default remembers project headers. Falls back to the
@@ -602,7 +609,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
       wtNewBtn.title = 'New session in worktree';
       wtHeader.appendChild(wtNewBtn);
 
-      const wtSessionsList = buildSessionsList(wtFId, wtResult.visible, wtResult.older, buildSubagentIndex(wt.sessions), wt.projectPath);
+      const wtSessionsList = buildSessionsList(wtFId, wtResult.visible, wtResult.older, buildSubagentIndex(wt.sessions), wt.projectPath, buildKnownSessionIds(wt.sessions));
       wtSessionsList.className = 'worktree-sessions';
 
       // Auto-collapse worktree if stale

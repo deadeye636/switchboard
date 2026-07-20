@@ -46,5 +46,39 @@
     return topLevelCount > 0 || anyFilterActive;
   }
 
-  return { shouldRenderProjectGroup, projectHasNothingToRender };
+  // Which subagents belong in a project's "Orphan subagents" group, and which of those survive the
+  // age cut (#247, #248).
+  //
+  // Orphan means the parent is GONE, not merely off screen. The group used to ask only whether the
+  // parent was among the rendered rows, while the subagent index is built from the project's raw
+  // session list — so every filter (running / today / pinned / favorites), the age cut and the
+  // `older` limit pushed its parents' children in here instead of hiding them along with the parent.
+  // On a real history that is hundreds of rows appearing the moment a filter goes on.
+  //
+  // `knownSessionIds` is deliberately the PROJECT's id set, not an app-wide one. A subagent whose
+  // parent is bucketed into a different project is not rendered under that parent either — the index
+  // is per project — so this group is the only place it can be reached, and a global set would make
+  // it unreachable rather than merely mislabelled.
+  //
+  // `maxAgeDays` 0 = never hide, like the other day limits (#144). Hiding is display-only.
+  function orphanSubagents({
+    subagentIndex = new Map(),
+    renderedParentIds = new Set(),
+    knownSessionIds = null,
+    maxAgeDays = 0,
+    now = 0,
+  } = {}) {
+    const orphans = [];
+    for (const [parentId, kids] of subagentIndex) {
+      if (renderedParentIds.has(parentId)) continue;
+      if (knownSessionIds && knownSessionIds.has(parentId)) continue;
+      orphans.push(...kids);
+    }
+    if (!(maxAgeDays > 0) || !now) return orphans;
+    const cutoff = now - maxAgeDays * 86400000;
+    // A row with no timestamp is kept: an unknown age is not evidence of an old one.
+    return orphans.filter(s => !s.modified || new Date(s.modified).getTime() >= cutoff);
+  }
+
+  return { shouldRenderProjectGroup, projectHasNothingToRender, orphanSubagents };
 });

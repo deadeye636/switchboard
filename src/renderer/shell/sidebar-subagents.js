@@ -186,6 +186,14 @@ function showSubagentsOn() {
   return typeof appGlobalSettings === 'undefined' || appGlobalSettings.showSubagents !== false;
 }
 
+// How old an orphan subagent may be before it drops out of the sidebar (#248). 0 = never hide, so a
+// stored 0 has to survive — hence the finite-number test rather than `||`. Default 14 days.
+function orphanSubagentMaxAgeDays() {
+  const v = typeof appGlobalSettings !== 'undefined' && appGlobalSettings
+    ? appGlobalSettings.orphanSubagentMaxAgeDays : undefined;
+  return Number.isFinite(v) && v >= 0 ? v : 14;
+}
+
 // The subagent row layout (#231): 'a' (default, title first + type demoted), 'b' (three lines), 'c'
 // (badge only when the type differs from general-purpose). The per-type colour is kept in all three.
 function subagentLayoutMode() {
@@ -223,6 +231,15 @@ window._updateSubagentLive = function (parentSessionId, agentId, isLive) {
   // The parent's two-color overlay follows the live-subagent set (#112).
   if (typeof window._recomputeSubagentActive === 'function') window._recomputeSubagentActive(parentSessionId);
 };
+
+// Every session id a project holds, filtered or not (#247). A subagent is an orphan only when its
+// parent is missing from THIS set — a parent that a filter, the age cut or the `older` limit merely
+// removed from the rendered rows is still there, and its children follow it out of sight.
+function buildKnownSessionIds(sessions) {
+  const ids = new Set();
+  for (const s of sessions) if (s.sessionId) ids.add(s.sessionId);
+  return ids;
+}
 
 // Build Map<parentSessionId, subagentSession[]> from a project's session list.
 function buildSubagentIndex(sessions) {

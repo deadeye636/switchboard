@@ -56,6 +56,7 @@
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, settingsOpenModeValue, shellProfileValue, shellProfiles,
       stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
+      orphanSubagentMaxAgeDaysValue,
       tabAutoCloseDelayValue, tabAutoCloseModeValue,
       tabCloseValue, tabDragValue, tabMiddleClickValue, tabPositionValue, tabsLiveRenderValue,
       terminalCloseValue, terminalFontCustomValue, terminalFontSelectValue, terminalFontSizeValue,
@@ -592,6 +593,16 @@
                       <option value="b" ${subagentLayoutValue === 'b' ? 'selected' : ''}>Three lines</option>
                       <option value="c" ${subagentLayoutValue === 'c' ? 'selected' : ''}>Badge only when non-default</option>
                     </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Hide orphan subagents older than (days)</span>${help}</div>
+                    <div class="settings-description">Drop stale entries from the "Orphan subagents" group in the sidebar. 0 = never hide.</div>
+                    <div class="settings-more">An orphan is a subagent whose parent session no longer exists — its transcript outlives the session that spawned it, and those pile up over months. This only hides rows; nothing is deleted, and lowering the value brings them back. Subagents nested under a visible parent are never affected.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-orphan-subagent-max-age" min="0" max="365" value="${orphanSubagentMaxAgeDaysValue}">
                   </div>
                 </div>
               </div>

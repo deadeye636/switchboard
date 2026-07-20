@@ -89,12 +89,17 @@ back on Save.
 | `showSubagents` | Show subagents | bool | `true` | global — hidden unless a backend declares `supportsSubagents` |
 | `subagentLiveStatus` | Subagent live status | bool | `true` | global |
 | `subagentLayout` | Subagent row layout | `a` \| `b` \| `c` | `a` | global |
+| `orphanSubagentMaxAgeDays` | Hide orphan subagents older than (days) | 0–365, `0` = never hide | `14` | global — hidden with the rest of the subagent section |
 | `visibleSessionCount` | Max visible sessions | 0–100, `0` = all | `10` | **cascades** |
 | `sessionMaxAgeDays` | Hide sessions older than (days) | 0–365, `0` = no limit | `3` | global — [deliberately not per project](#why-two-of-these-are-global-only) |
 | `autoHideDays` | Auto-hide inactive projects after (days) | 0–3650, `0` = off | `0` | global — same |
 
 `visibleSessionCount` limits how many sessions a project lists directly; the rest fold into "older".
 Running and pinned sessions are always shown regardless of it.
+
+`orphanSubagentMaxAgeDays` applies to the "Orphan subagents" group only — a subagent whose parent
+session is gone from the project. Subagents nested under a parent that is merely filtered out are not
+listed there at all (#247) and this setting never touches them. It hides rows; it deletes nothing.
 
 ### Why two of these are global-only
 

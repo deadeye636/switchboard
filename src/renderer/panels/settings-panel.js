@@ -236,6 +236,10 @@
     // launchable backend has subagents, so a Codex-only user sees no subagent controls at all.
     const showSubagentsValue = !isProject ? current.showSubagents !== false : true;
     const subagentLayoutValue = !isProject ? (current.subagentLayout || 'a') : 'a';
+    // #248: how long an orphan subagent stays in the sidebar. 0 = never hide, like the other two
+    // day/count limits (#144). A stored 0 must survive, so test for a finite number, not truthiness.
+    const orphanSubagentMaxAgeDaysValue = !isProject && Number.isFinite(current.orphanSubagentMaxAgeDays)
+      ? current.orphanSubagentMaxAgeDays : 14;
     // Fail-open: the standalone settings window does not load backend-registry.js, so launchableBackends is
     // absent there — hiding the section then would make the setting UNREACHABLE. When we cannot tell, show
     // it (worst case a Codex-only window-mode user sees a section that does not apply, which is harmless).
@@ -415,6 +419,7 @@
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, settingsOpenModeValue, shellProfileValue, shellProfiles,
         stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
+        orphanSubagentMaxAgeDaysValue,
         tabAutoCloseDelayValue, tabAutoCloseModeValue,
         tabCloseValue, tabDragValue, tabMiddleClickValue, tabPositionValue, tabsLiveRenderValue,
         terminalCloseValue, terminalFontCustomValue, terminalFontSelectValue, terminalFontSizeValue,
@@ -728,6 +733,12 @@
         { const el = settingsViewerBody.querySelector('#sv-subagent-live-status'); settings.subagentLiveStatus = el ? !!el.checked : subagentLiveStatusValue; }
         { const el = settingsViewerBody.querySelector('#sv-show-subagents'); settings.showSubagents = el ? !!el.checked : showSubagentsValue; }
         { const el = settingsViewerBody.querySelector('#sv-subagent-layout'); settings.subagentLayout = el ? (el.value || 'a') : subagentLayoutValue; }
+        {
+          // 0 = never hide, so a literal 0 must survive — same rule as the two limits above (#144/#248).
+          const el = settingsViewerBody.querySelector('#sv-orphan-subagent-max-age');
+          const v = el ? parseInt(el.value, 10) : NaN;
+          settings.orphanSubagentMaxAgeDays = Number.isNaN(v) || v < 0 ? orphanSubagentMaxAgeDaysValue : v;
+        }
         settings.stickyAttentionInbox = !!settingsViewerBody.querySelector('#sv-sticky-attention-inbox')?.checked;
         {
           // The two handoff prompts. Empty, or unchanged from the built-in default ⇒ store '' so the
