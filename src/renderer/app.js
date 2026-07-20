@@ -740,15 +740,13 @@ function updateRunningIndicators() {
       if (item.classList.contains('has-running-pty') !== running) statusChanged = true;
       item.classList.toggle('has-running-pty', running);
       if (!running) {
-        if (attentionSessions.has(id) || responseReadySessions.has(id) || sessionBusyState.has(id)) {
-          statusChanged = true;
-        }
-        item.classList.remove('needs-attention', 'response-ready', 'cli-busy');
-        attentionSessions.delete(id);
-        attentionReason.delete(id);
-        responseReadySessions.delete(id);
-        sessionBusyState.delete(id);
-        finishedAt.delete(id);
+        // A pty that vanished takes only the busy flag with it — "Working" is meaningless without a
+        // live process. attention/ready (and the finish stamp / reason behind them) are the user's
+        // unfinished business and OUTLIVE the exit: a session that crashed while it needed you must not
+        // lose the flag that says so at the exact moment it matters. They are cleared by
+        // clearNotifications when the user opens the session — a lifecycle event, not this repaint (#259).
+        if (sessionBusyState.delete(id)) statusChanged = true;
+        item.classList.remove('cli-busy');
       }
       const dot = item.querySelector('.session-status-dot');
       if (dot) dot.classList.toggle('running', running);

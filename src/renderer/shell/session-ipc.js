@@ -190,6 +190,15 @@ window.api.onProcessExited((sessionId, exitCode) => {
       placeholder.style.display = '';
     }
     pendingSessions.delete(sessionId);
+    // A plain terminal is gone for good — it leaves the sidebar and sessionMap here, so this is the
+    // lifecycle point that drops its attention state. The repaint no longer does (#259): a session that
+    // stays mounted (Claude) keeps its flags until opened, but one that is fully removed can never be
+    // opened to clear them, so they are cleared here instead.
+    attentionSessions.delete(sessionId);
+    attentionReason.delete(sessionId);
+    responseReadySessions.delete(sessionId);
+    sessionBusyState.delete(sessionId);
+    finishedAt.delete(sessionId);
     for (const projList of [cachedProjects, cachedAllProjects]) {
       for (const proj of projList) {
         proj.sessions = proj.sessions.filter(s => s.sessionId !== sessionId);
