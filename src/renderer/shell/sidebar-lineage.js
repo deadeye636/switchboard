@@ -57,6 +57,7 @@ function buildLineageThread(session) {
   const toggle = document.createElement('div');
   toggle.className = 'session-lineage-toggle sidebar-children-caret';
   toggle.innerHTML = `<span class="caret-arrow">&#9654;</span> ${chain.length} earlier`;
+  toggle.setAttribute('aria-expanded', 'false'); // flipped in sidebar-events.js, preserved in sidebar.js
   ariaButton(toggle, `Show ${chain.length} earlier session${chain.length === 1 ? '' : 's'} in this thread`);
 
   // Each ancestor is a REAL session, so render it as a full session row — every normal action (open,

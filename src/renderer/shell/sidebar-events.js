@@ -133,6 +133,7 @@ function dispatchSidebarActivation(e) {
         list.style.display = showing ? 'none' : '';
         // The ▶/▼ rotation comes from the shared `.expanded` class, like the subagent caret.
         lineageToggle.classList.toggle('expanded', !showing);
+        lineageToggle.setAttribute('aria-expanded', showing ? 'false' : 'true');
       }
       return;
     }

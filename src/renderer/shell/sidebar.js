@@ -688,6 +688,16 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder) {
       if (fromEl.classList.contains('slug-group-older') && fromEl.style.display !== 'none') {
         toEl.style.display = '';
       }
+      // #229: the lineage thread is built collapsed (sidebar-lineage.js sets display:none), so without
+      // this a re-render folds an expanded thread back up — the sidebar re-renders on every store
+      // event, so it closed itself while the user was reading it.
+      if (fromEl.classList.contains('session-lineage-ancestors') && fromEl.style.display !== 'none') {
+        toEl.style.display = '';
+      }
+      if (fromEl.classList.contains('session-lineage-toggle') && fromEl.classList.contains('expanded')) {
+        toEl.classList.add('expanded');
+        toEl.setAttribute('aria-expanded', 'true');
+      }
       if (fromEl.classList.contains('slug-group-more') && fromEl.classList.contains('expanded')) {
         toEl.classList.add('expanded');
       }

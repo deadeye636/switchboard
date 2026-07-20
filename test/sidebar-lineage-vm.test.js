@@ -91,6 +91,9 @@ test('buildLineageThread renders a toggle and one collapsed ancestor row per anc
     assert.equal(rows[0].dataset.sessionId, 'mid');
     assert.equal(rows[1].dataset.sessionId, 'root');
     assert.equal(thread.querySelector('.session-lineage-ancestors').style.display, 'none', 'collapsed by default');
+    // The toggle must announce its state, not just look rotated: sidebar-events.js flips this on click
+    // and sidebar.js carries it across a re-render (#229).
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false', 'starts announced as collapsed');
     assert.equal(s.call('buildLineageThread', { sessionId: 'x' }), null, 'no chain → no thread');
   } finally { s.destroy(); }
 });
