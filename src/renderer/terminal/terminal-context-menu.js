@@ -370,65 +370,10 @@ async function enhanceTerminalMenu(menu, ctx, base) {
   positionTerminalMenu(menu, base.x, base.y);
 }
 
-// --- Variable-insert picker (hotkey, #89) ---
-// Best-effort caret pixel point for the picker; falls back to the terminal
-// element center, then the viewport center. Reads xterm internals defensively.
-function terminalCaretPoint(terminal) {
-  try {
-    const el = terminal.element;
-    const rect = el.getBoundingClientRect();
-    const dims = terminal._core && terminal._core._renderService && terminal._core._renderService.dimensions;
-    const cell = dims && (dims.css ? dims.css.cell : dims);
-    const buf = terminal.buffer && terminal.buffer.active;
-    if (rect && cell && cell.width && cell.height && buf) {
-      return {
-        x: rect.left + Math.min((buf.cursorX + 1) * cell.width, rect.width),
-        y: rect.top + Math.min((buf.cursorY + 1) * cell.height + 4, rect.height),
-      };
-    }
-    if (rect) return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-  } catch { /* internal API shape changed — fall through */ }
-  return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-}
-
-// Open the saved-variable picker for a focused terminal. Reuses the context-menu
-// renderer + secret-safe insert action, so it works in every right-click mode
-// (incl. 'action-bar', where the generic menu no longer appears). Registered as
-// the active context menu so outside-click / Esc / session-teardown close it.
-async function openTerminalVariablePicker(terminal, sessionId) {
-  closeTerminalContextMenu();
-  const projectPath = (typeof sessionMap !== 'undefined' && sessionId)
-    ? (sessionMap.get(sessionId)?.projectPath || null) : null;
-  const ctx = { terminal, sessionId, projectPath };
-  let groups = [];
-  try { groups = await fetchVariableGroups(projectPath); } catch { groups = []; }
-  // Flat list (faster to pick than nested scope flyouts); scope shown as a suffix
-  // only when a name exists in more than one scope, to disambiguate.
-  const names = {};
-  for (const g of groups) for (const v of (g.vars || [])) names[v.name] = (names[v.name] || 0) + 1;
-  const items = [];
-  for (const g of groups) {
-    for (const v of (g.vars || [])) {
-      const scopeSuffix = names[v.name] > 1 ? `  ·${g.label.toLowerCase()}` : '';
-      const secretSuffix = v.secret ? '  ·secret' : '';
-      items.push({ id: `insert-variable:${v.id}`, label: `${v.name}${scopeSuffix}${secretSuffix}` });
-    }
-  }
-  if (items.length) items.push(null);
-  items.push({ id: 'manage-variables', label: items.length > 1 ? 'Manage variables…' : 'No variables — manage…' });
-  const menu = document.createElement('div');
-  menu.className = 'popover terminal-context-menu';
-  renderMenuItems(menu, items, ctx);
-  document.body.appendChild(menu);
-  const pt = terminalCaretPoint(terminal);
-  positionTerminalMenu(menu, pt.x, pt.y);
-  activeTerminalMenu = menu;
-  activeTerminalMenuSessionId = sessionId;
-  setTimeout(() => {
-    document.addEventListener('mousedown', onTerminalMenuClickOutside, true);
-    document.addEventListener('keydown', onTerminalMenuKey, true);
-  }, 0);
-}
+// The hotkey's variable picker used to live here — a context menu at the caret (#89). It moved to
+// terminal/variable-palette.js (#207), which anchors in the terminal's lower half and takes the
+// keyboard. The right-click Variables submenu above is unaffected and still uses this file's
+// fetchVariableGroups + insert-variable action.
 
 // --- Selection action bar (mode 'action-bar', #88) ---
 // A small floating toolbar that appears above a fresh text selection (Office-

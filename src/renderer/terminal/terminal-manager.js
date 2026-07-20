@@ -53,15 +53,16 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
       return false;
     }
 
-    // Insert a saved variable at the cursor (default Cmd/Ctrl+Shift+V) — a picker
-    // that works in every right-click mode (#89). Ctrl/Cmd+Shift+V also fires a
-    // native paste; suppress that one paste so it doesn't dump the clipboard too.
+    // Insert a saved variable at the cursor (default Cmd/Ctrl+Shift+V) — the keyboard-driven palette
+    // anchored in the terminal's lower half (#207; it replaced the caret-anchored context menu from
+    // #89). Ctrl/Cmd+Shift+V also fires a native paste; suppress that one paste so it doesn't dump
+    // the clipboard too.
     if (matchShortcut('insertVariable', e, isMac, appShortcuts)) {
       if (e.type === 'keydown') {
         e._handled = true;
         suppressPasteOnce = true;
         setTimeout(() => { suppressPasteOnce = false; }, 0); // clear if no paste follows
-        if (typeof openTerminalVariablePicker === 'function') openTerminalVariablePicker(terminal, getSessionId());
+        if (typeof openVariablePalette === 'function') openVariablePalette(terminal, getSessionId());
       }
       return false;
     }
@@ -1237,6 +1238,8 @@ function destroySession(sessionId) {
   // terminal — its action closures hold the (about-to-be-disposed) xterm.
   if (typeof closeTerminalContextMenuForSession === 'function') closeTerminalContextMenuForSession(sessionId);
   if (typeof closeSelectionBarForSession === 'function') closeSelectionBarForSession(sessionId);
+  // Same reason for the variable palette (#207): it holds the terminal for its insert.
+  if (typeof closeVariablePaletteForSession === 'function') closeVariablePaletteForSession(sessionId);
   window.api.closeTerminal(sessionId);
   // Drop any pending write buffer before disposing — a scheduled rAF/timeout
   // flush would otherwise call terminal.write() on a disposed instance if

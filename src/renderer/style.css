@@ -9613,3 +9613,132 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
   font-size: 11.5px;
   color: #8a8a9e;
 }
+
+/* ---- Variable palette (#207): the hotkey's keyboard-driven picker ---- */
+/* Anchored to the terminal's lower half by JS (left/width/top/height are set inline), so this only
+   carries the look. Colours follow the quick-pick popover it sits beside. */
+.variable-palette {
+  z-index: 4000;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background: #1e1e2a;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px 8px 0 0;
+  box-shadow: 0 -10px 28px rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+
+.vpal-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.vpal-glyph { color: #8088ff; font-size: 13px; }
+
+/* The input suppresses its own outline, so the filter row carries the focus state instead — a
+   keyboard feature must show where the keys are going. */
+.vpal-filter:focus-within {
+  background: rgba(128,136,255,0.06);
+  box-shadow: inset 2px 0 0 #8088ff;
+}
+
+.vpal-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #d8d8e4;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.vpal-input::placeholder { color: #6e6e86; }
+
+.vpal-count {
+  flex: none;
+  font-size: 11px;
+  color: #7a7a90;
+  font-variant-numeric: tabular-nums;
+}
+
+.vpal-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+
+.vpal-group {
+  padding: 6px 10px 2px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6e6e86;
+}
+
+.vpal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-left: 2px solid transparent;
+  font-size: 13px;
+  color: #c8c8d8;
+  cursor: pointer;
+}
+
+.vpal-row:hover { background: rgba(255,255,255,0.04); }
+
+.vpal-row.active {
+  background: rgba(128,136,255,0.14);
+  border-left-color: #8088ff;
+  color: #fff;
+}
+
+.vpal-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.vpal-secret {
+  flex: none;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #e0b070;
+  border: 1px solid rgba(224,176,112,0.4);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.vpal-status {
+  flex: none;
+  padding: 12px 10px;
+  font-size: 12px;
+  color: #7a7a90;
+}
+
+.vpal-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 14px;
+  flex: none;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  background: #191922;
+  font-size: 10px;
+  color: #7a7a90;
+}
+
+.vpal-foot kbd,
+.vpal-status kbd {
+  display: inline-block;
+  min-width: 15px;
+  padding: 0 4px;
+  margin-right: 2px;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 3px;
+  background: #23232f;
+  color: #9a9ab0;
+  font-family: inherit;
+  font-size: 9px;
+  text-align: center;
+}

@@ -130,6 +130,10 @@ const sessionHistory = createSessionHistory();
 let navigatingHistory = false;
 
 function setActiveSession(id) {
+  // The variable palette captured ONE terminal when it opened (#207). Leaving it up across a session
+  // switch would aim its Enter at the session the user just left, so it goes with the switch —
+  // whatever caused it, keyboard or click.
+  if (id !== activeSessionId && typeof closeVariablePalette === 'function') closeVariablePalette({ refocus: false });
   activeSessionId = id;
   if (id) sessionStorage.setItem('activeSessionId', id);
   else sessionStorage.removeItem('activeSessionId');

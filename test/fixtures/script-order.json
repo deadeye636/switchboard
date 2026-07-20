@@ -58,6 +58,7 @@
     "terminal-context-menu.js",
     "variable-insert.js",
     "variables-panel.js",
+    "variable-palette.js",
     "terminal-fit.js",
     "terminal-manager.js",
     "session-nav.js",
