@@ -68,7 +68,9 @@ function buildSessionItem(session, opts = {}) {
   // toggled by activePtyIds directly and coloured by CSS cascading over item-level classes, a second
   // computation that could contradict the chip. Now it carries status.className and the CSS keys on that.
   const dot = document.createElement('span');
-  dot.className = 'session-status-dot ' + status.className;
+  // `status-dot` is the shared marker every view's dot carries (#269): the spinner/ripple/glow motion
+  // is defined once against `.status-dot.status-*` and the sidebar, grid and tab dots all get it.
+  dot.className = 'session-status-dot status-dot ' + status.className;
 
   const indicators = document.createElement('div');
   indicators.className = 'session-indicators';

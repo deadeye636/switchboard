@@ -111,9 +111,10 @@ function wrapInGridCard(sessionId, parent, layout) {
   const header = document.createElement('div');
   header.className = 'grid-card-header';
   const dot = document.createElement('span');
-  // Driven by status.className, same as the chip on this card (#253). It used to get no state class at
-  // build and stayed invisible until the first patch pass, because .grid-card-dot has no default fill.
-  dot.className = 'grid-card-dot ' + status.className;
+  // Driven by status.className, same as the chip on this card (#253). `status-dot` shares the sidebar's
+  // spinner/ripple/glow motion (#269). It used to get no state class at build and stayed invisible until
+  // the first patch pass, because .grid-card-dot has no default fill.
+  dot.className = 'grid-card-dot status-dot ' + status.className;
   header.appendChild(dot);
   const name = document.createElement('span');
   name.className = 'grid-card-name';
@@ -465,8 +466,8 @@ function updateGridCardStatuses() {
     }
     const dot = card.querySelector('.grid-card-dot');
     // The dot follows the resolved status, no longer a three-way collapse that painted attention/ready
-    // green and contradicted the chip on the same card (#253).
-    if (dot) dot.className = 'grid-card-dot ' + status.className;
+    // green and contradicted the chip on the same card (#253). `status-dot` carries the shared motion (#269).
+    if (dot) dot.className = 'grid-card-dot status-dot ' + status.className;
     card.classList.remove(...GRID_STATUS_CLASSES, 'health-healthy', 'health-growing', 'health-marathon-risk', 'health-handoff-recommended');
     card.classList.add(status.className, health.className);
     // Subagent activity is an overlay on the dot, not a status of its own (#123).

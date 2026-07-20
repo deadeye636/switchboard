@@ -1753,39 +1753,30 @@ input:focus-visible {
   --status-idle-fg: #8a8aa0;      --status-idle-bg: rgba(255,255,255,0.06);
 }
 
-/* ---- Status dot (sidebar) — coloured by status.className, so it always agrees with the chip (#254).
-   The helper already ranks the states (attention > ready > busy > running > exited > idle), so the dot
-   just paints the winning one — no CSS :not() precedence juggling. ---- */
-.session-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--status-idle-dot);
-}
-.session-status-dot.status-running { background: var(--status-running); }
-.session-status-dot.status-exited  { background: var(--status-exited); }
-.session-status-dot.status-idle    { background: var(--status-idle-dot); }
+/* ==== Shared status dot: colour AND motion, ONE definition for the sidebar, grid and tab dots (#269).
+   Every dot carries `status-dot` plus its `status-<key>`. The helper ranks the states
+   (attention > ready > busy > running > exited > idle), so the dot just paints the winning one — no CSS
+   :not() precedence juggling. The sidebar is the reference: a spinning ring for busy, an expanding
+   ripple for needs-you, a glow for ready. The grid and tab dots inherit all of it here; the per-view
+   blocks below add only size and the subagent overlay, and the tab shrinks the ripple to fit its strip. ==== */
+.status-dot.status-idle           { background: var(--status-idle-dot); }
+.status-dot.status-running        { background: var(--status-running); }
+.status-dot.status-exited         { background: var(--status-exited); }
+.status-dot.status-response-ready { background: var(--status-ready); box-shadow: 0 0 8px rgba(79,195,247,0.7); }
 
-.session-status-dot.status-response-ready {
-  background: var(--status-ready);
-  box-shadow: 0 0 8px rgba(79,195,247,0.7);
-}
-
-/* Busy = the braille spinner is turning: a spinning ring, not a filled dot. */
-.session-status-dot.status-busy {
+.status-dot.status-busy {
   background: transparent;
   border: 1.5px solid var(--status-busy);
   border-top-color: transparent;
   animation: spin-dot 0.8s linear infinite;
 }
 
-/* Needs-you = filled amber with an expanding ripple. */
-.session-status-dot.status-needs-attention {
+.status-dot.status-needs-attention {
   background: var(--status-attention);
   position: relative;
 }
-.session-status-dot.status-needs-attention::before,
-.session-status-dot.status-needs-attention::after {
+.status-dot.status-needs-attention::before,
+.status-dot.status-needs-attention::after {
   content: '';
   position: absolute;
   inset: -2px;
@@ -1793,7 +1784,15 @@ input:focus-visible {
   border: 1.5px solid rgba(240,160,80,0.7);
   animation: ripple-out 2s ease-out infinite;
 }
-.session-status-dot.status-needs-attention::after { animation-delay: 1s; }
+.status-dot.status-needs-attention::after { animation-delay: 1s; }
+
+/* Sidebar dot: size + base fill (colour/motion come from .status-dot above). */
+.session-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-idle-dot);
+}
 
 /* Subagent-activity overlay (#112): the parent keeps its own dot; a live subagent adds a teal halo.
    Over a busy (spinning) parent, fill the core green inside the ring so both read at once. */
@@ -2884,44 +2883,19 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
+  background: var(--status-idle-dot);
 }
 
-/* ---- Grid card dot — coloured by status.className from the shared palette, matching the chip on the
-   card (#253, #257). Same six states as the sidebar dot; the form is lighter (no ripple) because the
-   card already carries the labelled chip beside it. ---- */
-.grid-card-dot.status-running {
+/* ---- Grid card dot — colour AND motion come from the shared `.status-dot.status-*` rules (#269), so
+   it now reads identically to the sidebar (spinner / ripple / glow), not a lighter pulse. Only the
+   subagent overlay is grid-specific, and it mirrors the sidebar: green core inside a busy ring,
+   otherwise green core + teal halo; needs-attention keeps precedence. ---- */
+.grid-card.subagent-active .grid-card-dot.status-busy {
   background: var(--status-running);
-  box-shadow: 0 0 6px rgba(62,207,90,0.5);
 }
-.grid-card-dot.status-exited { background: var(--status-exited); }
-.grid-card-dot.status-idle   { background: var(--status-idle-dot); }
-
-.grid-card-dot.status-response-ready {
-  background: var(--status-ready);
-  box-shadow: 0 0 6px rgba(79,195,247,0.6);
-}
-
-.grid-card-dot.status-busy {
-  background: var(--status-busy);
-  animation: pulse-dot 1.5s ease-in-out infinite;
-}
-
-.grid-card-dot.status-needs-attention {
-  background: var(--status-attention);
-  box-shadow: 0 0 6px rgba(240,160,80,0.6);
-  animation: pulse-dot 1.5s ease-in-out infinite;
-}
-
-/* Subagent activity overlay (#123). The grid dot already encodes the parent's own
-   state, so the subagent adds a teal ring rather than recolouring the core. */
-.grid-card.subagent-active .grid-card-dot {
+.grid-card.subagent-active .grid-card-dot.status-dot:not(.status-busy):not(.status-needs-attention) {
   box-shadow: 0 0 0 2px var(--status-subagent);
   animation: pulse-dot 1.4s ease-in-out infinite;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
 }
 
 .grid-card-name {
@@ -7813,45 +7787,31 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .session-tab:hover { background: #23232d; }
 .session-tab.active { background: #2a2a36; color: #fff; border-color: #3a3a4a; }
 .session-tab.dragging { opacity: 0.5; }
-/* Base = the palette's idle grey, so a tab with no status class reads as idle rather than a seventh
-   off-palette colour (#257). */
+/* Tab dot: size + base fill; colour and motion (spinner/ripple/glow) come from the shared
+   `.status-dot.status-*` rules, so it reads identically to the sidebar (#269). Base grey = a tab with no
+   status class reads as idle rather than a seventh off-palette colour (#257). */
 .session-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--status-idle-dot); flex-shrink: 0; }
-/* Tab status dot — one colour per state, from the shared palette (#257). Running used to be #3fb950 and
-   idle #8a8aa0, both off the palette every other view uses. */
-.session-tab.status-idle .session-tab-dot            { background: var(--status-idle-dot); }
-.session-tab.status-exited .session-tab-dot          { background: var(--status-exited); }
-.session-tab.status-running .session-tab-dot         { background: var(--status-running); }
-/* The tab dot carries the sidebar's status vocabulary, motion included, within the room a 7px dot in a
-   scrolling strip has (#261): ready glows, attention pulses, busy spins. The sidebar's ripple is a
-   scale(3.5) transform that would overflow the tab and be clipped by the strip's overflow-x — a
-   box-shadow pulse reads the same and stays inside the tab. */
-.session-tab.status-response-ready .session-tab-dot  { background: var(--status-ready); box-shadow: 0 0 6px rgba(79,195,247,0.7); }
-.session-tab.status-needs-attention .session-tab-dot { background: var(--status-attention); animation: tab-dot-attention 1.6s ease-in-out infinite; }
-.session-tab.status-busy .session-tab-dot            { background: var(--status-busy); animation: tab-dot-pulse 1.2s ease-in-out infinite; }
 
-/* Subagent activity overlay (#123): green core = a subagent is working; the halo keeps the parent's own
-   meaning. Listed after the status rules so equal specificity resolves in its favour — and it excludes
-   needs-attention, which keeps precedence over the overlay exactly as the sidebar dot does. */
-.session-tab.subagent-active:not(.status-needs-attention) .session-tab-dot {
-  background: var(--status-running);
-  animation: tab-dot-pulse-sub 1.4s ease-in-out infinite;
+/* The one tab-specific tweak: the strip is short and clips vertically (overflow-x:auto forces
+   overflow-y), so the needs-attention ripple is scaled down to stay inside the tab instead of the
+   sidebar's 3.5 — same ripple, less reach. */
+.session-tab-dot.status-needs-attention::before,
+.session-tab-dot.status-needs-attention::after {
+  animation-name: ripple-out-tab;
 }
-.session-tab.subagent-active.status-busy:not(.status-needs-attention) .session-tab-dot {
-  background: var(--status-running);
-  animation: tab-dot-pulse 1.2s ease-in-out infinite;
+@keyframes ripple-out-tab {
+  0%   { transform: scale(1);   opacity: 0.7; }
+  100% { transform: scale(2.2); opacity: 0; }
 }
 
-@keyframes tab-dot-attention {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(240,160,80,0.55); }
-  50%      { box-shadow: 0 0 5px 1px rgba(240,160,80,0.75); }
+/* Subagent overlay (#123), mirroring the sidebar exactly: over a busy (spinning) parent, fill the core
+   green inside the ring; otherwise green core + teal halo. needs-attention keeps precedence. */
+.session-tab.subagent-active .session-tab-dot.status-busy {
+  background: var(--status-running);
 }
-@keyframes tab-dot-pulse-sub {
-  0%, 100% { opacity: 1;    box-shadow: 0 0 0 0 rgba(64,200,180,0.55); }
-  50%      { opacity: 0.55; box-shadow: 0 0 0 3px rgba(64,200,180,0); }
-}
-@keyframes tab-dot-pulse {
-  0%, 100% { opacity: 1;    box-shadow: 0 0 0 0 rgba(79,195,247,0.5); }
-  50%      { opacity: 0.55; box-shadow: 0 0 0 3px rgba(79,195,247,0); }
+.session-tab.subagent-active .session-tab-dot.status-dot:not(.status-busy):not(.status-needs-attention) {
+  box-shadow: 0 0 0 2px var(--status-subagent);
+  animation: pulse-dot 1.4s ease-in-out infinite;
 }
 .session-tab-label { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .session-tab-close {

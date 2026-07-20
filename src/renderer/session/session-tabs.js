@@ -200,7 +200,10 @@ if (typeof module !== 'undefined' && module.exports) {
       if (dragReorder) tab.draggable = true;
 
       const dot = document.createElement('span');
-      dot.className = 'session-tab-dot';
+      // The dot carries the status class itself (plus the shared `status-dot` marker), so the sidebar's
+      // spinner/ripple/glow motion applies here too (#269) — previously only the tab wore the class and
+      // the dot was a flat colour.
+      dot.className = 'session-tab-dot status-dot' + (tabStatus ? ' ' + tabStatus.className : '');
       const label = document.createElement('span');
       label.className = 'session-tab-label';
       label.textContent = t.name;
@@ -453,12 +456,20 @@ if (typeof module !== 'undefined' && module.exports) {
       const sid = tab.dataset.sessionId;
       const session = (typeof sessionMap !== 'undefined') ? sessionMap.get(sid) : null;
       const status = (session && typeof getSessionStatus === 'function') ? getSessionStatus(session, runtime) : null;
-      if (status && !tab.classList.contains(status.className)) {
-        if (statusClasses.length) tab.classList.remove(...statusClasses);
-        tab.classList.add(status.className);
-      } else if (!status && statusClasses.length) {
+      const dot = tab.querySelector('.session-tab-dot');
+      if (status) {
+        if (!tab.classList.contains(status.className)) {
+          if (statusClasses.length) tab.classList.remove(...statusClasses);
+          tab.classList.add(status.className);
+        }
+        if (dot && !dot.classList.contains(status.className)) {
+          if (statusClasses.length) dot.classList.remove(...statusClasses);
+          dot.classList.add(status.className);
+        }
+      } else if (statusClasses.length) {
         // Session no longer resolvable — drop the stale class instead of leaving the dot asserting it (#258).
         tab.classList.remove(...statusClasses);
+        if (dot) dot.classList.remove(...statusClasses);
       }
       // Subagent activity is an overlay on the dot, not a status of its own (#123).
       tab.classList.toggle('subagent-active', isSubagentActive(sid));

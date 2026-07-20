@@ -100,7 +100,7 @@ function buildSubagentItem(session) {
   // A live subagent's dot is green, an idle one grey — via the shared palette classes, the same way
   // regular rows do it now (#254). The bare `.running` class this used to set lost its CSS in that change.
   const subDotLive = activePtyIds.has(session.sessionId) || subLive;
-  dot.className = 'session-status-dot ' + (subDotLive ? 'status-running' : 'status-idle');
+  dot.className = 'session-status-dot status-dot ' + (subDotLive ? 'status-running' : 'status-idle');
 
   const info = document.createElement('div');
   info.className = 'session-info';
