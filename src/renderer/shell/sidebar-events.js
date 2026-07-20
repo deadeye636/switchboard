@@ -305,24 +305,64 @@ async function remapProject(project) {
   }
 }
 
-async function archiveProjectGroup(project) {
-  const sessions = project.sessions.filter(s => !s.archived);
-  if (sessions.length === 0) return;
-  const shortName = sidebarShortName(project.projectPath);
-  const confirmed = await showControlDialog({
-    title: 'Archive Project Sessions',
-    message: 'Archived sessions are hidden from the default sidebar view. Running sessions will be stopped first.',
-    confirmLabel: `Archive ${sessions.length} Session${sessions.length === 1 ? '' : 's'}`,
+// --- Bulk archive (the project group and the slug group share all of it) ---
+//
+// Archiving is a tidy-up for what is DONE, so it covers the stopped sessions and leaves the live ones
+// running (#251) — taking down work in progress is a separate decision, made with the checkbox. Both
+// entry points used to stop everything unconditionally; the confirm below is the single place that
+// decides the scope, so the next bulk-archive caller cannot reintroduce the old behaviour by copying
+// a sibling.
+//
+// The session count is the RAW row count, and it will not match what the sidebar shows: subagents
+// render nested under their parent, a folded lineage ancestor hides behind its descendant, and a slug
+// group of n sessions is one row. Nothing is wrong with either number — the dialog names the subagent
+// share so the gap is readable instead of looking like a miscount (#250).
+//
+// Returns the sessions to archive, or null when the user backed out or the scope came to nothing.
+async function confirmArchiveScope(title, scopeDetails, sessions) {
+  const running = sessions.filter(s => activePtyIds.has(s.sessionId));
+  const idle = sessions.filter(s => !activePtyIds.has(s.sessionId));
+  const subagents = sessions.filter(s => s.parentSessionId).length;
+  const countLabel = n => `Archive ${n} Session${n === 1 ? '' : 's'}`;
+  const options = {
+    title,
+    message: 'Archived sessions are hidden from the default sidebar view. Running sessions are left alone unless you include them.',
+    confirmLabel: countLabel(idle.length),
+    confirmDisabled: idle.length === 0,
     tone: 'warning',
     details: {
-      Project: shortName,
+      ...scopeDetails,
       Sessions: sessions.length,
-      Running: sessions.filter(s => activePtyIds.has(s.sessionId)).length,
+      // Only when there are any — a scope without subagents must not gain a "0" row.
+      Subagents: subagents || undefined,
+      Running: running.length,
     },
-  });
-  if (!confirmed) return;
-  const archivedIds = sessions.map(s => s.sessionId);
-  for (const s of sessions) {
+  };
+  // The checkbox only exists when there is something for it to include, so the dialog's result shape
+  // follows it: an object with it, the bare boolean without.
+  if (running.length > 0) {
+    options.checkbox = {
+      label: `Also stop and archive ${running.length} running session${running.length === 1 ? '' : 's'}`,
+      checked: false,
+    };
+    const scopeSize = withRunning => (withRunning ? sessions.length : idle.length);
+    options.confirmLabel = withRunning => countLabel(scopeSize(withRunning));
+    // Everything running and the box unchecked → the button says "Archive 0 Sessions" AND cannot be
+    // pressed. A confirm that silently does nothing is worse than no confirm at all.
+    options.confirmDisabled = withRunning => scopeSize(withRunning) === 0;
+  }
+  const result = await showControlDialog(options);
+  const confirmed = running.length > 0 ? result.confirmed : result;
+  const includeRunning = running.length > 0 ? result.checked : false;
+  if (!confirmed) return null;
+  const targets = includeRunning ? sessions : idle;
+  return targets.length > 0 ? targets : null;
+}
+
+// Stop-then-archive the confirmed set, and offer an undo that restores exactly it.
+async function applyBulkArchive(targets, scopeName) {
+  const archivedIds = targets.map(s => s.sessionId);
+  for (const s of targets) {
     if (activePtyIds.has(s.sessionId)) {
       window._markUserStopped?.(s.sessionId);
       await window.api.stopSession(s.sessionId);
@@ -333,7 +373,7 @@ async function archiveProjectGroup(project) {
   pollActiveSessions();
   loadProjects();
   showControlToast({
-    message: `Archived ${archivedIds.length} session${archivedIds.length === 1 ? '' : 's'} from ${shortName}.`,
+    message: `Archived ${archivedIds.length} session${archivedIds.length === 1 ? '' : 's'} from ${scopeName}.`,
     actionLabel: 'Undo',
     onAction: async () => {
       for (const id of archivedIds) {
@@ -344,6 +384,14 @@ async function archiveProjectGroup(project) {
       loadProjects();
     },
   });
+}
+
+async function archiveProjectGroup(project) {
+  const sessions = project.sessions.filter(s => !s.archived);
+  if (sessions.length === 0) return;
+  const shortName = sidebarShortName(project.projectPath);
+  const targets = await confirmArchiveScope('Archive Project Sessions', { Project: shortName }, sessions);
+  if (targets) await applyBulkArchive(targets, shortName);
 }
 
 async function hideWorktree(wtProject) {
@@ -387,39 +435,8 @@ async function archiveSlugGroup(slugHeader) {
   }
   if (archiveTargets.length === 0) return;
   const name = slugHeader.querySelector('.slug-group-name')?.textContent || 'session group';
-  const confirmed = await showControlDialog({
-    title: 'Archive Session Group',
-    message: 'Archived sessions are hidden from the default sidebar view. Running sessions will be stopped first.',
-    confirmLabel: `Archive ${archiveTargets.length} Session${archiveTargets.length === 1 ? '' : 's'}`,
-    tone: 'warning',
-    details: {
-      Group: name,
-      Sessions: archiveTargets.length,
-      Running: archiveTargets.filter(s => activePtyIds.has(s.sessionId)).length,
-    },
-  });
-  if (!confirmed) return;
-  const archivedIds = archiveTargets.map(s => s.sessionId);
-  for (const session of archiveTargets) {
-    const sid = session.sessionId;
-    if (activePtyIds.has(sid)) { window._markUserStopped?.(sid); await window.api.stopSession(sid); }
-    await window.api.archiveSession(sid, 1);
-    session.archived = 1;
-  }
-  pollActiveSessions();
-  loadProjects();
-  showControlToast({
-    message: `Archived ${archivedIds.length} session${archivedIds.length === 1 ? '' : 's'} from ${name}.`,
-    actionLabel: 'Undo',
-    onAction: async () => {
-      for (const id of archivedIds) {
-        await window.api.archiveSession(id, 0);
-        const session = sessionMap.get(id);
-        if (session) session.archived = 0;
-      }
-      loadProjects();
-    },
-  });
+  const targets = await confirmArchiveScope('Archive Session Group', { Group: name }, archiveTargets);
+  if (targets) await applyBulkArchive(targets, name);
 }
 
 async function toggleSessionPin(session) {

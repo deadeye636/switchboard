@@ -19,11 +19,29 @@
       .map(([label, value]) => ({ label: String(label), value: String(value) }));
   }
 
+  // An optional opt-in switch inside the dialog, for a confirm whose SCOPE the user still gets to pick
+  // (archive-all: include the running sessions, or leave them alone — #251). Absent unless a caller asks
+  // for it, so every existing dialog is unchanged.
+  function normalizeControlDialogCheckbox(checkbox) {
+    if (!checkbox || !checkbox.label) return null;
+    return { label: String(checkbox.label), checked: !!checkbox.checked };
+  }
+
   function normalizeControlDialogOptions(options = {}) {
     return {
       title: String(options.title || ''),
       message: String(options.message || ''),
-      confirmLabel: String(options.confirmLabel || 'Confirm'),
+      // A checkbox that changes what the action covers changes the button that names it, so the label may
+      // be a function of the checkbox state. Without a checkbox it is a plain string, as before.
+      confirmLabel: typeof options.confirmLabel === 'function'
+        ? options.confirmLabel
+        : String(options.confirmLabel || 'Confirm'),
+      // A confirm that would do nothing in the current state says so by being unavailable, rather than
+      // accepting the click and quietly returning. Also a function of the checkbox state.
+      confirmDisabled: typeof options.confirmDisabled === 'function'
+        ? options.confirmDisabled
+        : () => !!options.confirmDisabled,
+      checkbox: normalizeControlDialogCheckbox(options.checkbox),
       cancelLabel: String(options.cancelLabel || 'Cancel'),
       secondaryLabel: String(options.secondaryLabel || ''),
       tertiaryLabel: String(options.tertiaryLabel || ''),
@@ -46,6 +64,20 @@
     resolve(result);
   }
 
+  // The confirm button's text, for the current checkbox state.
+  function controlDialogConfirmText(normalized, checked) {
+    return typeof normalized.confirmLabel === 'function'
+      ? String(normalized.confirmLabel(checked))
+      : normalized.confirmLabel;
+  }
+
+  // ...and whether it can be pressed at all in that state.
+  function controlDialogConfirmDisabled(normalized, checked) {
+    return typeof normalized.confirmDisabled === 'function'
+      ? !!normalized.confirmDisabled(checked)
+      : false;
+  }
+
   function showControlDialog(options = {}) {
     const normalized = normalizeControlDialogOptions(options);
 
@@ -66,16 +98,23 @@
         </div>
       `).join('');
 
+      let checked = normalized.checkbox ? normalized.checkbox.checked : false;
+
       dialog.innerHTML = `
         <div class="control-dialog-kicker">${normalized.tone === 'danger' ? 'Destructive Action' : 'Confirm Action'}</div>
         <h3 id="control-dialog-title">${escapeHtml(normalized.title)}</h3>
         ${normalized.message ? `<p>${escapeHtml(normalized.message)}</p>` : ''}
         ${detailRows ? `<div class="control-dialog-details">${detailRows}</div>` : ''}
+        ${normalized.checkbox ? `
+        <label class="control-dialog-checkbox">
+          <input type="checkbox"${checked ? ' checked' : ''}>
+          <span>${escapeHtml(normalized.checkbox.label)}</span>
+        </label>` : ''}
         <div class="control-dialog-actions">
           ${normalized.cancelLabel ? `<button type="button" class="control-dialog-cancel">${escapeHtml(normalized.cancelLabel)}</button>` : ''}
           ${normalized.secondaryLabel ? `<button type="button" class="control-dialog-secondary">${escapeHtml(normalized.secondaryLabel)}</button>` : ''}
           ${normalized.tertiaryLabel ? `<button type="button" class="control-dialog-tertiary">${escapeHtml(normalized.tertiaryLabel)}</button>` : ''}
-          <button type="button" class="control-dialog-confirm">${escapeHtml(normalized.confirmLabel)}</button>
+          <button type="button" class="control-dialog-confirm"${controlDialogConfirmDisabled(normalized, checked) ? ' disabled' : ''}>${escapeHtml(controlDialogConfirmText(normalized, checked))}</button>
         </div>
       `;
 
@@ -86,27 +125,47 @@
       const secondaryBtn = dialog.querySelector('.control-dialog-secondary');
       const tertiaryBtn = dialog.querySelector('.control-dialog-tertiary');
       const confirmBtn = dialog.querySelector('.control-dialog-confirm');
+      const checkboxInput = dialog.querySelector('.control-dialog-checkbox input');
+
+      if (checkboxInput) {
+        checkboxInput.addEventListener('change', () => {
+          checked = checkboxInput.checked;
+          confirmBtn.textContent = controlDialogConfirmText(normalized, checked);
+          confirmBtn.disabled = controlDialogConfirmDisabled(normalized, checked);
+        });
+      }
+
+      // A dialog with a checkbox answers TWO questions, so it resolves with both. Without one the result
+      // stays the bare true/false/'secondary'/'tertiary' every existing caller reads.
+      function close(result) {
+        closeControlDialog(overlay, onKey, normalized.checkbox ? { confirmed: result, checked } : result, resolve);
+      }
 
       function onKey(event) {
         // Escape throws the dialog away exactly like a backdrop click does, so a dialog that holds work
         // has to be safe from both. It is not "one is deliberate and the other is not": Escape is a
         // reflex, and the packet it discards took an agent minutes and tokens to write. An explicit
         // button is the only way out of those.
-        if (event.key === 'Escape' && normalized.dismissible) closeControlDialog(overlay, onKey, false, resolve);
-        if (event.key === 'Enter' && !event.target.matches('textarea,input')) closeControlDialog(overlay, onKey, true, resolve);
+        if (event.key === 'Escape' && normalized.dismissible) close(false);
+        // Enter is the confirm button, so a disabled button disables Enter too — otherwise the keyboard
+        // walks straight past the state the button is greyed out for.
+        if (event.key === 'Enter' && !event.target.matches('textarea,input') && !confirmBtn.disabled) close(true);
       }
 
-      if (cancelBtn) cancelBtn.addEventListener('click', () => closeControlDialog(overlay, onKey, false, resolve));
-      if (secondaryBtn) secondaryBtn.addEventListener('click', () => closeControlDialog(overlay, onKey, 'secondary', resolve));
-      if (tertiaryBtn) tertiaryBtn.addEventListener('click', () => closeControlDialog(overlay, onKey, 'tertiary', resolve));
-      confirmBtn.addEventListener('click', () => closeControlDialog(overlay, onKey, true, resolve));
+      if (cancelBtn) cancelBtn.addEventListener('click', () => close(false));
+      if (secondaryBtn) secondaryBtn.addEventListener('click', () => close('secondary'));
+      if (tertiaryBtn) tertiaryBtn.addEventListener('click', () => close('tertiary'));
+      confirmBtn.addEventListener('click', () => close(true));
       if (normalized.dismissible) {
         overlay.addEventListener('click', event => {
-          if (event.target === overlay) closeControlDialog(overlay, onKey, false, resolve);
+          if (event.target === overlay) close(false);
         });
       }
       document.addEventListener('keydown', onKey);
-      confirmBtn.focus();
+      // A disabled confirm cannot take focus, and the dialog must not open with focus nowhere. The
+      // checkbox is what makes it pressable, so that is where the user is put.
+      if (confirmBtn.disabled && checkboxInput) checkboxInput.focus();
+      else confirmBtn.focus();
     });
   }
 
@@ -153,6 +212,8 @@
   return {
     normalizeControlDialogOptions,
     controlDialogToneClass,
+    controlDialogConfirmText,
+    controlDialogConfirmDisabled,
     formatControlDialogDetails,
     showControlDialog,
     showControlMessage,

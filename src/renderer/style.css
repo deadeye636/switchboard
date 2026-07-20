@@ -196,6 +196,27 @@ input:focus-visible {
   font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
 }
 
+/* The opt-in switch some confirms carry, for a decision the dialog leaves to the user rather than
+   taking for them (archive-all: include the running sessions — issue #251). */
+.control-dialog-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 9px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  font-size: 11px;
+  color: #c8c8dc;
+  cursor: pointer;
+}
+
+.control-dialog-checkbox input {
+  margin: 0;
+  accent-color: #8088ff;
+  cursor: pointer;
+}
+
 .control-dialog-actions {
   display: flex;
   justify-content: flex-end;
@@ -217,6 +238,17 @@ input:focus-visible {
 
 .control-dialog-actions button:hover {
   background: rgba(255,255,255,0.07);
+}
+
+/* A confirm that would do nothing in the current state (archive-all with every session running and the
+   include-running box unchecked) reads as unavailable instead of accepting a click that returns. */
+.control-dialog-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.control-dialog-actions button:disabled:hover {
+  background: rgba(255,255,255,0.04);
 }
 
 .control-dialog-confirm {
