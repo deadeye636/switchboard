@@ -23,6 +23,9 @@ function makeTerminalStub(spies) {
     constructor(opts) {
       this.options = { ...opts };
       this.buffer = { active: { viewportY: 0, baseY: 0 } };
+      // safeFit treats a fit as "measured" only when the render service reports a cell height;
+      // without this it would spin its retry loop instead of resizing (#128 test).
+      this._core = { _renderService: { dimensions: { css: { cell: { height: 17 } } } } };
       this.parser = { registerOscHandler: () => {} };
       this.unicode = { activeVersion: '' };
     }
@@ -30,9 +33,10 @@ function makeTerminalStub(spies) {
     registerLinkProvider() {}
     open() {}
     dispose() { spies.dispose++; }
+    refresh(a, b) { spies.refresh++; spies.lastRefresh = [a, b]; }
     write(_d, cb) { spies.write++; spies.lastWriteData = _d; if (cb) cb(); }
     focus() {}
-    resize() {}
+    resize(cols, rows) { spies.resize++; spies.lastResize = [cols, rows]; this.cols = cols; this.rows = rows; }
     scrollToBottom() {}
     scrollLines() {}
     hasSelection() { return false; }
@@ -45,14 +49,14 @@ function makeTerminalStub(spies) {
   };
 }
 
-function setupDom() {
+function setupDom({ fitDims = null } = {}) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="terminals"></div></body></html>', {
     url: 'http://localhost/',
     runScripts: 'outside-only',
     pretendToBeVisual: true,
   });
   const { window } = dom;
-  const spies = { dispose: 0, write: 0, closeTerminal: 0, lastWriteData: null };
+  const spies = { dispose: 0, write: 0, closeTerminal: 0, lastWriteData: null, resize: 0, refresh: 0, lastResize: null, lastRefresh: null, onContextLoss: null };
 
   window.api = new Proxy({ platform: 'linux' }, {
     get(target, prop) {
@@ -66,11 +70,11 @@ function setupDom() {
   const noopClass = class { dispose() {} onContextLoss() {} };
   const stubGlobals = {
     Terminal: makeTerminalStub(spies),
-    FitAddon: { FitAddon: class { proposeDimensions() { return null; } fit() {} } },
+    FitAddon: { FitAddon: class { proposeDimensions() { return fitDims; } fit() {} } },
     WebLinksAddon: { WebLinksAddon: noopClass },
     SearchAddon: { SearchAddon: class { clearDecorations() {} findNext() {} findPrevious() {} } },
     UnicodeGraphemesAddon: { UnicodeGraphemesAddon: noopClass },
-    WebglAddon: { WebglAddon: class { dispose() { spies.webglDispose++; } onContextLoss() {} } },
+    WebglAddon: { WebglAddon: class { dispose() { spies.webglDispose++; } onContextLoss(cb) { spies.onContextLoss = cb; } } },
 
     TERMINAL_THEME: { background: '#000000' },
     terminalsEl: window.document.getElementById('terminals'),
@@ -109,6 +113,9 @@ function setupDom() {
 
   const ctx = dom.getInternalVMContext();
   for (const rel of ['renderer/lib/utils.js', 'renderer/shell/shortcuts.js',
+                     // terminal-fit.js holds the pure geometry helpers terminal-manager.js calls
+                     // (clampRowsToContentBox / bottomRowClipped) — reachable once a fit is "measured".
+                     'renderer/terminal/terminal-fit.js',
                      'renderer/terminal/terminal-context-menu.js', 'renderer/terminal/terminal-manager.js',
                      'renderer/views/grid-view.js']) {
     const src = fs.readFileSync(path.join(SRC_DIR, rel), 'utf8');
@@ -388,3 +395,73 @@ test('Stage A: destroySession clears rawReplayBuffers entry', () => {
 // mis-counted mixed markers in one coalesced chunk. onTerminalData now always coalesces
 // via scheduleFlush; there is no app-level sync buffering left to test. The B1 skip
 // lives in flushTerminalBuffer and is covered by the Stage A/B tests above.
+
+// ---------------------------------------------------------------------------
+// WebGL context loss (#128)
+// ---------------------------------------------------------------------------
+// A lost GL context drops xterm onto its DOM renderer, whose cell metrics differ from
+// WebGL's (xterm.js#6015). Without a re-fit the terminal keeps a fit computed for the old
+// metrics and clips its bottom row. The handler defers one frame, because metrics are only
+// reported after the renderer swap has painted.
+
+// jsdom's rAF is real; one turn of the event loop is enough to let a queued frame run.
+const nextFrame = (window) => new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+
+test('#128: a lost WebGL context re-fits the terminal and repaints it', async () => {
+  const { window, spies, inCtx, destroy } = setupDom({ fitDims: { cols: 100, rows: 40 } });
+  try {
+    inCtx(`createTerminalEntry({ sessionId: 's1' })`); // loads WebGL itself
+    assert.ok(typeof spies.onContextLoss === 'function', 'the addon registered a loss handler');
+
+    const before = { resize: spies.resize, refresh: spies.refresh, webglDispose: spies.webglDispose };
+    spies.onContextLoss();
+    assert.equal(spies.webglDispose, before.webglDispose + 1, 'the addon is disposed synchronously');
+    assert.ok(!inCtx(`!!openSessions.get('s1').webglAddon`), 'the entry no longer holds the addon');
+    assert.equal(spies.resize, before.resize, 'the re-fit is deferred, not synchronous');
+
+    await nextFrame(window);
+    assert.ok(spies.resize > before.resize, 're-fit ran on the next frame');
+    assert.ok(spies.refresh > before.refresh, 'and forced a repaint');
+    // Full viewport, not a partial range — the DOM renderer has to redraw everything.
+    assert.deepEqual(spies.lastRefresh, [0, spies.lastResize[1] - 1]);
+  } finally {
+    destroy();
+  }
+});
+
+test('#128: no re-fit when the session is gone before the frame runs', async () => {
+  const { window, spies, inCtx, destroy } = setupDom({ fitDims: { cols: 100, rows: 40 } });
+  try {
+    inCtx(`createTerminalEntry({ sessionId: 's1' })`); // loads WebGL itself
+    const before = { resize: spies.resize, refresh: spies.refresh };
+
+    spies.onContextLoss();
+    inCtx(`openSessions.delete('s1')`); // torn down between the loss and the frame
+    await nextFrame(window);
+
+    assert.equal(spies.resize, before.resize, 'no resize on a terminal that is gone');
+    assert.equal(spies.refresh, before.refresh, 'no repaint either');
+  } finally {
+    destroy();
+  }
+});
+
+test('#128: no re-fit when the id was reused by a different entry', async () => {
+  const { window, spies, inCtx, destroy } = setupDom({ fitDims: { cols: 100, rows: 40 } });
+  try {
+    inCtx(`createTerminalEntry({ sessionId: 's1' })`); // loads WebGL itself
+    const before = { resize: spies.resize, refresh: spies.refresh };
+
+    spies.onContextLoss();
+    // Same id, different entry object — the guard is an identity check, not a has() check,
+    // so a session torn down and reopened under the same id must not be re-fitted by the
+    // dead one's pending frame.
+    inCtx(`openSessions.set('s1', { session: { sessionId: 's1' } })`);
+    await nextFrame(window);
+
+    assert.equal(spies.resize, before.resize, 'the replacement entry is left alone');
+    assert.equal(spies.refresh, before.refresh);
+  } finally {
+    destroy();
+  }
+});
