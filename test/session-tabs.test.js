@@ -13,9 +13,13 @@ const {
 
 const S = (sessionId, name, closed = false) => ({ sessionId, name, closed });
 
-test('filters out closed sessions', () => {
+test('keeps closed (exited) sessions — a tab exists until destroySession removes it (#256)', () => {
+  // Filtering closed here made an exited tab vanish on the next unrelated rebuild, even with auto-close
+  // off. A closed session stays in the model, flagged closed, and leaves only via openSessions.delete.
   const out = buildTabModel([S('a', 'A'), S('b', 'B', true), S('c', 'C')], null, []);
-  assert.deepEqual(out.map(t => t.sessionId), ['a', 'c']);
+  assert.deepEqual(out.map(t => t.sessionId), ['a', 'b', 'c']);
+  assert.equal(out.find(t => t.sessionId === 'b').closed, true);
+  assert.equal(out.find(t => t.sessionId === 'a').closed, false);
 });
 
 test('marks the active session', () => {

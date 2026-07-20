@@ -18,8 +18,11 @@
 function buildTabModel(sessions, activeId, order) {
   const pos = new Map((order || []).map((id, i) => [id, i]));
   return (sessions || [])
-    .filter(s => s && s.sessionId && !s.closed)
-    .map(s => ({ sessionId: s.sessionId, name: s.name || '', active: s.sessionId === activeId }))
+    // A closed (exited) session keeps its tab — the tab exists for as long as the session is mounted,
+    // and leaves only via destroySession (the user closing it, or auto-close firing). Filtering closed
+    // here made an exited tab vanish on the next unrelated rebuild, even with auto-close off (#256).
+    .filter(s => s && s.sessionId)
+    .map(s => ({ sessionId: s.sessionId, name: s.name || '', active: s.sessionId === activeId, closed: !!s.closed }))
     .sort((a, b) => {
       const ai = pos.has(a.sessionId) ? pos.get(a.sessionId) : Infinity;
       const bi = pos.has(b.sessionId) ? pos.get(b.sessionId) : Infinity;
@@ -82,11 +85,12 @@ if (typeof module !== 'undefined' && module.exports) {
     const out = [];
     if (typeof openSessions === 'undefined') return out;
     for (const [sessionId, entry] of openSessions) {
-      if (!entry || entry.closed) continue;
+      if (!entry) continue;
       const s = entry.session || { sessionId };
       const name = (typeof cleanDisplayName === 'function'
         ? cleanDisplayName(s.name || s.aiTitle || s.summary) : '') || sessionId.slice(0, 8);
-      out.push({ sessionId, name, closed: false });
+      // Keep closed entries — an exited tab stays until destroySession removes it from openSessions (#256).
+      out.push({ sessionId, name, closed: !!entry.closed });
     }
     return out;
   }
