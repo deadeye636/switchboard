@@ -62,3 +62,23 @@ than one caller.
   `drive-app.js` verifies **the old build** and reports a pass (#220).
 - A dev enable/quit of the attention hook stripped the **installed** app's live hook, because the
   sentinel carries no instance marker (#219).
+
+## Keyboard handling that guessed at the platform
+
+Both from #207's variable palette, both introduced by a *fix* for an earlier review finding, both
+invisible to the suite — the palette's key handling has no automated coverage at all.
+
+- **AltGr IS Ctrl+Alt.** To stop a session switch leaving the palette aimed at the old terminal, one
+  pass closed it on any `ctrlKey || metaKey || altKey` chord. On a German (or any European) layout
+  that is how `@ \ [ ] { } ~ €` are typed — every one of them would have closed the palette and eaten
+  the character. Nobody on a US layout would ever see it. A modifier combination is not a reliable
+  "this is a command, not text" signal.
+- **A modifier's own keydown already reports its flag.** Pressing Ctrl fires a keydown with
+  `key === 'Control'` **and** `ctrlKey === true`. So a check of the shape "has a modifier and is not
+  in my whitelist" fires on the bare modifier press, before any letter arrives — a Ctrl tap alone
+  killed the palette, and the whitelist behind it was dead code that never ran.
+
+The fix for both was to stop inferring intent from keys: claim only the four keys the widget owns, let
+everything else through, and handle the session case where it actually happens (`setActiveSession`).
+When a widget must react to something the app does, hook the app's own choke point rather than trying
+to recognise the keystroke that led there.
