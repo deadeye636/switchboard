@@ -4723,7 +4723,7 @@ mark.jsonl-search-hit-active {
   justify-content: center;
 }
 
-#grid-toggle-btn { margin-left: auto; }
+#session-filters .toolbar-spacer { flex: 1 1 auto; }
 #resort-btn { margin-left: 2px; }
 #collapse-all-toggle { margin-left: 2px; }
 #add-project-btn { margin-left: 2px; }
