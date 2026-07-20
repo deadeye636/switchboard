@@ -60,6 +60,11 @@ function getGridRuntimeState() {
   return window.sessionRuntimeState();
 }
 
+// The six status classes a card can carry, cleared as a set before the current one is applied — and on
+// a lookup miss so no stale state lingers (#258). Mirrors SESSION_STATUS_CLASSES in sidebar.js.
+const GRID_STATUS_CLASSES = ['status-needs-attention', 'status-response-ready',
+  'status-busy', 'status-running', 'status-exited', 'status-idle'];
+
 function getGridOpenSessions() {
   const sessions = [];
   for (const [sid, entry] of openSessions) {
@@ -437,10 +442,16 @@ function refreshGridView() {
 // so layout (order + spans) and any in-progress gesture are preserved. Shared by
 // refreshGridView() and updateRunningIndicators().
 function updateGridCardStatuses() {
+  const runtime = getGridRuntimeState();
   for (const [sid, card] of gridCards) {
     const session = sessionMap.get(sid) || openSessions.get(sid)?.session;
-    if (!session) continue;
-    const status = getSessionStatus(session, getGridRuntimeState());
+    if (!session) {
+      // No resolvable session — clear the status classes rather than leaving the card asserting a
+      // state nobody can look up (#258). The card itself is torn down on the next grid rebuild.
+      card.classList.remove(...GRID_STATUS_CLASSES);
+      continue;
+    }
+    const status = getSessionStatus(session, runtime);
     const health = getSessionHealth(session);
     const running = status.key === 'running' || status.key === 'busy'
       || status.key === 'needs-attention' || status.key === 'response-ready';
@@ -454,7 +465,7 @@ function updateGridCardStatuses() {
     }
     const dot = card.querySelector('.grid-card-dot');
     if (dot) dot.className = 'grid-card-dot ' + (status.key === 'busy' ? 'busy' : (running ? 'running' : 'stopped'));
-    card.classList.remove('status-needs-attention', 'status-response-ready', 'status-busy', 'status-running', 'status-exited', 'status-idle', 'health-healthy', 'health-growing', 'health-marathon-risk', 'health-handoff-recommended');
+    card.classList.remove(...GRID_STATUS_CLASSES, 'health-healthy', 'health-growing', 'health-marathon-risk', 'health-handoff-recommended');
     card.classList.add(status.className, health.className);
     // Subagent activity is an overlay on the dot, not a status of its own (#123).
     card.classList.toggle('subagent-active', typeof subagentActiveSessions !== 'undefined' && subagentActiveSessions.has(sid));

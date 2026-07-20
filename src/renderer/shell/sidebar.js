@@ -783,8 +783,14 @@ function patchSidebarStatuses() {
     item.classList.toggle('subagent-active', subagentActiveSessions.has(sid));
     const dot = item.querySelector('.session-status-dot');
     if (dot) dot.classList.toggle('running', activePtyIds.has(sid));
+    if (item.dataset.subagent) continue; // subagent rows carry no status chip
     const session = sessionMap.get(sid);
-    if (!session || item.dataset.subagent) continue; // subagent rows carry no status chip
+    if (!session) {
+      // The session dropped out of the map between renders. Clear its status rather than leaving the
+      // last one asserted — a row still glowing needs-attention for a session nobody can look up (#258).
+      item.classList.remove(...SESSION_STATUS_CLASSES);
+      continue;
+    }
     const status = getSessionStatus(session, runtime);
     if (!item.classList.contains(status.className)) {
       item.classList.remove(...SESSION_STATUS_CLASSES);

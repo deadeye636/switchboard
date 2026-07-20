@@ -452,6 +452,9 @@ if (typeof module !== 'undefined' && module.exports) {
       if (status && !tab.classList.contains(status.className)) {
         if (statusClasses.length) tab.classList.remove(...statusClasses);
         tab.classList.add(status.className);
+      } else if (!status && statusClasses.length) {
+        // Session no longer resolvable — drop the stale class instead of leaving the dot asserting it (#258).
+        tab.classList.remove(...statusClasses);
       }
       // Subagent activity is an overlay on the dot, not a status of its own (#123).
       tab.classList.toggle('subagent-active', isSubagentActive(sid));
