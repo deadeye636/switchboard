@@ -331,7 +331,11 @@ function getAllKnownSessionsForStatus() {
   for (const project of [...cachedProjects, ...cachedAllProjects]) {
     for (const session of project.sessions || []) sessionsById.set(session.sessionId, session);
   }
-  return [...sessionsById.values()];
+  // An archived session is hidden from the sidebar and must not count toward the attention inbox or the
+  // status summary either. This used to be implicit: archiving stops the pty, and the repaint cleared
+  // the flags with it — but flags now outlive a pty exit (#259), so an archived-but-flagged session
+  // would otherwise inflate the count. Filter it at the source.
+  return [...sessionsById.values()].filter(s => !s.archived);
 }
 
 
