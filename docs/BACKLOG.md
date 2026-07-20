@@ -18,7 +18,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#128](https://github.com/deadeye636/switchboard/issues/128) WebGL context loss leaves a stale fit (no re-fit, no repaint) · _bug_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
-- [#207](https://github.com/deadeye636/switchboard/issues/207) Variable palette: one keyboard-driven picker, anchored in the terminal · _feature_
+- [#207](https://github.com/deadeye636/switchboard/issues/207) Variable palette on the hotkey: keyboard-driven, anchored in the terminal · _feature_
 
 ## P3 — someday
 
