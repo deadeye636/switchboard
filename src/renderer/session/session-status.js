@@ -66,16 +66,20 @@
     if (hasSetValue(runtime.attentionSessions, sessionId)) return STATUS.needsAttention;
     if (hasSetValue(runtime.responseReadySessions, sessionId)) return STATUS.responseReady;
     if (getMapValue(runtime.sessionBusyState, sessionId)) return STATUS.busy;
-    // A session mid-launch has no PTY yet but is about to. The sidebar already sorts it with the
-    // running ones (pendingSessions); reporting it as running keeps the indicator honest instead of
-    // saying Idle while the row sits at the top. `pendingSessions` is a Map, but .has works the same
-    // (#255). It is cleared the instant the PTY appears or the launch fails.
-    if (hasSetValue(runtime.activePtyIds, sessionId) || hasSetValue(runtime.pendingSessions, sessionId)) {
-      return STATUS.running;
-    }
+    if (hasSetValue(runtime.activePtyIds, sessionId)) return STATUS.running;
 
+    // Exited outranks pending: a session that crashed after a successful launch stays in pendingSessions
+    // until its jsonl appears (which it never will), so checking pending first would report it running
+    // forever while its terminal shows the exit banner (#255). A genuinely launching session is NOT
+    // closed, so it falls through to the pending→running check below.
     const openEntry = getMapValue(runtime.openSessions, sessionId);
     if (openEntry && openEntry.closed) return STATUS.exited;
+
+    // A session mid-launch has no PTY yet but is about to. The sidebar already sorts it with the running
+    // ones (pendingSessions); reporting it as running keeps the indicator honest instead of saying Idle
+    // while the row sits at the top. `pendingSessions` is a Map, but .has works the same. Cleared the
+    // instant the PTY appears or the launch fails.
+    if (hasSetValue(runtime.pendingSessions, sessionId)) return STATUS.running;
 
     return STATUS.idle;
   }

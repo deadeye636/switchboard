@@ -88,6 +88,17 @@ test('a live PTY still outranks a stale pending entry (#255)', () => {
   assert.equal(getSessionStatus(s, runtime).key, 'busy');
 });
 
+test('a session that crashed after launch reads exited, not running forever (#255)', () => {
+  const s = { sessionId: 'crashed', modified: '2026-06-12T10:00:00.000Z' };
+  // The failure mode: launch succeeded, process died before its jsonl was written, so it lingers in
+  // pendingSessions AND is closed. Exited must win — reporting it running would be permanent.
+  const runtime = state({
+    pendingSessions: new Map([['crashed', { session: s }]]),
+    openSessions: new Map([['crashed', { closed: true }]]),
+  });
+  assert.equal(getSessionStatus(s, runtime).key, 'exited');
+});
+
 test('subagent activity does not change the parent status (#112 overlay)', () => {
   // Subagent work is an overlay (a two-color dot), never a status of its own:
   // with async subagents the parent keeps generating, so it stays "busy".
