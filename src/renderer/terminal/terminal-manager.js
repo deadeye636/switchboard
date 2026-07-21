@@ -246,6 +246,10 @@ function isBottomRowClipped(entry) {
 // height to avoid bottom-row clipping (see clampRowsToContentBox above).
 function safeFit(entry) {
   const el = entry.element; // .terminal-container
+  // A hidden container (display:none, height 0) can never be measured: proposeDimensions
+  // returns nothing and the retry loop below would spin its ~30-frame budget for nothing,
+  // per hidden terminal. A real show refits anyway — same guard scheduleObservedRefit has (#265).
+  if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
   const dims = entry.fitAddon.proposeDimensions();
   // Was this fit clamped against a real, measured cell height? A brand-new
   // terminal hasn't painted yet, so cellH is 0 and the clamp is a no-op — the
@@ -489,13 +493,23 @@ function applyTerminalFontToAll() {
   for (const [, entry] of openSessions) {
     entry.terminal.options.fontSize = terminalFontSize;
     entry.terminal.options.fontFamily = terminalFontFamily;
-    safeFit(entry);
+    safeFit(entry); // hidden terminals bail early (safeFit's 0-size guard); their next show refits them
   }
+}
+
+// Ctrl+wheel zoom fires one call per wheel notch; coalesce the apply (set the font
+// on, and re-fit, every open terminal) into one per frame so a fast scroll runs one
+// re-fit pass per frame instead of N re-fits per tick (#265).
+let _fontApplyScheduled = false;
+function scheduleFontApply() {
+  if (_fontApplyScheduled) return;
+  _fontApplyScheduled = true;
+  requestAnimationFrame(() => { _fontApplyScheduled = false; applyTerminalFontToAll(); });
 }
 
 window._setTerminalFontSize = (n) => {
   terminalFontSize = clampTerminalFontSize(n);
-  applyTerminalFontToAll();
+  scheduleFontApply();
   // Notify UI (statusbar zoom button #34) — covers every path: Ctrl+wheel, shortcuts,
   // settings, nudge — since they all funnel through here.
   try { window.dispatchEvent(new CustomEvent('terminal-font-changed', { detail: terminalFontSize })); } catch {}
@@ -529,10 +543,14 @@ async function persistTerminalFontSize(v) {
 }
 
 // Ctrl/Cmd +/-/0 zoom (terminal-only). delta 0 ⇒ reset to default.
+let _persistFontTimer = 0;
 window._nudgeTerminalFontSize = (delta) => {
   const next = delta === 0 ? DEFAULT_TERMINAL_FONT_SIZE : terminalFontSize + delta;
   const v = window._setTerminalFontSize(next);
-  persistTerminalFontSize(v);
+  // Debounce the settings write: a fast wheel zoom would otherwise fire one
+  // setSetting IPC per notch (#265).
+  clearTimeout(_persistFontTimer);
+  _persistFontTimer = setTimeout(() => persistTerminalFontSize(terminalFontSize), 300);
   return v;
 };
 

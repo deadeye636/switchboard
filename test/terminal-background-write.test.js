@@ -56,6 +56,16 @@ function setupDom({ fitDims = null } = {}) {
     pretendToBeVisual: true,
   });
   const { window } = dom;
+  // jsdom does no layout, so clientWidth/clientHeight are 0 for everything. safeFit's
+  // #265 guard bails on a zero-size element (a hidden container can't be measured), so a
+  // terminal-container must look laid-out for a fit to run. Report a real size for the
+  // container only; other elements stay 0 as before.
+  Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', {
+    configurable: true, get() { return this.classList?.contains('terminal-container') ? 800 : 0; },
+  });
+  Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', {
+    configurable: true, get() { return this.classList?.contains('terminal-container') ? 600 : 0; },
+  });
   const spies = { dispose: 0, write: 0, closeTerminal: 0, lastWriteData: null, resize: 0, refresh: 0, lastResize: null, lastRefresh: null, onContextLoss: null };
 
   window.api = new Proxy({ platform: 'linux' }, {
