@@ -13,6 +13,7 @@
 //        node scripts/drive-app.js click "<selector>"      click the first match
 //        node scripts/drive-app.js clicktext "<sel>" "<s>" click the first match whose text contains <s>
 //        node scripts/drive-app.js count "<selector>"      how many match
+//        node scripts/drive-app.js dims ["<sessionId>"]     the active terminal's geometry + renderer state
 //        node scripts/drive-app.js console [seconds]       what the renderer logged, incl. failed loads
 //
 // No dependency: Node 22 ships a global WebSocket, and CDP is JSON over one.
@@ -171,6 +172,37 @@ const COMMANDS = {
 
     // Silence is the pass condition, so say so out loud rather than printing nothing.
     return out.length ? out.join('\n') : '(no console output, no failed loads)';
+  },
+
+  // Terminal geometry — the numbers a screenshot cannot assert.
+  //
+  // `shot` shows a terminal that looks fine; this says whether it actually is. A render regression
+  // that throws nothing — a clipped bottom row (#59/#81), wrong cols/rows after a fit, cell-metric
+  // drift after a WebGL->DOM switch, a dead WebGL context — is invisible to `console` and only
+  // catchable by eye on a PNG. These numbers turn each into a diff. The renderer paints WebGL into
+  // <canvas> layers and the DOM renderer does not, so `webglAddon` set with `webglCanvas: 0` is a
+  // dead/torn-down context. Optional arg pins a session id; default is the active terminal.
+  async dims(cdp, [sessionId]) {
+    const idExpr = sessionId ? lit(sessionId) : 'activeSessionId';
+    return evaluate(cdp, `(() => {
+      if (typeof openSessions === 'undefined') return { error: 'terminal-manager not loaded yet' };
+      const id = ${idExpr};
+      const entry = openSessions.get(id);
+      if (!entry) return { error: 'no open terminal for id=' + id, active: activeSessionId, open: openSessions.size };
+      const t = entry.terminal;
+      const cell = t._core?._renderService?.dimensions?.css?.cell || {};
+      const round2 = (n) => Math.round((n || 0) * 100) / 100;
+      return {
+        sessionId: id,
+        cols: t.cols,
+        rows: t.rows,
+        cellW: round2(cell.width),
+        cellH: round2(cell.height),
+        webglAddon: !!entry.webglAddon,
+        webglCanvas: t.element ? t.element.querySelectorAll('canvas').length : 0,
+        dpr: window.devicePixelRatio || 1,
+      };
+    })()`);
   },
 
   // The one that matters in a list: "the row that says X, and the button in it".
