@@ -13,6 +13,7 @@ node scripts/drive-app.js count "<selector>"          # how many match
 node scripts/drive-app.js click "<selector>"          # click the first match
 node scripts/drive-app.js clicktext "<sel>" "<text>"  # click the first match containing <text>
 node scripts/drive-app.js console                     # renderer console — finds a ReferenceError in seconds
+node scripts/drive-app.js dims ["<sessionId>"]        # active terminal geometry: cols/rows, cell box, WebGL state
 node scripts/drive-app.js shot out.png                # screenshot the window
 ```
 
@@ -20,6 +21,18 @@ No dependency (Node 22 ships a global `WebSocket`; CDP is JSON over one). `windo
 from `eval`, so the app's own IPC can be exercised directly — e.g. `await window.api.getProjects(false)`
 to read what the sidebar would render, or `await window.api.unhideProject(path)` to do what a click
 would do. Give the renderer a second after launch; a query fired too early answers about an empty page.
+
+## Opening several terminal tabs to verify (WebGL, shared atlas)
+
+To reproduce more than one live terminal at once — needed to see the tabs-mode shared-atlas behaviour
+(#262) — open sessions with the **renderer** function `openSession(session, undefined, {show:true})`
+(a top-level fn in `app.js`, reachable from `eval`), NOT `window.api.openTerminal(...)`. The latter is
+the low-level PTY spawn in main and creates neither a tab nor an `openSessions` entry, so a second
+call just replaces the first and `dims` still reports one open terminal. Session objects come from
+`await window.api.getProjects(false)`. Tabs only exist when `getSetting('global').sessionDisplayMode`
+is `'tabs'` (otherwise grid, where only the focused card runs WebGL, #140). With two tabs open,
+`dims <id>` on each confirms both hold a live WebGL context (`webglAddon: true`) — the shared-atlas
+state to test against.
 
 ## A dev run you stopped may not be stopped (#220)
 
