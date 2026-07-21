@@ -1173,8 +1173,15 @@ function createTerminalEntry(session, opts = {}) {
 // forceRepaint(), and a lost context re-fits (see onContextLoss).
 let gpuAcceleration = 'auto';   // 'auto' | 'on' | 'off'
 let suggestedRenderer;          // undefined until a WebGL failure suggests 'dom' (VSCode parity)
+// Repeated GL context losses (a flaky driver, a GPU reset loop) must not keep
+// reloading a context that dies again. In 'auto' the suggestedRenderer demotion
+// already stops that, but 'on' ignores it and would flap forever. After this many
+// losses, stop loading WebGL even in 'on' until the setting is changed (#264).
+let webglContextLossCount = 0;
+const WEBGL_MAX_CONTEXT_LOSSES = 3;
 
 function shouldLoadWebgl() {
+  if (webglContextLossCount >= WEBGL_MAX_CONTEXT_LOSSES) return false; // repeated loss: give up, even in 'on'
   return (gpuAcceleration === 'auto' && suggestedRenderer === undefined) || gpuAcceleration === 'on';
 }
 
@@ -1191,6 +1198,7 @@ function suggestDomRenderer(reason) {
 window._setGpuAcceleration = (mode) => {
   gpuAcceleration = (mode === 'on' || mode === 'off' || mode === 'auto') ? mode : 'auto';
   suggestedRenderer = undefined;
+  webglContextLossCount = 0; // an explicit setting change re-arms WebGL after repeated losses
   for (const [sessionId, entry] of openSessions) {
     if (shouldLoadWebgl()) loadTerminalWebgl(entry);
     else suspendTerminalWebgl(sessionId);
@@ -1200,18 +1208,32 @@ window._getGpuAcceleration = () => gpuAcceleration;
 // Back-compat with the old boolean toggle: on → 'on', off → 'off'.
 window._setTerminalWebgl = (on) => window._setGpuAcceleration(on ? 'on' : 'off');
 
+// Dispose the WebGL addon AND explicitly release its GPU context. xterm's addon
+// never calls WEBGL_lose_context.loseContext(), so a plain dispose() leaves the
+// context alive until Chromium's GC runs — and Chromium caps live contexts (16 by
+// default, raised to 32 in main.js). Grab the canvases before dispose detaches
+// them, dispose, then lose each context so the slot frees deterministically (#264).
+function disposeWebglAddon(entry) {
+  if (!entry.webglAddon) return;
+  const canvases = entry.terminal?.element ? [...entry.terminal.element.querySelectorAll('canvas')] : [];
+  try { entry.webglAddon.dispose(); } catch { /* dispose on a lost GL context can throw */ }
+  entry.webglAddon = null;
+  for (const c of canvases) {
+    try { (c.getContext('webgl2') || c.getContext('webgl'))?.getExtension('WEBGL_lose_context')?.loseContext(); }
+    catch { /* ignore — context may already be gone */ }
+  }
+}
+
 function loadTerminalWebgl(entry) {
   if (!shouldLoadWebgl() || !entry.terminal) return; // DOM renderer
-  // Dispose an existing addon before recreating to avoid leaking a GL context (VSCode parity).
-  if (entry.webglAddon) {
-    try { entry.webglAddon.dispose(); } catch { /* ignore */ }
-    entry.webglAddon = null;
-  }
+  // Dispose an existing addon (and free its GL context) before recreating (VSCode parity).
+  disposeWebglAddon(entry);
   try {
     const webglAddon = new WebglAddon.WebglAddon();
     webglAddon.onContextLoss(() => {
       try { webglAddon.dispose(); } catch { /* ignore */ }
       if (entry.webglAddon === webglAddon) entry.webglAddon = null;
+      webglContextLossCount++;             // repeated losses stop retrying, even in 'on' (#264)
       suggestDomRenderer('context loss'); // future terminals go DOM in 'auto'
       // xterm keeps running on its DOM renderer, whose cell metrics differ from
       // WebGL's (xterm.js#6015). Every other renderer switch re-fits — load below,
@@ -1239,8 +1261,7 @@ function loadTerminalWebgl(entry) {
 function suspendTerminalWebgl(sessionId) {
   const entry = openSessions.get(sessionId);
   if (!entry || !entry.webglAddon) return;
-  try { entry.webglAddon.dispose(); } catch { /* dispose on a lost GL context can throw */ }
-  entry.webglAddon = null; // xterm falls back to its DOM renderer
+  disposeWebglAddon(entry); // dispose + free the GL context; xterm falls back to DOM (#264)
 }
 
 function restoreTerminalWebgl(sessionId) {
