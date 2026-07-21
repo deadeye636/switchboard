@@ -984,6 +984,12 @@ function createTerminalEntry(session, opts = {}) {
     // it overhanging into its neighbours. xterm defaults this off; VS Code ships
     // it on. Normal-width glyphs are untouched (#266).
     rescaleOverlappingGlyphs: true,
+    // FitAddon reserves DEFAULT_SCROLL_BAR_WIDTH = 14px for the scrollbar, but the
+    // CSS scrollbar is 8px (thin) with scrollbar-gutter: stable — so 14-8 = 6px
+    // of width went unused (occasionally one column short). FitAddon reads
+    // overviewRuler.width in preference to its 14px default, so point it at the
+    // real 8px. No overview ruler is drawn without decorations that request one (#266).
+    overviewRuler: { width: 8 },
     // On Windows, tell xterm the PTY backend (node-pty defaults to ConPTY on
     // Win10 1809+) and the OS build so it tracks ConPTY's reflow/wrapping
     // correctly. Without this, multi-line TUI redraws desync — the cursor jumps
