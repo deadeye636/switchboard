@@ -255,10 +255,15 @@ retired CLI and are a decoy. agy's own store is elsewhere.
 **Usage (#191).** Its quota is **per MODEL**, not per time window — community monitors report `Pro-L 80% ·
 Claude 25%`, each with its own reset, plus a shared **credit pool** spent once a model's quota is exhausted.
 There is no `5h`/`7d` window, which is why the usage capability keys its colour thresholds on how fast a bucket
-refills. **No clean local quota file was found** in the store (unlike Codex's `token_count`), so a real usage
-capability would be `live: true` with a network fetch (find the running client's port / lift the login token,
-or call Google's API) — bigger than a file read, and left as a follow-up; the descriptor can ship `ready`
-without it, like Hermes and Pi have no quota at all.
+refills. **No clean local quota file exists** in the store (unlike Codex's `token_count`), so the capability is
+`live: true` with a **network fetch** (#201): `POST https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota`
+with body `{}` and an OAuth2 bearer returns `buckets[]`, one per model (`modelId`, `tokenType`,
+`remainingFraction`, `resetTime`). The bearer is refreshed in memory from agy's imported gemini-cli
+`~/.gemini/oauth_creds.json` (gemini-cli's public installed-app OAuth client); the file is never written. This
+rides Gemini Code Assist's **internal, undocumented** `v1internal` API and can change without notice — the honest
+cost of agy having no local quota file. The richer grouped Weekly/5-hour panel is the `retrieveUserQuotaSummary`
+sibling, whose request proto is not yet reversed, so it stays out of scope; `backends/agy/usage.js` ships the
+per-model request quotas, which are enough for a status-bar figure.
 
 ---
 

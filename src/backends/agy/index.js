@@ -186,9 +186,14 @@ module.exports = {
   probe,
   findExecutable,
 
-  // No `usage` capability (#191). agy's quota is per-MODEL with no clean local file (unlike Codex's
-  // token_count), so a real usage bar would need a network fetch — a follow-up. It ships `ready` without
-  // one, like Hermes and Pi.
+  // Usage capability (#191, #201). agy exposes no local quota file, so unlike Codex this is a LIVE
+  // network read against agy's own backend (Gemini Code Assist's `cloudcode-pa` private API) — hence
+  // `live: true`, the figure is current as of each poll. Only the declaration crosses IPC; `fetch` stays
+  // in main. The credential read + OAuth refresh live entirely in usage.js.
+  usage: {
+    live: true,
+    fetch: () => require('./usage').fetchUsage(),
+  },
 
   // The transcript viewer + handoff read the conversation through here (transcriptAccess: 'export'), not
   // off the binary `.db`. `readMessages` takes the file path, so the sessionId is resolved to its `.db`

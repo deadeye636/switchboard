@@ -223,6 +223,7 @@ Still open:
 | `SWITCHBOARD_STORE_PI` | Pi sessions root — **wins over** `PI_CODING_AGENT_SESSION_DIR` | see that variable |
 | `SWITCHBOARD_STORE_HERMES` | Hermes home (the dir holding `state.db`) — **wins over** `HERMES_HOME` | see that variable |
 | `SWITCHBOARD_STORE_AGY` | agy conversations dir (agy has no env var of its own) | `~/.gemini/antigravity-cli/conversations` |
+| `SWITCHBOARD_AGY_CREDS` | agy's OAuth credentials file (`oauth_creds.json`) that the `usage` capability reads for its live quota fetch (#201). Point it elsewhere so an isolated instance never reads the real Google account. | `~/.gemini/oauth_creds.json` |
 | `SWITCHBOARD_ALLOW_MULTIPLE_INSTANCES` | `1` drops the single-instance lock — **unpackaged builds only** | lock active |
 | `SWITCHBOARD_FORCE_SINGLE_INSTANCE` | `1` forces the lock. Checked **before** the previous one, so it wins. | lock active anyway |
 | `SWITCHBOARD_DEV_ATTENTION_HOOK` | `1` lets a dev build write/strip the attention hook in `~/.claude/settings.json`. Without it the whole path is a no-op in dev and attention falls back to the OSC-9 heuristic. Packaged builds ignore it. | no-op in dev |
