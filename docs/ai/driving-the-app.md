@@ -81,3 +81,51 @@ above were told apart — the composer still held the un-submitted prompt.
 
 For a live session in the **demo** instance, run `npm run demo:auth` first: an isolated home has no
 credentials and has never onboarded (see `docs/demo-env.md`).
+
+## Driving a full-UI Axis-B session to test live-id adoption (agy/Codex/Pi)
+
+To reproduce identity adoption and busy/idle for a backend that names its own session (the
+`matchLiveSession`/`liveState` path), you need a session with a **real xterm attached**, not a bare
+PTY. `window.api.openTerminal(id, path, true, {backendId})` spawns the PTY but creates no tab and no
+xterm — a TUI (agy is a bubbletea TUI) never initialises and silently swallows every keystroke, so no
+prompt lands and the store `.db` is never written. Drive the **renderer** launcher instead:
+
+```
+node scripts/drive-app.js eval "(async()=>{const ps=await window.api.getProjects(false); \
+  const proj=ps.find(p=>String(p.projectPath).includes('<name>'))||ps[0]; \
+  return await launchNewSession({projectPath:proj.projectPath},{backendId:'agy'});})()"
+```
+
+`launchNewSession(project, {backendId}, seedText)` (a top-level fn in `app.js`) is what the `+`
+new-session button calls: it mints the uuid, builds the pending row, creates the terminal entry and
+`syncPtySize`s it — so the TUI renders and accepts input. It returns the **launch** id (the id the app
+spawned under, before the backend names its own).
+
+Then submit a prompt the same way `trigger-watcher.js` `submitToPty` does — text, a pause, then `\r`
+as a **separate** PTY write (one write with a trailing `\r` is absorbed as a literal newline):
+
+```
+node scripts/drive-app.js eval "(async()=>{const id='<launchId>'; \
+  window.api.sendInput(id,'<prompt>'); await new Promise(r=>setTimeout(r,120)); \
+  window.api.sendInput(id,'\r'); return 'sent';})()"
+```
+
+What to watch, and the gotchas that cost time here:
+
+- **The `.db` appears only on the first prompt**, not at launch (agy behaves like `agy --print`). Until
+  it exists, `matchLiveSession` has nothing to correlate, so adoption cannot fire — wait for the turn.
+- **Adoption is visible in the main log:** `[<backend>] session <launchId> → <realId> (adopting the
+  backend's own session id)` then `[<backend>] session=<realId> → BUSY|IDLE`. If the busy edge names
+  the **launch** id after that adopting line, the edge is being addressed to a re-keyed-away card
+  (the bug class in `adopt.js`).
+- **agy cannot run in the demo instance.** It has no store env var (`cliHomeEnv()` → null), so a
+  demo-launched agy writes to the real `~/.gemini/antigravity-cli` while the app scans the empty demo
+  agy store — adoption never reproduces. Use `npm start` / `npm run start:debug` (real stores) for
+  agy. Codex and Pi **can** be isolated, so `demo:start` reproduces them.
+- **Paths through `drive-app.js eval` lose their backslashes** (`D:\Projekte\x` → `D:Projektex`). Never
+  hand-build a Windows `projectPath` in the eval string — read the real object from
+  `await window.api.getProjects(false)` and pass `proj.projectPath`.
+- **A live-but-idle Axis-B session still reads "Running", not "Idle"**, in the sidebar: `cli-busy-state
+  false` only drops the `status-busy` ("Working") state, and `session-status.js` then falls through to
+  `status-running` while the PTY is alive (same model as Claude). "Idle" needs the PTY gone. Don't read
+  a green "Running" on a live session as a stuck indicator by itself — check the log edge.

@@ -118,9 +118,24 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
   }
 
   /** STORE-level watch target: the root, recursively (new subdirectories appear on their own — a date
-   *  bucket at midnight, a cwd folder with its first session). */
+   *  bucket at midnight, a cwd folder with its first session).
+   *
+   *  `match` tells the dir watcher which filenames are this backend's transcripts, so it does not have to
+   *  hardcode an extension. The hardcode was `.jsonl`, which fit Codex/Pi but made agy's `.db` store
+   *  invisible to the watcher — its live busy edge then only surfaced on the slow fallback tick, never
+   *  during the turn. A store whose commits are WAL-buffered (agy) lands the live signal in a
+   *  `<name>-wal`/`-shm` sibling WITHOUT touching the main file's mtime, so accept those too — the same
+   *  reason the db-kind poll watches `-wal`. */
   function watchTargets() {
-    return [{ kind: 'dir', path: root(), recursive: true }];
+    const isTranscript = (filename) => {
+      // A recursive fs.watch reports a path RELATIVE to the root (`2026/07/21/rollout-<id>.jsonl`), not a
+      // basename — but `matches` is a basename predicate (it is fed `e.name` in walkStore). A prefix-
+      // anchored matcher (Codex: `startsWith('rollout-')`) would reject every date-bucketed event without
+      // this basename step; `endsWith` matchers (agy, Pi) would survive it, so the bug would hide on them.
+      const f = path.basename(String(filename));
+      return matches(f) || matches(f.replace(/-(wal|shm)$/, ''));
+    };
+    return [{ kind: 'dir', path: root(), recursive: true, match: isTranscript }];
   }
 
   /**

@@ -63,6 +63,29 @@ test('a spawned session adopts the id the backend gave itself, and the renderer 
   assert.equal(adopt.liveStoreRef.get('codex-real'), '/store/rec.jsonl');
 });
 
+// The busy/idle edge on the ADOPTION tick must be addressed to the id the renderer was just re-keyed to,
+// not the launch id. liveId used to be read BEFORE claimLiveRecord adopted, so the first edge went to the
+// launch id — which the session-forked fold had just retired — and the real card never updated. Because a
+// store like agy then stops changing (its turn ended), no later flush ever corrects it and the card is
+// stuck on its launch state ("Running"). This pins liveId being read AFTER the claim.
+test('the busy edge on the adoption tick carries the adopted id, not the launch id', () => {
+  const { sent } = setup({
+    sessions: [['temp-1', live()]],
+    backend: fakeBackend({
+      matchLiveSession: () => ({ sessionId: 'codex-real', ref: '/store/rec.jsonl' }),
+      liveState: () => 'busy',
+    }),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  const busyPushes = sent.filter(([ch]) => ch === 'cli-busy-state');
+  assert.deepEqual(busyPushes, [['cli-busy-state', 'codex-real', true]],
+    'addressed to the adopted id — not temp-1, which session-forked has just retired');
+  assert.equal(adopt.liveBusy.get('codex-real'), true, 'and the dedup map is keyed by the adopted id');
+  assert.equal(adopt.liveBusy.has('temp-1'), false, 'nothing left stranded under the launch id');
+});
+
 // #155. A new session's record is about to be named BY the backend, so asking "is there a record under
 // OUR id?" is guaranteed to come back empty — and liveRefFor walks the whole store, on every watcher
 // flush, for every unclaimed session. That walk bought nothing.

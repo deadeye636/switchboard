@@ -100,11 +100,19 @@ function startBackendWatchers() {
         missingRoot = true;
         continue;
       }
+      // Which filenames are this backend's transcripts. The target declares it (file-store's `match`,
+      // which also accepts a `-wal`/`-shm` sibling for a WAL-buffered store like agy); the `.jsonl`
+      // fallback keeps any target that declares none behaving as before. A hardcoded `.jsonl` here made
+      // agy's `.db` store invisible to the watcher, so its busy edge only ever surfaced on the slow tick
+      // below, never during the turn.
+      const matchFile = typeof target.match === 'function'
+        ? target.match
+        : (filename) => String(filename).endsWith('.jsonl');
       try {
         const w = fs.watch(target.path, { recursive: target.recursive !== false }, (_evt, filename) => {
           if (!filename) return;
           // Only session files matter; ignore the dir churn of the date buckets themselves.
-          if (!String(filename).endsWith('.jsonl')) return;
+          if (!matchFile(filename)) return;
           schedule(backend.id);
         });
         w.on('error', (err) => ctx.log.warn(`[watch] backend ${backend.id} watcher error: ${err?.message || err}`));

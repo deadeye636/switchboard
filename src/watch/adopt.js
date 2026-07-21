@@ -130,8 +130,13 @@ function updateBackendLiveStates() {
       continue;   // Claude & Axis-A: they report state through OSC and own their session id already.
     }
 
-    const liveId = session.realSessionId || sessionId;
     const ref = claimLiveRecord(sessionId, session, backend);
+    // claimLiveRecord may ADOPT the backend's own id here — re-keying session.realSessionId (Codex/Pi/agy
+    // name their own sessions). Read the live id AFTER it, not before: on the adoption tick a busy/idle
+    // edge computed from the pre-adoption id is sent to an id the renderer has just re-keyed away, so the
+    // real card never receives it. agy then stops writing, the store watcher never flushes again, this
+    // tick never re-runs — and the card is stuck on its launch state ("Running") for good.
+    const liveId = session.realSessionId || sessionId;
     if (!ref) {
       // No record, and the session is plainly running in front of the user — so the tab will show no
       // state at all, forever. Hermes' degraded mode (it writes JSON when it cannot open its own DB) puts
