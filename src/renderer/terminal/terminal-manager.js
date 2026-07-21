@@ -387,12 +387,24 @@ function watchDevicePixelRatio() {
 }
 watchDevicePixelRatio();
 
-// Fit a terminal that just became visible (from display:none or reparent).
-// Flush the WebGL glyph atlas and force a full-row redraw. xterm's WebGL renderer
-// caches a glyph texture atlas; on a hidden->visible transition WITHOUT a dimension
-// change (tab switch, grid<->single) nothing triggers a repaint, so the stale atlas
-// renders misaligned ("staircase") until the next incidental write. No-op / harmless
-// on the DOM-renderer fallback.
+// Repaint every row from the buffer WITHOUT touching the glyph atlas. Heals the
+// cases where this terminal's own model wasn't redrawn — a hidden->visible
+// transition without a dimension change, a resize, an idle ghost line: the atlas
+// content is fine, it just wasn't repainted. No-op on the DOM renderer, which
+// repaints correctly on its own.
+function refreshViewport(entry) {
+  if (!entry.webglAddon) return; // WebGL-only; the DOM renderer repaints itself
+  try { entry.terminal.refresh(0, entry.terminal.rows - 1); } catch { /* ignore */ }
+}
+
+// Clear the shared glyph atlas, then repaint. ONLY for the case a DIFFERENT WebGL
+// terminal may have grown/recycled the process-wide atlas while this tab was
+// covered (#118) — its last frame then shows scrambled glyphs a plain refresh
+// cannot fix. Every WebGL terminal shares one atlas (identical config), and
+// clearTextureAtlas wipes it for ALL of them while only repainting the caller —
+// so this is a targeted, expensive heal, not a routine repaint (#262). Kept only
+// on the tab-switch / grid-reveal paths; the staircase/ghost callers use
+// refreshViewport above. No-op on the DOM renderer.
 function forceRepaint(entry) {
   if (!entry.webglAddon) return; // WebGL-atlas fix only; the DOM renderer repaints correctly on its own
   try {
@@ -431,12 +443,15 @@ function scheduleGhostHeal(entry) {
     setTimeout(() => { entry._ghostRefreshPending = false; doRefresh(); }, GHOST_REFRESH_THROTTLE_MS);
   }
   // Option 2: idle safety net — output stopped with a ghost still on screen. A
-  // heavier atlas flush + refresh, debounced so it fires once after the stream settles.
+  // full-viewport repaint, debounced so it fires once after the stream settles.
+  // Plain refresh, not an atlas clear: the ghost is a stale row in this terminal's
+  // own model, not atlas corruption, and clearing the shared atlas would corrupt
+  // the other WebGL tabs (#262).
   clearTimeout(entry._ghostIdleTimer);
   entry._ghostIdleTimer = setTimeout(() => {
     entry._ghostIdleTimer = 0;
     if (activeSessionId !== entry.session.sessionId) return;
-    forceRepaint(entry);
+    refreshViewport(entry);
   }, GHOST_IDLE_HEAL_MS);
 }
 
@@ -445,7 +460,7 @@ function fitAndScroll(entry) {
   const wasAtBottom = isAtBottom(entry.terminal);
   requestAnimationFrame(() => {
     safeFit(entry);
-    forceRepaint(entry);
+    refreshViewport(entry); // own-model repaint after fit; no atlas clear (shared, #262)
     if (wasAtBottom) {
       entry.terminal.scrollToBottom();
     }

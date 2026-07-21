@@ -525,7 +525,7 @@ function clearNotifications(sessionId) {
 // Terminal themes, utils (cleanDisplayName, formatDate, escapeHtml, shellEscape)
 // are defined in terminal-themes.js and utils.js (loaded before app.js).
 
-// Terminal key bindings, write buffering, isAtBottom, safeFit, fitAndScroll → terminal-manager.js
+// Terminal key bindings, write buffering, isAtBottom, safeFit, fitAndScroll, refreshViewport → terminal-manager.js
 
 // The session-lifecycle IPC listeners (terminal data, MCP open-diff/file, session detect/fork, process
 // exit, notices, attention signals, CLI busy state) are shell/session-ipc.js (#218/#228). It loads AFTER
@@ -1387,7 +1387,7 @@ window.addEventListener('resize', () => {
   if (activeSessionId && openSessions.has(activeSessionId)) {
     const entry = openSessions.get(activeSessionId);
     safeFit(entry);
-    forceRepaint(entry); // flush the WebGL atlas so the resize doesn't leave a staircase
+    refreshViewport(entry); // repaint after resize so it doesn't leave a staircase (no atlas clear — shared, #262)
   }
 });
 
