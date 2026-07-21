@@ -1033,7 +1033,12 @@ function createTerminalEntry(session, opts = {}) {
   const searchAddon = new SearchAddon.SearchAddon();
   terminal.loadAddon(searchAddon);
   terminal.loadAddon(new UnicodeGraphemesAddon.UnicodeGraphemesAddon());
-  terminal.unicode.activeVersion = '15';
+  // The addon registers two providers: a plain '15' (Unicode-15 widths) and a
+  // '15-graphemes' that additionally joins grapheme clusters — ZWJ emoji, flags,
+  // combining marks — into a single cell. Use the graphemes variant; it is what the
+  // addon is loaded for. Plain '15' measured each ZWJ codepoint on its own, so a
+  // family emoji or flag took several cells and drifted the cursor after it (#266).
+  terminal.unicode.activeVersion = '15-graphemes';
   terminal.open(container);
   container.style.backgroundColor = TERMINAL_THEME.background;
   // Pick up the current mouse mode for this fresh terminal (SelectionService
