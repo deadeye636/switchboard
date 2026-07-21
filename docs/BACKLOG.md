@@ -5,7 +5,7 @@
 
 Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (24 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-20
+**As of:** 2026-07-21
 
 
 ## P1 — next up
@@ -18,7 +18,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
-- [#263](https://github.com/deadeye636/switchboard/issues/263) Terminal: no way to verify render geometry — add a 'dims' driver command + real WebGL init test · _chore_
 - [#264](https://github.com/deadeye636/switchboard/issues/264) Terminal (WebGL): renderer flaps in 'on' mode after context loss + contexts never released · _bug_
 
 ## P3 — someday
@@ -40,3 +39,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#267](https://github.com/deadeye636/switchboard/issues/267) Terminal: flow-control watermarks and single/tabs scrollback ~10x above VS Code · _chore_
 - [#268](https://github.com/deadeye636/switchboard/issues/268) Terminal (Windows): effectiveConptyBuildNumber untested and ignores per-session conptyBackend cascade · _chore_
 - [#270](https://github.com/deadeye636/switchboard/issues/270) Terminal header and slug-group dot show only running/stopped, not the six states · _feature_
+- [#271](https://github.com/deadeye636/switchboard/issues/271) Terminal: evaluate programming ligatures (@xterm/addon-ligatures) · _feature_
