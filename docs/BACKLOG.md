@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (17 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (18 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-21
 
@@ -17,6 +17,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#100](https://github.com/deadeye636/switchboard/issues/100) Terminal: working-status line renders stacked/duplicated (rare) — distinct from #85 garble · _bug_
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
+- [#272](https://github.com/deadeye636/switchboard/issues/272) Session lineage: /clear grouping is lost after a restart (cold-scan folder wipe nulls it) · _bug_
 
 ## P3 — someday
 
