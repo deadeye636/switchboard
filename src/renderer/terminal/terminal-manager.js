@@ -979,6 +979,11 @@ function createTerminalEntry(session, opts = {}) {
     // line) also snaps to column 0. Real terminals don't (LNM reset by default).
     convertEol: false,
     allowProposedApi: true,
+    // Rescale a glyph that overflows its cell (Powerline separators, some CJK and
+    // box-drawing) back into the cell instead of letting the WebGL renderer paint
+    // it overhanging into its neighbours. xterm defaults this off; VS Code ships
+    // it on. Normal-width glyphs are untouched (#266).
+    rescaleOverlappingGlyphs: true,
     // On Windows, tell xterm the PTY backend (node-pty defaults to ConPTY on
     // Win10 1809+) and the OS build so it tracks ConPTY's reflow/wrapping
     // correctly. Without this, multi-line TUI redraws desync — the cursor jumps
