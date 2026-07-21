@@ -1014,7 +1014,7 @@ function createTerminalEntry(session, opts = {}) {
     // a line up (esp. after a shorter wrapped line) and stale cell fragments
     // linger at line starts.
     ...(window.api.platform === 'win32'
-      ? { windowsPty: { backend: 'conpty', buildNumber: window.api.windowsBuildNumber || undefined } }
+      ? { windowsPty: { backend: 'conpty', buildNumber: window.api.windowsBuildNumber(session.projectPath) || undefined } }
       : {}),
     linkHandler: {
       activate: (event, uri) => activateTerminalLink(sessionId, event, uri),

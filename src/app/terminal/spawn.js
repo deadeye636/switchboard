@@ -33,6 +33,7 @@ const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
 const { decideOsc94 } = require('./osc-busy');
 const { afkTimeoutToEnvMs, resolveAfkTimeoutSec } = require('./afk-timeout');
 const { encodeProjectPath } = require('../../session/encode-project-path');
+const { conptyBuildHint } = require('./conpty');
 
 let ctx = null;
 
@@ -172,7 +173,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // cycles (Claude CLI's spinner), leaving stale/duplicated rows that only a resize
   // repaint clears. 'system' falls back to the OS ConPTY (the node-pty flag is
   // experimental). No effect on non-Windows platforms.
-  const useConptyDll = isWindows && (ctx.getSetting('global') || {}).conptyBackend !== 'system';
+  const useConptyDll = isWindows && (ctx.effectiveSettings(projectPath) || {}).conptyBackend !== 'system';
 
   let ptyProcess;
   let mcpServer = null;
@@ -765,6 +766,18 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
 function registerIpc(ipc) {
   ipc.handle('open-terminal', (_event, sessionId, projectPath, isNew, sessionOptions) =>
     openTerminal(sessionId, projectPath, isNew, sessionOptions));
+  // Synchronous: the renderer needs the ConPTY build hint BEFORE it constructs the
+  // xterm Terminal (windowsPty is a constructor option), which happens before
+  // open-terminal returns. Resolved per project (project → global conptyBackend
+  // cascade), matching useConptyDll above so the wrapping hint and the actual ConPTY
+  // backend never disagree (#268).
+  ipc.on('get-windows-build', (event, projectPath) => {
+    event.returnValue = conptyBuildHint({
+      platform: process.platform,
+      release: os.release(),
+      conptyBackend: (ctx.effectiveSettings(projectPath) || {}).conptyBackend,
+    });
+  });
 }
 
 module.exports = { init, registerIpc, openTerminal };

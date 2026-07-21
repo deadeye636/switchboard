@@ -1260,32 +1260,12 @@ ipcMain.handle('toggle-star', (_event, sessionId) => {
   return { starred };
 });
 
-// --- IPC: Windows build number (synchronous) ---
-// xterm's windowsPty option needs the build to track ConPTY wrapping: it enables
-// its legacy wrapping heuristics only when backend === 'conpty' && buildNumber
-// < 21376. The sandboxed preload can't read the OS build (its os.release() is a
-// polyfill), so it asks here. sendSync keeps the value available before the
-// first terminal opens.
-//
-// #115: report the capability level of the ConPTY the PTYs actually run on, not
-// necessarily the OS. With the bundled conpty.dll (#114, Windows Terminal
-// codebase — proper wrapped-line handling) an old-Win10 OS build would wrongly
-// keep xterm's legacy heuristics on, so floor the reported build at xterm's
-// threshold. 'system' keeps the raw OS build. Preload caches this at window
-// load — toggling the Windows ConPTY setting needs an app restart to re-hint.
-const XTERM_CONPTY_MODERN_BUILD = 21376;
-function effectiveConptyBuildNumber(conptyBackend, osBuild) {
-  return conptyBackend === 'system' ? osBuild : Math.max(osBuild, XTERM_CONPTY_MODERN_BUILD);
-}
-ipcMain.on('get-windows-build', (event) => {
-  let build = 0;
-  if (process.platform === 'win32') {
-    try { build = parseInt(os.release().split('.')[2], 10) || 0; } catch { build = 0; }
-    const backend = (getSetting('global') || {}).conptyBackend === 'system' ? 'system' : 'bundled';
-    build = effectiveConptyBuildNumber(backend, build);
-  }
-  event.returnValue = build;
-});
+// --- Windows ConPTY build-number hint → app/terminal/conpty.js + spawn.js (#268) ---
+// The pure build-number logic moved to app/terminal/conpty.js (now unit-tested), and the
+// synchronous get-windows-build IPC handler moved to spawn.js's registerIpc — where it
+// resolves the build PER PROJECT (project → global conptyBackend cascade) instead of the
+// single global value this used to cache at window load, so the xterm wrapping hint and
+// the actual ConPTY backend chosen in the same spawn path can no longer disagree.
 
 // --- IPC: bookmarks ---
 ipcMain.handle('bookmark-toggle', (_event, payload) => {

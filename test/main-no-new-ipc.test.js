@@ -30,7 +30,7 @@ const GRANDFATHERED = [
   'bookmark-list-admin', 'bookmark-remove', 'bookmark-toggle', 'clipboard-write-text', 'delete-handoff',
   'delete-worktree', 'env-refs-check', 'get-about-info', 'get-active-sessions',
   'get-active-terminals', 'get-app-version', 'get-projects',
-  'get-shell-profiles', 'get-stats-from-db', 'get-usage', 'get-windows-build',
+  'get-shell-profiles', 'get-stats-from-db', 'get-usage',
   'handoff-transcript-path', 'index-worker-status', 'list-handoffs', 'list-subagents',
   'mcp-diff-response', 'open-external', 'open-external-terminal', 'open-in-editor', 'open-path',
   'profiles-delete', 'profiles-list', 'profiles-save', 'profiles-set-default', 'profiles-validate',
