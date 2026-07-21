@@ -149,7 +149,7 @@ const {
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
-  isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedByProjectPath, getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
+  isCachePopulated, getAllCached, getCachedByFolder, getFolderLineage, getCachedByParent, getCachedByProjectPath, getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, setSessionLineage, replaceSessionMetrics,
   getFolderMeta, getAllFolderMeta, setFolderMeta,
   upsertSearchEntries, updateSearchTitle, deleteSearchSession, deleteSearchFolder, deleteSearchType,
@@ -288,7 +288,7 @@ sessionCache.init({
   // NOTE: this db object is an explicit allow-list — a function session-cache.js reads via ctx.db.*
   // but that is missing here is `undefined` at runtime (see test/main-ctx-db-wiring.test.js).
   db: {
-    deleteCachedFolder, getCachedByFolder, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics,
+    deleteCachedFolder, getCachedByFolder, getFolderLineage, upsertCachedSessions, deleteCachedSession, replaceSessionMetrics,
     deleteSearchFolder, deleteSearchSession, upsertSearchEntries,
     setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
     getFavoritedProjects, getProjectDisplayNames, getAutoHiddenProjects,

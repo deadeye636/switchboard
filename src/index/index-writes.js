@@ -21,7 +21,7 @@ const LEGACY_SESSION_BACKEND = 'claude';
 
 let getMainWindow, log;
 let upsertCachedSessions, deleteCachedSession, replaceSessionMetrics;
-let deleteSearchFolder, deleteSearchSession, upsertSearchEntries, deleteCachedFolder;
+let deleteSearchFolder, deleteSearchSession, upsertSearchEntries, deleteCachedFolder, getFolderLineage;
 let getMeta, setName, getProjectMeta;
 
 function init(ctx) {
@@ -34,6 +34,7 @@ function init(ctx) {
   deleteSearchSession = ctx.db.deleteSearchSession;
   upsertSearchEntries = ctx.db.upsertSearchEntries;
   deleteCachedFolder = ctx.db.deleteCachedFolder;
+  getFolderLineage = ctx.db.getFolderLineage;
   getMeta = ctx.db.getMeta;
   setName = ctx.db.setName;
   getProjectMeta = ctx.db.getProjectMeta;
@@ -153,7 +154,9 @@ function isRemovedProject(projectPath) {
  *                   metric'd and (re)indexed for FTS.
  *   wipeFolders   — [{folder, scope}] folder-scoped wipes: deleteSearchFolder BEFORE deleteCachedFolder
  *                   (the scoped FTS delete resolves backendId through session_cache rows — so the rows
- *                   must still be there when it runs — ordering matters).
+ *                   must still be there when it runs — ordering matters). A SOFT lineage the rows carry
+ *                   (a /clear link resolveLineage cannot rebuild) is read BEFORE the wipe and re-merged
+ *                   onto the re-inserted rows, so a cold scan does not drop it (#272).
  *   deleteIds     — per-session-id deletes (cache + search), for a reconcile that keys on id/file.
  *   metricsMode   — 'always'      (Claude): replaceSessionMetrics unconditionally, clearing on empty too;
  *                   'if-nonempty' (Axis-B, #154): only when the parser actually emitted per-day metrics.
@@ -167,6 +170,18 @@ function isRemovedProject(projectPath) {
  * title precedence (name > customTitle) already folds a just-set customTitle back to the same string.
  */
 function applyIndexResults({ sessions = [], wipeFolders = [], deleteIds = [], metricsMode = 'always' } = {}) {
+  // A folder wipe deletes the rows and re-inserts them, which turns cacheUpsert's lineage COALESCE into
+  // an INSERT and drops any SOFT lineage the rows carried — a /clear link resolveLineage cannot rebuild
+  // (there is no on-disk parent). Read it BEFORE the wipe so it can be re-merged onto the re-inserted
+  // rows below, keeping the "the full scan does not wipe recorded lineage" promise (#272).
+  const preservedLineage = new Map();
+  for (const wf of wipeFolders) {
+    if (!wf) continue;
+    for (const row of getFolderLineage(wf.folder, wf.scope)) {
+      preservedLineage.set(row.sessionId, { lineageParentId: row.lineageParentId, lineageKind: row.lineageKind });
+    }
+  }
+
   // Folder-scoped wipes first: search before cache (the scoped FTS delete reads session_cache to
   // resolve backendId, so the rows must still be present). Runs even for an emptied folder.
   for (const wf of wipeFolders) {
@@ -193,6 +208,13 @@ function applyIndexResults({ sessions = [], wipeFolders = [], deleteIds = [], me
       if (lin && lin.lineageParentId) {
         s.lineageParentId = lin.lineageParentId;
         s.lineageKind = lin.lineageKind || null;
+      } else if (preservedLineage.has(s.sessionId)) {
+        // resolveLineage can't rebuild this link (a /clear child has no on-disk parent) — restore what
+        // was recorded live before the wipe. A hard link (fork) above already won; this only fills a
+        // row the scan would otherwise leave blank, so /clear grouping survives a restart (#272).
+        const p = preservedLineage.get(s.sessionId);
+        s.lineageParentId = p.lineageParentId;
+        s.lineageKind = p.lineageKind;
       }
     }
 

@@ -279,6 +279,19 @@ function getCachedByFolder(folder, scope) {
   return normalizeCacheRows(prepScoped(sql).all(folder, ...c.params));
 }
 
+// The lineage links a folder's rows carry (#272). The cold-scan folder wipe DELETES the rows and
+// re-inserts them, which turns cacheUpsert's lineage COALESCE (:71-72) into an INSERT — so a SOFT
+// lineage that resolveLineage cannot rebuild (a /clear child has no on-disk parent) is dropped.
+// applyIndexResults reads this BEFORE the wipe and re-merges it onto the re-inserted rows, keeping
+// the same "the full scan does not wipe recorded lineage" promise the incremental upsert makes.
+// Scoped like deleteCachedFolder so a Claude sweep never reads a Codex row's lineage.
+function getFolderLineage(folder, scope) {
+  const c = backendScopeClause(scope);
+  const sql = 'SELECT sessionId, lineageParentId, lineageKind FROM session_cache'
+    + ' WHERE folder = ? AND lineageParentId IS NOT NULL' + c.sql;
+  return prepScoped(sql).all(folder, ...c.params);
+}
+
 /**
  * Every cached session of a project, whatever backend wrote it — with the path to its transcript (#171).
  *
@@ -380,7 +393,8 @@ function setFolderMeta(folder, projectPath, indexMtimeMs) {
 }
 
 module.exports = {
-  isCachePopulated, getAllCached, getCachedByFolder, getCachedByParent, getCachedByProjectPath,
+  isCachePopulated, getAllCached, getCachedByFolder, getFolderLineage, getCachedByParent,
+  getCachedByProjectPath,
   getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, setSessionLineage,
   replaceSessionMetrics,

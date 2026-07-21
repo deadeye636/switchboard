@@ -109,6 +109,7 @@ module.exports = {
   isCachePopulated: sessionStore.isCachePopulated,
   getAllCached: sessionStore.getAllCached,
   getCachedByFolder: sessionStore.getCachedByFolder,
+  getFolderLineage: sessionStore.getFolderLineage,
   getCachedByParent: sessionStore.getCachedByParent,
   getCachedByProjectPath: sessionStore.getCachedByProjectPath,
   getBackendsByProjectPath: sessionStore.getBackendsByProjectPath,
