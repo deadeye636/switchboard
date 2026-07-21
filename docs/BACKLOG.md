@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (20 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-21
 
@@ -34,6 +34,5 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#229](https://github.com/deadeye636/switchboard/issues/229) Session lineage — remaining work (per-backend provenance + display polish) · _feature_
 - [#242](https://github.com/deadeye636/switchboard/issues/242) Two terminals clearing the same folder at the same moment stay ambiguous · _feature, blocked-on-upstream_
 - [#267](https://github.com/deadeye636/switchboard/issues/267) Terminal: flow-control watermarks and single/tabs scrollback ~10x above VS Code · _chore_
-- [#268](https://github.com/deadeye636/switchboard/issues/268) Terminal (Windows): effectiveConptyBuildNumber untested and ignores per-session conptyBackend cascade · _chore_
 - [#270](https://github.com/deadeye636/switchboard/issues/270) Terminal header and slug-group dot show only running/stopped, not the six states · _feature_
 - [#271](https://github.com/deadeye636/switchboard/issues/271) Terminal: evaluate programming ligatures (@xterm/addon-ligatures) · _feature_
