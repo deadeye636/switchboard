@@ -87,6 +87,10 @@ function readDbFacts(dbPath) {
 // time-based staleness edge — a wedged turn that stopped writing (#166), which no write ever signals — is
 // unaffected: the 30 s busy ticker keeps driving it through this same cached-facts path.
 const _factsCache = new Map();   // dbPath -> { sig, facts }
+// Bounded so the memo can't grow with every distinct conversation `.db` ever seen live over the app's
+// lifetime (#286) — the same FIFO cap folder-parse.js puts on its `_fileReadState`. An evicted entry just
+// costs one full re-read next time; live sessions are far fewer than this.
+const FACTS_CACHE_MAX = 256;
 
 /**
  * Busy/idle from the conversation `.db`, opening it only when it changed since the last read.
@@ -99,6 +103,7 @@ function deriveStateFromDb(dbPath, now = Date.now(), opts = {}) {
     if (!facts) return null;   // locked/unreadable -> retry next flush, don't cache a miss
     entry = { sig, facts };
     _factsCache.set(dbPath, entry);
+    if (_factsCache.size > FACTS_CACHE_MAX) _factsCache.delete(_factsCache.keys().next().value);
   }
   return deriveState(entry.facts, now, opts);
 }

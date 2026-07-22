@@ -393,6 +393,10 @@ function readLiveState(sessionId) {
 // with a fresh `now` in state.js, so the time-based idle edge is unaffected). The signature is global to the
 // store, so any Hermes write re-reads every live Hermes session — conservative but never stale.
 const _liveStateCache = new Map();   // sessionId -> { sig, row }
+// Bounded so the memo can't grow with every distinct session id ever read live over the app's lifetime
+// (#286) — the same FIFO cap folder-parse.js puts on its `_fileReadState`. An evicted entry costs one
+// re-read; live sessions are far fewer than this.
+const LIVE_STATE_CACHE_MAX = 256;
 
 function readLiveStateGated(sessionId) {
   if (!sessionId) return null;
@@ -402,6 +406,7 @@ function readLiveStateGated(sessionId) {
   const row = readLiveState(sessionId);
   if (!row) return null;   // locked/absent -> retry next flush, don't cache a miss (openDb nulls under lock)
   _liveStateCache.set(sessionId, { sig, row });
+  if (_liveStateCache.size > LIVE_STATE_CACHE_MAX) _liveStateCache.delete(_liveStateCache.keys().next().value);
   return row;
 }
 

@@ -87,7 +87,9 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
       renameProjectRefs: () => {},
       // This is what the prune calls — it takes the project's tags, handoffs and favourites with it.
       deleteProjectRefs: (p) => { calls.prunedProjects.push(p); states.delete(p); autoHidden.delete(p); },
-      setFolderMeta: () => {},
+      // Records like the real cache_meta store so production writes (remap re-point, admin derive) are
+      // observable — folder -> { folder, projectPath }, matching getAllFolderMeta's shape.
+      setFolderMeta: (folder, projectPath) => { folderMeta.set(folder, { folder, projectPath }); },
       toggleProjectFavorite: (p) => {
         const next = !calls.favorites.get(p);
         calls.favorites.set(p, next);
@@ -637,6 +639,35 @@ test('remapProject moves EVERY backend\'s sessions, not just Claude\'s', () => {
     t.cleanup();
     fs.rmSync(newDir, { recursive: true, force: true });
     fs.rmSync(codexDir, { recursive: true, force: true });
+  }
+});
+
+test('#286 remapProject re-points EVERY store folder of the project, not just the canonical one', () => {
+  // A project can own several store folders (legacy encodings, #245). #282 made the tombstone sweep trust
+  // folder_meta, so a sibling left pointing at the old path would make projectHasSessionsOnDisk(newPath)
+  // miss it until the next reconcile — a window a sweep could resurrect through. The remap must re-point
+  // all of them at once.
+  const t = makeCtx();
+  const newDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-sib-'));
+  try {
+    const oldPath = 'D:\\Old';
+    const canonical = encodeProjectPath(oldPath);
+    const sibling = 'legacy-spelling-of-old';         // a second folder the SAME project owns
+    fs.mkdirSync(path.join(t.store, canonical));       // on disk, so the remap has a project to move
+    t.setFolderMeta(canonical, oldPath);
+    t.setFolderMeta(sibling, oldPath);
+    t.setCachedRows([]);
+
+    const res = projects.remapProject(oldPath, newDir);
+    assert.strictEqual(res.ok, true);
+
+    const meta = t.ctx.db.getAllFolderMeta();
+    assert.strictEqual(meta.get(canonical).projectPath, newDir, 'the canonical folder is re-pointed');
+    assert.strictEqual(meta.get(sibling).projectPath, newDir,
+      'and the legacy-spelling sibling too — projectHasSessionsOnDisk(newDir) is correct the instant remap returns');
+  } finally {
+    t.cleanup();
+    fs.rmSync(newDir, { recursive: true, force: true });
   }
 });
 
