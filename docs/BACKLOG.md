@@ -5,7 +5,7 @@
 
 Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-21
+**As of:** 2026-07-22
 
 
 ## P1 — next up
