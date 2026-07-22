@@ -18,6 +18,9 @@
 
   const esc = (s) => (typeof escapeHtml === 'function' ? escapeHtml(String(s)) : String(s));
   const chipEnabled = () => (typeof vcsChipEnabled === 'undefined' ? true : !!vcsChipEnabled);
+  // The branch/counts BADGE is opt-in (default off): the glyph button alone opens the window; the
+  // badge just adds the at-a-glance branch + file counts (#277).
+  const showBadge = () => (typeof vcsShowBadge === 'undefined' ? false : !!vcsShowBadge);
 
   const GLYPH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M18 10.5c0 4-6 3-6 7"/><path d="M6 8.5v7"/></svg>';
   const GLYPH_SM = '<svg class="vcs-pill-glyph" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M18 10.5c0 4-6 3-6 7"/><path d="M6 8.5v7"/></svg>';
@@ -89,6 +92,21 @@
     return row;
   }
 
+  // Fill a card chip with either the full branch/counts badge or, when the badge is off, just the git
+  // glyph (still a click target for the changes window).
+  function renderChipContent(chip, s) {
+    chip.classList.remove('vcs-inprogress', 'vcs-glyph-only', 'has-changes');
+    if (showBadge()) {
+      const { html, inProgress } = pillInner(s);
+      if (inProgress) chip.classList.add('vcs-inprogress');
+      chip.innerHTML = html;
+    } else {
+      chip.classList.add('vcs-glyph-only');
+      chip.innerHTML = GLYPH_SM;
+      if (dirtyCount(s) > 0 || (s.state && s.state !== 'detached')) chip.classList.add('has-changes');
+    }
+  }
+
   // A compact chip for a grid session card header. Reuses the pill markup; carries its own click
   // listener (the grid patches cards in place rather than via the sidebar's delegate). Returns null
   // when the cwd has no status yet (non-repo / first poll pending).
@@ -101,9 +119,7 @@
     chip.title = 'Open changes';
     chip.dataset.vcsCwd = cwd;
     chip.dataset.vcsLabel = label || (cwd.split('/').filter(Boolean).slice(-1)[0] || cwd);
-    const { html, inProgress } = pillInner(s);
-    if (inProgress) chip.classList.add('vcs-inprogress');
-    chip.innerHTML = html;
+    renderChipContent(chip, s);
     chip.addEventListener('click', (e) => {
       e.stopPropagation();
       if (window.api && window.api.openChangesWindow) window.api.openChangesWindow(cwd, chip.dataset.vcsLabel);
@@ -117,9 +133,7 @@
     const chips = document.querySelectorAll('.vcs-card-chip[data-vcs-cwd="' + (window.CSS && CSS.escape ? CSS.escape(cwd) : cwd) + '"]');
     for (const chip of chips) {
       if (!summary) { chip.remove(); continue; }
-      const { html, inProgress } = pillInner(summary);
-      chip.classList.toggle('vcs-inprogress', !!inProgress);
-      chip.innerHTML = html;
+      renderChipContent(chip, summary);
     }
   }
 
@@ -146,14 +160,16 @@
     const newBtn = header.querySelector('.project-new-btn');
     if (newBtn) header.insertBefore(btn, newBtn); else header.appendChild(btn);
 
-    // The pill row is a SIBLING of the header (it sits between the header and the session list), so its
-    // click can't be caught by a header-scoped delegate — it carries the cwd itself, read by the
-    // top-level `.vcs-open` branch in sidebar-events.js.
-    const pill = buildPillRow(s);
-    const pillEl = pill.querySelector('.vcs-pill');
-    if (pillEl) { pillEl.dataset.vcsCwd = cwd; pillEl.dataset.vcsLabel = shortLabel; }
-    if (group && sessionsList && sessionsList.parentNode === group) group.insertBefore(pill, sessionsList);
-    else if (group) group.appendChild(pill);
+    // The branch/counts badge is opt-in. The pill row is a SIBLING of the header (between it and the
+    // session list), so its click can't be caught by a header-scoped delegate — it carries the cwd
+    // itself, read by the top-level `.vcs-open` branch in sidebar-events.js.
+    if (showBadge()) {
+      const pill = buildPillRow(s);
+      const pillEl = pill.querySelector('.vcs-pill');
+      if (pillEl) { pillEl.dataset.vcsCwd = cwd; pillEl.dataset.vcsLabel = shortLabel; }
+      if (group && sessionsList && sessionsList.parentNode === group) group.insertBefore(pill, sessionsList);
+      else if (group) group.appendChild(pill);
+    }
   }
 
   window.vcsView = { status, decorateHeader, buildCardChip, beginCollect, endCollect, _cache: cache };

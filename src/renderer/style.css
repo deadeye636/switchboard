@@ -5027,12 +5027,12 @@ mark.jsonl-search-hit-active {
 .vcs-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   max-width: 100%;
-  border: 1px solid #3a3a55;
-  border-radius: 11px;
-  padding: 1px 9px;
-  font-size: 11.5px;
+  border: 1px solid #3d4d70;
+  border-radius: 13px;
+  padding: 2px 11px;
+  font-size: 12px;
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   color: #61afef;
   cursor: pointer;
@@ -5041,11 +5041,11 @@ mark.jsonl-search-hit-active {
   text-overflow: ellipsis;
 }
 .vcs-pill:hover { border-color: #61afef; background: rgba(97,175,239,0.08); }
-.vcs-pill-glyph { color: #7a7a90; flex: none; }
+.vcs-pill-glyph { color: #6b7899; flex: none; }
 .vcs-br { color: #d7dae0; }
 .vcs-staged { color: #98c379; font-weight: 600; }
 .vcs-unstaged { color: #d19a66; font-weight: 600; }
-.vcs-untracked { color: #7a7a90; font-weight: 600; }
+.vcs-untracked { color: #9aa4b2; font-weight: 600; }
 .vcs-conflict { color: #e06c75; font-weight: 700; }
 .vcs-clean { color: #98c379; }
 .vcs-state {
@@ -5063,6 +5063,10 @@ mark.jsonl-search-hit-active {
 /* Compact variant on a grid session card header */
 .vcs-card-chip { font-size: 10.5px; padding: 0 7px; border-radius: 9px; max-width: 150px; flex: none; }
 .grid-card-header .vcs-card-chip { margin-left: 4px; }
+/* Badge off: the card chip is just the git glyph (still opens the changes window) */
+.vcs-card-chip.vcs-glyph-only { padding: 1px 5px; color: #6b7899; }
+.vcs-card-chip.vcs-glyph-only.has-changes { color: #d19a66; border-color: #4a4436; }
+.vcs-card-chip.vcs-glyph-only:hover { color: #61afef; border-color: #61afef; }
 
 /* Project header gear button */
 .project-settings-btn {

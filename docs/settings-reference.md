@@ -70,6 +70,7 @@ back on Save.
 | `settingsOpenMode` | Open settings as | `overlay` \| `window` | `overlay` | global |
 | `sidebarCollapseDefault` | Sidebar on startup | `expanded` \| `collapsed` \| `remember` | `remember` | global |
 | `vcsChipEnabled` | Show version-control status | `true` \| `false` | `true` | global |
+| `vcsShowBadge` | Show branch & change counts badge | `true` \| `false` | `false` | global |
 | `vcsPollSeconds` | Version-control poll interval (s) | integer, min 5 | `20` | global |
 | `vcsCountUntracked` | Count untracked files | `true` \| `false` | `true` | global |
 | `tabPosition` | Tab position | `top` \| `bottom` | `top` | global |

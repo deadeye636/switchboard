@@ -24,6 +24,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 12 | [Saved Variables: how a secret reaches a terminal](12-saved-variables.md) | #205, #204 | No — touches the insert path + the terminal |
 | 13 | [Session lineage: provenance + /clear re-key](13-session-lineage.md) | #223, #193 | No — touches the transition detector, the scan, and the sidebar |
 | 14 | [Scheduled tasks (cron-driven headless runs)](14-scheduled-tasks.md) — **removed (#246)**, kept as a rebuild record | #206 | Was: Claude-only |
+| 15 | [VCS-aware session cards (chip + changes window)](15-vcs-status.md) | #277 | Yes — new `src/vcs/` seam + `src/app/vcs.js` |
 
 ## Shared architecture (read once, applies to all specs)
 

@@ -48,7 +48,7 @@
   function settingsGlobalHtml(v) {
     const {
       DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
-      collapseDefaultValue, vcsChipEnabledValue, vcsPollSecondsValue, vcsCountUntrackedValue,
+      collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue,
       externalEditorValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
@@ -75,7 +75,7 @@
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
           <button class="settings-nav-item settings-nav-sub" data-cat="tools">Terminal tools</button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
-          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">10</span></button>
+          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">11</span></button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
           <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
           <button class="settings-nav-item" data-cat="backends">Backends</button>
@@ -569,6 +569,15 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-vcs-enabled" ${vcsChipEnabledValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Show branch &amp; change counts</span>
+                    <div class="settings-description">Off shows only the git button (opens the changes window); on adds the branch and file-count badge.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-vcs-badge" ${vcsShowBadgeValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">

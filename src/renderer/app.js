@@ -212,6 +212,7 @@ let cachedPlans = [];
 let visibleSessionCount = 10;
 let sessionMaxAgeDays = 3;
 let vcsChipEnabled = true;   // #277: master switch for the sidebar/card VCS chip (read by sidebar-vcs.js)
+let vcsShowBadge = false;    // #277: show the branch/counts badge (default off — the glyph button alone opens the window)
 const pendingSessions = new Map(); // sessionId → { session, projectPath, folder }
 
 // Inject a pending (not-yet-on-disk) session into the cached project lists so
@@ -1615,6 +1616,9 @@ async function reapplyGlobalSettings() {
   // sidebar and on the session cards (#174).
   window._refreshProjectTagFilter?.();
   window.bookmarksTags?.reloadTags?.();
+  // #277: VCS chip globals apply live on a settings change, not only at boot.
+  vcsChipEnabled = g.vcsChipEnabled !== false;
+  vcsShowBadge = g.vcsShowBadge === true;
   refreshSidebar?.();
 }
 
@@ -1776,6 +1780,7 @@ setTimeout(() => {
       sessionMaxAgeDays = global.sessionMaxAgeDays;
     }
     vcsChipEnabled = global.vcsChipEnabled !== false;   // #277: default on
+    vcsShowBadge = global.vcsShowBadge === true;        // #277: badge default off
     if (global.terminalTheme && TERMINAL_THEMES[global.terminalTheme]) {
       currentThemeName = global.terminalTheme;
       TERMINAL_THEME = getTerminalTheme();

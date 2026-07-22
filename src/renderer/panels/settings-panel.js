@@ -213,6 +213,7 @@
     const collapseDefaultValue = fieldValue('sidebarCollapseDefault', 'remember');
     // #277 VCS chip (global): master switch, poll interval, untracked counting.
     const vcsChipEnabledValue = fieldValue('vcsChipEnabled', true);
+    const vcsShowBadgeValue = fieldValue('vcsShowBadge', false);
     const vcsPollSecondsValue = fieldValue('vcsPollSeconds', 20);
     const vcsCountUntrackedValue = fieldValue('vcsCountUntracked', true);
     const tabPositionValue = fieldValue('tabPosition', 'top');
@@ -415,7 +416,7 @@
       // mattered: a mistyped read renders an empty field rather than throwing.
       settingsViewerBody.innerHTML = window.settingsGlobalHtml({
         DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
-        collapseDefaultValue, vcsChipEnabledValue, vcsPollSecondsValue, vcsCountUntrackedValue,
+        collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
         confirmQuitValue, conptyBackendValue, displayModeValue,
         externalEditorValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
@@ -730,6 +731,7 @@
         settings.sidebarCollapseDefault = settingsViewerBody.querySelector('#sv-collapse-default').value || 'remember';
         // #277 VCS chip settings (global).
         settings.vcsChipEnabled = !!settingsViewerBody.querySelector('#sv-vcs-enabled')?.checked;
+        settings.vcsShowBadge = !!settingsViewerBody.querySelector('#sv-vcs-badge')?.checked;
         { const n = parseInt(settingsViewerBody.querySelector('#sv-vcs-poll')?.value, 10); settings.vcsPollSeconds = Number.isFinite(n) && n > 0 ? n : 20; }
         settings.vcsCountUntracked = !!settingsViewerBody.querySelector('#sv-vcs-count-untracked')?.checked;
         settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'grid';
