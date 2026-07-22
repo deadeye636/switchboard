@@ -44,7 +44,7 @@ function init(context) {
 
 function claimLiveRecord(sessionId, session, backend) {
   const existing = liveStoreRef.get(sessionId);
-  if (existing) return existing;
+  if (existing) return existing;   // #282 lever 3: a CLAIMED session never reaches the full-store walk below
 
   // RESUME: our id already IS the backend's id, so there is nothing to correlate — just confirm the
   // record exists. This must come first: `matchLiveSession` only accepts records born after the spawn,

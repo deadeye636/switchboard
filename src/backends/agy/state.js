@@ -15,6 +15,7 @@
 'use strict';
 
 const { driver } = require('../sqlite-driver');
+const { dbSignature } = require('../livestate-cache');
 
 const BUSY = 'busy';
 const IDLE = 'idle';
@@ -54,11 +55,11 @@ function deriveState(row, now = Date.now(), opts = {}) {
 
 /**
  * Read the conversation `.db` and report which role wrote the last message step, plus the file mtime as
- * the last-activity edge. Then derive. Read-only, short-lived — the same discipline the parser uses.
+ * the last-activity edge. Read-only, short-lived — the same discipline the parser uses.
  *
  * SQLite is not tail-readable, so this is a small targeted query (last 14/15 step), not a re-parse.
  */
-function deriveStateFromDb(dbPath, now = Date.now(), opts = {}) {
+function readDbFacts(dbPath) {
   const d = driver();
   if (!d) return null;
   let db;
@@ -71,7 +72,7 @@ function deriveStateFromDb(dbPath, now = Date.now(), opts = {}) {
     let mtimeMs = 0;
     try { mtimeMs = require('fs').statSync(dbPath).mtimeMs; } catch { /* leave 0 */ }
     const lastEntryAt = mtimeMs ? new Date(mtimeMs).toISOString() : null;
-    return deriveState({ lastRole, lastEntryAt }, now, opts);
+    return { lastRole, lastEntryAt };
   } catch {
     return null;
   } finally {
@@ -79,8 +80,34 @@ function deriveStateFromDb(dbPath, now = Date.now(), opts = {}) {
   }
 }
 
+// #282 lever 1: the DB read is gated on a cheap file signature. adopt.updateBackendLiveStates re-reads
+// liveState on EVERY watcher flush (any backend), so a claimed agy session's `.db` was re-opened several
+// times a second even when nothing in it had changed. Re-open only when the `.db` (or its `-wal`) actually
+// moved; otherwise reuse the last-read facts. The DERIVATION always re-runs with a fresh `now`, so the
+// time-based staleness edge — a wedged turn that stopped writing (#166), which no write ever signals — is
+// unaffected: the 30 s busy ticker keeps driving it through this same cached-facts path.
+const _factsCache = new Map();   // dbPath -> { sig, facts }
+
+/**
+ * Busy/idle from the conversation `.db`, opening it only when it changed since the last read.
+ */
+function deriveStateFromDb(dbPath, now = Date.now(), opts = {}) {
+  const sig = dbSignature(dbPath);
+  let entry = _factsCache.get(dbPath);
+  if (!entry || entry.sig !== sig) {
+    const facts = readDbFacts(dbPath);
+    if (!facts) return null;   // locked/unreadable -> retry next flush, don't cache a miss
+    entry = { sig, facts };
+    _factsCache.set(dbPath, entry);
+  }
+  return deriveState(entry.facts, now, opts);
+}
+
+/** Test seam: drop the gate's memo so a fixture mutated in place is re-read. */
+function _clearFactsCache() { _factsCache.clear(); }
+
 module.exports = {
-  deriveState, deriveStateFromDb,
+  deriveState, deriveStateFromDb, readDbFacts, _clearFactsCache,
   ACTIVITY_WINDOW_MS, OUTPUT_LIVENESS_MS, OUTPUT_LIVENESS_CEILING_MS,
   BUSY, IDLE,
 };

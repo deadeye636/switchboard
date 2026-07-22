@@ -49,13 +49,15 @@ function startBackendWatchers() {
   function flush() {
     debounceTimer = null;
     if (ctx.getAppQuitting()) return;
-    pending.clear();
     // #208: the per-backend parse moved OFF the main thread. A store change posts a reconcile to the index
-    // worker (it scans the whole ready+enabled Axis-B roster — the sweep is coalesced with the get-projects
-    // sweeps through the same gate). The worker parses; main applies the reply and pushes projects-changed
-    // CONDITIONALLY via afterReconcile. `pending` (which backend changed) is no longer needed to target the
-    // scan — the worker rescans the roster — so it is just reset here.
-    try { ctx.indexWorker.postReconcile(); } catch (err) { ctx.log.warn(`[watch] backend reconcile post failed: ${err?.message || err}`); }
+    // worker; the worker parses, main applies the reply and pushes projects-changed CONDITIONALLY via
+    // afterReconcile. #282 lever 2: pass the backend(s) that actually changed so the worker reconciles only
+    // those — not the whole roster. An agy append no longer drags Hermes' full-`messages` GROUP BY and the
+    // Codex/Pi store walks through the worker on every flush. A burst that outruns the coalescing gate
+    // safely widens back to a full sweep (index-worker-client.js).
+    const changed = [...pending];
+    pending.clear();
+    try { ctx.indexWorker.postReconcile(changed.length ? { backendIds: changed } : {}); } catch (err) { ctx.log.warn(`[watch] backend reconcile post failed: ${err?.message || err}`); }
     // The store that just changed is also the busy/idle signal — and the place a freshly launched session's
     // real id first appears (T-4.5 / T-5.3). This reads the live PTY set, NOT a transcript, so it stays
     // synchronous on main: the spinner must update at once, not after a worker round-trip.

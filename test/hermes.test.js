@@ -540,3 +540,24 @@ test('liveState reports the corrected state end to end', () => {
   assert.strictEqual(row.lastRole, 'user', 'mid-turn: asked, not yet answered');
   assert.strictEqual(deriveState(row, freshly), 'busy');
 });
+
+// #282 lever 1: liveState re-opens state.db only when its signature (mtime+size, plus `-wal`) changed.
+// adopt.updateBackendLiveStates re-reads every live session on every watcher flush — including flushes
+// from OTHER backends, which cannot have moved state.db — so without the gate the WAL DB was re-opened
+// several times a second. readLiveState builds a fresh object each call, so object IDENTITY across two
+// calls is proof the gate served a cached row rather than re-opening.
+test('#282 hermes liveState gate: unchanged state.db serves a cached row; a changed signature re-reads', () => {
+  const fs = require('node:fs');
+  useFixture();
+  reader._clearLiveStateCache();
+  const a = reader.readLiveStateGated('sess-running');
+  assert.ok(a, 'a running session yields a live-state row');
+  const b = reader.readLiveStateGated('sess-running');
+  assert.strictEqual(a, b, 'unchanged state.db -> the SAME cached row object, not a fresh open');
+  // Bump state.db's mtime: the signature changes -> a fresh read (a new object).
+  const later = new Date(Date.now() + 10000);
+  fs.utimesSync(reader.dbPath(), later, later);
+  const c = reader.readLiveStateGated('sess-running');
+  assert.notStrictEqual(c, a, 'a changed signature -> a fresh read');
+  reader._clearLiveStateCache();
+});

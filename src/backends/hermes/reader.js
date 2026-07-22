@@ -20,6 +20,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { bucketOf, bucketFromEpochSeconds, NO_HOUR } = require('../metrics-bucket');
+const { dbSignature } = require('../livestate-cache');
 
 // Bump on ANY behavioural change here — persisted parse-state keyed on it is then dropped (§5.10), and
 // (since #152) every Hermes session already in the cache is re-read, so a change like v2 reaches the
@@ -385,6 +386,28 @@ function readLiveState(sessionId) {
   }
 }
 
+// #282 lever 1: gate the `readLiveState` open on a cheap signature of state.db (+ its `-wal`).
+// adopt.updateBackendLiveStates re-reads busy/idle for every live session on every watcher flush — including
+// flushes from OTHER backends, which cannot have moved state.db at all — and each read re-opened the WAL
+// database. Open only when state.db actually changed; otherwise reuse the last row (the derivation re-runs
+// with a fresh `now` in state.js, so the time-based idle edge is unaffected). The signature is global to the
+// store, so any Hermes write re-reads every live Hermes session — conservative but never stale.
+const _liveStateCache = new Map();   // sessionId -> { sig, row }
+
+function readLiveStateGated(sessionId) {
+  if (!sessionId) return null;
+  const sig = dbSignature(dbPath());
+  const entry = _liveStateCache.get(sessionId);
+  if (entry && entry.sig === sig) return entry.row;
+  const row = readLiveState(sessionId);
+  if (!row) return null;   // locked/absent -> retry next flush, don't cache a miss (openDb nulls under lock)
+  _liveStateCache.set(sessionId, { sig, row });
+  return row;
+}
+
+/** Test seam: drop the gate's memo so a store mutated in place is re-read. */
+function _clearLiveStateCache() { _liveStateCache.clear(); }
+
 /**
  * STORE-level watch target: the DB file. A `kind:'db'` target means "poll this file AND its `-wal`" —
  * the watcher appends the `-wal` itself (main.js), because a WAL commit can leave state.db's mtime
@@ -447,6 +470,7 @@ function readMessages(sessionId, { limit = 2000 } = {}) {
 module.exports = {
   PARSER_SCHEMA_VERSION,
   hermesHome, setHome, dbPath, dbExists,
-  discoverSessions, parseSession, watchTargets, readMessages, readLiveState,
+  discoverSessions, parseSession, watchTargets, readMessages, readLiveState, readLiveStateGated,
+  _clearLiveStateCache,
   openDb,
 };

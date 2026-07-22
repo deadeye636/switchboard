@@ -135,6 +135,27 @@ incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`).
     the cache, restoring the old inline `if (upserted||deleted)` semantics — the watcher is the highest-
     frequency trigger, and a busy Codex/Hermes append the mtime/marker gate skips must not push at the
     600 ms watcher cadence.
+- **REDUCED by [#282]** — a live session was driving multi-GB/day of disk **read** on main: measured
+  ~34.5 MB/s with all backends live, dominated by the two SQLite backends. The [#208] flush above still
+  swept the WHOLE roster every 600 ms, and `updateBackendLiveStates` re-OPENED each live backend's store per
+  flush. Two levers:
+  - **Scoped reconcile.** The flush now posts `postReconcile({backendIds})` for the backend(s) whose store
+    actually changed (`src/watch/stores.js`); `scopedRoster` narrows the worker's roster to those
+    (`claudeEnabled:false`, filtered to ready+enabled — `src/index/index-worker-client.js`). An agy append no
+    longer drags Hermes' full-`messages` `GROUP BY` and the Codex/Pi store walks through the worker on every
+    flush. The coalescing gate accumulates the scope union under sustained load and widens to a full sweep
+    the moment any UNSCOPED caller (get-projects, the Claude watcher) arrives.
+  - **Signature-gated `liveState`.** `updateBackendLiveStates` stays synchronous on main (it drives the
+    spinner), but the SQLite backends (agy `.db`, Hermes `state.db`) now re-open only when a cheap signature
+    — `mtime+size` of the db AND its `-wal` sibling, `src/backends/livestate-cache.js` — has moved. A flush
+    from another backend, or a session that did not write, is served from a per-ref facts cache. The
+    derivation still reruns with a fresh `now`, so the time-based staleness edge ([#166]) and the 30 s busy
+    ticker are unchanged.
+  - **Residual:** an UNCLAIMED (freshly spawned, or resumed but not yet paired) Axis-B session still walks
+    the store / opens `state.db` on every flush until it pairs — throttling it was declined because it breaks
+    the "keep asking until the locked DB answers" contract (`test/live-adopt.test.js`). Short-lived per
+    session. The per-ref caches (`_factsCache`, `_liveStateCache`) are not evicted on session exit — bounded
+    by live-session count, an evictable follow-up. Moving the remaining reads off-main is [#283].
 - **MITIGATED by [#209]; the residual is [#210]** — the live-session identity match. `updateBackendLiveStates`
   stays synchronous in the watcher flush (it drives the spinner), and through `claimLiveRecord` it calls
   `matchLiveSession` (`src/backends/file-store.js`) for a freshly spawned, not-yet-paired Axis-B session. That

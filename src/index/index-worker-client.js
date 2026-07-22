@@ -75,6 +75,22 @@ function pruneDeleted() {
 // so the last genuinely-needed sweep still runs. `force` (rebuild — awaited, rare) bypasses the gate.
 let reconcileInFlight = false;   // a gate-holding non-force reconcile is posted, its reply not yet applied
 let reconcileTrailing = false;   // a further sweep was requested while the gate was held — run one after
+// #282 lever 2: the SCOPE of the trailing sweep. null = none armed; a Set = the union of Axis-B ids
+// requested while the gate was held (a scoped store-change flush); the 'full' sentinel = a full sweep is
+// owed (an unscoped caller — get-projects, the Claude watcher — arrived, so the trailing must cover
+// everything). Accumulating the union keeps scoping effective under sustained single-backend load instead
+// of degrading every burst to a full sweep.
+let trailingBackendIds = null;
+
+// Fold a further reconcile request into the trailing sweep while the gate is held. An unscoped request
+// widens the owed trailing to a full sweep; scoped requests union their ids.
+function accumulateTrailingScope(backendIds) {
+  reconcileTrailing = true;
+  if (!backendIds) { trailingBackendIds = 'full'; return; }
+  if (trailingBackendIds === 'full') return;
+  if (!trailingBackendIds) trailingBackendIds = new Set();
+  for (const id of backendIds) trailingBackendIds.add(id);
+}
 
 // The gate-holding request settled (applied or errored). Re-hold the gate with the trailing sweep if one was
 // armed (reconcileInFlight stays true across the re-post — the gate is continuously held), else release it.
@@ -82,14 +98,17 @@ let reconcileTrailing = false;   // a further sweep was requested while the gate
 function afterGateSettled() {
   if (reconcileTrailing && !isAppQuitting()) {
     reconcileTrailing = false;
-    doPostReconcile({ force: false, gate: true });
+    const scope = trailingBackendIds;
+    trailingBackendIds = null;
+    const ids = (scope && scope !== 'full') ? [...scope] : null;
+    doPostReconcile({ force: false, gate: true, backendIds: ids });
   } else {
     reconcileInFlight = false;
   }
 }
 // Worker gone (crash/quit): clear the gate WITHOUT firing a trailing — a late reply must not spawn a fresh
 // worker mid-teardown, and the reconcile safety-net + the next get-projects re-trigger a sweep anyway.
-function clearReconcileGate() { reconcileInFlight = false; reconcileTrailing = false; }
+function clearReconcileGate() { reconcileInFlight = false; reconcileTrailing = false; trailingBackendIds = null; }
 
 // --- per-file liveness push COALESCING (#199 step 5.3, fix 4) --------------------------------------
 // The flag-OFF path fires ONE `projects-changed` per watcher flush; the worker file lane used to push per
@@ -171,6 +190,12 @@ function axisBIdSet() {
 function buildSnapshot(roster) {
   const rows = (typeof getAllCached === 'function' && getAllCached()) || [];
   const axisB = axisBIdSet();
+  // #282 lever 2: a store-change reconcile scoped to an Axis-B backend sets claudeEnabled:false, and the
+  // worker then skips Claude entirely (workers/index-worker.js honours it). So don't gather or CLONE the
+  // whole Claude snapshot (~800 rows) into a post the worker ignores — the row-shaping below is the biggest
+  // part of the per-flush clone. applyReconcileReply reads retained.claude only for folders in msg.claude,
+  // which is empty on a scoped reply, so an empty retained map is correct.
+  const wantClaude = roster.claudeEnabled !== false;
 
   // Claude scope: grouped by folder, filePath RESOLVED exactly as refreshFolder's snapshot does.
   const claudeByFolder = {};              // folder -> [{sessionId, modified, filePath, parserVersion}]
@@ -185,6 +210,7 @@ function buildSnapshot(roster) {
       (backendRows[backendId] = backendRows[backendId] || []).push(row);
       continue;
     }
+    if (!wantClaude) continue;   // scoped reconcile: Claude is not swept, so its rows are neither gathered nor cloned
     // Claude-scope row.
     const filePath = storeIndexer.resolveRowFilePath(row);
     const entry = { sessionId: row.sessionId, modified: row.modified, filePath, parserVersion: row.parserVersion };
@@ -221,6 +247,15 @@ function roster() {
   return { claudeEnabled: storeIndexer.claudeEnabled(), axisB: backendScan.axisBRoster() };
 }
 
+// #282 lever 2: a roster scoped to the backend(s) whose store just changed. Claude is NOT swept — its own
+// watcher (projects.js) covers it — and only the requested ids that are actually in the ready+enabled
+// roster survive, so a just-disabled backend drops out. An empty axisB is a harmless no-op reply (the
+// worker returns nothing for it and applyReconcileReply touches no cached row).
+function scopedRoster(backendIds) {
+  const inRoster = new Set(backendScan.axisBRoster());
+  return { claudeEnabled: false, axisB: (backendIds || []).filter(id => inRoster.has(id)) };
+}
+
 // --- posting ---------------------------------------------------------------------------------------
 
 // Instrument the postMessage so 5.3 can A/B the clone+IPC cost against the removed 214 ms gate walk. Cheap
@@ -237,20 +272,25 @@ function instrumentedPost(msg, sizeHint) {
 
 // The periodic reconcile sweep. Returns a Promise that resolves once the reply has been applied. Non-force
 // sweeps are COALESCED through the gate (fix 1): a burst posts at most one in-flight + one trailing.
-function postReconcile({ force = false } = {}) {
+// `backendIds` (#282 lever 2): when set, this reconcile is SCOPED to those Axis-B backends (a store-change
+// flush knows exactly which store moved). Omitted → a full sweep (get-projects, the Claude watcher, the
+// safety net). Under the coalescing gate a scoped burst accumulates its union; an unscoped caller widens
+// the owed trailing to full.
+function postReconcile({ force = false, backendIds = null } = {}) {
   if (isAppQuitting()) return Promise.resolve(false);
   if (!force) {
-    if (reconcileInFlight) { reconcileTrailing = true; return Promise.resolve(false); }
+    if (reconcileInFlight) { accumulateTrailingScope(backendIds); return Promise.resolve(false); }
     reconcileInFlight = true;
-    return doPostReconcile({ force: false, gate: true });
+    return doPostReconcile({ force: false, gate: true, backendIds });
   }
   return doPostReconcile({ force: true, gate: false });
 }
 
 // Actually build the snapshot + post the request. `gate` marks the one reconcile that holds the coalescing
-// gate, so its settle re-holds/releases it (afterGateSettled). Force posts never hold the gate.
-function doPostReconcile({ force = false, gate = false } = {}) {
-  const r = roster();
+// gate, so its settle re-holds/releases it (afterGateSettled). Force posts never hold the gate. A scoped
+// `backendIds` (non-force only) narrows the roster to those backends; everything else sweeps the full roster.
+function doPostReconcile({ force = false, gate = false, backendIds = null } = {}) {
+  const r = (!force && backendIds) ? scopedRoster(backendIds) : roster();
   const { post: snapshot, retained } = buildSnapshot(r);
   const { folderMeta, removedSet } = buildFolderContext();
   const reqId = ++reqSeq;

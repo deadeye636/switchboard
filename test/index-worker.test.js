@@ -380,3 +380,76 @@ test('file-lane push coalescing: a burst of file applies collapses to one push',
   client._flushFilePush();
   assert.equal(pushes, 1, 'eight file applies produced exactly one projects-changed push');
 });
+
+// --- #282 lever 2: a store-change reconcile is SCOPED to the backend that changed ------------------
+// The Axis-B store watcher (src/watch/stores.js) posts postReconcile({backendIds:[changed]}). The worker
+// honours roster.claudeEnabled + roster.axisB (workers/index-worker.js:179/182), so scoping is expressed
+// purely in the posted roster: Claude is not swept, and only the changed backend is. scopedRoster reads the
+// live axisBRoster, so the tests stub it to a known set.
+test('#282 scoped reconcile: postReconcile({backendIds}) posts a roster scoped to those backends, Claude not swept', () => {
+  const client = require('../src/index/index-worker-client');
+  const backendScan = require('../src/backends/scan');
+  const rec = bootClient(client);
+  const realRoster = backendScan.axisBRoster;
+  try {
+    backendScan.axisBRoster = () => ['codex', 'hermes', 'agy'];
+    client.postReconcile({ backendIds: ['agy'] });
+    const req = reconcilePosts(rec.posted)[0];
+    assert.equal(req.roster.claudeEnabled, false, 'a scoped store-change flush does not re-sweep Claude');
+    assert.deepEqual(req.roster.axisB, ['agy'], 'only the backend that changed is reconciled');
+    // A requested id that is not in the ready+enabled roster drops out (e.g. just disabled).
+    client._deliverReply({ type: 'reply', reqId: req.reqId, kind: 'reconcile', claude: [], backends: [] });
+    client.postReconcile({ backendIds: ['agy', 'pi'] });
+    const req2 = reconcilePosts(rec.posted)[1];
+    assert.deepEqual(req2.roster.axisB, ['agy'], 'an id absent from the roster is filtered out');
+    client._deliverReply({ type: 'reply', reqId: req2.reqId, kind: 'reconcile', claude: [], backends: [] });
+  } finally {
+    backendScan.axisBRoster = realRoster;
+  }
+});
+
+test('#282 scoped coalescing: a burst of scoped flushes accumulates the union into one trailing sweep', () => {
+  const client = require('../src/index/index-worker-client');
+  const backendScan = require('../src/backends/scan');
+  const rec = bootClient(client);
+  const realRoster = backendScan.axisBRoster;
+  try {
+    backendScan.axisBRoster = () => ['codex', 'hermes', 'agy'];
+    client.postReconcile({ backendIds: ['agy'] });      // in-flight, scoped to agy
+    client.postReconcile({ backendIds: ['hermes'] });   // gate held -> trailing {hermes}
+    client.postReconcile({ backendIds: ['agy'] });       // union stays {hermes, agy}
+    assert.equal(reconcilePosts(rec.posted).length, 1, 'only the in-flight sweep is posted during the burst');
+    const first = reconcilePosts(rec.posted)[0];
+    assert.deepEqual(first.roster.axisB, ['agy'], 'the in-flight sweep is scoped to the first backend');
+
+    client._deliverReply({ type: 'reply', reqId: first.reqId, kind: 'reconcile', claude: [], backends: [] });
+    const second = reconcilePosts(rec.posted)[1];
+    assert.equal(second.roster.claudeEnabled, false, 'the trailing sweep is still scoped (no Claude)');
+    assert.deepEqual([...second.roster.axisB].sort(), ['agy', 'hermes'], 'the trailing sweep covers the union of what changed');
+    client._deliverReply({ type: 'reply', reqId: second.reqId, kind: 'reconcile', claude: [], backends: [] });
+    assert.equal(reconcilePosts(rec.posted).length, 2, 'gate released — no spurious extra sweep');
+  } finally {
+    backendScan.axisBRoster = realRoster;
+  }
+});
+
+test('#282 scoped coalescing: an unscoped request while the gate is held widens the trailing to a full sweep', () => {
+  const client = require('../src/index/index-worker-client');
+  const backendScan = require('../src/backends/scan');
+  const rec = bootClient(client);
+  const realRoster = backendScan.axisBRoster;
+  try {
+    backendScan.axisBRoster = () => ['codex', 'hermes', 'agy'];
+    client.postReconcile({ backendIds: ['agy'] });   // in-flight, scoped
+    client.postReconcile({ backendIds: ['hermes'] }); // trailing {hermes}
+    client.postReconcile();                            // UNSCOPED (get-projects / Claude watcher) -> trailing = full
+    const first = reconcilePosts(rec.posted)[0];
+    client._deliverReply({ type: 'reply', reqId: first.reqId, kind: 'reconcile', claude: [], backends: [] });
+    const second = reconcilePosts(rec.posted)[1];
+    assert.deepEqual([...second.roster.axisB].sort(), ['agy', 'codex', 'hermes'],
+      'the trailing sweep widened to the full roster — a full sweep is owed once one was requested');
+    client._deliverReply({ type: 'reply', reqId: second.reqId, kind: 'reconcile', claude: [], backends: [] });
+  } finally {
+    backendScan.axisBRoster = realRoster;
+  }
+});

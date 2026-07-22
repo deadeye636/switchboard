@@ -154,3 +154,43 @@ test('agy descriptor: probe reports installed/not-installed with an actionable r
   assert.equal(typeof res.ok, 'boolean');
   if (!res.ok) assert.ok(res.reason && res.reason.length > 10);
 });
+
+// #282 lever 1: busy/idle re-opens the conversation `.db` only when its signature (mtime+size, plus the
+// `-wal` sibling) actually changed. adopt.updateBackendLiveStates re-reads liveState on every watcher
+// flush from ANY backend, so without this an idle agy `.db` was re-opened several times a second.
+test('#282 agy liveState gate: the `.db` is re-read only when its signature changes', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const state = require('../src/backends/agy/state');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-gate-'));
+  const dbPath = path.join(dir, 'gate.db');
+  try {
+    const db = new DatabaseSync(dbPath);
+    db.exec('CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER)');
+    db.prepare('INSERT INTO steps (idx, step_type) VALUES (0, 14)').run();   // trailing USER step -> a turn is running
+    db.close();
+
+    // A whole-second mtime so restoring it later is exact on every filesystem. Recent, so not stale.
+    const t0 = new Date(Math.floor(Date.now() / 1000) * 1000 - 2000);
+    fs.utimesSync(dbPath, t0, t0);
+    const now = Date.now();
+
+    state._clearFactsCache();
+    assert.equal(state.deriveStateFromDb(dbPath, now), 'busy', 'trailing user step, fresh mtime -> busy');
+
+    // Flip the trailing step to assistant (15) IN PLACE (size unchanged), then restore the exact mtime so
+    // the signature is identical. The gate must return the CACHED busy — proof it did not re-open the DB.
+    const w = new DatabaseSync(dbPath);
+    w.exec('UPDATE steps SET step_type = 15 WHERE idx = 0');
+    w.close();
+    fs.utimesSync(dbPath, t0, t0);
+    assert.equal(state.deriveStateFromDb(dbPath, now), 'busy', 'signature unchanged -> cached facts, no re-read');
+
+    // Bump the mtime (a real store change) -> the gate re-reads and now sees the assistant step -> idle.
+    const t1 = new Date(t0.getTime() + 5000);
+    fs.utimesSync(dbPath, t1, t1);
+    assert.equal(state.deriveStateFromDb(dbPath, now), 'idle', 'signature changed -> re-read -> idle');
+  } finally {
+    state._clearFactsCache();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
