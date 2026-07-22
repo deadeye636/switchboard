@@ -110,6 +110,24 @@ test('refresh forces an immediate poll', async () => {
   assert.strictEqual(d.calls.length, 2);
 });
 
+test('a cwd that becomes a repo (git init) is picked up on the next watch', async () => {
+  let isRepo = false;
+  const d = makeDeps({ detect: () => (isRepo ? gitProvider : null) });
+  const s = createScheduler(d);
+  s.watch(['proj']);
+  s.tick();
+  await flush();
+  assert.strictEqual(d.calls.length, 0);            // non-repo → never polled
+  assert.strictEqual(s._state.get('proj').isRepo, false);
+
+  isRepo = true;                                    // user runs `git init`
+  s.watch(['proj']);                                // next sidebar render re-detects
+  assert.strictEqual(s._state.get('proj').isRepo, true);
+  s.tick();
+  await flush();
+  assert.strictEqual(d.calls.length, 1);            // now it polls
+});
+
 test('getCached returns the last summary or null', async () => {
   const d = makeDeps();
   const s = createScheduler(d);

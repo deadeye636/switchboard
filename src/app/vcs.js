@@ -56,7 +56,16 @@ function createScheduler(deps) {
   // Replace the active set with `cwds`. Unknown cwds are added (polled soon); dropped cwds are removed.
   function watch(cwds) {
     const want = new Set((cwds || []).filter(c => typeof c === 'string' && c));
-    for (const cwd of want) ensure(cwd);
+    for (const cwd of want) {
+      const s = ensure(cwd);
+      // A cwd may have BECOME a repo since we first saw it (e.g. the user ran `git init`). Re-detect
+      // while it is still a non-repo, so a freshly-initialised project gets a chip on the next render
+      // instead of only after an app restart. Repos skip this — detect is a cheap filesystem walk.
+      if (!s.isRepo) {
+        const p = detect(cwd);
+        if (p) { s.provider = p; s.isRepo = true; s.nextDue = now(); }
+      }
+    }
     for (const cwd of [...state.keys()]) {
       if (!want.has(cwd)) state.delete(cwd);
     }

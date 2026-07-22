@@ -75,7 +75,7 @@
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
           <button class="settings-nav-item settings-nav-sub" data-cat="tools">Terminal tools</button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
-          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">7</span></button>
+          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
           <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
           <button class="settings-nav-item" data-cat="backends">Backends</button>
@@ -428,33 +428,6 @@
                     </select>
                   </div>
                 </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Show version-control status</span>
-                    <div class="settings-description">Branch and change counts on project/worktree headers and cards, with a click-through to the changed files.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-vcs-enabled" ${vcsChipEnabledValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Version-control poll interval</span>
-                    <div class="settings-description">How often live working trees are checked, in seconds (minimum 5).</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="number" class="settings-input settings-input-compact" id="sv-vcs-poll" min="5" max="600" value="${vcsPollSecondsValue}">
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Count untracked files</span>
-                    <div class="settings-description">Off skips untracked scanning (git <code>-uno</code>) — faster and quieter in large repositories.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-vcs-count-untracked" ${vcsCountUntrackedValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-                  </div>
-                </div>
               </div>
 
               <div class="settings-subhead">Tabs</div>
@@ -587,6 +560,37 @@
               </div>
 
               ${hasSubagentsValue ? `
+              <div class="settings-subhead">Version control</div>
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Show version-control status</span>
+                    <div class="settings-description">Branch and change counts on project/worktree headers and cards, with a click-through to the changed files.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-vcs-enabled" ${vcsChipEnabledValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Version-control poll interval</span>
+                    <div class="settings-description">How often live working trees are checked, in seconds (minimum 5).</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-vcs-poll" min="5" max="600" value="${vcsPollSecondsValue}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Count untracked files</span>
+                    <div class="settings-description">Off skips untracked scanning (git <code>-uno</code>) — faster and quieter in large repositories.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-vcs-count-untracked" ${vcsCountUntrackedValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+              </div>
+
               <div class="settings-subhead">Subagents</div>
               <div class="settings-section">
                 <div class="settings-field">
