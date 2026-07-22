@@ -48,6 +48,8 @@ back on Save.
 | `terminalRightClick` | Right-click action | `menu` \| `copy-paste` \| `copy` \| `action-bar` \| `default` | `menu` | global |
 | `terminalMouseReporting` | Mouse mode | `native` \| `select` \| `off` | `select` | global |
 | `externalEditorCommand` | External editor | string | `''` (OS default) | global |
+| `fileClickTarget` | Clicking a file link opens | `internal` \| `external` | `internal` | global |
+| `markdownDefaultView` | Markdown files open as | `code` \| `preview` | `code` | global |
 | `terminalCloseBehavior` | Closing a terminal tab | `kill` \| `keep` | `kill` | global |
 | `gpuAcceleration` | GPU rendering (WebGL) — *Advanced* | `auto` \| `on` \| `off` | `auto` | global |
 | `conptyBackend` | Windows ConPTY — *Advanced, Windows only* | `bundled` \| `system` | `bundled` | **cascades** |

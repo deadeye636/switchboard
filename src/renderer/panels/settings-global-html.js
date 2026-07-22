@@ -50,7 +50,7 @@
       DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
       collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue,
-      externalEditorValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
+      externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
@@ -72,7 +72,7 @@
             <input id="sv-search" type="text" placeholder="Search settings…" autocomplete="off">
           </div>
           <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">6</span></button>
-          <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">8</span></button>
+          <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item settings-nav-sub" data-cat="tools">Terminal tools</button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">11</span></button>
@@ -300,6 +300,32 @@
                   </div>
                   <div class="settings-field-control">
                     <input type="text" class="settings-input" id="sv-external-editor" placeholder="OS default" value="${escapeHtml(externalEditorValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Clicking a file link opens</span>${help}</div>
+                    <div class="settings-description">What a plain click on a terminal file link does. Ctrl/Cmd+click always opens the other one.</div>
+                    <div class="settings-more"><b>Internal panel</b>: the built-in file viewer/editor. <b>External editor</b>: the configured external editor (or your OS default). Either way, holding Ctrl/Cmd while clicking opens the opposite target.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-file-click-target">
+                      <option value="internal" ${fileClickTargetValue !== 'external' ? 'selected' : ''}>Internal panel</option>
+                      <option value="external" ${fileClickTargetValue === 'external' ? 'selected' : ''}>External editor</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Markdown files open as</span>${help}</div>
+                    <div class="settings-description">How a Markdown file first opens in the internal editor. The preview toggle in the viewer still overrides this per file.</div>
+                    <div class="settings-more"><b>Code</b>: the source editor. <b>Rendered preview</b>: the read-only rendered view. This only sets the initial mode; switching in the viewer is remembered per viewer as before.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-markdown-default-view">
+                      <option value="code" ${markdownDefaultViewValue !== 'preview' ? 'selected' : ''}>Code</option>
+                      <option value="preview" ${markdownDefaultViewValue === 'preview' ? 'selected' : ''}>Rendered preview</option>
+                    </select>
                   </div>
                 </div>
                 <div class="settings-field">

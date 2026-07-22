@@ -201,6 +201,10 @@
     const mouseReportingRaw = fieldValue('terminalMouseReporting', 'select');
     const mouseModeValue = mouseReportingRaw === 'on' ? 'native' : mouseReportingRaw; // legacy 'on' → native
     const externalEditorValue = fieldValue('externalEditorCommand', '');
+    // #280 default target for a terminal file link (Ctrl/Cmd+click opens the other one).
+    const fileClickTargetValue = fieldValue('fileClickTarget', 'internal');
+    // #279 how a Markdown file first opens in the internal editor (per-file toggle still overrides).
+    const markdownDefaultViewValue = fieldValue('markdownDefaultView', 'code');
     // gpuAcceleration ports VSCode's auto|on|off model (#87); migrate the old boolean
     // terminalWebgl (false → off, else auto).
     const gpuAccelRaw = fieldValue('gpuAcceleration', undefined);
@@ -418,7 +422,7 @@
         DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
         collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
         confirmQuitValue, conptyBackendValue, displayModeValue,
-        externalEditorValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
+        externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
@@ -720,6 +724,8 @@
         settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').value || 'menu';
         settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').value || 'native';
         settings.externalEditorCommand = (settingsViewerBody.querySelector('#sv-external-editor')?.value || '').trim();
+        settings.fileClickTarget = settingsViewerBody.querySelector('#sv-file-click-target')?.value === 'external' ? 'external' : 'internal';
+        settings.markdownDefaultView = settingsViewerBody.querySelector('#sv-markdown-default-view')?.value === 'preview' ? 'preview' : 'code';
         settings.gpuAcceleration = settingsViewerBody.querySelector('#sv-gpu-acceleration').value || 'auto';
         // Select only rendered on Windows — keep the stored value elsewhere.
         {

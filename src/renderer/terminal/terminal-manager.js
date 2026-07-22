@@ -3,7 +3,7 @@
 //
 // Depends on globals: openSessions, activeSessionId, TERMINAL_THEME, terminalsEl,
 // gridViewActive, gridCards, gridViewerCount, placeholder, terminalHeader,
-// sessionMap, activePtyIds (app.js)
+// sessionMap, activePtyIds, appGlobalSettings (app.js)
 // Depends on: toggleGridView, isSessionNavKey, handleSessionNavKey, focusGridCard,
 // wrapInGridCard, showGridView (grid-view.js)
 // Depends on: shellEscape (utils.js)
@@ -769,13 +769,13 @@ function drainReplayBuffer(sessionId) {
 
 const TERMINAL_LOCAL_FILE_RE = /(^|[\s(["'])((?:~\/|\/|[A-Za-z]:[\\/])(?:[^\s"'<>`|)]+?\.(?:html?|mdx?|markdown|json|txt|log|csv|xml|svg|css|jsx?|tsx?|py|ya?ml)))/gi;
 
-// external=true (Ctrl/Cmd+click, #69) → open in the configured external editor;
-// otherwise open in the integrated file panel.
+// The `invert` flag is set when Ctrl/Cmd is held (#69, #280): it flips the
+// default click target chosen in settings, opening the other one.
 // Shared activate logic for xterm's linkHandler and the WebLinksAddon (#79).
 // xterm fires link activate on any mouseup button (no guard); only act on a
 // left-click so a right-click goes to the context menu instead of re-opening
-// the link. file:// links open in the integrated panel (external editor with
-// Ctrl/Cmd), everything else via the OS.
+// the link. file:// links open per the file-click-target setting (Ctrl/Cmd
+// inverts), everything else via the OS.
 function activateTerminalLink(sessionId, event, uri) {
   if (event && typeof event.button === 'number' && event.button !== 0) return;
   if (uri.startsWith('file://') && typeof openFileInPanel === 'function') {
@@ -785,19 +785,24 @@ function activateTerminalLink(sessionId, event, uri) {
   }
 }
 
-function openTerminalFilePath(sessionId, filePath, external = false) {
+// Resolve where a terminal file link opens: the default target from settings
+// (#280, 'internal' | 'external'), flipped when Ctrl/Cmd is held (`invert`).
+function openTerminalFilePath(sessionId, filePath, invert = false) {
   if (!filePath) return;
+  const defaultExternal = typeof appGlobalSettings !== 'undefined'
+    && appGlobalSettings.fileClickTarget === 'external';
+  const external = invert ? !defaultExternal : defaultExternal;
   if (external) { window.api.openInEditor(filePath); return; }
   if (typeof openFileInPanel !== 'function') return;
   openFileInPanel(sessionId, filePath);
 }
 
-function openTerminalFileUri(sessionId, uri, external = false) {
+function openTerminalFileUri(sessionId, uri, invert = false) {
   try {
     const url = new URL(uri);
     let filePath = decodeURIComponent(url.pathname);
     if (/^\/[A-Za-z]:\//.test(filePath)) filePath = filePath.slice(1);
-    openTerminalFilePath(sessionId, filePath, external);
+    openTerminalFilePath(sessionId, filePath, invert);
   } catch {
     // Ignore malformed terminal hyperlinks.
   }

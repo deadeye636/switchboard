@@ -13,6 +13,8 @@
  *   - Copy path/content: shown if opted in
  *
  * Depends on: viewer-toolbar.js
+ * Reads the global `appGlobalSettings.markdownDefaultView` (app.js) for the
+ * initial Markdown view mode (#279); optional, guarded by typeof.
  * codemirror-bundle.js is loaded on demand (lazy) via loadCodeMirrorBundle().
  */
 
@@ -285,8 +287,12 @@ class ViewerPanel {
       if (this._openGen !== myGen) return;
       const { content: c, filePath: fp, isMd: md } = pending;
 
-      // Save preview preference before creating/updating editor
-      const wantPreview = md && this.opts.storageKey && localStorage.getItem(this.opts.storageKey) === 'true';
+      // Save preview preference before creating/updating editor. A per-viewer
+      // stored toggle wins; with none, fall back to the global default (#279).
+      const stored = (md && this.opts.storageKey) ? localStorage.getItem(this.opts.storageKey) : null;
+      const globalDefaultPreview = typeof appGlobalSettings !== 'undefined'
+        && appGlobalSettings.markdownDefaultView === 'preview';
+      const wantPreview = md && (stored === 'true' || (stored === null && globalDefaultPreview));
 
       // Create or update editor
       if (!this.editorView) {
@@ -308,9 +314,11 @@ class ViewerPanel {
         });
       }
 
-      // Re-apply preview preference
+      // Re-apply preview preference. Persist only when it came from a stored
+      // per-viewer toggle; a global-default seed (stored === null) must not be
+      // written back, or it would pin itself and outlive the setting (#279).
       if (wantPreview) {
-        this._setPreview(true);
+        this._setPreview(true, stored === 'true');
       }
     }).catch((err) => {
       console.error('[viewer-panel] Failed to load codemirror-bundle:', err);
@@ -353,21 +361,24 @@ class ViewerPanel {
     }
   }
 
-  _togglePreview() {
+  // persist=false is used when the global default (#279) seeds the initial mode:
+  // it must not write to storageKey, or that default would freeze into a per-viewer
+  // override and later changes to the setting would be ignored.
+  _togglePreview(persist = true) {
     if (!this.previewMode) {
       this._renderPreview();
       this.editorEl.style.display = 'none';
       this.previewEl.style.display = 'block';
       this.toolbar.setPreviewMode(true);
       this.previewMode = true;
-      if (this.opts.storageKey) localStorage.setItem(this.opts.storageKey, 'true');
+      if (persist && this.opts.storageKey) localStorage.setItem(this.opts.storageKey, 'true');
     } else {
       this.previewEl.style.display = 'none';
       this.previewEl.innerHTML = ''; // drop the rendered content / iframe
       this.editorEl.style.display = '';
       this.toolbar.setPreviewMode(false);
       this.previewMode = false;
-      if (this.opts.storageKey) localStorage.setItem(this.opts.storageKey, 'false');
+      if (persist && this.opts.storageKey) localStorage.setItem(this.opts.storageKey, 'false');
     }
   }
 
@@ -390,9 +401,9 @@ class ViewerPanel {
     }
   }
 
-  _setPreview(show) {
+  _setPreview(show, persist = true) {
     if (this.previewMode === show) return;
-    this._togglePreview();
+    this._togglePreview(persist);
   }
 
   _toggleWrap() {
