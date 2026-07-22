@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (26 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-22
 
@@ -42,4 +42,3 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#283](https://github.com/deadeye636/switchboard/issues/283) chore: move busy/idle store reads off the main thread (async fs + SQLite worker) — after #282 · _chore_
 - [#284](https://github.com/deadeye636/switchboard/issues/284) Changes window: hovering a file row enlarges/shifts it · _bug_
 - [#285](https://github.com/deadeye636/switchboard/issues/285) Changes window: diff view for a changed file · _feature_
-- [#286](https://github.com/deadeye636/switchboard/issues/286) chore: two small follow-ups from the #282 disk-read fix · _chore_
