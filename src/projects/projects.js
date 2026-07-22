@@ -37,7 +37,8 @@ let ctx = null;
  *   showOpenDialog     () => Promise<{canceled, filePaths}>  — the only Electron surface, injected
  *   db                 { getSetting, setSetting, deleteSetting, deleteCachedFolder, deleteSearchFolder,
  *                        getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
- *                        renameProjectRefs, deleteProjectRefs, setFolderMeta, toggleProjectFavorite }
+ *                        renameProjectRefs, deleteProjectRefs, setFolderMeta, getAllFolderMeta,
+ *                        toggleProjectFavorite }
  *   cache              { refreshFolder, buildProjectsFromCache, buildProjectsAdmin, shouldAutoHide,
  *                        claudeStoreScope, notifyRendererProjectsChanged }
  */
@@ -157,12 +158,43 @@ function applyAutoHide(force) {
  */
 function projectHasSessionsOnDisk(projectPath) {
   const encoded = encodeProjectPath(projectPath);
+  const key = samePathKey(projectPath);
+  // Answer from the persisted folder->projectPath map first (#282): every INDEXED store folder already
+  // records the cwd its transcripts resolve to, so a tombstone check no longer needs `deriveProjectPath`
+  // — which opens and reads 256 KB of every folder's newest `.jsonl`. Run per reconcile reply from
+  // syncRegistry's tombstone sweep, that store-wide read was the multi-GB/day IO the profiler caught.
+  // Same spelling-proof match (#245) as before, just off `meta.projectPath` instead of a fresh read.
+  // The DIRECT-hit `d.name === encoded` is still checked against the folder key regardless of meta.
+  // #282: answer from the persisted folder->projectPath map first, so the tombstone sweep (which runs on
+  // EVERY reconcile reply) stops re-deriving every folder's cwd from disk — a 256 KB read each, the
+  // multi-GB/day IO the profiler caught. A meta row is trusted only for a folder that STILL EXISTS on disk:
+  // cache_meta is NOT garbage-collected for a folder removed OUTSIDE Switchboard's own delete paths, and the
+  // old readdirSync re-verified existence every call — the same `fs.existsSync` guard #167's register-seed
+  // migration uses before trusting cache_meta (migrations.js). meta.projectPath tracks deriveProjectPath
+  // (the reconcile stamps it via folderProjectPath); the one window it can lag a fresh read — a legacy-
+  // spelling SIBLING right after a remap — is closed by remapProject re-pointing every sibling below. A
+  // folder with a null/absent meta.projectPath is never excluded from the fresh-derive fallback, so a cwd
+  // that only appears on a live read is still found. On a getAllFolderMeta throw everything falls to the
+  // pre-fix full derive.
+  const existsOnDisk = (folder) => {
+    try { return fs.existsSync(path.join(ctx.PROJECTS_DIR, folder)); } catch { return false; }
+  };
+  let answered = null;
+  try {
+    const metaMap = ctx.db.getAllFolderMeta();
+    answered = new Set();
+    for (const [folder, meta] of metaMap) {
+      if (meta && meta.projectPath) answered.add(folder);   // meta authoritatively derived this folder's cwd
+      const isMatch = folder === encoded || (meta && meta.projectPath && samePathKey(meta.projectPath) === key);
+      if (isMatch && existsOnDisk(folder)) return true;     // ...but only a folder still on disk counts
+    }
+  } catch { answered = null; }
+  // Derive only the folders meta could NOT authoritatively answer (null/absent projectPath) — usually a
+  // handful, versus every folder before.
   try {
     return fs.readdirSync(ctx.PROJECTS_DIR, { withFileTypes: true })
-      .filter(d => d.isDirectory() && d.name !== '.git')
-      // samePathKey on both sides (#245): a folder whose transcripts spell the cwd the other way is the
-      // SAME project, and answering "no sessions" for it is what lets the prune sweep take a live project.
-      .some(d => d.name === encoded || samePathKey(deriveProjectPath(path.join(ctx.PROJECTS_DIR, d.name))) === samePathKey(projectPath));
+      .filter(d => d.isDirectory() && d.name !== '.git' && !(answered && answered.has(d.name)))
+      .some(d => d.name === encoded || samePathKey(deriveProjectPath(path.join(ctx.PROJECTS_DIR, d.name))) === key);
   } catch {
     return false;
   }
@@ -548,6 +580,20 @@ function remapProject(oldPath, newPath) {
     // ignored, and the project vanishes from the sidebar once the rest of its state has moved to
     // newPath. A zero mtime marks the folder stale so the refresh below fully re-indexes it.
     ctx.db.setFolderMeta(folder, newPath, 0);
+    // Re-point EVERY store folder that belonged to oldPath, not just the canonical spelling (#282/#245).
+    // Claude's folder encoding changed over time, so one project can own several folders; `rewriteSessionPaths`
+    // rewrote all of them to newPath, but leaving a legacy-spelling sibling's meta pointing at oldPath makes
+    // `projectHasSessionsOnDisk(newPath)` (now meta-backed) miss it until the next reconcile revisits it — a
+    // window a tombstone sweep could resurrect through. `refreshProjectFolders` already knows how to enumerate
+    // them; do the same enumeration here so the meta is correct the instant the remap returns.
+    const oldKey = samePathKey(oldPath);
+    try {
+      for (const [f, meta] of ctx.db.getAllFolderMeta()) {
+        if (f !== folder && meta && meta.projectPath && samePathKey(meta.projectPath) === oldKey) {
+          ctx.db.setFolderMeta(f, newPath, 0);
+        }
+      }
+    } catch { /* the canonical re-point above is the important one; the reconcile heals the rest */ }
     ctx.cache.refreshFolder(folder);
 
     // Carry Switchboard's own per-project state across (#55): favorite + auto-hide (project_meta), tags,

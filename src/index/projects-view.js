@@ -12,6 +12,11 @@ const registry = require('../projects/project-registry');
 
 let PROJECTS_DIR, activeSessions;
 let getAllMeta, getAllCached, getAllFolderMeta, setFolderMeta;
+// #282: store folders whose head carried no derivable cwd (snapshot-only fork/clear transcripts).
+// buildProjectsAdmin runs on the 10s auto-hide throttle; without this a headless folder was re-derived
+// — a 256 KB `openSync`+`readSync` — on every pass. In-memory (not persisted) so a restart re-tries once,
+// and the reconcile stamps the real path in folder_meta the moment the folder holds a parseable session.
+const _headlessFolders = new Set();
 let getFavoritedProjects, getProjectDisplayNames, getProjectStates;
 
 function init(ctx) {
@@ -265,9 +270,10 @@ function buildProjectsAdmin() {
       .filter(d => d.isDirectory() && d.name !== '.git');
     for (const d of dirs) {
       let projectPath = folderMeta.get(d.name)?.projectPath;
-      if (!projectPath) {
+      if (!projectPath && !folderMeta.has(d.name) && !_headlessFolders.has(d.name)) {
         projectPath = deriveProjectPath(path.join(PROJECTS_DIR, d.name));
         if (projectPath) setFolderMeta(d.name, projectPath, 0);
+        else _headlessFolders.add(d.name);   // #282: don't re-read a headless folder on every admin build
       }
       if (projectPath) ensure(projectPath);
     }

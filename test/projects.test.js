@@ -427,6 +427,63 @@ test('the tombstone sweep is blind to nothing: a transcript on disk keeps the re
   } finally { t.cleanup(); }
 });
 
+// #282: projectHasSessionsOnDisk answers the tombstone sweep from folder_meta instead of re-deriving every
+// folder's cwd off disk (a 256 KB read each, run per reconcile reply — the multi-GB/day IO). These pin the
+// meta-trust path AND its safety net (the fs.existsSync guard), which the pre-fix tests never exercised.
+test('#282 sweep trusts folder_meta for a folder still on disk — the tombstone is kept', () => {
+  const t = makeCtx();
+  const ancient = new Date(Date.now() - 400 * 86400000).toISOString();
+  const P = 'D:\\meta-project';
+  const folder = encodeProjectPath(P);
+  try {
+    projects.ensureProjectAdded(P);
+    projects.removeProject(P);
+    t.ctx.db.setProjectState(P, { removedAt: ancient });
+    t.setCachedRows([]); t.setStorePaths([]);         // not in `seen` -> projectHasSessionsOnDisk decides
+    t.setFolderMeta(folder, P);                       // meta says this folder resolves to P...
+    fs.mkdirSync(path.join(t.store, folder));         // ...and it is still on disk
+    projects.syncRegistry();
+    assert.strictEqual(t.state(P).removedAt, ancient, 'meta-backed sessions on disk keep the removal alive');
+  } finally { t.cleanup(); }
+});
+
+test('#282 a stale meta row for a folder deleted OUTSIDE Switchboard does NOT keep the tombstone', () => {
+  const t = makeCtx();
+  const ancient = new Date(Date.now() - 400 * 86400000).toISOString();
+  const P = 'D:\\gone-project';
+  const folder = encodeProjectPath(P);
+  try {
+    projects.ensureProjectAdded(P);
+    projects.removeProject(P);
+    t.ctx.db.setProjectState(P, { removedAt: ancient });
+    t.setCachedRows([]); t.setStorePaths([]);
+    t.setFolderMeta(folder, P);                       // cache_meta is not GC'd for an externally-deleted folder
+    // ...but the folder is NOT on disk. Without the fs.existsSync guard the meta match would keep this
+    // tombstone forever; with it, the sweep still drops it, exactly as the old readdir-only check did.
+    projects.syncRegistry();
+    assert.strictEqual(t.state(P).removedAt, null, 'a stale meta row for a vanished folder must not block the sweep');
+  } finally { t.cleanup(); }
+});
+
+test('#282 a non-matching meta folder is not trusted; the project\'s own folder on disk still counts', () => {
+  const t = makeCtx();
+  const ancient = new Date(Date.now() - 400 * 86400000).toISOString();
+  const P = 'D:\\wanted';
+  const folderP = encodeProjectPath(P);
+  const folderOther = encodeProjectPath('D:\\other');
+  try {
+    projects.ensureProjectAdded(P);
+    projects.removeProject(P);
+    t.ctx.db.setProjectState(P, { removedAt: ancient });
+    t.setCachedRows([]); t.setStorePaths([]);
+    t.setFolderMeta(folderOther, 'D:\\other');        // a non-matching meta row (belongs to another project)
+    fs.mkdirSync(path.join(t.store, folderP));        // P's OWN encoded folder is on disk (no meta row yet)
+    projects.syncRegistry();
+    assert.strictEqual(t.state(P).removedAt, ancient,
+      'the encoded folder on disk is still found via the fallback -> tombstone kept, no resurrection');
+  } finally { t.cleanup(); }
+});
+
 // --- auto-hide (#57) -------------------------------------------------------------------------------
 
 test('auto-hide is off when autoHideDays is 0, however stale a project is', () => {
