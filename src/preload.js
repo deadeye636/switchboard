@@ -143,6 +143,13 @@ contextBridge.exposeInMainWorld('api', {
   onZoomChanged: (cb) => ipcRenderer.on('zoom-changed', (_e, level) => cb(level)),
   deleteWorktree: (worktreePath) => ipcRenderer.invoke('delete-worktree', worktreePath),
   worktreeStatus: (worktreePath) => ipcRenderer.invoke('worktree-status', worktreePath),
+  // VCS chip (#277): the renderer reports which repo cwds are on screen; main pushes status back.
+  vcsWatch: (cwds) => ipcRenderer.send('vcs-watch', cwds),
+  vcsStatus: (cwd) => ipcRenderer.invoke('vcs-status', cwd),
+  vcsRefresh: (cwd) => ipcRenderer.invoke('vcs-refresh', cwd),
+  onVcsStatusChanged: (cb) => ipcRenderer.on('vcs-status-changed', (_e, payload) => cb(payload)),
+  openChangesWindow: (cwd, label) => ipcRenderer.send('open-changes-window', { cwd, label }),
+  vcsReveal: (filePath) => ipcRenderer.invoke('vcs-reveal', filePath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   openPath: (filePath) => ipcRenderer.invoke('open-path', filePath),
   openInEditor: (filePath) => ipcRenderer.invoke('open-in-editor', filePath),

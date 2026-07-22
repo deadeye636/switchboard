@@ -77,6 +77,7 @@
     "spring-cleaning.js",
     "sidebar-subagents.js",
     "sidebar.js",
+    "sidebar-vcs.js",
     "plans-memory-view.js",
     "session-tabs.js",
     "session-tags-logic.js",
@@ -119,5 +120,8 @@
     "settings-global-html.js",
     "settings-panel.js",
     "settings-window.js"
+  ],
+  "changed-files.html": [
+    "changed-files.js"
   ]
 }

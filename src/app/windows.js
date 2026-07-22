@@ -315,6 +315,8 @@ function createWindow() {
     // with the main window, or `window-all-closed` never fires and the app lingers
     // with no window. `destroy()` skips its close handler by design.
     if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.destroy();
+    // #277: take down any open changes windows too, or `window-all-closed` never fires.
+    try { require('./vcs').destroyAllVcsWindows(); } catch { /* module not wired in a test build */ }
     if (boundsTimer) clearTimeout(boundsTimer);
     if (!mainWindow.isMinimized()) {
       const b = mainWindow.getBounds();

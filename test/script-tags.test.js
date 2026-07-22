@@ -27,7 +27,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
-const PAGES = ['index.html', 'settings.html'];
+const PAGES = ['index.html', 'settings.html', 'changed-files.html'];
 
 /** Where the renderer's pages live. One constant, so a move is a one-line change here. */
 function pageDir() {

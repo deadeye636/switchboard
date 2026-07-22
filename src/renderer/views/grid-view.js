@@ -141,6 +141,12 @@ function wrapInGridCard(sessionId, parent, layout) {
   project.textContent = shortProject;
   header.appendChild(project);
 
+  // #277: VCS chip for this session's repo (reads the shared cache; live-patched on status push).
+  if (window.vcsView && session.projectPath) {
+    const vcsChip = window.vcsView.buildCardChip(session.projectPath, shortProject);
+    if (vcsChip) header.appendChild(vcsChip);
+  }
+
   // Snap-layout button (spec 08) — Windows 11-style preset sizes.
   const snapBtn = document.createElement('button');
   snapBtn.className = 'grid-card-snap-btn';

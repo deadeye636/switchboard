@@ -99,6 +99,17 @@ function sidebarShortName(projectPath) {
 function dispatchSidebarActivation(e) {
   const t = e.target;
 
+  // --- VCS chip (#277): glyph button (in a header) or branch/counts pill (a header SIBLING) ---
+  // Handled first and by data attribute, not header ancestry — the pill has no header ancestor, so a
+  // header-scoped delegate could never catch it. Both elements carry the cwd.
+  const vcsEl = t.closest('.vcs-open');
+  if (vcsEl) {
+    e.stopPropagation();
+    const cwd = vcsEl.dataset.vcsCwd;
+    if (cwd && window.api && window.api.openChangesWindow) window.api.openChangesWindow(cwd, vcsEl.dataset.vcsLabel || '');
+    return;
+  }
+
   // --- Attention inbox ---
   if (t.closest('.attention-inbox-next-btn')) {
     e.stopPropagation();

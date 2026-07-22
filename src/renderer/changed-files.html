@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Changes</title>
+  <style>
+    :root {
+      --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --border:#30363d; --border2:#21262d;
+      --text:#e6edf3; --muted:#8b949e; --faint:#6e7681; --accent:#58a6ff;
+      --green:#3fb950; --amber:#d29922; --red:#f85149;
+      --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+      --ui:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:var(--ui); font-size:13px; }
+    .head { display:flex; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:0; }
+    .repo { font-weight:650; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:40%; }
+    .branch { display:inline-flex; align-items:center; gap:5px; font-family:var(--mono); font-size:12px; color:var(--muted); }
+    .state { color:#0d1117; background:var(--amber); border-radius:4px; padding:1px 6px; font-family:var(--mono); font-size:10px; font-weight:700; text-transform:uppercase; }
+    .spacer { flex:1; }
+    .updated { font-size:11px; color:var(--faint); font-family:var(--mono); }
+    .btn { border:1px solid var(--border); background:var(--panel2); color:var(--text); border-radius:6px; font-family:var(--ui); font-size:12px; padding:5px 10px; cursor:pointer; }
+    .btn:hover { border-color:var(--accent); color:var(--accent); }
+    .grp-head { display:flex; align-items:center; gap:9px; padding:9px 14px; font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:600; color:var(--muted); border-bottom:1px solid var(--border2); }
+    .grp-head .bar { width:3px; height:12px; border-radius:2px; }
+    .grp-head .n { font-family:var(--mono); color:var(--faint); letter-spacing:0; }
+    .file { display:flex; align-items:center; gap:11px; padding:6px 14px 6px 30px; font-family:var(--mono); font-size:12.5px; border-bottom:1px solid var(--border2); }
+    .file:hover { background:var(--panel2); }
+    .st { width:16px; text-align:center; font-weight:700; flex:none; }
+    .st.staged { color:var(--green); } .st.unstaged { color:var(--amber); }
+    .st.untracked { color:var(--faint); } .st.conflicted { color:var(--red); }
+    .fpath { color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .fpath .dir { color:var(--faint); } .fpath .ren { color:var(--faint); }
+    .actions { margin-left:auto; display:none; gap:6px; }
+    .file:hover .actions { display:flex; }
+    .actions button { font-family:var(--ui); font-size:11px; color:var(--muted); border:1px solid var(--border); border-radius:5px; padding:2px 8px; cursor:pointer; background:var(--bg); }
+    .actions button:hover { color:var(--accent); border-color:var(--accent); }
+    .empty { padding:40px 14px; text-align:center; color:var(--faint); }
+    .foot { padding:8px 14px; font-family:var(--mono); font-size:12px; color:var(--muted); border-top:1px solid var(--border); background:var(--panel2); position:sticky; bottom:0; }
+    .truncated { color:var(--amber); }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <span class="repo" id="repo">…</span>
+    <span class="branch" id="branch"></span>
+    <span class="state" id="state" style="display:none"></span>
+    <span class="spacer"></span>
+    <span class="updated" id="updated"></span>
+    <button class="btn" id="refresh">Refresh</button>
+  </div>
+  <div id="body"><div class="empty">Loading…</div></div>
+  <div class="foot" id="foot"></div>
+  <script src="changed-files.js"></script>
+</body>
+</html>

@@ -566,6 +566,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
 
     group.appendChild(header);
     group.appendChild(sessionsList);
+    if (window.vcsView) window.vcsView.decorateHeader(header, group, sessionsList, project.projectPath);
 
     // Render nested worktree sub-groups
     const childWorktrees = worktreeMap.get(project.projectPath) || [];
@@ -619,6 +620,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
 
       wtGroup.appendChild(wtHeader);
       wtGroup.appendChild(wtSessionsList);
+      if (window.vcsView) window.vcsView.decorateHeader(wtHeader, wtGroup, wtSessionsList, wt.projectPath);
       sessionsList.appendChild(wtGroup);
     }
 
@@ -718,6 +720,8 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder) {
 }
 
 function renderProjects(projects, resort) {
+  // #277: gather the on-screen repo cwds during this render so main polls exactly what's visible.
+  if (window.vcsView) window.vcsView.beginCollect();
   const newSidebar = document.createElement('div');
   const attentionInbox = buildAttentionInbox(projects);
   if (attentionInbox) newSidebar.appendChild(attentionInbox);
@@ -745,6 +749,7 @@ function renderProjects(projects, resort) {
   const newSortedOrder = [];
   appendProjectGroups(newSidebar, projects, resort, newSortedOrder, { sortable: true });
   finalizeSidebar(newSidebar, projects, newSortedOrder);
+  if (window.vcsView) window.vcsView.endCollect();
 }
 
 // --- In-place status patching (#80) ---

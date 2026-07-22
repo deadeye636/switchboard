@@ -69,6 +69,9 @@ back on Save.
 | `sessionDisplayMode` | Display mode | `grid` \| `tabs` | `grid` | global |
 | `settingsOpenMode` | Open settings as | `overlay` \| `window` | `overlay` | global |
 | `sidebarCollapseDefault` | Sidebar on startup | `expanded` \| `collapsed` \| `remember` | `remember` | global |
+| `vcsChipEnabled` | Show version-control status | `true` \| `false` | `true` | global |
+| `vcsPollSeconds` | Version-control poll interval (s) | integer, min 5 | `20` | global |
+| `vcsCountUntracked` | Count untracked files | `true` \| `false` | `true` | global |
 | `tabPosition` | Tab position | `top` \| `bottom` | `top` | global |
 | `tabCloseBehavior` | Closing a tab (×) | `closeView` \| `stopSession` | `closeView` | global |
 | `tabMiddleClickCloses` | Middle-click closes a tab | bool | `true` | global |

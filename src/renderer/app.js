@@ -211,6 +211,7 @@ let cachedPlans = [];
 // must not drift, which test/settings-defaults.test.js pins.
 let visibleSessionCount = 10;
 let sessionMaxAgeDays = 3;
+let vcsChipEnabled = true;   // #277: master switch for the sidebar/card VCS chip (read by sidebar-vcs.js)
 const pendingSessions = new Map(); // sessionId → { session, projectPath, folder }
 
 // Inject a pending (not-yet-on-disk) session into the cached project lists so
@@ -1774,6 +1775,7 @@ setTimeout(() => {
     if (global.sessionMaxAgeDays != null) {
       sessionMaxAgeDays = global.sessionMaxAgeDays;
     }
+    vcsChipEnabled = global.vcsChipEnabled !== false;   // #277: default on
     if (global.terminalTheme && TERMINAL_THEMES[global.terminalTheme]) {
       currentThemeName = global.terminalTheme;
       TERMINAL_THEME = getTerminalTheme();

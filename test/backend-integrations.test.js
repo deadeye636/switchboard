@@ -170,6 +170,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/shell/sidebar-session-row.js': [],
   'src/renderer/shell/sidebar-lineage.js': [],
   'src/renderer/shell/sidebar-events.js': [],
+  'src/renderer/shell/sidebar-vcs.js': [],
   'src/renderer/shell/session-nav.js': [],
   'src/renderer/views/grid-view.js': [],
   'src/renderer/views/grid-gestures.js': [],
