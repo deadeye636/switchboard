@@ -24,6 +24,7 @@
 'use strict';
 
 const fs = require('fs');
+const { fileSig } = require('../livestate-cache');
 
 const BUSY = 'busy';
 const IDLE = 'idle';
@@ -95,7 +96,11 @@ function readTail(fd, size, len) {
   return buf.toString('utf8');
 }
 
-function deriveStateFromFileTail(filePath, now = Date.now(), opts = {}) {
+// #283: the tail READ, split from the time-based DERIVE below so the read can be signature-gated. Returns
+// the last message's role/stopReason/timestamp when a complete line is in view, else `{ noLine: true,
+// mtimeMs }` for the mtime fallback, or null when unreadable. This is the expensive part (open + a 64 KB–
+// 4 MB readSync); everything below it is arithmetic on `now`.
+function readTailFacts(filePath) {
   let fd;
   try { fd = fs.openSync(filePath, 'r'); } catch { return null; }
   try {
@@ -119,16 +124,12 @@ function deriveStateFromFileTail(filePath, now = Date.now(), opts = {}) {
         lastStopReason = entry.message.stopReason || null;
       }
 
-      if (lastRole) return deriveState({ lastRole, lastStopReason, lastEntryAt }, now, opts);
+      if (lastRole) return { lastRole, lastStopReason, lastEntryAt };
       if (len >= size) break;                    // the whole file was in view — widening won't help
     }
 
-    // No complete line anywhere in view (one message longer than the cap). The file's own mtime is the
-    // honest last resort: quiet for the activity window = the turn is over — unless the process is
-    // still producing output, in which case it is simply mid-write.
-    if (now - stat.mtimeMs <= ACTIVITY_WINDOW_MS) return null;
-    const out = Number(opts.lastOutputMs || 0);
-    return (out && now - out <= OUTPUT_LIVENESS_MS) ? null : IDLE;
+    // No complete line anywhere in view (one message longer than the cap). The mtime is the last resort.
+    return { noLine: true, mtimeMs: stat.mtimeMs };
   } catch {
     return null;
   } finally {
@@ -136,8 +137,49 @@ function deriveStateFromFileTail(filePath, now = Date.now(), opts = {}) {
   }
 }
 
+// The time-based derive over the tail facts — re-run with a fresh `now` on every call (cached or not), so
+// the staleness edge (a quiet turn flipping to idle) is unaffected by the read gate.
+function deriveFromFacts(facts, now, opts) {
+  if (!facts) return null;
+  if (facts.noLine) {
+    // Quiet for the activity window = the turn is over — unless the process is still producing output, in
+    // which case it is simply mid-write (the PTY liveness signal keeps it alive, never declares it busy).
+    if (now - facts.mtimeMs <= ACTIVITY_WINDOW_MS) return null;
+    const out = Number(opts.lastOutputMs || 0);
+    return (out && now - out <= OUTPUT_LIVENESS_MS) ? null : IDLE;
+  }
+  return deriveState({ lastRole: facts.lastRole, lastStopReason: facts.lastStopReason, lastEntryAt: facts.lastEntryAt }, now, opts);
+}
+
+function deriveStateFromFileTail(filePath, now = Date.now(), opts = {}) {
+  return deriveFromFacts(readTailFacts(filePath), now, opts);
+}
+
+// Signature-gated variant (#283): skip the tail read when the rollout's (mtime, size) is unchanged and
+// reuse the last facts; the derive still re-runs with a fresh `now`. adopt.updateBackendLiveStates calls
+// this on every watcher flush (any backend), so an idle Pi rollout is no longer re-read several times a
+// second. The symmetric #282-lever-1 gate the file backends never got. FIFO-bounded.
+const _factsCache = new Map();   // filePath -> { sig, facts }
+const FACTS_CACHE_MAX = 256;
+
+function deriveStateFromFileTailGated(filePath, now = Date.now(), opts = {}) {
+  const sig = fileSig(filePath);
+  let entry = _factsCache.get(filePath);
+  if (!entry || entry.sig !== sig) {
+    const facts = readTailFacts(filePath);
+    if (!facts) return null;   // unreadable -> caller leaves the state untouched, don't cache a miss
+    entry = { sig, facts };
+    _factsCache.set(filePath, entry);
+    if (_factsCache.size > FACTS_CACHE_MAX) _factsCache.delete(_factsCache.keys().next().value);
+  }
+  return deriveFromFacts(entry.facts, now, opts);
+}
+
+/** Test seam: drop the gate's memo. */
+function _clearFactsCache() { _factsCache.clear(); }
+
 module.exports = {
-  deriveState, deriveStateFromFileTail,
+  deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated, _clearFactsCache,
   ACTIVITY_WINDOW_MS, OUTPUT_LIVENESS_MS, OUTPUT_LIVENESS_CEILING_MS,
   BUSY, IDLE,
 };

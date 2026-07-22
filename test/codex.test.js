@@ -356,3 +356,32 @@ test('matchLiveSession: ignores a rollout that predates the launch', () => {
   const match = codex.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set() });
   assert.strictEqual(match, null, 'an older rollout belongs to a previous session, not this one');
 });
+
+test('#283 liveState gate: the rollout tail is re-read only when its signature changes', () => {
+  const { deriveStateFromFileTailGated, _clearStateCache } = require('../src/backends/codex/state');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-gate-'));
+  const p = path.join(dir, 'rollout.jsonl');
+  try {
+    let busy = JSON.stringify({ payload: { type: 'task_started' } }) + '\n';
+    let idle = JSON.stringify({ payload: { type: 'task_complete' } }) + '\n';
+    while (busy.length < idle.length) busy += ' ';   // trailing filler lines the parser ignores, so an
+    while (idle.length < busy.length) idle += ' ';   // in-place swap keeps the byte size identical
+
+    fs.writeFileSync(p, busy);
+    const t0 = new Date(Math.floor(Date.now() / 1000) * 1000 - 2000);   // whole second -> exact restore
+    fs.utimesSync(p, t0, t0);
+    _clearStateCache();
+    assert.strictEqual(deriveStateFromFileTailGated(p), 'busy', 'task_started -> busy');
+
+    fs.writeFileSync(p, idle);                        // content now says idle...
+    fs.utimesSync(p, t0, t0);                         // ...but the (mtime, size) signature is unchanged
+    assert.strictEqual(deriveStateFromFileTailGated(p), 'busy', 'signature unchanged -> cached, no re-read');
+
+    const t1 = new Date(t0.getTime() + 5000);
+    fs.utimesSync(p, t1, t1);                         // signature moves -> re-read
+    assert.strictEqual(deriveStateFromFileTailGated(p), 'idle', 'signature changed -> re-read -> idle');
+  } finally {
+    _clearStateCache();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

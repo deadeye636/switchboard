@@ -407,3 +407,23 @@ test('a parentSession Pi did not write yields no link rather than a guess (#193)
   assert.strictEqual(pi.resolveLineage({}), null);
   assert.strictEqual(pi.resolveLineage(null), null);
 });
+
+test('#283 liveState gate re-derives with a fresh now — a quiet running turn still flips to idle', () => {
+  const { deriveStateFromFileTailGated, _clearFactsCache } = require('../src/backends/pi/state');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-gate-'));
+  const p = path.join(dir, 'transcript.jsonl');
+  try {
+    const ts = '2026-07-12T09:00:00.000Z';
+    fs.writeFileSync(p, JSON.stringify({ type: 'message', timestamp: ts, message: { role: 'user', content: [{ type: 'text', text: 'go' }] } }) + '\n');
+    const base = Date.parse(ts);
+    _clearFactsCache();
+    assert.strictEqual(deriveStateFromFileTailGated(p, base + 1000, {}), 'busy', 'a trailing user prompt = a running turn -> busy');
+    // File UNCHANGED (same signature -> cached facts), but time moved far past the activity window: the gate
+    // must RE-DERIVE with the fresh now, not serve the stale cached busy.
+    assert.strictEqual(deriveStateFromFileTailGated(p, base + 24 * 3600 * 1000, {}), 'idle',
+      'signature unchanged but now advanced -> re-derived to idle, not a stale cached busy');
+  } finally {
+    _clearFactsCache();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -413,6 +413,44 @@ function readLiveStateGated(sessionId) {
 /** Test seam: drop the gate's memo so a store mutated in place is re-read. */
 function _clearLiveStateCache() { _liveStateCache.clear(); }
 
+// #283: the live-pairing candidates — just the three columns matchLiveSession needs (id, start, cwd),
+// one row per session from the small `sessions` table. The old path ran discoverSessions() (a GROUP BY
+// over the whole `messages` table for a marker the matching never uses) and then a FULL parseSession per
+// unclaimed candidate (500-message text pull, metrics GROUP BY, user-message count) — all on the main
+// thread, on every unpaired flush, to answer a three-column question. This is that question.
+function listLiveCandidates({ includeAll = false } = {}) {
+  const db = openDb();
+  if (!db) return [];
+  try {
+    const rows = db.all(`SELECT s.id AS id, s.started_at AS startedAt, s.cwd AS cwd FROM sessions s${sourceFilter(includeAll)}`);
+    return rows.map(r => ({
+      sessionId: String(r.id),
+      // Hermes stores times as REAL unix epoch seconds; matchLiveSession compares in ms.
+      startedMs: r.startedAt != null ? Number(r.startedAt) * 1000 : NaN,
+      cwd: r.cwd || null,
+    }));
+  } catch {
+    return [];
+  } finally {
+    db.close();
+  }
+}
+
+// #283: liveRefFor only needs to CONFIRM the row exists (resume already holds the id) — a full parse to do
+// that ran the 500-message pull etc. on every flush until it answered. One indexed lookup instead.
+function sessionExists(sessionId) {
+  if (!sessionId) return false;
+  const db = openDb();
+  if (!db) return false;
+  try {
+    return !!db.get('SELECT 1 AS x FROM sessions WHERE id = ?', sessionId);
+  } catch {
+    return false;
+  } finally {
+    db.close();
+  }
+}
+
 /**
  * STORE-level watch target: the DB file. A `kind:'db'` target means "poll this file AND its `-wal`" —
  * the watcher appends the `-wal` itself (main.js), because a WAL commit can leave state.db's mtime
@@ -476,6 +514,7 @@ module.exports = {
   PARSER_SCHEMA_VERSION,
   hermesHome, setHome, dbPath, dbExists,
   discoverSessions, parseSession, watchTargets, readMessages, readLiveState, readLiveStateGated,
+  listLiveCandidates, sessionExists,
   _clearLiveStateCache,
   openDb,
 };

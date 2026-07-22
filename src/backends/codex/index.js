@@ -22,7 +22,7 @@ const trust = require('./trust');
 const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, codexLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
-const { deriveState, deriveStateFromFileTail } = require('./state');
+const { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated } = require('./state');
 
 // CODEX_HOME overrides the whole dir; default ~/.codex. Resolved lazily so an env change (or a test)
 // is honoured, and overridable via setHome().
@@ -168,9 +168,10 @@ const store = createFileStore({
   },
 });
 
-/** Busy/idle for a live session, from the store record `matchLiveSession` returned. */
+/** Busy/idle for a live session, from the store record `matchLiveSession` returned.
+ *  Signature-gated (#283): the rollout tail is re-read only when the file actually moved. */
 function liveState(ref) {
-  return deriveStateFromFileTail(ref);
+  return deriveStateFromFileTailGated(ref);
 }
 
 module.exports = {

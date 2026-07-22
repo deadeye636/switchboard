@@ -43,6 +43,7 @@ function deriveState(input) {
 // Only the tail is read (bounded), never the whole file — a long session's rollout runs to megabytes
 // and this is called on every file-change event.
 const fs = require('fs');
+const { fileSig } = require('../livestate-cache');
 const TAIL_BYTES = 64 * 1024;
 
 // The window GROWS. A busy turn writes reasoning, tool calls and output into the rollout, so
@@ -88,4 +89,28 @@ function deriveStateFromFileTail(filePath) {
   }
 }
 
-module.exports = { deriveState, deriveStateFromFileTail, TAIL_WINDOWS, BUSY, IDLE };
+// #283: gate the tail read on a cheap file signature. adopt.updateBackendLiveStates re-reads liveState on
+// EVERY watcher flush — including flushes from OTHER backends, which cannot have moved this rollout — and
+// each read did a 64 KB–4 MB `openSync`+`readSync`. Codex's state is a pure function of the rollout's tail
+// (task_started/task_complete — no time input), so cache the state itself and re-read only when the file's
+// (mtime, size) changed. The symmetric #282-lever-1 gate the file backends never got ("fix a backend,
+// check its siblings"). FIFO-bounded like folder-parse's memo.
+const _stateCache = new Map();   // filePath -> { sig, state }
+const STATE_CACHE_MAX = 256;
+
+function deriveStateFromFileTailGated(filePath) {
+  const sig = fileSig(filePath);
+  const entry = _stateCache.get(filePath);
+  if (entry && entry.sig === sig) return entry.state;
+  const state = deriveStateFromFileTail(filePath);
+  // Cache even a null (no lifecycle event in view): it is still a function of this file's bytes, and a
+  // re-read cannot change it until the file does — which moves the signature and re-reads anyway.
+  _stateCache.set(filePath, { sig, state });
+  if (_stateCache.size > STATE_CACHE_MAX) _stateCache.delete(_stateCache.keys().next().value);
+  return state;
+}
+
+/** Test seam: drop the gate's memo. */
+function _clearStateCache() { _stateCache.clear(); }
+
+module.exports = { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated, _clearStateCache, TAIL_WINDOWS, BUSY, IDLE };

@@ -27,7 +27,7 @@ const parser = require('./parser');
 const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, piLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
-const { deriveState, deriveStateFromFileTail } = require('./state');
+const { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated } = require('./state');
 
 // A Pi transcript's filename: `<ISO-timestamp>_<uuid>.jsonl`. Anchored at BOTH ends on purpose — it is
 // what tells a real parent reference from any other path that happens to contain an underscore (#193).
@@ -243,7 +243,7 @@ const store = createFileStore({
 // `ctx.lastOutputMs` = when this session's PTY last said anything (main.js). Used ONLY to keep a
 // silent-but-running turn from being declared idle — never to declare one busy.
 function liveState(ref, ctx = {}) {
-  return deriveStateFromFileTail(ref, Date.now(), ctx);
+  return deriveStateFromFileTailGated(ref, Date.now(), ctx);
 }
 
 module.exports = {

@@ -116,16 +116,15 @@ function matchLiveSession({ cwd, sinceMs, claimed } = {}) {
   const claimedSet = claimed instanceof Set ? claimed : new Set(claimed || []);
   let best = null;
   let bestStart = Infinity;
-  for (const handle of reader.discoverSessions()) {
-    if (claimedSet.has(handle.sessionId)) continue;
-    const row = reader.parseSession(handle);
-    if (!row || !row.sessionId) continue;
-    const startMs = row.startedAt ? Date.parse(row.startedAt) : NaN;
-    if (!Number.isFinite(startMs)) continue;
-    if (sinceMs != null && startMs < sinceMs) continue;
-    if (cwd && row.cwd && path.resolve(row.cwd) !== path.resolve(cwd)) continue;
-    if (cwd && !row.cwd) continue;   // a cwd-less session is not the one we just launched in a project
-    if (startMs < bestStart) { best = { sessionId: row.sessionId, ref: row.sessionId }; bestStart = startMs; }
+  // #283: three-column candidates from `sessions`, not a discoverSessions() marker GROUP BY + a full
+  // parseSession per candidate. Same correlation (earliest start, matching cwd), a fraction of the read.
+  for (const c of reader.listLiveCandidates()) {
+    if (claimedSet.has(c.sessionId)) continue;
+    if (!Number.isFinite(c.startedMs)) continue;
+    if (sinceMs != null && c.startedMs < sinceMs) continue;
+    // A cwd-less session, or one in a different cwd, is not the one we just launched in this project.
+    if (cwd && (!c.cwd || path.resolve(c.cwd) !== path.resolve(cwd))) continue;
+    if (c.startedMs < bestStart) { best = { sessionId: c.sessionId, ref: c.sessionId }; bestStart = c.startedMs; }
   }
   return best;
 }
@@ -143,8 +142,9 @@ function matchLiveSession({ cwd, sinceMs, claimed } = {}) {
  */
 function liveRefFor(sessionId) {
   if (!sessionId) return null;
-  const row = reader.parseSession({ kind: 'db', sessionId });
-  return row && row.sessionId ? row.sessionId : null;
+  // #283: confirm the row exists with one indexed lookup — resume already holds the id, so the old full
+  // parseSession (500-message pull, metrics GROUP BY) here bought nothing but ran on every flush.
+  return reader.sessionExists(sessionId) ? String(sessionId) : null;
 }
 
 /**
