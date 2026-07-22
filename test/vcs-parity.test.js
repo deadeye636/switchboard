@@ -104,6 +104,19 @@ test('git: --no-optional-locks off adds -uno for git specifically', () => {
   assert.ok(!git.statusArgs({ countUntracked: true }).includes('-uno'));
 });
 
+test('git: diffArgs is global-flag-first, -- before path, --cached only when staged (#285)', () => {
+  const git = vcs.get('git');
+  const unstaged = git.diffArgs({ path: 'src/x.js', staged: false });
+  const staged = git.diffArgs({ path: 'src/x.js', staged: true });
+  assert.strictEqual(unstaged[0], '--no-optional-locks');
+  assert.ok(unstaged.indexOf('diff') > 0);
+  assert.ok(!unstaged.includes('--cached'));
+  assert.ok(staged.includes('--cached'));
+  // `--` guards a path that starts with a dash from being read as a flag
+  const dd = unstaged.indexOf('--');
+  assert.ok(dd > 0 && unstaged[dd + 1] === 'src/x.js');
+});
+
 test('git: detectState resolves a worktree .git-file gitdir pointer', () => {
   const git = vcs.get('git');
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'vcs-wt-state-'));

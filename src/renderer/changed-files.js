@@ -26,7 +26,7 @@
   function fileRow(f) {
     const path = f.origPath ? '<span class="ren">' + esc(f.origPath) + ' → </span>' + splitPath(f.path) : splitPath(f.path);
     const letter = (f.x && f.x !== '.') ? f.x : (f.y && f.y !== '.') ? f.y : LETTER[f.kind] || '•';
-    return '<div class="file" data-path="' + esc(f.path) + '">'
+    return '<div class="file" data-path="' + esc(f.path) + '" data-kind="' + esc(f.kind) + '">'
       + '<span class="st ' + f.kind + '">' + esc(letter) + '</span>'
       + '<span class="fpath">' + path + '</span>'
       + '<span class="actions"><button data-act="open">Open</button><button data-act="reveal">Reveal</button></span>'
@@ -74,11 +74,50 @@
 
   el('body').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-act]');
-    if (!btn) return;
-    const rel = btn.closest('.file').dataset.path;
-    if (btn.dataset.act === 'open') window.api.openPath(abs(rel));
-    else window.api.vcsReveal(abs(rel));
+    if (btn) {
+      const rel = btn.closest('.file').dataset.path;
+      if (btn.dataset.act === 'open') window.api.openPath(abs(rel));
+      else window.api.vcsReveal(abs(rel));
+      return;
+    }
+    const row = e.target.closest('.file');
+    if (row) toggleDiff(row);
   });
+
+  // Click a row to expand/collapse its diff underneath (#285).
+  async function toggleDiff(row) {
+    const next = row.nextElementSibling;
+    if (next && next.classList.contains('diff-pane')) { next.remove(); row.classList.remove('expanded'); return; }
+    const pane = document.createElement('div');
+    pane.className = 'diff-pane';
+    pane.innerHTML = '<div class="diff-empty">Loading diff…</div>';
+    row.after(pane);
+    row.classList.add('expanded');
+    try {
+      const kind = row.dataset.kind;
+      const res = await window.api.vcsDiff({ cwd, path: row.dataset.path, kind, staged: kind === 'staged' });
+      if (!res || !res.ok) { pane.innerHTML = '<div class="diff-empty">' + esc((res && res.error) || 'Diff failed.') + '</div>'; return; }
+      if (res.note) { pane.innerHTML = '<div class="diff-empty">' + esc(res.note) + '</div>'; return; }
+      pane.innerHTML = renderDiff(res.text);
+    } catch (err) {
+      pane.innerHTML = '<div class="diff-empty">Diff failed.</div>';
+    }
+  }
+
+  function renderDiff(text) {
+    if (!text || !text.trim()) return '<div class="diff-empty">No textual changes.</div>';
+    const lines = text.split('\n').slice(0, 4000);
+    const html = lines.map((l) => {
+      const e = esc(l);
+      if (l.startsWith('+++') || l.startsWith('---')) return '<span class="d-meta">' + e + '</span>';
+      if (l[0] === '+') return '<span class="d-add">' + e + '</span>';
+      if (l[0] === '-') return '<span class="d-del">' + e + '</span>';
+      if (l.startsWith('@@')) return '<span class="d-hunk">' + e + '</span>';
+      if (/^(diff |index |new file|deleted |rename |similarity |Binary )/.test(l)) return '<span class="d-meta">' + e + '</span>';
+      return e;
+    }).join('\n');
+    return '<pre class="diff-pre">' + html + '</pre>';
+  }
 
   el('refresh').addEventListener('click', async () => {
     const s = await window.api.vcsRefresh(cwd);

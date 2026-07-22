@@ -13,7 +13,37 @@
 
 const { execFile } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const vcs = require('../vcs');
+
+const DIFF_LINE_CAP = 4000;
+const MAX_UNTRACKED_BYTES = 2 * 1024 * 1024;
+
+// An untracked file has no tracked side, so its "diff" is the whole file rendered as added. Read it
+// from disk — pure and node-testable. Hardened (#285 review):
+//   - lexical containment (blocks `..`, absolute, drive-letter paths),
+//   - reject SYMLINKS (path.resolve is lexical and readFileSync would follow a link out of the repo),
+//   - size cap BEFORE reading (never a multi-hundred-MB synchronous read on the main loop),
+//   - NUL-byte binary detection (mojibake would otherwise render).
+function readUntrackedDiff(cwd, rel) {
+  const base = path.resolve(cwd);
+  const abs = path.resolve(cwd, rel);
+  if (abs !== base && !abs.startsWith(base + path.sep)) return { ok: false, error: 'Path outside repository' };
+  try {
+    const lst = fs.lstatSync(abs);
+    if (lst.isSymbolicLink()) return { ok: false, error: 'Symlink — not previewed.' };
+    if (lst.isDirectory()) return { ok: true, text: '', note: 'Untracked directory — open it to see its files.' };
+    if (lst.size > MAX_UNTRACKED_BYTES) return { ok: true, text: '', note: 'File too large to preview — use Open.' };
+    const buf = fs.readFileSync(abs);
+    if (buf.includes(0)) return { ok: true, text: '', note: 'Binary file — use Open.' };
+    const lines = buf.toString('utf8').split('\n');
+    const capped = lines.slice(0, DIFF_LINE_CAP).map(l => '+' + l);
+    if (lines.length > DIFF_LINE_CAP) capped.push('+… (truncated)');
+    return { ok: true, text: capped.join('\n'), untracked: true };
+  } catch {
+    return { ok: false, error: 'Cannot read this file.' };
+  }
+}
 
 const DEFAULT_POLL_SECONDS = 20;
 const MIN_POLL_SECONDS = 5;
@@ -264,6 +294,30 @@ function registerIpc(ipc) {
     }
   });
 
+  // The changes-window diff (#285). A tracked file → the provider's diff command; an untracked file has
+  // no tracked side, so its content is shown as an all-added diff read from disk.
+  ipc.handle('vcs-diff', (_event, req) => {
+    return new Promise((resolve) => {
+      const cwd = req && req.cwd;
+      const rel = req && req.path;
+      if (typeof cwd !== 'string' || !cwd || typeof rel !== 'string' || !rel) {
+        return resolve({ ok: false, error: 'Bad diff request' });
+      }
+      const provider = vcs.detect(cwd);
+      if (!provider || typeof provider.diffArgs !== 'function') {
+        return resolve({ ok: false, error: 'No diff support for this working directory' });
+      }
+      // Untracked file → read it as an all-added diff (hardened helper).
+      if (req.kind === 'untracked') return resolve(readUntrackedDiff(cwd, rel));
+      execFile(provider.bin, provider.diffArgs({ path: rel, staged: req.staged === true }), {
+        cwd, timeout: STATUS_TIMEOUT_MS, windowsHide: true, maxBuffer: 8 * 1024 * 1024,
+      }, (err, stdout) => {
+        if (err) return resolve({ ok: false, error: (err.message || String(err)).trim() });
+        resolve({ ok: true, text: stdout });
+      });
+    });
+  });
+
   ipc.handle('vcs-status', (_event, cwd) => (scheduler ? scheduler.getCached(cwd) : null));
 
   ipc.handle('vcs-refresh', (_event, cwd) => {
@@ -293,4 +347,4 @@ function registerIpc(ipc) {
   });
 }
 
-module.exports = { init, registerIpc, stop, destroyAllVcsWindows, createScheduler, runStatusReal, _readConfig: readConfig };
+module.exports = { init, registerIpc, stop, destroyAllVcsWindows, createScheduler, runStatusReal, readUntrackedDiff, _readConfig: readConfig };

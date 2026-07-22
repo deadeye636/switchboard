@@ -75,6 +75,13 @@ function parse(raw, opts) {
   return parseGitStatus(raw, opts);
 }
 
+// Argv for a single file's diff (#285). Run with `cwd` = the repo. `staged` picks the index-vs-HEAD
+// diff (a staged change), else the working-tree-vs-index diff. Untracked files have no tracked side
+// and are handled by the caller (read the file), not here.
+function diffArgs({ path, staged } = {}) {
+  return ['--no-optional-locks', 'diff', '--no-color', ...(staged ? ['--cached'] : []), '--', path];
+}
+
 let _probe = null;
 function probe() {
   if (_probe) return _probe;
@@ -100,6 +107,7 @@ module.exports = {
   findRepo,
   detectState,
   statusArgs,
+  diffArgs,
   parse,
   probe,
   _resetProbeForTests() { _probe = null; },
