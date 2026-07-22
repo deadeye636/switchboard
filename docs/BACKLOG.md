@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (25 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (23 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-22
 
@@ -36,8 +36,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#275](https://github.com/deadeye636/switchboard/issues/275) Prompt queue: stage prompts per session and auto-deliver when ready · _feature_
 - [#276](https://github.com/deadeye636/switchboard/issues/276) Quick actions on session cards (approve/deny/reply) driven by live status · _feature_
 - [#278](https://github.com/deadeye636/switchboard/issues/278) Sidebar start state: add 'auto' option to collapse stale projects on open · _feature_
-- [#279](https://github.com/deadeye636/switchboard/issues/279) Setting: default Markdown view mode (preview vs. code) in the internal editor · _feature_
-- [#280](https://github.com/deadeye636/switchboard/issues/280) Configurable click target for file links; Ctrl/Cmd opens the other one · _feature_
 - [#281](https://github.com/deadeye636/switchboard/issues/281) Explore: rendered Markdown editing in the internal editor (approach TBD) · _feature_
 - [#284](https://github.com/deadeye636/switchboard/issues/284) Changes window: hovering a file row enlarges/shifts it · _bug_
 - [#285](https://github.com/deadeye636/switchboard/issues/285) Changes window: diff view for a changed file · _feature_
