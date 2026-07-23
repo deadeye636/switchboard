@@ -35,6 +35,24 @@ test('no state rule on .session-item reaches into a NESTED row', () => {
     'scope it to the row\'s own `> .session-row`, or the head\'s state paints its lineage ancestors and subagents');
 });
 
+// The selector check above only sees rules that REACH DOWN with a combinator. A rule on the item itself
+// leaks just as far when its property cascades into the subtree — `opacity` on an archived head dimmed the
+// ancestor rows folded under it, and no descendant selector was involved (#288).
+test('no state rule on .session-item cascades into the subtree from the item itself', () => {
+  const CASCADING = /^\s*(opacity|color|filter|font-[a-z-]+|text-[a-z-]+|visibility)\s*:/;
+  const lines = CSS.split('\n');
+  const offenders = [];
+  lines.forEach((line, i) => {
+    const sel = line.split('/*')[0].trim();
+    if (!/^\.session-item\.[^\s>{,]+\s*\{$/.test(sel)) return;
+    for (let j = i + 1; j < lines.length && !lines[j].includes('}'); j++) {
+      if (CASCADING.test(lines[j])) offenders.push({ sel, decl: lines[j].trim(), line: j + 1 });
+    }
+  });
+  assert.deepEqual(offenders, [],
+    'put the declaration on `> .session-row`, or a nested lineage ancestor inherits the head\'s look');
+});
+
 test('the status chip keys on its OWN status class, not on an ancestor\'s', () => {
   // The chip carries status.className itself (buildSessionItem + patchSidebarStatuses), so an ancestor
   // form is both unnecessary and wrong inside a nested row.

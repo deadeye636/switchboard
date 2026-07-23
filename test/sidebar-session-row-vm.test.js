@@ -71,7 +71,7 @@ function setup(backend = {}) {
     vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
   }
 
-  const build = (session) => vm.runInContext('buildSessionItem', ctx)(session);
+  const build = (session, opts) => vm.runInContext('buildSessionItem', ctx)(session, opts);
   return { window, state, build, destroy: () => window.close() };
 }
 
@@ -179,4 +179,17 @@ test('a profile backend forks like Claude; an unknown backend does not', () => {
   try {
     assert.equal(unknown.build(SESSION).querySelector('.session-fork-btn'), null);
   } finally { unknown.destroy(); }
+});
+
+// A lineage ancestor renders as a SECOND row for a session that may already have one elsewhere (#288).
+// Two elements carrying `si-<id>` is a duplicate DOM id, and morphdom keys its node matching on exactly
+// that — so the copy must stay anonymous while keeping the data attribute the click routing reads.
+test('an ancestorCopy row takes no DOM id but keeps its data-session-id', () => {
+  const s = setup();
+  try {
+    assert.equal(s.build(SESSION).id, 'si-s1', 'the canonical row still owns the id');
+    const copy = s.build(SESSION, { noLineageThread: true, ancestorCopy: true });
+    assert.equal(copy.id, '', 'a copy claims no id');
+    assert.equal(copy.dataset.sessionId, 's1', 'but is still routable by the delegated click handler');
+  } finally { s.destroy(); }
 });

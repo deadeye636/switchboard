@@ -1447,8 +1447,12 @@ input:focus-visible {
   background: rgba(232, 168, 56, 0.15);
 }
 .session-item.disabled {
-  opacity: 0.4;
   cursor: not-allowed;
+}
+/* On the row, not the item: `opacity` cascades, and a missing project marks EVERY nested row disabled
+   too, so an item-level 0.4 was applied twice over a lineage ancestor (#288). */
+.session-item.disabled > .session-row {
+  opacity: 0.4;
 }
 
 /* Worktree nested groups */
@@ -2283,7 +2287,9 @@ input:focus-visible {
   display: none;
 }
 
-.session-item.archived-item {
+/* On the row itself, not the item: `opacity` INHERITS, so an archived head dimmed the lineage ancestors
+   folded under it — rows for sessions that are not archived at all (#288). */
+.session-item.archived-item > .session-row {
   opacity: 0.55;
 }
 
