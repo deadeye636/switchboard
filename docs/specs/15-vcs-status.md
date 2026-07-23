@@ -2,8 +2,8 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Implemented (#277); inline diff added (#285), row height fixed (#284) · **Independent:** renderer +
-a new `src/app/` module + a new `src/vcs/` seam
+**Status:** Implemented (#277); inline diff added (#285), row height fixed (#284), large diffs expand into a
+standalone CodeMirror window (#287) · **Independent:** renderer + a new `src/app/` module + a new `src/vcs/` seam
 
 ## Problem
 
@@ -26,6 +26,7 @@ shipped provider; hg/svn would be sibling files, registered with one line, no co
 | `statusArgs(opts)` | `['--no-optional-locks','status','--porcelain=v2','--branch','-z', …]`; adds `-uno` when untracked counting is off |
 | `parse(raw, opts)` | pure porcelain-v2 parser → normalized summary (`src/vcs/parse-git-status.js`) |
 | `diffArgs(opts)` | `['--no-optional-locks','diff','--no-color', …('--cached' when `staged`), '--', path]` — one tracked file's diff (#285) |
+| `showArgs(opts)` | `['--no-optional-locks','show','<ref>:<path>']` — one version's raw content; `ref: ''` is the index (#287) |
 | `detectState(cwd)` | in-progress op from `.git/` markers (MERGE_HEAD → merging, rebase-merge → rebasing, …) — filesystem only, no extra spawn |
 | `probe()` | is the binary on PATH |
 | `netFree` | `true` — the status path must never hit the network (parity-asserted) |
@@ -111,9 +112,40 @@ git.
 **#284 (as built):** hovering a file row no longer nudges its height — the row has a fixed `min-height` with
 `box-sizing: border-box`, so the diff toggle and hover never reflow the list.
 
-**Follow-up — #287 (open):** a very large diff is awkward inline; #287 adds an "expand" affordance that opens
-the diff in a standalone CodeMirror side-by-side window (reusing the per-cwd window pattern below), shown only
-when the diff exceeds a line threshold.
+## The diff window — expanding a large diff (#287)
+
+A very large diff is awkward in a 420px inline pane. Above `DIFF_WINDOW_THRESHOLD` (200 lines, counted on the
+raw diff text) the pane grows a sticky bar with the line count and an **Open in window ⤢** control; below it
+nothing changes and the diff stays purely inline. The bar lives in the diff pane, which is a **sibling** of its
+file row, so its click is handled before the row-scoped logic in `changed-files.js` — the same sibling trap the
+`.vcs-open` delegate hit in #277.
+
+The window is a standalone `BrowserWindow` per **cwd + path + side**, so the staged and unstaged diffs of one
+file are two windows, mirroring the two rows. Same pattern as the changes window: focus-if-exists,
+destroy-on-close, and destroyed with the main window (`destroyAllVcsWindows` now covers both maps, or
+`window-all-closed` never fires). It loads `diff-window.html` + `diff-window.js`, which pulls
+`codemirror-bundle.js` in **on demand** — the app's existing lazy-bundle pattern, and the reason the page's
+static script list stays a single file. Rendering is CodeMirror's `MergeView` via `createMergeViewer`:
+side-by-side, syntax-highlighted, collapsed unchanged regions.
+
+**Getting the two sides is a provider hook, not a git call in the core.** `showArgs({ ref, path })` prints one
+version (`git show <ref>:<path>`; `ref: ''` is the index). `fileVersions` in `src/app/vcs.js` then mirrors the
+inline diff exactly, or the expanded window would show a different change than the pane it was opened from:
+
+| Row | old (left) | new (right) | matches |
+|-----|-----------|-------------|---------|
+| untracked | empty | working copy | the all-added inline view |
+| staged | `HEAD:<path>` | `:<path>` (index) | `git diff --cached` |
+| unstaged / conflicted | `:<path>` (index) | working copy | `git diff` |
+
+The working-copy side goes through `readWorkingFile` — the same hardening as `readUntrackedDiff` (containment,
+symlink reject, size cap, NUL binary detection), except it returns raw text and treats a **missing** file as an
+empty side, which is what a deletion is. The committed side carries the **same 2 MB ceiling**, and only git's
+own "does not exist" answer counts as absence: collapsing every failure into an empty side made a broken read
+look exactly like a newly added file. Everything else (timeout, over-cap, a failed command) surfaces as a note,
+and the note text is deliberately generic — git's stderr carries absolute paths and this string reaches the UI.
+
+IPC: `open-diff-window` (send) and `vcs-file-versions` (invoke), both in `src/app/vcs.js`.
 
 ## Settings (global)
 
@@ -139,5 +171,6 @@ Under **Settings → Projects & Sidebar → Version control**. Documented in `do
 
 `src/vcs/{index,git,parse-git-status}.js`; `src/app/vcs.js`; `src/renderer/shell/sidebar-vcs.js`,
 `sidebar.js`, `sidebar-events.js`; `src/renderer/views/grid-view.js`; `src/renderer/changed-files.{html,js}`;
-`src/renderer/panels/settings-global-html.js`, `settings-panel.js`; `src/renderer/style.css`; `src/main.js`,
-`src/preload.js`, `src/app/windows.js`. Tests: `test/vcs-{parse-git-status,parity,scheduler}.test.js`.
+`src/renderer/diff-window.{html,js}`; `src/renderer/panels/settings-global-html.js`, `settings-panel.js`;
+`src/renderer/style.css`; `src/main.js`, `src/preload.js`, `src/app/windows.js`.
+Tests: `test/vcs-{parse-git-status,parity,scheduler,diff-untracked,file-versions}.test.js`.
