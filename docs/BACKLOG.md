@@ -5,7 +5,7 @@
 
 Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-22
+**As of:** 2026-07-23
 
 
 ## P1 — next up
@@ -18,6 +18,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#274](https://github.com/deadeye636/switchboard/issues/274) Command palette (Ctrl/Cmd+K) to jump to sessions/projects and run actions · _feature_
+- [#288](https://github.com/deadeye636/switchboard/issues/288) Lineage ancestor row is not a real session row: click does not open it and it shows the head's state · _bug_
 
 ## P3 — someday
 
@@ -37,4 +38,3 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#276](https://github.com/deadeye636/switchboard/issues/276) Quick actions on session cards (approve/deny/reply) driven by live status · _feature_
 - [#278](https://github.com/deadeye636/switchboard/issues/278) Sidebar start state: add 'auto' option to collapse stale projects on open · _feature_
 - [#281](https://github.com/deadeye636/switchboard/issues/281) Explore: rendered Markdown editing in the internal editor (approach TBD) · _feature_
-- [#287](https://github.com/deadeye636/switchboard/issues/287) Changes window: expand large diffs into a standalone CodeMirror window · _feature_
