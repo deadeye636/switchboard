@@ -28,7 +28,9 @@ function setup(sessions = [], { running = [], active = null } = {}) {
   window.ariaButton = (el) => el; // a11y decoration is not the subject here
   // Ancestors render as full session rows (buildSessionItem lives in sidebar-session-row.js, not loaded
   // here); stub it to an id-bearing .session-item so the thread structure is testable.
-  window.buildSessionItem = (s) => {
+  const builtWith = [];
+  window.buildSessionItem = (s, opts = {}) => {
+    builtWith.push({ sessionId: s.sessionId, opts });
     const el = window.document.createElement('div');
     el.className = 'session-item';
     el.dataset.sessionId = s.sessionId;
@@ -37,7 +39,7 @@ function setup(sessions = [], { running = [], active = null } = {}) {
 
   vm.runInContext(fs.readFileSync(path.join(REN, 'shell/sidebar-lineage.js'), 'utf8'), ctx, { filename: 'shell/sidebar-lineage.js' });
   const call = (name, ...args) => vm.runInContext(name, ctx)(...args);
-  return { window, call, destroy: () => window.close() };
+  return { window, call, builtWith, destroy: () => window.close() };
 }
 
 const sess = (id, over = {}) => ({ sessionId: id, summary: id, ...over });
@@ -95,5 +97,19 @@ test('buildLineageThread renders a toggle and one collapsed ancestor row per anc
     // and sidebar.js carries it across a re-render (#229).
     assert.equal(toggle.getAttribute('aria-expanded'), 'false', 'starts announced as collapsed');
     assert.equal(s.call('buildLineageThread', { sessionId: 'x' }), null, 'no chain → no thread');
+  } finally { s.destroy(); }
+});
+
+test('an ancestor row is built as a COPY: no recursion, and no claim on the session DOM id', () => {
+  const s = setup([sess('root'), sess('mid', { lineageParentId: 'root' })]);
+  try {
+    s.call('buildLineageThread', { sessionId: 'leaf', lineageParentId: 'mid' });
+    // Lineage is a tree, so the same ancestor can render under several heads. A `si-<id>` on each copy is a
+    // duplicate DOM id — which is exactly what morphdom keys node matching on (#288).
+    for (const built of s.builtWith) {
+      assert.equal(built.opts.noLineageThread, true, `${built.sessionId}: the flat chain must not recurse`);
+      assert.equal(built.opts.ancestorCopy, true, `${built.sessionId}: an ancestor copy takes no DOM id`);
+    }
+    assert.equal(s.builtWith.length, 2);
   } finally { s.destroy(); }
 });

@@ -1796,10 +1796,10 @@ input:focus-visible {
 
 /* Subagent-activity overlay (#112): the parent keeps its own dot; a live subagent adds a teal halo.
    Over a busy (spinning) parent, fill the core green inside the ring so both read at once. */
-.session-item.subagent-active .session-status-dot.status-busy {
+.session-item.subagent-active > .session-row .session-status-dot.status-busy {
   background: var(--status-running);
 }
-.session-item.subagent-active .session-status-dot:not(.status-busy):not(.status-needs-attention) {
+.session-item.subagent-active > .session-row .session-status-dot:not(.status-busy):not(.status-needs-attention) {
   box-shadow: 0 0 0 2px var(--status-subagent);
   animation: pulse-dot 1.4s ease-in-out infinite;
 }
@@ -1813,7 +1813,8 @@ input:focus-visible {
   to { transform: rotate(360deg); }
 }
 
-.session-item.cli-busy:not(.needs-attention) .session-summary {
+/* `> .session-row` so a busy head does not run the shimmer on the idle rows nested under it (#288). */
+.session-item.cli-busy:not(.needs-attention) > .session-row .session-summary {
   background: linear-gradient(110deg, #f0f0ff 44%, #4fc3f7 48%, #ffffff 50%, #4fc3f7 52%, #f0f0ff 56%);
   background-size: 300% 100%;
   -webkit-background-clip: text;
@@ -1983,37 +1984,40 @@ input:focus-visible {
   filter: brightness(1.15);
 }
 
-/* Status chips (sidebar rows + attention inbox) — colours from the shared palette (#257). */
-.status-needs-attention .session-status-chip,
+/* Status chips (sidebar rows + attention inbox) — colours from the shared palette (#257). The chip carries
+   the status class ITSELF (buildSessionItem, and patchSidebarStatuses keeps it in sync), so key on that
+   rather than on an ancestor's: a `.session-item` can contain other rows, and the ancestor form painted a
+   nested idle row's chip with the head's status (#288). */
+.session-status-chip.status-needs-attention,
 .attention-inbox-item.status-needs-attention .attention-inbox-status {
   color: var(--status-attention-fg);
   background: var(--status-attention-bg);
 }
 
-.status-response-ready .session-status-chip,
+.session-status-chip.status-response-ready,
 .attention-inbox-item.status-response-ready .attention-inbox-status {
   color: var(--status-ready-fg);
   background: var(--status-ready-bg);
 }
 
-.status-busy .session-status-chip,
+.session-status-chip.status-busy,
 .attention-inbox-item.status-busy .attention-inbox-status {
   color: var(--status-busy-fg);
   background: var(--status-busy-bg);
 }
 
-.status-running .session-status-chip,
+.session-status-chip.status-running,
 .attention-inbox-item.status-running .attention-inbox-status {
   color: var(--status-running-fg);
   background: var(--status-running-bg);
 }
 
-.status-exited .session-status-chip {
+.session-status-chip.status-exited {
   color: var(--status-exited-fg);
   background: var(--status-exited-bg);
 }
 
-.status-idle .session-status-chip {
+.session-status-chip.status-idle {
   color: var(--status-idle-fg);
   background: var(--status-idle-bg);
 }
@@ -2264,15 +2268,18 @@ input:focus-visible {
   background: rgba(120,130,255,0.1);
 }
 
-.session-item.has-running-pty .session-stop-btn {
+/* Scoped to the row's OWN `.session-row`, like hover/active above: a `.session-item` can contain other
+   `.session-item`s (a lineage ancestor, a nested subagent), and a descendant selector handed the head's
+   state to every row inside it — an idle ancestor wearing the head's Stop button (#288). */
+.session-item.has-running-pty > .session-row .session-stop-btn {
   display: flex;
 }
 
-.session-item.has-running-pty .session-launch-config-btn {
+.session-item.has-running-pty > .session-row .session-launch-config-btn {
   display: none;
 }
 
-.session-item.is-terminal .session-fork-btn {
+.session-item.is-terminal > .session-row .session-fork-btn {
   display: none;
 }
 
@@ -2282,17 +2289,18 @@ input:focus-visible {
 
 /* ---- Row TEXT effects for ready / needs-attention. The DOT for these states is defined once, with
    the rest of the status dots, up near the palette (#254). These rules only colour the row text, which
-   is why they still key on the item-level classes patchSidebarStatuses keeps in sync. ---- */
-.session-item.response-ready .session-name {
+   is why they still key on the item-level classes patchSidebarStatuses keeps in sync — but on the item's
+   OWN row (`> .session-row`), never on a nested row's (#288). ---- */
+.session-item.response-ready > .session-row .session-name {
   color: #4fc3f7;
   font-weight: 600;
 }
 
-.session-item.response-ready .session-summary {
+.session-item.response-ready > .session-row .session-summary {
   color: #4fc3f7;
 }
 
-.session-item.response-ready .session-time {
+.session-item.response-ready > .session-row .session-time {
   color: rgba(79,195,247,0.6);
 }
 
@@ -2301,11 +2309,11 @@ input:focus-visible {
   100% { transform: scale(3.5); opacity: 0; }
 }
 
-.session-item.needs-attention .session-summary {
+.session-item.needs-attention > .session-row .session-summary {
   color: #f0a050;
 }
 
-.session-item.needs-attention .session-summary::before {
+.session-item.needs-attention > .session-row .session-summary::before {
   display: none;
 }
 
@@ -6317,7 +6325,7 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
 }
 
 /* Terminal sessions: green status dot with a glow, keyed on the status class the dot carries now (#254). */
-.session-item.is-terminal .session-status-dot.status-running {
+.session-item.is-terminal > .session-row .session-status-dot.status-running {
   background: var(--status-running);
   box-shadow: 0 0 6px rgba(62,207,90,0.5);
 }

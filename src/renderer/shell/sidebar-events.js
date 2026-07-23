@@ -133,8 +133,8 @@ function dispatchSidebarActivation(e) {
     // row (it early-returned before any), so no action fires here either, not just the open.
     if (sessionEl.closest('.project-group.missing')) return;
 
-    // Lineage thread (#193): the "N earlier" toggle folds/unfolds the ancestors; an ancestor row opens its
-    // read-only transcript. Both sit inside the item, so they are checked before the row-open.
+    // Lineage thread (#193): the "N earlier" toggle folds/unfolds the ancestors. It sits inside the item,
+    // so it is checked before the row-open.
     const lineageToggle = t.closest('.session-lineage-toggle');
     if (lineageToggle) {
       e.stopPropagation();
@@ -162,9 +162,17 @@ function dispatchSidebarActivation(e) {
     if (t.closest('.session-timeline-btn')) { e.stopPropagation(); showTimelineViewer(session); return; }
     if (t.closest('.session-archive-btn')) { e.stopPropagation(); archiveSessionFromRow(session); return; }
 
-    // Row open (least specific). Clicks in the actions area / pin / health-chip / lineage thread never open
-    // the row. (Missing-project rows already returned above.)
-    if (t.closest('.session-actions, .session-pin, .session-health-chip, .session-lineage-thread')) return;
+    // Row open (least specific). Clicks in the actions area / pin / health-chip never open the row.
+    // (Missing-project rows already returned above.)
+    if (t.closest('.session-actions, .session-pin, .session-health-chip')) return;
+    // The lineage thread is BOTH chrome and rows (#288): its toggle and its indent gutter belong to the
+    // head and must not open anything, while an ancestor row inside it is a real session row that must
+    // open like its top-level twin. Blanket-guarding `.session-lineage-thread` killed the second case —
+    // every ancestor row's action buttons worked and only the open was dead. So ask WHERE the thread sits
+    // relative to the row this click resolved to: inside it → the click is on this row's own thread chrome,
+    // swallow it; outside it → `sessionEl` IS the nested ancestor row, let it through.
+    const lineageThread = t.closest('.session-lineage-thread');
+    if (lineageThread && sessionEl.contains(lineageThread)) return;
     // Subagents are ephemeral child runs — open the read-only subagent transcript, not a PTY resume.
     // The branch keys on the SESSION FIELD, never on the row's markup, and that is load-bearing (#234):
     // during a search the sidebar flattens subagents into ordinary top-level rows (nestSubagents === false

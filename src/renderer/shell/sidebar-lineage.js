@@ -44,7 +44,9 @@ function foldedAncestorIds(sessions) {
 }
 
 // The collapsed thread beneath a head: a toggle plus the idle ancestors it folded, newest → oldest. Each
-// ancestor row opens its read-only transcript on click (delegated). Returns null when there is no chain.
+// ancestor row behaves exactly like its top-level twin — the delegated open in sidebar-events.js routes it
+// by the session's own fields, so a plain session resumes and a subagent opens its transcript (#288).
+// Returns null when there is no chain.
 function buildLineageThread(session) {
   const chain = lineageAncestorChain(session);
   if (chain.length === 0) return null;
@@ -62,12 +64,14 @@ function buildLineageThread(session) {
 
   // Each ancestor is a REAL session, so render it as a full session row — every normal action (open,
   // transcript, timeline, tags, …) works through the delegated sidebar events, no special-casing. Pass
-  // noLineageThread so the flat chain does not recurse (this head already lists the whole chain).
+  // noLineageThread so the flat chain does not recurse (this head already lists the whole chain), and
+  // ancestorCopy because lineage is a TREE: the same ancestor can appear under two heads, so this row is
+  // one of several views of that session and must not claim the session's DOM id (#288).
   const list = document.createElement('div');
   list.className = 'session-lineage-ancestors';
   list.style.display = 'none';
   for (const anc of chain) {
-    list.appendChild(buildSessionItem(anc, { noLineageThread: true }));
+    list.appendChild(buildSessionItem(anc, { noLineageThread: true, ancestorCopy: true }));
   }
 
   wrap.appendChild(toggle);
