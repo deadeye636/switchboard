@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const png2icons = require('png2icons');
@@ -60,35 +60,43 @@ if (process.platform === 'darwin') {
   const PADDED_SIZE = 1024;
   const INSET = Math.round(PADDED_SIZE * 0.1); // 10% padding on each side = 80% content
   const INNER = PADDED_SIZE - INSET * 2;
-  execSync(`sips -z ${INNER} ${INNER} "${pngPath}" --out "${paddedPath}"`, { stdio: 'ignore' });
-  // Use sips to pad: create blank canvas then composite
-  // sips can't composite easily, so use a Python one-liner with CoreImage
-  execSync(`python3 -c "
-from PIL import Image
-bg = Image.new('RGBA', (${PADDED_SIZE}, ${PADDED_SIZE}), (0, 0, 0, 0))
-fg = Image.open('${paddedPath}').convert('RGBA')
-bg.paste(fg, (${INSET}, ${INSET}), fg)
-bg.save('${paddedPath}')
-"`, { stdio: 'inherit' });
+  execFileSync('sips', ['-z', String(INNER), String(INNER), pngPath, '--out', paddedPath], { stdio: 'ignore' });
+  // sips cannot composite, so the padding is done in Python. The paths go in as ARGV, not spliced
+  // into the source: interpolating them made the path part of the program, one quote away from
+  // being Python rather than a filename — and the surrounding `python3 -c "…"` made it a shell
+  // string on top of that. Nothing here is attacker-controlled, but neither layer needs to exist.
+  const padScript = [
+    'import sys',
+    'from PIL import Image',
+    'size, inset, src = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]',
+    'bg = Image.new("RGBA", (size, size), (0, 0, 0, 0))',
+    'fg = Image.open(src).convert("RGBA")',
+    'bg.paste(fg, (inset, inset), fg)',
+    'bg.save(src)',
+  ].join('\n');
+  execFileSync('python3', ['-c', padScript, String(PADDED_SIZE), String(INSET), paddedPath], { stdio: 'inherit' });
 
   const iconsetDir = path.join(OUTPUT_DIR, 'icon.iconset');
   fs.mkdirSync(iconsetDir, { recursive: true });
 
+  const sips = (px, outFile) => execFileSync(
+    'sips', ['-z', String(px), String(px), paddedPath, '--out', path.join(iconsetDir, outFile)],
+    { stdio: 'ignore' },
+  );
+
   const sizes = [16, 32, 64, 128, 256, 512, 1024];
   for (const size of sizes) {
     // Standard resolution
-    execSync(`sips -z ${size} ${size} "${paddedPath}" --out "${path.join(iconsetDir, `icon_${size}x${size}.png`)}"`, { stdio: 'ignore' });
+    sips(size, `icon_${size}x${size}.png`);
     // @2x (half the name, double the pixels)
-    if (size <= 512) {
-      execSync(`sips -z ${size * 2} ${size * 2} "${paddedPath}" --out "${path.join(iconsetDir, `icon_${size}x${size}@2x.png`)}"`, { stdio: 'ignore' });
-    }
+    if (size <= 512) sips(size * 2, `icon_${size}x${size}@2x.png`);
   }
   // Rename 1024 to 512@2x (required by iconutil)
   const icon1024 = path.join(iconsetDir, 'icon_1024x1024.png');
   if (fs.existsSync(icon1024)) fs.unlinkSync(icon1024);
 
   const icnsPath = path.join(OUTPUT_DIR, 'icon.icns');
-  execSync(`iconutil -c icns "${iconsetDir}" -o "${icnsPath}"`, { stdio: 'ignore' });
+  execFileSync('iconutil', ['-c', 'icns', iconsetDir, '-o', icnsPath], { stdio: 'ignore' });
   // Clean up
   fs.rmSync(iconsetDir, { recursive: true });
   fs.unlinkSync(paddedPath);

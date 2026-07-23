@@ -75,9 +75,13 @@ function getOAuthToken() {
 // hand us an epoch or an ISO string and want the same string back.
 const { formatResetTime } = require('../usage-format');
 
-function mapBucket(apiUsage, apiKey, bucket, out) {
+// `bucketKey` is the name of a window in the API's response — 'five_hour', 'seven_day' and so on.
+// It was called `apiKey`, which reads as a credential: a human skims the log line below and sees a
+// secret being printed, and CodeQL's clear-text-logging query said so outright. The value never was
+// one, but a name that has to be checked against its call sites is a name worth changing.
+function mapBucket(apiUsage, bucketKey, bucket, out) {
   try {
-    const u = apiUsage[apiKey];
+    const u = apiUsage[bucketKey];
     if (!u || u.utilization === null || u.utilization === undefined) return;
     out.push({
       ...bucket,
@@ -85,7 +89,7 @@ function mapBucket(apiUsage, apiKey, bucket, out) {
       reset: u.resets_at ? formatResetTime(u.resets_at) : null,
     });
   } catch (err) {
-    console.error('[claude-usage] Error mapping bucket', apiKey, err.message);
+    console.error('[claude-usage] Error mapping bucket', bucketKey, err.message);
   }
 }
 

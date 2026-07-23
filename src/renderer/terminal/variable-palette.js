@@ -183,10 +183,24 @@
 
   // The status line lives OUTSIDE the listbox: a listbox may own options only, and a "Loading…" or
   // "no match" node in there is either dropped or read out as a choosable row.
+  // PLAIN TEXT ONLY. One of the callers below puts the user's own query in this line, so an
+  // innerHTML here is a single careless caller away from being an XSS sink — CodeQL flagged the
+  // path even though every present caller escapes. textContent cannot be talked into markup, which
+  // means the next caller cannot get it wrong either.
   function setStatus(text) {
     const el = palette.querySelector('.vpal-status');
-    el.innerHTML = text || '';
+    el.textContent = text || '';
     el.style.display = text ? '' : 'none';
+  }
+
+  // The one message that wants markup in the middle of it — a <kbd> around the key to press. It
+  // builds the element instead of writing a string, so the exception does not reopen the sink.
+  function setStatusWithKey(before, key, after) {
+    const el = palette.querySelector('.vpal-status');
+    const kbd = document.createElement('kbd');
+    kbd.textContent = key;
+    el.replaceChildren(before, kbd, after);
+    el.style.display = '';
   }
 
   function renderList() {
@@ -215,12 +229,13 @@
     if (!rows.length) {
       // The picker this replaced offered "No variables — manage…" as a real menu item, so the hotkey
       // must not become a dead end when there is nothing to insert (#207 / the old #89 behaviour).
-      setStatus('No variables yet. Press <kbd>Enter</kbd> to open the Variables tab.');
+      setStatusWithKey('No variables yet. Press ', 'Enter', ' to open the Variables tab.');
       return;
     }
     if (!shown.length) {
       // Stay open and keep what was typed — closing here would throw the query away.
-      setStatus(`No variable matches “${esc(palette.querySelector('.vpal-input').value)}”.`);
+      // No esc() — setStatus writes textContent, so escaping here would show the entities literally.
+      setStatus(`No variable matches “${palette.querySelector('.vpal-input').value}”.`);
       return;
     }
     setStatus('');

@@ -9,6 +9,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# A test run reads the checkout and writes nothing. Without this block the job gets the repository's
+# default token scope, which on a public repo is read-only but is a setting rather than a property of
+# this workflow — a later change elsewhere would silently widen what a test run can do.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
