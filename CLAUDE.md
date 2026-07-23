@@ -28,7 +28,7 @@ table is the fallback and it is binding.
 | `src/main.js`, `src/app/**`, `src/watch/**`, `src/preload.js` | `.claude/rules/main-process.md` |
 | `src/renderer/**`, `src/shared/**` | `.claude/rules/renderer.md` |
 | `src/db/**`, `src/index/**`, `src/workers/**` | `.claude/rules/db.md` |
-| `src/backends/**`, `src/session/**`, `src/servers/**`, `src/projects/**` | `.claude/rules/backends.md` |
+| `src/backends/**`, `src/session/**`, `src/servers/**`, `src/projects/**`, `src/vcs/**` | `.claude/rules/backends.md` |
 | `docs/**`, `README.md` | `.claude/rules/docs.md` |
 | a release, a tag, an installer | `docs/ai/release.md` |
 | running/verifying, databases, store isolation | `docs/ai/running-and-data.md` |
@@ -97,6 +97,7 @@ absent from the installer.
 | `src/watch/**` | `projects.js`, `stores.js`, `adopt.js`, `trigger-watcher.js` |
 | `src/backends/**` | one folder per coding CLI + `index.js` registry + `file-store.js` |
 | `src/servers/**` | MCP IDE bridge (`mcp-bridge.js`) |
+| `src/vcs/**` | the VCS seam (#277) — provider registry + git provider + pure porcelain-v2/diff parser; core is VCS-blind. The poller/IPC live in `src/app/vcs.js` |
 | `src/projects/**` | the project registry — the last place the backend-id migration is still open (#211) |
 
 ## Commands
