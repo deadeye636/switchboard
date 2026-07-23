@@ -2,7 +2,8 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Implemented (#277) · **Independent:** renderer + a new `src/app/` module + a new `src/vcs/` seam
+**Status:** Implemented (#277); inline diff added (#285), row height fixed (#284) · **Independent:** renderer +
+a new `src/app/` module + a new `src/vcs/` seam
 
 ## Problem
 
@@ -24,6 +25,7 @@ shipped provider; hg/svn would be sibling files, registered with one line, no co
 | `capabilities` | `{ branch, staging, untracked, conflicts, state }` — what this VCS has |
 | `statusArgs(opts)` | `['--no-optional-locks','status','--porcelain=v2','--branch','-z', …]`; adds `-uno` when untracked counting is off |
 | `parse(raw, opts)` | pure porcelain-v2 parser → normalized summary (`src/vcs/parse-git-status.js`) |
+| `diffArgs(opts)` | `['--no-optional-locks','diff','--no-color', …('--cached' when `staged`), '--', path]` — one tracked file's diff (#285) |
 | `detectState(cwd)` | in-progress op from `.git/` markers (MERGE_HEAD → merging, rebase-merge → rebasing, …) — filesystem only, no extra spawn |
 | `probe()` | is the binary on PATH |
 | `netFree` | `true` — the status path must never hit the network (parity-asserted) |
@@ -88,6 +90,30 @@ is called from the main-window close in `windows.js`, or `window-all-closed` nev
 renames as `old → new`, with **Open** (the existing hardened `open-path`) and **Reveal**
 (`shell.showItemInFolder`), a Refresh button and live refresh on the same per-repo poll. Chip counts and the
 file list come from one porcelain snapshot, so they never disagree.
+
+## The inline diff (#285)
+
+Clicking a file row in the changes window expands a colored `git diff` for that file underneath the row
+(toggle: click again to collapse). Same VCS-neutral shape as the rest of the seam — the renderer names no
+git.
+
+- **Tracked files:** the provider's **`diffArgs`** hook builds the argv (`git diff --no-color`, `--cached`
+  for a staged change); the **`vcs-diff`** IPC (`src/app/vcs.js`, request `{ cwd, path, kind, staged }`)
+  runs it via async `execFile` under the repo cwd, capped and timed like the status poll. `--no-optional-locks`
+  again, so a background diff never fights the session's agent for `index.lock`.
+- **Untracked files** have no tracked side to diff against, so `readUntrackedDiff` reads the file directly and
+  renders it as an all-`+` block. It is **hardened**: path containment (must resolve inside the repo),
+  symlink reject, a size cap, binary detection (NUL byte → "use Open"), and a line cap that flags truncation.
+  Every diff line is HTML-escaped in the renderer before it reaches the DOM.
+- The window enforces `script-src 'self'`, so the diff rendering lives in the external `changed-files.js`, not
+  inline.
+
+**#284 (as built):** hovering a file row no longer nudges its height — the row has a fixed `min-height` with
+`box-sizing: border-box`, so the diff toggle and hover never reflow the list.
+
+**Follow-up — #287 (open):** a very large diff is awkward inline; #287 adds an "expand" affordance that opens
+the diff in a standalone CodeMirror side-by-side window (reusing the per-cwd window pattern below), shown only
+when the diff exceeds a line threshold.
 
 ## Settings (global)
 
