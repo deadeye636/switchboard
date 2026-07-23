@@ -51,7 +51,7 @@
     "@codemirror/state": "^6.5.4",
     "@codemirror/view": "^6.43.6",
     "@ddietr/codemirror-themes": "^1.5.2",
-    "@napi-rs/canvas": "^0.1.62",
+    "@napi-rs/canvas": "^1.0.2",
     "codemirror": "^6.0.2",
     "electron": "^41.10.3",
     "electron-builder": "^26.15.3",
