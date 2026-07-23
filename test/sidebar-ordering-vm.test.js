@@ -39,7 +39,9 @@ function setup(g = {}) {
     showTodayOnly: false,
     searchMatchIds: null,
     activePtyIds: new Set(),
-    pendingSessions: new Set(),
+    // #290: the sidebar asks app.js's predicate rather than reading pendingSessions itself — a pending
+    // entry whose PTY has already exited must stop sorting and grouping with the running ones.
+    launchPending: () => false,
     sortedOrder: [],
     visibleSessionCount: 0, // 0 = no count limit
     sessionMaxAgeDays: 0,   // 0 = no age limit
@@ -109,7 +111,7 @@ test('sortSidebarSessions breaks ties by recency (newer first)', () => {
 });
 
 test('sortSidebarSessions counts a pending session as running', () => {
-  const { call, destroy } = setup({ pendingSessions: new Set(['pending']) });
+  const { call, destroy } = setup({ launchPending: (id) => id === 'pending' });
   try {
     const out = call('sortSidebarSessions', [
       sess('idle', T - 1 * DAY),
@@ -117,6 +119,20 @@ test('sortSidebarSessions counts a pending session as running', () => {
     ]);
     // Older, but pending → running priority beats the fresher idle one.
     assert.deepEqual([...out].map(s => s.sessionId), ['pending', 'idle']);
+  } finally { destroy(); }
+});
+
+// #290: a pending entry survives its process on purpose (it is the row the user relaunches from), and for
+// a backend that never records the session it survives for ever. It must not keep the row pinned to the
+// top as if something were starting — launchPending() is what says the difference.
+test('a pending session whose PTY exited no longer sorts as running (#290)', () => {
+  const { call, destroy } = setup({ launchPending: () => false });
+  try {
+    const out = call('sortSidebarSessions', [
+      sess('idle', T - 1 * DAY),
+      sess('ghost', T - 9 * DAY),
+    ]);
+    assert.deepEqual([...out].map(s => s.sessionId), ['idle', 'ghost'], 'pure recency, no running promotion');
   } finally { destroy(); }
 });
 

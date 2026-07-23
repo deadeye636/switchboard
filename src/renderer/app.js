@@ -215,6 +215,26 @@ let vcsChipEnabled = true;   // #277: master switch for the sidebar/card VCS chi
 let vcsShowBadge = false;    // #277: show the branch/counts badge (default off — the glyph button alone opens the window)
 const pendingSessions = new Map(); // sessionId → { session, projectPath, folder }
 
+// Sessions whose PTY has RUN AND EXITED while still pending (#290). A pending entry survives the exit on
+// purpose — it is the row the user relaunches from when no transcript was ever written — but it must stop
+// meaning "starting". The reconciliation in loadProjects only drops a pending entry once real session data
+// appears, and for a backend that never recorded the session that never happens: the entry, and with it the
+// `Running` chip and the running-first sort, would have outlived the process for the life of the window.
+// Populated by the PTY-exit handler in shell/session-ipc.js. Cleared in four places, and it has to be all
+// four or the marker outlives what it describes: the moment the id turns up in activePtyIds again (a
+// relaunch — see pollActiveSessions), and alongside each of the three `pendingSessions.delete` sites
+// (real data arrived below, the plain-terminal teardown, and the id re-key on adoption).
+const launchExitedSessions = new Set();
+
+/**
+ * Is this session still on its way up — pending, and not already dead? The question every "running or
+ * about to be" site asks (the status helper's last branch, the sidebar's sort and slug grouping, the
+ * lineage rows). `pendingSessions.has()` alone answers it wrongly after an exit.
+ */
+function launchPending(sessionId) {
+  return pendingSessions.has(sessionId) && !launchExitedSessions.has(sessionId);
+}
+
 // Inject a pending (not-yet-on-disk) session into the cached project lists so
 // the sidebar shows it immediately. Shared by the new-session/new-terminal
 // dialogs and the refresh reconcile loop (#79). The default list mirrors the
@@ -422,6 +442,7 @@ function sessionRuntimeState() {
   return {
     activePtyIds,
     pendingSessions,
+    launchExitedSessions,
     attentionSessions,
     responseReadySessions,
     sessionBusyState,
@@ -708,6 +729,10 @@ async function pollActiveSessions() {
   try {
     const ids = await window.api.getActiveSessions();
     activePtyIds = new Set(ids);
+    // A live PTY under an id we had marked as exited means it was relaunched (every launch path polls
+    // immediately after spawning). Clearing here rather than at the four openTerminal call sites keeps
+    // the marker honest for a session started from anywhere — including another window.
+    for (const id of ids) launchExitedSessions.delete(id);
     updateRunningIndicators();
     updateTerminalHeader();
     // While the grid is open, keep it filled with every running session — newly
@@ -869,6 +894,7 @@ async function loadProjects({ resort = false } = {}) {
     const realExists = allProjects.some(p => p.sessions.some(s => s.sessionId === sid));
     if (realExists) {
       pendingSessions.delete(sid);
+      launchExitedSessions.delete(sid); // nothing pending left to qualify — don't keep the marker for ever
     } else {
       hasReinjected = true;
       // Still pending — re-inject into cached data

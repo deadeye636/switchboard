@@ -8,7 +8,7 @@
 // it), so nothing groups by root — each head walks up independently and a shared ancestor may appear under
 // more than one head. That is honest, not a bug.
 //
-// A classic <script>. Reads app.js's maps at call time: sessionMap, activePtyIds, pendingSessions,
+// A classic <script>. Reads app.js's maps at call time: sessionMap, activePtyIds, launchPending(),
 // activeSessionId; utils' cleanDisplayName; a11y-utils' ariaButton. Never runs at parse time. The click
 // on the "N earlier" toggle and on an ancestor row is delegated in sidebar-events.js — nothing is bound
 // per node here (#218 opt6).
@@ -37,7 +37,7 @@ function foldedAncestorIds(sessions) {
   for (const s of sessions) {
     const pid = s.lineageParentId;
     if (!pid || !present.has(pid)) continue;
-    const running = activePtyIds.has(pid) || (typeof pendingSessions !== 'undefined' && pendingSessions.has(pid));
+    const running = activePtyIds.has(pid) || (typeof launchPending === 'function' && launchPending(pid));
     if (!running && pid !== activeSessionId) folded.add(pid);
   }
   return folded;

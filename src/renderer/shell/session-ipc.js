@@ -19,7 +19,7 @@
 // app.js state still in its TDZ; registered after, the state is bound.
 //
 // What it reaches into app.js at call time (read, or mutate a Map/Set in place; it rebinds no let):
-//   openSessions, sessionMap, pendingSessions, userStoppedSessions (session tables),
+//   openSessions, sessionMap, pendingSessions, launchExitedSessions, userStoppedSessions (session tables),
 //   activeSessionId, cachedAllProjects, cachedProjects, gridViewActive, sessionTimelineStore,
 //   refreshSidebar, setActiveSession, trackActivity, recordTimelineEvent, and the terminal-header DOM
 //   handles (placeholder, terminalHeader, terminalHeaderId/Name/PtyTitle, gridViewerCount).
@@ -122,6 +122,7 @@ window.api.onSessionForked((oldId, newId) => {
   // Re-key pending session to newId so sidebar item persists until DB has real data
   const pendingEntry = pendingSessions.get(oldId);
   pendingSessions.delete(oldId);
+  launchExitedSessions.delete(oldId); // the old id is retired; its marker must not outlive it
   if (pendingEntry) {
     // Re-key only: the pending shape is { session, projectPath, folder } with no
     // own sessionId field (the Map key carries it); entry.session.sessionId was
@@ -161,6 +162,10 @@ window.api.onProcessExited((sessionId, exitCode) => {
   const session = sessionMap.get(sessionId);
   const userStopped = userStoppedSessions.has(sessionId);
   userStoppedSessions.delete(sessionId);
+  // This session had a process and no longer does (#290). The pending entry below is deliberately kept
+  // for the relaunch, so this marker is what stops it from still reading as "starting" — see
+  // launchPending() in app.js. Cleared again by the next poll that sees a live PTY under this id.
+  launchExitedSessions.add(sessionId);
   if (entry) {
     entry.closed = true;
     recordTimelineEvent(sessionId, 'exited', 'Process exited', `Exit code ${exitCode}.`);
@@ -192,6 +197,7 @@ window.api.onProcessExited((sessionId, exitCode) => {
       placeholder.style.display = '';
     }
     pendingSessions.delete(sessionId);
+    launchExitedSessions.delete(sessionId); // the row is gone entirely; nothing left to mark
     // A plain terminal is gone for good — it leaves the sidebar and sessionMap here, so this is the
     // lifecycle point that drops its attention state. The repaint no longer does (#259): a session that
     // stays mounted (Claude) keeps its flags until opened, but one that is fully removed can never be

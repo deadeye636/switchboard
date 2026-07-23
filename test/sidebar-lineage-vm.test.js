@@ -13,7 +13,7 @@ const { JSDOM } = require('jsdom');
 
 const REN = path.join(__dirname, '..', 'src', 'renderer');
 
-function setup(sessions = [], { running = [], active = null } = {}) {
+function setup(sessions = [], { running = [], active = null, pending = [] } = {}) {
   const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
     url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true,
   });
@@ -22,7 +22,10 @@ function setup(sessions = [], { running = [], active = null } = {}) {
 
   window.sessionMap = new Map(sessions.map(s => [s.sessionId, s]));
   window.activePtyIds = new Set(running);
-  window.pendingSessions = new Set();
+  // #290: "about to be running" is app.js's launchPending(), not a raw pendingSessions lookup — a pending
+  // entry whose PTY has already exited must fold like any other idle ancestor. Stubbing the map the source
+  // no longer reads would leave this branch permanently false and the fold untested.
+  window.launchPending = (id) => pending.includes(id);
   window.activeSessionId = active;
   window.cleanDisplayName = (s) => s || '';
   window.ariaButton = (el) => el; // a11y decoration is not the subject here
@@ -69,6 +72,22 @@ test('foldedAncestorIds folds an idle referenced ancestor, but not a running or 
     assert.equal(folded.has('pRun'), false, 'a running ancestor stays its own row');
     assert.equal(folded.has('pAct'), false, 'the active session stays its own row');
   } finally { s.destroy(); }
+});
+
+// #290, the lineage half. A pending ancestor is on its way up and keeps its own row; the same ancestor
+// once its PTY has exited is simply idle, and folds like every other idle one — otherwise a session whose
+// backend never recorded it would sit unfolded at the top of the thread for the life of the window.
+test('foldedAncestorIds keeps a pending ancestor, folds it once its PTY exited (#290)', () => {
+  const sessions = [sess('p'), sess('c', { lineageParentId: 'p' })];
+  const starting = setup(sessions, { pending: ['p'] });
+  try {
+    assert.equal(starting.call('foldedAncestorIds', sessions).has('p'), false, 'still starting — its own row');
+  } finally { starting.destroy(); }
+
+  const exited = setup(sessions, { pending: [] }); // launchPending() is false once the exit marker is set
+  try {
+    assert.equal(exited.call('foldedAncestorIds', sessions).has('p'), true, 'no process any more — it folds');
+  } finally { exited.destroy(); }
 });
 
 test('foldedAncestorIds ignores a parent that is not itself in the visible set', () => {

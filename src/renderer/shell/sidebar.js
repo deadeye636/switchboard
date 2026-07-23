@@ -1,6 +1,6 @@
 // --- Sidebar rendering ---
 // Depends on globals: sidebarContent, openSessions, activeSessionId, activePtyIds,
-// pendingSessions, sessionMap, lastActivityTime, sortedOrder, searchMatchIds,
+// launchPending, sessionMap, lastActivityTime, sortedOrder, searchMatchIds,
 // searchMatchProjectPaths, showStarredOnly, showRunningOnly, showTodayOnly,
 // visibleSessionCount, sessionMaxAgeDays, attentionSessions, responseReadySessions,
 // sessionBusyState, cachedProjects, cachedAllProjects, gridCards, gridViewActive (app.js)
@@ -220,8 +220,8 @@ function filterSidebarSessions(sessions) {
 // Running/pinned priority then recency — the canonical sidebar session order.
 function sortSidebarSessions(sessions) {
   return [...sessions].sort((a, b) => {
-    const aRunning = activePtyIds.has(a.sessionId) || pendingSessions.has(a.sessionId);
-    const bRunning = activePtyIds.has(b.sessionId) || pendingSessions.has(b.sessionId);
+    const aRunning = activePtyIds.has(a.sessionId) || launchPending(a.sessionId);
+    const bRunning = activePtyIds.has(b.sessionId) || launchPending(b.sessionId);
     const aPri = (a.starred && aRunning ? 3 : aRunning ? 2 : a.starred ? 1 : 0);
     const bPri = (b.starred && bRunning ? 3 : bRunning ? 2 : b.starred ? 1 : 0);
     if (aPri !== bPri) return bPri - aPri;
@@ -272,12 +272,12 @@ function processProjectSessions(project, resort) {
     }
     const allItems = [];
     for (const session of ungrouped) {
-      const isRunning = activePtyIds.has(session.sessionId) || pendingSessions.has(session.sessionId);
+      const isRunning = activePtyIds.has(session.sessionId) || launchPending(session.sessionId);
       allItems.push({ sortTime: new Date(session.modified).getTime(), pinned: !!session.starred, running: isRunning, element: buildSessionItem(session) });
     }
     for (const [slug, sessions] of slugMap) {
       const mostRecentTime = Math.max(...sessions.map(s => new Date(s.modified).getTime()));
-      const hasRunning = sessions.some(s => activePtyIds.has(s.sessionId) || pendingSessions.has(s.sessionId));
+      const hasRunning = sessions.some(s => activePtyIds.has(s.sessionId) || launchPending(s.sessionId));
       const hasPinned = sessions.some(s => s.starred);
       const element = sessions.length === 1 ? buildSessionItem(sessions[0]) : buildSlugGroup(slug, sessions);
       allItems.push({ sortTime: mostRecentTime, pinned: hasPinned, running: hasRunning, element });

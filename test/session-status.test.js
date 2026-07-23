@@ -99,6 +99,32 @@ test('a session that crashed after launch reads exited, not running forever (#25
   assert.equal(getSessionStatus(s, runtime).key, 'exited');
 });
 
+// #290. The case above has an openSessions entry to say Exited. This one does not — the tab was closed
+// after the exit, which is the normal end of a session — and the pending entry is never dropped because
+// the backend never wrote a store record for it. That combination reported Running for the life of the
+// window, while the terminal toolbar (which reads activePtyIds) said the opposite.
+test('a pending session whose PTY has exited stops reading as running (#290)', () => {
+  const s = { sessionId: 'ghost', modified: '2026-06-12T10:00:00.000Z' };
+  const runtime = state({
+    pendingSessions: new Map([['ghost', { session: s }]]),
+    launchExitedSessions: new Set(['ghost']),
+  });
+  assert.equal(getSessionStatus(s, runtime).key, 'idle',
+    'no PTY, no open tab, and the process already ran and died — nothing about it is running');
+});
+
+test('the exit marker does not suppress a relaunch under the same id (#290)', () => {
+  const s = { sessionId: 'ghost', modified: '2026-06-12T10:00:00.000Z' };
+  // What the next poll produces: the PTY is back, so the marker is cleared and the live branch answers
+  // anyway. Pinned because the marker is keyed by session id and outlives a single process.
+  const runtime = state({
+    activePtyIds: new Set(['ghost']),
+    pendingSessions: new Map([['ghost', { session: s }]]),
+    launchExitedSessions: new Set(['ghost']),
+  });
+  assert.equal(getSessionStatus(s, runtime).key, 'running');
+});
+
 test('subagent activity does not change the parent status (#112 overlay)', () => {
   // Subagent work is an overlay (a two-color dot), never a status of its own:
   // with async subagents the parent keeps generating, so it stays "busy".

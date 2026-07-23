@@ -77,9 +77,16 @@
 
     // A session mid-launch has no PTY yet but is about to. The sidebar already sorts it with the running
     // ones (pendingSessions); reporting it as running keeps the indicator honest instead of saying Idle
-    // while the row sits at the top. `pendingSessions` is a Map, but .has works the same. Cleared the
-    // instant the PTY appears or the launch fails.
-    if (hasSetValue(runtime.pendingSessions, sessionId)) return STATUS.running;
+    // while the row sits at the top. `pendingSessions` is a Map, but .has works the same.
+    //
+    // "Mid-launch" is the whole claim, and a pending entry does NOT expire on its own (#290): it is
+    // dropped when real session data appears, and for a backend that never records the session that never
+    // happens. A pending session whose PTY has run and exited kept reporting Running for the life of the
+    // window — visibly disagreeing with the terminal toolbar, which reads activePtyIds directly. Once the
+    // tab was closed there was no `openSessions` entry left to say Exited either, so this branch was the
+    // only thing answering. `launchExitedSessions` is what the exit handler leaves behind to say so.
+    if (hasSetValue(runtime.pendingSessions, sessionId)
+      && !hasSetValue(runtime.launchExitedSessions, sessionId)) return STATUS.running;
 
     return STATUS.idle;
   }
