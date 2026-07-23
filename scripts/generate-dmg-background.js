@@ -2,6 +2,9 @@
 const { createCanvas } = require('@napi-rs/canvas');
 const fs = require('fs');
 const path = require('path');
+// Not a CSS font stack — see pick-font.js. canvas 1.x resolves none of `-apple-system`,
+// `Helvetica Neue` or `sans-serif`, and draws one fallback box per glyph without erroring.
+const { fontString } = require('./pick-font');
 
 const WIDTH = 660;
 const HEIGHT = 400;
@@ -50,7 +53,7 @@ ctx.fill();
 
 // "Drag to install" text
 ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-ctx.font = '13px -apple-system, "Helvetica Neue", sans-serif';
+ctx.font = fontString(13);
 ctx.textAlign = 'center';
 ctx.fillText('Drag to install', WIDTH / 2, HEIGHT / 2 + 15);
 
@@ -106,7 +109,7 @@ ctx2.closePath();
 ctx2.fill();
 
 ctx2.fillStyle = 'rgba(255, 255, 255, 0.3)';
-ctx2.font = '13px -apple-system, "Helvetica Neue", sans-serif';
+ctx2.font = fontString(13);
 ctx2.textAlign = 'center';
 ctx2.fillText('Drag to install', WIDTH / 2, HEIGHT / 2 + 15);
 

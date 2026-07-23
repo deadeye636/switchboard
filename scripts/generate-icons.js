@@ -4,6 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const png2icons = require('png2icons');
 const { loadImage, createCanvas } = require('@napi-rs/canvas');
+// Not a CSS font stack — see pick-font.js. canvas 1.x silently draws fallback boxes for a family
+// it cannot resolve, and `-apple-system` / `sans-serif` are not families it has.
+const { fontString } = require('./pick-font');
 
 const OUTPUT_DIR = path.join(__dirname, '..', 'build');
 const pngPath = path.join(OUTPUT_DIR, 'icon.png');
@@ -37,13 +40,13 @@ if (!fs.existsSync(pngPath)) {
   ctx.fill();
 
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = `bold ${SIZE * 0.45}px -apple-system, "Segoe UI", sans-serif`;
+  ctx.font = fontString(SIZE * 0.45, 'bold');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('SB', SIZE / 2, SIZE / 2 + SIZE * 0.02);
 
   ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.font = `${SIZE * 0.07}px -apple-system, "Segoe UI", sans-serif`;
+  ctx.font = fontString(SIZE * 0.07);
   ctx.fillText('Switchboard', SIZE / 2, SIZE * 0.85);
 
   fs.writeFileSync(pngPath, canvas.toBuffer('image/png'));
