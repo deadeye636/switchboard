@@ -61,7 +61,9 @@ function rebindSidebarEvents(projects) {
   // Auto-expand a slug group that holds the active session, so the selection is never hidden in a
   // collapsed group after a re-render.
   if (activeSessionId) {
-    const activeItem = sidebarContent.querySelector(`[data-session-id="${activeSessionId}"]`);
+    // The CANONICAL row (#289): a lineage copy sits under someone else's head, in a group the session does
+    // not live in — expanding that one leaves the selection just as hidden as before.
+    const activeItem = canonicalSessionRow(activeSessionId, sidebarContent);
     const collapsedGroup = activeItem?.closest('.slug-group.collapsed');
     if (collapsedGroup) {
       collapsedGroup.classList.remove('collapsed');

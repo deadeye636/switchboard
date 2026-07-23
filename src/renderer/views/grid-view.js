@@ -393,8 +393,7 @@ function focusGridCard(sessionId) {
   lruTouch(sessionId);
   // Update sidebar active highlight
   document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
-  const sidebarItem = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-  if (sidebarItem) sidebarItem.classList.add('active');
+  for (const sidebarItem of sessionRowEls(sessionId)) sidebarItem.classList.add('active');
   // Update visual focus
   document.querySelectorAll('.grid-card').forEach(c => c.classList.remove('focused'));
   const card = gridCards.get(sessionId);

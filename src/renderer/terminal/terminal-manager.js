@@ -1358,8 +1358,7 @@ function showSession(sessionId) {
 
   // Update sidebar active state
   document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
-  const item = document.querySelector(`[data-session-id="${sessionId}"]`);
-  if (item) item.classList.add('active');
+  for (const item of sessionRowEls(sessionId)) item.classList.add('active');
   setActiveSession(sessionId);
   clearNotifications(sessionId);
   lruTouch(sessionId);

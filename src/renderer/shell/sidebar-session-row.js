@@ -31,11 +31,14 @@
 // being rendered AS an ancestor inside another head's thread, so the flat chain does not recurse (#193).
 // opts.ancestorCopy — this row is one of possibly SEVERAL views of the same session (lineage is a tree, so
 // a shared ancestor renders under every head that walks through it). It therefore gets no `si-` id: a
-// duplicate id is not a cosmetic problem, it is what morphdom keys its node matching on (#288).
+// duplicate id is not a cosmetic problem, it is what morphdom keys its node matching on (#288). It is
+// marked `data-ancestor-copy` instead, so a lookup by session id can tell the copies from the canonical
+// row — `sessionRowEls` / `canonicalSessionRow` in app.js (#289).
 function buildSessionItem(session, opts = {}) {
   const item = document.createElement('div');
   item.className = 'session-item';
-  if (!opts.ancestorCopy) item.id = 'si-' + session.sessionId;
+  if (opts.ancestorCopy) item.dataset.ancestorCopy = '1';
+  else item.id = 'si-' + session.sessionId;
   if (session.type === 'terminal') item.classList.add('is-terminal');
   if (session.archived) item.classList.add('archived-item');
   if (activePtyIds.has(session.sessionId)) item.classList.add('has-running-pty');

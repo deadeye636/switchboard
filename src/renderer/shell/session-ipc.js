@@ -91,10 +91,10 @@ window.api.onSessionDetected((tempId, realId) => {
 
   // Refresh sidebar to show the new session, then select it
   loadProjects().then(() => {
-    const item = document.querySelector(`[data-session-id="${realId}"]`);
-    if (item) {
+    const rows = sessionRowEls(realId);
+    if (rows.length) {
       document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
-      item.classList.add('active');
+      for (const item of rows) item.classList.add('active');
     }
   });
   pollActiveSessions();
@@ -134,11 +134,13 @@ window.api.onSessionForked((oldId, newId) => {
   terminalHeaderId.textContent = newId;
 
   loadProjects().then(() => {
-    const item = document.querySelector(`[data-session-id="${newId}"]`);
-    if (item) {
+    const rows = sessionRowEls(newId);
+    if (rows.length) {
       document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));
-      item.classList.add('active');
-      const summary = item.querySelector('.session-summary');
+      for (const item of rows) item.classList.add('active');
+      // The header name comes from the canonical row — every copy carries the same title, but reading the
+      // one row that is definitely this session's own keeps the two in step (#289).
+      const summary = (canonicalSessionRow(newId) || rows[0]).querySelector('.session-summary');
       if (summary) terminalHeaderName.textContent = summary.textContent;
     }
   });

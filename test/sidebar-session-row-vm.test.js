@@ -187,9 +187,13 @@ test('a profile backend forks like Claude; an unknown backend does not', () => {
 test('an ancestorCopy row takes no DOM id but keeps its data-session-id', () => {
   const s = setup();
   try {
-    assert.equal(s.build(SESSION).id, 'si-s1', 'the canonical row still owns the id');
+    const canonical = s.build(SESSION);
+    assert.equal(canonical.id, 'si-s1', 'the canonical row still owns the id');
+    assert.equal(canonical.dataset.ancestorCopy, undefined, 'and is not marked as a copy');
     const copy = s.build(SESSION, { noLineageThread: true, ancestorCopy: true });
     assert.equal(copy.id, '', 'a copy claims no id');
     assert.equal(copy.dataset.sessionId, 's1', 'but is still routable by the delegated click handler');
+    // The marker is what lets a lookup by session id tell the two apart (#289).
+    assert.equal(copy.dataset.ancestorCopy, '1', 'a copy is identifiable in the DOM');
   } finally { s.destroy(); }
 });

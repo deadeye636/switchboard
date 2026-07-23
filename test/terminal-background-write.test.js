@@ -109,6 +109,9 @@ function setupDom({ fitDims = null } = {}) {
     openFileInPanel: () => {},
     setActiveSession: () => {},
     clearNotifications: () => {},
+    // app.js's row lookup (#289): the sidebar highlight is applied to EVERY rendered row of a session.
+    sessionRowEls: (sessionId, root = window.document) =>
+      root.querySelectorAll(`.session-item[data-session-id="${sessionId}"]`),
     hidePlanViewer: () => {},
     showTerminalHeader: () => {},
     placeholder: window.document.createElement('div'),

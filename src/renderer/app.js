@@ -488,10 +488,7 @@ function trackActivity(sessionId, data) {
 
 function clearUnread(sessionId) {
   const changed = responseReadySessions.delete(sessionId);
-  const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-  if (item) {
-    item.classList.remove('response-ready');
-  }
+  for (const item of sessionRowEls(sessionId)) item.classList.remove('response-ready');
   if (changed) refreshSessionStatusViews();
 }
 
@@ -511,8 +508,7 @@ function clearNotifications(sessionId) {
   // Exception: 'timed' keeps the session for its full window regardless of
   // opening (removal only by timeout), so the stamp must survive a focus there.
   const stampCleared = runningInboxSetting.mode === 'timed' ? false : finishedAt.delete(sessionId);
-  const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-  if (item) item.classList.remove('needs-attention');
+  for (const item of sessionRowEls(sessionId)) item.classList.remove('needs-attention');
   if (changed || stampCleared) refreshSessionStatusViews();
 }
 
@@ -792,19 +788,23 @@ function updatePtyTitle() {
 
 scheduleActiveSessionsPoll();
 
-// Refresh sidebar timeago labels every 30s so "just now" ticks forward
-setInterval(() => {
-  if (lastActivityTime.size === 0) return;
-  for (const [sessionId, time] of lastActivityTime) {
-    const item = document.getElementById('si-' + sessionId);
-    if (!item) continue;
-    const meta = item.querySelector('.session-meta-text');
-    if (!meta) continue;
-    const session = sessionMap.get(sessionId);
-    const msgSuffix = session?.messageCount ? ' \u00b7 ' + session.messageCount + ' msgs' : '';
-    meta.textContent = formatDate(time) + msgSuffix;
-  }
-}, 30000);
+// --- Finding a session's row(s) in the sidebar (#289) ---
+//
+// A session can be rendered MORE THAN ONCE: the lineage thread lists a head's whole ancestor chain (#193),
+// so a session that also has its own top-level row \u2014 it is running, it is the active tab, or it is an
+// ancestor of two heads \u2014 appears twice. `querySelector` takes whichever comes first in document order,
+// which is why these two exist instead: state that belongs to the SESSION is written to every row of it,
+// while navigation (scroll, expand, focus) must land on the canonical row, or it takes the user to a copy
+// sitting in a group the session does not live in.
+//
+// `root` is a parameter because the sidebar re-applies state to the DETACHED tree it is about to morph in.
+function sessionRowEls(sessionId, root = document) {
+  return root.querySelectorAll(`.session-item[data-session-id="${sessionId}"]`);
+}
+
+function canonicalSessionRow(sessionId, root = document) {
+  return root.querySelector(`.session-item[data-session-id="${sessionId}"]:not([data-ancestor-copy])`);
+}
 
 // Shared session map so all caches reference the same objects
 const sessionMap = new Map();

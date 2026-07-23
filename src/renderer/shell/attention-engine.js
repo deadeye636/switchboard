@@ -134,8 +134,7 @@ function setActivity(sessionId, active) {
       // always takes — the point is that there is one place where "ready" can be set.
       markResponseReady(sessionId);
       recordTimelineEvent(sessionId, 'response-ready', 'Ready for review', 'Agent stopped producing output while this session was not focused.');
-      const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-      if (item) {
+      for (const item of sessionRowEls(sessionId)) {
         item.classList.remove('cli-busy');
         item.classList.add('response-ready');
       }
@@ -145,8 +144,7 @@ function setActivity(sessionId, active) {
 
   // Sync cli-busy class (only if not response-ready)
   if (!responseReadySessions.has(sessionId)) {
-    const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-    if (item) item.classList.toggle('cli-busy', active);
+    for (const item of sessionRowEls(sessionId)) item.classList.toggle('cli-busy', active);
   }
   if (wasActive !== active) {
     recordTimelineEvent(sessionId, active ? 'busy' : 'idle', active ? 'Agent working' : 'Agent idle', active ? 'Claude activity started.' : 'Claude activity stopped.');
@@ -169,8 +167,7 @@ function applyAttention(sessionId, signal) {
     const prevAttention = new Set(attentionSessions);
     attentionSessions.add(sessionId);
     recordTimelineEvent(sessionId, 'needs-attention', 'Needs human attention', winner.reason);
-    const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-    if (item) item.classList.add('needs-attention');
+    for (const item of sessionRowEls(sessionId)) item.classList.add('needs-attention');
     if (!wasAttention) {
       refreshSessionStatusViews();
       maybePlayAttentionSound(prevAttention, attentionSessions);
@@ -184,8 +181,7 @@ function applyAttention(sessionId, signal) {
     // response-ready is set).
     if (responseReadySessions.has(sessionId)) {
       responseReadySessions.delete(sessionId);
-      const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-      if (item) item.classList.remove('response-ready');
+      for (const item of sessionRowEls(sessionId)) item.classList.remove('response-ready');
     }
     setActivity(sessionId, true);
   } else if (kind === 'subagent-live-start' || kind === 'subagent-live-stop') {

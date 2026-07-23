@@ -642,10 +642,10 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
 // Shared morphdom commit: re-apply active state, diff into the live sidebar
 // (preserving collapse/expand state), persist sort order, rebind, restore focus.
 function finalizeSidebar(newSidebar, projects, newSortedOrder) {
-  // Re-apply active state
+  // Re-apply active state — to EVERY row of that session, not the first one in document order: a lineage
+  // ancestor renders a second row for the same session, and the copy can precede the real one (#289).
   if (activeSessionId) {
-    const activeItem = newSidebar.querySelector(`[data-session-id="${activeSessionId}"]`);
-    if (activeItem) activeItem.classList.add('active');
+    for (const item of sessionRowEls(activeSessionId, newSidebar)) item.classList.add('active');
   }
 
   morphdom(sidebarContent, newSidebar, {
@@ -815,7 +815,10 @@ function patchSidebarStatuses() {
   }
   for (const group of sidebarContent.querySelectorAll('.slug-group')) {
     const dot = group.querySelector('.slug-group-dot');
-    if (dot) dot.classList.toggle('running', !!group.querySelector('.session-item.has-running-pty'));
+    // Copies excluded (#289): a running ancestor lives in whatever group its OWN row is in, and the copy
+    // in this group's lineage thread would otherwise light up a group that has nothing running in it.
+    if (dot) dot.classList.toggle('running',
+      !!group.querySelector('.session-item.has-running-pty:not([data-ancestor-copy])'));
   }
   return true;
 }

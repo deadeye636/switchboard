@@ -45,6 +45,9 @@ function setup({ activeSessionId = null } = {}) {
   window.recordTimelineEvent = () => {};
   window.getAllKnownSessionsForStatus = () => [];
   window.reduceAttention = (prev, next) => next;
+  // app.js's row lookup (#289) — the engine paints EVERY rendered row of a session, and this DOM has none.
+  window.sessionRowEls = (sessionId, root = window.document) =>
+    root.querySelectorAll(`.session-item[data-session-id="${sessionId}"]`);
 
   vm.runInContext(fs.readFileSync(path.join(REN, 'shell', 'attention-engine.js'), 'utf8'), ctx,
     { filename: 'shell/attention-engine.js' });
