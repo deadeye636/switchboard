@@ -1,0 +1,65 @@
+# Dependabot version updates.
+#
+# Security updates are configured in the repository settings, not here, and arrive whenever an
+# advisory lands. This file is the other half: keeping the baseline current so that a forced jump is
+# never a big one. esbuild is the cautionary tale — sitting on 0.27.3 until an advisory arrived made
+# the fix a *breaking* 0.28.1 bump, taken under pressure. Small monthly steps or a large forced one;
+# there is no third option.
+#
+# Tuned for a single maintainer: monthly, grouped, and capped. Ungrouped weekly updates across ~570
+# dependencies produce a PR wall that gets ignored, which is worse than not running them at all.
+#
+# IMPORTANT — `ignore` is not scoped to this file's purpose. It applies to security updates too, so
+# `dependency-name: electron` on its own would silently switch off security PRs for the single most
+# security-relevant dependency in a desktop app. `update-types` inside an ignore rule, by contrast,
+# affects ONLY version updates. That is why the three native/heavy packages below ignore their MAJORS
+# rather than the package: a major upgrade of any of them is its own piece of work, but a security fix
+# for them must still arrive on its own.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    # Two PRs a month at most from this ecosystem: one for what ships, one for what builds.
+    groups:
+      production:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    # Majors stay ungrouped on purpose — one wants reading, not merging with four others.
+    ignore:
+      # Rebuilt against Electron's ABI by the postinstall; a major is a rebuild-and-verify exercise.
+      - dependency-name: better-sqlite3
+        update-types: [version-update:semver-major]
+      # Same, plus patch-package carries a patch on top that a major would invalidate.
+      - dependency-name: node-pty
+        update-types: [version-update:semver-major]
+      # An Electron major moves Chromium and Node under the whole app at once.
+      - dependency-name: electron
+        update-types: [version-update:semver-major]
+    commit-message:
+      prefix: chore(deps)
+      prefix-development: chore(deps-dev)
+
+  # The workflows pin actions by major tag. Those tags move, and a compromised action runs with the
+  # workflow's token — worth keeping current even though nothing here ships to a user.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: chore(ci)
