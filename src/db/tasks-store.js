@@ -49,8 +49,15 @@ const TASK_SCOPES = ['project', 'session', 'message'];
 function createTask(input) {
   const t = input || {};
   const sessionId = t.sessionId || null;
-  const entryIndex = Number.isFinite(Number(t.entryIndex)) && Number(t.entryIndex) >= 0
-    ? Number(t.entryIndex) : null;
+  // `Number(null)` is 0, not NaN — so a caller that spells "no message" as an explicit
+  // `entryIndex: null` (which the renderer's createFromSource does for a task made from the
+  // TERMINAL) used to land on index 0 and be filed as scope 'message'. The task then read as
+  // "Message" in the list and jumped to the first line of the transcript instead of to its session.
+  // Absent has to be rejected before the number is looked at.
+  const rawEntryIndex = t.entryIndex;
+  const entryIndex = rawEntryIndex == null || rawEntryIndex === ''
+    ? null
+    : (Number.isFinite(Number(rawEntryIndex)) && Number(rawEntryIndex) >= 0 ? Number(rawEntryIndex) : null);
   const scope = TASK_SCOPES.includes(t.scope)
     ? t.scope
     : (entryIndex != null ? 'message' : (sessionId ? 'session' : 'project'));
