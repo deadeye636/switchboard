@@ -422,6 +422,18 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   fallback for a renderer that cannot answer, or a crashed one would leave a window that can never be
   closed. Switch it off in *Settings → Sessions & CLI*.
 
+- **Version-control state on the cards (#277, #284, #285, #287)** — a session's working directory is
+  usually a repo, and the app showed nothing about it. A git glyph on every project/worktree header and
+  grid card opens a **changes window** per repo: files grouped by state (conflicts first), renames as
+  `old → new`, Open and Reveal, live-refreshed on the same poll. A file row expands a colored inline
+  diff; above ~200 lines it offers *Open in window*, a standalone CodeMirror side-by-side view with
+  syntax highlighting. The branch/counts badge is opt-in (`vcsShowBadge`, default off) — the glyph alone
+  is the default affordance. The poll is scoped to the cwds actually on screen, backs off per repo, and
+  passes `--no-optional-locks` so it can never take `index.lock` away from the agent working in that
+  repo. The core names no VCS: `src/vcs/` is a provider registry (detect / statusArgs / parse /
+  detectState / diffArgs / showArgs), git is the only provider shipped, and a parity test makes a future
+  hg/svn answer the whole contract. Full spec: [`specs/15-vcs-status.md`](specs/15-vcs-status.md).
+
 ### Agent status signals
 - **Working detection for full-screen TUI sessions** — the CLI renders its busy spinner
   inside the alternate screen buffer instead of emitting the OSC-0 title spinner the busy
