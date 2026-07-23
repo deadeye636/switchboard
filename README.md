@@ -129,6 +129,15 @@ Staged, unstaged and untracked, grouped and counted; a rename as `old → new`; 
 diff expands inline. A diff over ~200 lines offers **Open in window** — side by side in a CodeMirror
 view with syntax highlighting.
 
+## IDE emulation
+
+![IDE emulation](docs/images/ide-diff.png)
+
+Switchboard registers itself as an IDE for the Claude CLI, so a proposed edit lands in a side panel
+next to the terminal instead of being sent to an external editor. Review it inline or side by side,
+accept or reject whole files or individual chunks, or edit the result before it is applied. Switch it
+off in the settings and the CLI goes back to discovering your real editor.
+
 ## Projects
 
 ![Projects](docs/images/projects.png)
