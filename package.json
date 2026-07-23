@@ -1,6 +1,6 @@
 {
   "name": "switchboard",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "private": true,
   "license": "MIT",
   "description": "A desktop app for browsing, searching, and managing CLI coding sessions",
