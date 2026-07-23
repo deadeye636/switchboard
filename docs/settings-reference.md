@@ -315,6 +315,7 @@ Hermes inject nothing and use their own auth.
 | `npm run start:debug` | The same with `--remote-debugging-port=9222`; refuses if the port is already bound |
 | `npm run demo:start` | **The default for dev/testing**: seeds and launches a fully isolated instance (own DB, userData, all five stores). `-- --debug` adds the CDP port. |
 | — | `demo:start` also runs `scripts/demo-settings.js`, which **enables every ready backend** in the demo DB (#244). A fresh install enables Claude only; without this the seeded Codex/Pi sessions are never scanned. Idempotent, and it refuses any data dir outside the demo tree. |
+| — | …and `scripts/demo-content.js`, which seeds the demo's **DB-only** content: project display names, project + session tags, tasks, and a synthetic activity history for the Stats page. Same guard, and idempotent **per block**. |
 | `npm run demo:seed` | Seed the demo layout without launching |
 | `npm run demo:auth` | Copy your existing CLI logins into the demo home once, so a **live** demo session can run (`-- --force` overwrites). `demo:start` never touches real credential files itself. |
 | `npm test` | `node --test` over the suite — no Electron needed |
@@ -328,10 +329,11 @@ Hermes inject nothing and use their own auth.
 
 | Command | Notes |
 |---|---|
-| `node scripts/drive-app.js <cmd>` | Drives the running app over CDP: `eval <js>`, `text <sel>`, `count <sel>`, `click <sel>`, `clicktext <sel> <text>`, `console [seconds]` (default 2), `shot [file]` (default `app.png`). Port from `SWITCHBOARD_DEBUG_PORT`. |
+| `node scripts/drive-app.js [--target=<window>] <cmd>` | Drives the running app over CDP: `eval <js>`, `text <sel>`, `count <sel>`, `click <sel>`, `clicktext <sel> <text>`, `console [seconds]` (default 2), `shot [file]` (default `app.png`). Port from `SWITCHBOARD_DEBUG_PORT`. `--target=` matches a **second** window by title or URL (`settings`, `changes`); without it, the first page. |
 | `ELECTRON_RUN_AS_NODE=1 electron scripts/db-probe.js <dataDir>` | Characterisation snapshot of the DB. `<dataDir>` required. |
 | `ELECTRON_RUN_AS_NODE=1 electron scripts/db-migrate-probe.js <dataDir>` | Replays migrations to prove an appended one had an effect. `<dataDir>` required — point it at a **copy**, it rewinds `db_version`. |
-| `node scripts/seed-demo.js` | Parses no arguments; driven entirely by `SWITCHBOARD_DEMO_DIR`. Idempotent. |
+| `node scripts/seed-demo.js` | Parses no arguments; driven entirely by `SWITCHBOARD_DEMO_DIR`. Idempotent. Also `git init`s two of the demo projects and leaves a dirty working tree in each. |
+| `ELECTRON_RUN_AS_NODE=1 electron scripts/demo-content.js` | Seeds the demo's DB-only content. Driven by `SWITCHBOARD_DATA_DIR` + `SWITCHBOARD_DEMO_DIR`; refuses a data dir outside the demo tree. |
 | `node scripts/upstream-check.js [--seen]` | Without the flag it only reports. |
 | `node scripts/check-debug-port.js` | Exists because Electron silently starts *without* a debug port when the port is taken. |
 | `node scripts/build-backlog.js` | Regenerates `docs/BACKLOG.md` / `.jsonl` from GitHub issues. |

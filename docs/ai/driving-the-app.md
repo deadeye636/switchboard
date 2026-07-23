@@ -15,6 +15,7 @@ node scripts/drive-app.js clicktext "<sel>" "<text>"  # click the first match co
 node scripts/drive-app.js console                     # renderer console — finds a ReferenceError in seconds
 node scripts/drive-app.js dims ["<sessionId>"]        # active terminal geometry: cols/rows, cell box, WebGL state
 node scripts/drive-app.js shot out.png                # screenshot the window
+node scripts/drive-app.js --target=settings shot s.png  # …a SECOND window, by title or URL
 ```
 
 No dependency (Node 22 ships a global `WebSocket`; CDP is JSON over one). `window.api.*` is reachable
@@ -22,12 +23,21 @@ from `eval`, so the app's own IPC can be exercised directly — e.g. `await wind
 to read what the sidebar would render, or `await window.api.unhideProject(path)` to do what a click
 would do. Give the renderer a second after launch; a query fired too early answers about an empty page.
 
-## `drive-app.js` talks to the FIRST page — a second window steals it
+## `drive-app.js` talks to the FIRST page — unless you name one
 
 Every command attaches to the first target CDP lists, which is normally `index.html`. Open a standalone
-window — settings (`settingsOpenMode: 'window'`), a changes window, a diff window (#287) — and it goes to
-the front of that list, so the next `eval` runs in **that** window and a selector from the main UI comes
-back empty. Nothing errors; you just get an answer about the wrong page.
+window — settings (`settingsOpenMode: 'window'`), a changes window, a diff window (#287) — and it may go
+to the front of that list, so the next `eval` runs in **that** window and a selector from the main UI
+comes back empty. Nothing errors; you just get an answer about the wrong page.
+
+`--target=<substring>` settles it either way: it matches a page by title or URL, so
+`--target=settings shot s.png` photographs the settings window whatever the list order is, and the
+ordering stops mattering. Without the flag the behaviour is unchanged — first page wins.
+
+```
+node scripts/drive-app.js --target=settings shot settings.png   # the pop-out settings window
+node scripts/drive-app.js --target=changes eval "…"             # the changes window
+```
 
 That cuts both ways, and the second way is useful: to drive a standalone window, open it and then talk to
 it directly. To get back to `index.html`, close the child.

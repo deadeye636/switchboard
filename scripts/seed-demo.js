@@ -16,6 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { encodeProjectPath } = require('../src/session/encode-project-path');
 
 // ── Deterministic clock ──────────────────────────────────────────────────────
@@ -37,6 +38,10 @@ const IDS = {
   mixClaude: '88888888-8888-4888-8888-888888888888',
   mixCodex: '99999999-9999-4999-8999-999999999999',
   mixPi: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  // The one session with a transcript worth LOOKING at — thinking blocks, tool calls and results, and
+  // a story that matches the working-tree state seedRepo leaves behind. Everything else here is two
+  // lines long, which is enough to be indexed and not enough to be read.
+  showcase: 'cafe0001-0000-4000-8000-000000000001',
 };
 
 // demo-alpha's Claude parent spawns three subagents of DIFFERENT types, so the subagent-row layouts and
@@ -162,6 +167,60 @@ function piSession({ id = IDS.pi, cwd, model, provider, prompt, reply, t0 }) {
   ]);
 }
 
+// The showcase transcript — a full Claude turn sequence: thinking, tool_use/tool_result pairs and a
+// closing summary. It exists because every other seeded session is a two-liner: enough to be indexed,
+// nothing to read. The work it describes is the SAME work `seedRepo` leaves in demo-alpha's working
+// tree, so the transcript, the changes window and the task list all tell one story.
+function showcaseSession({ cwd, model, t0 }) {
+  const uid = (n) => `cafe${String(n).padStart(4, '0')}-0000-4000-8000-000000000001`;
+  const user = (content, i) => ({
+    parentUuid: i > 0 ? uid(i - 1) : null, isSidechain: false, type: 'user', cwd, uuid: uid(i),
+    timestamp: iso(t0 + i * 12), message: { role: 'user', content },
+  });
+  const assistant = (content, i, usage) => ({
+    parentUuid: uid(i - 1), isSidechain: false, type: 'assistant', cwd, uuid: uid(i),
+    timestamp: iso(t0 + i * 12),
+    message: { role: 'assistant', model, content, usage: usage || { input_tokens: 4200, output_tokens: 310, cache_read_input_tokens: 18400, cache_creation_input_tokens: 0 } },
+  });
+  const toolUse = (id, name, input) => ({ type: 'tool_use', id, name, input });
+  const toolResult = (id, content) => [{ type: 'tool_result', tool_use_id: id, content }];
+
+  return jsonl([
+    user('Add a metrics collector to demo-alpha and wire it into start(). Keep it behind a config flag.', 0),
+    assistant([
+      { type: 'thinking', thinking: 'start() reads config.features, so a metrics flag belongs next to health rather than as a new top-level key. Read the entry point first — the shape of config decides where the call goes.' },
+      { type: 'text', text: "I'll read the entry point and the config before changing anything." },
+      toolUse('toolu_01', 'Read', { file_path: 'src/app.js' }),
+    ], 1),
+    user(toolResult('toolu_01', "'use strict';\n\n// demo-alpha entry point — fake demo code.\nfunction start(config) {\n  console.log('demo-alpha starting on port ' + config.port);\n  return { ok: true };\n}\n\nmodule.exports = { start };"), 2),
+    assistant([
+      { type: 'text', text: 'Straightforward. The collector goes in its own module so `start()` only has to decide whether to call it.' },
+      toolUse('toolu_02', 'Write', { file_path: 'src/metrics.js', content: "'use strict';\n\nfunction collect() {\n  return { uptime: 0, requests: 0 };\n}\n\nmodule.exports = { collect };\n" }),
+    ], 3),
+    user(toolResult('toolu_02', 'File created successfully at: src/metrics.js'), 4),
+    assistant([
+      toolUse('toolu_03', 'Edit', { file_path: 'src/app.js', old_string: '  return { ok: true };', new_string: '  if (config.features.metrics) startMetrics(config);\n  return { ok: true, startedAt: null };' }),
+    ], 5),
+    user(toolResult('toolu_03', 'The file src/app.js has been updated successfully.'), 6),
+    assistant([
+      { type: 'text', text: 'Wired up. `features.metrics` is off in the committed config, so nothing changes until it is switched on.' },
+      toolUse('toolu_04', 'Bash', { command: 'node -e "require(\'./src/app\').start(require(\'./src/config.json\'))"', description: 'Smoke-test the entry point' }),
+    ], 7),
+    user(toolResult('toolu_04', 'demo-alpha starting on port 8080\nmetrics enabled for demo-alpha'), 8),
+    assistant([
+      { type: 'text', text: 'Done:\n\n- `src/metrics.js` — the collector, staged.\n- `src/app.js` — calls it when `features.metrics` is set.\n- `src/config.json` — flag added, on for local runs.\n\nThe routes module is now unreferenced. Want me to drop it?' },
+    ], 9),
+    user('Yes, drop it. And move the notes file into docs/design-notes.md while you are there.', 10),
+    assistant([
+      toolUse('toolu_05', 'Bash', { command: 'git mv docs/notes.md docs/design-notes.md && rm src/routes.js', description: 'Rename the notes file and remove the unused routes module' }),
+    ], 11),
+    user(toolResult('toolu_05', ''), 12),
+    assistant([
+      { type: 'text', text: 'Both done. The working tree now holds two modified files, one staged addition, one untracked test, a rename and a deletion — nothing committed yet, so you can review the whole change set before it lands.' },
+    ], 13, { input_tokens: 5100, output_tokens: 240, cache_read_input_tokens: 31200, cache_creation_input_tokens: 1800 }),
+  ]);
+}
+
 // A Claude subagent transcript (a sidechain): `isSidechain` + `agentId` mark it as one, messageCount comes
 // from the message lines, and the type + task live in the agent-<id>.meta.json sidecar the reader reads.
 function subagentTranscript({ agentId, cwd, model, task, reply, t0 }) {
@@ -181,6 +240,98 @@ function claudeMdFor(name) {
 }
 function agentsMdFor(name) {
   return `# AGENTS.md\n\nAgent instructions for the ${name} demo project. This is fake demo content used only to\npopulate Switchboard's Memory tab in the demo environment.\n`;
+}
+
+// ── Demo git repositories (#277 / the changes window) ────────────────────────
+// A session's working directory is usually a repo, and the VCS glyph, the branch badge and the
+// changes window have nothing to show unless one is there. So two of the demo projects ARE repos,
+// each with a first commit and then a deliberate working-tree state that covers every row the
+// window renders: modified, added (untracked), staged, renamed and deleted.
+//
+// The commits are made with an EXPLICIT demo identity (`-c user.name=…`), never the machine's git
+// config: the demo tree is screenshot material for a public README, and the committer is the one
+// piece of personal data git would otherwise put there without being asked. The address is a bare
+// word rather than a domain — git does not require one, and a demo has no mailbox to point at.
+const GIT_ID = ['-c', 'user.name=Switchboard Demo', '-c', 'user.email=demo'];
+
+/** Extra tracked sources per repo project, so a diff has something to be a diff OF. */
+const REPO_FILES = {
+  'demo-alpha': {
+    'src/app.js': "'use strict';\n\n// demo-alpha entry point — fake demo code.\nfunction start(config) {\n  console.log('demo-alpha starting on port ' + config.port);\n  return { ok: true };\n}\n\nmodule.exports = { start };\n",
+    'src/config.json': '{\n  "name": "demo-alpha",\n  "port": 8080,\n  "features": {\n    "health": true\n  }\n}\n',
+    'src/routes.js': "'use strict';\n\n// Route table for demo-alpha.\nconst routes = [\n  { method: 'GET', path: '/', handler: 'index' },\n];\n\nmodule.exports = { routes };\n",
+    'docs/notes.md': '# Notes\n\nScratch notes for the demo-alpha project. Nothing here is real.\n',
+  },
+  'demo-mixed': {
+    'src/api.js': "'use strict';\n\n// demo-mixed API surface — fake demo code.\nmodule.exports = { list: () => [], get: (id) => ({ id }) };\n",
+    'ci.yml': 'name: ci\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo demo\n',
+  },
+};
+
+/**
+ * The working-tree state each repo is left in — what the changes window paints.
+ * `edit` rewrites a tracked file (modified), `add` writes an untracked one, `stage` writes and
+ * `git add`s it, `rename` is a staged `git mv`, `remove` deletes a tracked file.
+ */
+const REPO_STATE = {
+  'demo-alpha': [
+    { op: 'edit', file: 'src/app.js', content: "'use strict';\n\n// demo-alpha entry point — fake demo code.\nfunction start(config) {\n  console.log('demo-alpha starting on port ' + config.port);\n  if (config.features.metrics) startMetrics(config);\n  return { ok: true, startedAt: null };\n}\n\nfunction startMetrics(config) {\n  console.log('metrics enabled for ' + config.name);\n}\n\nmodule.exports = { start, startMetrics };\n" },
+    { op: 'edit', file: 'src/config.json', content: '{\n  "name": "demo-alpha",\n  "port": 8080,\n  "features": {\n    "health": true,\n    "metrics": true\n  }\n}\n' },
+    { op: 'stage', file: 'src/metrics.js', content: "'use strict';\n\n// Metrics collector for demo-alpha — staged, not yet committed.\nfunction collect() {\n  return { uptime: 0, requests: 0 };\n}\n\nmodule.exports = { collect };\n" },
+    { op: 'add', file: 'src/metrics.test.js', content: "'use strict';\n\n// Untracked: a test for the metrics collector.\nconst { collect } = require('./metrics');\nconsole.log(collect());\n" },
+    { op: 'rename', file: 'docs/notes.md', to: 'docs/design-notes.md' },
+    { op: 'remove', file: 'src/routes.js' },
+  ],
+  'demo-mixed': [
+    { op: 'edit', file: 'src/api.js', content: "'use strict';\n\n// demo-mixed API surface — fake demo code.\nmodule.exports = {\n  list: () => [],\n  get: (id) => ({ id }),\n  create: (body) => ({ id: 'new', ...body }),\n};\n" },
+    { op: 'add', file: 'src/api.test.js', content: "'use strict';\n\n// Untracked: covers the new create() route.\nconsole.log(require('./api').create({ name: 'demo' }));\n" },
+  ],
+};
+
+/** Run git in `cwd`. Returns true on success, false if git is absent or the command failed. */
+function git(cwd, args) {
+  try {
+    execFileSync('git', args, { cwd, stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Turn a seeded project dir into a git repo with a first commit and a dirty working tree.
+ * Idempotent by the same rule as everything else here: a project that already has `.git` is left
+ * exactly as it is, so hand-made demo commits survive a reseed.
+ */
+function seedRepo(dir, name, created, skipped) {
+  const extras = REPO_FILES[name] || {};
+  if (fs.existsSync(path.join(dir, '.git'))) {
+    skipped.push(path.join(dir, '.git'));
+    return;
+  }
+
+  // The committed baseline.
+  for (const [rel, content] of Object.entries(extras)) {
+    writeIfAbsent(path.join(dir, rel), content, created, skipped);
+  }
+  if (!git(dir, ['init', '-b', 'main'])) return; // no git on PATH — the rest of the seed still stands
+  git(dir, ['add', '-A']);
+  git(dir, [...GIT_ID, 'commit', '-m', `chore: seed the ${name} demo project`]);
+
+  // The working-tree state on top of it.
+  for (const step of REPO_STATE[name] || []) {
+    const abs = path.join(dir, step.file);
+    if (step.op === 'edit' || step.op === 'add' || step.op === 'stage') {
+      ensureDir(path.dirname(abs));
+      fs.writeFileSync(abs, step.content);
+      if (step.op === 'stage') git(dir, ['add', '--', step.file]);
+    } else if (step.op === 'rename') {
+      git(dir, ['mv', '--', step.file, step.to]);
+    } else if (step.op === 'remove') {
+      try { fs.unlinkSync(abs); } catch { /* already gone */ }
+    }
+  }
+  created.push(path.join(dir, '.git'));
 }
 
 // ── The seed ─────────────────────────────────────────────────────────────────
@@ -241,6 +392,7 @@ function seedDemo(demoDir = resolveDemoDir()) {
     writeIfAbsent(path.join(dir, 'README.md'), readmeFor(name), created, skipped);
     writeIfAbsent(path.join(dir, 'CLAUDE.md'), claudeMdFor(name), created, skipped);
     writeIfAbsent(path.join(dir, 'AGENTS.md'), agentsMdFor(name), created, skipped);
+    if (REPO_FILES[name]) seedRepo(dir, name, created, skipped);
   }
 
   // Placement helpers (same layout each backend's real store uses).
@@ -279,6 +431,16 @@ function seedDemo(demoDir = resolveDemoDir()) {
     }),
     created, skipped,
   );
+
+  // The showcase session — newest in demo-alpha (8 days past the base) so it sorts to the top of the
+  // sidebar, which is where a reader's eye lands first.
+  const showcaseT0 = 8 * 24 * 3600;
+  const showcaseFile = path.join(claudeFolder, `${IDS.showcase}.jsonl`);
+  if (writeIfAbsent(
+    showcaseFile,
+    showcaseSession({ cwd: projectAlpha, model: 'claude-opus-4-6', t0: showcaseT0 }),
+    created, skipped,
+  ) === 'created') touch(showcaseFile, showcaseT0 + 200);
 
   // Codex: one session under demo-beta, in the YYYY/MM/DD bucket its start time falls in.
   const bkt = new Date(BASE_MS);

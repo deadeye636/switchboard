@@ -16,6 +16,10 @@
 //        node scripts/drive-app.js dims ["<sessionId>"]     the active terminal's geometry + renderer state
 //        node scripts/drive-app.js console [seconds]       what the renderer logged, incl. failed loads
 //
+//   Any command takes --target=<substring> to address a SECOND window by title or URL — the pop-out
+//   settings window, or a changes window (#277) — instead of the main one:
+//        node scripts/drive-app.js --target=settings shot settings.png
+//
 // No dependency: Node 22 ships a global WebSocket, and CDP is JSON over one.
 'use strict';
 
@@ -24,7 +28,7 @@ const fs = require('fs');
 const PORT = process.env.SWITCHBOARD_DEBUG_PORT || 9222;
 const ENDPOINT = `http://127.0.0.1:${PORT}`;
 
-async function pageTarget() {
+async function pageTarget(match) {
   let list;
   try {
     list = await (await fetch(`${ENDPOINT}/json/list`)).json();
@@ -32,9 +36,19 @@ async function pageTarget() {
     throw new Error(`no debugger on ${ENDPOINT} — start the app with: npm run start:debug`);
   }
   // The renderer, not a devtools window or a worker.
-  const page = list.find(t => t.type === 'page' && !String(t.url).startsWith('devtools://'));
-  if (!page) throw new Error('the app is running, but it has no page target (still starting up?)');
-  return page;
+  const pages = list.filter(t => t.type === 'page' && !String(t.url).startsWith('devtools://'));
+  if (!pages.length) throw new Error('the app is running, but it has no page target (still starting up?)');
+  // The app is not one window: settings can pop out, and a changes window (#277) is its own page. With
+  // several open, "the first page" is whichever Electron happens to list first — so a second window is
+  // addressed by name: --target=settings, --target=changes.
+  if (!match) return pages[0];
+  const needle = String(match).toLowerCase();
+  const hit = pages.find(t => `${t.title} ${t.url}`.toLowerCase().includes(needle));
+  if (!hit) {
+    const titles = pages.map(t => `"${t.title}"`).join(', ');
+    throw new Error(`no window matching "${match}" — open pages: ${titles}`);
+  }
+  return hit;
 }
 
 // One CDP session: send commands, await their replies, subscribe to events, close.
@@ -220,14 +234,17 @@ const COMMANDS = {
 };
 
 async function main() {
-  const [command, ...args] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  // --target=<substring> picks a window by title or URL; without it, the first page (the main window).
+  const targetArg = argv.find(a => a.startsWith('--target='));
+  const [command, ...args] = argv.filter(a => a !== targetArg);
   const run = COMMANDS[command];
   if (!run) {
-    console.error(`usage: node scripts/drive-app.js <${Object.keys(COMMANDS).join('|')}> [args]`);
+    console.error(`usage: node scripts/drive-app.js [--target=<window>] <${Object.keys(COMMANDS).join('|')}> [args]`);
     process.exit(2);
   }
 
-  const target = await pageTarget();
+  const target = await pageTarget(targetArg ? targetArg.slice('--target='.length) : null);
   const cdp = connect(target.webSocketDebuggerUrl);
   await cdp.ready;
   try {

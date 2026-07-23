@@ -31,6 +31,7 @@ table is the fallback and it is binding.
 | `src/backends/**`, `src/session/**`, `src/servers/**`, `src/projects/**`, `src/vcs/**` | `.claude/rules/backends.md` |
 | `docs/**`, `README.md` | `.claude/rules/docs.md` |
 | a release, a tag, an installer | `docs/ai/release.md` |
+| the human-facing build/run/package instructions | `docs/development.md` |
 | running/verifying, databases, store isolation | `docs/ai/running-and-data.md` |
 | driving the app without clicking | `docs/ai/driving-the-app.md` |
 | remotes, cherry-picking from a fork | `docs/ai/fork-and-porting.md` |

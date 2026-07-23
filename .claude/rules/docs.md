@@ -11,6 +11,7 @@ paths:
 | **Design record** for a feature ("why is it like this", decisions, as-built + known gaps) | `docs/specs/NN-<feature>.md` + a row in `docs/specs/README.md` |
 | **User-facing guide** ("how do I use it") | `docs/<feature>.md`, linked from the README's "What this fork adds" |
 | **Reference** (formats, build gotchas, colors) | `docs/<topic>.md` (e.g. `backend-formats.md`, `build-windows.md`, `settings-reference.md`) |
+| **How a human builds, runs, tests or packages it** | `docs/development.md`. The README links there and keeps only the build-from-source block the security section needs. |
 | **Agent-facing procedure** (release, porting, running, driving) | `docs/ai/<topic>.md` + a row in the CLAUDE.md router |
 | **Fork feature list** | `README.md` "What this fork adds" **and** `docs/fork-features.md` (Wave 4) — a new fork feature goes in **both** |
 | **Backlog** | GitHub Issues. `docs/BACKLOG.md` / `.jsonl` are **generated** (`node scripts/build-backlog.js`) — never hand-edit |

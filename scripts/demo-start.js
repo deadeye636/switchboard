@@ -51,12 +51,17 @@ function main() {
   // better-sqlite3 is built against Electron's ABI, and only after the DB exists — which it does from the
   // previous run; on the very first launch there is nothing to write to yet, so a failure here is not
   // fatal and the next start picks it up.
+  //
+  // `demo-content.js` rides along on the same trip for the same reason: tags and tasks are DB rows,
+  // not files, so `seedDemo` above cannot write them.
   try {
-    execFileSync(require('electron'), [path.join(ROOT, 'scripts', 'demo-settings.js')], {
-      stdio: 'inherit', cwd: ROOT, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    });
+    for (const script of ['demo-settings.js', 'demo-content.js']) {
+      execFileSync(require('electron'), [path.join(ROOT, 'scripts', script)], {
+        stdio: 'inherit', cwd: ROOT, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      });
+    }
   } catch {
-    console.log('  (settings seed skipped — first run, no database yet)\n');
+    console.log('  (settings/content seed skipped — first run, no database yet)\n');
   }
 
   // ── The start pipeline (same as `npm start`) ──

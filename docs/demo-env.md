@@ -97,7 +97,7 @@ inside the transcript, so seeding content alone leaves the order down to whateve
 
 | Project | Sessions | What it exercises |
 |---|---|---|
-| **demo-alpha** | Claude ×2 (the 2nd a **fork** of the 1st) + Pi ×1; the 1st Claude session has **3 subagents** (general-purpose, explore, review) | the lineage "▶ earlier" thread; a Claude+Pi project; the **subagent** rows, their type colours and the row-layout setting (#230/#231) |
+| **demo-alpha** | Claude ×2 (the 2nd a **fork** of the 1st) + Pi ×1 + the **showcase** session; the 1st Claude session has **3 subagents** (general-purpose, explore, review) | the lineage "▶ earlier" thread; a Claude+Pi project; the **subagent** rows, their type colours and the row-layout setting (#230/#231) |
 | **demo-beta** | Codex ×1 | a single-backend, non-Claude project (badge + provenance) |
 | **demo-mixed** | Claude + Codex + Pi (one each, same project) | multi-backend badges + mixed provenance in ONE sidebar group |
 | **demo-chain** | Claude ×3, a three-deep fork chain (C forks B forks A) | a **deeper** lineage thread — the head folds "2 earlier" |
@@ -112,3 +112,50 @@ node scripts/seed-demo.js`) and parse the result through `src/backends/<id>/` be
 - **Idempotent.** Timestamps come from a fixed base constant and ids are fixed, so every run lands on the
   same paths — an existing file is never overwritten. Rerun `demo:seed` freely; hand-edits to the demo
   transcripts survive.
+
+### The showcase session
+
+Every seeded transcript above is two lines long: enough to be indexed, nothing to read. `demo-alpha`
+therefore also gets **one** full Claude turn sequence — thinking blocks, `tool_use`/`tool_result` pairs,
+a multi-turn exchange and a closing summary — so the transcript viewer has something to render. It is
+the newest session in the project, so it sorts to the top of the sidebar.
+
+The work it describes is the same work the seeded git repository is left in the middle of, so the
+transcript, the changes window and the task list all tell one story.
+
+### Git repositories
+
+`demo-alpha` and `demo-mixed` are real git repositories with a first commit and then a deliberately
+dirty working tree — modified, staged, untracked, renamed and deleted files — because the VCS glyph,
+the branch badge and the changes window (#277) have nothing to show without one. The commit is made
+with an explicit demo identity (`Switchboard Demo`), never the machine's git config: the demo tree is
+screenshot material for a public README, and the committer is the one piece of personal data git
+would otherwise put there without being asked.
+
+A project that already has a `.git` is left alone, like every other file in the seed. To rebuild one,
+delete its `.git` and rerun `demo:seed`.
+
+## What is seeded into the DATABASE
+
+Tags, tasks, project display names and the activity history are rows in `switchboard.db`, not files,
+so `seed-demo.js` cannot write them. `scripts/demo-content.js` does, on the same Electron-as-node trip
+`demo-settings.js` takes (`better-sqlite3` is built against Electron's ABI), and with the same guard:
+it refuses unless `SWITCHBOARD_DATA_DIR` points inside the demo tree.
+
+| What | Why it is there |
+|---|---|
+| **Display names** — *Alpha Service*, *Beta API*, *Mixed Stack*, *Chain Migration*, *Legacy Archive* | without one, a project renders as its full working directory, so the sidebar is five truncated paths that all begin with the same prefix |
+| **Project and session tags** | the filter bar needs both namespaces to show what the two glyphs mean. `demo` is deliberately *both* a project tag and a session tag — the same word in two vocabularies is two tags |
+| **Tasks** | one of each scope (project, session, message) and each status, so the list, the badges and the captured quote all have something to render |
+| **Activity metrics** | the Stats page reads `session_metrics`, which the scanner derives from a transcript — two-line transcripts left every chart an empty grid with a legend under it |
+
+The metrics are synthetic but deterministic: every number comes from a hash of the session id and the
+bucket index, and the buckets cluster into runs of nearby weekdays rather than scattering, because
+scattered buckets produce the heatmap of a cron job rather than of somebody working. Unlike the file
+seed they are relative to **today** — a heatmap seeded to a fixed date drifts out of its own window
+within weeks and shows nothing again.
+
+**Idempotency is per block**, not for the script as a whole: display names, tags, tasks and metrics
+each test for themselves. A single "did this ever run" flag meant a block added later never ran at all
+on an already-seeded demo. The metrics block needs its own marker setting (`demo:metricsSeeded`),
+because the scanner writes to that table too — "the table is empty" is only true before the first scan.
