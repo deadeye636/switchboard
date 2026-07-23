@@ -180,6 +180,12 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // Set inside the backend branch below (where the descriptor is in scope) and consumed after the
   // session object exists — a backend may warn that it takes a while to become usable.
   let startupHint = null;
+  // Was this meant to be a resume of an id the backend has never heard of (#290)? Set in the backend
+  // branch, consumed twice out here: the session records that it is NOT a resume after all, and the
+  // user is told in one line why their history is missing. Hoisted for the same reason startupHint is —
+  // the label comes along because the descriptor is only in scope inside that branch.
+  let resumeUnknown = false;
+  let resumeUnknownLabel = '';
   // Does the OSC-0 TITLE busy heuristic apply to this session? Only for the claude binary — see the
   // session object below. Same reason `isClaudeBinary` exists, hoisted because the session is built out
   // here while the descriptor is only in scope in the branch.
@@ -359,9 +365,29 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         }
       }
 
+      // RESUMING an id the backend never issued is the same defect as forking one, one door along (#290),
+      // and it is the commoner of the two: until a backend that names its own sessions has written its
+      // store record, the only id we hold is the one WE minted, and `<cli> -r <our-uuid>` matches nothing.
+      // The session then starts empty (or dies), while our row keeps pointing at a record that will never
+      // exist.
+      //
+      // Unlike fork, this must NOT refuse. `liveRefFor` answers "is this id in the store I am reading
+      // right now", and a store that a CLI update moved or rewrote answers "no" for sessions that were
+      // perfectly real — refusing there would lock the user out of every session of that backend at once.
+      // So drop the `-r` and let it start fresh, with a sentence saying so.
+      if (!isNew && !sessionOptions?.forkFrom && typeof backend.liveRefFor === 'function') {
+        let known = null;
+        try { known = backend.liveRefFor(sessionId); } catch { known = null; }
+        if (!known) {
+          resumeUnknown = true;
+          resumeUnknownLabel = backend.label || backend.id;
+          ctx.log.info(`[spawn] backend=${backend.id} does not know session ${sessionId} — starting a new session instead of resuming`);
+        }
+      }
+
       const launch = backend.buildLaunch({
         cwd: projectPath,
-        resume: !isNew,
+        resume: !isNew && !resumeUnknown,
         sessionId,
         forkFrom: sessionOptions?.forkFrom,
         options: sessionOptions || {},
@@ -558,7 +584,13 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // Did this session already exist in the backend's store before we spawned it? Only then can our id
     // be an id the backend knows — which is the one case where `liveRefFor` has anything to find
     // (claimLiveRecord). A fork is NOT a resume: the backend names the child itself.
-    _resumed: !isNew,
+    //
+    // A resume the backend could not place (#290) is not a resume either — we just spawned it WITHOUT
+    // `-r`, so it is about to name a fresh session of its own. Saying so here is what puts adoption on
+    // the `matchLiveSession` path, which is the only one that can find that new record and re-key the
+    // row onto it. Left at `true`, claimLiveRecord would ask `liveRefFor` for our id on every flush,
+    // for ever, and the row would keep the id nothing will ever write.
+    _resumed: !isNew && !resumeUnknown,
     // Whether the OSC-0 TITLE heuristic applies to this session. It is Claude's, and only Claude's:
     // busy = a Braille spinner glyph, idle = the ✳ character. Run it against another CLI whose TUI also
     // spins in the title — Codex does — and the busy latch closes on the first spinner frame and can
@@ -584,6 +616,19 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     session.outputBufferSize += hint.length;
     if (windowLive()) {
       sendToWindow('terminal-data', sessionId, hint);
+    }
+  }
+
+  // The user clicked a session and got a fresh one (#290). Say it here, in the tab it happened in, or an
+  // empty prompt where a conversation was expected reads as the app having lost their history. Yellow,
+  // not dim: this is a thing that happened TO them, unlike the startup hint above. It goes through the
+  // buffer for the same reason — a detach/reattach must not lose it.
+  if (resumeUnknown) {
+    const notice = `\x1b[33m── ${resumeUnknownLabel} has no record of this session — started a new one instead ──\x1b[0m\r\n`;
+    session.outputBuffer.push(notice);
+    session.outputBufferSize += notice.length;
+    if (windowLive()) {
+      sendToWindow('terminal-data', sessionId, notice);
     }
   }
 

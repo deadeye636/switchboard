@@ -229,6 +229,41 @@ test('forking a session the backend has not named yet is refused with the reason
   assert.match(r.error, /records one only after the agent has answered. Send a message first, then fork/);
 });
 
+// #290. Resume is the same defect one door along, and the opposite remedy: `<cli> -r <our-uuid>` against a
+// backend that never issued that id starts an empty session pointing at a record that will never exist.
+// It must NOT refuse the way fork does — `liveRefFor` answers about the store as it reads TODAY, and a
+// store a CLI update moved or rewrote says "unknown" for sessions that were real.
+//
+// buildLaunch throws on purpose so the assertion happens before any PTY could be spawned; the refusal that
+// comes back is that throw, not a guard.
+function resumeFlagFor(over) {
+  const seen = [];
+  setup({ backend: fakeBackend({ ...over,
+    buildLaunch: (args) => { seen.push(args); throw new Error('stop short of the PTY'); } }) });
+  return { seen, run: () => spawn.openTerminal('s', CWD, false, { backendId: 'codex' }) };
+}
+
+test('resuming an id the backend does not know drops the -r instead of refusing (#290)', async () => {
+  const { seen, run } = resumeFlagFor({ liveRefFor: () => null });
+  const r = await run();
+  assert.equal(seen.length, 1, 'it got as far as building the launch — nothing refused it');
+  assert.equal(seen[0].resume, false, 'no -r for an id the backend has never issued');
+  assert.equal(r.ok, false, 'our own throw, not a guard');
+});
+
+test('resuming an id the backend DOES know still resumes (#290)', async () => {
+  const { seen, run } = resumeFlagFor({ liveRefFor: () => 'a-real-store-ref' });
+  await run();
+  assert.equal(seen[0].resume, true);
+});
+
+test('a backend that names no sessions of its own resumes unconditionally (#290)', async () => {
+  // Claude: our id IS its id, so there is no liveRefFor hook and nothing to ask.
+  const { seen, run } = resumeFlagFor({});
+  await run();
+  assert.equal(seen[0].resume, true);
+});
+
 // A pre-launch command is a raw shell prefix. A newline in it is a second command line.
 test('a newline in the pre-launch command is refused', async () => {
   setup();
