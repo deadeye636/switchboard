@@ -1,15 +1,14 @@
 # Switchboard
 
-Your command center for coding-CLI sessions.
+Your command center for Claude Code, Codex, the Antigravity CLI, Hermes and Pi.
 
-Switchboard is a desktop app that gives you one view of every session your coding agents have —
-Claude Code, Codex, the Antigravity CLI, Hermes and Pi — across every project. Launch, resume, fork
-and monitor them from a single window, instead of juggling terminal tabs and digging through
-`~/.claude/projects` for that conversation from last week.
+Switchboard is a desktop app that gives you one view of every session your coding agents have, across
+every project. Launch, resume, fork and monitor them from a single window, instead of juggling
+terminal tabs and digging through `~/.claude/projects` for that conversation from last week.
 
 > ## ⚠️ Read this first — personal fork, no warranty, no liability
 >
-> This repository (codename **deadeye**) is a **personal, unofficial fork**, maintained for our own use.
+> This repository (codename **deadeye**) is a **personal, unofficial fork**, maintained for my own use.
 >
 > - **It is built on upstream work** and has since been substantially rewritten. Who built what:
 >   [Lineage & credits](#lineage--credits).
