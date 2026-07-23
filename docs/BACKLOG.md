@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-23
 
@@ -18,6 +18,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#274](https://github.com/deadeye636/switchboard/issues/274) Command palette (Ctrl/Cmd+K) to jump to sessions/projects and run actions · _feature_
+- [#290](https://github.com/deadeye636/switchboard/issues/290) fix(renderer): exited session reports "Running" forever when the backend never wrote a store record · _bug_
 
 ## P3 — someday
 
