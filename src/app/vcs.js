@@ -73,14 +73,30 @@ function readWorkingFile(cwd, rel) {
 }
 
 // Print one committed/staged version of a file via the provider's `show` hook (#287). Resolves to
-// `{ ok:true, text }`, `{ ok:true, note }` for binary, or `{ ok:false }` when the ref does not exist
-// (e.g. an added file has no HEAD version) — the caller treats a missing ref as an empty side.
+// `{ ok:true, text }`, `{ ok:true, note }` when the version cannot be shown (binary, too large, timed
+// out, or the command failed), or `{ ok:false }` ONLY when that version genuinely does not exist — an
+// added file has no HEAD version, and the caller renders that as an empty side.
+//
+// The distinction matters: collapsing every failure into "empty side" made a broken read look exactly
+// like a new file. So the cap is the SAME ceiling as the working-copy side (readWorkingFile), and only
+// git's own "does not exist" answer is treated as absence.
 function gitShow(provider, cwd, ref, rel) {
   return new Promise((resolve) => {
     execFile(provider.bin, provider.showArgs({ ref, path: rel }), {
-      cwd, timeout: STATUS_TIMEOUT_MS, windowsHide: true, maxBuffer: 8 * 1024 * 1024, encoding: 'buffer',
-    }, (err, stdout) => {
-      if (err) return resolve({ ok: false });
+      cwd, timeout: STATUS_TIMEOUT_MS, windowsHide: true, maxBuffer: MAX_UNTRACKED_BYTES, encoding: 'buffer',
+    }, (err, stdout, stderr) => {
+      if (err) {
+        if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' || /maxBuffer/i.test(err.message || '')) {
+          return resolve({ ok: true, note: 'File too large to preview — use Open.' });
+        }
+        if (err.killed || err.signal) return resolve({ ok: true, note: 'Timed out reading this version.' });
+        const msg = stderr ? stderr.toString('utf8') : '';
+        // git's own wording for "this path has no version under that ref" — absence, not a failure.
+        if (/does not exist|exists on disk|unknown revision|no such path/i.test(msg)) return resolve({ ok: false });
+        // Anything else is a real failure. Keep the message generic — it is shown in the UI, and git's
+        // stderr carries absolute paths.
+        return resolve({ ok: true, note: 'Could not read this version.' });
+      }
       if (Buffer.isBuffer(stdout) && stdout.includes(0)) return resolve({ ok: true, note: 'Binary file — use Open.' });
       return resolve({ ok: true, text: stdout ? stdout.toString('utf8') : '' });
     });
