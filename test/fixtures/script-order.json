@@ -123,5 +123,8 @@
   ],
   "changed-files.html": [
     "changed-files.js"
+  ],
+  "diff-window.html": [
+    "diff-window.js"
   ]
 }

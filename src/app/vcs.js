@@ -45,6 +45,74 @@ function readUntrackedDiff(cwd, rel) {
   }
 }
 
+// Read a working-copy file as raw text for the side-by-side diff window (#287). Same hardening as
+// readUntrackedDiff (containment / symlink reject / size cap / binary detection) but returns the plain
+// text CodeMirror needs, not a `+`-prefixed diff. A `note` means "cannot show this" (binary / too large /
+// symlink); a missing file (a deletion) is an empty side, not an error.
+function readWorkingFile(cwd, rel) {
+  const base = path.resolve(cwd);
+  const abs = path.resolve(cwd, rel);
+  if (abs !== base && !abs.startsWith(base + path.sep)) return { ok: false, error: 'Path outside repository' };
+  let lst;
+  try {
+    lst = fs.lstatSync(abs);
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return { ok: true, text: '' };   // deleted in the working tree → empty side
+    return { ok: false, error: 'Cannot read this file.' };
+  }
+  if (lst.isSymbolicLink()) return { ok: true, note: 'Symlink — not previewed.' };
+  if (lst.isDirectory()) return { ok: true, note: 'Directory — open it to see its files.' };
+  if (lst.size > MAX_UNTRACKED_BYTES) return { ok: true, note: 'File too large to preview — use Open.' };
+  try {
+    const buf = fs.readFileSync(abs);
+    if (buf.includes(0)) return { ok: true, note: 'Binary file — use Open.' };
+    return { ok: true, text: buf.toString('utf8') };
+  } catch {
+    return { ok: false, error: 'Cannot read this file.' };
+  }
+}
+
+// Print one committed/staged version of a file via the provider's `show` hook (#287). Resolves to
+// `{ ok:true, text }`, `{ ok:true, note }` for binary, or `{ ok:false }` when the ref does not exist
+// (e.g. an added file has no HEAD version) — the caller treats a missing ref as an empty side.
+function gitShow(provider, cwd, ref, rel) {
+  return new Promise((resolve) => {
+    execFile(provider.bin, provider.showArgs({ ref, path: rel }), {
+      cwd, timeout: STATUS_TIMEOUT_MS, windowsHide: true, maxBuffer: 8 * 1024 * 1024, encoding: 'buffer',
+    }, (err, stdout) => {
+      if (err) return resolve({ ok: false });
+      if (Buffer.isBuffer(stdout) && stdout.includes(0)) return resolve({ ok: true, note: 'Binary file — use Open.' });
+      return resolve({ ok: true, text: stdout ? stdout.toString('utf8') : '' });
+    });
+  });
+}
+
+// The old/new text for one file's side-by-side diff window (#287). Mirrors the inline diff's semantics:
+//   untracked → old empty, new = the working copy;
+//   staged    → old = HEAD (committed), new = the index (`git diff --cached`);
+//   otherwise → old = the index, new = the working copy (`git diff`).
+// A `note` on either side (binary / too large / symlink) short-circuits to that note.
+async function fileVersions(cwd, rel, kind, staged) {
+  const provider = vcs.detect(cwd);
+  if (!provider || typeof provider.showArgs !== 'function') {
+    return { ok: false, error: 'No diff support for this working directory' };
+  }
+  let oldSide, newSide;
+  if (kind === 'untracked') {
+    oldSide = { ok: true, text: '' };
+    newSide = readWorkingFile(cwd, rel);
+  } else if (staged === true) {
+    oldSide = await gitShow(provider, cwd, 'HEAD', rel);
+    newSide = await gitShow(provider, cwd, '', rel);
+  } else {
+    oldSide = await gitShow(provider, cwd, '', rel);
+    newSide = readWorkingFile(cwd, rel);
+  }
+  if (oldSide.note) return { ok: true, note: oldSide.note };
+  if (newSide.note) return { ok: true, note: newSide.note };
+  return { ok: true, old: oldSide.text || '', new: newSide.text || '' };
+}
+
 const DEFAULT_POLL_SECONDS = 20;
 const MIN_POLL_SECONDS = 5;
 const STATUS_TIMEOUT_MS = 4000;
@@ -243,13 +311,49 @@ function openChangesWindow(cwd, label) {
   if (scheduler) scheduler.refresh(cwd);
 }
 
+// --- The standalone diff window: one per file version, destroy-on-close (#287) ---
+// Opened from the changes window when an inline diff is large. Keyed by cwd + path + side (staged vs
+// working) so the staged and unstaged diffs of the same file are distinct windows, mirroring the two rows.
+const diffWindows = new Map();
+
+function openDiffWindow(payload) {
+  const BrowserWindow = ctx && ctx.BrowserWindow;
+  const cwd = payload && payload.cwd;
+  const rel = payload && payload.path;
+  if (!BrowserWindow || typeof cwd !== 'string' || !cwd || typeof rel !== 'string' || !rel) return;
+  const kind = typeof payload.kind === 'string' ? payload.kind : '';
+  const staged = payload.staged === true;
+  const key = `${cwd} ${rel} ${staged ? 's' : 'w'}`;
+  const existing = diffWindows.get(key);
+  if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return; }
+
+  const parent = ctx.getMainWindow && ctx.getMainWindow();
+  const win = new BrowserWindow({
+    width: 1000, height: 720, minWidth: 520, minHeight: 320,
+    title: `Diff — ${rel}`,
+    parent: parent && !parent.isDestroyed() ? parent : undefined,
+    show: false,
+    backgroundColor: '#0d1117',
+    icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
+    webPreferences: { preload: path.join(__dirname, '..', 'preload.js'), nodeIntegration: false, contextIsolation: true },
+  });
+  win.setMenu(null);
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'diff-window.html'), {
+    query: { cwd, path: rel, kind, staged: staged ? '1' : '', label: payload.label || '' },
+  });
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
+  win.on('closed', () => { diffWindows.delete(key); });
+  diffWindows.set(key, win);
+}
+
 // Called from src/app/windows.js when the main window closes — a lingering child would keep
 // `window-all-closed` from firing (same reason the settings window is destroyed there).
 function destroyAllVcsWindows() {
-  for (const win of changesWindows.values()) {
+  for (const win of [...changesWindows.values(), ...diffWindows.values()]) {
     try { if (win && !win.isDestroyed()) win.destroy(); } catch { /* already gone */ }
   }
   changesWindows.clear();
+  diffWindows.clear();
 }
 
 function init(context) {
@@ -286,6 +390,20 @@ function registerIpc(ipc) {
   ipc.on('open-changes-window', (_event, payload) => {
     const cwd = payload && payload.cwd;
     openChangesWindow(cwd, payload && payload.label);
+  });
+
+  // Expand a large inline diff into a standalone CodeMirror side-by-side window (#287).
+  ipc.on('open-diff-window', (_event, payload) => openDiffWindow(payload));
+
+  // Old/new content for that window (#287). Same VCS-neutral seam as vcs-diff: the versions come from the
+  // provider's `show` hook + a hardened working-copy read, never a VCS named in the renderer.
+  ipc.handle('vcs-file-versions', (_event, req) => {
+    const cwd = req && req.cwd;
+    const rel = req && req.path;
+    if (typeof cwd !== 'string' || !cwd || typeof rel !== 'string' || !rel) {
+      return { ok: false, error: 'Bad diff request' };
+    }
+    return fileVersions(cwd, rel, req.kind, req.staged === true);
   });
 
   ipc.handle('vcs-reveal', (_event, filePath) => {
@@ -347,4 +465,4 @@ function registerIpc(ipc) {
   });
 }
 
-module.exports = { init, registerIpc, stop, destroyAllVcsWindows, createScheduler, runStatusReal, readUntrackedDiff, _readConfig: readConfig };
+module.exports = { init, registerIpc, stop, destroyAllVcsWindows, createScheduler, runStatusReal, readUntrackedDiff, readWorkingFile, fileVersions, _readConfig: readConfig };

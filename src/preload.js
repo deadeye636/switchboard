@@ -151,6 +151,8 @@ contextBridge.exposeInMainWorld('api', {
   openChangesWindow: (cwd, label) => ipcRenderer.send('open-changes-window', { cwd, label }),
   vcsReveal: (filePath) => ipcRenderer.invoke('vcs-reveal', filePath),
   vcsDiff: (req) => ipcRenderer.invoke('vcs-diff', req),
+  vcsFileVersions: (req) => ipcRenderer.invoke('vcs-file-versions', req),
+  openDiffWindow: (req) => ipcRenderer.send('open-diff-window', req),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   openPath: (filePath) => ipcRenderer.invoke('open-path', filePath),
   openInEditor: (filePath) => ipcRenderer.invoke('open-in-editor', filePath),

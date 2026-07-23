@@ -82,6 +82,13 @@ function diffArgs({ path, staged } = {}) {
   return ['--no-optional-locks', 'diff', '--no-color', ...(staged ? ['--cached'] : []), '--', path];
 }
 
+// Argv to print ONE version of a file's content to stdout (#287, for the side-by-side diff window).
+// `ref` is 'HEAD' for the committed version or '' for the index (staged) version — `git show <ref>:<path>`.
+// The working-copy version is read from disk by the caller, not here.
+function showArgs({ ref, path } = {}) {
+  return ['--no-optional-locks', 'show', `${ref || ''}:${path}`];
+}
+
 let _probe = null;
 function probe() {
   if (_probe) return _probe;
@@ -108,6 +115,7 @@ module.exports = {
   detectState,
   statusArgs,
   diffArgs,
+  showArgs,
   parse,
   probe,
   _resetProbeForTests() { _probe = null; },

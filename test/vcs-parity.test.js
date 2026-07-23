@@ -117,6 +117,16 @@ test('git: diffArgs is global-flag-first, -- before path, --cached only when sta
   assert.ok(dd > 0 && unstaged[dd + 1] === 'src/x.js');
 });
 
+test('git: showArgs reads HEAD vs index versions, global-flag-first (#287)', () => {
+  const git = vcs.get('git');
+  const head = git.showArgs({ ref: 'HEAD', path: 'src/x.js' });
+  const index = git.showArgs({ ref: '', path: 'src/x.js' });
+  assert.strictEqual(head[0], '--no-optional-locks');
+  assert.ok(head.indexOf('show') > 0);
+  assert.strictEqual(head[head.length - 1], 'HEAD:src/x.js');
+  assert.strictEqual(index[index.length - 1], ':src/x.js');
+});
+
 test('git: detectState resolves a worktree .git-file gitdir pointer', () => {
   const git = vcs.get('git');
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'vcs-wt-state-'));

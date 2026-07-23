@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Diff</title>
+  <style>
+    :root {
+      --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --faint:#6e7681;
+      --green:#3fb950; --red:#f85149;
+      --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+      --ui:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    }
+    * { box-sizing:border-box; }
+    html, body { height:100%; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:var(--ui); font-size:13px; display:flex; flex-direction:column; }
+    .head { display:flex; align-items:baseline; gap:12px; padding:10px 14px; border-bottom:1px solid var(--border); background:var(--panel); }
+    .path { font-family:var(--mono); font-weight:650; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sub { font-family:var(--mono); font-size:11px; color:var(--faint); white-space:nowrap; }
+    #diff { flex:1; min-height:0; overflow:auto; }
+    .msg { padding:40px 16px; text-align:center; color:var(--faint); }
+    /* MergeView fills the pane; its inner editors carry their own dracula theme from the bundle. */
+    .cm-mergeView, .cm-mergeViewEditors { height:100%; }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <span class="path" id="path">…</span>
+    <span class="sub" id="sub"></span>
+  </div>
+  <div id="diff"><div class="msg">Loading diff…</div></div>
+  <script src="diff-window.js"></script>
+</body>
+</html>

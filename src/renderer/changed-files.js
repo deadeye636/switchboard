@@ -22,6 +22,8 @@
     { kind: 'untracked', title: 'Untracked', color: 'var(--faint)' },
   ];
   const LETTER = { staged: 'M', unstaged: 'M', untracked: '?', conflicted: 'U' };
+  // Above this many lines the inline pane is cramped, so it offers "open in a window" (#287).
+  const DIFF_WINDOW_THRESHOLD = 200;
 
   function fileRow(f) {
     const path = f.origPath ? '<span class="ren">' + esc(f.origPath) + ' → </span>' + splitPath(f.path) : splitPath(f.path);
@@ -73,6 +75,18 @@
   }, 5000);
 
   el('body').addEventListener('click', (e) => {
+    // "Open in window" lives in a diff pane, which is a SIBLING of its file row (not inside it), so it is
+    // handled before the row-scoped logic below. Its row is the pane's previous sibling (#287).
+    const expandBtn = e.target.closest('button.diff-expand');
+    if (expandBtn) {
+      const pane = expandBtn.closest('.diff-pane');
+      const row = pane && pane.previousElementSibling;
+      if (row && row.classList.contains('file')) {
+        const kind = row.dataset.kind;
+        window.api.openDiffWindow({ cwd, path: row.dataset.path, kind, staged: kind === 'staged', label });
+      }
+      return;
+    }
     const btn = e.target.closest('button[data-act]');
     if (btn) {
       const rel = btn.closest('.file').dataset.path;
@@ -80,6 +94,8 @@
       else window.api.vcsReveal(abs(rel));
       return;
     }
+    // A click inside the diff pane (selecting text, etc.) must not collapse the row.
+    if (e.target.closest('.diff-pane')) return;
     const row = e.target.closest('.file');
     if (row) toggleDiff(row);
   });
@@ -98,7 +114,12 @@
       const res = await window.api.vcsDiff({ cwd, path: row.dataset.path, kind, staged: kind === 'staged' });
       if (!res || !res.ok) { pane.innerHTML = '<div class="diff-empty">' + esc((res && res.error) || 'Diff failed.') + '</div>'; return; }
       if (res.note) { pane.innerHTML = '<div class="diff-empty">' + esc(res.note) + '</div>'; return; }
-      pane.innerHTML = renderDiff(res.text);
+      const lineCount = res.text ? res.text.split('\n').length : 0;
+      const bar = lineCount > DIFF_WINDOW_THRESHOLD
+        ? '<div class="diff-bar"><span class="diff-bar-info">' + lineCount + ' lines</span>'
+          + '<button class="diff-expand" title="Open this diff in a side-by-side window">Open in window ⤢</button></div>'
+        : '';
+      pane.innerHTML = bar + renderDiff(res.text);
     } catch (err) {
       pane.innerHTML = '<div class="diff-empty">Diff failed.</div>';
     }
