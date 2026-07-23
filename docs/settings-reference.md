@@ -71,10 +71,6 @@ back on Save.
 | `sessionDisplayMode` | Display mode | `grid` \| `tabs` | `grid` | global |
 | `settingsOpenMode` | Open settings as | `overlay` \| `window` | `overlay` | global |
 | `sidebarCollapseDefault` | Sidebar on startup | `expanded` \| `collapsed` \| `remember` | `remember` | global |
-| `vcsChipEnabled` | Show version-control status | `true` \| `false` | `true` | global |
-| `vcsShowBadge` | Show branch & change counts badge | `true` \| `false` | `false` | global |
-| `vcsPollSeconds` | Version-control poll interval (s) | integer, min 5 | `20` | global |
-| `vcsCountUntracked` | Count untracked files | `true` \| `false` | `true` | global |
 | `tabPosition` | Tab position | `top` \| `bottom` | `top` | global |
 | `tabCloseBehavior` | Closing a tab (×) | `closeView` \| `stopSession` | `closeView` | global |
 | `tabMiddleClickCloses` | Middle-click closes a tab | bool | `true` | global |
@@ -91,6 +87,10 @@ back on Save.
 |---|---|---|---|---|
 | `projectSortMode` | Project order | `activity` \| `alpha` \| `manual` | `activity` | global |
 | `favoritesOwnList` | Favorites as a separate list | bool | `false` | global |
+| `vcsChipEnabled` | Show version-control status — *Version control* | `true` \| `false` | `true` | global |
+| `vcsShowBadge` | Show branch & change counts badge — *Version control* | `true` \| `false` | `false` | global |
+| `vcsPollSeconds` | Version-control poll interval (s) — *Version control* | integer, min 5 | `20` | global |
+| `vcsCountUntracked` | Count untracked files — *Version control* | `true` \| `false` | `true` | global |
 | `projectAutoAdd` | Add projects automatically | bool | `true` | global (own IPC, not the blob) |
 | `showSubagents` | Show subagents | bool | `true` | global — hidden unless a backend declares `supportsSubagents` |
 | `subagentLiveStatus` | Subagent live status | bool | `true` | global |
