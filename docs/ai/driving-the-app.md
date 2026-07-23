@@ -22,6 +22,26 @@ from `eval`, so the app's own IPC can be exercised directly — e.g. `await wind
 to read what the sidebar would render, or `await window.api.unhideProject(path)` to do what a click
 would do. Give the renderer a second after launch; a query fired too early answers about an empty page.
 
+## `drive-app.js` talks to the FIRST page — a second window steals it
+
+Every command attaches to the first target CDP lists, which is normally `index.html`. Open a standalone
+window — settings (`settingsOpenMode: 'window'`), a changes window, a diff window (#287) — and it goes to
+the front of that list, so the next `eval` runs in **that** window and a selector from the main UI comes
+back empty. Nothing errors; you just get an answer about the wrong page.
+
+That cuts both ways, and the second way is useful: to drive a standalone window, open it and then talk to
+it directly. To get back to `index.html`, close the child.
+
+```
+curl -s http://127.0.0.1:9222/json/list            # ids + titles, first entry = what drive-app hits
+curl -s http://127.0.0.1:9222/json/close/<id>      # close a child window, main page is first again
+```
+
+A worked example — the whole #287 verification was driven this way: open the changes window from the main
+page (`window.api.openChangesWindow(cwd, label)`), then `eval` in the changes window itself to click a file
+row and read back the diff pane, then click *Open in window* and `eval` in the diff window to assert the
+CodeMirror merge view rendered. Three pages, one port, no clicking.
+
 ## Opening several terminal tabs to verify (WebGL, shared atlas)
 
 To reproduce more than one live terminal at once — needed to see the tabs-mode shared-atlas behaviour

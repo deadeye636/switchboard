@@ -50,6 +50,22 @@ The `<script>` tag, `test/fixtures/script-order.json`, and `ALLOWED_BINDINGS` in
 left out is silently unchecked. For app.js's siblings the tag and the script-order entry go in the
 `index.html` set, not `settings.html` (app.js is not loaded there).
 
+## A new HTML PAGE is a different three-file change
+
+The app has standalone windows beside `index.html`/`settings.html` — the changes window
+(`changed-files.html`, #277) and the diff window (`diff-window.html`, #287). Each is its own environment
+with its own script list, so adding one means: `PAGES` in `test/script-tags.test.js`, its own key in
+`test/fixtures/script-order.json`, and its own `lintEnvironment(...)` test in
+`test/renderer-no-undef.test.js`. Miss one and the page is simply unguarded — nothing fails.
+
+Two things these pages do differently, both forced by the CSP (`script-src 'self'`, set in
+`src/app/lifecycle.js`): the script is **external**, never inline, and `codemirror-bundle.js` is pulled in
+**at runtime** (`document.createElement('script')`, the `loadCodeMirrorBundle` pattern) rather than with a
+static tag. A static tag would put the minified bundle into that page's lint environment, where the browser
+globals it uses (`Window`, `DOMRect`, `requestIdleCallback`) are not in the test's curated list and it fails
+`no-undef` — `index.html` avoids this the same way. Reach for the bundle's exports as `window.createMergeViewer`
+(member access), not a bare global, so the reference does not depend on the bundle being parsed at all.
+
 `test/renderer-no-undef.test.js` (#228 follow-up) now catches the ReferenceError half mechanically:
 it builds each HTML environment's shared scope from `script-order.json` — every top-level
 declaration plus every UMD/window export — and runs eslint `no-undef` over each file. It does NOT

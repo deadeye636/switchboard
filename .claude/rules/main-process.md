@@ -16,7 +16,8 @@ left: the requires, `DATA_DIR` (before anything requires db.js), the wiring for 
 
 `src/app/` holds `lifecycle.js` (boot, ordered teardown), `windows.js`,
 `notifications.js`, `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`,
-`settings-transfer.js`, `plans-memory.js` (Plans/Memory/Work-Files tabs — #227) and `terminal/`
+`settings-transfer.js`, `plans-memory.js` (Plans/Memory/Work-Files tabs — #227),
+`vcs.js` (the VCS poller + its standalone windows — #277) and `terminal/`
 (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
 
 ## Where an IPC handler goes
@@ -34,6 +35,7 @@ left: the requires, `DATA_DIR` (before anything requires db.js), the wiring for 
 | Opening a terminal | `src/app/terminal/spawn.js` |
 | Terminal input/resize/redraw/flow control | `src/app/terminal/io.js` |
 | The Plans, Memory and Work-Files tabs | `src/app/plans-memory.js` |
+| Version-control status, the changes/diff windows | `src/app/vcs.js` (the seam it drives is `src/vcs/`) |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;
