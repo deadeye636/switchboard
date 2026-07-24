@@ -135,7 +135,10 @@
     popover.innerHTML = `
       <div class="vqp-header">
         <span class="vqp-title">Variables</span>
-        <button type="button" class="vqp-manage" data-vqp-manage>Manage…</button>
+        <div class="vqp-header-actions">
+          <button type="button" class="vqp-add" data-vqp-add>+ New</button>
+          <button type="button" class="vqp-manage" data-vqp-manage>Manage…</button>
+        </div>
       </div>
       <div class="vqp-body"><div class="vqp-loading">Loading…</div></div>`;
     document.body.appendChild(popover);
@@ -144,6 +147,17 @@
     popover.querySelector('[data-vqp-manage]').addEventListener('click', () => {
       closeQuickPick();
       window.openVariablesTab?.();
+    });
+
+    // Create a variable without leaving the session: the same New-variable dialog the admin tab uses, opened
+    // as an overlay over the terminal and pre-scoped to this session's project. On save the quick-pick
+    // re-opens with the same context so the new variable is there at once.
+    popover.querySelector('[data-vqp-add]').addEventListener('click', () => {
+      closeQuickPick();
+      window.openVariableDialog?.({
+        preScope: projectPath,
+        onSaved: () => showVariablesQuickPick(context),
+      });
     });
 
     const rows = await window.api.listSavedVariables(projectPath).catch(() => []);

@@ -239,6 +239,15 @@ produces. They never meet the language.
 with no language at all, but collapses the moment a path needs surrounding text (`-i `), and a composed
 command is irreducibly textual. The language is right; what was missing was an interpreter.
 
+**The dialog opens inline from a session, not only from the admin tab (#299).** The terminal quick-pick's
+"+ New" calls `window.openVariableDialog({ preScope, onSaved })`, which opens the *same* dialog as an overlay
+over the terminal — no tab switch — pre-scoped to the session's project, and re-opens the quick-pick on save.
+It inherits every property above: still no IPC for the preview, still **no temp file written from a dialog**.
+`ensureLoaded` fetches the scope and reference rows first, because a session may open the dialog before the
+admin tab ever ran `load()`. The scope field is a **filterable combobox** — the project list is long and a
+native `<select>` has no search — and its label reads **Project**; the stored `scope`/`projectPath` are
+unchanged, and Global is still a value, not a project.
+
 **Logging: the resolver's output must never be logged, at any level.** A well-meaning `log.debug` of the
 composed string would inline `{value}` plaintext into `main.log`.
 

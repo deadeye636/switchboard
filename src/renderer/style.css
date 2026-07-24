@@ -8747,6 +8747,17 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
   margin-bottom: 4px;
 }
 .vqp-title { font-size: 12px; font-weight: 600; color: #b0b0c4; }
+.vqp-header-actions { display: flex; align-items: center; gap: 10px; }
+.vqp-add {
+  border: 1px solid rgba(255,255,255,0.1);
+  background: #23232c;
+  color: #d0d0dc;
+  font-size: 11px;
+  border-radius: 5px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.vqp-add:hover { border-color: #d97757; color: #fff; }
 .vqp-manage {
   border: none;
   background: none;
@@ -8822,7 +8833,7 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
   flex-shrink: 0;
 }
 .va-title { font-size: 13px; color: #b0b0c4; font-weight: 500; }
-.va-scope-filter, .va-search {
+.va-combo-input, .va-search {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 8px;
@@ -8833,9 +8844,45 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
   transition: all 0.2s;
 }
 .va-search { flex: 1; max-width: 320px; padding: 7px 12px; }
-.va-scope-filter { padding: 7px 28px 7px 12px; }
-.va-scope-filter option { background-color: #1e1e2a; color: #c0c0d0; }
-.va-scope-filter:focus, .va-search:focus { background: rgba(255,255,255,0.06); border-color: rgba(120,130,255,0.4); box-shadow: 0 0 0 3px rgba(120,130,255,0.08); }
+.va-combo-input:focus, .va-search:focus { background: rgba(255,255,255,0.06); border-color: rgba(120,130,255,0.4); box-shadow: 0 0 0 3px rgba(120,130,255,0.08); }
+
+/* Filterable scope combobox (replaces the native scope <select>) — header filter and dialog scope. */
+.va-combo { position: relative; display: inline-block; }
+.va-combo-input { padding: 7px 12px; min-width: 170px; box-sizing: border-box; cursor: text; }
+.va-combo-list {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 240px;
+  overflow: auto;
+  background: #1e1e2a;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.5);
+  padding: 6px;
+}
+.va-combo-row {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: #d0d0e8;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.va-combo-row:hover, .va-combo-row.active { background: rgba(255,255,255,0.07); }
+.va-combo-empty { color: #7a7a90; font-size: 12px; padding: 6px; }
+/* In the dialog the combobox is a full-width field like the others, not the header's fixed-width control. */
+.va-field .va-combo { display: block; }
+.va-field .va-combo-input { width: 100%; min-width: 0; }
 .va-add, .va-refresh {
   padding: 5px 10px;
   background: #23232c;

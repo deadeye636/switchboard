@@ -18,6 +18,7 @@
   let projects = [];      // [{ projectPath, displayName }]
   let scopeFilter = 'all'; // 'all' | 'global' | <projectPath>
   let search = '';
+  let loaded = false;     // has fetchData ever populated variables/projects (for ensureLoaded)
 
   function shortName(p) {
     return String(p || '').split(/[\\/]/).filter(Boolean).slice(-2).join('/') || p || '';
@@ -45,14 +46,91 @@
     return true;
   }
 
-  function scopeOptions(selected) {
-    const opts = [`<option value="all" ${selected === 'all' ? 'selected' : ''}>All projects</option>`,
-      `<option value="global" ${selected === 'global' ? 'selected' : ''}>Global</option>`];
-    for (const p of projects) {
-      const val = p.projectPath;
-      opts.push(`<option value="${escapeHtml(val)}" ${selected === val ? 'selected' : ''}>${escapeHtml(p.displayName || shortName(val))}</option>`);
+  // The scope choices as data (not <option> markup): Global plus every registered project. The filter also
+  // offers "All projects"; the dialog does not (a variable is either Global or one project).
+  function scopeItems(includeAll) {
+    const items = [];
+    if (includeAll) items.push({ value: 'all', label: 'All projects' });
+    items.push({ value: 'global', label: 'Global' });
+    for (const p of projects) items.push({ value: p.projectPath, label: p.displayName || shortName(p.projectPath) });
+    return items;
+  }
+
+  // A type-to-filter combobox that replaces a native <select> for scope — the project list can be long and a
+  // native select has no search. items: [{ value, label }]. Returns { el, getValue, setValue }; fires
+  // onChange(value) on pick. Built from the same visual language as the .va-var-picker.
+  function makeScopeCombobox({ items, value, onChange, placeholder }) {
+    const wrap = document.createElement('div');
+    wrap.className = 'va-combo';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'va-combo-input';
+    input.setAttribute('role', 'combobox');
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    const list = document.createElement('div');
+    list.className = 'va-combo-list';
+    list.style.display = 'none';
+    wrap.appendChild(input);
+    wrap.appendChild(list);
+
+    let current = value;
+    let open = false;
+
+    const labelFor = (val) => { const it = items.find(i => i.value === val); return it ? it.label : (val || ''); };
+    function getValue() { return current; }
+    function setValue(val) { current = val; input.value = labelFor(val); }
+
+    function renderRows(q) {
+      const query = String(q || '').trim().toLowerCase();
+      const shown = query ? items.filter(i => i.label.toLowerCase().includes(query)) : items;
+      list.innerHTML = shown.length
+        ? shown.map(i => `<button type="button" class="va-combo-row${i.value === current ? ' active' : ''}" data-value="${escapeHtml(i.value)}">${escapeHtml(i.label)}</button>`).join('')
+        : '<div class="va-combo-empty">No match</div>';
     }
-    return opts.join('');
+    function openList() {
+      if (open) return;
+      open = true;
+      renderRows('');                 // show everything on open, not just the current label
+      input.value = '';               // clear so typing filters fresh; reverted on close if no pick
+      input.placeholder = labelFor(current) || placeholder || 'Select…';
+      list.style.display = '';
+      document.addEventListener('mousedown', onAway, true);
+    }
+    function closeList() {
+      if (!open) return;
+      open = false;
+      list.style.display = 'none';
+      input.value = labelFor(current); // revert display to the selected label
+      document.removeEventListener('mousedown', onAway, true);
+    }
+    function onAway(e) { if (!wrap.contains(e.target)) closeList(); }
+
+    input.addEventListener('focus', openList);
+    input.addEventListener('click', openList);
+    input.addEventListener('input', (e) => {
+      // Do not let filtering bubble as a form 'input' — the dialog's dirty-check hangs off that, and typing to
+      // search is not an edit. A real change fires through onChange below, which marks dirty itself.
+      e.stopPropagation();
+      if (!open) openList();
+      renderRows(input.value);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && open) { e.stopPropagation(); closeList(); }
+    });
+    list.addEventListener('mousedown', (e) => {
+      const row = e.target.closest('.va-combo-row');
+      if (!row) return;
+      e.preventDefault();
+      const val = row.dataset.value;
+      const changed = val !== current;
+      setValue(val);
+      closeList();
+      if (changed && onChange) onChange(val);
+    });
+
+    setValue(value);
+    return { el: wrap, getValue, setValue };
   }
 
   function rowHtml(row) {
@@ -82,7 +160,7 @@
     container.innerHTML = `
       <div class="va-header">
         <span class="va-title">Variables</span>
-        <select class="va-scope-filter">${scopeOptions(scopeFilter)}</select>
+        <span class="va-scope-mount"></span>
         <input type="text" class="va-search" placeholder="Filter variables…" value="${escapeHtml(search)}">
         <button class="va-add" data-action="new">+ New variable</button>
         <button class="va-refresh" data-action="refresh" title="Reload">⟳</button>
@@ -90,18 +168,23 @@
       <div class="va-table-wrap">
         <table class="va-table">
           <thead>
-            <tr><th>Name</th><th>Scope</th><th>Secret</th><th>Tags</th><th>Actions</th></tr>
+            <tr><th>Name</th><th>Project</th><th>Secret</th><th>Tags</th><th>Actions</th></tr>
           </thead>
           <tbody>${rowsHtml()}</tbody>
         </table>
       </div>`;
 
-    const filterSel = container.querySelector('.va-scope-filter');
-    filterSel.addEventListener('change', () => {
-      scopeFilter = filterSel.value;
-      const tbody = container.querySelector('.va-table tbody');
-      if (tbody) tbody.innerHTML = rowsHtml();
+    const filterCombo = makeScopeCombobox({
+      items: scopeItems(true),
+      value: scopeFilter,
+      placeholder: 'All projects',
+      onChange: (val) => {
+        scopeFilter = val;
+        const tbody = container.querySelector('.va-table tbody');
+        if (tbody) tbody.innerHTML = rowsHtml();
+      },
     });
+    container.querySelector('.va-scope-mount').replaceWith(filterCombo.el);
     const searchInput = container.querySelector('.va-search');
     searchInput.addEventListener('input', () => {
       search = searchInput.value.trim().toLowerCase();
@@ -110,31 +193,46 @@
     });
   }
 
+  async function fetchData() {
+    const [vars, projRes] = await Promise.all([
+      window.api.listAllSavedVariables(),
+      window.api.getProjectsAdmin().catch(() => null),
+    ]);
+    variables = Array.isArray(vars) ? vars : [];
+    projects = (projRes && Array.isArray(projRes.projects))
+      ? projRes.projects.map(p => ({ projectPath: p.projectPath, displayName: p.displayName }))
+      : [];
+    loaded = true;
+  }
+
   async function load() {
     container.innerHTML = '<div class="va-loading">Loading variables…</div>';
     try {
-      const [vars, projRes] = await Promise.all([
-        window.api.listAllSavedVariables(),
-        window.api.getProjectsAdmin().catch(() => null),
-      ]);
-      variables = Array.isArray(vars) ? vars : [];
-      projects = (projRes && Array.isArray(projRes.projects))
-        ? projRes.projects.map(p => ({ projectPath: p.projectPath, displayName: p.displayName }))
-        : [];
+      await fetchData();
       render();
     } catch (err) {
       container.innerHTML = `<div class="va-loading">Error: ${escapeHtml(err.message)}</div>`;
     }
   }
 
+  // The dialog can be opened from a session (window.openVariableDialog) before the admin tab ever ran load(),
+  // so variables/projects would be empty — the scope combobox and the variable picker need them. Populate
+  // without rendering the admin table.
+  async function ensureLoaded() {
+    if (loaded) return;
+    try { await fetchData(); } catch {}
+  }
+
   // --- New / Edit dialog ---------------------------------------------------
 
-  function defaultScopeValue() {
-    // Pre-select the currently filtered project (if any) for a new variable.
+  function defaultScopeValue(preScope) {
+    // Opened from a session → default to that session's project. Otherwise pre-select the currently
+    // filtered project (if any) for a new variable.
+    if (preScope) return preScope;
     return (scopeFilter !== 'all' && scopeFilter !== 'global') ? scopeFilter : 'global';
   }
 
-  async function openDialog(existing) {
+  async function openDialog(existing, opts = {}) {
     const isEdit = !!existing;
     let form = {
       id: existing ? existing.id : null,
@@ -143,7 +241,7 @@
       secret: existing ? !!existing.secret : false,
       scopeValue: existing
         ? (existing.scope === 'project' ? existing.projectPath : 'global')
-        : defaultScopeValue(),
+        : defaultScopeValue(opts.preScope),
       tags: existing ? (existing.tags || []).join(', ') : '',
       insertTemplate: existing ? (existing.insertTemplate || '') : '',
     };
@@ -174,8 +272,8 @@
               <button type="button" class="va-eye" id="va-f-eye" title="Show / hide value" aria-label="Show / hide value"></button>
             </div></label>
           <div class="va-form-row">
-            <label class="va-field"><span>Scope</span>
-              <select class="settings-select" id="va-f-scope">${scopeOptions(form.scopeValue)}</select></label>
+            <label class="va-field"><span>Project</span>
+              <span class="va-scope-mount" id="va-f-scope-mount"></span></label>
             <label class="va-secret-toggle"><span>Secret</span>
               <label class="settings-toggle"><input type="checkbox" id="va-f-secret" ${form.secret ? 'checked' : ''}><span class="settings-toggle-slider"></span></label></label>
           </div>
@@ -226,24 +324,25 @@
     const valueInput = overlay.querySelector('#va-f-value');
     const eyeBtn = overlay.querySelector('#va-f-eye');
     const secretInput = overlay.querySelector('#va-f-secret');
-    const scopeSel = overlay.querySelector('#va-f-scope');
     const statusEl = overlay.querySelector('#va-f-status');
     let revealed = false;
 
-    // 'all' is not a valid scope for a variable — drop it from the dialog's
-    // scope select so a new variable defaults to Global rather than "All".
-    const allOpt = scopeSel.querySelector('option[value="all"]');
-    if (allOpt) allOpt.remove();
-    // Editing a project-scoped variable whose project isn't in the current
-    // projects list — keep its scope by adding the option so save doesn't drop it.
-    if (form.scopeValue !== 'global' && form.scopeValue !== 'all'
-        && !Array.from(scopeSel.options).some(o => o.value === form.scopeValue)) {
-      const opt = document.createElement('option');
-      opt.value = form.scopeValue;
-      opt.textContent = shortName(form.scopeValue);
-      scopeSel.appendChild(opt);
+    // The scope picker: a filterable combobox (no 'all' — a variable is Global or one project). Editing a
+    // project-scoped variable whose project has left the list keeps its scope by adding a row, so save does
+    // not drop it. onChange re-renders the preview, exactly as the old <select> change did.
+    const startScope = (form.scopeValue === 'all' || !form.scopeValue) ? 'global' : form.scopeValue;
+    const dialogScopeItems = scopeItems(false);
+    if (startScope !== 'global' && !dialogScopeItems.some(i => i.value === startScope)) {
+      dialogScopeItems.push({ value: startScope, label: shortName(startScope) });
     }
-    scopeSel.value = (form.scopeValue === 'all' || !form.scopeValue) ? 'global' : form.scopeValue;
+    const scopeCombo = makeScopeCombobox({
+      items: dialogScopeItems,
+      value: startScope,
+      placeholder: 'Global',
+      onChange: () => { dirty = true; renderPreview(); },
+    });
+    overlay.querySelector('#va-f-scope-mount').replaceWith(scopeCombo.el);
+    const scopeSel = { get value() { return scopeCombo.getValue(); } }; // a read-through shim for the code below
 
     function applyMask() {
       const mask = form.secret && !revealed;
@@ -493,7 +592,7 @@
 
     templateInput.addEventListener('input', renderPreview);
     valueInput.addEventListener('input', renderPreview);
-    scopeSel.addEventListener('change', renderPreview);
+    // The scope combobox re-renders the preview via its onChange (above) — no listener on the shim.
 
     eyeBtn.addEventListener('click', () => { revealed = !revealed; applyMask(); });
     secretInput.addEventListener('change', () => {
@@ -563,6 +662,7 @@
         return;
       }
       close();
+      opts.onSaved?.();  // e.g. the session quick-pick re-opens itself so the new variable shows at once
       load();
     });
 
@@ -627,4 +727,12 @@
   });
 
   window.loadVariablesAdmin = load;
+
+  // Open the New-variable dialog from outside the admin tab (the session quick-pick). Ensures the scope/
+  // reference data is loaded first, since the admin tab may never have been opened. opts: { preScope,
+  // onSaved }.
+  window.openVariableDialog = async (opts = {}) => {
+    await ensureLoaded();
+    openDialog(null, opts);
+  };
 })();
