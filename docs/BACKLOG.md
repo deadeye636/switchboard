@@ -3,9 +3,9 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-23
+**As of:** 2026-07-24
 
 
 ## P1 — next up
@@ -37,3 +37,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#276](https://github.com/deadeye636/switchboard/issues/276) Quick actions on session cards (approve/deny/reply) driven by live status · _feature_
 - [#278](https://github.com/deadeye636/switchboard/issues/278) Sidebar start state: add 'auto' option to collapse stale projects on open · _feature_
 - [#281](https://github.com/deadeye636/switchboard/issues/281) Explore: rendered Markdown editing in the internal editor (approach TBD) · _feature_
+- [#302](https://github.com/deadeye636/switchboard/issues/302) Extract the timeline viewer out of app.js into session/timeline-view.js · _chore_
