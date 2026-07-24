@@ -161,6 +161,7 @@ const ALLOWED_BINDINGS = {
     'LEGACY_SESSION_BACKEND',    // a session row indexed before provenance existed WAS Claude
   ],
   'src/renderer/app.js': [],
+  'src/renderer/session/timeline-view.js': [],
   'src/renderer/shell/sidebar.js': [],
   // #218 splits the monoliths. A new file is NOT covered by these guards until it is listed here —
   // they iterate this map, not the directory — so a split that forgets a line moves code out from

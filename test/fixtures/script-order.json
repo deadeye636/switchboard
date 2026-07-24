@@ -93,6 +93,7 @@
     "jsonl-search.js",
     "statusbar-zoom.js",
     "app.js",
+    "timeline-view.js",
     "search-bar.js",
     "native-notifications.js",
     "sidebar-collapse.js",
