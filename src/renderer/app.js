@@ -1479,7 +1479,8 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
         loadProjects();
       }
     } else if (tabName === 'plans') {
-      searchBar.style.display = '';
+      restoreMainArea();   // #301 — this sidebar-list tab keeps the terminal in the main area; restore it in
+      searchBar.style.display = '';   // case we arrived from a takeover view that hid it.
       searchInput.placeholder = 'Search plans...';
       plansContent.style.display = '';
       loadPlans();
@@ -1494,11 +1495,13 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       statsViewer.style.display = 'flex';
       loadStats();
     } else if (tabName === 'memory') {
+      restoreMainArea();   // #301 — see the plans branch
       searchBar.style.display = '';
       searchInput.placeholder = 'Search agent files...';
       memoryContent.style.display = '';
       loadMemories();
     } else if (tabName === 'work-files') {
+      restoreMainArea();   // #301 — see the plans branch
       searchBar.style.display = '';
       searchInput.placeholder = 'Search work files...';
       workFilesContent.style.display = '';
@@ -1610,6 +1613,15 @@ function returnToTerminal() {
     openBookmarksView(b.filter, b.label);
     return;
   }
+  restoreMainArea();
+}
+
+// Restore the main area to its terminal state — grid, the active single session, or the placeholder. Split out
+// of returnToTerminal (#301) so the sidebar-list tabs (Plans/Memory/Work-files) can reuse it: those branches
+// only fill the sidebar and assume the main area already shows the terminal, so entering one from a takeover
+// admin view (Variables/Projects/Stats, which hid the terminal) left the main area blank. Unlike
+// returnToTerminal this skips the tasks/bookmarks return-target hop — a tab switch is not a viewer close.
+function restoreMainArea() {
   hideAllViewers();
   if (gridViewActive) {
     placeholder.style.display = 'none';
