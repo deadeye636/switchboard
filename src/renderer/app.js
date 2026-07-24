@@ -205,6 +205,11 @@ let loadProjectsGen = 0; // bumped per loadProjects() call; stale responses bail
 let activePtyIds = new Set();
 let sortedOrder = []; // [{ projectPath, itemIds: [itemId, ...] }, ...] — single source of truth for sidebar order
 let activeTab = 'sessions';
+// The main-area admin views (they take over the workspace, hiding the terminal). Each carries a close × that
+// returns to `previousTab` (#300). `previousTab` records the last NON-admin view left, so × never lands in
+// another admin overlay — a single slot with the literal last tab would ping-pong between two admin tabs.
+const ADMIN_TABS = ['variables', 'projects', 'stats'];
+let previousTab = 'sessions';
 let cachedPlans = [];
 // The value the sidebar limits on until the boot has read the settings (below). It is NOT the default —
 // that lives once, in SETTING_DEFAULTS (#237); this only has to be sane for the first paint, and the two
@@ -1424,6 +1429,9 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     const tabName = tab.dataset.tab;
     if (tabName === activeTab) return;
+    // Remember where to return when an admin view is closed (#300). Only non-admin views are recorded, so the
+    // close × always reaches a working view rather than bouncing between two admin overlays.
+    if (!ADMIN_TABS.includes(activeTab)) previousTab = activeTab;
     activeTab = tabName;
     document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
 
@@ -1447,6 +1455,11 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     workFilesContent.style.display = 'none';
     projectsViewer.style.display = 'none';
     variablesAdminContent.style.display = 'none';
+    // statsViewer is the third main-area admin overlay (position:absolute; inset:0). It was omitted here and
+    // only hidden by hideAllViewers() in the sessions/stats/projects/variables branches — so switching to a
+    // sidebar-list tab (plans/memory/work-files) left it covering the workspace. Closing Stats via × routes
+    // through exactly that path, so hide it unconditionally like its two siblings (#300).
+    statsViewer.style.display = 'none';
     sessionFilters.style.display = 'none';
     searchBar.style.display = 'none';
     // applyProjectTagFilterVisibility is in shell/sidebar-filters.js (loads after app.js, #228).
@@ -1612,6 +1625,15 @@ function returnToTerminal() {
   }
 }
 
+// Close the current main-area admin view (#300) by re-activating the previous view. Clicking the sidebar tab
+// reuses the whole switch handler (hide/show/load + activeTab), so nothing goes stale — the same internal API
+// openVariablesTab already uses. previousTab is a non-admin view by construction; the includes() guard is
+// belt-and-braces.
+function closeAdminView() {
+  const target = ADMIN_TABS.includes(previousTab) ? 'sessions' : previousTab;
+  document.querySelector('.sidebar-tab[data-tab="' + target + '"]')?.click();
+}
+
 // Re-apply global settings live — called when the pop-out settings window saves
 // (Phase 2). Mirrors the apply done by the in-app settings save.
 async function reapplyGlobalSettings() {
@@ -1653,6 +1675,14 @@ async function reapplyGlobalSettings() {
   // Viewer-overlay close buttons (Message History / Timeline headers) → back to terminal.
   document.querySelectorAll('[data-close-viewer]').forEach(btn => {
     btn.addEventListener('click', returnToTerminal);
+  });
+
+  // Close × on the main-area admin views (Variables / Projects / Stats, #300). Delegated because two of the
+  // three headers (.va-header, .pa-header) are re-rendered on each load, so a directly-attached listener would
+  // be lost. NOT data-close-viewer — that is bound to returnToTerminal above, which leaves activeTab stale
+  // (and #variables-admin-content, being position:absolute, would then cover the restored terminal).
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-close-admin]')) closeAdminView();
   });
 
   // Terminal-header toolbar: View messages + Tasks scoped to the active session.
@@ -1732,6 +1762,13 @@ async function reapplyGlobalSettings() {
         || (bookmarksViewer && bookmarksViewer.style.display !== 'none'))) {
       e.preventDefault();
       returnToTerminal();
+      return;
+    }
+    // Esc closes an open main-area admin view (Variables / Projects / Stats) → previous view (#300). After the
+    // viewer branch above, so a viewer opened by shortcut over an admin tab still closes to the terminal first.
+    if (e.key === 'Escape' && ADMIN_TABS.includes(activeTab)) {
+      e.preventDefault();
+      closeAdminView();
       return;
     }
     // Toggle grid view (default Cmd/Ctrl+Shift+G)

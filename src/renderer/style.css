@@ -7813,6 +7813,8 @@ body.grid-dragging .grid-card-header {
 #jsonl-viewer-header .viewer-header-close { margin-left: 2px; }
 /* timeline header: no auto-margin element, so push the close button right */
 #timeline-viewer-header .viewer-header-close { margin-left: auto; }
+/* stats admin header: title is the only other child, so push the close × right (#300) */
+#stats-viewer-header .viewer-header-close { margin-left: auto; }
 
 /* --- Session tabs (Phase 1) --- */
 /* Settings pop-out button in the in-app settings header */

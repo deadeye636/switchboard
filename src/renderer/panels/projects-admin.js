@@ -227,6 +227,7 @@
         <span class="pa-mode">${autoAdd ? 'Auto-add: on' : 'Manual mode'}</span>
         <button class="pa-add" data-action="add">+ Add project</button>
         <button class="pa-refresh" data-action="refresh" title="Reload">⟳</button>
+        <button class="viewer-header-close" data-close-admin title="Close (Esc)" aria-label="Close">&times;</button>
       </div>
       <div class="pa-table-wrap">
         <table class="pa-table">

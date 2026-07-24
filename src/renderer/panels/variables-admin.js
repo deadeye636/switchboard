@@ -164,6 +164,7 @@
         <input type="text" class="va-search" placeholder="Filter variables…" value="${escapeHtml(search)}">
         <button class="va-add" data-action="new">+ New variable</button>
         <button class="va-refresh" data-action="refresh" title="Reload">⟳</button>
+        <button class="viewer-header-close" data-close-admin title="Close (Esc)" aria-label="Close">&times;</button>
       </div>
       <div class="va-table-wrap">
         <table class="va-table">
