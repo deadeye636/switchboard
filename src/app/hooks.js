@@ -41,6 +41,12 @@ const ATTENTION_HOOK_MARK = '/switchboard-attention-hook';
 // settings file rather than the user's, telling us which TERMINAL just reset its session. Its own path so
 // the two are never confused — and so an attention payload can never be mistaken for a binding.
 const CLEAR_BIND_MARK = '/switchboard-clear-bind';
+// The third (#303): "terminal <tag> is running session <id>, right now". Posted from the same per-spawn
+// settings file on ordinary turn events, so it re-states the binding continuously instead of only at a
+// clear. That is what lets a terminal whose CLI moved to a new id for ANY reason be followed — the clear
+// claim only ever describes an ending, and a birth mode nobody anticipated (an in-place restart) left the
+// live row keyed to a dead session with no signal at all.
+const SESSION_BIND_MARK = '/switchboard-session-bind';
 
 let ctx = null;
 let attentionHookServer = null;
@@ -112,6 +118,7 @@ function handleHookRequest(req, res, token = attentionHookToken) {
   let reqPath = '';
   try { reqPath = new URL(req.url, 'http://127.0.0.1').pathname; } catch {}
   const isClearBind = reqPath === CLEAR_BIND_MARK;
+  const isSessionBind = reqPath === SESSION_BIND_MARK;
 
   let body = '';
   req.on('data', (chunk) => {
@@ -135,6 +142,38 @@ function handleHookRequest(req, res, token = attentionHookToken) {
           ctx.log.info(`[clear-bind] terminal=${tag.slice(0, 8)} cleared session=${sessionId}`);
         } else {
           ctx.log.debug(`[clear-bind] ignored: tag=${tag ? 'yes' : 'no'} session=${sessionId ? 'yes' : 'no'} reason=${reason}`);
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end('{}');
+        return;
+      }
+
+      // #303: "terminal <tag> is running session <id>". Both halves are facts — the tag is ours and rides
+      // the URL of a settings file only this terminal was launched with, the id is the CLI's own. So when
+      // the live row for that tag holds a different id, the CLI moved and we simply follow it. No
+      // correlation, no window, no folder heuristic: this is the signal whose absence forced all of those.
+      //
+      // WHY IT IS POSTED ON ORDINARY TURN EVENTS AND NOT ON SessionStart: measured, SessionStart does not
+      // fire from a `--settings` file at all (see backends/claude/live-binding.js). UserPromptSubmit and
+      // Stop do, and both carry session_id — so the binding is re-stated at every turn boundary instead of
+      // once at birth. Costs one loopback POST per turn; buys a self-healing identity.
+      if (isSessionBind) {
+        let tag = null;
+        try { tag = new URL(req.url, 'http://127.0.0.1').searchParams.get('tag'); } catch {}
+        if (tag && sessionId && typeof ctx.adoptSessionId === 'function') {
+          try {
+            const moved = ctx.adoptSessionId(tag, sessionId);
+            if (moved && moved.from && moved.to) {
+              // A transition — the tier this belongs in. It happens once per move, not once per turn.
+              ctx.log.info(`[session-bind] terminal=${tag.slice(0, 8)} followed ${moved.from} → ${moved.to} (${moved.kind})`);
+            } else {
+              // The ordinary case, one per turn: only interesting while diagnosing whether the binding
+              // arrives at all, which is the first thing to check when a terminal is stuck on a dead id.
+              ctx.log.debug(`[session-bind] terminal=${tag.slice(0, 8)} still on ${sessionId}`);
+            }
+          } catch (err) {
+            ctx.log.warn(`[session-bind] could not follow terminal=${tag.slice(0, 8)}: ${err.message}`);
+          }
         }
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end('{}');
@@ -329,9 +368,14 @@ module.exports = {
   // server has no port yet — the caller then launches without a binding and falls back to the
   // single-live-session rule, which is what happens on every backend that declares no binding at all.
   CLEAR_BIND_MARK,
-  clearBindUrl: (tag) => (
-    attentionHookPort && attentionHookToken && tag
-      ? `http://127.0.0.1:${attentionHookPort}${CLEAR_BIND_MARK}?t=${attentionHookToken}&tag=${encodeURIComponent(tag)}`
-      : null
-  ),
+  clearBindUrl: (tag) => bindUrl(CLEAR_BIND_MARK, tag),
+  // #303: the same idea for "this terminal is on that session, now".
+  SESSION_BIND_MARK,
+  sessionBindUrl: (tag) => bindUrl(SESSION_BIND_MARK, tag),
 };
+
+function bindUrl(mark, tag) {
+  return attentionHookPort && attentionHookToken && tag
+    ? `http://127.0.0.1:${attentionHookPort}${mark}?t=${attentionHookToken}&tag=${encodeURIComponent(tag)}`
+    : null;
+}

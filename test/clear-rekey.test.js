@@ -197,6 +197,79 @@ test('sessions started before the binding existed carry no tag — a claim must 
   } finally { s.cleanup(); }
 });
 
+// --- #304: the claim's parent is LINEAGE, not an identity check ---------------------------------------
+
+test('THE #304 CASE: a stale live key still re-keys when the claim names a newer parent', () => {
+  // The terminal moved on once without Switchboard noticing (an in-place CLI restart, #303), so the live
+  // row is keyed to a session two generations old. The CLI then reports a real /clear naming the session it
+  // actually ended. The TAG still identifies this row — that is what resolves it. Comparing the claim's
+  // parent against our own key instead discarded the one authoritative signal in this area, and left the
+  // terminal on a dead id for good.
+  const now = Date.now();
+  const s = setup({
+    'stale.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 20000 },
+    'child.jsonl': { content: CLEAR_LINE + '\n' },
+  }, { claim: { tag: 'tag-term', sessionId: 'real-parent' } });
+  try {
+    s.addSession('stale', { _terminalTag: 'tag-term', knownJsonlFiles: new Set(['stale.jsonl']) });
+
+    transitions.detectSessionTransitions(s.folder);
+
+    assert.equal(s.activeSessions.has('child'), true, 'the terminal follows its CLI onto the child');
+    assert.equal(s.activeSessions.has('stale'), false, 'the stale key is gone');
+    assert.deepEqual(s.sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'stale', 'child']);
+    assert.deepEqual(s.rekeyedMcp, [['stale', 'child']], 'the MCP server followed');
+    assert.deepEqual(s.rekeyedBackend, [['stale', 'child']], 'the backend overlay followed');
+    // The ancestor is what the CLI said it ended, NOT the id we happened to hold the row under.
+    assert.deepEqual(s.lineage, [['child', s.folder, 'real-parent']], 'lineage records the claimed parent');
+    assert.deepEqual(s.released, ['tag-term'], 'the claim is consumed');
+  } finally { s.cleanup(); }
+});
+
+test('#304 with a bystander present: only the claimed terminal moves, stale key or not', () => {
+  const now = Date.now();
+  const s = setup({
+    'stale.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 20000 },
+    'bystander.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 2000 },
+    'child.jsonl': { content: CLEAR_LINE + '\n' },
+  }, { claim: { tag: 'tag-term', sessionId: 'real-parent' } });
+  try {
+    s.addSession('stale', { _terminalTag: 'tag-term' });
+    s.addSession('bystander', { _terminalTag: 'tag-bystander' });
+
+    transitions.detectSessionTransitions(s.folder);
+
+    assert.equal(s.activeSessions.has('child'), true);
+    assert.equal(s.activeSessions.has('stale'), false, 'the claimed terminal moved');
+    assert.equal(s.activeSessions.has('bystander'), true, 'the bystander is untouched');
+    assert.deepEqual(s.lineage, [['child', s.folder, 'real-parent']]);
+  } finally { s.cleanup(); }
+});
+
+test('#304: an unresolved clear child stays re-checkable even though a claim exists', () => {
+  // The old retry guard was `candidates.length > 1 && !claim`, so the mere PRESENCE of a claim ended the
+  // retry — treating "a claim exists" as "the answer is in". A claim that explains another terminal (or
+  // none) says nothing about the one this row is still waiting for.
+  const now = Date.now();
+  const s = setup({
+    'a.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 20000 },
+    'b.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 2000 },
+    'child.jsonl': { content: CLEAR_LINE + '\n' },
+  }, { claim: { tag: 'tag-b', sessionId: 'b' } });
+  try {
+    s.addSession('a', { _terminalTag: 'tag-a', knownJsonlFiles: new Set(['a.jsonl', 'b.jsonl']) });
+    s.addSession('b', { _terminalTag: 'tag-b', knownJsonlFiles: new Set(['a.jsonl', 'b.jsonl']) });
+
+    transitions.detectSessionTransitions(s.folder);
+
+    // 'b' owned the claim and moved; 'a' did not — and must not have swallowed the file.
+    assert.equal(s.activeSessions.has('child'), true, 'the claimed terminal re-keyed');
+    const a = s.activeSessions.get('a');
+    assert.equal(a.knownJsonlFiles.has('child.jsonl'), false,
+      'the unmatched terminal keeps the child re-checkable instead of marking it known');
+  } finally { s.cleanup(); }
+});
+
 test('an ambiguous clear is RE-CHECKED, so a claim that arrives late still lands (#223 race)', () => {
   // The claim comes over HTTP from the CLI; this detection runs off an fs event. They race, and the file
   // event can win. If the child were marked "known" on that first pass, the claim would arrive to find

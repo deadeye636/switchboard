@@ -404,7 +404,10 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       if (backend.supportsLiveRebinding === true && typeof backend.buildLiveBinding === 'function') {
         try {
           const url = ctx.clearBindUrl ? ctx.clearBindUrl(terminalTag) : null;
-          const binding = url ? backend.buildLiveBinding({ dir: ctx.bindingDir, tag: terminalTag, url, log: ctx.log }) : null;
+          // #303: the second URL — "this terminal is on that session, now". Optional on purpose: the
+          // binding still works without it, it just goes back to only knowing about clears.
+          const sessionUrl = ctx.sessionBindUrl ? ctx.sessionBindUrl(terminalTag) : null;
+          const binding = url ? backend.buildLiveBinding({ dir: ctx.bindingDir, tag: terminalTag, url, sessionUrl, log: ctx.log }) : null;
           if (binding && Array.isArray(binding.args) && binding.args.length) {
             launch.args = [...launch.args, ...binding.args];
             // Keep the RELEASE, not the descriptor: the exit handler runs far from here, where `backend`

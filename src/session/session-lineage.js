@@ -29,30 +29,39 @@
 // count rule, which also declines. Nothing is ever guessed.
 //
 // Pure and Electron-free: the caller passes the folder's live candidates and (if any) the claim; this
-// returns { parentId, confidence: 'high' | 'none' }. ('low' is intentionally never returned — a guess we
-// would not act on is a guess we do not make.)
+// returns { ownerId, parentId, confidence: 'high' | 'none', via } — two ids, because which ROW cleared and
+// which SESSION it ended are different questions (see below). ('low' is intentionally never returned — a
+// guess we would not act on is a guess we do not make.)
 
 // candidates: [{ id, tag }] — the active, non-terminal sessions in the folder.
 // claim: { tag, sessionId } | null — a backend-reported "this terminal cleared that session".
-// Returns { parentId, confidence, via }.
+// Returns { parentId, ownerId, confidence, via }.
+//
+// THE TWO IDS ARE NOT THE SAME QUESTION (#304), and conflating them cost a whole terminal:
+//   - `ownerId` — WHICH LIVE ROW cleared, i.e. the key the caller must re-key onto the child. For a claim
+//     that is the row whose TAG was reported, whatever id Switchboard currently holds it under.
+//   - `parentId` — WHAT THE CLI SAID IT ENDED. That is lineage, and nothing else. It equals `ownerId` only
+//     while Switchboard's key for that terminal is current; when an earlier transition was missed it does
+//     not, and a caller that checks `parentId` against its own key throws the claim away — turning the one
+//     authoritative signal in this area into a strictly worse outcome than having none.
 function resolveClearParent({ candidates, claim } = {}) {
   const list = Array.isArray(candidates) ? candidates : [];
 
   // 1. A reported claim. Matched against the LIVE candidates by terminal tag, so a claim from a terminal
-  //    that has since exited (or belongs to another folder) cannot resurrect a dead row. The claim's own
-  //    sessionId is the parent Switchboard should re-key — it is what the CLI said it ended.
+  //    that has since exited (or belongs to another folder) cannot resurrect a dead row.
   if (claim && claim.tag && claim.sessionId) {
     const owner = list.find(c => c && c.tag && c.tag === claim.tag);
-    if (owner) return { parentId: claim.sessionId, confidence: 'high', via: 'claim' };
+    if (owner && owner.id) return { parentId: claim.sessionId, ownerId: owner.id, confidence: 'high', via: 'claim' };
   }
 
   // 2. The pre-existing safe case: exactly one live session in the folder is unambiguously the one that
-  //    cleared, claim or no claim.
-  if (list.length !== 1) return { parentId: null, confidence: 'none', via: null };
+  //    cleared, claim or no claim. With no claim there is no separate parent to know — the live row is
+  //    both, which is why this rule could get away with returning one id.
+  if (list.length !== 1) return { parentId: null, ownerId: null, confidence: 'none', via: null };
   const only = list[0];
   return only && only.id
-    ? { parentId: only.id, confidence: 'high', via: 'single-session' }
-    : { parentId: null, confidence: 'none', via: null };
+    ? { parentId: only.id, ownerId: only.id, confidence: 'high', via: 'single-session' }
+    : { parentId: null, ownerId: null, confidence: 'none', via: null };
 }
 
 module.exports = { resolveClearParent };

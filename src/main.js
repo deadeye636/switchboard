@@ -1197,6 +1197,9 @@ hooks.init({
   log,
   // Dev builds do not touch the user's shared ~/.claude/settings.json unless opted in (#219).
   isPackaged: app.isPackaged,
+  // #303: a terminal reporting which session it is running now. Lazy on purpose — sessionTransitions is
+  // required further down, and this is only ever called once a POST arrives.
+  adoptSessionId: (tag, id) => sessionTransitions.adoptSessionId(tag, id),
 });
 hooks.registerIpc(ipcMain);
 const { startAttentionHookServer, removeClaudeAttentionHook, attentionHooksEnabled } = hooks;
@@ -1777,7 +1780,9 @@ sessionTransitions.init({ PROJECTS_DIR, activeSessions, getMainWindow: () => mai
   getClearClaim: (opts) => clearClaims.resolveSingleClaim(opts),
   releaseClearClaim: (tag) => clearClaims.releaseClaim(tag),
   // #193: persist a /clear child's provenance the moment the re-key resolves it (the scanner can't).
-  recordLineage: (childId, folder, parentId) => setSessionLineage(childId, folder, parentId, 'clear') });
+  // The kind is the caller's (#303): a terminal that simply reported a new id witnessed no cause, and
+  // says 'terminal' rather than claiming a clear it did not see.
+  recordLineage: (childId, folder, parentId, kind = 'clear') => setSessionLineage(childId, folder, parentId, kind) });
 // Point the Claude backend's file-mode discovery at the app's actual projects dir (may differ from
 // ~/.claude/projects when CLAUDE_DIR is overridden). The scanner adopts discoverSessions() in T-4.2.
 try { require('./backends/claude').setRoots([PROJECTS_DIR]); } catch {}
@@ -1867,6 +1872,8 @@ spawn.init({
   // user's own CLI config), the URL its hook posts to, and the way to forget a dead terminal's claim.
   bindingDir: path.join(app.getPath('userData'), 'clear-bindings'),
   clearBindUrl: hooks.clearBindUrl,
+  // #303: and the URL its ordinary turn hooks re-state "this terminal is that session" on.
+  sessionBindUrl: hooks.sessionBindUrl,
   forgetClearClaims: (tag) => clearClaims.forgetTag(tag),
   log,
 });

@@ -319,6 +319,72 @@ function readOldSessionTail(filePath) {
   }
 }
 
+/**
+ * Move a live session onto a new id: the map key, the id it reports as real, the MCP server, the backend
+ * overlay and the renderer's row all follow together. Shared by the two callers that can establish a move
+ * — the transcript detector below and the terminal's own report (`adoptSessionId`) — because doing five of
+ * the six was how a re-key used to half-happen.
+ */
+function applyRekey(fromId, session, toId) {
+  session.realSessionId = toId;
+  activeSessions.delete(fromId);
+  activeSessions.set(toId, session);
+  // Re-key MCP server to match new session ID
+  rekeyMcpServer(fromId, toId);
+  // Re-key the backend/profile overlay too (T-1.4) so provenance follows the id.
+  rekeySessionBackend(fromId, toId);
+  const mainWindow = getMainWindow();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('session-forked', fromId, toId);
+  }
+}
+
+/**
+ * The terminal itself says which session it is running now (#303).
+ *
+ * Both halves are facts: `tag` identifies one of OUR terminals (it rides the URL of a settings file only
+ * that spawn was given), and `newId` is the CLI's own session id from the hook payload. So there is
+ * nothing to correlate and nothing to time-box — if the row we hold under that tag has a different id,
+ * the CLI moved and we follow. This is what covers a move the core has no detector for: `/clear` announces
+ * itself, an in-place restart does not, and before this the row simply stayed on a dead id forever.
+ *
+ * Returns { from, to } when it moved something, else null (which is the ordinary case — it is re-stated
+ * every turn precisely so that it is usually a no-op).
+ */
+function adoptSessionId(tag, newId) {
+  if (!tag || !newId || !activeSessions) return null;
+  let fromId = null;
+  let session = null;
+  for (const [key, s] of activeSessions) {
+    if (s && s._terminalTag === tag) { fromId = key; session = s; break; }
+  }
+  if (!session || session.exited || session.isPlainTerminal) return null;
+  if (fromId === newId) return null;          // already current — every turn but the first after a move
+  // Another row already holds that id. Two live rows must never collapse onto one key (#223's whole
+  // point), and the terminal reporting it is not evidence about the row that already has it.
+  if (activeSessions.has(newId)) return null;
+
+  // WHY the ancestor is not simply `fromId`: when the move was a `/clear`, the CLI told us out of band
+  // which session it ENDED, and that is the real parent — it can differ from the id we held the row under
+  // if an earlier move was missed. A claim for this tag is therefore the better answer whenever there is
+  // one, and it also tells us the move's KIND, which the report on its own never does.
+  let claim = null;
+  try { claim = getClearClaim({ liveTags: [tag] }); } catch { /* no ingest wired (tests) */ }
+  const viaClaim = !!(claim && claim.sessionId);
+  // 'terminal' is deliberately not 'clear': all we witnessed is that this PTY ran that session before
+  // this one. Naming it after a cause we did not observe is the kind of manufactured confidence the
+  // clear resolver exists to avoid.
+  const kind = viaClaim ? 'clear' : 'terminal';
+  const ancestorId = viaClaim ? claim.sessionId : fromId;
+
+  applyRekey(fromId, session, newId);
+  if (session.projectFolder) {
+    try { recordLineage(newId, session.projectFolder, ancestorId, kind); } catch { /* best effort */ }
+  }
+  if (viaClaim) { try { releaseClearClaim(claim.tag); } catch { /* best effort */ } }
+  return { from: fromId, to: newId, kind };
+}
+
 /** Detect fork or plan-accept transitions for active PTY sessions in a folder */
 function detectSessionTransitions(folder) {
   const folderPath = path.join(PROJECTS_DIR, folder);
@@ -383,6 +449,9 @@ function detectSessionTransitions(folder) {
       }
 
       let matched = false;
+      // The ancestor a matched /clear should be recorded against — the claim's parent when a claim resolved
+      // it, which is NOT necessarily this row's current key (#304). Null → fall back to the key.
+      let clearAncestorId = null;
 
       // Fork: forkedFrom.sessionId matches this active PTY or the session it was forked from
       if (signals.forkedFrom === sessionId || (session.forkFrom && signals.forkedFrom === session.forkFrom)) {
@@ -435,24 +504,35 @@ function detectSessionTransitions(folder) {
           const candidates = live.map(([key, s]) => ({ id: key, tag: s._terminalTag || null }));
           // Only claims from terminals still live IN THIS FOLDER can explain this child.
           const claim = getClearClaim({ liveTags: candidates.map(c => c.tag).filter(Boolean) });
-          const { parentId, confidence, via } = resolveClearParent({ candidates, claim });
-          if (confidence === 'high' && parentId === sessionId) {
+          const { parentId, ownerId, confidence, via } = resolveClearParent({ candidates, claim });
+          // `ownerId` is the LIVE ROW that cleared, matched by terminal tag. Checking `parentId` — what the
+          // CLI said it ended — against our key instead was #304: with a stale key the tag still matched,
+          // the claim still named the true parent, and the transition was discarded anyway.
+          if (confidence === 'high' && ownerId === sessionId) {
             matched = true;
             if (via === 'claim') {
+              // The CLI's id, not ours: it is the session that actually ended, so it is the ancestor even
+              // when this row was still keyed to something older.
+              clearAncestorId = parentId;
               // Consume it: the claim has done its job, and leaving it open would let it win a second,
               // unrelated pairing inside its TTL.
               try { releaseClearClaim(claim.tag); } catch { /* best effort */ }
-              log.info(`[detect] session=${sessionId} clear file=${newId} matched by terminal claim`);
+              log.info(`[detect] session=${sessionId} clear file=${newId} matched by terminal claim (ended=${parentId})`);
             }
-          } else if (candidates.length > 1 && !claim) {
+          } else {
             // RETRY, don't forget it. The claim arrives over HTTP from the CLI while this runs off an fs
             // event — the two race, and the file event can win. Marking the file as known here (which the
             // bookkeeping below does for everything not in `emptyFiles`) would mean a claim landing a
             // moment later could never be paired with THIS child, and the terminal would stay on a dead
-            // id for good. Re-checking costs one stat per cycle until the claim shows up or the file ages
-            // out of the freshness window.
+            // id for good. Re-checking costs one stat per cycle until the file ages out of the freshness
+            // window, which bounds it.
+            //
+            // Every unmatched case retries, not just the two-candidates-no-claim one (#304): a claim that
+            // resolved to ANOTHER terminal, or to none, says nothing about the claim this row is still
+            // waiting for, and treating "a claim exists" as "the answer is in" is what made the drop
+            // permanent.
             emptyFiles.add(newFile);
-            log.info(`[detect] session=${sessionId} clear file=${newId} ambiguous (${candidates.length} active sessions in folder, no terminal claim yet) — will re-check`);
+            log.info(`[detect] session=${sessionId} clear file=${newId} unresolved (${candidates.length} active in folder, claim=${claim ? 'other' : 'none'}) — will re-check`);
           }
         }
       }
@@ -463,21 +543,11 @@ function detectSessionTransitions(folder) {
         // Record the /clear child's provenance (#193). This is the authoritative source for a clear link —
         // the scanner cannot correlate it (the parent's file is unchanged and skipped), so we persist it
         // here where the parent is known at high confidence. Fork lineage is written by the scanner.
-        if (kind === 'clear') { try { recordLineage(newId, folder, sessionId); } catch { /* best effort */ } }
+        if (kind === 'clear') { try { recordLineage(newId, folder, clearAncestorId || sessionId); } catch { /* best effort */ } }
         session.knownJsonlFiles = new Set(currentFiles);
-        session.realSessionId = newId;
         // Update slug from new session
         if (signals.slug) session.sessionSlug = signals.slug;
-        activeSessions.delete(sessionId);
-        activeSessions.set(newId, session);
-        // Re-key MCP server to match new session ID
-        rekeyMcpServer(sessionId, newId);
-        // Re-key the backend/profile overlay too (T-1.4) so provenance follows the id.
-        rekeySessionBackend(sessionId, newId);
-        const mainWindow = getMainWindow();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('session-forked', sessionId, newId);
-        }
+        applyRekey(sessionId, session, newId);
         break; // Only one transition per session per flush
       }
     }
@@ -493,4 +563,6 @@ function detectSessionTransitions(folder) {
 module.exports = {
   init, detectSessionTransitions, detectSubagentTransitions, readNewSessionSignals,
   startSubagentSweep, stopSubagentSweep, hasOpenSubagents,
+  // #303: the hook ingest hands the terminal's own report straight through to this.
+  adoptSessionId,
 };

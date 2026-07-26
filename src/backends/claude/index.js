@@ -420,12 +420,13 @@ module.exports = {
   // this hook; one that cannot simply does not, and the core keeps its conservative rule. It is NOT
   // "detect /clear": Codex's `/new` is the same shape and would implement it differently.
   //
-  // The core hands the terminal's tag and the URL its ingest listens on; the backend answers with what
-  // its launch needs (extra argv, and anything to clean up afterwards). Claude writes a per-spawn
-  // settings file registering a SessionEnd:clear hook — see live-binding.js for what was measured.
+  // The core hands the terminal's tag and the URLs its ingest listens on; the backend answers with what
+  // its launch needs (extra argv, and anything to clean up afterwards). Claude writes a per-spawn settings
+  // file registering a SessionEnd:clear hook (which session ENDED, #223) and, on ordinary turn events, a
+  // "this terminal IS that session" post (#303) — see live-binding.js for what was measured for each.
   supportsLiveRebinding: true,
-  buildLiveBinding: ({ dir, tag, url, log } = {}) => {
-    const file = liveBinding.writeBindingSettings({ dir, tag, url, log });
+  buildLiveBinding: ({ dir, tag, url, sessionUrl, log } = {}) => {
+    const file = liveBinding.writeBindingSettings({ dir, tag, url, sessionUrl, log });
     if (!file) return null;
     return { args: ['--settings', file], cleanup: file };
   },

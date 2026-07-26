@@ -56,7 +56,34 @@ test('the claim names the parent, so a re-keyed terminal still resolves to what 
   const candidates = [{ id: 'A', tag: 'tag-a' }, { id: 'B2', tag: 'tag-b' }];
   const r = resolveClearParent({ candidates, claim: { tag: 'tag-b', sessionId: 'B2' } });
   assert.equal(r.parentId, 'B2');
+  assert.equal(r.ownerId, 'B2', 'here the two coincide — which is why conflating them went unnoticed');
   assert.equal(r.via, 'claim');
+});
+
+test('#304: the row that cleared and the session it ended are DIFFERENT ids when a key is stale', () => {
+  // The one case that separates them, and the whole of #304. An earlier move was missed, so the live row
+  // is keyed under something older than what the CLI reports it just ended. The TAG still ties the claim
+  // to this row — that is `ownerId`, the id to re-key. `parentId` is the ancestor, and nothing else.
+  // A caller that checks `parentId` against its own key would find them unequal and drop the transition.
+  const candidates = [{ id: 'stale', tag: 'tag-b' }];
+  const r = resolveClearParent({ candidates, claim: { tag: 'tag-b', sessionId: 'real-parent' } });
+  assert.equal(r.ownerId, 'stale', 'the row to move is the one holding the tag, whatever id we hold it under');
+  assert.equal(r.parentId, 'real-parent', 'the ancestor is what the CLI said it ended');
+  assert.equal(r.confidence, 'high');
+  assert.equal(r.via, 'claim');
+});
+
+test('#304: with no claim the single-session rule answers both questions with the same id', () => {
+  const r = resolveClearParent({ candidates: [{ id: 'only', tag: 'tag-a' }], claim: null });
+  assert.equal(r.ownerId, 'only');
+  assert.equal(r.parentId, 'only', 'no claim means no separately-known ancestor — the live row is both');
+});
+
+test('#304: a declined resolution yields no ownerId either', () => {
+  const r = resolveClearParent({ candidates: [{ id: 'a', tag: 't1' }, { id: 'b', tag: 't2' }], claim: null });
+  assert.equal(r.confidence, 'none');
+  assert.equal(r.ownerId, null, 'a caller must not be handed a row to move when nothing was resolved');
+  assert.equal(r.parentId, null);
 });
 
 test('a claim from a terminal that is no longer live resolves nothing', () => {

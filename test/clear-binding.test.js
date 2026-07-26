@@ -60,7 +60,7 @@ function post(url, payload, token) {
 
 test.beforeEach(() => claims._resetForTests());
 
-test('the settings file Claude gets registers exactly the clear hook, and nothing else', () => {
+test('without a session URL the settings file registers exactly the clear hook, and nothing else', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-bind-'));
   try {
     const file = liveBinding.writeBindingSettings({ dir, tag: 'tag-1', url: 'http://127.0.0.1:1234/x?t=tok&tag=tag-1' });
@@ -76,6 +76,32 @@ test('the settings file Claude gets registers exactly the clear hook, and nothin
 
     liveBinding.removeBindingSettings(file);
     assert.equal(fs.existsSync(file), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('with a session URL it adds the two turn events that were MEASURED to fire (#303)', () => {
+  // SessionStart does not fire from a --settings file (measured twice). UserPromptSubmit, Stop and
+  // SessionEnd do, and carry session_id. The first two are registered; SessionEnd stays scoped to clear,
+  // because an ending is not a "this terminal is now on X" report.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-bind2-'));
+  try {
+    const file = liveBinding.writeBindingSettings({
+      dir, tag: 'tag-1',
+      url: 'http://127.0.0.1:1234/clear?t=tok&tag=tag-1',
+      sessionUrl: 'http://127.0.0.1:1234/bind?t=tok&tag=tag-1',
+    });
+    const blob = JSON.parse(fs.readFileSync(file, 'utf8'));
+
+    assert.deepEqual(Object.keys(blob.hooks).sort(), ['SessionEnd', 'Stop', 'UserPromptSubmit']);
+    assert.equal(blob.hooks.SessionStart, undefined, 'it does not fire from this file — do not register it');
+    for (const ev of ['UserPromptSubmit', 'Stop']) {
+      const h = blob.hooks[ev][0].hooks[0];
+      assert.equal(h.type, 'http', 'a command hook would print into the session context');
+      assert.match(h.url, /\/bind\?/, `${ev} posts to the session-bind path, not the clear one`);
+      assert.match(h.url, /tag=tag-1/);
+      assert.equal(blob.hooks[ev][0].matcher, undefined, 'every turn, not a subset');
+    }
+    assert.equal(blob.hooks.SessionEnd[0].matcher, 'clear', 'the clear hook is unchanged');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
