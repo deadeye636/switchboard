@@ -83,6 +83,27 @@ test('all-archived project sorts by lastActivity, only never-used empties sink',
   assert.deepStrictEqual(paths(r), ['a/new', 'a/archived', 'a/old', 'a/nevers']);
 });
 
+test('lastActivity wins when it is newer than the visible session (#306)', () => {
+  // a/archived still shows an older session; its newest work was archived. The project keeps the place
+  // that work earned it — the rule used to be "visible session, else lastActivity", so archiving the
+  // newest session dropped the project to wherever its second-newest one put it.
+  const r = sortProjects([
+    P('a/mid', { modified: '2026-05-01' }),
+    P('a/archived', { modified: '2026-01-01', lastActivity: '2026-09-01' }),
+  ], { projectSortMode: 'activity' });
+  assert.deepStrictEqual(paths(r), ['a/archived', 'a/mid']);
+});
+
+test('a stale lastActivity never holds a project back (#306)', () => {
+  // The other direction: lastActivity is the max across all sessions, so it can only ever equal or
+  // trail the visible one — but if a caller hands us an older figure the newer session must still win.
+  const r = sortProjects([
+    P('a/live', { modified: '2026-09-01', lastActivity: '2026-01-01' }),
+    P('a/mid', { modified: '2026-05-01' }),
+  ], { projectSortMode: 'activity' });
+  assert.deepStrictEqual(paths(r), ['a/live', 'a/mid']);
+});
+
 test('manual respects favorites block when pinned', () => {
   const r = sortProjects([
     P('a/restA', { modified: '2026-01-01' }),

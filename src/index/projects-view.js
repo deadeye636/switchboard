@@ -31,6 +31,14 @@ function init(ctx) {
   getProjectStates = ctx.db.getProjectStates;
 }
 
+// The later of two timestamps, either of which may be absent. Compared as dates rather than strings
+// because the two sides can reach us in different ISO spellings.
+function newerOf(a, b) {
+  if (!a) return b || '';
+  if (!b) return a;
+  return new Date(a) >= new Date(b) ? a : b;
+}
+
 /**
  * Build the sidebar's projects from THE REGISTER (#167), with the cached sessions layered onto it.
  *
@@ -72,8 +80,9 @@ function buildProjectsFromCache(showArchived) {
   }
 
   const projectMap = new Map();
-  // Track the newest session activity per projectPath across ALL cached rows (archived included). Used to
-  // sort a project whose only sessions are archived.
+  // Track the newest session activity per projectPath across ALL cached rows (archived included). This is
+  // the PROJECT's own last-activity date: every session hands its timestamp to its project, and hiding one
+  // of those sessions never takes the date back (#306).
   const lastActivityByPath = new Map();
   for (const row of cachedRows) {
     if (!row.projectPath) continue;
@@ -203,6 +212,9 @@ function buildProjectsFromCache(showArchived) {
     proj.sessions.sort((a, b) => new Date(b.modified) - new Date(a.modified));
     proj.favorited = favoritedKeys.has(key);
     proj.displayName = displayNameByKey.get(key) || '';
+    // Every project carries its own date, not only the ones with nothing left to show (#306). The branch
+    // above already stamped the registered-but-empty ones (which may fall back to `registeredAt`).
+    if (proj.lastActivity == null) proj.lastActivity = lastActivityByPath.get(key) || null;
     projects.push(proj);
   }
 
@@ -213,10 +225,13 @@ function buildProjectsFromCache(showArchived) {
     // Missing projects go to the bottom
     if (a.missing && !b.missing) return 1;
     if (!a.missing && b.missing) return -1;
-    // Effective recency: a live session's timestamp, or (for a project whose sessions are all archived)
-    // its last-known activity. Only projects with no recency at all sink to the bottom.
-    const aDate = a.sessions[0]?.modified || a.lastActivity || '';
-    const bDate = b.sessions[0]?.modified || b.lastActivity || '';
+    // Effective recency: the newest VISIBLE session, or the project's own last activity across all its
+    // sessions — whichever is NEWER (#306). It used to be `visible || known`, and archiving the newest
+    // session therefore threw the project back to its second-newest one and reordered the sidebar.
+    // Archiving hides a row; it is not a statement that the project went quiet.
+    // Only projects with no recency at all sink to the bottom.
+    const aDate = newerOf(a.sessions[0]?.modified, a.lastActivity);
+    const bDate = newerOf(b.sessions[0]?.modified, b.lastActivity);
     if (!aDate && bDate) return 1;
     if (!bDate && aDate) return -1;
     return new Date(bDate) - new Date(aDate);

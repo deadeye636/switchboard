@@ -22,9 +22,15 @@
     return custom || shortNameOf(p);
   }
   function recencyOf(p) {
-    // Fall back to lastActivity so a project whose sessions are all archived
-    // (rendered as an empty placeholder) still sorts by its real last activity.
-    return (p.sessions && p.sessions[0] && p.sessions[0].modified) || p.lastActivity || '';
+    // The newest VISIBLE session or the project's own lastActivity — whichever is
+    // NEWER (#306). lastActivity counts archived sessions too, so archiving the
+    // newest one hides a row without moving the project. It used to be
+    // `visible || lastActivity`, which reordered the sidebar on every archive.
+    const shown = (p.sessions && p.sessions[0] && p.sessions[0].modified) || '';
+    const known = p.lastActivity || '';
+    if (!shown) return known;
+    if (!known) return shown;
+    return new Date(shown) >= new Date(known) ? shown : known;
   }
   // "No recency at all" = a genuinely never-used empty folder. These sink to the
   // bottom; an all-archived project keeps its recency via lastActivity, so it is
