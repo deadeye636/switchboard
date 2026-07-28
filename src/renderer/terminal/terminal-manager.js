@@ -1490,6 +1490,11 @@ function destroySession(sessionId) {
     gridViewerCount.textContent = gridCards.size + ' session' + (gridCards.size !== 1 ? 's' : '');
   }
   if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
+  // A detached window is named after the set it holds (#325), and this is the one place EVERY
+  // removal funnels through. Closing the tab of a session that is not the active one reaches
+  // neither `setActiveSession` nor the release/adopt handover — so the window kept a `+N` for a
+  // session it no longer had, and the "Move to <window>" entries built from its title said so too.
+  if (typeof window.updateDetachedWindowTitle === 'function') window.updateDetachedWindowTitle();
   // Panes mode: the session's tab goes with it, and a pane emptied by that
   // disappears (#309 O10).
   if (window.panesView) window.panesView.dropSession(sessionId);
