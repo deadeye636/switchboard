@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (22 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (21 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-28
 
@@ -22,7 +22,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 ## P3 — someday
 
 - [#40](https://github.com/deadeye636/switchboard/issues/40) Remote repo over SSH (treat like local) · _feature, source:supacode_
-- [#43](https://github.com/deadeye636/switchboard/issues/43) Detect subagent spawn via .meta.json (not only .jsonl) · _feature_
 - [#84](https://github.com/deadeye636/switchboard/issues/84) Make the terminal LRU cap configurable · _feature_
 - [#105](https://github.com/deadeye636/switchboard/issues/105) Evaluate: local Whisper voice input · _feature, port_
 - [#107](https://github.com/deadeye636/switchboard/issues/107) Evaluate: brianstanley cursor-ui-refresh · _feature, port, source:brianstanley_
