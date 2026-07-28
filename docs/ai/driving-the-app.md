@@ -79,7 +79,10 @@ node scripts/drive-app.js --target=detached= eval "…"            # the detache
 ```
 
 When in doubt, ask the page who it is: `window.__detachedSessionId` is the session id in a detached
-window and `null` in the main one.
+window and `null` in the main one. It is only the id the window was **opened** with, though — since
+#316 a window can hold several sessions, and `--target=detached=` then matches more than one window.
+For what is where, ask main: `await window.api.listSessionWindows(sessionId)` returns one entry per
+window (`{id, title, isMain, sessionIds, current}`), with `current` on the one holding that session.
 
 ## A drag has to be a real drag
 
@@ -107,10 +110,13 @@ To reproduce more than one live terminal at once — needed to see the tabs-mode
 (a top-level fn in `app.js`, reachable from `eval`), NOT `window.api.openTerminal(...)`. The latter is
 the low-level PTY spawn in main and creates neither a tab nor an `openSessions` entry, so a second
 call just replaces the first and `dims` still reports one open terminal. Session objects come from
-`await window.api.getProjects(false)`. Tabs only exist when `getSetting('global').sessionDisplayMode`
-is `'tabs'` (otherwise grid, where only the focused card runs WebGL, #140). With two tabs open,
-`dims <id>` on each confirms both hold a live WebGL context (`webglAddon: true`) — the shared-atlas
-state to test against.
+`await window.api.getProjects(false)`. Tabs exist when `getSetting('global').sessionDisplayMode`
+is `'tabs'` or `'panes'`. With two tabs open, `dims <id>` on each confirms both hold a live WebGL
+context (`webglAddon: true`) — the shared-atlas state to test against.
+
+**Panes mode is the cheapest way to get several live GL contexts** since #320: every pane runs the same
+renderer, all WebGL up to eight panes. Grid is the opposite — only the focused card holds a context
+(#140) — so a WebGL question asked in grid mode answers about one terminal, not several.
 
 ## A dev run you stopped may not be stopped (#220)
 

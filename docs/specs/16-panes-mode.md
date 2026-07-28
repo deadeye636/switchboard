@@ -10,7 +10,7 @@ the tree, the per-pane strip, the `…` pane menu (A), tab drag with the 10 % ed
 localStorage persistence and the two shortcuts (#309). The typed views followed (#310): preview and
 diff, plus message history, plan, activity and memory, are pane tabs.
 
-Three later fixes belong to the record:
+Four later fixes belong to the record:
 
 - **The pane actions also answer a right-click** (#312) — on a tab together with that tab's own
   actions, on the strip or the session bar alone. All three entry points build their items in one
@@ -26,7 +26,10 @@ Three later fixes belong to the record:
   session has no process no longer opens it — that path spawns a fresh CLI, which is the opposite of
   what clicking a dead tab means. The pane says so instead and offers a **Launch** button: the one
   empty state that carries an action, because it is the one case where opening costs a process. A tab
-  whose session is still running elsewhere is unaffected — clicking it attaches, as before.
+  whose session is still running elsewhere is unaffected — clicking it attaches, as before. The tab
+  reads as ended (dimmed, struck through) when `launchExitedSessions` says so — a marker cleared the
+  moment a live PTY appears under the id, so a tab restored from a saved layout whose session never ran
+  *this run* is not "exited". Its menu also gained **Stop & close** and **Relaunch** (#312).
 
 Two things diverge from the plan above and are load-bearing:
 
@@ -76,7 +79,9 @@ detached window (#2) "a tree with one leaf" instead of a separate mechanism.
 | O1 | Third mode `panes` beside `legacy` and `tabs` | `legacy` stays the default; non-breaking |
 | O2 | Grid stays a mode of its own | grid = *automatic overview of all sessions*; panes = *manually arranged workspace*. See §4.4 |
 | O3 | Tiled split tree, no free-floating windows inside the main area | |
-| O4 | No cap on simultaneously rendered terminals | |
+| O4 | No cap on simultaneously rendered terminals | Still true — past the WebGL cap below they all render, on the DOM renderer |
+| O14 | Every pane uses the same renderer: all WebGL up to `MAX_WEBGL_PANES` (8), all DOM past it (#320) | A split renderer is a split cell metric, and at dpr ≠ 1 that is visible. The cap counts panes, not contexts — #323 |
+| O15 | "Close pane" is not a tab action (#312) | A right-click on a tab is about that tab; with one tab in the pane the two entries would read as the same thing. It stays on the `…`/strip/bar menus |
 | O6 | Pane actions live in the `…` menu | variant **A**, §4.1 |
 | O7 | A sidebar click opens in the **active** pane | |
 | O8 | Tree persists in localStorage, sizes as fractions | next to `gridLayout`; debounced writes |
@@ -117,7 +122,7 @@ variables, status, IDE-emulation chip, stop. With several panes each pane has it
 
 ```
 H1   [ tab ][ tab ]                                  ▾ │ …
-     api-gateway  4a2f  pwsh        ✉ ☑ ⚿  ● Running  IDE  ■      ← extra 33 px row
+     ● api-gateway  4a2f  pwsh              ✉ ☑ ⚿  ■      ← extra 33 px row (as built, #321)
 H2   [ tab ][ tab ]               ✉ ☑ ⚿ ■ │ ▾ │ …               ← one 34 px row
 H3   api-gateway  4a2f  pwsh                     ● Running  IDE ■  ← one bar above the whole tree
      [ tab ] │ [ tab ]
@@ -179,7 +184,7 @@ side effect of this one. The tree model is pure, so the option stays open.
 
 | | Risk | Mitigation |
 |---|---|---|
-| R1 | WebGL — reparenting plus many visible terminals is the corner of #118 (stale atlas), #128 (context loss / stale fit) and #262 (atlas contention). Panes make grid's exceptional case the normal one | **Settled in #320**, by measuring rather than assuming: two panes both on WebGL, ~18 000 distinct codepoints flooded through each to recycle the shared atlas several times over — no corruption, no context loss. What #140 actually hit was context *churn*, now fixed at the source (`loadTerminalWebgl` is idempotent). The eight-pane cap and the all-or-nothing rule keep the metric uniform |
+| R1 | WebGL — reparenting plus many visible terminals is the corner of #118 (stale atlas), #128 (context loss / stale fit) and #262 (atlas contention). Panes make grid's exceptional case the normal one | **Settled in #320**, by measuring rather than assuming: two panes both on WebGL, ~18 000 distinct codepoints flooded through each to recycle the shared atlas several times over — no corruption, no context loss. What #140 actually hit was context *churn*, now fixed at the source (`loadTerminalWebgl` is idempotent). The all-or-nothing rule keeps the metric uniform, and if a load refuses (setting off, WebGL given up after repeated losses) the panes that got a context give it back rather than leave the metric split. **The cap counts panes, not contexts:** a background tab in a pane keeps its own, so the real bound is the terminal LRU cap (12) against the raised budget (32) — #323 |
 | R2 | Status drift — sidebar, tab and grid card already drifted apart four times (#124, #253, #257, #269); panes multiply the tab case | One render path for a tab's status, shared with `.status-dot.status-*` |
 | R3 | Every `terminal-header*` lookup assumes a singleton | Convert them in one pass, `addMcpToggle()` included |
 | R4 | Typed views (P2) touch every view module | Terminal tabs first; the tab type exists from day one so nothing is rebuilt later |

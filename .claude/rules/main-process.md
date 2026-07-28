@@ -10,15 +10,16 @@ paths:
 
 ## `src/main.js` is a composition root
 
-~1830 lines, down from 5011 — the split is done (#213), #227 moved nine more handlers out. What is
+~2000 lines, down from 5011 — the split is done (#213), #227 moved nine more handlers out. What is
 left: the requires, `DATA_DIR` (before anything requires db.js), the wiring for thirteen modules, and
-**76 small IPC handlers** that stayed on purpose (thin, no shared state; moving them buys churn).
+the **small IPC handlers** that stayed on purpose (thin, no shared state; moving them buys churn).
+`GRANDFATHERED` in `test/main-no-new-ipc.test.js` is the list — count it there rather than here.
 
 `src/app/` holds `lifecycle.js` (boot, ordered teardown), `windows.js`,
 `notifications.js`, `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`,
 `settings-transfer.js`, `plans-memory.js` (Plans/Memory/Work-Files tabs — #227),
 `vcs.js` (the VCS poller + its standalone windows — #277), `detach.js` (detached session
-windows — #2) and `terminal/` (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow
+windows — #2, and since #316 which window renders which session) and `terminal/` (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow
 control, plus the PTY pure-logic).
 
 ## One channel routes per session: `terminal-data` (#2)
@@ -33,6 +34,20 @@ the session the user pushed onto the other monitor.
 The corollary bites in the renderer: **nothing may mount a session that is detached**, and there are
 more mount paths than `openSession` (`attachRunningSession`, the grid's auto-open). Two xterms on one
 PTY echo every keystroke twice and fight over the size — the failure is loud but its cause is not.
+
+**A window owns a SET of sessions (#316).** The map is keyed by session, so several keys may point at
+one window, and `move-session-to-window` moves one in any direction — main → detached, detached → main,
+detached → detached. Four things follow, and `docs/specs/17-detached-windows.md` §2b is the long form:
+
+- The order inside that handler is load-bearing: **release, re-register, adopt.** The giving window is
+  told to let go first, or two renderers hold one PTY for an IPC round trip; the re-registration sits
+  in the middle because `windowForSession` decides where the replay the target is about to ask for goes.
+- `session-detached` / `session-reattached` are addressed to a **specific window**, not always main.
+- `session-reattached` carries a `running` flag from `activeSessions`. The renderer must not answer
+  that question itself — its `activePtyIds` is a poll that backs off to 30 s in an idle window, and
+  adopting a dead session resumes its CLI.
+- **`reattach-session` no longer exists.** It was `move-session-to-window(id, 'main')` with a window
+  destroy hard-coded, which is wrong for a window holding more than one session.
 
 ## Where an IPC handler goes
 
@@ -50,7 +65,7 @@ PTY echo every keystroke twice and fight over the size — the failure is loud b
 | Terminal input/resize/redraw/flow control | `src/app/terminal/io.js` |
 | The Plans, Memory and Work-Files tabs | `src/app/plans-memory.js` |
 | Version-control status, the changes/diff windows | `src/app/vcs.js` (the seam it drives is `src/vcs/`) |
-| Detached session windows, and which window a session renders in | `src/app/detach.js` |
+| Detached session windows, which window a session renders in, moving one between windows | `src/app/detach.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;

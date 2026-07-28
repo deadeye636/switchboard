@@ -329,15 +329,24 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Tabbed single-view** as the primary layout — session tabs, viewer close buttons; the
   grid is kept as a legacy mode. Right-click **tab context menu** (Close / Stop / Relaunch),
   auto-close, and removal of the top menubar for a cleaner window.
-- **Detached session windows** (#2) — move a running session into an OS window of its own (pane menu
-  or the tab's context menu), drag it to a second monitor, close the window to hand it back. The PTY
-  never moves: only the window that receives its output changes, so the session runs through the whole
-  detour. Its status, attention badge and sidebar row stay in the main window, where they belong.
-- **Panes** (#309) — a third display mode that splits the terminal area into a VS-Code-style tree of
-  panes, each with its own tab strip. Drag a tab onto a pane's edge to split, onto its middle to move
-  it there; sashes resize, and the layout survives a restart. The session tools (messages, tasks,
-  variables, IDE chip, stop) sit in the pane's own strip, so they act on the terminal below them
-  rather than on "the active session". `Ctrl/Cmd+Shift+\` splits, `Ctrl/Cmd+Shift+1…9` focuses a pane.
+- **Detached session windows** (#2, #314, #315, #316) — move a running session into an OS window of its
+  own (pane menu or the tab's context menu) and drag it to a second monitor. It comes back the same
+  way: **Return to main window** in that window's menu, or the sidebar row's own button — a detached
+  session is marked `⧉` there and its row raises the window instead of opening it twice. A session can
+  also move **into any window that is already open**, so a second monitor can carry several of them;
+  a window that gives away its last session closes, and closing one by hand hands everything it holds
+  back. The PTY never moves: only the window that receives its output changes, so the session runs
+  through the whole detour. Its status, attention badge and sidebar row stay in the main window, where
+  they belong.
+- **Panes** (#309, #312, #313, #318, #321) — a third display mode that splits the terminal area into a
+  VS-Code-style tree of panes, each with its own tab strip. Drag a tab onto a pane's edge to split,
+  onto its middle to move it there — a caret marks the gap it will land in — and sashes resize; the
+  layout survives a restart. The session tools (messages, tasks, variables, stop) sit with the pane,
+  so they act on the terminal below them rather than on "the active session", with the running state
+  as a dot in front of the session name. Right-click a tab for its own actions plus the pane's, or the
+  strip and the session bar for the pane's alone. A tab whose session has ended offers a **Launch**
+  button rather than restarting the CLI on a stray click. `Ctrl/Cmd+Shift+\` splits,
+  `Ctrl/Cmd+Shift+1…9` focuses a pane.
 - **Settings overhaul** — two-column layout, permission modes aligned to the Claude CLI, and
   an optional pop-out settings window that paints instantly and is kept warm between opens.
   The actions are pinned to the bottom edge, reachable at any scroll position in any category:

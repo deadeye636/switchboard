@@ -128,6 +128,29 @@ consequences that are easy to break:
 - **A second window shares this origin.** A detached window (#2) must not write the layout, the
   open-sessions restore state, or `gridViewActive` — see `docs/specs/17-detached-windows.md` §4.
 
+## WebGL is decided per MODE, and the three answers differ
+
+Each terminal that runs the WebGL renderer holds its own GL context; they all share one glyph atlas.
+Three modes, three policies, and the reason they differ is measured, not assumed:
+
+| Mode | Policy | Why |
+|---|---|---|
+| tabs / single | every open terminal keeps its context | only one is visible; the LRU cap (12) bounds the count against the raised budget (32, `main.js`) |
+| **panes** | **all WebGL up to `MAX_WEBGL_PANES` (8), all DOM past it** — never a mix | the two renderers disagree on the cell box: at dpr 2 it measured 8.000 px under WebGL and 8.2065 px under DOM, so a mixed layout draws one pane heavier and a line off (#320) |
+| grid | only the focused card | unbounded card count, thumbnail-sized cards. Its stated reason (atlas contention) is **half-refuted** — see #324 |
+
+Three things that are easy to undo by accident:
+
+- **Never load WebGL from a view path.** `showSession` used to, and in an all-DOM layout that created
+  a context per click for the policy to dispose a microtask later — the churn #140 actually died of.
+  The layout decides the renderer; a reveal only repaints.
+- **A refused load must roll back.** If one pane's load refuses (setting off, WebGL given up after
+  repeated losses), the panes that got a context give it back. Half-applied is the split the policy
+  exists to prevent.
+- **`loadTerminalWebgl` is idempotent, and `disposeWebglAddon` runs even with no addon** — the
+  context-loss handler drops the reference without touching the DOM, and the orphaned canvases sit on
+  top of the DOM renderer's rows as an opaque layer (#309's shape).
+
 ## `src/shared/`
 
 The four modules **both processes load** — `attention-source`, `custom-launchers`,

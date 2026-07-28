@@ -4,17 +4,20 @@
 // The PTY never moves. It stays in `activeSessions` exactly as before; what changes is **which window
 // receives its byte stream**. That is the whole mechanism, and it is why detach is cheap here:
 //
-//   terminal-data          -> the OWNING window (this module decides)
-//   everything else        -> the main window (the sidebar, the attention inbox and the badges live
-//                            there, and they must keep updating for a detached session too)
+//   terminal-data                        -> the OWNING window (this module decides)
+//   session-detached / session-reattached -> the window that must let go / take over. Main by default;
+//                                           since #316 either end can be a detached window.
+//   everything else                      -> the main window (the sidebar, the attention inbox and the
+//                                           badges live there, and they must keep updating for a
+//                                           detached session too)
 //
 // Get that separation wrong and the symptom is subtle: attention badges stop appearing for the one
 // session the user pushed to the other screen — the one they are least likely to be watching.
 //
 // The detached window loads the SAME `index.html` with `?detached=<sessionId>`. It therefore inherits
 // every terminal fix (ConPTY quirks, paste, mouse reporting, right-click, WebGL fallback) instead of
-// growing a second, quietly diverging renderer. The cost is one full renderer per detached session,
-// which is accepted for a power feature.
+// growing a second, quietly diverging renderer. The cost is one full renderer per detached WINDOW —
+// since #316 a window can hold several sessions — which is accepted for a power feature.
 //
 // Needs no DB, and `BrowserWindow` arrives through ctx rather than a top-level require — that is what
 // keeps the routing and the detach/reattach state machine loadable in `node --test`

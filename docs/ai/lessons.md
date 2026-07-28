@@ -80,7 +80,7 @@ that looked like a click. What they cost, and what actually caught them:
   single-pane tree shrank to the width of its own strip), and a teardown that cleared `.visible` on
   every container while the mode being switched into does not re-establish it.
 
-The suite was green for all six, at 1835 tests. The pane-tree model behind them has 35 tests and is
+The suite was green for all six, at 1835 tests. The pane-tree model behind them has 38 tests and is
 correct — the model was never the risk.
 
 **#2 (detach) repeated the shape, twice more.** A review found seven defects after the feature was

@@ -25,6 +25,7 @@ detach-session (IPC)  →  new BrowserWindow: index.html?detached=<sessionId>
 |---|---|
 | `terminal-data` | the **owning** window — `app/detach.js` `windowForSession(id)`, asked by `spawn.js` through ctx |
 | `process-exited` | the owning window **and** main (main writes the sidebar's state, the owner writes the banner into the terminal the user is looking at) |
+| `session-detached` / `session-reattached` | the window that must let go / take over — main by default, a specific detached window since #316 |
 | `cli-busy-state`, `terminal-notification`, `session-forked`, everything else | main only |
 
 The separation is the point. The sidebar, the attention inbox and the badges live in the main window,
@@ -114,7 +115,8 @@ default with the main window. Three things had to be told not to write:
 
 A minimal `detached.html` would have to re-wire the terminal by hand and would drift from the real
 one: ConPTY quirks, paste, mouse reporting, the right-click menu, WebGL fallback, the fit self-heal.
-Reusing the page costs one full renderer per detached session, which is accepted for a power feature.
+Reusing the page costs one full renderer per detached WINDOW — since #316 a window can hold several
+sessions — which is accepted for a power feature.
 
 With panes mode (spec 16) already in place, the window needed no special renderer at all: it gets a
 tree with one leaf and inherits the strip, the session bar and the tools. The **ghost tab** the
@@ -123,7 +125,7 @@ has no tab there, and clicking its sidebar row raises its window.
 
 ## 7 · Tests
 
-`test/detach-routing.test.js` (25) covers the routing and the state machine without Electron —
+`test/detach-routing.test.js` (26) covers the routing and the state machine without Electron —
 `BrowserWindow` arrives through ctx for exactly that reason. It pins per-session routing, the window's
 shape (no `parent`: a child window is always on top, which defeats a second monitor; no background
 throttling), double detach, reattach, close-by-hand, quit, `closeAll` off the quit path, a window
