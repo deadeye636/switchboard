@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (30 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (29 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-28
 
@@ -35,7 +35,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#305](https://github.com/deadeye636/switchboard/issues/305) A terminal whose CLI lost its --settings argv is invisible to the live bindings · _bug_
 - [#311](https://github.com/deadeye636/switchboard/issues/311) Panes: preview and diff instantiable per pane · _feature_
 - [#319](https://github.com/deadeye636/switchboard/issues/319) Detach: a session without a process cannot be moved to its own window · _feature_
-- [#321](https://github.com/deadeye636/switchboard/issues/321) Panes: status and IDE chips as dots, label on hover · _feature_
 - [#322](https://github.com/deadeye636/switchboard/issues/322) Terminal: suspending WebGL leaves a stale fit · _bug_
 - [#323](https://github.com/deadeye636/switchboard/issues/323) Panes: background tabs keep their GL context, so the pane cap is not the real bound · _chore_
 - [#324](https://github.com/deadeye636/switchboard/issues/324) Grid: re-measure the focused-card-only WebGL policy · _chore_
