@@ -256,9 +256,10 @@
     return collapse(pruned);
   }
 
-  // Move a tab between panes (or within one). `index` is the insert position in the
-  // target. Moving the last tab out of a pane removes that pane, exactly as closing
-  // it would — the tab survives, the pane does not.
+  // Move a tab between panes (or within one). `index` is the gap in the target's tab
+  // list **as the caller sees it now**, before the tab is lifted out. Moving the last
+  // tab out of a pane removes that pane, exactly as closing it would — the tab
+  // survives, the pane does not.
   function moveTab(tree, { fromLeafId, toLeafId, tabId, index = -1 } = {}) {
     const fromPath = pathOfLeaf(tree, fromLeafId);
     const toPath = pathOfLeaf(tree, toLeafId);
@@ -271,7 +272,12 @@
       const leaf = clone(source);
       const at = leaf.tabs.findIndex((t) => t.id === tabId);
       leaf.tabs.splice(at, 1);
-      const to = index < 0 || index > leaf.tabs.length ? leaf.tabs.length : index;
+      // Lifting the tab out shifts every gap to its right one slot left, so an
+      // index past the source has to shift with it. Without this a rightward drag
+      // lands one tab too far, and a drop on the last tab lands past the end —
+      // which is why "move a tab to the end" appeared impossible (#313).
+      const wanted = index > at ? index - 1 : index;
+      const to = wanted < 0 || wanted > leaf.tabs.length ? leaf.tabs.length : wanted;
       leaf.tabs.splice(to, 0, tab);
       leaf.activeTabId = tab.id;
       return replaceAt(tree, fromPath, leaf);

@@ -7942,6 +7942,12 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .session-tab-menu-item:hover { background: rgba(255, 255, 255, 0.06); }
 .session-tab-menu-item.danger:hover { background: rgba(220, 60, 60, 0.18); color: #ff9a9a; }
 .session-tab-menu-item:disabled { color: #6a6a7a; cursor: default; background: none; }
+/* Splits the tab actions from the pane actions in the panes-mode menu (#312). */
+.session-tab-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgba(255, 255, 255, 0.1);
+}
 
 /* ========== DETACHED SESSION WINDOW (#2) ========== */
 /* Same index.html, one session, no app chrome: the sidebar, its resize handle and the status bar all
@@ -8123,6 +8129,20 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   border: 1px solid rgba(128, 136, 255, 0.55);
   pointer-events: none;
   z-index: 5;
+}
+/* The insertion caret in a tab strip (#313): the gap the dragged tab will land in.
+   It is a child of the scrolling list, so it needs that list as its offset parent. */
+.pane-strip .session-tabs-list { position: relative; }
+.pane-tab-caret {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: rgba(128, 136, 255, 0.95);
+  box-shadow: 0 0 4px rgba(128, 136, 255, 0.7);
+  pointer-events: none;
+  z-index: 6;
 }
 .pane-drop-center { inset: 0; }
 .pane-drop-left { inset: 0 50% 0 0; }

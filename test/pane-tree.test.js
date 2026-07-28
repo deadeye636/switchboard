@@ -197,9 +197,37 @@ test('moving the last tab out removes the source pane but keeps the tab', () => 
 });
 
 test('moveTab within one pane reorders it', () => {
-  const tree = moveTab(base(), { fromLeafId: 'p1', toLeafId: 'p1', tabId: 't1', index: 1 });
+  const tree = moveTab(base(), { fromLeafId: 'p1', toLeafId: 'p1', tabId: 't1', index: 2 });
   assert.deepEqual(tree.tabs.map((t) => t.id), ['t2', 't1']);
   assert.equal(tree.activeTabId, 't1');
+});
+
+// The index is a gap in the list the caller is looking at — the one that still holds
+// the dragged tab. Reading it as a post-removal index put a rightward drag one slot
+// too far and made "drop it last" unreachable (#313).
+test('moveTab reads the index as a gap in the pre-move list', () => {
+  const three = () => createTree('p1', [term('t1'), term('t2'), term('t3')]);
+  const order = (index) => moveTab(three(), { fromLeafId: 'p1', toLeafId: 'p1', tabId: 't1', index })
+    .tabs.map((t) => t.id);
+  assert.deepEqual(order(0), ['t1', 't2', 't3'], 'the gap before itself is a no-op');
+  assert.deepEqual(order(1), ['t1', 't2', 't3'], 'the gap after itself is a no-op');
+  assert.deepEqual(order(2), ['t2', 't1', 't3'], 'between t2 and t3');
+  assert.deepEqual(order(3), ['t2', 't3', 't1'], 'past the last tab');
+});
+
+test('moveTab leftwards keeps the index it was given', () => {
+  const tree = createTree('p1', [term('t1'), term('t2'), term('t3')]);
+  const moved = moveTab(tree, { fromLeafId: 'p1', toLeafId: 'p1', tabId: 't3', index: 1 });
+  assert.deepEqual(moved.tabs.map((t) => t.id), ['t1', 't3', 't2']);
+});
+
+test('moveTab with no index appends, in either pane', () => {
+  const within = moveTab(base(), { fromLeafId: 'p1', toLeafId: 'p1', tabId: 't1' });
+  assert.deepEqual(within.tabs.map((t) => t.id), ['t2', 't1']);
+  let across = splitLeaf(base(), 'p1', 'right', { newLeafId: 'p2', tab: term('t3') });
+  across = addTab(across, 'p2', term('t4'));
+  across = moveTab(across, { fromLeafId: 'p1', toLeafId: 'p2', tabId: 't1' });
+  assert.deepEqual(nodeAt(across, pathOfLeaf(across, 'p2')).tabs.map((t) => t.id), ['t3', 't4', 't1']);
 });
 
 test('a move with an unknown pane or tab is a no-op', () => {

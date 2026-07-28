@@ -302,10 +302,16 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     more.textContent = '…';
     more.title = 'Pane actions';
     more.setAttribute('aria-label', 'Pane actions');
-    more.addEventListener('click', (e) => { e.stopPropagation(); openPaneMenu(more, leaf.id); });
+    more.addEventListener('click', (e) => { e.stopPropagation(); openPaneMenu({ anchor: more }, leaf.id); });
     strip.appendChild(more);
 
     strip.addEventListener('mousedown', () => focusPane(leaf.id), true);
+    // Right-click on the strip itself (the tabs stop propagation and add their own
+    // items) — the pane actions without aiming at the `…` button.
+    strip.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openPaneMenu({ x: e.clientX, y: e.clientY }, leaf.id);
+    });
     return strip;
   }
 
@@ -346,13 +352,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     close.type = 'button';
     close.title = 'Close tab';
     close.textContent = '×';
-    close.addEventListener('click', (e) => {
-      e.stopPropagation();
-      // Nothing to tear down for a tab whose session was never mounted — drop it
-      // from the layout and leave the session alone.
-      if (!openSessions.has(sessionId)) { dropTab(leaf.id, tab.id); return; }
-      closeSessionTab(sessionId);
-    });
+    close.addEventListener('click', (e) => { e.stopPropagation(); closeTabFromUi(leaf.id, tab); });
     el.appendChild(close);
 
     el.addEventListener('click', () => {
@@ -365,8 +365,19 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     el.addEventListener('auxclick', (e) => {
       if (middleClickCloses && e.button === 1) { e.preventDefault(); closeSessionTab(sessionId); }
     });
+    wireTabContextMenu(el, leaf.id, tab);
     wireTabDrag(el, leaf.id, tab.id);
     return el;
+  }
+
+  // Right-click on a tab: the tab's own actions plus the pane's (#312). Propagation
+  // stops here so the strip's handler does not answer with the pane-only menu.
+  function wireTabContextMenu(el, leafId, tab) {
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openPaneMenu({ x: e.clientX, y: e.clientY }, leafId, tab);
+    });
   }
 
   // A tab for one of the app's views (#310). No status dot — a view has no
@@ -390,14 +401,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     close.type = 'button';
     close.title = 'Close tab';
     close.textContent = '×';
-    close.addEventListener('click', (e) => {
-      e.stopPropagation();
-      // Tell the VIEW to close, not just the layout: it owns the state that
-      // decides whether it reappears, and a tab-only close would be undone by the
-      // next session switch. Its own close path comes back through closeViewTab.
-      if (tab.kind === 'preview' && typeof window.closeFilePanel === 'function') window.closeFilePanel();
-      else closeViewTab(tab.kind);
-    });
+    close.addEventListener('click', (e) => { e.stopPropagation(); closeTabFromUi(leaf.id, tab); });
     el.appendChild(close);
 
     el.addEventListener('click', () => {
@@ -406,6 +410,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       render();
       persist();
     });
+    wireTabContextMenu(el, leaf.id, tab);
     wireTabDrag(el, leaf.id, tab.id);
     return el;
   }
@@ -861,7 +866,60 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     if (activeMenu) { activeMenu.remove(); activeMenu = null; }
   }
 
-  function openPaneMenu(anchor, leafId) {
+  // Closing a tab from the UI — the × and the context menu take the same path, so a
+  // view still gets told to close itself and a dormant session still leaves the
+  // layout without touching anything live.
+  function closeTabFromUi(leafId, tab) {
+    if (isViewTab(tab)) {
+      // Tell the VIEW to close, not just the layout: it owns the state that decides
+      // whether it reappears, and a tab-only close would be undone by the next
+      // session switch. Its own close path comes back through closeViewTab.
+      if (tab.kind === 'preview' && typeof window.closeFilePanel === 'function') window.closeFilePanel();
+      else closeViewTab(tab.kind);
+      return;
+    }
+    const sessionId = sessionOfTab(tab);
+    // Nothing to tear down for a tab whose session was never mounted — drop it from
+    // the layout and leave the session alone.
+    if (!openSessions.has(sessionId)) { dropTab(leafId, tab.id); return; }
+    closeSessionTab(sessionId);
+  }
+
+  // The tab half of the context menu. A view tab has no process, so it gets Close
+  // and nothing else.
+  function addTabItems(item, leafId, tab) {
+    item('Close', () => closeTabFromUi(leafId, tab));
+    if (isViewTab(tab)) return;
+    const sessionId = sessionOfTab(tab);
+    item('Stop & close', () => {
+      try { window.api.stopSession(sessionId); } catch { /* already gone */ }
+      closeTabFromUi(leafId, tab);
+    }, { danger: true, disabled: !activePtyIds.has(sessionId) });
+    item('Relaunch', () => window.relaunchSession(sessionId), {
+      disabled: typeof window.relaunchSession !== 'function',
+    });
+  }
+
+  // Under the `…` button, or at the cursor for a right-click — clamped into the
+  // viewport either way.
+  function positionPaneMenu(pop, at) {
+    pop.style.position = 'fixed';
+    if (at && at.anchor) {
+      const r = at.anchor.getBoundingClientRect();
+      pop.style.top = (r.bottom + 4) + 'px';
+      pop.style.right = Math.max(4, window.innerWidth - r.right) + 'px';
+      return;
+    }
+    const rect = pop.getBoundingClientRect();
+    pop.style.left = Math.max(4, Math.min(at.x, window.innerWidth - rect.width - 4)) + 'px';
+    pop.style.top = Math.max(4, Math.min(at.y, window.innerHeight - rect.height - 4)) + 'px';
+  }
+
+  // The `…` button and a right-click show the same menu (#312). The button is the
+  // discoverable entry point, the right-click the fast one, so neither may grow
+  // items the other lacks — both come through here. `tab` is the tab that was
+  // right-clicked; without one the menu is the pane's alone.
+  function openPaneMenu(at, leafId, tab = null) {
     closePaneMenu();
     const pop = document.createElement('div');
     pop.className = 'popover session-tab-menu';
@@ -874,14 +932,25 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       else b.addEventListener('click', () => { closePaneMenu(); handler(); });
       pop.appendChild(b);
     };
+    const separator = () => {
+      const s = document.createElement('div');
+      s.className = 'session-tab-menu-sep';
+      pop.appendChild(s);
+    };
 
     focusPane(leafId);
+    const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
+    // Whose session the tab actions and the detach act on: the right-clicked tab if
+    // there is one, else the pane's active tab. Taking the active tab while the
+    // menu points at another would act on a session the user never aimed at.
+    const subject = tab || (leaf ? leaf.tabs.find((t) => t.id === leaf.activeTabId) : null);
+    if (tab) { addTabItems(item, leafId, tab); separator(); }
+
     item('Split right', () => splitActivePane('right'));
     item('Split down', () => splitActivePane('down'));
-    // Detach (#2): the pane's active session moves into a window of its own. Only a running session
+    // Detach (#2): the session moves into a window of its own. Only a running session
     // can — there is nothing to render in the new window otherwise.
-    const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
-    const detachId = leaf ? sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId)) : null;
+    const detachId = sessionOfTab(subject);
     item('Move to new window', () => { window.detachSession?.(detachId); }, {
       disabled: !detachId || !activePtyIds.has(detachId) || !!window.isDetachedWindow?.(),
     });
@@ -891,10 +960,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     });
 
     document.body.appendChild(pop);
-    const r = anchor.getBoundingClientRect();
-    pop.style.position = 'fixed';
-    pop.style.top = (r.bottom + 4) + 'px';
-    pop.style.right = Math.max(4, window.innerWidth - r.right) + 'px';
+    positionPaneMenu(pop, at);
     activeMenu = pop;
     setTimeout(() => {
       if (!activeMenu) return; // closed again before the listeners went up
@@ -929,21 +995,45 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       // terminal by any drop that reached it.
       try { e.dataTransfer.setData(PANE_TAB_MIME, tabId); } catch { /* type refused */ }
     });
-    el.addEventListener('dragend', () => { drag = null; el.classList.remove('dragging'); clearDropHint(); });
+    el.addEventListener('dragend', () => { drag = null; el.classList.remove('dragging'); clearDropFeedback(); });
     el.addEventListener('dragover', (e) => {
       if (!isTabDrag(e)) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       e.stopPropagation();
+      const gap = tabDropGap(el, leafId, tabId, e);
+      showTabCaret(el.parentElement, gap.edge);
     });
     el.addEventListener('drop', (e) => {
       if (!isTabDrag(e)) return;
       e.preventDefault();
       e.stopPropagation();
-      const target = PaneTree.leaves(tree).find((l) => l.id === leafId);
-      const index = target ? target.tabs.findIndex((t) => t.id === tabId) : -1;
-      applyMove(drag, leafId, index);
+      applyMove(drag, leafId, tabDropGap(el, leafId, tabId, e).index);
     });
+  }
+
+  // Which gap a drop on this tab means, and where the caret marking it sits. The
+  // cursor's half decides: left of the midpoint inserts before the tab, right of it
+  // after — without that, a tab could never be dropped last (#313).
+  function tabDropGap(el, leafId, tabId, e) {
+    const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
+    const at = leaf ? leaf.tabs.findIndex((t) => t.id === tabId) : -1;
+    const r = el.getBoundingClientRect();
+    const after = e.clientX > r.left + (r.width / 2);
+    return {
+      index: at < 0 ? -1 : at + (after ? 1 : 0),
+      edge: after ? el.offsetLeft + el.offsetWidth : el.offsetLeft,
+    };
+  }
+
+  // Where the caret goes when the drop would append: past the last tab, or the very
+  // start of an empty strip.
+  function endCaretEdge(list) {
+    // Not lastElementChild — the caret lives in this list too and would measure
+    // itself.
+    const tabs = list ? list.querySelectorAll('.session-tab') : [];
+    const last = tabs[tabs.length - 1];
+    return last ? last.offsetLeft + last.offsetWidth : 0;
   }
 
   function wireDropZones(pane, body, leafId) {
@@ -951,15 +1041,20 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // obvious gesture, and without this it would land nowhere.
     const strip = pane.querySelector('.pane-strip');
     if (strip) {
+      const list = strip.querySelector('.session-tabs-list');
       strip.addEventListener('dragover', (e) => {
         if (!isTabDrag(e)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
+        showTabCaret(list, endCaretEdge(list));
+      });
+      strip.addEventListener('dragleave', (e) => {
+        if (!strip.contains(e.relatedTarget)) clearTabCaret();
       });
       strip.addEventListener('drop', (e) => {
         if (!isTabDrag(e)) return;
         e.preventDefault();
-        clearDropHint();
+        clearDropFeedback();
         applyMove(drag, leafId, -1);
       });
     }
@@ -998,6 +1093,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
   let dropHint = null;
   function showDropHint(body, zone) {
+    clearTabCaret(); // the body and the strip never mean the same drop
     if (!dropHint) {
       dropHint = document.createElement('div');
       dropHint.className = 'pane-drop-hint';
@@ -1007,10 +1103,26 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   }
   function clearDropHint() { if (dropHint) { dropHint.remove(); } }
 
+  // The insertion caret in a tab strip (#313). It lives inside the scrolling tab
+  // list, so it stays on its gap while the strip scrolls.
+  let tabCaret = null;
+  function showTabCaret(list, edge) {
+    if (!list) return;
+    clearDropHint();
+    if (!tabCaret) {
+      tabCaret = document.createElement('div');
+      tabCaret.className = 'pane-tab-caret';
+    }
+    if (tabCaret.parentElement !== list) list.appendChild(tabCaret);
+    tabCaret.style.left = Math.max(0, edge - 1) + 'px';
+  }
+  function clearTabCaret() { if (tabCaret) { tabCaret.remove(); } }
+  function clearDropFeedback() { clearDropHint(); clearTabCaret(); }
+
   function applyMove(from, toLeafId, index) {
     const next = PaneTree.moveTab(tree, { fromLeafId: from.fromLeafId, toLeafId, tabId: from.tabId, index });
     drag = null;
-    clearDropHint();
+    clearDropFeedback();
     tree = next;
     activeLeafId = toLeafId;
     activeLeaf(); // the target can have collapsed away while the drop was in flight
