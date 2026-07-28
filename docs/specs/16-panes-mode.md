@@ -133,6 +133,10 @@ side effect of this one. The tree model is pure, so the option stays open.
 | `addMcpToggle()` injects the IDE chip into a single `#terminal-header-controls` id | Needs a per-pane mount point, or the chip lands in the first pane only |
 | Bare `Ctrl+\` is `0x1c` (SIGQUIT) to the pty; bare `Ctrl+3..8` are ESC/FS/GS/RS/US/DEL | Split and pane-focus shortcuts go on `Ctrl/Cmd+Shift+…`, matching every other binding in `shortcuts.js`. Pane navigation reuses `sessionNavArrows` rather than Alt+arrows, which are the terminal's word jump |
 | The layout must exist before `session-restore` mounts terminals | Otherwise the first fit measures a box that is about to change |
+| The display mode is applied **before** the restore mounts anything | So the stored layout can only be validated against the session list, never against `openSessions` — see `docs/ai/lessons.md` |
+| The terminal container claims every drop it is offered | A tab drag has to carry its own MIME type so the container can ignore it |
+| `WebglAddon.dispose()` leaves its canvases in the DOM | They cover the DOM renderer's rows; a demoted terminal shows nothing until they are removed |
+| Several live WebGL terminals share one texture atlas (#118, #262) | WebGL follows the focused pane, exactly as it follows the focused grid card |
 
 ## 6 · Risks
 

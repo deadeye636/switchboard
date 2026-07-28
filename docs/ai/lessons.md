@@ -53,6 +53,36 @@ than one caller.
   `latest*.yml` — so auto-update from it silently could not work, and the releases page showed the
   wrong one.
 
+## Verification that verified nothing (#309, panes mode)
+
+Six defects shipped in one pass, every one of them past a green suite **and** past scripted checks
+that looked like a click. What they cost, and what actually caught them:
+
+- **A synthesised `DragEvent` proves nothing.** Dispatching dragstart/dragover/drop from
+  `drive-app.js eval` moved tabs between panes perfectly. Under a real mouse nothing happened: the
+  terminal container's own drop handler took the event first and pasted the payload into the shell.
+  A scripted event carries a `DataTransfer` nobody else can see, skips the drag controller, and lands
+  on the listener the script chose. → `drive-app.js drag` drives a **real** drag through CDP's drag
+  interception.
+- **Boot order beat the feature.** The display mode is applied before the launch restore mounts a
+  single session, so pruning the stored layout against `openSessions` — which is empty at that moment —
+  threw the whole split away and rewrote it flat. It looked fine in every session where the app was
+  already running. Only a restart shows it, and the flattened result reads as "nothing broke".
+- **`dispose()` is not "gone".** xterm's WebGL addon leaves its canvases in the DOM; the DOM renderer
+  then draws its rows *underneath* an opaque dead layer, and every suspend/restore cycle stacks
+  another pair. The grid had suspended terminals for months without noticing — it only ever suspends
+  cards that are off-screen anyway.
+- **rAF does not run in a window you are not looking at.** A render scheduled with
+  `requestAnimationFrame` never fired while the app sat behind the terminal, leaving a mounted
+  terminal outside every pane. A microtask always runs; frame callbacks are for painting, not for
+  state.
+- Two more of the same family: a flex fraction that only a branch's *children* carried (so a
+  single-pane tree shrank to the width of its own strip), and a teardown that cleared `.visible` on
+  every container while the mode being switched into does not re-establish it.
+
+The suite was green for all six, at 1835 tests. The pane-tree model behind them has 35 tests and is
+correct — the model was never the risk.
+
 ## Isolation that wasn't
 
 - `SWITCHBOARD_DATA_DIR` alone moves the DB but not `userData`, so a "sandbox" landed on the dev
