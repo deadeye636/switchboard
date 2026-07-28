@@ -1025,7 +1025,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       b.textContent = label;
       if (opts.disabled) b.disabled = true;
       else b.addEventListener('click', () => { closePaneMenu(); handler(); });
-      pop.appendChild(b);
+      // `before` is for items that arrive late (the window list, #316) and still belong next to the
+      // entry they extend, rather than after the destructive one at the bottom.
+      if (opts.before && opts.before.parentElement === pop) pop.insertBefore(b, opts.before);
+      else pop.appendChild(b);
+      return b;
     };
     const separator = () => {
       const s = document.createElement('div');
@@ -1046,9 +1050,20 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // Detach (#2): the session moves into a window of its own. Only a running session
     // can — there is nothing to render in the new window otherwise.
     const detachId = sessionOfTab(subject);
-    item('Move to new window', () => { window.detachSession?.(detachId); }, {
-      disabled: !detachId || !activePtyIds.has(detachId) || !!window.isDetachedWindow?.(),
-    });
+    const live = !!detachId && activePtyIds.has(detachId);
+    const detached = !!window.isDetachedWindow?.();
+    const anchor = detached
+      // Already in a window of its own, so the useful direction is back (#314).
+      ? item('Return to main window', () => { window.reattachSession?.(detachId); }, { disabled: !live })
+      : item('Move to new window', () => { window.detachSession?.(detachId); }, { disabled: !live });
+    // …and into any window that already exists (#316). The list lives in main, so these arrive after
+    // the menu is on screen; they are inserted next to the entry above rather than after Close pane.
+    if (live && typeof window.appendWindowMoveItems === 'function') {
+      // The cursor walks with each insert, or the second entry would land in front of the first.
+      let cursor = anchor;
+      const insert = (label, handler) => { cursor = item(label, handler, { before: cursor.nextSibling }); return cursor; };
+      window.appendWindowMoveItems(detachId, insert, () => activeMenu === pop, { skipMain: detached });
+    }
     // Closing the PANE is not a tab action: a right-click on a tab is about that tab,
     // and with one tab in the pane the two would read as the same thing. It stays on
     // the pane's own menus — the `…` button, the strip, the session bar.

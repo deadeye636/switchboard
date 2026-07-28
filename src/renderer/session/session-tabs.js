@@ -343,7 +343,10 @@ if (typeof module !== 'undefined' && module.exports) {
       b.className = 'session-tab-menu-item' + (opts.danger ? ' danger' : '');
       b.textContent = label;
       b.addEventListener('click', () => { closeTabContextMenu(); handler(); });
-      pop.appendChild(b);
+      // `before` places an item that arrived late (the window list, #316) next to the one it extends.
+      if (opts.before && opts.before.parentElement === pop) pop.insertBefore(b, opts.before);
+      else pop.appendChild(b);
+      return b;
     };
 
     addItem('Close', () => performClose(sessionId));
@@ -354,11 +357,24 @@ if (typeof module !== 'undefined' && module.exports) {
     addItem('Relaunch', () => {
       if (typeof window.relaunchSession === 'function') window.relaunchSession(sessionId);
     });
-    // Detach (#2) — only for a session with a live process, and never from a detached window, which is
-    // already one. The tab goes with the session: main releases its terminal, the new window attaches.
-    if (typeof window.detachSession === 'function' && !window.isDetachedWindow?.()
-      && typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId)) {
-      addItem('Move to new window', () => window.detachSession(sessionId));
+    // Where this session renders (#2, #314, #316) — only for one with a live process; there is nothing
+    // for another window to show otherwise. The tab goes with the session: the window that has it
+    // releases its terminal, the one that takes it attaches.
+    const live = typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId);
+    const detached = !!window.isDetachedWindow?.();
+    let anchor = null;
+    if (live && detached && typeof window.reattachSession === 'function') {
+      anchor = addItem('Return to main window', () => window.reattachSession(sessionId));
+    } else if (live && typeof window.detachSession === 'function') {
+      anchor = addItem('Move to new window', () => window.detachSession(sessionId));
+    }
+    if (live && anchor && typeof window.appendWindowMoveItems === 'function') {
+      let cursor = anchor;
+      const insert = (label, handler) => {
+        cursor = addItem(label, handler, { before: cursor.nextSibling });
+        return cursor;
+      };
+      window.appendWindowMoveItems(sessionId, insert, () => activeCtxMenu === pop, { skipMain: detached });
     }
 
     document.body.appendChild(pop);
