@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (25 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-28
 
@@ -38,3 +38,5 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#326](https://github.com/deadeye636/switchboard/issues/326) Detach: a reloaded detached window loses the sessions moved into it · _bug_
 - [#327](https://github.com/deadeye636/switchboard/issues/327) Detach: fold the menu-entry duplication into the shared helper · _chore_
 - [#328](https://github.com/deadeye636/switchboard/issues/328) Terminal: rendererAttached has no ordering guarantee across windows · _chore_
+- [#329](https://github.com/deadeye636/switchboard/issues/329) agy: check whether it speaks the Gemini CLI IDE-companion protocol, and serve it if it does · _feature_
+- [#330](https://github.com/deadeye636/switchboard/issues/330) Codex: offer Switchboard's diff surface as an MCP server the CLI can call · _feature_
