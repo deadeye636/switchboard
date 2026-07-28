@@ -125,6 +125,16 @@ function buildSessionItem(session, opts = {}) {
   statusChip.className = `session-detail-pill session-status-chip ${status.className}`;
   statusChip.textContent = status.label;
   detailEl.appendChild(statusChip);
+  // IDE emulation, next to the state it qualifies (#321). It sat in every pane's bar, where four
+  // panes drew four identical marks; here it appears once per session, in the row that already
+  // carries the session's other badges.
+  if (typeof window.isMcpActiveForSession === 'function' && window.isMcpActiveForSession(session.sessionId)) {
+    const ideChip = document.createElement('span');
+    ideChip.className = 'session-detail-pill session-ide-chip';
+    ideChip.textContent = 'IDE';
+    ideChip.title = 'IDE Emulation is active. Go to Global Settings to disable.';
+    detailEl.appendChild(ideChip);
+  }
   if (health.state !== 'healthy') {
     const healthChip = document.createElement('button');
     healthChip.type = 'button';

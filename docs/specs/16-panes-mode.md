@@ -18,6 +18,9 @@ Three later fixes belong to the record:
 - **A tab drag shows where it will land** (#313). The caret needed a model fix: `moveTab` read its
   `index` as a position *after* the dragged tab was lifted out, while its only caller meant the gap it
   could see — so every rightward drag landed one tab too far and dropping a tab last was impossible.
+- **The bar's indicators moved out of the tools** (#321). The status is a dot in front of the session
+  name, as in the sidebar and on the tab; the IDE-emulation mark left the pane for the sidebar row.
+  §4.2 has the reasoning.
 - **An exited session does not leave a live-looking tab** (#317, #318). A deliberate stop closes the
   tab in panes mode too (`closeTabNow` was guarded on tabs mode alone). And clicking a tab whose
   session has no process no longer opens it — that path spawns a fresh CLI, which is the opposite of
@@ -115,7 +118,7 @@ variables, status, IDE-emulation chip, stop. With several panes each pane has it
 ```
 H1   [ tab ][ tab ]                                  ▾ │ …
      api-gateway  4a2f  pwsh        ✉ ☑ ⚿  ● Running  IDE  ■      ← extra 33 px row
-H2   [ tab ][ tab ]           ✉ ☑ ⚿ IDE ■ │ ▾ │ …               ← one 34 px row
+H2   [ tab ][ tab ]               ✉ ☑ ⚿ ■ │ ▾ │ …               ← one 34 px row
 H3   api-gateway  4a2f  pwsh                     ● Running  IDE ■  ← one bar above the whole tree
      [ tab ] │ [ tab ]
 ```
@@ -128,6 +131,14 @@ H3   api-gateway  4a2f  pwsh                     ● Running  IDE ■  ← one b
 
 The running state is already carried by the tab dot, so H2 drops the word "Running" and shortens the
 chip to "IDE".
+
+**Since #321 neither indicator is in the tools at all.** The state is a dot leading the session name —
+where the sidebar row and the tab already put it, and where it stops reading as one more thing to
+click among the buttons. The IDE-emulation mark left the pane entirely: it only ever rendered when the
+bridge was ACTIVE, so the state worth telling the user about was the one it stayed silent for; it is a
+global setting, so every pane drew the same mark; and it toggles nothing where it stood. It is a badge
+on the sidebar row now, beside the status it qualifies, once per session instead of once per pane. The
+singleton `#terminal-header` chip is unchanged for the other display modes.
 
 ### 4.3 Preview and diff
 

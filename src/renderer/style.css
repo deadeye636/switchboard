@@ -1934,6 +1934,20 @@ input:focus-visible {
   font-weight: 700;
 }
 
+/* IDE emulation, beside the state it qualifies (#321). Same pill as the status chip,
+   in the accent the header's own chip uses, and deliberately not a button: it says
+   what is on, it does not switch it. */
+.session-ide-chip {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 700;
+  color: #8088ff;
+  background: rgba(128, 136, 255, 0.14);
+}
+
 .session-health-chip,
 .grid-card-health-chip {
   flex-shrink: 0;
@@ -8078,9 +8092,9 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1;
 }
 /* The dot alone, with the word in the tooltip (#321) — same colours as
-   #terminal-header-status, which this replaces per pane. Padded to a button's hit
-   area so it lines up with the tools beside it instead of floating in the gap. */
-.pane-status { display: flex; align-items: center; padding: 4px 3px; }
+   #terminal-header-status, which this replaces per pane. It leads the session name,
+   as it does in the sidebar and on the tab, so it needs no hit area of its own. */
+.pane-status { display: flex; align-items: center; flex-shrink: 0; }
 .pane-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .pane-status.running::before { background: #3ecf5a; box-shadow: 0 0 6px rgba(62, 207, 90, 0.5); }
 .pane-status.stopped::before { background: #6a6a80; }
@@ -8092,17 +8106,9 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
 .pane-tool-btn svg { display: block; }
 .pane-tool-stop { color: #b06070; }
 .pane-tool-stop:hover { color: #e05070; background: rgba(224, 80, 112, 0.12); }
-/* Also a dot since #321 — it no longer borrows the `mcp-toggle` pill, so it carries
-   its own colour rather than inheriting one from a class it is not any more. */
-.pane-mcp-chip { display: flex; align-items: center; padding: 4px 3px; }
-.pane-mcp-chip::before {
-  content: '';
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  display: inline-block;
-  background: #8088ff;
-  box-shadow: 0 0 6px rgba(128, 136, 255, 0.5);
-}
+/* `.pane-mcp-chip` is gone with the per-pane IDE indicator (#321) — it showed only
+   the active state, looked identical in every pane, and toggled nothing. The single
+   `#terminal-header` chip still serves the other display modes. */
 /* Too narrow to carry the tools — they stay in the pane menu. One rule for the
    whole group; folding icon by icon reads as a glitch. */
 .pane.pane-narrow .pane-tools { display: none; }

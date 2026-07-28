@@ -238,11 +238,13 @@ function getSessionState(sessionId) {
 
 function setSessionMcpActive(sessionId, active) {
   const state = getSessionState(sessionId);
+  const changed = state.mcpActive !== active;
   state.mcpActive = active;
   if (currentPanelSessionId === sessionId) updateMcpIndicator();
-  // Panes mode shows a chip per pane (#309), so a session that is not the globally
-  // active one still has a chip to update — the header check above would skip it.
-  else if (window.panesView && window.panesView.active()) window.panesView.refreshChrome();
+  // The sidebar row carries the badge since #321, so it has to hear about this too —
+  // it is the only place the state shows in panes mode. Only on a real change: this
+  // runs on every session open, and a rebuild per open would be a waste.
+  if (changed && typeof refreshSidebar === 'function') refreshSidebar();
 }
 
 function getSessionFilePanelSummary(sessionId) {

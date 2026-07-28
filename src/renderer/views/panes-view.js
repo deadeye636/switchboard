@@ -629,7 +629,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // The session tools of the pane's ACTIVE tab (#309 O13/H2). Same actions as the
   // singleton header they replace here, wired to this pane's session rather than
   // to `activeSessionId` — that is the whole point of moving them in.
-  function buildTools(leaf, { withStatus = false } = {}) {
+  function buildTools(leaf) {
     const tools = document.createElement('div');
     tools.className = 'pane-tools';
     const tab = leaf.tabs.find((t) => t.id === leaf.activeTabId);
@@ -671,32 +671,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       });
     tools.appendChild(varsBtn);
 
-    // Both indicators are a coloured dot with the words in the tooltip (#321). A
-    // pane's width is what the tabs and the session name compete for, and these two
-    // are read at a glance from the colour — spelling them out cost more room than
-    // the state was worth. `role=img` + the label keeps them readable to a screen
-    // reader, which is the one thing dropping the text would otherwise take away.
-    const mark = (cls, label) => {
-      const el = document.createElement('span');
-      el.className = cls;
-      el.title = label;
-      el.setAttribute('role', 'img');
-      el.setAttribute('aria-label', label);
-      return el;
-    };
-
-    // Only in the bar: in the strip the tab's own dot already carries the state.
-    if (withStatus) {
-      const running = activePtyIds.has(sessionId);
-      tools.appendChild(mark('pane-status ' + (running ? 'running' : 'stopped'), running ? 'Running' : 'Stopped'));
-    }
-
-    // The IDE-emulation chip belongs to the preview module, which owns the state
-    // (file-panel.js). It exposes the flag rather than the element, because in
-    // this mode there is one chip per pane instead of the single header one.
-    if (typeof window.isMcpActiveForSession === 'function' && window.isMcpActiveForSession(sessionId)) {
-      tools.appendChild(mark('pane-mcp-chip', 'IDE Emulation is active. Go to Global Settings to disable.'));
-    }
+    // No IDE-emulation chip here (#321). It only ever appeared when the bridge was
+    // ACTIVE — never a visible "off" — so the state worth knowing about was the one
+    // it stayed silent for. It is a global setting, so with four panes it drew four
+    // identical marks, and it toggles nothing where it stands. The single
+    // `#terminal-header` chip keeps it for the other display modes.
 
     if (activePtyIds.has(sessionId)) {
       tools.appendChild(btn('Stop process',
@@ -731,6 +710,18 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const info = document.createElement('div');
     info.className = 'pane-actionbar-info';
 
+    // The status dot leads the name, the way it does in the sidebar row and on the
+    // tab (#321/#14). It belongs to the session, not to the actions — sitting among
+    // the tool buttons it read as one more thing to click, and it was the only place
+    // in the app where this signal was on the right.
+    const running = activePtyIds.has(sessionId);
+    const status = document.createElement('span');
+    status.className = 'pane-status ' + (running ? 'running' : 'stopped');
+    status.title = running ? 'Running' : 'Stopped';
+    status.setAttribute('role', 'img');
+    status.setAttribute('aria-label', status.title);
+    info.appendChild(status);
+
     const name = document.createElement('span');
     name.className = 'pane-actionbar-name';
     name.textContent = (typeof cleanDisplayName === 'function'
@@ -751,7 +742,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     info.appendChild(id);
 
     bar.appendChild(info);
-    bar.appendChild(buildTools(leaf, { withStatus: true }));
+    bar.appendChild(buildTools(leaf));
     bar.addEventListener('mousedown', () => focusPane(leaf.id), true);
     return bar;
   }
