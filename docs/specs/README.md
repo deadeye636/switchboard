@@ -2,7 +2,7 @@
 
 Each file in this folder is a **self-contained spec for one feature**, written so a single agent can pick it up and implement it without needing the original planning conversation. They derive from the productivity roadmap (since migrated to GitHub Issues — see `docs/BACKLOG.md`).
 
-**All specs were implemented; two features have since been removed** (07 and 14 — their specs stay as design/rebuild records, marked in the table and in their own `Status:` line). Each spec's `Status:` line and an "As built" note (where the implementation diverged) reflect the final state. Line-number references below describe the codebase at spec-writing time and have drifted.
+**Specs 01–15 were implemented; two of those features have since been removed** (07 and 14 — their specs stay as design/rebuild records, marked in the table and in their own `Status:` line). **16 is the first spec written before the build** — it records the layout options for panes mode and why one was chosen, so a later rework does not re-run the argument; its `Status:` line says so. Each spec's `Status:` line and an "As built" note (where the implementation diverged) reflect the final state. Line-number references below describe the codebase at spec-writing time and have drifted.
 
 **Every agent must read this README first**, then their assigned spec.
 
@@ -25,6 +25,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 13 | [Session lineage: provenance + /clear re-key](13-session-lineage.md) | #223, #193 | No — touches the transition detector, the scan, and the sidebar |
 | 14 | [Scheduled tasks (cron-driven headless runs)](14-scheduled-tasks.md) — **removed (#246)**, kept as a rebuild record | #206 | Was: Claude-only |
 | 15 | [VCS-aware session cards (chip, changes window, diffs)](15-vcs-status.md) | #277, #284, #285, #287 | Yes — new `src/vcs/` seam + `src/app/vcs.js` |
+| 16 | [Panes mode (VS-Code-style editor groups)](16-panes-mode.md) — **planned, not built**; layout options + why one was chosen | #309 | No — touches the terminal host, the session bar and the preview panel |
 
 ## Shared architecture (read once, applies to all specs)
 
