@@ -717,20 +717,17 @@ function initGridObservers() {
 // Off-screen cards are always DOM (they get suspended by the observer). No fork
 // does this — jbr/haydng/doctly keep WebGL on every visible card.
 //
-// **That rationale is only half true, and saying so here matters.** #140's own
-// investigation found the mechanism to be context CHURN, not the atlas:
-// `loadTerminalWebgl` recreated a live addon, the burst overshot Chromium's context
-// budget, and the oldest context was killed. The churn is gone since #320 made that
-// load idempotent, and the same issue measured two live WebGL terminals side by
-// side — ~18 000 distinct codepoints through each, recycling the atlas repeatedly —
-// with no corruption at all. Panes mode consequently gives every pane the same
-// renderer (`applyWebglPolicy` in views/panes-view.js), because splitting it splits
-// the visible CELL METRIC.
+// **Confirmed the hard way in #320.** That issue first doubted the atlas — #140's
+// investigation had found context CHURN (`loadTerminalWebgl` recreating a live addon
+// until Chromium killed the oldest context), and a bench test of two live WebGL
+// terminals, ~18 000 distinct codepoints through each, produced no corruption. The
+// churn fix was real and kept. The bench test was not enough: in daily use two panes
+// rendering alternately over minutes DID drop glyphs, exactly as described here.
 //
-// The grid keeps this policy for a reason panes does not have: its card count is
-// unbounded and its cards are thumbnails, where a metric difference is hard to see
-// and a dozen live contexts are easy to reach. Whether it can now run WebGL on
-// every visible card, with a cap, is worth re-measuring rather than assuming.
+// So this policy stands, and panes mode arrived at the same place from the other
+// side — it runs WebGL only while a single terminal is on screen
+// (`applyWebglPolicy` in views/panes-view.js). One live GL renderer at a time is the
+// rule in every mode that shows more than one terminal at once.
 function applyGridWebglPolicy(sid, onScreen) {
   if (!gridViewActive) return;
   if (onScreen === undefined) onScreen = !gridOffscreenSessions.has(sid);

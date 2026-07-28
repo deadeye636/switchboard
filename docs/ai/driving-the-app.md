@@ -114,9 +114,14 @@ call just replaces the first and `dims` still reports one open terminal. Session
 is `'tabs'` or `'panes'`. With two tabs open, `dims <id>` on each confirms both hold a live WebGL
 context (`webglAddon: true`) — the shared-atlas state to test against.
 
-**Panes mode is the cheapest way to get several live GL contexts** since #320: every pane runs the same
-renderer, all WebGL up to eight panes. Grid is the opposite — only the focused card holds a context
-(#140) — so a WebGL question asked in grid mode answers about one terminal, not several.
+**Tabs mode is the only place several terminals hold a context at once.** Panes drops every terminal to
+DOM from two panes up, grid keeps WebGL on the focused card alone — both because two *visible* WebGL
+terminals corrupt each other's glyphs with no reveal repaint to heal it (#320, #140).
+
+**And a burst of output through two terminals does not reproduce that corruption** — #320 measured
+exactly that, saw nothing, and drew the wrong conclusion. What reproduces it is two terminals rendering
+**alternately over minutes**, each with its own glyph set. If you are testing an atlas question, drive
+it that way and give it time; a flood proves the opposite of what it looks like it proves.
 
 ## A dev run you stopped may not be stopped (#220)
 

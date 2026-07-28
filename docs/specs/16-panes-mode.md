@@ -79,8 +79,8 @@ detached window (#2) "a tree with one leaf" instead of a separate mechanism.
 | O1 | Third mode `panes` beside `legacy` and `tabs` | `legacy` stays the default; non-breaking |
 | O2 | Grid stays a mode of its own | grid = *automatic overview of all sessions*; panes = *manually arranged workspace*. See §4.4 |
 | O3 | Tiled split tree, no free-floating windows inside the main area | |
-| O4 | No cap on simultaneously rendered terminals | Still true — past the WebGL cap below they all render, on the DOM renderer |
-| O14 | Every pane uses the same renderer: all WebGL up to `MAX_WEBGL_PANES` (8), all DOM past it (#320) | A split renderer is a split cell metric, and at dpr ≠ 1 that is visible. The cap counts panes, not contexts — #323 |
+| O4 | No cap on simultaneously rendered terminals | Still true — from two panes up they all render, on the DOM renderer (O14) |
+| O14 | One renderer for the whole layout: WebGL only while a single terminal is visible, every terminal on DOM from two panes up (#320) | A split renderer is a split cell metric, visible at dpr ≠ 1. And two visible WebGL terminals share one glyph atlas with no reveal repaint to heal it — measured wrong once, see §6 R1 |
 | O15 | "Close pane" is not a tab action (#312) | A right-click on a tab is about that tab; with one tab in the pane the two entries would read as the same thing. It stays on the `…`/strip/bar menus |
 | O6 | Pane actions live in the `…` menu | variant **A**, §4.1 |
 | O7 | A sidebar click opens in the **active** pane | |
@@ -178,13 +178,13 @@ side effect of this one. The tree model is pure, so the option stays open.
 | The display mode is applied **before** the restore mounts anything | So the stored layout can only be validated against the session list, never against `openSessions` — see `docs/ai/lessons.md` |
 | The terminal container claims every drop it is offered | A tab drag has to carry its own MIME type so the container can ignore it |
 | `WebglAddon.dispose()` leaves its canvases in the DOM | They cover the DOM renderer's rows; a demoted terminal shows nothing until they are removed |
-| Several live WebGL terminals share one texture atlas (#118, #262) | Every pane renders the same way — all WebGL up to eight panes, all DOM past that (#320). Following the focus, as grid does, split the *metric*: at dpr 2 the cell is 8.000 px under WebGL and 8.2065 px under DOM, so the unfocused pane drew heavier and a line off |
+| Several live WebGL terminals share one texture atlas (#118, #262) | Every terminal renders the same way, and from two visible panes up that way is DOM (#320). Following the focus, as grid does, split the *metric*: at dpr 2 the cell is 8.000 px under WebGL and 8.2065 px under DOM, so the unfocused pane drew heavier and a line off |
 
 ## 6 · Risks
 
 | | Risk | Mitigation |
 |---|---|---|
-| R1 | WebGL — reparenting plus many visible terminals is the corner of #118 (stale atlas), #128 (context loss / stale fit) and #262 (atlas contention). Panes make grid's exceptional case the normal one | **Settled in #320**, by measuring rather than assuming: two panes both on WebGL, ~18 000 distinct codepoints flooded through each to recycle the shared atlas several times over — no corruption, no context loss. What #140 actually hit was context *churn*, now fixed at the source (`loadTerminalWebgl` is idempotent). The all-or-nothing rule keeps the metric uniform, and if a load refuses (setting off, WebGL given up after repeated losses) the panes that got a context give it back rather than leave the metric split. **The cap counts panes, not contexts:** a background tab in a pane keeps its own, so the real bound is the terminal LRU cap (12) against the raised budget (32) — #323 |
+| R1 | WebGL — reparenting plus many visible terminals is the corner of #118 (stale atlas), #128 (context loss / stale fit) and #262 (atlas contention). Panes make grid's exceptional case the normal one | **Real, and it cost two attempts.** #320 first read #140's corruption as context *churn* — which it partly was, and `loadTerminalWebgl` is idempotent now — and cleared the atlas on a bench test: two WebGL terminals, ~18 000 codepoints flooded through each, no corruption. Daily use disproved that within hours: two panes rendering **alternately over minutes** drop glyphs, because there is no reveal repaint to heal them. Final rule: WebGL only while ONE terminal is visible, everything on DOM from two panes up. All-or-nothing either way — a mixed layout splits the cell metric visibly at dpr ≠ 1 |
 | R2 | Status drift — sidebar, tab and grid card already drifted apart four times (#124, #253, #257, #269); panes multiply the tab case | One render path for a tab's status, shared with `.status-dot.status-*` |
 | R3 | Every `terminal-header*` lookup assumes a singleton | Convert them in one pass, `addMcpToggle()` included |
 | R4 | Typed views (P2) touch every view module | Terminal tabs first; the tab type exists from day one so nothing is rebuilt later |

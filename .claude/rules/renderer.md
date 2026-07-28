@@ -133,11 +133,20 @@ consequences that are easy to break:
 Each terminal that runs the WebGL renderer holds its own GL context; they all share one glyph atlas.
 Three modes, three policies, and the reason they differ is measured, not assumed:
 
+**One live GL renderer whenever more than one terminal is on screen.** That is the rule in every mode,
+arrived at twice from opposite directions:
+
 | Mode | Policy | Why |
 |---|---|---|
-| tabs / single | every open terminal keeps its context | only one is visible; the LRU cap (12) bounds the count against the raised budget (32, `main.js`) |
-| **panes** | **all WebGL up to `MAX_WEBGL_PANES` (8), all DOM past it** — never a mix | the two renderers disagree on the cell box: at dpr 2 it measured 8.000 px under WebGL and 8.2065 px under DOM, so a mixed layout draws one pane heavier and a line off (#320) |
-| grid | only the focused card | unbounded card count, thumbnail-sized cards. Its stated reason (atlas contention) is **half-refuted** — see #324 |
+| tabs / single | every open terminal keeps its context | only one is *visible*; a reveal repaints (`forceRepaint`, #118), which heals whatever a sibling did to the atlas meanwhile. The LRU cap (12) bounds the count against the raised budget (32, `main.js`) |
+| **panes** | **WebGL only while ONE terminal is visible; two or more panes → every terminal on DOM**, never a mix | two visible terminals have no reveal moment, so the one nobody touched keeps the holes. All-or-nothing because a split renderer is a split *cell metric* — at dpr 2, 8.000 px under WebGL against 8.2065 px under DOM (#320) |
+| grid | only the focused card | same reason, reached first (#140) |
+
+**#320 is the cautionary tale.** It doubted the atlas, measured two WebGL terminals under a flood of
+18 000 codepoints, saw no corruption, and gave every pane a context. Daily use disproved it within
+hours: two panes rendering *alternately over minutes* drop glyphs, which a burst through both at once
+never reproduces. The context-churn fix from that issue was right and stays; the conclusion drawn from
+the bench was not.
 
 Three things that are easy to undo by accident:
 

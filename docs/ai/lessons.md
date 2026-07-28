@@ -151,3 +151,24 @@ followed:
 When the diagnosis and the fix do not name the same thing, say so in the issue. And when a later mode
 inherits a workaround, re-measure before assuming the reason still applies — the measurement that
 settled #320 took twenty minutes and needed no code change at all.
+
+**And then #320 made the mirror-image mistake, which is the more useful half of this entry.** That
+measurement — two WebGL terminals, ~18 000 distinct codepoints flooded through each, no corruption —
+was used to conclude the atlas contention was gone, and every pane got a context. Daily use disproved
+it within hours: glyphs went missing in the pane the user was not typing in. The bench test and the
+real workload differ in the one dimension that matters here: a **flood through both at once** grows
+the atlas once and then hits cache, while **two terminals rendering alternately over minutes**, each
+with its own glyph set, is what makes one recycle the atlas under the other's feet.
+
+Two things to take from it:
+
+- **A measurement disproves the thing you measured, not the thing you believe.** "No corruption in
+  20 minutes of synthetic load" is not "no corruption"; the honest write-up of that result names the
+  workload it used, so the next reader can see what it did *not* cover. The #320 comment did say
+  "~18 000 codepoints flooded through each" — that phrasing is what made the gap findable afterwards.
+- **When you overturn a workaround, look for the workload it was written from.** #140 and #118 both
+  came from real use over time, and neither was reproducible by a burst. A cheap test that contradicts
+  an expensive bug report is evidence about the test.
+
+The final rule is one live GL renderer whenever more than one terminal is on screen — in every mode.
+The churn fix from #320 was right and stays; only the conclusion drawn from the bench was wrong.

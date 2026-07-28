@@ -767,7 +767,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     }
   }
 
-  // Every pane renders the same way — all WebGL, or all DOM (#320).
+  // Every terminal in the layout renders the same way — all WebGL, or all DOM (#320).
   //
   // This used to follow the focused pane, inherited from the grid (#140). Panes put
   // two full-height terminals side by side, and there the two renderers do not agree
@@ -775,25 +775,43 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // WebGL and 8.2065 px under DOM, so the unfocused pane drew visibly heavier and
   // sat a line off. A renderer split you can see is worse than either renderer.
   //
-  // Both were measured before the change: two panes on WebGL, ~18 000 distinct
-  // codepoints flooded through each to grow and recycle the shared atlas several
-  // times over — no corruption, no context loss, identical metrics. The atlas
-  // contention #118 describes is real but heals on repaint; the corruption #140 saw
-  // came from context CHURN, and `loadTerminalWebgl` is idempotent now.
+  // …and with more than one terminal on screen, that renderer is the DOM one.
   //
-  // The cap is what keeps that honest: a layout has no upper bound on leaves, and a
-  // GL context per pane does. Past it, everyone drops to DOM together rather than
-  // some panes losing their context to Chromium's budget and reintroducing the split.
-  const MAX_WEBGL_PANES = 8;
+  // #320 first gave every pane WebGL, on a measurement: two panes on WebGL, ~18 000
+  // distinct codepoints flooded through each to recycle the shared atlas several
+  // times over — no corruption. That measurement was too short. In daily use, two
+  // terminals rendering ALTERNATELY over minutes, each with its own glyph set, do
+  // reproduce #118: one recycles the atlas while the other has already read its
+  // coordinates, and characters go missing until something repaints. The atlas
+  // contention is real; only the context churn was fixed.
+  //
+  // So: one terminal on screen → WebGL, several → all DOM. Both failures this mode
+  // has seen are gone in that state — no shared atlas to fight over, and no metric
+  // split, since the split needs two renderers at once.
+  //
+  // What decides is how many terminals are VISIBLE AT ONCE — one per pane. Two tabs
+  // in one pane are the tabs-mode case, where the atlas is shared too but only one
+  // terminal is on screen and the reveal repaint (#118) heals it. Two panes have no
+  // such moment: both are on screen, and the one nobody touched keeps the holes.
+  //
+  // The policy then applies to every mounted terminal, background tabs included —
+  // they stay painted so a tab switch does not reflow (#20), so their contexts would
+  // recycle the atlas under the visible ones.
 
   function applyWebglPolicy() {
     const mounted = [];
+    let visible = 0;
     for (const leaf of PaneTree.leaves(tree)) {
-      const sessionId = sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId));
-      const entry = sessionId ? openSessions.get(sessionId) : null;
-      if (entry) mounted.push({ leafId: leaf.id, sessionId, entry });
+      for (const tab of leaf.tabs) {
+        const sessionId = sessionOfTab(tab);
+        const entry = sessionId ? openSessions.get(sessionId) : null;
+        if (!entry) continue;
+        const active = tab.id === leaf.activeTabId;
+        if (active) visible++;
+        mounted.push({ leafId: leaf.id, sessionId, entry, active });
+      }
     }
-    const wantGl = mounted.length <= MAX_WEBGL_PANES;
+    const wantGl = visible <= 1;
     for (const { sessionId, entry } of mounted) {
       // Only ACT on a difference. Recreating the addon on every render (a status
       // tick, a tab click) tore down and rebuilt the GL context each time and left
@@ -813,7 +831,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     }
     // The active terminal just changed parent, and a moved WebGL canvas keeps a
     // texture atlas another terminal may have grown meanwhile (#118).
-    const active = mounted.find((m) => m.leafId === activeLeafId);
+    const active = mounted.find((m) => m.leafId === activeLeafId && m.active);
     if (active && active.entry.webglAddon && typeof forceRepaint === 'function') forceRepaint(active.entry);
   }
 
