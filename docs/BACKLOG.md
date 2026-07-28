@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (25 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-28
 
@@ -35,8 +35,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#305](https://github.com/deadeye636/switchboard/issues/305) A terminal whose CLI lost its --settings argv is invisible to the live bindings · _bug_
 - [#311](https://github.com/deadeye636/switchboard/issues/311) Panes: preview and diff instantiable per pane · _feature_
 - [#319](https://github.com/deadeye636/switchboard/issues/319) Detach: a session without a process cannot be moved to its own window · _feature_
-- [#322](https://github.com/deadeye636/switchboard/issues/322) Terminal: suspending WebGL leaves a stale fit · _bug_
-- [#325](https://github.com/deadeye636/switchboard/issues/325) Detach: a window's title stops describing what it holds · _bug_
 - [#326](https://github.com/deadeye636/switchboard/issues/326) Detach: a reloaded detached window loses the sessions moved into it · _bug_
 - [#327](https://github.com/deadeye636/switchboard/issues/327) Detach: fold the menu-entry duplication into the shared helper · _chore_
 - [#328](https://github.com/deadeye636/switchboard/issues/328) Terminal: rendererAttached has no ordering guarantee across windows · _chore_
