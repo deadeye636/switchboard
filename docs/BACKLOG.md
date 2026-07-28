@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (34 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (30 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-28
 
@@ -14,9 +14,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#274](https://github.com/deadeye636/switchboard/issues/274) Command palette (Ctrl/Cmd+K) to jump to sessions/projects and run actions · _feature_
-- [#314](https://github.com/deadeye636/switchboard/issues/314) Detach: a way back — reattach the session from the detached window · _feature_
-- [#315](https://github.com/deadeye636/switchboard/issues/315) Detach: bring a detached session back from the main window · _feature_
-- [#320](https://github.com/deadeye636/switchboard/issues/320) Panes: the unfocused pane renders with a different font metric · _bug_
 
 ## P3 — someday
 
@@ -37,7 +34,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#281](https://github.com/deadeye636/switchboard/issues/281) Explore: rendered Markdown editing in the internal editor (approach TBD) · _feature_
 - [#305](https://github.com/deadeye636/switchboard/issues/305) A terminal whose CLI lost its --settings argv is invisible to the live bindings · _bug_
 - [#311](https://github.com/deadeye636/switchboard/issues/311) Panes: preview and diff instantiable per pane · _feature_
-- [#316](https://github.com/deadeye636/switchboard/issues/316) Detach: move a session to another window · _feature_
 - [#319](https://github.com/deadeye636/switchboard/issues/319) Detach: a session without a process cannot be moved to its own window · _feature_
 - [#321](https://github.com/deadeye636/switchboard/issues/321) Panes: status and IDE chips as dots, label on hover · _feature_
 - [#322](https://github.com/deadeye636/switchboard/issues/322) Terminal: suspending WebGL leaves a stale fit · _bug_
