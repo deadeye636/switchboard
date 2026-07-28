@@ -716,6 +716,21 @@ function initGridObservers() {
 // WebGL to the single focused card removes the shared-atlas contention entirely.
 // Off-screen cards are always DOM (they get suspended by the observer). No fork
 // does this — jbr/haydng/doctly keep WebGL on every visible card.
+//
+// **That rationale is only half true, and saying so here matters.** #140's own
+// investigation found the mechanism to be context CHURN, not the atlas:
+// `loadTerminalWebgl` recreated a live addon, the burst overshot Chromium's context
+// budget, and the oldest context was killed. The churn is gone since #320 made that
+// load idempotent, and the same issue measured two live WebGL terminals side by
+// side — ~18 000 distinct codepoints through each, recycling the atlas repeatedly —
+// with no corruption at all. Panes mode consequently gives every pane the same
+// renderer (`applyWebglPolicy` in views/panes-view.js), because splitting it splits
+// the visible CELL METRIC.
+//
+// The grid keeps this policy for a reason panes does not have: its card count is
+// unbounded and its cards are thumbnails, where a metric difference is hard to see
+// and a dozen live contexts are easy to reach. Whether it can now run WebGL on
+// every visible card, with a cap, is worth re-measuring rather than assuming.
 function applyGridWebglPolicy(sid, onScreen) {
   if (!gridViewActive) return;
   if (onScreen === undefined) onScreen = !gridOffscreenSessions.has(sid);
@@ -753,7 +768,8 @@ function hideGridView() {
 }
 
 function toggleGridView() {
-  // A detached window shows ONE session (#2). The grid would auto-mount every running session there —
+  // A detached window shows the sessions it was given (#2, #316) — never the whole set. The grid would
+  // auto-mount every running session there —
   // a second xterm on each live PTY, replaying scrollback into the main window's terminals — and its
   // `gridViewActive` flag lands in the localStorage both windows share.
   if (typeof window.isDetachedWindow === 'function' && window.isDetachedWindow()) return;

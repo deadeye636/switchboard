@@ -1340,9 +1340,13 @@ window._setTerminalWebgl = (on) => window._setGpuAcceleration(on ? 'on' : 'off')
 // default, raised to 32 in main.js). Grab the canvases before dispose detaches
 // them, dispose, then lose each context so the slot frees deterministically (#264).
 function disposeWebglAddon(entry) {
-  if (!entry.webglAddon) return;
+  // Runs even with no addon on the entry, because the canvases can outlive it: the context-loss
+  // handler drops the addon reference without touching the DOM, and the leftovers then sit on top of
+  // the DOM renderer's rows as an opaque layer (the #309 shape, below). The DOM renderer draws no
+  // canvas of its own, so anything found here is a leftover either way.
   const canvases = entry.terminal?.element ? [...entry.terminal.element.querySelectorAll('canvas')] : [];
-  try { entry.webglAddon.dispose(); } catch { /* dispose on a lost GL context can throw */ }
+  if (!entry.webglAddon && !canvases.length) return;
+  try { entry.webglAddon?.dispose(); } catch { /* dispose on a lost GL context can throw */ }
   entry.webglAddon = null;
   for (const c of canvases) {
     try { (c.getContext('webgl2') || c.getContext('webgl'))?.getExtension('WEBGL_lose_context')?.loseContext(); }
@@ -1366,7 +1370,8 @@ function loadTerminalWebgl(entry) {
   // guard as fix step 1; it was never built, and every caller has carried its own
   // "only act on a difference" check since.
   if (entry.webglAddon) return;
-  // Dispose a stale addon (and free its GL context) before creating one (VSCode parity).
+  // Not a no-op despite the guard above: it sweeps canvases a lost context left behind, which would
+  // otherwise stack under the new addon's own pair.
   disposeWebglAddon(entry);
   try {
     const webglAddon = new WebglAddon.WebglAddon();
@@ -1501,7 +1506,11 @@ function showSession(sessionId) {
     // Showing a session parks the viewer behind its tab; it does not dismiss it.
     if (entry) {
       entry.terminal.options.scrollback = SCROLLBACK_SINGLE;
-      restoreTerminalWebgl(sessionId);
+      // No restoreTerminalWebgl here: since #320 the renderer is a property of the LAYOUT, not of
+      // which session is focused, and `show()` always schedules a render that applies the policy.
+      // Loading it here was at best redundant and at worst the churn #140 died of — in an all-DOM
+      // layout (past the cap, or after a refused load) every click created a context for the policy
+      // to dispose a microtask later.
       forceRepaint(entry); // stale atlas heal on reveal (#118); no-op on the DOM renderer
       entry.terminal.focus();
     }
