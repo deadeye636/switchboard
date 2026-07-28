@@ -24,6 +24,12 @@
 // (session-status.js) · cleanDisplayName (utils.js) · confirmAndStopSession,
 // showJsonlViewer, openTasksView (app.js) · PaneTree (views/pane-tree.js).
 
+// The drag payload type for a pane tab. It is a LAYOUT drag, so every other drop
+// target has to be able to recognise and ignore it — the terminal container reads
+// this too (`isPaneTabDrag` in terminal-manager.js), otherwise it would claim the
+// drop and paste the payload into the shell.
+const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
+
 (function () {
   if (typeof document === 'undefined') return; // node test context
 
@@ -84,11 +90,14 @@
     let stored = null;
     try { stored = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch { stored = null; }
     const loaded = PaneTree.deserialize(stored, 'pane-1');
-    // Drop tabs whose session is not mounted (closed since the last run). An
-    // emptied pane disappears with them, like any other emptied pane.
+    // Prune against the SESSION LIST, never against what is mounted right now.
+    // At startup the mode is applied before the launch restore has mounted a
+    // single terminal, so pruning by `openSessions` threw the whole saved layout
+    // away and every restored session then piled into one pane (#309).
+    if (typeof sessionMap === 'undefined' || sessionMap.size === 0) return loaded;
     return PaneTree.pruneTabs(loaded, (tab) => {
       const sid = sessionOfTab(tab);
-      return !!sid && openSessions.has(sid);
+      return !!sid && (sessionMap.has(sid) || openSessions.has(sid));
     });
   }
 
@@ -105,6 +114,20 @@
 
   // --- Rendering ------------------------------------------------------------
 
+  // The launch restore mounts N sessions one after another, each calling
+  // showSession. Rebuilding the whole tree N times would move every container N
+  // times; one rebuild per frame is enough and settles on the final state.
+  // A microtask, NOT requestAnimationFrame: Chromium throttles rAF in a window
+  // that is not visible, so a session mounted while the app sits behind another
+  // window would keep its container in #terminals — outside every pane — until
+  // something else forced a render. A microtask always runs.
+  let renderQueued = false;
+  function scheduleRender() {
+    if (renderQueued || !enabled) return;
+    renderQueued = true;
+    queueMicrotask(() => { renderQueued = false; render(); });
+  }
+
   function render() {
     if (!enabled || !tree) return;
     adoptOrphans();
@@ -113,6 +136,7 @@
     // #terminals is the previous (now empty) pane scaffolding.
     terminalsEl.replaceChildren(root);
     applyVisibility();
+    applyWebglPolicy();
     refitVisible();
     updateToolsOverflow();
   }
@@ -153,10 +177,17 @@
       const entry = openSessions.get(sessionOfTab(tab));
       if (entry) body.appendChild(entry.element); // moves the live container, xterm and all
     }
-    if (!leaf.tabs.length) {
+    // A tab whose session is not mounted is not an error: the saved layout
+    // outlives the sessions in it, and the restore may not have reopened this
+    // one. The tab stays, and clicking it opens the session into this pane.
+    const activeTab = leaf.tabs.find((t) => t.id === leaf.activeTabId);
+    const activeMounted = activeTab && openSessions.has(sessionOfTab(activeTab));
+    if (!leaf.tabs.length || !activeMounted) {
       const empty = document.createElement('div');
       empty.className = 'pane-empty';
-      empty.textContent = 'Pick a session in the sidebar to open it here.';
+      empty.textContent = leaf.tabs.length
+        ? 'This session is not open — click its tab to open it here.'
+        : 'Pick a session in the sidebar to open it here.';
       body.appendChild(empty);
     }
     // Clicking anywhere in a pane makes it the one a sidebar click fills (O7).
@@ -227,15 +258,30 @@
     label.textContent = name;
     el.appendChild(label);
 
+    const mounted = openSessions.has(sessionId);
+    if (!mounted) el.classList.add('session-tab-dormant');
+
     const close = document.createElement('button');
     close.className = 'session-tab-close';
     close.type = 'button';
     close.title = 'Close tab';
     close.textContent = '×';
-    close.addEventListener('click', (e) => { e.stopPropagation(); closeSessionTab(sessionId); });
+    close.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Nothing to tear down for a tab whose session was never mounted — drop it
+      // from the layout and leave the session alone.
+      if (!openSessions.has(sessionId)) { dropTab(leaf.id, tab.id); return; }
+      closeSessionTab(sessionId);
+    });
     el.appendChild(close);
 
-    el.addEventListener('click', () => { focusPane(leaf.id); showSession(sessionId); });
+    el.addEventListener('click', () => {
+      activeLeafId = leaf.id;
+      if (openSessions.has(sessionId)) { focusPane(leaf.id); showSession(sessionId); return; }
+      // Dormant tab: mount the session. It already has a tab in THIS pane, so
+      // show() finds that leaf and the session lands where the layout says.
+      if (session && typeof openSession === 'function') openSession(session, undefined, { show: true });
+    });
     el.addEventListener('auxclick', (e) => {
       if (middleClickCloses && e.button === 1) { e.preventDefault(); closeSessionTab(sessionId); }
     });
@@ -328,6 +374,31 @@
     }
   }
 
+  // WebGL follows the focused pane, exactly as it follows the focused card in the
+  // grid (#140). Several live GL terminals share one texture atlas, and a sibling
+  // growing it leaves the others painting scrambled or blank glyphs until they
+  // happen to repaint (#118, #262) — with four panes on screen that is the normal
+  // case, not an edge case. So: the active pane keeps its context, every other
+  // pane falls back to the DOM renderer, which is correct at any size.
+  function applyWebglPolicy() {
+    for (const leaf of PaneTree.leaves(tree)) {
+      const sessionId = sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId));
+      const entry = sessionId ? openSessions.get(sessionId) : null;
+      if (!entry) continue;
+      const wantGl = leaf.id === activeLeafId;
+      const hasGl = !!entry.webglAddon;
+      // Only ACT on a difference. Recreating the addon on every render (a status
+      // tick, a tab click) tore down and rebuilt the GL context each time and left
+      // orphaned canvases stacked in the container, until the terminal painted
+      // nothing at all.
+      if (wantGl && !hasGl && typeof restoreTerminalWebgl === 'function') restoreTerminalWebgl(sessionId);
+      else if (!wantGl && hasGl && typeof suspendTerminalWebgl === 'function') suspendTerminalWebgl(sessionId);
+      // The active terminal just changed parent, and a moved WebGL canvas keeps a
+      // texture atlas another terminal may have grown meanwhile (#118).
+      if (wantGl && entry.webglAddon && typeof forceRepaint === 'function') forceRepaint(entry);
+    }
+  }
+
   function refitVisible() {
     requestAnimationFrame(() => {
       for (const leaf of PaneTree.leaves(tree)) {
@@ -363,7 +434,9 @@
     // the sidebar highlight and every activeSessionId-scoped action line up.
     const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
     const sessionId = leaf ? sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId)) : null;
-    if (sessionId && sessionId !== activeSessionId) showSession(sessionId);
+    if (sessionId && openSessions.has(sessionId) && sessionId !== activeSessionId) showSession(sessionId);
+    // WebGL follows the focus, so the pane that just gained it takes the context.
+    applyWebglPolicy();
     persist();
   }
 
@@ -402,6 +475,14 @@
     showActiveOrPlaceholder();
   }
 
+  // Remove a tab from the layout without touching its session (a dormant tab).
+  function dropTab(leafId, tabId) {
+    tree = PaneTree.closeTab(tree, leafId, tabId);
+    activeLeaf();
+    render();
+    persist();
+  }
+
   // Close one session's tab. Mirrors tabs mode: the view goes, the PTY survives —
   // unless the close behaviour says otherwise for this kind of session.
   function closeSessionTab(sessionId) {
@@ -425,7 +506,18 @@
   // --- Pane menu (#309 O6/A) ------------------------------------------------
 
   let activeMenu = null;
-  function closePaneMenu() { if (activeMenu) { activeMenu.remove(); activeMenu = null; } }
+  let menuDismissHandlers = null;
+  // Take the document listeners down with the menu. Leaving them to remove
+  // themselves only works on the paths they detect — clicking an item closes the
+  // menu directly, and the pair would linger for the rest of the session.
+  function closePaneMenu() {
+    if (menuDismissHandlers) {
+      document.removeEventListener('mousedown', menuDismissHandlers.out, true);
+      document.removeEventListener('keydown', menuDismissHandlers.esc, true);
+      menuDismissHandlers = null;
+    }
+    if (activeMenu) { activeMenu.remove(); activeMenu = null; }
+  }
 
   function openPaneMenu(anchor, leafId) {
     closePaneMenu();
@@ -459,12 +551,12 @@
     pop.style.right = Math.max(4, window.innerWidth - r.right) + 'px';
     activeMenu = pop;
     setTimeout(() => {
-      document.addEventListener('mousedown', function out(e) {
-        if (activeMenu && !activeMenu.contains(e.target)) { closePaneMenu(); document.removeEventListener('mousedown', out, true); }
-      }, true);
-      document.addEventListener('keydown', function esc(e) {
-        if (e.key === 'Escape') { closePaneMenu(); document.removeEventListener('keydown', esc, true); }
-      }, true);
+      if (!activeMenu) return; // closed again before the listeners went up
+      const out = (e) => { if (activeMenu && !activeMenu.contains(e.target)) closePaneMenu(); };
+      const esc = (e) => { if (e.key === 'Escape') closePaneMenu(); };
+      menuDismissHandlers = { out, esc };
+      document.addEventListener('mousedown', out, true);
+      document.addEventListener('keydown', esc, true);
     }, 0);
   }
 
@@ -476,17 +568,30 @@
   const EDGE_RATIO = 0.1;
   let drag = null; // { tabId, fromLeafId }
 
+  // Is this event our tab drag? The MIME is the authority (it survives the trip
+  // through nested targets); the module state only carries the source.
+  const isTabDrag = (e) => !!drag
+    && !!e.dataTransfer
+    && Array.prototype.includes.call(e.dataTransfer.types || [], PANE_TAB_MIME);
+
   function wireTabDrag(el, leafId, tabId) {
     el.addEventListener('dragstart', (e) => {
       drag = { tabId, fromLeafId: leafId };
       el.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
-      try { e.dataTransfer.setData('text/plain', tabId); } catch { /* Firefox needs the payload; Electron does not */ }
+      // Only the custom type — a text/plain payload would be inserted into the
+      // terminal by any drop that reached it.
+      try { e.dataTransfer.setData(PANE_TAB_MIME, tabId); } catch { /* type refused */ }
     });
     el.addEventListener('dragend', () => { drag = null; el.classList.remove('dragging'); clearDropHint(); });
-    el.addEventListener('dragover', (e) => { if (drag) e.preventDefault(); });
+    el.addEventListener('dragover', (e) => {
+      if (!isTabDrag(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      e.stopPropagation();
+    });
     el.addEventListener('drop', (e) => {
-      if (!drag) return;
+      if (!isTabDrag(e)) return;
       e.preventDefault();
       e.stopPropagation();
       const target = PaneTree.leaves(tree).find((l) => l.id === leafId);
@@ -496,14 +601,36 @@
   }
 
   function wireDropZones(pane, body, leafId) {
+    // The strip's empty space takes a tab too — aiming at the tab row is the
+    // obvious gesture, and without this it would land nowhere.
+    const strip = pane.querySelector('.pane-strip');
+    if (strip) {
+      strip.addEventListener('dragover', (e) => {
+        if (!isTabDrag(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      });
+      strip.addEventListener('drop', (e) => {
+        if (!isTabDrag(e)) return;
+        e.preventDefault();
+        clearDropHint();
+        applyMove(drag, leafId, -1);
+      });
+    }
+
     body.addEventListener('dragover', (e) => {
-      if (!drag) return;
+      if (!isTabDrag(e)) return;
+      // preventDefault is what makes this a drop target at all — the terminal
+      // container inside deliberately does NOT do it for a tab drag (#309).
       e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
       showDropHint(body, dropZone(body, e));
     });
-    body.addEventListener('dragleave', (e) => { if (!body.contains(e.relatedTarget)) clearDropHint(); });
+    body.addEventListener('dragleave', (e) => {
+      if (!body.contains(e.relatedTarget)) clearDropHint();
+    });
     body.addEventListener('drop', (e) => {
-      if (!drag) return;
+      if (!isTabDrag(e)) return;
       e.preventDefault();
       const zone = dropZone(body, e);
       clearDropHint();
@@ -540,6 +667,7 @@
     clearDropHint();
     tree = next;
     activeLeafId = toLeafId;
+    activeLeaf(); // the target can have collapsed away while the drop was in flight
     render();
     persist();
     showActiveOrPlaceholder();
@@ -637,6 +765,20 @@
     enabled = false;
     tree = null;
     activeLeafId = null;
+
+    // Hand the single view back a visible terminal. Every mode decides what is on
+    // screen through `.visible`, and this teardown cleared it on all of them — the
+    // mode we are switching INTO does not re-establish it on its own, so without
+    // this the terminal area is left blank until the next click.
+    const entry = (typeof activeSessionId !== 'undefined' && activeSessionId)
+      ? openSessions.get(activeSessionId) : null;
+    if (entry) {
+      entry.element.classList.add('visible');
+      if (typeof restoreTerminalWebgl === 'function') restoreTerminalWebgl(activeSessionId);
+      requestAnimationFrame(() => {
+        if (openSessions.get(activeSessionId) === entry && typeof safeFit === 'function') safeFit(entry);
+      });
+    }
   }
 
   // --- Hooks the rest of the renderer calls ---------------------------------
@@ -655,7 +797,7 @@
       tree = PaneTree.setActiveTab(tree, leaf.id, tabId);
     }
     activeLeafId = leaf.id;
-    render();
+    scheduleRender();
     persist();
     return true;
   }
@@ -669,7 +811,7 @@
     if (!leaf) return;
     tree = PaneTree.closeTab(tree, leaf.id, tabId);
     activeLeaf();
-    render();
+    scheduleRender();
     persist();
   }
 

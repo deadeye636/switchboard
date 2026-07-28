@@ -148,6 +148,61 @@ const COMMANDS = {
     })()`);
   },
 
+  // A REAL HTML5 drag from one element to a point inside another.
+  //
+  // Not the same thing as dispatching DragEvents from `eval`: a synthesised event carries a
+  // DataTransfer nobody else can see, skips the drag controller, and happily "succeeds" against
+  // handlers that a real mouse never reaches. That is how #309 shipped a tab drag that passed
+  // scripted checks and did nothing under a real mouse — the terminal container's own drop handler
+  // claimed the event first, which only a genuine drag reveals.
+  //
+  // Input.setInterceptDrags hands the native drag back as `Input.dragIntercepted`; we replay it as
+  // dragEnter/dragOver/drop over the target point, so every listener sees exactly what it would see
+  // from the mouse. `zone` picks the point inside the target: center (default), left, right, top,
+  // bottom — the edge zones are what a split-on-drop UI keys off.
+  async drag(cdp, [fromSel, toSel, zone = 'center']) {
+    if (!fromSel || !toSel) throw new Error('drag needs <fromSelector> <toSelector> [zone]');
+    const spots = { center: [0.5, 0.5], left: [0.05, 0.5], right: [0.95, 0.5], top: [0.5, 0.05], bottom: [0.5, 0.95] };
+    const spot = spots[zone];
+    if (!spot) throw new Error(`unknown zone "${zone}" — one of: ${Object.keys(spots).join(', ')}`);
+
+    const geom = await evaluate(cdp, `(() => {
+      const from = document.querySelector(${lit(fromSel)});
+      const to = document.querySelector(${lit(toSel)});
+      if (!from || !to) return null;
+      const f = from.getBoundingClientRect(), t = to.getBoundingClientRect();
+      return {
+        fromX: f.left + f.width / 2, fromY: f.top + f.height / 2,
+        toX: t.left + t.width * ${spot[0]}, toY: t.top + t.height * ${spot[1]},
+      };
+    })()`);
+    if (!geom) return `NOT FOUND: ${fromSel} or ${toSel}`;
+
+    let data = null;
+    cdp.on('Input.dragIntercepted', (p) => { data = p.data; });
+    await cdp.send('Input.setInterceptDrags', { enabled: true });
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: geom.fromX, y: geom.fromY, button: 'left', clickCount: 1, buttons: 1 });
+    for (const step of [4, 12, 30, 60]) {
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: geom.fromX + step, y: geom.fromY + step, button: 'left', buttons: 1 });
+      await new Promise(r => setTimeout(r, 30));
+      if (data) break;
+    }
+    if (!data) {
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: geom.fromX, y: geom.fromY, button: 'left', buttons: 0 });
+      await cdp.send('Input.setInterceptDrags', { enabled: false });
+      return 'no drag started — is the source element draggable?';
+    }
+
+    const at = { data, x: geom.toX, y: geom.toY, modifiers: 0 };
+    await cdp.send('Input.dispatchDragEvent', { type: 'dragEnter', ...at });
+    await cdp.send('Input.dispatchDragEvent', { type: 'dragOver', ...at });
+    await new Promise(r => setTimeout(r, 60));
+    await cdp.send('Input.dispatchDragEvent', { type: 'drop', ...at });
+    await cdp.send('Input.setInterceptDrags', { enabled: false });
+    await new Promise(r => setTimeout(r, 200));
+    return `dropped on ${zone} of ${toSel} — payload: ${(data.items || []).map(i => i.mimeType).join(', ') || '(none)'}`;
+  },
+
   // What the renderer logged — including the loads that failed.
   //
   // `shot` shows you a blank window; this shows you WHY it is blank. The renderer has no modules and no

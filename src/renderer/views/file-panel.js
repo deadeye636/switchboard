@@ -240,6 +240,9 @@ function setSessionMcpActive(sessionId, active) {
   const state = getSessionState(sessionId);
   state.mcpActive = active;
   if (currentPanelSessionId === sessionId) updateMcpIndicator();
+  // Panes mode shows a chip per pane (#309), so a session that is not the globally
+  // active one still has a chip to update — the header check above would skip it.
+  else if (window.panesView && window.panesView.active()) window.panesView.refreshChrome();
 }
 
 function getSessionFilePanelSummary(sessionId) {

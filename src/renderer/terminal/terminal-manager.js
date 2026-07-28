@@ -1347,6 +1347,12 @@ function disposeWebglAddon(entry) {
   for (const c of canvases) {
     try { (c.getContext('webgl2') || c.getContext('webgl'))?.getExtension('WEBGL_lose_context')?.loseContext(); }
     catch { /* ignore — context may already be gone */ }
+    // …and take the element out. dispose() frees the renderer but leaves its
+    // canvases in the DOM, where they sit on top of the DOM renderer's rows as an
+    // opaque layer — a terminal demoted to DOM then shows nothing at all — and a
+    // second suspend/restore cycle stacks another pair on top (#309). The grid
+    // never saw either: it only suspends cards that are off-screen anyway.
+    try { c.remove(); } catch { /* already detached */ }
   }
 }
 
@@ -1388,6 +1394,11 @@ function suspendTerminalWebgl(sessionId) {
   const entry = openSessions.get(sessionId);
   if (!entry || !entry.webglAddon) return;
   disposeWebglAddon(entry); // dispose + free the GL context; xterm falls back to DOM (#264)
+  // Repaint: dispose frees the canvas, and the DOM renderer only draws rows the
+  // parser marks dirty — so it takes over an EMPTY screen and the terminal stays
+  // blank until its next write. The grid never saw this because it only suspends
+  // off-screen cards; panes mode suspends terminals the user is looking at (#309).
+  try { entry.terminal.refresh(0, entry.terminal.rows - 1); } catch { /* disposed */ }
 }
 
 function restoreTerminalWebgl(sessionId) {
@@ -1603,14 +1614,25 @@ function focusSessionForInsert(sessionId, terminal) {
   try { terminal.focus(); } catch { /* disposed mid-drop */ }
 }
 
+// A pane tab being dragged across the terminal is a LAYOUT drag, not content:
+// panes mode has to see it on the pane body underneath. Without this the container
+// claims every drop (it preventDefaults and inserts), so dragging a tab onto a pane
+// pasted the tab id into the terminal instead of moving the tab (#309).
+function isPaneTabDrag(e) {
+  const types = e.dataTransfer && e.dataTransfer.types;
+  return !!types && Array.prototype.includes.call(types, PANE_TAB_MIME);
+}
+
 function setupDragAndDrop(container, terminal, getSessionId) {
   let dragCounter = 0;
   container.addEventListener('dragenter', (e) => {
+    if (isPaneTabDrag(e)) return; // let it bubble to the pane body
     e.preventDefault();
     dragCounter++;
     container.classList.add('drag-over');
   });
   container.addEventListener('dragover', (e) => {
+    if (isPaneTabDrag(e)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
   });
@@ -1622,6 +1644,7 @@ function setupDragAndDrop(container, terminal, getSessionId) {
     }
   });
   container.addEventListener('drop', (e) => {
+    if (isPaneTabDrag(e)) return; // the pane body owns this one
     e.preventDefault();
     dragCounter = 0;
     container.classList.remove('drag-over');
