@@ -5,10 +5,25 @@ views are one instance per kind, not one per pane — #311. Written *before* the
 different from specs 01–15: it is the **record of the layout options and why one was chosen**, and a
 later rework should read it before re-running the argument.
 
-**As built.** `views/pane-tree.js` (pure model, 35 tests) + `views/panes-view.js` (the DOM half) ship
+**As built.** `views/pane-tree.js` (pure model, 39 tests) + `views/panes-view.js` (the DOM half) ship
 the tree, the per-pane strip, the `…` pane menu (A), tab drag with the 10 % edge split, sashes,
 localStorage persistence and the two shortcuts (#309). The typed views followed (#310): preview and
 diff, plus message history, plan, activity and memory, are pane tabs.
+
+Three later fixes belong to the record:
+
+- **The pane actions also answer a right-click** (#312) — on a tab together with that tab's own
+  actions, on the strip or the session bar alone. All three entry points build their items in one
+  place, and the subject is the tab that was clicked, not whichever one is active.
+- **A tab drag shows where it will land** (#313). The caret needed a model fix: `moveTab` read its
+  `index` as a position *after* the dragged tab was lifted out, while its only caller meant the gap it
+  could see — so every rightward drag landed one tab too far and dropping a tab last was impossible.
+- **An exited session does not leave a live-looking tab** (#317, #318). A deliberate stop closes the
+  tab in panes mode too (`closeTabNow` was guarded on tabs mode alone). And clicking a tab whose
+  session has no process no longer opens it — that path spawns a fresh CLI, which is the opposite of
+  what clicking a dead tab means. The pane says so instead and offers a **Launch** button: the one
+  empty state that carries an action, because it is the one case where opening costs a process. A tab
+  whose session is still running elsewhere is unaffected — clicking it attaches, as before.
 
 Two things diverge from the plan above and are load-bearing:
 
@@ -84,7 +99,7 @@ D            [ tab ][ tab ]                     ▾ │ ⫽▾ …
 
 | | What it is | Trade-off |
 |---|---|---|
-| **A** *(chosen)* | Only `…`; split, move-to-new-window and close-pane are menu entries | **+** maximum tab width, and pane width is the scarce resource once the strip also carries session tools (H2). **−** split and detach are not discoverable without opening the menu |
+| **A** *(chosen)* | Only `…`; split, move-to-new-window and close-pane are menu entries | **+** maximum tab width, and pane width is the scarce resource once the strip also carries session tools (H2). **−** split and detach are not discoverable without opening the menu — softened by #312, which put the same items on a right-click |
 | B | Permanent split + detach icons, VS Code's own layout | **+** one click, self-explaining. **−** ~72 px per pane, on top of H2's tools |
 | C | B, but the icons appear only on the hovered/active pane | **+** quiet at eight panes. **−** the space must stay reserved anyway or tabs jump on hover; nothing is discoverable without moving the mouse |
 | D | A split button with a direction dropdown, detach into `…` | **+** middle ground. **−** two clicks to split anyway, unless a default direction is defined |

@@ -654,6 +654,14 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
     const bar = document.createElement('div');
     bar.className = 'pane-actionbar';
+    // The pane's own chrome answers a right-click with the pane actions, same as the
+    // strip (#312). Under the default `paneToolsPlacement: bar` this row is most of
+    // what the pane shows above its terminal, so leaving it out would mean aiming at
+    // the thin strip to get a menu the bar is sitting right under.
+    bar.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openPaneMenu({ x: e.clientX, y: e.clientY }, leaf.id);
+    });
 
     const info = document.createElement('div');
     info.className = 'pane-actionbar-info';
@@ -954,10 +962,15 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     item('Move to new window', () => { window.detachSession?.(detachId); }, {
       disabled: !detachId || !activePtyIds.has(detachId) || !!window.isDetachedWindow?.(),
     });
-    item('Close pane', () => closePane(leafId), {
-      danger: true,
-      disabled: PaneTree.leaves(tree).length === 1,
-    });
+    // Closing the PANE is not a tab action: a right-click on a tab is about that tab,
+    // and with one tab in the pane the two would read as the same thing. It stays on
+    // the pane's own menus — the `…` button, the strip, the session bar.
+    if (!tab) {
+      item('Close pane', () => closePane(leafId), {
+        danger: true,
+        disabled: PaneTree.leaves(tree).length === 1,
+      });
+    }
 
     document.body.appendChild(pop);
     positionPaneMenu(pop, at);
