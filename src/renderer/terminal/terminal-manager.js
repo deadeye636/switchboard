@@ -1412,6 +1412,21 @@ function suspendTerminalWebgl(sessionId) {
   // blank until its next write. The grid never saw this because it only suspends
   // off-screen cards; panes mode suspends terminals the user is looking at (#309).
   try { entry.terminal.refresh(0, entry.terminal.rows - 1); } catch { /* disposed */ }
+  // …and re-fit, because the DOM renderer's cell metrics are NOT WebGL's
+  // (xterm.js#6015 — 8.2065 px against 8.000 px at dpr 2). Every other renderer
+  // switch already does this: `loadTerminalWebgl` after loading, the context-loss
+  // handler on a deferred frame. This one did not, and the terminal kept its
+  // WebGL-era fit until something else refitted it — bottom-row clipping, the #81
+  // family (#322). It stayed invisible because of who called it: the grid only
+  // suspends off-screen cards, and panes mode happens to call `refitVisible()`
+  // right after the policy — a call-order convention, not a guarantee, and
+  // `focusPane` does not honour it. Metrics settle only after a frame, so defer
+  // exactly like the context-loss path does.
+  requestAnimationFrame(() => {
+    if (openSessions.get(sessionId) !== entry) return; // closed or replaced mid-frame
+    safeFit(entry);
+    try { entry.terminal.refresh(0, entry.terminal.rows - 1); } catch { /* disposed */ }
+  });
 }
 
 function restoreTerminalWebgl(sessionId) {

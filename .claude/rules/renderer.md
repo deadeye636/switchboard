@@ -159,6 +159,12 @@ Three things that are easy to undo by accident:
 - **`loadTerminalWebgl` is idempotent, and `disposeWebglAddon` runs even with no addon** — the
   context-loss handler drops the reference without touching the DOM, and the orphaned canvases sit on
   top of the DOM renderer's rows as an opaque layer (#309's shape).
+- **Every renderer switch re-fits, `suspendTerminalWebgl` included (#322).** The two renderers do not
+  agree on a cell (8.2065 px against 8.000 px at dpr 2, xterm.js#6015), so a terminal demoted to DOM
+  keeps a stale fit and clips its bottom row — the #81 family. Load re-fits, the context-loss handler
+  re-fits, and suspend now re-fits on a deferred frame like it does. Do not hand that back to a
+  caller: panes mode looked covered only because `render()` calls `refitVisible()` right after the
+  policy, which `focusPane` does not.
 
 ## `src/shared/`
 
