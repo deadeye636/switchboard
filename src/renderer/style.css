@@ -2046,7 +2046,22 @@ input:focus-visible {
   opacity: 1;
 }
 
+/* This session renders in a window of its own (#2): the row cannot show it, a click raises that
+   window. The marker says so before the click, and its own action brings the session back (#315). */
+.session-item.is-detached > .session-row .session-summary { font-style: italic; }
+.session-item.is-detached > .session-row::after {
+  content: '⧉';
+  align-self: center;
+  margin-left: 4px;
+  font-size: 11px;
+  color: #8088ff;
+  flex-shrink: 0;
+}
+.session-reattach-btn { color: #8088ff; }
+.session-reattach-btn:hover { background: rgba(128, 136, 255, 0.16); }
+
 .session-stop-btn,
+.session-reattach-btn,
 .session-launch-config-btn,
 .session-fork-btn,
 .session-jsonl-btn,

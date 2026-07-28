@@ -154,6 +154,7 @@ function dispatchSidebarActivation(e) {
     // the normal delegated handling below, no special case (#193).
 
     if (t.closest('.session-pin')) { e.stopPropagation(); toggleSessionPin(session); return; }
+    if (t.closest('.session-reattach-btn')) { e.stopPropagation(); window.reattachSession?.(session.sessionId); return; }
     if (t.closest('.session-stop-btn')) { e.stopPropagation(); confirmAndStopSession(session.sessionId); return; }
     if (t.closest('.session-launch-config-btn')) { e.stopPropagation(); showResumeSessionDialog(session); return; }
     if (t.closest('.session-handoff-btn') || t.closest('.session-health-chip')) { e.stopPropagation(); showHandoffPrompt(session); return; }

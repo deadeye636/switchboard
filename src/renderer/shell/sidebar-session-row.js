@@ -232,6 +232,18 @@ function buildSessionItem(session, opts = {}) {
   handoffBtn.title = 'Create handoff';
   handoffBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7h8"/><path d="M8 11h8"/><path d="M8 15h5"/><path d="M5 3h14a2 2 0 0 1 2 2v14l-4-3H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg>';
 
+  // Detached (#2): this session renders in a window of its own, so the row cannot open it — a click
+  // raises that window instead. The button is the way to take it back (#315); without it the only way
+  // was to find the window and close it.
+  if (typeof window.isSessionDetached === 'function' && window.isSessionDetached(session.sessionId)) {
+    item.classList.add('is-detached');
+    const reattachBtn = document.createElement('button');
+    reattachBtn.className = 'session-reattach-btn';
+    reattachBtn.title = 'Bring back to this window';
+    reattachBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14l-4-4 4-4"/><path d="M5 10h9a5 5 0 0 1 5 5v4"/></svg>';
+    actions.appendChild(reattachBtn);
+  }
+
   actions.appendChild(stopBtn);
   actions.appendChild(copyIdBtn);
   // Tags hang on the sessionId, which a terminal row has too — so this sits with the other
