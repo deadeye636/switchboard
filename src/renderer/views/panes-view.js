@@ -261,12 +261,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const activeTab = leaf.tabs.find((t) => t.id === leaf.activeTabId);
     const activeMounted = activeTab && (isViewTab(activeTab) || openSessions.has(sessionOfTab(activeTab)));
     if (!leaf.tabs.length || !activeMounted) {
-      const empty = document.createElement('div');
-      empty.className = 'pane-empty';
-      empty.textContent = leaf.tabs.length
-        ? 'This session is not open — click its tab to open it here.'
-        : 'Pick a session in the sidebar to open it here.';
-      body.appendChild(empty);
+      body.appendChild(buildEmptyState(leaf, activeTab));
     }
     // Clicking anywhere in a pane makes it the one a sidebar click fills (O7).
     body.addEventListener('mousedown', () => focusPane(leaf.id), true);
@@ -274,6 +269,41 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
     wireDropZones(pane, body, leaf.id);
     return pane;
+  }
+
+  // What an empty pane says. Three states: no tabs at all, a tab whose session is
+  // still running elsewhere (a click attaches it — nothing to warn about), and a tab
+  // whose session has no process. The last one carries the Launch button, because
+  // that is the only case where opening it spawns a CLI (#318) — the button says so
+  // instead of a tab click doing it silently.
+  function buildEmptyState(leaf, activeTab) {
+    const empty = document.createElement('div');
+    empty.className = 'pane-empty';
+    if (!leaf.tabs.length) {
+      empty.textContent = 'Pick a session in the sidebar to open it here.';
+      return empty;
+    }
+    const sessionId = sessionOfTab(activeTab);
+    if (!sessionId || sessionIsLive(sessionId)) {
+      empty.textContent = 'This session is not open — click its tab to open it here.';
+      return empty;
+    }
+    const session = sessionMap.get(sessionId);
+    const text = document.createElement('div');
+    text.textContent = 'This session is not running. Launching it starts the CLI again; its history stays either way.';
+    empty.appendChild(text);
+    const launch = document.createElement('button');
+    launch.type = 'button';
+    launch.className = 'new-session-secondary-btn pane-empty-launch';
+    launch.textContent = 'Launch';
+    launch.disabled = !session;
+    launch.addEventListener('click', (e) => {
+      e.stopPropagation();
+      focusPane(leaf.id);
+      if (session && typeof openSession === 'function') openSession(session, undefined, { show: true });
+    });
+    empty.appendChild(launch);
+    return empty;
   }
 
   function buildStrip(leaf) {
@@ -315,6 +345,41 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return strip;
   }
 
+  // Did this session have a process that has since ended? `launchExitedSessions` is
+  // the renderer's marker for exactly that (#290), and it is cleared again the moment
+  // a live PTY turns up under the id — so a tab restored from a saved layout, whose
+  // session never ran in this run, is not "exited" and still opens on click.
+  function hasExited(sessionId) {
+    return typeof launchExitedSessions !== 'undefined' && launchExitedSessions.has(sessionId);
+  }
+
+  // Clicking a session tab. Three cases, and only the third can start a process:
+  // mounted → show it; not mounted but the PTY is alive → attach to it; neither →
+  // opening it would SPAWN a fresh CLI. A tab looks like a view, not a launcher, so
+  // that last one only selects the tab and lets the pane offer a Launch button
+  // (#318). Without that, clicking a dead tab to be rid of it starts the very thing
+  // the user was done with.
+  function openFromTab(leaf, tab, session) {
+    activeLeafId = leaf.id;
+    const sessionId = sessionOfTab(tab);
+    if (openSessions.has(sessionId)) { focusPane(leaf.id); showSession(sessionId); return; }
+    if (!session || typeof openSession !== 'function') return;
+    if (!sessionIsLive(sessionId)) {
+      focusPane(leaf.id);
+      tree = PaneTree.setActiveTab(tree, leaf.id, tab.id);
+      render();
+      persist();
+      return;
+    }
+    // It already has a tab in THIS pane, so show() finds that leaf and the session
+    // lands where the layout says.
+    openSession(session, undefined, { show: true });
+  }
+
+  function sessionIsLive(sessionId) {
+    return typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId);
+  }
+
   function buildTab(leaf, tab, runtime) {
     if (isViewTab(tab)) return buildViewTab(leaf, tab);
     const sessionId = sessionOfTab(tab);
@@ -345,7 +410,8 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     el.appendChild(label);
 
     const mounted = openSessions.has(sessionId);
-    if (!mounted) el.classList.add('session-tab-dormant');
+    if (!mounted) el.classList.add(hasExited(sessionId) ? 'session-tab-exited' : 'session-tab-dormant');
+    if (!mounted && hasExited(sessionId)) el.title = name + ' — this session has exited.';
 
     const close = document.createElement('button');
     close.className = 'session-tab-close';
@@ -355,13 +421,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     close.addEventListener('click', (e) => { e.stopPropagation(); closeTabFromUi(leaf.id, tab); });
     el.appendChild(close);
 
-    el.addEventListener('click', () => {
-      activeLeafId = leaf.id;
-      if (openSessions.has(sessionId)) { focusPane(leaf.id); showSession(sessionId); return; }
-      // Dormant tab: mount the session. It already has a tab in THIS pane, so
-      // show() finds that leaf and the session lands where the layout says.
-      if (session && typeof openSession === 'function') openSession(session, undefined, { show: true });
-    });
+    el.addEventListener('click', () => { openFromTab(leaf, tab, session); });
     el.addEventListener('auxclick', (e) => {
       if (middleClickCloses && e.button === 1) { e.preventDefault(); closeSessionTab(sessionId); }
     });

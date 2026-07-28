@@ -8028,6 +8028,12 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
    not a live view, so it reads as dimmed until it is clicked open. */
 .session-tab.session-tab-dormant { opacity: 0.55; }
 
+/* A tab whose process ended (#318). Dimmer than dormant and struck through: unlike a
+   restored tab it is not a shortcut to anything — clicking it opens nothing, and the
+   pane offers a Launch button instead. */
+.session-tab.session-tab-exited { opacity: 0.4; }
+.session-tab.session-tab-exited .session-tab-label { text-decoration: line-through; }
+
 /* The session's own bar under the tab strip (paneToolsPlacement: bar) — the same
    content the single #terminal-header carries in the other modes. */
 .pane-actionbar {
@@ -8104,6 +8110,8 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
+  gap: 10px;
   align-items: center;
   justify-content: center;
   padding: 12px;
@@ -8111,6 +8119,8 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
   color: #6a6a80;
   font-size: 12px;
 }
+/* The one empty state that offers an action: a tab whose session has no process (#318). */
+.pane-empty-launch { flex: 0 0 auto; }
 
 /* Sash: 4 px of hit area between two panes, like VS Code's. */
 .pane-sash { flex: 0 0 4px; background: rgba(255, 255, 255, 0.05); }
