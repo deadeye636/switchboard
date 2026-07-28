@@ -121,6 +121,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // so a layout saved on a 4K screen restores sanely on a laptop.
 
   function persist() {
+    // A detached window shows one session and owns no layout (#2). It shares this origin's
+    // localStorage with the main window, so writing here would overwrite the user's arrangement with
+    // a single pane the moment they pop a session out.
+    if (window.__detachedSessionId) return;
     clearTimeout(persistTimer);
     // A sash drag fires dozens of updates per gesture; write once it settles.
     persistTimer = setTimeout(() => {
@@ -129,6 +133,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   }
 
   function loadTree() {
+    // The detached window is one pane with one session (#2) — it reads the same localStorage as the
+    // main window, so loading the stored tree would rebuild the whole arrangement over there, panes
+    // and foreign tabs and all.
+    if (window.__detachedSessionId) {
+      return PaneTree.createTree('pane-1', [makeTerminalTab(window.__detachedSessionId)]);
+    }
     let stored = null;
     try { stored = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch { stored = null; }
     const loaded = PaneTree.deserialize(stored, 'pane-1');
@@ -868,9 +878,13 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     focusPane(leafId);
     item('Split right', () => splitActivePane('right'));
     item('Split down', () => splitActivePane('down'));
-    // Detach lands with #2; the entry is here so the menu does not change shape
-    // when it does, and so the mode already says where it will live.
-    item('Move to new window', () => {}, { disabled: true });
+    // Detach (#2): the pane's active session moves into a window of its own. Only a running session
+    // can — there is nothing to render in the new window otherwise.
+    const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
+    const detachId = leaf ? sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId)) : null;
+    item('Move to new window', () => { window.detachSession?.(detachId); }, {
+      disabled: !detachId || !activePtyIds.has(detachId) || !!window.isDetachedWindow?.(),
+    });
     item('Close pane', () => closePane(leafId), {
       danger: true,
       disabled: PaneTree.leaves(tree).length === 1,

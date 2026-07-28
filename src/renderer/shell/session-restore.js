@@ -78,6 +78,9 @@ function setRestoreProgress(done, total) {
 
 async function restoreOpenSessionsOnLaunch() {
   if (typeof hasRestorableUpdateSessions !== 'function') return false;
+  // A detached window renders ONE session (#2). Restoring the whole set here would mount every one of
+  // them a second time, each fighting the main window for the same PTY.
+  if (window.__suppressLaunchRestore) return false;
   // Read the live setting (the cached copy may not be populated yet at boot).
   let tabsMode = false;
   try {

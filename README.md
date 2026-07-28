@@ -34,7 +34,8 @@ start a new one without leaving the app. Seven terminal themes, configurable fon
 clipboard image paste, drag-and-drop that inserts files and images the same way, GPU rendering with
 automatic fallback. Or split the area into **panes** the way VS Code splits editor groups: each pane
 keeps its own tabs, drag a tab onto a pane edge to split, and the layout is still there after a
-restart.
+restart. A session can also move into a **window of its own** for a second monitor — it keeps running
+throughout, and closing that window hands it back.
 
 **It tells you when an agent needs you.** A prioritized attention inbox, OS notifications, a taskbar
 badge and a tray icon — even when the window is in the background. Detection runs off CLI hooks, so

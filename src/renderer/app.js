@@ -1213,6 +1213,13 @@ async function openSession(session, customOptions, { show = true } = {}) {
   window.__bookmarksReturnTarget = null;
   const { sessionId, projectPath } = session;
 
+  // The session lives in a window of its own (#2). Mounting it here as well would put two xterms on one
+  // PTY — every keystroke echoed twice, both fighting over the size. Raise its window instead.
+  if (typeof window.isSessionDetached === 'function' && window.isSessionDetached(sessionId)) {
+    window.api.focusDetachedWindow(sessionId);
+    return;
+  }
+
   // If already open, handle closed-session cleanup or just show it
   if (openSessions.has(sessionId)) {
     const entry = openSessions.get(sessionId);

@@ -83,6 +83,16 @@ contextBridge.exposeInMainWorld('api', {
   // outright — the 'close' event never fires, so it cannot be turned into a hide — and
   // the next open would pay the full cold start again (#175).
   hideSettingsWindow: () => ipcRenderer.send('hide-settings-window'),
+  // Detached session windows (#2). The PTY never moves; only the window that renders its output does,
+  // so `detachSession` is a view operation and never touches the process.
+  detachSession: (sessionId, title) => ipcRenderer.invoke('detach-session', sessionId, title),
+  reattachSession: (sessionId) => ipcRenderer.invoke('reattach-session', sessionId),
+  isSessionDetached: (sessionId) => ipcRenderer.invoke('is-session-detached', sessionId),
+  detachedSessionIds: () => ipcRenderer.invoke('detached-session-ids'),
+  focusDetachedWindow: (sessionId) => ipcRenderer.invoke('focus-detached-window', sessionId),
+  // Main renderer: release your terminal for this session / take it back. Both carry the session id.
+  onSessionDetached: (cb) => ipcRenderer.on('session-detached', (_e, sessionId) => cb(sessionId)),
+  onSessionReattached: (cb) => ipcRenderer.on('session-reattached', (_e, sessionId) => cb(sessionId)),
   notifySettingsChanged: () => ipcRenderer.send('settings-changed'),
   onSettingsChanged: (cb) => ipcRenderer.on('settings-changed', () => cb()),
   renameSession: (id, name) => ipcRenderer.invoke('rename-session', id, name),

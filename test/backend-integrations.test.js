@@ -146,6 +146,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/panels/settings-project-tags.js': [],
   'src/renderer/panels/settings-global-html.js': [],
   'src/renderer/shell/session-restore.js': [],
+  'src/renderer/shell/detach-window.js': [],
   'src/renderer/shell/statusbar-usage.js': [],
   'src/renderer/shell/search-bar.js': [],
   'src/renderer/shell/native-notifications.js': [],

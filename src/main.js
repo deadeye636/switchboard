@@ -268,6 +268,19 @@ windows.registerIpc(ipcMain);
 const { createWindow, buildMenu, broadcastSettingsChanged } = windows;
 
 
+// --- Detached session windows (#2) -> app/detach.js ---
+// Owns `detachedWindows` and the routing decision for `terminal-data`. spawn.js asks it through ctx
+// (`windowForSession`), windows.js takes its windows down with the main one.
+const detach = require('./app/detach');
+detach.init({
+  getMainWindow: () => mainWindow,
+  getAppQuitting: () => appQuitting,
+  activeSessions,
+  log,
+  BrowserWindow,
+});
+detach.registerIpc(ipcMain);
+
 // --- Native notifications, dock/taskbar badge, and tray (Spec 01) -> app/notifications.js ---
 const notifications = require('./app/notifications');
 notifications.init({ getMainWindow: () => mainWindow, log });
@@ -1829,6 +1842,9 @@ const { startBackendWatchers, stopBackendWatchers } = watchStores;
 const spawn = require('./app/terminal/spawn');
 spawn.init({
   getMainWindow: () => mainWindow,
+  // Which window renders a given session (#2). Only `terminal-data` uses it; status and lifecycle
+  // events keep going to the main window, where the sidebar and the attention inbox live.
+  windowForSession: (sessionId) => detach.windowForSession(sessionId),
   getAppQuitting: () => appQuitting,
   activeSessions,
   liveStoreRef,

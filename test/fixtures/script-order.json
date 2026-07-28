@@ -53,6 +53,7 @@
     "session-history.js",
     "update-restart.js",
     "session-restore.js",
+    "detach-window.js",
     "statusbar-usage.js",
     "away-summary-banner.js",
     "shortcuts.js",

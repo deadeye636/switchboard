@@ -160,8 +160,12 @@ side effect of this one. The tree model is pure, so the option stays open.
 
 ## 7 · Related
 
-- **#2** — detachable windows. Runs *after* this: with the tree owned by the window, a detached session
-  is a tree with one leaf, and the ghost tab from #2's plan is no longer needed.
+- **#2** — detachable windows, built after this and on top of it. A detached window loads the same
+  `index.html?detached=<id>` and gets a tree with exactly one leaf, so it inherits the strip, the
+  session bar and every terminal fix; the ghost tab #2's own plan proposed turned out to be
+  unnecessary. The one thing panes had to learn: a detached window shares this origin's localStorage,
+  so it neither loads nor writes the saved layout — otherwise popping a session out would overwrite
+  the user's arrangement with a single pane.
 - **Spec 08** — flexible grid layout. The pure-module shape (`grid-layout.js`: order, spans, pointer
   geometry, keyboard move mode, all DOM-free and require-able) is the template for `pane-tree.js`.
 - **Spec 06** — grid bulk actions. One of the features that keeps grid a mode of its own (§4.4).

@@ -227,6 +227,9 @@
   <script src="session/session-history.js"></script>
   <script src="shell/update-restart.js"></script>
   <script src="shell/session-restore.js"></script>
+  <!-- detach-window.js sets the body class from ?detached BEFORE the first paint (#2), and must load
+       after session-restore.js, whose launch restore it suppresses in a detached window. -->
+  <script src="shell/detach-window.js"></script>
   <script src="shell/statusbar-usage.js"></script>
   <script src="shell/away-summary-banner.js"></script>
   <!-- shortcuts.js defines matchShortcut/appShortcuts helpers used by terminal-manager,

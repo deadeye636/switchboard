@@ -7943,6 +7943,16 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 .session-tab-menu-item.danger:hover { background: rgba(220, 60, 60, 0.18); color: #ff9a9a; }
 .session-tab-menu-item:disabled { color: #6a6a7a; cursor: default; background: none; }
 
+/* ========== DETACHED SESSION WINDOW (#2) ========== */
+/* Same index.html, one session, no app chrome: the sidebar, its resize handle and the status bar all
+   belong to the window that owns the whole app. What stays is the terminal and its own bar, so every
+   terminal fix and the session tools come along unchanged. */
+body.detached-window #sidebar,
+body.detached-window #sidebar-resize-handle,
+body.detached-window #status-bar,
+body.detached-window #placeholder { display: none !important; }
+body.detached-window #main { inset: 0; }
+
 /* ========== PANES MODE (#309) ========== */
 /* #terminals hosts a split tree; every leaf is a .pane with its own strip. The
    strip carries the session tools too (O13/H2), so the singleton #terminal-header

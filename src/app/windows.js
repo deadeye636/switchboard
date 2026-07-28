@@ -317,6 +317,9 @@ function createWindow() {
     if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.destroy();
     // #277/#287: take down any open changes and diff windows too, or `window-all-closed` never fires.
     try { require('./vcs').destroyAllVcsWindows(); } catch { /* module not wired in a test build */ }
+    // #2: same for detached session windows. They are deliberately not `parent`-ed to the main window
+    // (a child is always on top, which defeats a second monitor), so nothing else takes them down.
+    try { require('./detach').closeAll(); } catch { /* module not wired in a test build */ }
     if (boundsTimer) clearTimeout(boundsTimer);
     if (!mainWindow.isMinimized()) {
       const b = mainWindow.getBounds();

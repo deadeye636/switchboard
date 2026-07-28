@@ -354,6 +354,12 @@ if (typeof module !== 'undefined' && module.exports) {
     addItem('Relaunch', () => {
       if (typeof window.relaunchSession === 'function') window.relaunchSession(sessionId);
     });
+    // Detach (#2) — only for a session with a live process, and never from a detached window, which is
+    // already one. The tab goes with the session: main releases its terminal, the new window attaches.
+    if (typeof window.detachSession === 'function' && !window.isDetachedWindow?.()
+      && typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId)) {
+      addItem('Move to new window', () => window.detachSession(sessionId));
+    }
 
     document.body.appendChild(pop);
     // Position at the cursor, clamped into the viewport.

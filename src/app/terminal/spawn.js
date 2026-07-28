@@ -60,6 +60,15 @@ const sendToWindow = (channel, ...args) => {
   if (w && !w.isDestroyed()) w.webContents.send(channel, ...args);
 };
 
+// The byte stream goes to the window that RENDERS this session — its own, once it was detached (#2),
+// otherwise the main window. Only this channel routes: the sidebar, the attention inbox and the badges
+// live in the main window and must keep hearing about a detached session, so lifecycle and status
+// events keep using sendToWindow above.
+const sendTerminalData = (sessionId, data) => {
+  const w = ctx.windowForSession ? ctx.windowForSession(sessionId) : ctx.getMainWindow();
+  if (w && !w.isDestroyed()) w.webContents.send('terminal-data', sessionId, data);
+};
+
 /** The open-terminal handler. Reattaches to a live session, or spawns a new PTY for it. */
 async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   if (!ctx.getMainWindow()) return { ok: false, error: 'no window' };
@@ -82,18 +91,18 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
 
     // If TUI is in alternate screen mode, send escape to switch into it
     if (session.altScreen && !session.isPlainTerminal) {
-      sendToWindow('terminal-data', sessionId, '\x1b[?1049h');
+      sendTerminalData(sessionId, '\x1b[?1049h');
     }
 
     // Send buffered output for reattach
     for (const chunk of session.outputBuffer) {
-      sendToWindow('terminal-data', sessionId, chunk);
+      sendTerminalData(sessionId, chunk);
     }
 
     if (!session.isPlainTerminal) {
       // Hide cursor after buffer replay — the live PTY stream or resize nudge
       // will re-show it at the correct position, avoiding a stale cursor artifact
-      sendToWindow('terminal-data', sessionId, '\x1b[?25l');
+      sendTerminalData(sessionId, '\x1b[?25l');
     }
 
     return { ok: true, reattached: true, mcpActive: !!session.mcpServer };
@@ -618,7 +627,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     session.outputBuffer.push(hint);
     session.outputBufferSize += hint.length;
     if (windowLive()) {
-      sendToWindow('terminal-data', sessionId, hint);
+      sendTerminalData(sessionId, hint);
     }
   }
 
@@ -631,7 +640,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     session.outputBuffer.push(notice);
     session.outputBufferSize += notice.length;
     if (windowLive()) {
-      sendToWindow('terminal-data', sessionId, notice);
+      sendTerminalData(sessionId, notice);
     }
   }
 
@@ -754,7 +763,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     }
 
     if (windowLive()) {
-      sendToWindow('terminal-data', currentId, data);
+      sendTerminalData(currentId, data);
     }
   });
 

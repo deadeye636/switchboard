@@ -329,6 +329,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Tabbed single-view** as the primary layout — session tabs, viewer close buttons; the
   grid is kept as a legacy mode. Right-click **tab context menu** (Close / Stop / Relaunch),
   auto-close, and removal of the top menubar for a cleaner window.
+- **Detached session windows** (#2) — move a running session into an OS window of its own (pane menu
+  or the tab's context menu), drag it to a second monitor, close the window to hand it back. The PTY
+  never moves: only the window that receives its output changes, so the session runs through the whole
+  detour. Its status, attention badge and sidebar row stay in the main window, where they belong.
 - **Panes** (#309) — a third display mode that splits the terminal area into a VS-Code-style tree of
   panes, each with its own tab strip. Drag a tab onto a pane's edge to split, onto its middle to move
   it there; sashes resize, and the layout survives a restart. The session tools (messages, tasks,
