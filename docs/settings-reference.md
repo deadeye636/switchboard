@@ -68,7 +68,7 @@ back on Save.
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
-| `sessionDisplayMode` | Display mode | `grid` \| `tabs` | `grid` | global |
+| `sessionDisplayMode` | Display mode | `grid` \| `tabs` \| `panes` | `grid` | global |
 | `settingsOpenMode` | Open settings as | `overlay` \| `window` | `overlay` | global |
 | `sidebarCollapseDefault` | Sidebar on startup | `expanded` \| `collapsed` \| `remember` | `remember` | global |
 | `tabPosition` | Tab position | `top` \| `bottom` | `top` | global |
@@ -144,6 +144,8 @@ Warn/crit pairs are clamped so warn < crit; an invalid pair falls back to the de
 | `insertVariable` | Insert variable | primary+Shift+V |
 | `gridToggle` | Toggle grid view | primary+Shift+G |
 | `gridMoveMode` | Move / resize grid card | primary+Shift+M |
+| `paneSplit` | Split pane (panes mode) | primary+Shift+`\` |
+| `paneFocusDigit` | Focus pane 1…9 (panes mode) | primary+Shift+`1`…`9` |
 | `nextAttention` | Next attention item | primary+Shift+A — **not re-bindable**, preserved on save |
 
 ## Handoff

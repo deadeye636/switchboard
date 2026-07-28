@@ -1,9 +1,15 @@
 # 16 — Panes mode (VS-Code-style editor groups)
 
-**Status: planned, not implemented.** Tracked as #309; the working plan lives in the issue's comment.
-Unlike specs 01–15 this one is written *before* the build, so its job is different: it is the **record
-of the layout options and why one was chosen**. When #309 lands, add the "As built" note; when a later
-rework revisits the layout, this file is what keeps it from re-running the same argument.
+**Status: built for terminal tabs; typed views still open.** Tracked as #309. Written *before* the
+build, so its job is different from specs 01–15: it is the **record of the layout options and why one
+was chosen**, and a later rework should read it before re-running the argument.
+
+**As built (first pass).** `views/pane-tree.js` (pure model, 35 tests) + `views/panes-view.js` (the
+DOM half) ship the tree, the per-pane strip with the session tools (H2), the `…` pane menu (A),
+tab drag between panes with the 10 % edge split, sashes, localStorage persistence and the two
+shortcuts. **Not yet built:** the typed views of §4.3 — preview, diff, plan, stats, memory and JSONL
+are still the old surfaces, so P2 is decided but only terminal tabs exist. The tab carries its `kind`
+from day one, so adding them is new render branches, not a new model.
 
 Issue: #309 · builds the ownership model that detachable windows (#2) then consume.
 

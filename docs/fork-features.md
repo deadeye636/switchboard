@@ -329,6 +329,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Tabbed single-view** as the primary layout — session tabs, viewer close buttons; the
   grid is kept as a legacy mode. Right-click **tab context menu** (Close / Stop / Relaunch),
   auto-close, and removal of the top menubar for a cleaner window.
+- **Panes** (#309) — a third display mode that splits the terminal area into a VS-Code-style tree of
+  panes, each with its own tab strip. Drag a tab onto a pane's edge to split, onto its middle to move
+  it there; sashes resize, and the layout survives a restart. The session tools (messages, tasks,
+  variables, IDE chip, stop) sit in the pane's own strip, so they act on the terminal below them
+  rather than on "the active session". `Ctrl/Cmd+Shift+\` splits, `Ctrl/Cmd+Shift+1…9` focuses a pane.
 - **Settings overhaul** — two-column layout, permission modes aligned to the Claude CLI, and
   an optional pop-out settings window that paints instantly and is kept warm between opens.
   The actions are pinned to the bottom edge, reachable at any scroll position in any category:

@@ -419,13 +419,14 @@
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Display mode</span>${help}</div>
-                    <div class="settings-description">Grid overview, or a tab bar above the terminal.</div>
-                    <div class="settings-more"><b>Grid</b>: sidebar + grid overview / single view. <b>Tabs</b>: a tab bar above the terminal to switch between open sessions; the grid mosaic stays reachable via the overview button.</div>
+                    <div class="settings-description">Grid overview, a tab bar above the terminal, or split panes.</div>
+                    <div class="settings-more"><b>Grid</b>: sidebar + grid overview / single view. <b>Tabs</b>: a tab bar above the terminal to switch between open sessions; the grid mosaic stays reachable via the overview button. <b>Panes</b>: split the terminal area into panes, each with its own tabs — drag a tab onto a pane edge to split, onto its middle to move it there. The pane menu (…) splits and closes panes.</div>
                   </div>
                   <div class="settings-field-control">
                     <select class="settings-select" id="sv-display-mode">
-                      <option value="grid" ${displayModeValue !== 'tabs' ? 'selected' : ''}>Grid</option>
+                      <option value="grid" ${displayModeValue !== 'tabs' && displayModeValue !== 'panes' ? 'selected' : ''}>Grid</option>
                       <option value="tabs" ${displayModeValue === 'tabs' ? 'selected' : ''}>Tabs</option>
+                      <option value="panes" ${displayModeValue === 'panes' ? 'selected' : ''}>Panes</option>
                     </select>
                   </div>
                 </div>

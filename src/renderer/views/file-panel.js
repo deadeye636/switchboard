@@ -409,7 +409,17 @@ function updateMcpIndicator() {
   }
   const state = filePanelState.get(currentPanelSessionId);
   mcpIndicatorEl.style.display = (state && state.mcpActive) ? '' : 'none';
+  // Panes mode carries the chip per pane instead of once in the header (#309), so
+  // it needs the flag, not this element. Rebuilding the strips picks it up.
+  if (window.panesView && window.panesView.active()) window.panesView.refreshChrome();
 }
+
+// Is IDE emulation active for this session? The chip's state, exposed as data so
+// panes mode can render one chip per pane (#309) instead of reading the DOM.
+window.isMcpActiveForSession = (sessionId) => {
+  const state = filePanelState.get(sessionId);
+  return !!(state && state.mcpActive);
+};
 
 // ── Panel Rendering ─────────────────────────────────────────────────
 

@@ -9,6 +9,7 @@
 //   arrows      → ArrowLeft/Right/Up/Down  (session/grid navigation)
 //   brackets    → [ and ]                   (previous/next session)
 //   commaPeriod → , and .                   (back/forward through visited sessions)
+//   digits      → 1…9                       (pane focus, #309)
 //   key         → a single literal key      (e.g. grid toggle = G)
 // The user customises the *modifiers*; `primary` is Cmd on macOS / Ctrl elsewhere.
 
@@ -39,12 +40,19 @@ const DEFAULT_SHORTCUTS = {
   // second arrow chord) keeps this off Ctrl+Alt+Arrow, which is the workspace
   // switcher on most Linux desktops — see the sessionNavArrows note above.
   gridMoveMode: { primary: true, alt: false, shift: true, key: 'm' },
+  // Ctrl/Cmd+Shift+\ — split the active pane (panes mode, #309). NOT bare Ctrl+\:
+  // that is 0x1c (SIGQUIT) to the PTY, so the terminal would lose it.
+  paneSplit: { primary: true, alt: false, shift: true, key: '\\' },
+  // Ctrl/Cmd+Shift+1..9 — focus the n-th pane. Shift matters here too: bare
+  // Ctrl+3..8 are ESC/FS/GS/RS/US/DEL, all real control characters.
+  paneFocusDigit: { primary: true, alt: false, shift: true },
 };
 
 // Settings groups, in render order. `SHORTCUT_DEFS[].group` points at one of these.
 const SHORTCUT_GROUPS = [
   { id: 'general', label: 'General' },
   { id: 'grid', label: 'Grid' },
+  { id: 'panes', label: 'Panes' },
 ];
 
 // Metadata for rendering the settings UI and resolving each action's key family.
@@ -105,6 +113,20 @@ const SHORTCUT_DEFS = [
     family: 'key',
     group: 'grid',
   },
+  {
+    id: 'paneSplit',
+    label: 'Split pane',
+    description: 'Split the active pane to the right; the new pane takes focus and the next session you open lands there',
+    family: 'key',
+    group: 'panes',
+  },
+  {
+    id: 'paneFocusDigit',
+    label: 'Focus pane 1…9',
+    description: 'Focus the n-th pane in reading order',
+    family: 'digits',
+    group: 'panes',
+  },
 ];
 
 // Defs of one group, in SHORTCUT_DEFS order. Unknown/missing `group` falls into
@@ -146,6 +168,9 @@ function keyFamily(e) {
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return 'arrows';
   if (e.code === 'BracketLeft' || e.code === 'BracketRight') return 'brackets';
   if (e.code === 'Comma' || e.code === 'Period') return 'commaPeriod';
+  // Digit1..Digit9 by CODE, not by key: on a German layout Shift+1 produces '!',
+  // so matching the character would make the chord layout-dependent (#309).
+  if (/^Digit[1-9]$/.test(e.code || '')) return 'digits';
   return 'key';
 }
 
@@ -169,6 +194,7 @@ function matchShortcut(id, e, isMac, shortcuts) {
   if (def.family === 'arrows') return keyFamily(e) === 'arrows';
   if (def.family === 'brackets') return keyFamily(e) === 'brackets';
   if (def.family === 'commaPeriod') return keyFamily(e) === 'commaPeriod';
+  if (def.family === 'digits') return keyFamily(e) === 'digits';
   if (def.family === 'key') {
     const want = (sc.key || DEFAULT_SHORTCUTS[id].key || '').toLowerCase();
     return (e.key || '').toLowerCase() === want;
@@ -199,6 +225,7 @@ function formatBinding(id, isMac, shortcuts) {
   if (def.family === 'arrows') parts.push('←/→/↑/↓');
   else if (def.family === 'brackets') parts.push('[ / ]');
   else if (def.family === 'commaPeriod') parts.push(', / .');
+  else if (def.family === 'digits') parts.push('1…9');
   else parts.push((sc.key || DEFAULT_SHORTCUTS[id].key || '').toUpperCase());
   return parts.join('+');
 }

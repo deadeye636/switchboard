@@ -103,6 +103,12 @@ function isSessionNavKey(e) {
   // Grid move mode: the activation chord, plus every key the mode consumes while
   // it runs — otherwise bare arrows would reach the PTY.
   if (isGridMoveModeKey(e)) return true;
+  // Panes mode: split / focus-pane. Without this the terminal would swallow them
+  // — Ctrl+Shift+\ and Ctrl+Shift+1..9 are keys xterm otherwise forwards (#309).
+  if (window.panesView && window.panesView.active()
+    && (matchShortcut('paneSplit', e, isMac, appShortcuts) || matchShortcut('paneFocusDigit', e, isMac, appShortcuts))) {
+    return true;
+  }
   return false;
 }
 
@@ -141,11 +147,30 @@ function handleSessionNavKey(e) {
     return true;
   }
 
-  // Arrow nav (default Cmd/Ctrl+Shift+Arrow) — grid view: 2D navigation; single view: cycle sessions
+  // Panes mode (#309): split the active pane / focus the n-th one. Both chords sit
+  // on Ctrl/Cmd+Shift because the bare versions are control characters the PTY
+  // needs — Ctrl+\ is SIGQUIT, Ctrl+3..8 are ESC/FS/GS/RS/US/DEL.
+  if (window.panesView && window.panesView.active()) {
+    if (matchShortcut('paneSplit', e, isMac, appShortcuts)) {
+      e.preventDefault();
+      if (e.type === 'keydown') window.panesView.splitActivePane('right');
+      return true;
+    }
+    if (matchShortcut('paneFocusDigit', e, isMac, appShortcuts)) {
+      e.preventDefault();
+      if (e.type === 'keydown') window.panesView.focusPaneByIndex(Number((e.code || '').replace('Digit', '')));
+      return true;
+    }
+  }
+
+  // Arrow nav (default Cmd/Ctrl+Shift+Arrow) — panes mode: step between panes;
+  // grid view: 2D navigation; single view: cycle sessions
   if (matchShortcut('sessionNavArrows', e, isMac, appShortcuts)) {
     e.preventDefault();
     if (e.type === 'keydown') {
-      if (gridViewActive) {
+      if (window.panesView && window.panesView.active()) {
+        window.panesView.focusNeighbourPane((e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 1);
+      } else if (gridViewActive) {
         const dirMap = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
         navigateGrid(dirMap[e.key]);
       } else {

@@ -48,6 +48,8 @@
     "session-timeline.js",
     "away-summary.js",
     "grid-layout.js",
+    "pane-tree.js",
+    "panes-view.js",
     "session-history.js",
     "update-restart.js",
     "session-restore.js",

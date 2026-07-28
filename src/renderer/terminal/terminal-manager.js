@@ -1451,6 +1451,9 @@ function destroySession(sessionId) {
     gridViewerCount.textContent = gridCards.size + ' session' + (gridCards.size !== 1 ? 's' : '');
   }
   if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
+  // Panes mode: the session's tab goes with it, and a pane emptied by that
+  // disappears (#309 O10).
+  if (window.panesView) window.panesView.dropSession(sessionId);
 }
 
 // Make a session visible in the current view mode (grid or single).
@@ -1465,6 +1468,22 @@ function showSession(sessionId) {
   setActiveSession(sessionId);
   clearNotifications(sessionId);
   lruTouch(sessionId);
+
+  // Panes mode (#309): the pane tree owns the layout, so showing a session means
+  // activating its tab in the pane that holds it (or adopting it into the active
+  // pane). panes-view then moves the container, refits and repaints — the branches
+  // below are the single-view/grid paths and must not also run.
+  if (window.panesView && window.panesView.active() && window.panesView.show(sessionId)) {
+    placeholder.style.display = 'none';
+    hidePlanViewer();
+    if (entry) {
+      entry.terminal.options.scrollback = SCROLLBACK_SINGLE;
+      restoreTerminalWebgl(sessionId);
+      forceRepaint(entry); // stale atlas heal on reveal (#118); no-op on the DOM renderer
+      entry.terminal.focus();
+    }
+    return;
+  }
 
   if (gridViewActive) {
     // Ensure grid layout is set up (e.g. on first session after startup restore)

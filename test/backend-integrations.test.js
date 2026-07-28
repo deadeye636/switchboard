@@ -177,6 +177,8 @@ const ALLOWED_BINDINGS = {
   'src/renderer/views/grid-gestures.js': [],
   'src/renderer/views/grid-bulk-actions.js': [],
   'src/renderer/views/grid-snap-popover.js': [],
+  'src/renderer/views/pane-tree.js': [],
+  'src/renderer/views/panes-view.js': [],
   'src/renderer/handoff/handoff.js': [],
   'src/renderer/handoff/handoff-extract.js': [],
   'src/renderer/panels/projects-admin.js': [],

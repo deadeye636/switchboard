@@ -219,6 +219,10 @@
   <script src="session/session-timeline.js"></script>
   <script src="shell/away-summary.js"></script>
   <script src="views/grid-layout.js"></script>
+  <!-- pane-tree.js is pure data (#309): the panes-mode layout model, no DOM.
+       panes-view.js renders it and must load after it. -->
+  <script src="views/pane-tree.js"></script>
+  <script src="views/panes-view.js"></script>
   <!-- session-history.js must load before app.js, which builds its store at module scope. -->
   <script src="session/session-history.js"></script>
   <script src="shell/update-restart.js"></script>

@@ -59,7 +59,7 @@ if (typeof module !== 'undefined' && module.exports) {
 (function () {
   if (typeof document === 'undefined') return; // node test context
 
-  let displayMode = 'grid';        // grid | tabs
+  let displayMode = 'grid';        // grid | tabs | panes (#309, rendered by views/panes-view.js)
   let tabPosition = 'top';         // top | bottom
   let closeBehavior = 'closeView'; // closeView | stopSession (Claude sessions)
   let terminalCloseBehavior = 'kill'; // kill | keep (plain terminals, decoupled)
@@ -393,9 +393,11 @@ if (typeof module !== 'undefined' && module.exports) {
   function applySessionDisplaySettings(g) {
     g = g || {};
     const prevMode = displayMode;
-    // Non-tabs is the "grid" mode (sidebar + grid overview / single view). Legacy
-    // stored values ('legacy') still map here — anything that isn't 'tabs' is grid.
-    displayMode = g.sessionDisplayMode === 'tabs' ? 'tabs' : 'grid';
+    // 'grid' is the legacy mode (sidebar + grid overview / single view); stored
+    // 'legacy' still maps there. 'panes' (#309) renders its own tree and shares
+    // this mode switch, but nothing else in this file.
+    displayMode = g.sessionDisplayMode === 'tabs' ? 'tabs'
+      : (g.sessionDisplayMode === 'panes' ? 'panes' : 'grid');
     tabPosition = g.tabPosition === 'bottom' ? 'bottom' : 'top';
     closeBehavior = g.tabCloseBehavior === 'stopSession' ? 'stopSession' : 'closeView';
     terminalCloseBehavior = g.terminalCloseBehavior === 'keep' ? 'keep' : 'kill';
@@ -406,13 +408,18 @@ if (typeof module !== 'undefined' && module.exports) {
     if (typeof window._setTabsLiveRender === 'function') window._setTabsLiveRender(g.tabsLiveRender !== false);
     tabOrder = Array.isArray(g.tabOrder) ? g.tabOrder.slice() : [];
     applyMode();
+    // Panes mode owns the terminal area itself (#309): it enables on 'panes' and
+    // hands every container back to #terminals on any other mode. Run it before
+    // the grid scoping below, so a switch out of panes restores the single view
+    // into a #terminals that already holds the containers again.
+    if (window.panesView) window.panesView.applySettings(g);
 
     // Tabs mode is single-view only; the grid mosaic belongs to grid mode. On a real
     // user mode switch, scope the grid per mode WITHOUT losing the grid-mode mosaic
     // preference (saved separately so grid mode keeps its mosaic). Skip on the first
     // apply (startup) — the persisted gridViewActive already matches the mode.
     if (initialized && prevMode !== displayMode) {
-      if (displayMode === 'tabs') {
+      if (displayMode === 'tabs' || displayMode === 'panes') {
         try { localStorage.setItem('gridModePref', localStorage.getItem('gridViewActive') || '0'); } catch { /* ignore */ }
         if (typeof gridViewActive !== 'undefined' && gridViewActive && typeof toggleGridView === 'function') {
           toggleGridView(); // hide grid → single (persists gridViewActive=0)

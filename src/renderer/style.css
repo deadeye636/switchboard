@@ -7941,6 +7941,111 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
 }
 .session-tab-menu-item:hover { background: rgba(255, 255, 255, 0.06); }
 .session-tab-menu-item.danger:hover { background: rgba(220, 60, 60, 0.18); color: #ff9a9a; }
+.session-tab-menu-item:disabled { color: #6a6a7a; cursor: default; background: none; }
+
+/* ========== PANES MODE (#309) ========== */
+/* #terminals hosts a split tree; every leaf is a .pane with its own strip. The
+   strip carries the session tools too (O13/H2), so the singleton #terminal-header
+   is hidden while this mode is on (panes-view.js does that in JS). */
+body.display-mode-panes #session-tabs { display: none; }
+body.display-mode-panes #grid-toggle-btn { display: none; }
+body.display-mode-panes #terminals {
+  display: flex;
+  /* The negative margin + the container inset below reserve a scrollbar gutter in
+     single view. A pane body has no gutter to reserve — it clips its own. */
+  margin-right: 0;
+}
+
+.pane-branch { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.pane-branch.pane-row { flex-direction: row; }
+.pane-branch.pane-col { flex-direction: column; }
+
+.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.pane-body { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+
+/* Same z-index stack tabs mode uses, per pane: every terminal in the pane stays
+   mounted AND painted, the active one is raised and interactive. A switch never
+   triggers a hidden->visible repaint, so the text does not reflow (#20). */
+body.display-mode-panes .terminal-container {
+  display: block;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events: auto; }
+
+.pane-strip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: #14141b;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  min-height: 34px;
+}
+/* The focused pane is the one a sidebar click fills — it says so with the accent
+   hairline, not with a border that would shift the layout by a pixel. */
+.pane.pane-active > .pane-strip { background: #191922; }
+.pane.pane-active > .pane-strip::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(128, 136, 255, 0.9), rgba(128, 136, 255, 0));
+}
+
+.pane-tools { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.pane-tool-btn { display: flex; align-items: center; }
+.pane-tool-btn svg { display: block; }
+.pane-tool-stop { color: #b06070; }
+.pane-tool-stop:hover { color: #e05070; background: rgba(224, 80, 112, 0.12); }
+.pane-mcp-chip { font-size: 10px; padding: 1px 6px; }
+/* Too narrow to carry the tools — they stay in the pane menu. One rule for the
+   whole group; folding icon by icon reads as a glitch. */
+.pane.pane-narrow .pane-tools { display: none; }
+.pane-strip-sep {
+  width: 1px; height: 15px; flex-shrink: 0; margin: 0 3px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.pane-more-btn { flex-shrink: 0; }
+
+.pane-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  text-align: center;
+  color: #6a6a80;
+  font-size: 12px;
+}
+
+/* Sash: 4 px of hit area between two panes, like VS Code's. */
+.pane-sash { flex: 0 0 4px; background: rgba(255, 255, 255, 0.05); }
+.pane-sash:hover, .pane-sash.dragging { background: rgba(128, 136, 255, 0.5); }
+.pane-sash-row { cursor: col-resize; }
+.pane-sash-col { cursor: row-resize; }
+body.pane-sashing { user-select: none; }
+/* A drag over a terminal would otherwise be swallowed by the xterm below it. */
+body.pane-sashing .terminal-container { pointer-events: none; }
+
+/* Drop feedback while dragging a tab: the 10 % edge zones show where the split
+   would land, the centre shows the whole pane taking the tab. */
+.pane-drop-hint {
+  position: absolute;
+  background: rgba(128, 136, 255, 0.18);
+  border: 1px solid rgba(128, 136, 255, 0.55);
+  pointer-events: none;
+  z-index: 5;
+}
+.pane-drop-center { inset: 0; }
+.pane-drop-left { inset: 0 50% 0 0; }
+.pane-drop-right { inset: 0 0 0 50%; }
+.pane-drop-up { inset: 0 0 50% 0; }
+.pane-drop-down { inset: 50% 0 0 0; }
 
 /* Settings → About pane */
 .about-app { padding: 2px 0; }

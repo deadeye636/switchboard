@@ -382,6 +382,13 @@ function refreshSessionStatusViews() {
   if (typeof window.patchTabStatuses === 'function' && !window.patchTabStatuses()) {
     if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
   }
+  // Panes mode (#309): same trade-off, one strip per pane. The chrome rebuild is
+  // separate because a stop button appears/disappears with the running state,
+  // which the dot patcher does not touch.
+  if (window.panesView && window.panesView.active()) {
+    window.panesView.patchStatuses();
+    window.panesView.refreshChrome();
+  }
   announceAttentionSummary();
   // syncNativeNotifications lives in shell/native-notifications.js, which loads AFTER app.js (#228). A
   // refreshSessionStatusViews that runs before that script has parsed — a boot path racing the module's
