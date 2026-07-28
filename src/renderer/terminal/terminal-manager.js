@@ -1486,7 +1486,11 @@ function showSession(sessionId) {
   // below are the single-view/grid paths and must not also run.
   if (window.panesView && window.panesView.active() && window.panesView.show(sessionId)) {
     placeholder.style.display = 'none';
-    hidePlanViewer();
+    // NOT hidePlanViewer() here, unlike the single-view path below: in this mode
+    // the viewers are tabs, and hiding them would make the observer close those
+    // tabs. Clicking a terminal tab would then delete the Messages tab beside it —
+    // and a pane holding only that viewer would collapse, losing the split (#310).
+    // Showing a session parks the viewer behind its tab; it does not dismiss it.
     if (entry) {
       entry.terminal.options.scrollback = SCROLLBACK_SINGLE;
       restoreTerminalWebgl(sessionId);

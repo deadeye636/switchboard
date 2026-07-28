@@ -422,14 +422,16 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     if (!target) return false;
 
     if (existing) {
-      if (existing.id !== target.id) {
-        tree = PaneTree.moveTab(tree, { fromLeafId: existing.id, toLeafId: target.id, tabId });
-      } else {
-        tree = PaneTree.setActiveTab(tree, target.id, tabId);
-      }
-    } else {
-      tree = PaneTree.addTab(tree, target.id, { id: tabId, kind, ref });
+      // Stay where the user put it. Re-opening the same view (a session switch
+      // re-asserts its file panel) must not drag the tab back out of the pane it
+      // was dropped into — the drag would be undone by the next click.
+      tree = PaneTree.setActiveTab(tree, existing.id, tabId);
+      activeLeafId = existing.id;
+      render();
+      persist();
+      return true;
     }
+    tree = PaneTree.addTab(tree, target.id, { id: tabId, kind, ref });
     activeLeafId = target.id;
     render();
     persist();
@@ -478,7 +480,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const spec = VIEW_KINDS[kind];
     const host = hostElementFor(kind);
     if (!spec || !spec.watched || !host) return;
-    host.style.display = 'none';
+    // Through the app's own teardown where there is one: hideAllViewers also puts
+    // the terminal area back and drains the transcript's file watches (#75), which
+    // setting `display` alone would leave polling. Only one of these can be open at
+    // a time, so hiding all of them costs nothing.
+    if (typeof hideAllViewers === 'function') hideAllViewers();
+    else host.style.display = 'none';
   }
 
   // --- Adopting the takeover viewers ----------------------------------------
@@ -519,6 +526,15 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       if (el.style.display !== 'none' && el.style.display !== '') {
         openViewTab(kind, { ref: activeSessionId || null, nearSessionId: activeSessionId || null });
       }
+    }
+    // The file panel announces itself through a class, not `display`, so the loop
+    // above cannot see it. Open in the previous mode means: still a fixed side
+    // strip, squeezing the pane tree, with no tab — the one layout this mode is
+    // supposed to end.
+    const panel = hostElementFor('preview');
+    if (panel && panel.classList.contains('open')) {
+      panel.style.width = '';
+      openViewTab('preview', { ref: activeSessionId || null, nearSessionId: activeSessionId || null });
     }
   }
 
@@ -804,8 +820,18 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // placeholder so the main area is never left blank.
   function showActiveOrPlaceholder() {
     const leaf = activeLeaf();
-    const sessionId = leaf ? sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId)) : null;
-    if (sessionId && openSessions.has(sessionId)) showSession(sessionId);
+    const tabs = leaf ? leaf.tabs : [];
+    const onTop = tabs.find((t) => t.id === leaf.activeTabId);
+    const sessionId = sessionOfTab(onTop);
+    if (sessionId && openSessions.has(sessionId)) { showSession(sessionId); return; }
+    // A VIEW is on top of this pane. Clearing the active session here would look
+    // harmless and is not: the file panel follows the active session, so clearing
+    // it closes the panel — and with it the very preview tab that is on top (#310).
+    // Keep the session; only a pane with nothing live in it falls back to the
+    // placeholder.
+    if (typeof activeSessionId !== 'undefined' && activeSessionId && openSessions.has(activeSessionId)) return;
+    const fallback = tabs.map(sessionOfTab).find((id) => id && openSessions.has(id));
+    if (fallback) showSession(fallback);
     else if (typeof window.clearActiveTerminalView === 'function') window.clearActiveTerminalView();
   }
 

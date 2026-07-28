@@ -391,6 +391,9 @@ function hidePanel() {
   if (!filePanelEl) return;
   filePanelEl.classList.remove('open');
   if (window.panesView && window.panesView.active()) {
+    // Drop the side-panel width too: left behind, it becomes an empty strip of the
+    // old width the moment the mode changes back.
+    filePanelEl.style.width = '';
     if (window.panesView.hasViewTab('preview')) window.panesView.closeViewTab('preview');
     return;
   }
