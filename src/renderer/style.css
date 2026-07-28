@@ -8077,12 +8077,12 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
   font-size: 10px; color: #6a6a80; font-family: ui-monospace, Consolas, monospace;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1;
 }
-/* Same colours and dot as #terminal-header-status, which this replaces per pane. */
-.pane-status { font-size: 11px; font-weight: 500; display: flex; align-items: center; gap: 5px; }
-.pane-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
-.pane-status.running { color: #3ecf5a; }
+/* The dot alone, with the word in the tooltip (#321) — same colours as
+   #terminal-header-status, which this replaces per pane. Padded to a button's hit
+   area so it lines up with the tools beside it instead of floating in the gap. */
+.pane-status { display: flex; align-items: center; padding: 4px 3px; }
+.pane-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .pane-status.running::before { background: #3ecf5a; box-shadow: 0 0 6px rgba(62, 207, 90, 0.5); }
-.pane-status.stopped { color: #7a7a90; }
 .pane-status.stopped::before { background: #6a6a80; }
 /* A narrow pane drops the bar's tools the same way it drops the strip's. */
 .pane.pane-narrow .pane-actionbar-id { display: none; }
@@ -8092,7 +8092,17 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
 .pane-tool-btn svg { display: block; }
 .pane-tool-stop { color: #b06070; }
 .pane-tool-stop:hover { color: #e05070; background: rgba(224, 80, 112, 0.12); }
-.pane-mcp-chip { font-size: 10px; padding: 1px 6px; }
+/* Also a dot since #321 — it no longer borrows the `mcp-toggle` pill, so it carries
+   its own colour rather than inheriting one from a class it is not any more. */
+.pane-mcp-chip { display: flex; align-items: center; padding: 4px 3px; }
+.pane-mcp-chip::before {
+  content: '';
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  background: #8088ff;
+  box-shadow: 0 0 6px rgba(128, 136, 255, 0.5);
+}
 /* Too narrow to carry the tools — they stay in the pane menu. One rule for the
    whole group; folding icon by icon reads as a glitch. */
 .pane.pane-narrow .pane-tools { display: none; }

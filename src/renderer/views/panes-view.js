@@ -671,26 +671,31 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       });
     tools.appendChild(varsBtn);
 
-    // In the bar the running state is spelled out, as the session header always
-    // did. In the strip it is not: the tab's dot already carries it, and the words
-    // would cost the space the tabs need.
+    // Both indicators are a coloured dot with the words in the tooltip (#321). A
+    // pane's width is what the tabs and the session name compete for, and these two
+    // are read at a glance from the colour — spelling them out cost more room than
+    // the state was worth. `role=img` + the label keeps them readable to a screen
+    // reader, which is the one thing dropping the text would otherwise take away.
+    const mark = (cls, label) => {
+      const el = document.createElement('span');
+      el.className = cls;
+      el.title = label;
+      el.setAttribute('role', 'img');
+      el.setAttribute('aria-label', label);
+      return el;
+    };
+
+    // Only in the bar: in the strip the tab's own dot already carries the state.
     if (withStatus) {
       const running = activePtyIds.has(sessionId);
-      const status = document.createElement('span');
-      status.className = 'pane-status ' + (running ? 'running' : 'stopped');
-      status.textContent = running ? 'Running' : 'Stopped';
-      tools.appendChild(status);
+      tools.appendChild(mark('pane-status ' + (running ? 'running' : 'stopped'), running ? 'Running' : 'Stopped'));
     }
 
     // The IDE-emulation chip belongs to the preview module, which owns the state
     // (file-panel.js). It exposes the flag rather than the element, because in
     // this mode there is one chip per pane instead of the single header one.
     if (typeof window.isMcpActiveForSession === 'function' && window.isMcpActiveForSession(sessionId)) {
-      const chip = document.createElement('span');
-      chip.className = 'mcp-toggle enabled pane-mcp-chip';
-      chip.textContent = withStatus ? 'IDE Emulation' : 'IDE';
-      chip.title = 'IDE Emulation is active. Go to Global Settings to disable.';
-      tools.appendChild(chip);
+      tools.appendChild(mark('pane-mcp-chip', 'IDE Emulation is active. Go to Global Settings to disable.'));
     }
 
     if (activePtyIds.has(sessionId)) {
