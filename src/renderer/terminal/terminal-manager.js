@@ -1358,7 +1358,15 @@ function disposeWebglAddon(entry) {
 
 function loadTerminalWebgl(entry) {
   if (!shouldLoadWebgl() || !entry.terminal) return; // DOM renderer
-  // Dispose an existing addon (and free its GL context) before recreating (VSCode parity).
+  // Already on WebGL: do nothing. Recreating a live addon is not free — Chromium
+  // frees a GL context asynchronously, so dispose+create in a burst transiently
+  // holds twice the contexts, overshoots the budget, and Chromium kills the oldest.
+  // xterm then waits 3 s before falling back to DOM, which is the "renders clean,
+  // turns corrupt a moment later" of #140. That issue's own root-cause named this
+  // guard as fix step 1; it was never built, and every caller has carried its own
+  // "only act on a difference" check since.
+  if (entry.webglAddon) return;
+  // Dispose a stale addon (and free its GL context) before creating one (VSCode parity).
   disposeWebglAddon(entry);
   try {
     const webglAddon = new WebglAddon.WebglAddon();
