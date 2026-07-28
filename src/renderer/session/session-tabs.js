@@ -504,7 +504,11 @@ if (typeof module !== 'undefined' && module.exports) {
   window.scheduleTabAutoClose = scheduleTabAutoClose;
   window.cancelTabAutoClose = cancelTabAutoClose;
   // Close a tab immediately (deliberate stop/archive) — switches to a neighbour or
-  // the placeholder. Only meaningful in tabs mode; grid/legacy manage their own view.
-  window.closeTabNow = (sessionId) => { if (displayMode === 'tabs') performClose(sessionId); };
+  // the placeholder. Panes mode has tabs too (#309/#310) and nothing else would ever
+  // take that one down: the timed auto-close is the other branch, for a process that
+  // ended on its own (#317). Grid/legacy manage their own view.
+  window.closeTabNow = (sessionId) => {
+    if (displayMode === 'tabs' || displayMode === 'panes') performClose(sessionId);
+  };
   window._applySessionDisplaySettings = applySessionDisplaySettings;
 })();
