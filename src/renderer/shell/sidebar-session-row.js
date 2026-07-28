@@ -240,6 +240,11 @@ function buildSessionItem(session, opts = {}) {
     const reattachBtn = document.createElement('button');
     reattachBtn.className = 'session-reattach-btn';
     reattachBtn.title = 'Bring back to this window';
+    // A session whose process ended stays marked detached until its window closes (spec 17 §5): the
+    // banner is in that window, the sidebar keeps its own state. Bringing it back is refused in main,
+    // so offering it here would be a button whose only outcome is a toast.
+    reattachBtn.disabled = !activePtyIds.has(session.sessionId);
+    if (reattachBtn.disabled) reattachBtn.title = 'This session has ended — close its window to dismiss it';
     reattachBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14l-4-4 4-4"/><path d="M5 10h9a5 5 0 0 1 5 5v4"/></svg>';
     actions.appendChild(reattachBtn);
   }

@@ -2058,7 +2058,8 @@ input:focus-visible {
   flex-shrink: 0;
 }
 .session-reattach-btn { color: #8088ff; }
-.session-reattach-btn:hover { background: rgba(128, 136, 255, 0.16); }
+.session-reattach-btn:hover:not(:disabled) { background: rgba(128, 136, 255, 0.16); }
+.session-reattach-btn:disabled { color: #5a5a70; cursor: default; }
 
 .session-stop-btn,
 .session-reattach-btn,
