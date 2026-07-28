@@ -8150,6 +8150,12 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
   text-align: center;
   color: #6a6a80;
   font-size: 12px;
+  /* Opaque, and above the terminals. Every terminal in a pane stays mounted and
+     PAINTED (see the z-index stack above — a tab switch must not repaint, #20), so a
+     placeholder without a background of its own is a sheet of glass: the previous
+     tab's output shows straight through the text and the Launch button. */
+  background: #111118;
+  z-index: 2;
 }
 /* The one empty state that offers an action: a tab whose session has no process (#318). */
 .pane-empty-launch { flex: 0 0 auto; }
