@@ -162,13 +162,13 @@ side effect of this one. The tree model is pure, so the option stays open.
 | The display mode is applied **before** the restore mounts anything | So the stored layout can only be validated against the session list, never against `openSessions` — see `docs/ai/lessons.md` |
 | The terminal container claims every drop it is offered | A tab drag has to carry its own MIME type so the container can ignore it |
 | `WebglAddon.dispose()` leaves its canvases in the DOM | They cover the DOM renderer's rows; a demoted terminal shows nothing until they are removed |
-| Several live WebGL terminals share one texture atlas (#118, #262) | WebGL follows the focused pane, exactly as it follows the focused grid card |
+| Several live WebGL terminals share one texture atlas (#118, #262) | Every pane renders the same way — all WebGL up to eight panes, all DOM past that (#320). Following the focus, as grid does, split the *metric*: at dpr 2 the cell is 8.000 px under WebGL and 8.2065 px under DOM, so the unfocused pane drew heavier and a line off |
 
 ## 6 · Risks
 
 | | Risk | Mitigation |
 |---|---|---|
-| R1 | WebGL — reparenting plus many visible terminals is the corner of #118 (stale atlas), #128 (context loss / stale fit) and #262 (atlas contention). Panes make grid's exceptional case the normal one | Reuse the existing context-loss/refit path; verify at eight panes before calling it done |
+| R1 | WebGL — reparenting plus many visible terminals is the corner of #118 (stale atlas), #128 (context loss / stale fit) and #262 (atlas contention). Panes make grid's exceptional case the normal one | **Settled in #320**, by measuring rather than assuming: two panes both on WebGL, ~18 000 distinct codepoints flooded through each to recycle the shared atlas several times over — no corruption, no context loss. What #140 actually hit was context *churn*, now fixed at the source (`loadTerminalWebgl` is idempotent). The eight-pane cap and the all-or-nothing rule keep the metric uniform |
 | R2 | Status drift — sidebar, tab and grid card already drifted apart four times (#124, #253, #257, #269); panes multiply the tab case | One render path for a tab's status, shared with `.status-dot.status-*` |
 | R3 | Every `terminal-header*` lookup assumes a singleton | Convert them in one pass, `addMcpToggle()` included |
 | R4 | Typed views (P2) touch every view module | Terminal tabs first; the tab type exists from day one so nothing is rebuilt later |

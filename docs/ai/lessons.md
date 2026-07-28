@@ -130,3 +130,24 @@ The fix for both was to stop inferring intent from keys: claim only the four key
 everything else through, and handle the session case where it actually happens (`setActiveSession`).
 When a widget must react to something the app does, hook the app's own choke point rather than trying
 to recognise the keystroke that led there.
+
+## A fix that reduces the symptom is not the fix
+
+#140 investigated "grid card renders clean, turns corrupt a moment later" and got the mechanism right:
+`loadTerminalWebgl` disposed and recreated the addon unconditionally, Chromium frees a GL context
+asynchronously, the burst overshot the context budget, the oldest context was killed, and xterm waits
+3 s before falling back to DOM. The comment even named the fix — make the load idempotent.
+
+What shipped instead was "WebGL only on the focused card". That takes the context count to one, so the
+symptom cannot occur; the churn was left in place, and the closing comment justified the change with
+*shared-atlas contention* — a different cause than the one that had just been established. Two things
+followed:
+
+- The policy was copied into panes mode, where it produced a **new** visible bug (#320): the two
+  renderers do not agree on the cell box at dpr ≠ 1, so the unfocused pane drew heavier and a line off.
+- The real defect stayed in the tree for eleven issues, load-bearing enough that every caller grew its
+  own "only act on a difference" guard around it.
+
+When the diagnosis and the fix do not name the same thing, say so in the issue. And when a later mode
+inherits a workaround, re-measure before assuming the reason still applies — the measurement that
+settled #320 took twenty minutes and needed no code change at all.
