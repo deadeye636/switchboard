@@ -10,10 +10,12 @@ const assert = require('node:assert/strict');
 const detach = require('../src/app/detach');
 
 // A stand-in for BrowserWindow: records what it was asked, and can be destroyed like the real one.
+let nextWindowId = 1;
 function makeWindowClass(created) {
   return class FakeWindow {
     constructor(opts) {
       this.opts = opts;
+      this.id = nextWindowId++;
       this.destroyed = false;
       this.shown = false;
       this.focused = 0;
@@ -36,6 +38,7 @@ function makeWindowClass(created) {
     isMinimized() { return this.minimized; }
     restore() { this.minimized = false; }
     getBounds() { return { x: 10, y: 20, width: 1200, height: 800 }; }
+    getTitle() { return this.opts.title; }
   };
 }
 
@@ -223,4 +226,116 @@ test('focusing a detached window restores it when minimized', () => {
   assert.equal(created[0].minimized, false);
   assert.equal(created[0].focused, 1);
   assert.deepEqual(ipc.call('focus-detached-window', 'nope'), { ok: false });
+});
+
+// --- Moving a session between windows (#314, #315, #316) ---------------------
+//
+// The same handover as detach, with either end able to be a detached window. What these pin is the
+// ORDER — release, re-register, adopt — because that order is what keeps one PTY on one renderer.
+
+test('the window list names every window and marks the one holding the session', () => {
+  const { ipc } = setup({ sessions: ['s1', 's2'] });
+  let windows = ipc.call('list-session-windows', 's1');
+  assert.deepEqual(windows.map((w) => w.id), ['main']);
+  assert.equal(windows[0].current, true, 'an undetached session is in the main window');
+
+  ipc.call('detach-session', 's1', 'Session one');
+  windows = ipc.call('list-session-windows', 's1');
+  assert.equal(windows.length, 2);
+  assert.equal(windows[0].current, false, 'no longer in main');
+  assert.equal(windows[1].title, 'Session one');
+  assert.equal(windows[1].current, true);
+  assert.deepEqual(windows[1].sessionIds, ['s1']);
+  // Asked about a session that is NOT in that window, the same window is not current.
+  assert.equal(ipc.call('list-session-windows', 's2')[1].current, false);
+});
+
+test('moving a session home releases the detached window and tells main to take it', () => {
+  const { ipc, main, created } = setup();
+  ipc.call('detach-session', 's1');
+  main.sent.length = 0;
+  const win = created[0];
+  win.sent.length = 0;
+
+  assert.deepEqual(ipc.call('move-session-to-window', 's1', 'main'), { ok: true });
+  assert.deepEqual(win.sent[0], ['session-detached', 's1'], 'the window that had it lets go first');
+  assert.deepEqual(main.sent, [['session-reattached', 's1']]);
+  assert.equal(detach.isDetached('s1'), false);
+  assert.equal(detach.windowForSession('s1'), main);
+  assert.equal(win.destroyed, true, 'a window with nothing left to show closes');
+});
+
+test('a window that gave away its last session hands nothing back when it closes', () => {
+  const { ipc, main, created } = setup();
+  ipc.call('detach-session', 's1');
+  ipc.call('move-session-to-window', 's1', 'main');
+  const reattaches = main.sent.filter(([channel]) => channel === 'session-reattached');
+  assert.equal(reattaches.length, 1, 'the close must not repeat the handover');
+  assert.equal(created[0].destroyed, true);
+});
+
+test('a session moves from the main window into an existing detached window', () => {
+  const { ipc, main, created } = setup({ sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1', 'Session one');
+  const win = created[0];
+  main.sent.length = 0;
+  win.sent.length = 0;
+
+  assert.deepEqual(ipc.call('move-session-to-window', 's2', String(win.id)), { ok: true });
+  assert.deepEqual(main.sent, [['session-detached', 's2']], 'main releases it');
+  assert.deepEqual(win.sent, [['session-reattached', 's2']], 'the window takes it');
+  assert.equal(detach.windowForSession('s2'), win);
+  assert.deepEqual(detach.sessionsInWindow(win).sort(), ['s1', 's2']);
+  assert.equal(created.length, 1, 'no new window is opened for a move');
+});
+
+test('a session moves from one detached window to another, and the empty one closes', () => {
+  const { ipc, created } = setup({ sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1', 'Session one');
+  ipc.call('detach-session', 's2', 'Session two');
+  const [winA, winB] = created;
+  winA.sent.length = 0;
+  winB.sent.length = 0;
+
+  assert.deepEqual(ipc.call('move-session-to-window', 's2', String(winA.id)), { ok: true });
+  assert.deepEqual(winB.sent, [['session-detached', 's2']]);
+  assert.deepEqual(winA.sent, [['session-reattached', 's2']]);
+  assert.deepEqual(detach.sessionsInWindow(winA).sort(), ['s1', 's2']);
+  assert.equal(winB.destroyed, true, 'its last session left');
+  assert.equal(detach.windowForSession('s2'), winA);
+});
+
+test('closing a window with several sessions hands every one of them back', () => {
+  const { ipc, main, created } = setup({ sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1', 'Session one');
+  const win = created[0];
+  ipc.call('move-session-to-window', 's2', String(win.id));
+  main.sent.length = 0;
+
+  win.destroy();
+  assert.deepEqual(main.sent.map(([channel, id]) => [channel, id]).sort(),
+    [['session-reattached', 's1'], ['session-reattached', 's2']]);
+  assert.equal(detach.isDetached('s1'), false);
+  assert.equal(detach.isDetached('s2'), false);
+});
+
+test('moving a session to the window it is already in changes nothing', () => {
+  const { ipc, main, created } = setup();
+  ipc.call('detach-session', 's1');
+  const win = created[0];
+  main.sent.length = 0;
+  win.sent.length = 0;
+
+  assert.deepEqual(ipc.call('move-session-to-window', 's1', String(win.id)), { ok: true, already: true });
+  assert.deepEqual(win.sent, []);
+  assert.deepEqual(main.sent, []);
+  assert.equal(win.destroyed, false);
+});
+
+test('a move refuses a dead session and a window that is gone', () => {
+  const { ipc, created } = setup({ sessions: ['s1'] });
+  ipc.call('detach-session', 's1');
+  assert.match(ipc.call('move-session-to-window', 'ghost', 'main').error, /not running/);
+  assert.match(ipc.call('move-session-to-window', 's1', '9999').error, /window is gone/);
+  assert.equal(created[0].destroyed, false, 'a refused move leaves the window alone');
 });

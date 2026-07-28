@@ -47,6 +47,63 @@ function windowForSession(sessionId) {
   return ctx.getMainWindow();
 }
 
+// A window is addressed by id: 'main', or the BrowserWindow id as a string. A detached window may own
+// SEVERAL sessions since #316 — the map is keyed by session, so one window can appear under many keys.
+const MAIN_WINDOW_ID = 'main';
+
+function windowIdOf(win) {
+  return win && !win.isDestroyed() ? String(win.id) : null;
+}
+
+/** Every session currently rendered by this window. */
+function sessionsInWindow(win) {
+  const ids = [];
+  for (const [sessionId, w] of detachedWindows) {
+    if (w === win) ids.push(sessionId);
+  }
+  return ids;
+}
+
+function detachedWindowById(windowId) {
+  for (const win of detachedWindows.values()) {
+    if (!win.isDestroyed() && String(win.id) === String(windowId)) return win;
+  }
+  return null;
+}
+
+/**
+ * The windows a session can be moved to (#316): the main window, plus every detached one. Named by
+ * what they show, because "window 3" means nothing to the user.
+ *
+ * With a `sessionId`, the window that currently holds it is marked `current` — the renderer cannot
+ * work that out on its own. A detached window's own set is not in its renderer, and "not detached"
+ * meaning "in main" is only true when asked from the main window.
+ */
+function listSessionWindows(sessionId) {
+  const holder = sessionId ? detachedWindows.get(sessionId) : null;
+  const holderLive = holder && !holder.isDestroyed() ? holder : null;
+  const out = [{
+    id: MAIN_WINDOW_ID,
+    title: 'Main window',
+    isMain: true,
+    sessionIds: [],
+    current: !!sessionId && !holderLive,
+  }];
+  const seen = new Set();
+  for (const win of detachedWindows.values()) {
+    if (win.isDestroyed() || seen.has(win.id)) continue;
+    seen.add(win.id);
+    out.push({
+      id: windowIdOf(win),
+      title: win.getTitle() || 'Session window',
+      isMain: false,
+      sessionIds: sessionsInWindow(win),
+      current: win === holderLive,
+    });
+  }
+  return out;
+}
+
 /** Is this session currently rendered in a window of its own? */
 function isDetached(sessionId) {
   const win = detachedWindows.get(sessionId);
@@ -96,14 +153,15 @@ function createDetachWindow(sessionId, title) {
   // Closing the window hands the session back rather than ending it: the PTY ran through the whole
   // detour and the user closed a VIEW, not a process. Skip on quit — everything is going away anyway.
   win.on('closed', () => {
-    // Still the registered window? Then this is the user closing it. The explicit reattach path takes
-    // the entry out of the map BEFORE destroying, precisely so this does not fire a second
-    // notification — the main window would reopen the session twice.
-    const wasRegistered = detachedWindows.get(sessionId) === win;
-    if (wasRegistered) detachedWindows.delete(sessionId);
-    if (!wasRegistered || ctx.getAppQuitting()) return;
-    ctx.log.info(`[detach] window closed, session returns to the main window: ${sessionId}`);
-    sendToMain('session-reattached', sessionId);
+    // Every session this window still owns comes back — since #316 that can be more than the one it
+    // was opened for. A session whose entry was already removed (the explicit reattach and the move
+    // path both delete BEFORE destroying, precisely so this does not fire a second notification) is
+    // not in the list, so the main window never reopens anything twice.
+    const owned = sessionsInWindow(win);
+    for (const id of owned) detachedWindows.delete(id);
+    if (!owned.length || ctx.getAppQuitting()) return;
+    ctx.log.info(`[detach] window closed, ${owned.length} session(s) return to the main window`);
+    for (const id of owned) sendToMain('session-reattached', id);
   });
 
   return win;
@@ -173,6 +231,49 @@ function registerIpc(ipc) {
     return { ok: true };
   });
 
+  /**
+   * Move a session between windows (#316) — main → a detached window, detached → main, detached →
+   * another detached window. Same handover the detach path uses: the giving window releases its
+   * terminal (the PTY runs on), then the taking window attaches. The order matters — release first,
+   * or two renderers hold one PTY for the length of an IPC round trip and echo every keystroke twice.
+   */
+  ipc.handle('move-session-to-window', (_event, sessionId, targetWindowId) => {
+    if (!sessionId) return { ok: false, error: 'no session' };
+    if (!ctx.activeSessions.get(sessionId)) return { ok: false, error: 'session is not running' };
+    const target = String(targetWindowId) === MAIN_WINDOW_ID ? null : detachedWindowById(targetWindowId);
+    if (String(targetWindowId) !== MAIN_WINDOW_ID && !target) return { ok: false, error: 'window is gone' };
+
+    const source = detachedWindows.get(sessionId) || null;
+    const sourceLive = source && !source.isDestroyed() ? source : null;
+    if (sourceLive === target) return { ok: true, already: true };
+
+    // Release. The main window answers `session-detached`; a detached one answers the same channel,
+    // so both sides of the move run the same code path.
+    if (sourceLive) sourceLive.webContents.send('session-detached', sessionId);
+    else sendToMain('session-detached', sessionId);
+
+    // Re-register before telling the target to take it: `windowForSession` decides where the PTY's
+    // bytes go, and the replay the target is about to ask for must already route to it.
+    if (target) detachedWindows.set(sessionId, target);
+    else detachedWindows.delete(sessionId);
+
+    if (target) {
+      target.webContents.send('session-reattached', sessionId);
+      if (target.isMinimized()) target.restore();
+      target.focus();
+    } else {
+      sendToMain('session-reattached', sessionId);
+    }
+    // A detached window that just gave away its last session has nothing left to show, and no chrome
+    // to pick a new one with — the sidebar lives in the main window. So it goes. Its entries are
+    // already out of the map, so `closed` hands nothing back.
+    if (sourceLive && !sessionsInWindow(sourceLive).length) sourceLive.destroy();
+    ctx.log.info(`[detach] session moved to ${target ? 'window ' + target.id : 'the main window'}: ${sessionId}`);
+    return { ok: true };
+  });
+
+  ipc.handle('list-session-windows', (_event, sessionId) => listSessionWindows(sessionId));
+
   ipc.handle('is-session-detached', (_event, sessionId) => isDetached(sessionId));
   ipc.handle('detached-session-ids', () => detachedSessionIds());
 
@@ -194,6 +295,8 @@ module.exports = {
   windowForSession,
   isDetached,
   detachedSessionIds,
+  listSessionWindows,
+  sessionsInWindow,
   closeAll,
   detachedWindows,
 };

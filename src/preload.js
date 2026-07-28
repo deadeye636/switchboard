@@ -90,6 +90,9 @@ contextBridge.exposeInMainWorld('api', {
   isSessionDetached: (sessionId) => ipcRenderer.invoke('is-session-detached', sessionId),
   detachedSessionIds: () => ipcRenderer.invoke('detached-session-ids'),
   focusDetachedWindow: (sessionId) => ipcRenderer.invoke('focus-detached-window', sessionId),
+  // Move a session between windows (#316): 'main' or a detached window's id, from `listSessionWindows`.
+  moveSessionToWindow: (sessionId, windowId) => ipcRenderer.invoke('move-session-to-window', sessionId, windowId),
+  listSessionWindows: (sessionId) => ipcRenderer.invoke('list-session-windows', sessionId),
   // Main renderer: release your terminal for this session / take it back. Both carry the session id.
   onSessionDetached: (cb) => ipcRenderer.on('session-detached', (_e, sessionId) => cb(sessionId)),
   onSessionReattached: (cb) => ipcRenderer.on('session-reattached', (_e, sessionId) => cb(sessionId)),
