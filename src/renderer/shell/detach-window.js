@@ -13,7 +13,7 @@
 // must not flash the sidebar it is about to hide.
 //
 // Depends on renderer globals: openSessions, sessionMap, openSession, destroySession, showSession,
-// activeSessionId (app.js, terminal-manager.js) · window.api.
+// activeSessionId (app.js, terminal-manager.js) · cleanDisplayName (lib/utils.js) · window.api.
 
 // The session this window exists for, or null in the main window. Read from the URL: the window knows
 // what it is before any IPC round trip, so nothing has to wait for an answer.
@@ -30,6 +30,11 @@ const detachedSessionId = (() => {
 // a second copy.
 const detachedSessions = new Set();
 
+// The session this window treats as "its own". It starts as the one the window was opened for and
+// then FOLLOWS THE SET (#325): since #316 a window can hold several, and the opening one can move out
+// while the others stay. Left pinned, the no-argument `reattachSession()` and the rekey filter would
+// both track a session this window no longer has. `isDetachedWindow()` is the identity question and
+// must never be asked through this value — it is the URL's answer, and it never changes.
 window.__detachedSessionId = detachedSessionId;
 window.isDetachedWindow = () => !!detachedSessionId;
 window.isSessionDetached = (sessionId) => detachedSessions.has(sessionId);
@@ -54,12 +59,45 @@ if (detachedSessionId) document.body.classList.add('detached-window');
       document.title = 'Switchboard — session not found';
       return;
     }
-    document.title = (typeof cleanDisplayName === 'function'
-      ? cleanDisplayName(session.name || session.aiTitle || session.summary) : '') || 'Switchboard — Session';
+    document.title = sessionLabel(detachedSessionId);
     // The PTY is already running; this attaches to it and replays its buffer, exactly like clicking the
     // session in the main window would.
     await openSession(session, undefined, { show: true });
+    updateDetachedWindowTitle();
   }
+
+  // --- The window's title ------------------------------------------------------
+  //
+  // Set once from the opening session, the title outlived what it described (#325): since #316 the
+  // window holds a SET, and `listSessionWindows` promises windows are "named by what they show" —
+  // the "Move to <window>" entries are built from `win.getTitle()`, which Electron takes from this
+  // document's title. A stale one points the user at a window by a session that already left.
+
+  function sessionLabel(sessionId) {
+    const session = (openSessions.get(sessionId) || {}).session || sessionMap.get(sessionId);
+    const raw = session && (session.name || session.aiTitle || session.summary);
+    return (typeof cleanDisplayName === 'function' ? cleanDisplayName(raw) : '') || 'Session';
+  }
+
+  /**
+   * Name the window after what it holds: its active session, plus a count of the rest. Everything a
+   * detached window holds, it renders — so `openSessions` IS its set, no separate bookkeeping.
+   * Doubles as the place `__detachedSessionId` follows the set, since both answer the same question.
+   */
+  function updateDetachedWindowTitle() {
+    if (!detachedSessionId) return; // the main window titles itself
+    const ids = [...openSessions.keys()];
+    if (!ids.length) return; // mid-handover: keep the last name rather than flashing a generic one
+    const activeId = (typeof activeSessionId !== 'undefined' && openSessions.has(activeSessionId))
+      ? activeSessionId
+      : ids[0];
+    window.__detachedSessionId = activeId;
+    const label = sessionLabel(activeId);
+    document.title = ids.length > 1 ? `${label} +${ids.length - 1}` : label;
+  }
+
+  // `setActiveSession` in app.js is the choke point every focus path funnels through, and calls this.
+  window.updateDetachedWindowTitle = updateDetachedWindowTitle;
 
   // --- Handing a session over ------------------------------------------------
   //
@@ -97,6 +135,7 @@ if (detachedSessionId) document.body.classList.add('detached-window');
   }
 
   function refreshViews() {
+    updateDetachedWindowTitle(); // the set just changed — a release or an adopt got us here
     if (typeof refreshSidebar === 'function') refreshSidebar();
     if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
     if (window.panesView && window.panesView.active()) window.panesView.render();
@@ -170,8 +209,11 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     // The session was re-keyed under this window (a fork, an accepted plan): follow the new id, or the
     // next reattach names a session that no longer exists.
     window.api.onDetachedSessionRekeyed((fromId, toId) => {
-      if (fromId !== window.__detachedSessionId) return;
-      window.__detachedSessionId = toId;
+      // The window can hold several sessions (#316), and the rekeyed one need not be the one this
+      // window currently calls its own — so re-derive rather than filter on a single id (#325). The
+      // new id carries a new session record, hence a possibly new name in the title.
+      if (fromId === window.__detachedSessionId) window.__detachedSessionId = toId;
+      updateDetachedWindowTitle();
     });
     // Closing the window hands its sessions back; main sees the `closed` event and tells the main window.
     return;

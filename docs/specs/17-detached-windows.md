@@ -73,6 +73,21 @@ renderer cannot work that out: a detached window does not track its own set, and
 in main" is only true when asked from the main window. The list is fetched when a menu opens and its
 items are appended to the open menu — the alternative would be to hold the menu until main answers.
 
+**The name has to keep up (#325).** That list reads `win.getTitle()`, which Electron takes from the
+window's `document.title` — and the title was set once, at boot, from the session the window was
+opened for. Once a window holds a set, a title naming a session that has since moved out points the
+user at the wrong window under the right name. So the detached renderer re-derives its own title from
+what it holds: **its active session, plus `+N` for the rest.** Everything a detached window holds it
+renders, so `openSessions` *is* its set — no second bookkeeping to fall out of sync. It re-derives on
+the three events that can change either half: `setActiveSession` (the choke point every focus path in
+the renderer funnels through), the release/adopt handover, and a re-key.
+
+`window.__detachedSessionId` follows the same value. It used to name the opening session forever,
+which left the no-argument `reattachSession()` and the re-key filter tracking a session the window no
+longer had — latent, because every menu path passes an explicit id. **The identity question is
+`window.isDetachedWindow()`**, answered from the URL and immutable; asking it through
+`__detachedSessionId` is the bug that value now invites.
+
 ## 3 · The invariant: one session, one renderer
 
 Two xterms on one PTY echo every keystroke twice and fight over the size through `syncPtySize`. The

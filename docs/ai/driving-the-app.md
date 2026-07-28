@@ -78,11 +78,12 @@ node scripts/drive-app.js "--target=Switchboard file" eval "…"   # the MAIN wi
 node scripts/drive-app.js --target=detached= eval "…"            # the detached window (its query string)
 ```
 
-When in doubt, ask the page who it is: `window.__detachedSessionId` is the session id in a detached
-window and `null` in the main one. It is only the id the window was **opened** with, though — since
-#316 a window can hold several sessions, and `--target=detached=` then matches more than one window.
-For what is where, ask main: `await window.api.listSessionWindows(sessionId)` returns one entry per
-window (`{id, title, isMain, sessionIds, current}`), with `current` on the one holding that session.
+When in doubt, ask the page who it is: `window.isDetachedWindow()` answers from the URL and never
+changes, and `window.__detachedSessionId` is the session that window currently treats as its own —
+since #325 the **active** one, not the one it was opened with. Neither tells you the whole set, and
+`--target=detached=` matches every detached window. For what is where, ask main:
+`await window.api.listSessionWindows(sessionId)` returns one entry per window
+(`{id, title, isMain, sessionIds, current}`), with `current` on the one holding that session.
 
 ## A drag has to be a real drag
 

@@ -138,6 +138,8 @@ function setActiveSession(id) {
   if (id) sessionStorage.setItem('activeSessionId', id);
   else sessionStorage.removeItem('activeSessionId');
   if (id && !navigatingHistory) visitSession(sessionHistory, id);
+  // A detached window is named after the session it is showing (#325). No-op in the main window.
+  if (typeof window.updateDetachedWindowTitle === 'function') window.updateDetachedWindowTitle();
   // Update file panel to show this session's open files/diffs
   if (typeof switchPanel === 'function') switchPanel(id);
 }

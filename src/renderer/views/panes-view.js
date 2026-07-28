@@ -121,10 +121,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // so a layout saved on a 4K screen restores sanely on a laptop.
 
   function persist() {
-    // A detached window shows one session and owns no layout (#2). It shares this origin's
-    // localStorage with the main window, so writing here would overwrite the user's arrangement with
-    // a single pane the moment they pop a session out.
-    if (window.__detachedSessionId) return;
+    // A detached window owns no layout (#2). It shares this origin's localStorage with the main
+    // window, so writing here would overwrite the user's arrangement with the pane it happens to
+    // show. Ask the URL, not `__detachedSessionId`: that one follows the window's session set since
+    // #325 and is empty between a handover and the window closing — long enough to write.
+    if (window.isDetachedWindow && window.isDetachedWindow()) return;
     clearTimeout(persistTimer);
     // A sash drag fires dozens of updates per gesture; write once it settles.
     persistTimer = setTimeout(() => {
@@ -133,10 +134,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   }
 
   function loadTree() {
-    // The detached window is one pane with one session (#2) — it reads the same localStorage as the
-    // main window, so loading the stored tree would rebuild the whole arrangement over there, panes
-    // and foreign tabs and all.
-    if (window.__detachedSessionId) {
+    // The detached window starts as one pane with one session (#2) — it reads the same localStorage
+    // as the main window, so loading the stored tree would rebuild the whole arrangement over there,
+    // panes and foreign tabs and all. Anything else it holds arrives through `adoptOrphans`.
+    if (window.isDetachedWindow && window.isDetachedWindow()) {
       return PaneTree.createTree('pane-1', [makeTerminalTab(window.__detachedSessionId)]);
     }
     let stored = null;
