@@ -1,15 +1,26 @@
 # 16 — Panes mode (VS-Code-style editor groups)
 
-**Status: built for terminal tabs; typed views still open.** Tracked as #309. Written *before* the
-build, so its job is different from specs 01–15: it is the **record of the layout options and why one
-was chosen**, and a later rework should read it before re-running the argument.
+**Status: built** (#309 the mode and the tree, #310 the typed views). One gap is open by decision:
+views are one instance per kind, not one per pane — #311. Written *before* the build, so its job is
+different from specs 01–15: it is the **record of the layout options and why one was chosen**, and a
+later rework should read it before re-running the argument.
 
-**As built (first pass).** `views/pane-tree.js` (pure model, 35 tests) + `views/panes-view.js` (the
-DOM half) ship the tree, the per-pane strip with the session tools (H2), the `…` pane menu (A),
-tab drag between panes with the 10 % edge split, sashes, localStorage persistence and the two
-shortcuts. **Not yet built:** the typed views of §4.3 — preview, diff, plan, stats, memory and JSONL
-are still the old surfaces, so P2 is decided but only terminal tabs exist. The tab carries its `kind`
-from day one, so adding them is new render branches, not a new model.
+**As built.** `views/pane-tree.js` (pure model, 35 tests) + `views/panes-view.js` (the DOM half) ship
+the tree, the per-pane strip, the `…` pane menu (A), tab drag with the 10 % edge split, sashes,
+localStorage persistence and the two shortcuts (#309). The typed views followed (#310): preview and
+diff, plus message history, plan, activity and memory, are pane tabs.
+
+Two things diverge from the plan above and are load-bearing:
+
+- **H2 became a setting, not a decision.** `paneToolsPlacement` picks `bar` (default — the session
+  tools on a row of their own, §4.2 H1) or `strip` (H2). Seeing H2 in place is what changed the call;
+  both render paths are cheap, so the choice moved to the user.
+- **One instance per view kind, not one per pane.** Each of these views is a single element with
+  module-wide state, so the tab moves to the pane you opened it from instead of being duplicated.
+  Two previews or two diffs side by side therefore do not work yet — that is #311, scoped to preview
+  and diff and sequenced after detach (#2). Message history, plan, activity and memory stay
+  single-instance deliberately: they are read, not compared, and the transcript viewer's state
+  (current session, search hits, bookmarks, subagent watches) would have to be unpicked for no gain.
 
 Issue: #309 · builds the ownership model that detachable windows (#2) then consume.
 
@@ -110,7 +121,7 @@ preview/diff panel beside it (width in `filePanelWidth`).
 
 | | | Trade-off |
 |---|---|---|
-| **P2** *(chosen)* | Preview and diff are tabs in the tree | **+** one layout system; a preview can sit beside the pane it belongs to; detach comes for free. **−** every view must become instantiable per pane and per window — the real cost driver of #309, larger than the tree itself |
+| **P2** *(chosen)* | Preview and diff are tabs in the tree | **+** one layout system; a preview can sit beside the pane it belongs to; detach comes for free. **−** every view must become instantiable per pane and per window — the real cost driver, larger than the tree itself. Built in #310 as **one instance per kind** (the element moves to the pane you opened it from); per-pane instances for preview and diff are #311 |
 | P1 | The panel stays fixed beside the whole tree | **+** no rework, no risk to the diff viewer. **−** with four panes nothing says which pane the preview belongs to; two layout systems run side by side |
 | P3 | P1 first, P2 later | Only viable if the tree is typed from day one — otherwise the switch is a second rebuild. P2 makes it moot |
 
