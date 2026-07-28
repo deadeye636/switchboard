@@ -77,13 +77,19 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     refreshViews();
   }
 
-  async function adoptSession(sessionId) {
+  async function adoptSession(sessionId, running) {
     detachedSessions.delete(sessionId);
     const session = sessionMap.get(sessionId);
-    // Only a session that still HAS a process is taken back. Without this check, closing the window of
-    // a session that had exited (or was stopped from the sidebar) would resume the CLI: openSession
-    // finds no live PTY and spawns one, which is a process the user never asked for.
-    const stillRunning = typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId);
+    // Only a session that still HAS a process is taken back. Without this check, taking back a session
+    // that had exited (or was stopped from the sidebar) would resume the CLI: openSession finds no live
+    // PTY and spawns one, which is a process the user never asked for.
+    //
+    // Main answers this, not `activePtyIds`: that set is refreshed by a poll which backs off to 30 s in
+    // an idle window, so a session started or stopped seconds ago can still read the other way. Falling
+    // back to it keeps an older main process working.
+    const stillRunning = typeof running === 'boolean'
+      ? running
+      : (typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId));
     if (session && stillRunning && !openSessions.has(sessionId) && typeof openSession === 'function') {
       await openSession(session, undefined, { show: true });
     }
@@ -100,7 +106,7 @@ if (detachedSessionId) document.body.classList.add('detached-window');
 
   // Both windows answer the same two channels — see the handover comment above.
   window.api.onSessionDetached((sessionId) => releaseSession(sessionId));
-  window.api.onSessionReattached((sessionId) => adoptSession(sessionId));
+  window.api.onSessionReattached((sessionId, running) => adoptSession(sessionId, running));
 
   // …and both can move a session (#316), so these three are defined before the split below. A detached
   // window needs them as much as the main one does: detached → detached is a move like any other.

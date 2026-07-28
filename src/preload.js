@@ -86,7 +86,6 @@ contextBridge.exposeInMainWorld('api', {
   // Detached session windows (#2). The PTY never moves; only the window that renders its output does,
   // so `detachSession` is a view operation and never touches the process.
   detachSession: (sessionId, title) => ipcRenderer.invoke('detach-session', sessionId, title),
-  reattachSession: (sessionId) => ipcRenderer.invoke('reattach-session', sessionId),
   isSessionDetached: (sessionId) => ipcRenderer.invoke('is-session-detached', sessionId),
   detachedSessionIds: () => ipcRenderer.invoke('detached-session-ids'),
   focusDetachedWindow: (sessionId) => ipcRenderer.invoke('focus-detached-window', sessionId),
@@ -95,7 +94,9 @@ contextBridge.exposeInMainWorld('api', {
   listSessionWindows: (sessionId) => ipcRenderer.invoke('list-session-windows', sessionId),
   // Main renderer: release your terminal for this session / take it back. Both carry the session id.
   onSessionDetached: (cb) => ipcRenderer.on('session-detached', (_e, sessionId) => cb(sessionId)),
-  onSessionReattached: (cb) => ipcRenderer.on('session-reattached', (_e, sessionId) => cb(sessionId)),
+  // `running` comes from main's own session map — the renderer's copy is polled and can be half a
+  // minute stale in an idle window, and taking a dead session back would resume its CLI.
+  onSessionReattached: (cb) => ipcRenderer.on('session-reattached', (_e, sessionId, running) => cb(sessionId, running)),
   // A detached session moved onto a new id (fork, accepted plan). Both windows hear it: the detached
   // one re-points itself, the main one keeps its "this lives elsewhere" set honest.
   onDetachedSessionRekeyed: (cb) => ipcRenderer.on('detached-session-rekeyed', (_e, fromId, toId) => cb(fromId, toId)),

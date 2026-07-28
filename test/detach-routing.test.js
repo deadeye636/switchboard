@@ -130,17 +130,17 @@ test('reattaching closes the window and routes the session home again', () => {
   const { ipc, main, created } = setup();
   ipc.call('detach-session', 's1');
   main.sent.length = 0;
-  const res = ipc.call('reattach-session', 's1');
+  const res = ipc.call('move-session-to-window', 's1', 'main');
   assert.deepEqual(res, { ok: true });
   assert.equal(created[0].isDestroyed(), true);
   assert.equal(detach.windowForSession('s1'), main);
-  assert.deepEqual(main.sent, [['session-reattached', 's1']], 'exactly one notification, not one per path');
+  assert.deepEqual(main.sent, [['session-reattached', 's1', true]], 'exactly one notification, not one per path');
 });
 
 test('reattaching a session that was never detached is a no-op', () => {
   const { ipc, main } = setup();
-  const res = ipc.call('reattach-session', 's1');
-  assert.equal(res.ok, false);
+  const res = ipc.call('move-session-to-window', 's1', 'main');
+  assert.deepEqual(res, { ok: true, already: true }, 'it is already where it would be moved to');
   assert.deepEqual(main.sent, []);
 });
 
@@ -150,7 +150,7 @@ test('closing the window by hand hands the session back', () => {
   main.sent.length = 0;
   created[0].destroy(); // the user clicked the title-bar X
   assert.equal(detach.isDetached('s1'), false);
-  assert.deepEqual(main.sent, [['session-reattached', 's1']]);
+  assert.deepEqual(main.sent, [['session-reattached', 's1', true]]);
 });
 
 test('closeAll stays silent even when the app is NOT quitting', () => {
@@ -259,7 +259,7 @@ test('moving a session home releases the detached window and tells main to take 
 
   assert.deepEqual(ipc.call('move-session-to-window', 's1', 'main'), { ok: true });
   assert.deepEqual(win.sent[0], ['session-detached', 's1'], 'the window that had it lets go first');
-  assert.deepEqual(main.sent, [['session-reattached', 's1']]);
+  assert.deepEqual(main.sent, [['session-reattached', 's1', true]]);
   assert.equal(detach.isDetached('s1'), false);
   assert.equal(detach.windowForSession('s1'), main);
   assert.equal(win.destroyed, true, 'a window with nothing left to show closes');
@@ -283,7 +283,7 @@ test('a session moves from the main window into an existing detached window', ()
 
   assert.deepEqual(ipc.call('move-session-to-window', 's2', String(win.id)), { ok: true });
   assert.deepEqual(main.sent, [['session-detached', 's2']], 'main releases it');
-  assert.deepEqual(win.sent, [['session-reattached', 's2']], 'the window takes it');
+  assert.deepEqual(win.sent, [['session-reattached', 's2', true]], 'the window takes it');
   assert.equal(detach.windowForSession('s2'), win);
   assert.deepEqual(detach.sessionsInWindow(win).sort(), ['s1', 's2']);
   assert.equal(created.length, 1, 'no new window is opened for a move');
@@ -299,7 +299,7 @@ test('a session moves from one detached window to another, and the empty one clo
 
   assert.deepEqual(ipc.call('move-session-to-window', 's2', String(winA.id)), { ok: true });
   assert.deepEqual(winB.sent, [['session-detached', 's2']]);
-  assert.deepEqual(winA.sent, [['session-reattached', 's2']]);
+  assert.deepEqual(winA.sent, [['session-reattached', 's2', true]]);
   assert.deepEqual(detach.sessionsInWindow(winA).sort(), ['s1', 's2']);
   assert.equal(winB.destroyed, true, 'its last session left');
   assert.equal(detach.windowForSession('s2'), winA);
@@ -313,8 +313,8 @@ test('closing a window with several sessions hands every one of them back', () =
   main.sent.length = 0;
 
   win.destroy();
-  assert.deepEqual(main.sent.map(([channel, id]) => [channel, id]).sort(),
-    [['session-reattached', 's1'], ['session-reattached', 's2']]);
+  assert.deepEqual([...main.sent].sort((a, b) => a[1].localeCompare(b[1])),
+    [['session-reattached', 's1', true], ['session-reattached', 's2', true]]);
   assert.equal(detach.isDetached('s1'), false);
   assert.equal(detach.isDetached('s2'), false);
 });
@@ -338,4 +338,17 @@ test('a move refuses a dead session and a window that is gone', () => {
   assert.match(ipc.call('move-session-to-window', 'ghost', 'main').error, /not running/);
   assert.match(ipc.call('move-session-to-window', 's1', '9999').error, /window is gone/);
   assert.equal(created[0].destroyed, false, 'a refused move leaves the window alone');
+});
+
+test('the adopt notification carries whether the process is still alive', () => {
+  // The taking window must not resume a CLI that has ended, and its own `activePtyIds` is a polled
+  // snapshot — up to half a minute stale in an idle window. Main answers from the live map instead.
+  const { ipc, main, created, activeSessions } = setup();
+  ipc.call('detach-session', 's1');
+  const win = created[0];
+  activeSessions.delete('s1'); // the PTY exited while the session was detached
+  main.sent.length = 0;
+
+  win.destroy(); // the user closes the window of a session that is no longer running
+  assert.deepEqual(main.sent, [['session-reattached', 's1', false]]);
 });

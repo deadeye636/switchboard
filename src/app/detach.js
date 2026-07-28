@@ -120,6 +120,21 @@ function sendToMain(channel, ...args) {
   if (main && !main.isDestroyed()) main.webContents.send(channel, ...args);
 }
 
+/**
+ * Does this session still have a process? Sent along with every `session-reattached`, because the
+ * window taking it must not resume a CLI the user stopped — and the renderer's own answer is a
+ * POLLED snapshot, up to 30 s stale in an idle window. Here it is the authoritative map.
+ */
+function isRunning(sessionId) {
+  return !!ctx.activeSessions.get(sessionId);
+}
+
+function sendAdopt(win, sessionId) {
+  const running = isRunning(sessionId);
+  if (win) win.webContents.send('session-reattached', sessionId, running);
+  else sendToMain('session-reattached', sessionId, running);
+}
+
 function createDetachWindow(sessionId, title) {
   const main = ctx.getMainWindow();
   const bounds = main && !main.isDestroyed() ? main.getBounds() : { width: 1100, height: 700, x: 80, y: 80 };
@@ -161,7 +176,7 @@ function createDetachWindow(sessionId, title) {
     for (const id of owned) detachedWindows.delete(id);
     if (!owned.length || ctx.getAppQuitting()) return;
     ctx.log.info(`[detach] window closed, ${owned.length} session(s) return to the main window`);
-    for (const id of owned) sendToMain('session-reattached', id);
+    for (const id of owned) sendAdopt(null, id);
   });
 
   return win;
@@ -221,15 +236,10 @@ function registerIpc(ipc) {
     return { ok: true };
   });
 
-  ipc.handle('reattach-session', (_event, sessionId) => {
-    const win = detachedWindows.get(sessionId);
-    if (!win || win.isDestroyed()) return { ok: false, error: 'not detached' };
-    detachedWindows.delete(sessionId);
-    // `closed` fires with the id already gone from the map, so the notification below is the only one.
-    win.destroy();
-    sendToMain('session-reattached', sessionId);
-    return { ok: true };
-  });
+  // `reattach-session` used to live here. It is `move-session-to-window(id, 'main')` with a window
+  // destroy hard-coded instead of "close it if it is now empty" — every caller went through the move
+  // handler once #316 landed, so keeping both would have left two paths to the same handover, one of
+  // them wrong for a window holding more than one session.
 
   /**
    * Move a session between windows (#316) — main → a detached window, detached → main, detached →
@@ -258,11 +268,11 @@ function registerIpc(ipc) {
     else detachedWindows.delete(sessionId);
 
     if (target) {
-      target.webContents.send('session-reattached', sessionId);
+      sendAdopt(target, sessionId);
       if (target.isMinimized()) target.restore();
       target.focus();
     } else {
-      sendToMain('session-reattached', sessionId);
+      sendAdopt(null, sessionId);
     }
     // A detached window that just gave away its last session has nothing left to show, and no chrome
     // to pick a new one with — the sidebar lives in the main window. So it goes. Its entries are
