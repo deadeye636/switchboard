@@ -150,6 +150,38 @@ test('closing the window by hand hands the session back', () => {
   assert.deepEqual(main.sent, [['session-reattached', 's1']]);
 });
 
+test('closeAll stays silent even when the app is NOT quitting', () => {
+  // It runs from the main window's own close, where appQuitting is still false on the plain Alt+F4
+  // path — so a reattach would fire into a renderer that is being torn down.
+  const { ipc, main, created } = setup({ quitting: false });
+  ipc.call('detach-session', 's1');
+  main.sent.length = 0;
+  detach.closeAll();
+  assert.equal(created[0].isDestroyed(), true);
+  assert.deepEqual(main.sent, []);
+});
+
+test('a re-keyed session takes its window with it', () => {
+  const { ipc, main, created } = setup();
+  ipc.call('detach-session', 's1');
+  main.sent.length = 0;
+  detach.rekey('s1', 's1-forked');
+  // Output is sent under the new id from here on; without the migration it would go to the main
+  // window while the detached one sat silent.
+  assert.equal(detach.windowForSession('s1-forked'), created[0]);
+  assert.equal(detach.windowForSession('s1'), main);
+  assert.deepEqual(detach.detachedSessionIds(), ['s1-forked']);
+  assert.deepEqual(created[0].sent, [['detached-session-rekeyed', 's1', 's1-forked']]);
+  assert.deepEqual(main.sent, [['session-detach-rekeyed', 's1', 's1-forked']]);
+});
+
+test('re-keying a session that is not detached does nothing', () => {
+  const { main } = setup();
+  detach.rekey('s1', 's2');
+  assert.deepEqual(main.sent, []);
+  assert.deepEqual(detach.detachedSessionIds(), []);
+});
+
 test('on quit the windows go without asking the main window to take anything back', () => {
   const { ipc, main, created } = setup({ quitting: true });
   ipc.call('detach-session', 's1');

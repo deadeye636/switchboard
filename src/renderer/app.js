@@ -1302,6 +1302,10 @@ window.relaunchSession = relaunchSession;
 // terminal entry exists. Callers batch these and trigger a single grid rebuild.
 async function attachRunningSession(session) {
   const { sessionId, projectPath } = session;
+  // Same rule as openSession: a session rendered in a window of its own must not be mounted here as
+  // well (#2). This path skips openSession entirely — the grid auto-open calls it directly — so the
+  // guard has to be repeated, or switching to grid mode would put a second xterm on a live PTY.
+  if (typeof window.isSessionDetached === 'function' && window.isSessionDetached(sessionId)) return false;
   const existing = openSessions.get(sessionId);
   if (existing) {
     if (!existing.closed) return true; // already mounted — nothing to do

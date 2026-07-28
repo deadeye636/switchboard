@@ -333,6 +333,9 @@ function applyRekey(fromId, session, toId) {
   rekeyMcpServer(fromId, toId);
   // Re-key the backend/profile overlay too (T-1.4) so provenance follows the id.
   rekeySessionBackend(fromId, toId);
+  // …and the window that renders it (#2). Output is sent under the NEW id, so a detached window
+  // registered under the old one would fall silent mid-run while its bytes went to the main window.
+  try { require('../app/detach').rekey(fromId, toId); } catch { /* module not wired in a test build */ }
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('session-forked', fromId, toId);

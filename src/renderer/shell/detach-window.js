@@ -74,7 +74,11 @@ if (detachedSessionId) document.body.classList.add('detached-window');
   async function takeBackFromDetachedWindow(sessionId) {
     detachedSessions.delete(sessionId);
     const session = sessionMap.get(sessionId);
-    if (session && !openSessions.has(sessionId) && typeof openSession === 'function') {
+    // Only a session that still HAS a process comes back on its own. Without this check, closing the
+    // window of a session that had exited (or was stopped from the sidebar) would resume the CLI:
+    // openSession finds no live PTY and spawns one, which is a process the user never asked for.
+    const stillRunning = typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId);
+    if (session && stillRunning && !openSessions.has(sessionId) && typeof openSession === 'function') {
       await openSession(session, undefined, { show: true });
     }
     refreshViews();
@@ -94,12 +98,23 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     // every session a second time, each one fighting the main window for the same PTY.
     window.__suppressLaunchRestore = true;
     window.addEventListener('DOMContentLoaded', () => { bootDetachedWindow(); });
+    // The session was re-keyed under this window (a fork, an accepted plan): follow the new id, or the
+    // next reattach names a session that no longer exists.
+    window.api.onDetachedSessionRekeyed((fromId, toId) => {
+      if (fromId !== window.__detachedSessionId) return;
+      window.__detachedSessionId = toId;
+    });
     // Closing the window hands the session back; main sees the `closed` event and tells the main window.
     return;
   }
 
   window.api.onSessionDetached((sessionId) => releaseToDetachedWindow(sessionId));
   window.api.onSessionReattached((sessionId) => takeBackFromDetachedWindow(sessionId));
+  window.api.onSessionDetachRekeyed((fromId, toId) => {
+    if (!detachedSessions.delete(fromId)) return;
+    detachedSessions.add(toId);
+    refreshViews();
+  });
 
   // Catch up on boot: a renderer reload leaves the detached windows standing, and this window has to
   // know about them before it renders a single tab.

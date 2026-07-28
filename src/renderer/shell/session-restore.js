@@ -45,6 +45,10 @@ function restoreOpenSessionsEnabled() {
 // Synchronous (runs from beforeunload/pagehide) — must not await anything.
 function saveOpenSessionsState() {
   if (typeof collectUpdateRestartState !== 'function') return;
+  // A detached window has ONE session and shares this origin's storage (#2). Letting it write here
+  // would replace the main window's whole restorable set with that one session — and the key is
+  // deliberately durable, so a later crash would restore exactly that one.
+  if (window.__suppressLaunchRestore) return;
   if (!restoreOpenSessionsEnabled()) {
     try { localStorage.removeItem(OPEN_SESSIONS_STATE_KEY); } catch {}
     return;

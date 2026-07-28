@@ -109,12 +109,36 @@ function createDetachWindow(sessionId, title) {
   return win;
 }
 
+/**
+ * A live session moved onto a new id (a fork, an accepted plan). Its window has to follow, or the
+ * output — sent under the new id from that moment on — routes to the main window while the detached
+ * one, still registered under the old id, goes quiet with no sign of why.
+ */
+function rekey(fromId, toId) {
+  if (!fromId || !toId || fromId === toId) return;
+  const win = detachedWindows.get(fromId);
+  if (!win) return;
+  detachedWindows.delete(fromId);
+  if (!win.isDestroyed()) {
+    detachedWindows.set(toId, win);
+    // The window knows itself by the id in its URL; tell it the id changed so its own tab and its
+    // reattach follow along.
+    win.webContents.send('detached-session-rekeyed', fromId, toId);
+  }
+  sendToMain('session-detach-rekeyed', fromId, toId);
+}
+
 /** Close every detached window — the main window is going, so its sessions have nowhere to be. */
 function closeAll() {
-  for (const win of detachedWindows.values()) {
-    if (win && !win.isDestroyed()) win.destroy(); // destroy, not close: `closed` must not re-attach
-  }
+  // Clear FIRST, then destroy: the `closed` handler decides by "am I still the registered window?",
+  // and this path must not ask the main window to take anything back. It runs from the main window's
+  // own close, where `appQuitting` is still false on the plain Alt+F4 path — so the quit check alone
+  // would let a reattach fire into a renderer that is being torn down.
+  const windows = [...detachedWindows.values()];
   detachedWindows.clear();
+  for (const win of windows) {
+    if (win && !win.isDestroyed()) win.destroy();
+  }
 }
 
 /**
@@ -166,6 +190,7 @@ function registerIpc(ipc) {
 module.exports = {
   init,
   registerIpc,
+  rekey,
   windowForSession,
   isDetached,
   detachedSessionIds,

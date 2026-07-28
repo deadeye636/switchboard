@@ -778,6 +778,14 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     session.mcpServer = null;
 
     const realId = session.realSessionId || sessionId;
+    // The window that RENDERS this session also needs the exit, or a detached terminal simply freezes
+    // with no explanation while its exit banner is written into a window that no longer holds it (#2).
+    // Main keeps getting it regardless — the sidebar, the badges and the relaunch hint live there.
+    for (const id of realId !== sessionId ? [realId, sessionId] : [realId]) {
+      const owner = ctx.windowForSession ? ctx.windowForSession(id) : null;
+      const main = ctx.getMainWindow();
+      if (owner && owner !== main && !owner.isDestroyed()) owner.webContents.send('process-exited', id, exitCode);
+    }
     if (windowLive()) {
       sendToWindow('process-exited', realId, exitCode);
       // If a fork/plan-accept transition re-keyed this session under realId

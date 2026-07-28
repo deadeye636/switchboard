@@ -93,6 +93,10 @@ contextBridge.exposeInMainWorld('api', {
   // Main renderer: release your terminal for this session / take it back. Both carry the session id.
   onSessionDetached: (cb) => ipcRenderer.on('session-detached', (_e, sessionId) => cb(sessionId)),
   onSessionReattached: (cb) => ipcRenderer.on('session-reattached', (_e, sessionId) => cb(sessionId)),
+  // A detached session moved onto a new id (fork, accepted plan). Both windows hear it: the detached
+  // one re-points itself, the main one keeps its "this lives elsewhere" set honest.
+  onDetachedSessionRekeyed: (cb) => ipcRenderer.on('detached-session-rekeyed', (_e, fromId, toId) => cb(fromId, toId)),
+  onSessionDetachRekeyed: (cb) => ipcRenderer.on('session-detach-rekeyed', (_e, fromId, toId) => cb(fromId, toId)),
   notifySettingsChanged: () => ipcRenderer.send('settings-changed'),
   onSettingsChanged: (cb) => ipcRenderer.on('settings-changed', () => cb()),
   renameSession: (id, name) => ipcRenderer.invoke('rename-session', id, name),

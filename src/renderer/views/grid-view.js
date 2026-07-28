@@ -753,6 +753,10 @@ function hideGridView() {
 }
 
 function toggleGridView() {
+  // A detached window shows ONE session (#2). The grid would auto-mount every running session there —
+  // a second xterm on each live PTY, replaying scrollback into the main window's terminals — and its
+  // `gridViewActive` flag lands in the localStorage both windows share.
+  if (typeof window.isDetachedWindow === 'function' && window.isDetachedWindow()) return;
   // The palette is anchored to a terminal rectangle that this re-wraps into (or out of) a grid card,
   // and the anchor only re-runs on a window resize — so it would hang over stale coordinates (#207).
   if (typeof closeVariablePalette === 'function') closeVariablePalette({ refocus: false });
