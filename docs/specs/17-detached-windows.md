@@ -44,10 +44,20 @@ by **session**, so several keys pointing at one window was already legal.
 | any → any existing window | "Move to <window>" per window, appended to the same menus (#316) |
 
 One handler serves all three (`move-session-to-window`), and the order inside it is the invariant of
-§3 in miniature: **release, re-register, adopt.** The giving window lets go first — release it after
-telling the target and two renderers hold one PTY for the length of an IPC round trip. Re-registering
-sits in the middle because `windowForSession` decides where the bytes go, and the replay the target is
-about to ask for must already route to it.
+§3 in miniature: **release, re-register, adopt.** The giving window is told to let go first, *or* two
+renderers hold one PTY for the length of an IPC round trip. Re-registering sits in the middle because
+`windowForSession` decides where the bytes go, and the replay the target is about to ask for must
+already route to it.
+
+All three steps run synchronously in main, before either renderer has acted, so byte routing switches
+atomically however the two windows are scheduled. There is no adopt acknowledgement: a target that is
+slow to attach simply has no `openSessions` entry yet, its bytes are dropped, and the output buffer
+replays them when it does — the same semantics as any reattach.
+
+Whether the session still HAS a process is answered by main, in the `session-reattached` payload. The
+renderer's `activePtyIds` is a polled snapshot that backs off to 30 s in an idle window, so a window
+adopting on its own answer could refuse a session that started seconds ago — or worse, accept one that
+has died and resume its CLI.
 
 Two consequences worth stating:
 
