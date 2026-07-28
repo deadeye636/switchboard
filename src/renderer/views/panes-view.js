@@ -771,29 +771,54 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     }
   }
 
-  // WebGL follows the focused pane, exactly as it follows the focused card in the
-  // grid (#140). Several live GL terminals share one texture atlas, and a sibling
-  // growing it leaves the others painting scrambled or blank glyphs until they
-  // happen to repaint (#118, #262) — with four panes on screen that is the normal
-  // case, not an edge case. So: the active pane keeps its context, every other
-  // pane falls back to the DOM renderer, which is correct at any size.
+  // Every pane renders the same way — all WebGL, or all DOM (#320).
+  //
+  // This used to follow the focused pane, inherited from the grid (#140). Panes put
+  // two full-height terminals side by side, and there the two renderers do not agree
+  // on the cell box: at devicePixelRatio 2 the measured cell was 8.000 px under
+  // WebGL and 8.2065 px under DOM, so the unfocused pane drew visibly heavier and
+  // sat a line off. A renderer split you can see is worse than either renderer.
+  //
+  // Both were measured before the change: two panes on WebGL, ~18 000 distinct
+  // codepoints flooded through each to grow and recycle the shared atlas several
+  // times over — no corruption, no context loss, identical metrics. The atlas
+  // contention #118 describes is real but heals on repaint; the corruption #140 saw
+  // came from context CHURN, and `loadTerminalWebgl` is idempotent now.
+  //
+  // The cap is what keeps that honest: a layout has no upper bound on leaves, and a
+  // GL context per pane does. Past it, everyone drops to DOM together rather than
+  // some panes losing their context to Chromium's budget and reintroducing the split.
+  const MAX_WEBGL_PANES = 8;
+
   function applyWebglPolicy() {
+    const mounted = [];
     for (const leaf of PaneTree.leaves(tree)) {
       const sessionId = sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId));
       const entry = sessionId ? openSessions.get(sessionId) : null;
-      if (!entry) continue;
-      const wantGl = leaf.id === activeLeafId;
-      const hasGl = !!entry.webglAddon;
+      if (entry) mounted.push({ leafId: leaf.id, sessionId, entry });
+    }
+    const wantGl = mounted.length <= MAX_WEBGL_PANES;
+    for (const { sessionId, entry } of mounted) {
       // Only ACT on a difference. Recreating the addon on every render (a status
       // tick, a tab click) tore down and rebuilt the GL context each time and left
       // orphaned canvases stacked in the container, until the terminal painted
       // nothing at all.
-      if (wantGl && !hasGl && typeof restoreTerminalWebgl === 'function') restoreTerminalWebgl(sessionId);
-      else if (!wantGl && hasGl && typeof suspendTerminalWebgl === 'function') suspendTerminalWebgl(sessionId);
-      // The active terminal just changed parent, and a moved WebGL canvas keeps a
-      // texture atlas another terminal may have grown meanwhile (#118).
-      if (wantGl && entry.webglAddon && typeof forceRepaint === 'function') forceRepaint(entry);
+      if (wantGl && !entry.webglAddon && typeof restoreTerminalWebgl === 'function') restoreTerminalWebgl(sessionId);
+      else if (!wantGl && entry.webglAddon && typeof suspendTerminalWebgl === 'function') suspendTerminalWebgl(sessionId);
     }
+    // A load can refuse — the setting is off, or WebGL gave up after repeated
+    // context losses. Then some panes have GL and some do not, which is the split
+    // this policy exists to prevent, so the ones that got it give it back.
+    if (wantGl && mounted.some((m) => !m.entry.webglAddon)) {
+      for (const { sessionId, entry } of mounted) {
+        if (entry.webglAddon && typeof suspendTerminalWebgl === 'function') suspendTerminalWebgl(sessionId);
+      }
+      return;
+    }
+    // The active terminal just changed parent, and a moved WebGL canvas keeps a
+    // texture atlas another terminal may have grown meanwhile (#118).
+    const active = mounted.find((m) => m.leafId === activeLeafId);
+    if (active && active.entry.webglAddon && typeof forceRepaint === 'function') forceRepaint(active.entry);
   }
 
   function refitVisible() {
@@ -832,7 +857,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
     const sessionId = leaf ? sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId)) : null;
     if (sessionId && openSessions.has(sessionId) && sessionId !== activeSessionId) showSession(sessionId);
-    // WebGL follows the focus, so the pane that just gained it takes the context.
+    // Since #320 the renderer no longer follows the focus — every pane has the same
+    // one — so this is only here for the atlas repaint of the pane that just came
+    // forward, and for the case a pane gained a mounted session without a rebuild.
     applyWebglPolicy();
     persist();
   }
