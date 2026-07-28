@@ -31,6 +31,37 @@ The separation is the point. The sidebar, the attention inbox and the badges liv
 and they must keep updating for a detached session — otherwise the one session the user pushed onto
 the second monitor is the one that stops telling them it needs attention.
 
+## 2b · A window owns sessions, not a session (#314, #315, #316)
+
+Detach started as a one-way trip: a window per session, and the only way back was to close it. Three
+follow-ups turned that into a move in any direction, and the map is what made it cheap — it is keyed
+by **session**, so several keys pointing at one window was already legal.
+
+| Direction | Entry point |
+|---|---|
+| detached → main | "Return to main window" in that window's tab/pane menu (#314) |
+| main ← detached | the sidebar row's own action; a detached row is marked `⧉` and cannot be opened in place (#315) |
+| any → any existing window | "Move to <window>" per window, appended to the same menus (#316) |
+
+One handler serves all three (`move-session-to-window`), and the order inside it is the invariant of
+§3 in miniature: **release, re-register, adopt.** The giving window lets go first — release it after
+telling the target and two renderers hold one PTY for the length of an IPC round trip. Re-registering
+sits in the middle because `windowForSession` decides where the bytes go, and the replay the target is
+about to ask for must already route to it.
+
+Two consequences worth stating:
+
+- **A detached window that gives away its last session closes.** It has no sidebar to pick a new one
+  with, so an empty one is a window the user cannot use and cannot interpret.
+- **Closing a window hands back everything it holds**, not the one session it was opened for. The
+  explicit paths delete their entry *before* destroying, so `closed` never repeats a handover.
+
+The window list is built in main (`list-session-windows`) and names each window by what it shows;
+"window 3" means nothing to the user. It marks the window that already holds the session, because the
+renderer cannot work that out: a detached window does not track its own set, and "not detached means
+in main" is only true when asked from the main window. The list is fetched when a menu opens and its
+items are appended to the open menu — the alternative would be to hold the menu until main answers.
+
 ## 3 · The invariant: one session, one renderer
 
 Two xterms on one PTY echo every keystroke twice and fight over the size through `syncPtySize`. The
@@ -61,8 +92,9 @@ default with the main window. Three things had to be told not to write:
 
 | Case | Behaviour |
 |---|---|
-| Window closed by hand | The session returns to the main window — **unless its process has ended**: taking it back always reopened it, which silently resumed a CLI the user had stopped |
-| Reattach action | Main deletes the map entry **before** destroying the window, so the `closed` handler stays silent and the notification fires once |
+| Window closed by hand | **Every** session it still holds returns to the main window (#316) — each one unless its process has ended: taking it back always reopened it, which silently resumed a CLI the user had stopped |
+| Reattach / move action | Main deletes the map entry **before** destroying the window, so the `closed` handler stays silent and the notification fires once |
+| Last session moved out | The window closes: no sidebar, nothing to show, nothing to pick (#316) |
 | Main window closed | `closeAll` clears the map **first**, then destroys: on the plain Alt+F4 path `appQuitting` is still false, and a reattach would land in a renderer being torn down |
 | App quit | Same call; nothing is handed back |
 | PTY exits while detached | The banner is written in the detached window; the sidebar keeps its own state from main |
@@ -81,11 +113,14 @@ has no tab there, and clicking its sidebar row raises its window.
 
 ## 7 · Tests
 
-`test/detach-routing.test.js` (17) covers the routing and the state machine without Electron —
+`test/detach-routing.test.js` (25) covers the routing and the state machine without Electron —
 `BrowserWindow` arrives through ctx for exactly that reason. It pins per-session routing, the window's
 shape (no `parent`: a child window is always on top, which defeats a second monitor; no background
 throttling), double detach, reattach, close-by-hand, quit, `closeAll` off the quit path, a window
-destroyed without its event, the focus path, and the re-key in both directions.
+destroyed without its event, the focus path, and the re-key in both directions. The move cases (#316)
+are there too: the window list and its `current` marking, main → detached, detached → main, detached →
+detached, a window closing with several sessions, a move onto the window a session is already in, and
+the two refusals.
 
 What it cannot cover is the invariant in §3: that lives in the renderer, and it is where both real
 bugs were. `docs/ai/driving-the-app.md` has the two traps that made checking it harder than it should
