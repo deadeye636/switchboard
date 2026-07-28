@@ -18,11 +18,15 @@
 // tools live in for the other modes — is hidden while panes mode is on.
 //
 // Depends on renderer globals: openSessions, sessionMap, activeSessionId,
-// activePtyIds, terminalsEl, placeholder (app.js) · showSession, destroySession,
-// safeFit, flushTerminalBuffer, drainReplayBuffer (terminal-manager.js) ·
-// getSessionStatus, getSessionRuntimeState, SESSION_STATUS_CLASSES
-// (session-status.js) · cleanDisplayName (utils.js) · confirmAndStopSession,
-// showJsonlViewer, openTasksView (app.js) · PaneTree (views/pane-tree.js).
+// activePtyIds, terminalsEl, placeholder, terminalHeader (app.js) · showSession,
+// openSession, destroySession, safeFit, flushTerminalBuffer, drainReplayBuffer,
+// restoreTerminalWebgl, suspendTerminalWebgl, forceRepaint (terminal-manager.js) ·
+// getSessionStatus, getSessionRuntimeState, SESSION_STATUS_CLASSES,
+// subagentActiveSessions (session-status.js, app.js) · cleanDisplayName
+// (utils.js) · confirmAndStopSession, showJsonlViewer, openTasksView (app.js) ·
+// PaneTree (views/pane-tree.js) · and four hooks the file panel exposes for the
+// view-tab half (#310): window.isMcpActiveForSession, window.filePanelTabLabel,
+// window.closeFilePanel, window.filePanelRelayout (views/file-panel.js).
 
 // The drag payload type for a pane tab. It is a LAYOUT drag, so every other drop
 // target has to be able to recognise and ignore it — the terminal container reads
@@ -438,6 +442,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const leaf = PaneTree.leafOfTab(tree, tabId);
     if (!leaf) return;
     releaseViewElement(kind);
+    hideViewElement(kind);
     tree = PaneTree.closeTab(tree, leaf.id, tabId);
     activeLeaf();
     render();
@@ -461,6 +466,19 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
   function releaseAllViewElements() {
     for (const kind of Object.keys(VIEW_KINDS)) releaseViewElement(kind);
+  }
+
+  // Closing the TAB has to close the VIEW. These four are shown by setting
+  // `display` (that is also how panes-view learns about them), and nothing else
+  // resets it on this path: without it the element goes home still visible and,
+  // being `position:absolute; inset:0` in #main, covers the whole workspace with
+  // no tab left to close it. `preview` is not here — it routes through the file
+  // panel's own close, which owns its visibility.
+  function hideViewElement(kind) {
+    const spec = VIEW_KINDS[kind];
+    const host = hostElementFor(kind);
+    if (!spec || !spec.watched || !host) return;
+    host.style.display = 'none';
   }
 
   // --- Adopting the takeover viewers ----------------------------------------
@@ -493,7 +511,14 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     for (const [kind, spec] of Object.entries(VIEW_KINDS)) {
       if (!spec.watched) continue;
       const el = hostElementFor(kind);
-      if (el) viewObserver.observe(el, { attributes: true, attributeFilter: ['style'] });
+      if (!el) continue;
+      viewObserver.observe(el, { attributes: true, attributeFilter: ['style'] });
+      // An observer reports future mutations only. A viewer that was already open
+      // when the mode was switched on would otherwise never be adopted and would
+      // sit over the pane tree as an unmanaged overlay.
+      if (el.style.display !== 'none' && el.style.display !== '') {
+        openViewTab(kind, { ref: activeSessionId || null, nearSessionId: activeSessionId || null });
+      }
     }
   }
 
@@ -736,6 +761,14 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // back into dropSession(), which is what takes each tab out of the tree — so
     // this loop must not remove them a second time.
     for (const tab of leaf.tabs.slice()) {
+      // A view tab in this pane loses its tab with the pane, so its view has to be
+      // closed too — otherwise the element goes home still visible and covers the
+      // workspace with nothing left to dismiss it.
+      if (isViewTab(tab)) {
+        if (tab.kind === 'preview' && typeof window.closeFilePanel === 'function') window.closeFilePanel();
+        else hideViewElement(tab.kind);
+        continue;
+      }
       const sessionId = sessionOfTab(tab);
       if (sessionId && typeof destroySession === 'function') destroySession(sessionId);
     }
