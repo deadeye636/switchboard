@@ -83,6 +83,24 @@ that looked like a click. What they cost, and what actually caught them:
 The suite was green for all six, at 1835 tests. The pane-tree model behind them has 35 tests and is
 correct — the model was never the risk.
 
+**#2 (detach) repeated the shape, twice more.** A review found seven defects after the feature was
+called done and verified by hand:
+
+- **Two more mount paths.** The "one session, one renderer" guard was put where sessions are opened
+  (`openSession`) — but the grid's auto-open calls `attachRunningSession` directly, and the grid
+  shortcut still worked *inside* a detached window. Both only fire after a display-mode switch, which
+  is not where anyone looks for a detach bug. Either would have put a second xterm on a live PTY.
+- **Shared origin, shared damage.** The pane tree was guarded against the detached window writing it;
+  the open-sessions restore state was not, so closing that window replaced the main window's whole
+  restorable set with one session — in a key deliberately kept across a crash, so the loss surfaces a
+  launch later.
+- **A renderer reload does not reload the main process.** Two of the fixes read as broken through two
+  rounds of live checks that were exercising the previous main process. Any `src/app/**` change needs
+  the app restarted before the reading means anything (`docs/ai/driving-the-app.md`).
+- **`drive-app.js --target` matched both windows** — every window of this app has `switchboard` in its
+  URL — so an `eval` aimed at the main window ran in the detached one and answered truthfully about
+  the wrong page.
+
 ## Isolation that wasn't
 
 - `SWITCHBOARD_DATA_DIR` alone moves the DB but not `userData`, so a "sandbox" landed on the dev

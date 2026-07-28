@@ -26,6 +26,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 14 | [Scheduled tasks (cron-driven headless runs)](14-scheduled-tasks.md) — **removed (#246)**, kept as a rebuild record | #206 | Was: Claude-only |
 | 15 | [VCS-aware session cards (chip, changes window, diffs)](15-vcs-status.md) | #277, #284, #285, #287 | Yes — new `src/vcs/` seam + `src/app/vcs.js` |
 | 16 | [Panes mode (VS-Code-style editor groups)](16-panes-mode.md) — **built**; views are one instance per kind (#311 open). Layout options + why one was chosen | #309, #310 | No — touches the terminal host, the session bar and the preview panel |
+| 17 | [Detached session windows](17-detached-windows.md) — **built**; the routing separation and the one-session-one-renderer invariant | #2 | No — main-process routing + every renderer mount path |
 
 ## Shared architecture (read once, applies to all specs)
 

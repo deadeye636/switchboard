@@ -11,14 +11,28 @@ paths:
 ## `src/main.js` is a composition root
 
 ~1830 lines, down from 5011 — the split is done (#213), #227 moved nine more handlers out. What is
-left: the requires, `DATA_DIR` (before anything requires db.js), the wiring for twelve modules, and
+left: the requires, `DATA_DIR` (before anything requires db.js), the wiring for thirteen modules, and
 **76 small IPC handlers** that stayed on purpose (thin, no shared state; moving them buys churn).
 
 `src/app/` holds `lifecycle.js` (boot, ordered teardown), `windows.js`,
 `notifications.js`, `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`,
 `settings-transfer.js`, `plans-memory.js` (Plans/Memory/Work-Files tabs — #227),
-`vcs.js` (the VCS poller + its standalone windows — #277) and `terminal/`
-(`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
+`vcs.js` (the VCS poller + its standalone windows — #277), `detach.js` (detached session
+windows — #2) and `terminal/` (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow
+control, plus the PTY pure-logic).
+
+## One channel routes per session: `terminal-data` (#2)
+
+A session can live in a window of its own. `app/detach.js` owns the map and answers
+`windowForSession(id)`; `spawn.js` asks it through ctx and uses the answer for **`terminal-data`
+only**. Everything else — `cli-busy-state`, `terminal-notification`, `session-forked`,
+`process-exited` for the sidebar's copy — goes to the main window, because that is where the sidebar,
+the attention inbox and the badges live. Route those too and the badges stop appearing for exactly
+the session the user pushed onto the other monitor.
+
+The corollary bites in the renderer: **nothing may mount a session that is detached**, and there are
+more mount paths than `openSession` (`attachRunningSession`, the grid's auto-open). Two xterms on one
+PTY echo every keystroke twice and fight over the size — the failure is loud but its cause is not.
 
 ## Where an IPC handler goes
 
@@ -36,6 +50,7 @@ left: the requires, `DATA_DIR` (before anything requires db.js), the wiring for 
 | Terminal input/resize/redraw/flow control | `src/app/terminal/io.js` |
 | The Plans, Memory and Work-Files tabs | `src/app/plans-memory.js` |
 | Version-control status, the changes/diff windows | `src/app/vcs.js` (the seam it drives is `src/vcs/`) |
+| Detached session windows, and which window a session renders in | `src/app/detach.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;

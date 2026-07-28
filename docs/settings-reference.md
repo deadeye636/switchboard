@@ -197,6 +197,30 @@ Cascading keys (`visibleSessionCount`, `sidebarWidth`, `terminalTheme`, `shellPr
 and tags. Everything else is global-only. **A session has no stored overrides** — the Configure dialog's
 choices are one-off launch parameters, not a scope.
 
+## Not settings: what the renderer keeps in `localStorage`
+
+These are **per-installation UI state**, not settings: they never reach the settings blob, they are not
+exported by the settings transfer, and they are keyed to Electron's `userData` (so a dev run, the demo
+run and the installed app each have their own). Listed because they are easy to mistake for settings —
+and because a second window can corrupt them.
+
+| Key | Holds |
+|---|---|
+| `paneTree` | the panes-mode split layout: the tree, with sizes as fractions (#309) |
+| `gridViewActive`, `gridModePref` | is the grid mosaic on; the grid mode's remembered preference across a mode switch |
+| `gridLayout`, `gridStatusFilter` | per-session `{order, colSpan, rowSpan}`; the grid's status filter |
+| `persistedOpenSessions` | the set to reopen on the next launch — deliberately durable, so it survives a crash |
+| `filePanelWidth`, `filePanelDiffMode` | the side panel's width; side-by-side vs inline diff |
+| `projectCollapseState`, `projectOrder`, `projectSortMode`, `favoritesOwnList` | sidebar arrangement |
+| `expandedSlugs`, `expandedSubagents`, `orphanExpanded:<project>` | which sidebar groups are open |
+| `usageStatusLastValue` | the last usage reading, so the status bar is not empty on boot |
+
+**A detached session window (#2) shares this storage** — it is the same `index.html` on the same
+origin. It must therefore write **none** of the layout keys: it neither loads nor persists `paneTree`,
+it does not save `persistedOpenSessions` (its one session would replace the main window's whole set),
+and the grid is disabled there so `gridViewActive` cannot be flipped. Anything new that a window
+writes here needs the same consideration.
+
 ## Known default conflicts
 
 Found while writing this page — each was a decision about which value is right, not a typo, so they were

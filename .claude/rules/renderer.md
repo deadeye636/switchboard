@@ -112,6 +112,22 @@ reflexive Escape closes a `showControlDialog` — fine for a question, wrong for
 something the user cannot get back (a handoff packet an agent spent tokens writing). Pass
 `dismissible: false`, or ask before discarding.
 
+## Panes mode hosts the app's own view elements (#310)
+
+In `sessionDisplayMode: panes`, a tab whose kind is not `terminal` does not build a view — it **moves
+the app's single existing element** (`#file-panel`, `#jsonl-viewer`, `#plan-viewer`, `#stats-viewer`,
+`#memory-viewer`) into the pane and hands it back to the exact slot it came from on close. Three
+consequences that are easy to break:
+
+- **`views/panes-view.js` parks every hosted element at home before it rebuilds** `#terminals`.
+  Anything still inside the old pane DOM is destroyed by `replaceChildren` — and these are singletons,
+  so that would take the app's only preview panel with it.
+- **Closing the tab has to close the VIEW.** These four announce themselves by setting `display`, which
+  is also how panes-view adopts them; a tab-only close leaves an element that covers the whole main
+  area with no tab left to dismiss it.
+- **A second window shares this origin.** A detached window (#2) must not write the layout, the
+  open-sessions restore state, or `gridViewActive` — see `docs/specs/17-detached-windows.md` §4.
+
 ## `src/shared/`
 
 The four modules **both processes load** — `attention-source`, `custom-launchers`,

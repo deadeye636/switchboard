@@ -53,6 +53,34 @@ page (`window.api.openChangesWindow(cwd, label)`), then `eval` in the changes wi
 row and read back the diff pane, then click *Open in window* and `eval` in the diff window to assert the
 CodeMirror merge view rendered. Three pages, one port, no clicking.
 
+## A renderer reload does NOT reload `src/app/**`
+
+`location.reload()` (and `drive-app.js eval "location.reload()"`) re-parses the renderer only. Every
+main-process module — `src/main.js`, `src/app/**`, `src/watch/**`, `src/session/**` — is still the code
+that was on disk when Electron started. So a main-process fix "does not work" until the app is
+restarted, and the reading you take in between is about the old build.
+
+This cost real time in #2: the exit banner and the no-respawn fix both read as broken through two
+rounds of live checks that were, in fact, exercising the previous main process. Restart with
+`npm run stop:dev && node scripts/demo-start.js --debug` and take the reading again.
+
+## `--target` matches the title AND the URL — which is ambiguous here
+
+The needle is tested against `"<title> <url>"`, and every window of this app has `switchboard` in its
+path. With a detached session window open (#2), `--target=Switchboard` matches **both** windows and
+the first one in the CDP list wins — so an `eval` meant for the main window silently ran in the
+detached one, and every answer it gave was true, about the wrong window.
+
+Pick a needle that only one of them can match:
+
+```
+node scripts/drive-app.js "--target=Switchboard file" eval "…"   # the MAIN window (title + a URL word)
+node scripts/drive-app.js --target=detached= eval "…"            # the detached window (its query string)
+```
+
+When in doubt, ask the page who it is: `window.__detachedSessionId` is the session id in a detached
+window and `null` in the main one.
+
 ## A drag has to be a real drag
 
 `drag` exists because dispatching `DragEvent`s from `eval` proves nothing. A synthesised event carries

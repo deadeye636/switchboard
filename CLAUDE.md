@@ -43,7 +43,10 @@ table is the fallback and it is binding.
 1. **Commit only after the behaviour is confirmed**, not when tests pass. Green tests are not a green
    light — see `docs/ai/lessons.md` for the four that shipped green and broke on first click.
 2. **On any renderer change the click IS the test.** `node scripts/drive-app.js console` catches the
-   `ReferenceError` the suite cannot see.
+   `ReferenceError` the suite cannot see. Two ways to check the wrong thing: a **renderer reload does
+   not reload `src/app/**`** (restart the app, or you are reading the previous main process), and a
+   **synthesised event is not an interaction** (`drive-app.js drag` exists because dispatched
+   `DragEvent`s passed a drag that a real mouse could not perform).
 3. **Migrations are append-only.** `migrations.length` IS the schema version; renumbering corrupts
    user databases.
 4. **No new IPC handler in `src/main.js`** — it goes in an `src/app/` module.
@@ -87,8 +90,8 @@ absent from the installer.
 
 | Area | What lives there |
 |---|---|
-| `src/main.js` | composition root: requires, `DATA_DIR`, wiring for twelve modules, 76 legacy IPC handlers |
-| `src/app/**` | the areas main.js used to hold — lifecycle, windows, notifications, hooks, variables, settings, quit-guard, settings-transfer, plans-memory, vcs, `terminal/` |
+| `src/main.js` | composition root: requires, `DATA_DIR`, wiring for thirteen modules, 76 legacy IPC handlers |
+| `src/app/**` | the areas main.js used to hold — lifecycle, windows, notifications, hooks, variables, settings, quit-guard, settings-transfer, plans-memory, vcs, detach, `terminal/` |
 | `src/preload.js` | the **only** IPC surface — `window.api.*` |
 | `src/shared/**` | the four modules **both** processes load (`attention-source`, `custom-launchers`, `variable-insert`, `preview-kind`) |
 | `src/renderer/**` | vanilla JS, no framework; plain `<script>` tags, morphdom, `@xterm/xterm`, CodeMirror via esbuild |
