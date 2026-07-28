@@ -69,6 +69,7 @@ back on Save.
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
 | `sessionDisplayMode` | Display mode | `grid` \| `tabs` \| `panes` | `grid` | global |
+| `paneToolsPlacement` | Session tools (panes mode) | `bar` \| `strip` | `bar` | global |
 | `settingsOpenMode` | Open settings as | `overlay` \| `window` | `overlay` | global |
 | `sidebarCollapseDefault` | Sidebar on startup | `expanded` \| `collapsed` \| `remember` | `remember` | global |
 | `tabPosition` | Tab position | `top` \| `bottom` | `top` | global |

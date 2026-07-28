@@ -8012,6 +8012,43 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
    not a live view, so it reads as dimmed until it is clicked open. */
 .session-tab.session-tab-dormant { opacity: 0.55; }
 
+/* The session's own bar under the tab strip (paneToolsPlacement: bar) — the same
+   content the single #terminal-header carries in the other modes. */
+.pane-actionbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  background: #18181f;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  min-height: 30px;
+}
+.pane-actionbar-info { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
+.pane-actionbar-name {
+  font-size: 12px; color: #b0b0c4; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pane-actionbar-pty {
+  font-size: 11px; color: #9090a8; padding-left: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pane-actionbar-id {
+  font-size: 10px; color: #6a6a80; font-family: ui-monospace, Consolas, monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1;
+}
+/* Same colours and dot as #terminal-header-status, which this replaces per pane. */
+.pane-status { font-size: 11px; font-weight: 500; display: flex; align-items: center; gap: 5px; }
+.pane-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.pane-status.running { color: #3ecf5a; }
+.pane-status.running::before { background: #3ecf5a; box-shadow: 0 0 6px rgba(62, 207, 90, 0.5); }
+.pane-status.stopped { color: #7a7a90; }
+.pane-status.stopped::before { background: #6a6a80; }
+/* A narrow pane drops the bar's tools the same way it drops the strip's. */
+.pane.pane-narrow .pane-actionbar-id { display: none; }
+
 .pane-tools { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .pane-tool-btn { display: flex; align-items: center; }
 .pane-tool-btn svg { display: block; }

@@ -49,7 +49,7 @@
     const {
       DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
       collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
-      confirmQuitValue, conptyBackendValue, displayModeValue,
+      confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
       externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
@@ -427,6 +427,19 @@
                       <option value="grid" ${displayModeValue !== 'tabs' && displayModeValue !== 'panes' ? 'selected' : ''}>Grid</option>
                       <option value="tabs" ${displayModeValue === 'tabs' ? 'selected' : ''}>Tabs</option>
                       <option value="panes" ${displayModeValue === 'panes' ? 'selected' : ''}>Panes</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Session tools (panes mode)</span>
+                    <div class="settings-description">A row of their own under the tabs, or folded into the tab strip.</div>
+                    <div class="settings-more"><b>Own bar</b>: session name, id, the tools, the running state and the IDE chip on a line below the tabs — like the session header in the other modes. <b>In the tab strip</b>: the same tools next to the tabs, saving a row per pane; the running state stays on the tab's dot. Either way they act on the pane's active session.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-pane-tools">
+                      <option value="bar" ${paneToolsPlacementValue !== 'strip' ? 'selected' : ''}>Own bar</option>
+                      <option value="strip" ${paneToolsPlacementValue === 'strip' ? 'selected' : ''}>In the tab strip</option>
                     </select>
                   </div>
                 </div>

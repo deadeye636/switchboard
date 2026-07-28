@@ -213,6 +213,8 @@
       : (fieldValue('terminalWebgl', true) === false ? 'off' : 'auto');
     const terminalCloseValue = fieldValue('terminalCloseBehavior', 'kill');
     const displayModeValue = fieldValue('sessionDisplayMode', 'grid');
+    // #310 where a pane's session tools sit: their own bar, or inside the tab strip.
+    const paneToolsPlacementValue = fieldValue('paneToolsPlacement', 'bar');
     const settingsOpenModeValue = fieldValue('settingsOpenMode', 'overlay');
     const collapseDefaultValue = fieldValue('sidebarCollapseDefault', 'remember');
     // #277 VCS chip (global): master switch, poll interval, untracked counting.
@@ -421,7 +423,7 @@
       settingsViewerBody.innerHTML = window.settingsGlobalHtml({
         DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
         collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
-        confirmQuitValue, conptyBackendValue, displayModeValue,
+        confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
         externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
@@ -741,6 +743,7 @@
         { const n = parseInt(settingsViewerBody.querySelector('#sv-vcs-poll')?.value, 10); settings.vcsPollSeconds = Number.isFinite(n) && n > 0 ? n : 20; }
         settings.vcsCountUntracked = !!settingsViewerBody.querySelector('#sv-vcs-count-untracked')?.checked;
         settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'grid';
+        settings.paneToolsPlacement = settingsViewerBody.querySelector('#sv-pane-tools')?.value || 'bar';
         settings.projectSortMode = settingsViewerBody.querySelector('#sv-project-sort')?.value || 'activity';
         settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
         // The subagent controls are absent when the capability gate hid the section (#230/#231). set-setting

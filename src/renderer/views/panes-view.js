@@ -42,6 +42,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   let enabled = false;
   let tree = null;               // PaneTree node, null while the mode is off
   let activeLeafId = null;
+  // Where the session tools sit (#310): 'bar' gives them a row of their own under
+  // the tab strip, with the session's name and id beside them; 'strip' folds them
+  // into the tab strip to save the 33 px. Both show the same actions.
+  let toolsPlacement = 'bar';
   let closeBehavior = 'closeView';     // closeView | stopSession (agent sessions)
   let terminalCloseBehavior = 'kill';  // kill | keep (plain terminals)
   let middleClickCloses = true;
@@ -213,6 +217,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     pane.dataset.paneId = leaf.id;
 
     pane.appendChild(buildStrip(leaf));
+    if (toolsPlacement === 'bar') {
+      const bar = buildActionBar(leaf);
+      if (bar) pane.appendChild(bar);
+    }
 
     const body = document.createElement('div');
     body.className = 'pane-body';
@@ -267,11 +275,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     }, { passive: false });
     strip.appendChild(list);
 
-    strip.appendChild(buildTools(leaf));
-
-    const sep = document.createElement('span');
-    sep.className = 'pane-strip-sep';
-    strip.appendChild(sep);
+    if (toolsPlacement === 'strip') {
+      strip.appendChild(buildTools(leaf));
+      const sep = document.createElement('span');
+      sep.className = 'pane-strip-sep';
+      strip.appendChild(sep);
+    }
 
     const more = document.createElement('button');
     more.className = 'session-tabs-ctrl pane-more-btn';
@@ -504,7 +513,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // The session tools of the pane's ACTIVE tab (#309 O13/H2). Same actions as the
   // singleton header they replace here, wired to this pane's session rather than
   // to `activeSessionId` — that is the whole point of moving them in.
-  function buildTools(leaf) {
+  function buildTools(leaf, { withStatus = false } = {}) {
     const tools = document.createElement('div');
     tools.className = 'pane-tools';
     const tab = leaf.tabs.find((t) => t.id === leaf.activeTabId);
@@ -546,13 +555,24 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       });
     tools.appendChild(varsBtn);
 
+    // In the bar the running state is spelled out, as the session header always
+    // did. In the strip it is not: the tab's dot already carries it, and the words
+    // would cost the space the tabs need.
+    if (withStatus) {
+      const running = activePtyIds.has(sessionId);
+      const status = document.createElement('span');
+      status.className = 'pane-status ' + (running ? 'running' : 'stopped');
+      status.textContent = running ? 'Running' : 'Stopped';
+      tools.appendChild(status);
+    }
+
     // The IDE-emulation chip belongs to the preview module, which owns the state
     // (file-panel.js). It exposes the flag rather than the element, because in
     // this mode there is one chip per pane instead of the single header one.
     if (typeof window.isMcpActiveForSession === 'function' && window.isMcpActiveForSession(sessionId)) {
       const chip = document.createElement('span');
       chip.className = 'mcp-toggle enabled pane-mcp-chip';
-      chip.textContent = 'IDE';
+      chip.textContent = withStatus ? 'IDE Emulation' : 'IDE';
       chip.title = 'IDE Emulation is active. Go to Global Settings to disable.';
       tools.appendChild(chip);
     }
@@ -564,6 +584,47 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         .classList.add('pane-tool-stop');
     }
     return tools;
+  }
+
+  // The session's own bar under the tab strip (#310, variant H1): what the single
+  // `#terminal-header` shows in the other modes, per pane and for the pane's
+  // active session. Nothing to show for a view tab — a preview has no process.
+  function buildActionBar(leaf) {
+    const tab = leaf.tabs.find((t) => t.id === leaf.activeTabId);
+    const sessionId = sessionOfTab(tab);
+    const entry = sessionId ? openSessions.get(sessionId) : null;
+    if (!sessionId) return null;
+    const session = sessionMap.get(sessionId) || (entry || {}).session || null;
+
+    const bar = document.createElement('div');
+    bar.className = 'pane-actionbar';
+
+    const info = document.createElement('div');
+    info.className = 'pane-actionbar-info';
+
+    const name = document.createElement('span');
+    name.className = 'pane-actionbar-name';
+    name.textContent = (typeof cleanDisplayName === 'function'
+      ? cleanDisplayName(session && (session.name || session.aiTitle || session.summary)) : '') || sessionId;
+    info.appendChild(name);
+
+    const ptyTitle = entry && entry.ptyTitle;
+    if (ptyTitle) {
+      const pty = document.createElement('span');
+      pty.className = 'pane-actionbar-pty';
+      pty.textContent = ptyTitle;
+      info.appendChild(pty);
+    }
+
+    const id = document.createElement('span');
+    id.className = 'pane-actionbar-id';
+    id.textContent = sessionId;
+    info.appendChild(id);
+
+    bar.appendChild(info);
+    bar.appendChild(buildTools(leaf, { withStatus: true }));
+    bar.addEventListener('mousedown', () => focusPane(leaf.id), true);
+    return bar;
   }
 
   // Fold the tools away in a pane too narrow to carry them (they stay reachable
@@ -1071,18 +1132,37 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     for (const pane of terminalsEl.querySelectorAll('.pane')) {
       const leaf = PaneTree.leaves(tree).find((l) => l.id === pane.dataset.paneId);
       const strip = pane.querySelector('.pane-strip');
-      if (leaf && strip) pane.replaceChild(buildStrip(leaf), strip);
+      if (!leaf || !strip) continue;
+      pane.replaceChild(buildStrip(leaf), strip);
+      const bar = pane.querySelector('.pane-actionbar');
+      if (toolsPlacement !== 'bar') {
+        if (bar) bar.remove();
+        continue;
+      }
+      const next = buildActionBar(leaf);
+      if (bar && next) pane.replaceChild(next, bar);
+      else if (bar) bar.remove();
+      else if (next) pane.insertBefore(next, pane.querySelector('.pane-body'));
     }
     updateToolsOverflow();
   }
 
   function applySettings(g) {
     g = g || {};
+    const prevPlacement = toolsPlacement;
+    toolsPlacement = g.paneToolsPlacement === 'strip' ? 'strip' : 'bar';
     closeBehavior = g.tabCloseBehavior === 'stopSession' ? 'stopSession' : 'closeView';
     terminalCloseBehavior = g.terminalCloseBehavior === 'keep' ? 'keep' : 'kill';
     middleClickCloses = g.tabMiddleClickCloses !== false;
-    if (g.sessionDisplayMode === 'panes') enable();
-    else disable();
+    if (g.sessionDisplayMode === 'panes') {
+      const wasEnabled = enabled;
+      enable();
+      // Moving the tools between the bar and the strip changes the pane's shape,
+      // so an already-running mode has to rebuild (enable() no-ops when it is).
+      if (wasEnabled && prevPlacement !== toolsPlacement) render();
+    } else {
+      disable();
+    }
   }
 
   // Focus the n-th pane in render order (1-based) — the Ctrl/Cmd+Shift+1..9 chord.
