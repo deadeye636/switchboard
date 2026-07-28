@@ -106,6 +106,13 @@ if (typeof module !== 'undefined' && module.exports) {
     // sidebar, reopenable; 'stopSession' (handled by the caller) ends the process.
     if (typeof destroySession === 'function') destroySession(sessionId);
     tabOrder = tabOrder.filter(id => id !== sessionId);
+    // Panes mode: destroySession already took the tab out of the tree (and the
+    // pane with it, if that was its last one). All that is left is to show what
+    // the active pane holds now. The tab-strip bookkeeping below is not its.
+    if (displayMode === 'panes') {
+      if (window.panesView) window.panesView.showActiveOrPlaceholder();
+      return;
+    }
     if (wasActive) {
       const remaining = buildTabModel(collectSessions(), null, tabOrder);
       if (remaining.length > 0) {
@@ -133,7 +140,9 @@ if (typeof module !== 'undefined' && module.exports) {
   // only when the mode/exit-code combination opts in. The timer no-ops if the
   // session was relaunched (a fresh, non-closed entry exists) or already torn down.
   function scheduleTabAutoClose(sessionId, exitCode) {
-    if (displayMode !== 'tabs') return;
+    // Panes mode has tabs too (#309/#310) — an exited session should not leave a
+    // dead tab sitting in a pane any more than it should in the strip.
+    if (displayMode !== 'tabs' && displayMode !== 'panes') return;
     if (!shouldAutoClose(autoCloseMode, exitCode)) return;
     cancelTabAutoClose(sessionId);
     const t = setTimeout(() => {

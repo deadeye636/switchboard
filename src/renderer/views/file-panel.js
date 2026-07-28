@@ -372,6 +372,16 @@ function closeDiffByDiffId(sessionId, diffId) {
 function showPanel(state) {
   if (!filePanelEl) return;
   filePanelEl.classList.add('open');
+  // Panes mode (#310): the panel is not a fixed strip beside the terminal area,
+  // it is a tab in the pane that produced it. The element is the same one — it
+  // moves into that pane — so everything below (state, rendering, diff actions)
+  // is unchanged. Width and the split handle belong to the side-panel layout.
+  if (window.panesView && window.panesView.active()) {
+    filePanelEl.style.width = '';
+    filePanelResizeHandle.style.display = 'none';
+    window.panesView.openViewTab('preview', { ref: currentPanelSessionId, nearSessionId: currentPanelSessionId });
+    return;
+  }
   filePanelEl.style.width = (state.panelWidth || DEFAULT_PANEL_WIDTH) + 'px';
   filePanelResizeHandle.style.display = 'block';
   refitActiveTerminal();
@@ -380,10 +390,31 @@ function showPanel(state) {
 function hidePanel() {
   if (!filePanelEl) return;
   filePanelEl.classList.remove('open');
+  if (window.panesView && window.panesView.active()) {
+    if (window.panesView.hasViewTab('preview')) window.panesView.closeViewTab('preview');
+    return;
+  }
   filePanelEl.style.width = '0';
   filePanelResizeHandle.style.display = 'none';
   refitActiveTerminal();
 }
+
+// Closing the panel's pane tab (#310) has to close the PANEL, not just take the
+// tab out of the layout: its state decides whether the panel comes back, so a
+// tab-only close is undone by the next session switch.
+window.closeFilePanel = () => handleClose();
+
+// Re-apply the side-panel geometry after panes mode handed the element back —
+// showPanel skipped width and the resize handle while it was a pane tab.
+window.filePanelRelayout = () => { if (currentPanelSessionId) switchPanel(currentPanelSessionId); };
+
+// What the pane tab for this panel is called: the file or diff it currently
+// shows, so the tab reads like an editor tab rather than like a container.
+window.filePanelTabLabel = (sessionId) => {
+  const state = filePanelState.get(sessionId || currentPanelSessionId);
+  const tab = state && state.currentTab;
+  return tab ? tab.label : null;
+};
 
 function switchPanel(sessionId) {
   currentPanelSessionId = sessionId;

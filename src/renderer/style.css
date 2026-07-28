@@ -8023,6 +8023,26 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
 }
 .pane-more-btn { flex-shrink: 0; }
 
+/* A view hosted inside a pane (#310): the same element the other modes show
+   full-area or as a side panel, here filling its pane. `min-width` and the width
+   the side-panel layout sets have to go, or the pane cannot shrink below them. */
+/* !important throughout on purpose: every one of these elements is styled through
+   its own ID selector (#file-panel, #jsonl-viewer, …), which outranks any class
+   rule — a plain `position: absolute` here would silently lose and the view would
+   sit in the flow at content height, with the terminal showing underneath it. */
+.pane-body > .pane-hosted {
+  position: absolute !important;
+  inset: 0 !important;
+  display: flex !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  z-index: 2;
+}
+/* Its tab is in this pane but not the one on top. */
+.pane-body > .pane-hosted-hidden { display: none !important; }
+
 .pane-empty {
   position: absolute;
   inset: 0;

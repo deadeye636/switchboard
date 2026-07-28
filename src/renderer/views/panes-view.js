@@ -54,6 +54,34 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   const sessionOfTab = (tab) => (tab && tab.kind === 'terminal' ? tab.ref : null);
   const makeTerminalTab = (sessionId) => ({ id: tabIdFor(sessionId), kind: 'terminal', ref: sessionId });
 
+  // --- View tabs (#310) ------------------------------------------------------
+  // Everything that is not a terminal. Each of these kinds is a SINGLE element
+  // the app already owns and shows full-area in the other modes; here the tab
+  // hosts that element inside its pane instead. One element means one tab per
+  // kind in the whole tree — the tab moves to the pane you opened it from rather
+  // than being duplicated, which is what the underlying view can actually do.
+  const VIEW_KINDS = {
+    preview: { hostId: 'file-panel', title: 'Preview' },
+    jsonl: { hostId: 'jsonl-viewer', title: 'Messages' },
+    plan: { hostId: 'plan-viewer', title: 'Plan' },
+    stats: { hostId: 'stats-viewer', title: 'Activity' },
+    memory: { hostId: 'memory-viewer', title: 'Memory' },
+  };
+  const viewTabId = (kind) => 'view:' + kind;
+  const isViewTab = (tab) => !!(tab && VIEW_KINDS[tab.kind]);
+  const hostElementFor = (kind) => document.getElementById(VIEW_KINDS[kind].hostId);
+
+  // Where each view element came from, remembered the first time it is adopted.
+  // Guessing a home is not good enough: #file-panel lives inside #terminal-split
+  // (file-panel.js builds that container at startup), and putting it back one
+  // level up leaves the side-panel layout with nothing to size.
+  const viewHomes = new Map(); // kind → { parent, next }
+
+  function rememberHome(kind, host) {
+    if (viewHomes.has(kind) || !host.parentElement) return;
+    viewHomes.set(kind, { parent: host.parentElement, next: host.nextElementSibling });
+  }
+
   // Leaf ids are `pane-N`, N one past the highest in the tree — deterministic, so
   // nothing here needs a random source and the tests can predict every id.
   function nextLeafId() {
@@ -94,8 +122,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // At startup the mode is applied before the launch restore has mounted a
     // single terminal, so pruning by `openSessions` threw the whole saved layout
     // away and every restored session then piled into one pane (#309).
-    if (typeof sessionMap === 'undefined' || sessionMap.size === 0) return loaded;
-    return PaneTree.pruneTabs(loaded, (tab) => {
+    // A view tab is never restored: its element is empty until something opens a
+    // file, a plan or a transcript into it, and a tab onto an empty view is
+    // furniture. Terminals do come back — the session is still there.
+    const withoutViews = PaneTree.pruneTabs(loaded, (tab) => !isViewTab(tab));
+    if (typeof sessionMap === 'undefined' || sessionMap.size === 0) return withoutViews;
+    return PaneTree.pruneTabs(withoutViews, (tab) => {
       const sid = sessionOfTab(tab);
       return !!sid && (sessionMap.has(sid) || openSessions.has(sid));
     });
@@ -131,6 +163,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   function render() {
     if (!enabled || !tree) return;
     adoptOrphans();
+    // Park every view element at home first. The rebuild below re-adopts the ones
+    // that still have a tab; anything left inside the old pane DOM would be
+    // destroyed with it by replaceChildren — and these are singletons, so that
+    // would take the app's only preview panel with it.
+    releaseAllViewElements();
     const root = buildNode(tree, []);
     // The containers were moved into the fresh panes above, so what is left in
     // #terminals is the previous (now empty) pane scaffolding.
@@ -174,6 +211,19 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const body = document.createElement('div');
     body.className = 'pane-body';
     for (const tab of leaf.tabs) {
+      if (isViewTab(tab)) {
+        // The element follows its TAB, active or not — parked out of sight when
+        // the pane shows something else. Leaving it behind on a switch would hand
+        // it to the next replaceChildren.
+        const host = hostElementFor(tab.kind);
+        if (host) {
+          rememberHome(tab.kind, host);
+          host.classList.add('pane-hosted');
+          host.classList.toggle('pane-hosted-hidden', tab.id !== leaf.activeTabId);
+          body.appendChild(host);
+        }
+        continue;
+      }
       const entry = openSessions.get(sessionOfTab(tab));
       if (entry) body.appendChild(entry.element); // moves the live container, xterm and all
     }
@@ -181,7 +231,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // outlives the sessions in it, and the restore may not have reopened this
     // one. The tab stays, and clicking it opens the session into this pane.
     const activeTab = leaf.tabs.find((t) => t.id === leaf.activeTabId);
-    const activeMounted = activeTab && openSessions.has(sessionOfTab(activeTab));
+    const activeMounted = activeTab && (isViewTab(activeTab) || openSessions.has(sessionOfTab(activeTab)));
     if (!leaf.tabs.length || !activeMounted) {
       const empty = document.createElement('div');
       empty.className = 'pane-empty';
@@ -231,6 +281,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   }
 
   function buildTab(leaf, tab, runtime) {
+    if (isViewTab(tab)) return buildViewTab(leaf, tab);
     const sessionId = sessionOfTab(tab);
     const session = sessionMap.get(sessionId) || (openSessions.get(sessionId) || {}).session || null;
     const name = (typeof cleanDisplayName === 'function'
@@ -287,6 +338,114 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     });
     wireTabDrag(el, leaf.id, tab.id);
     return el;
+  }
+
+  // A tab for one of the app's views (#310). No status dot — a view has no
+  // process — and closing it hands the element back rather than tearing anything
+  // down, so reopening the same file lands in the same place.
+  function buildViewTab(leaf, tab) {
+    const el = document.createElement('div');
+    el.className = 'session-tab session-tab-view' + (tab.id === leaf.activeTabId ? ' active' : '');
+    el.dataset.tabId = tab.id;
+    el.dataset.paneId = leaf.id;
+    el.draggable = true;
+
+    const label = document.createElement('span');
+    label.className = 'session-tab-label';
+    label.textContent = viewTabLabel(tab);
+    el.title = label.textContent;
+    el.appendChild(label);
+
+    const close = document.createElement('button');
+    close.className = 'session-tab-close';
+    close.type = 'button';
+    close.title = 'Close tab';
+    close.textContent = '×';
+    close.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Tell the VIEW to close, not just the layout: it owns the state that
+      // decides whether it reappears, and a tab-only close would be undone by the
+      // next session switch. Its own close path comes back through closeViewTab.
+      if (tab.kind === 'preview' && typeof window.closeFilePanel === 'function') window.closeFilePanel();
+      else closeViewTab(tab.kind);
+    });
+    el.appendChild(close);
+
+    el.addEventListener('click', () => {
+      activeLeafId = leaf.id;
+      tree = PaneTree.setActiveTab(tree, leaf.id, tab.id);
+      render();
+      persist();
+    });
+    wireTabDrag(el, leaf.id, tab.id);
+    return el;
+  }
+
+  // What a view tab is called. The view itself knows best (the file it shows, the
+  // session whose transcript it is); the kind's own title is the fallback.
+  function viewTabLabel(tab) {
+    const spec = VIEW_KINDS[tab.kind];
+    if (tab.kind === 'preview' && typeof window.filePanelTabLabel === 'function') {
+      return window.filePanelTabLabel(tab.ref) || spec.title;
+    }
+    return spec.title;
+  }
+
+  // Open (or re-target) the tab for a view. One tab per kind: the element is a
+  // singleton, so the tab moves to the pane you opened it from instead of being
+  // cloned into a second one. `nearSessionId` names the session it belongs to, so
+  // the view lands beside the terminal that produced it.
+  function openViewTab(kind, { ref = null, nearSessionId = null } = {}) {
+    if (!enabled || !VIEW_KINDS[kind]) return false;
+    const tabId = viewTabId(kind);
+    const existing = PaneTree.leafOfTab(tree, tabId);
+    const target = (nearSessionId && PaneTree.leafOfTab(tree, tabIdFor(nearSessionId))) || activeLeaf();
+    if (!target) return false;
+
+    if (existing) {
+      if (existing.id !== target.id) {
+        tree = PaneTree.moveTab(tree, { fromLeafId: existing.id, toLeafId: target.id, tabId });
+      } else {
+        tree = PaneTree.setActiveTab(tree, target.id, tabId);
+      }
+    } else {
+      tree = PaneTree.addTab(tree, target.id, { id: tabId, kind, ref });
+    }
+    activeLeafId = target.id;
+    render();
+    persist();
+    return true;
+  }
+
+  function closeViewTab(kind) {
+    if (!enabled) return;
+    const tabId = viewTabId(kind);
+    const leaf = PaneTree.leafOfTab(tree, tabId);
+    if (!leaf) return;
+    releaseViewElement(kind);
+    tree = PaneTree.closeTab(tree, leaf.id, tabId);
+    activeLeaf();
+    render();
+    persist();
+    showActiveOrPlaceholder();
+  }
+
+  // Put a view element back where the HTML had it. Every other display mode looks
+  // for it there, so leaving it inside a pane would take the view with the pane.
+  function releaseViewElement(kind) {
+    const host = hostElementFor(kind);
+    const home = viewHomes.get(kind);
+    if (!host || !home || !home.parent) return;
+    host.classList.remove('pane-hosted', 'pane-hosted-hidden');
+    if (host.parentElement === home.parent) return;
+    // Back to the exact slot, not just the right parent: the side-panel layout is
+    // a flex row, so the resize handle has to stay between the terminals and it.
+    if (home.next && home.next.parentElement === home.parent) home.parent.insertBefore(host, home.next);
+    else home.parent.appendChild(host);
+  }
+
+  function releaseAllViewElements() {
+    for (const kind of Object.keys(VIEW_KINDS)) releaseViewElement(kind);
   }
 
   // The session tools of the pane's ACTIVE tab (#309 O13/H2). Same actions as the
@@ -752,6 +911,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     clearTimeout(persistTimer);
     try { localStorage.setItem(STORE_KEY, JSON.stringify(PaneTree.serialize(tree))); } catch { /* best effort */ }
     closePaneMenu();
+    // Off FIRST, before anything that can call back in. `filePanelRelayout` below
+    // re-shows the panel, and while this still read as active that took the panes
+    // branch, re-adopted the element into a pane — and the pane was then removed
+    // with the element inside it.
+    enabled = false;
+    releaseAllViewElements();
     // Hand every container back to #terminals before the panes go, or they would
     // be removed with their pane and the session would lose its terminal.
     for (const entry of openSessions.values()) {
@@ -762,9 +927,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     }
     terminalsEl.querySelectorAll('.pane-branch, .pane').forEach((el) => el.remove());
     document.body.classList.remove('display-mode-panes');
-    enabled = false;
     tree = null;
     activeLeafId = null;
+
+    // The side panel sizes itself from its own state; hosting it in a pane took
+    // its width and its resize handle away, and nothing else re-applies them.
+    if (typeof window.filePanelRelayout === 'function') window.filePanelRelayout();
 
     // Hand the single view back a visible terminal. Every mode decides what is on
     // screen through `.visible`, and this teardown cleared it on all of them — the
@@ -891,6 +1059,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     patchStatuses,
     refreshChrome,
     render: () => render(),
+    showActiveOrPlaceholder,
+    openViewTab,
+    closeViewTab,
+    hasViewTab: (kind) => !!(enabled && tree && PaneTree.leafOfTab(tree, viewTabId(kind))),
     splitActivePane,
     focusPaneByIndex,
     focusNeighbourPane,
