@@ -60,12 +60,18 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // hosts that element inside its pane instead. One element means one tab per
   // kind in the whole tree — the tab moves to the pane you opened it from rather
   // than being duplicated, which is what the underlying view can actually do.
+  // `display` is how the takeover viewers announce themselves: their show
+  // functions set it (and hide the terminal area, which the CSS neutralises in
+  // this mode), `hideAllViewers` clears it. Watching that one property adopts all
+  // of them without editing a show path in every viewer file. The file panel is
+  // the exception — it toggles a class and a width, so showPanel/hidePanel call in
+  // directly (`watched: false`).
   const VIEW_KINDS = {
-    preview: { hostId: 'file-panel', title: 'Preview' },
-    jsonl: { hostId: 'jsonl-viewer', title: 'Messages' },
-    plan: { hostId: 'plan-viewer', title: 'Plan' },
-    stats: { hostId: 'stats-viewer', title: 'Activity' },
-    memory: { hostId: 'memory-viewer', title: 'Memory' },
+    preview: { hostId: 'file-panel', title: 'Preview', watched: false },
+    jsonl: { hostId: 'jsonl-viewer', title: 'Messages', watched: true },
+    plan: { hostId: 'plan-viewer', title: 'Plan', watched: true },
+    stats: { hostId: 'stats-viewer', title: 'Activity', watched: true },
+    memory: { hostId: 'memory-viewer', title: 'Memory', watched: true },
   };
   const viewTabId = (kind) => 'view:' + kind;
   const isViewTab = (tab) => !!(tab && VIEW_KINDS[tab.kind]);
@@ -446,6 +452,53 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
   function releaseAllViewElements() {
     for (const kind of Object.keys(VIEW_KINDS)) releaseViewElement(kind);
+  }
+
+  // --- Adopting the takeover viewers ----------------------------------------
+  // One observer instead of a branch inside every viewer's show function: a
+  // viewer that becomes visible gets a tab in the pane its session belongs to,
+  // and one that hides again loses it. The viewers keep their own logic; all this
+  // changes is where the element is on screen.
+
+  let viewObserver = null;
+
+  function startViewWatch() {
+    if (viewObserver) return;
+    viewObserver = new MutationObserver((records) => {
+      if (!enabled) return;
+      for (const rec of records) {
+        const kind = watchedKindOf(rec.target);
+        if (!kind) continue;
+        const visible = rec.target.style.display !== 'none';
+        const hasTab = !!PaneTree.leafOfTab(tree, viewTabId(kind));
+        if (visible && !hasTab) {
+          openViewTab(kind, {
+            ref: activeSessionId || null,
+            nearSessionId: activeSessionId || null,
+          });
+        } else if (!visible && hasTab) {
+          closeViewTab(kind);
+        }
+      }
+    });
+    for (const [kind, spec] of Object.entries(VIEW_KINDS)) {
+      if (!spec.watched) continue;
+      const el = hostElementFor(kind);
+      if (el) viewObserver.observe(el, { attributes: true, attributeFilter: ['style'] });
+    }
+  }
+
+  function stopViewWatch() {
+    if (!viewObserver) return;
+    viewObserver.disconnect();
+    viewObserver = null;
+  }
+
+  function watchedKindOf(el) {
+    for (const [kind, spec] of Object.entries(VIEW_KINDS)) {
+      if (spec.watched && el && el.id === spec.hostId) return kind;
+    }
+    return null;
   }
 
   // The session tools of the pane's ACTIVE tab (#309 O13/H2). Same actions as the
@@ -902,6 +955,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // The tools moved into the strips (O13/H2) — the singleton header would only
     // repeat them, for one of the panes, above all of them.
     if (typeof terminalHeader !== 'undefined' && terminalHeader) terminalHeader.style.display = 'none';
+    startViewWatch();
     render();
     showActiveOrPlaceholder();
   }
@@ -916,6 +970,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // branch, re-adopted the element into a pane — and the pane was then removed
     // with the element inside it.
     enabled = false;
+    stopViewWatch();
     releaseAllViewElements();
     // Hand every container back to #terminals before the panes go, or they would
     // be removed with their pane and the session would lose its terminal.

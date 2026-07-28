@@ -7963,6 +7963,10 @@ body.display-mode-panes #terminals {
 /* Panes render their own "nothing here yet" hint per pane; the single global
    placeholder would sit on top of the tree. */
 body.display-mode-panes #placeholder { display: none !important; }
+/* A viewer "takes over" by hiding the terminal area (ten sites do it). In panes
+   mode it does not take over — it becomes a tab inside a pane — so the area
+   stays, and panes-view adopts the viewer element into the pane that opened it. */
+body.display-mode-panes #terminal-area { display: flex !important; }
 
 .pane-branch { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .pane-branch.pane-row { flex-direction: row; }
