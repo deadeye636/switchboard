@@ -12,6 +12,7 @@ node scripts/drive-app.js text "<selector>"           # innerText of the first m
 node scripts/drive-app.js count "<selector>"          # how many match
 node scripts/drive-app.js click "<selector>"          # click the first match
 node scripts/drive-app.js clicktext "<sel>" "<text>"  # click the first match containing <text>
+node scripts/drive-app.js drag "<from>" "<to>" [zone] # a REAL drag: center|left|right|top|bottom of <to>
 node scripts/drive-app.js console                     # renderer console — finds a ReferenceError in seconds
 node scripts/drive-app.js dims ["<sessionId>"]        # active terminal geometry: cols/rows, cell box, WebGL state
 node scripts/drive-app.js shot out.png                # screenshot the window
@@ -51,6 +52,25 @@ A worked example — the whole #287 verification was driven this way: open the c
 page (`window.api.openChangesWindow(cwd, label)`), then `eval` in the changes window itself to click a file
 row and read back the diff pane, then click *Open in window* and `eval` in the diff window to assert the
 CodeMirror merge view rendered. Three pages, one port, no clicking.
+
+## A drag has to be a real drag
+
+`drag` exists because dispatching `DragEvent`s from `eval` proves nothing. A synthesised event carries
+a `DataTransfer` only the script can see, never enters the drag controller, and reaches whichever
+listener the script picked — so it happily "passes" against handlers a real mouse never gets to. That
+is how #309 shipped a tab drag that answered every scripted check and did nothing under a mouse: the
+terminal container's own drop handler took the event first, which only a genuine drag reveals.
+
+`drag` presses, moves until Chromium starts a native drag, and replays the intercepted payload as
+dragEnter/dragOver/drop over the target — every listener sees exactly what the mouse would produce.
+The zone picks the point inside the target, which is what a split-on-drop UI keys off:
+
+```
+node scripts/drive-app.js drag ".pane .session-tab" ".pane[data-pane-id='pane-2'] .pane-body" right
+```
+
+It reports the payload's MIME types, so "the drop did nothing" and "the drop carried the wrong data"
+stay distinguishable.
 
 ## Opening several terminal tabs to verify (WebGL, shared atlas)
 
