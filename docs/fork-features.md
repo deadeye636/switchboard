@@ -487,6 +487,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   **external-terminal + file-explorer** launcher, a **configurable external editor** (open
   files via Ctrl/Cmd+click a file link, the right-click menu, or the file-panel button;
   OS-default fallback), and a batch of **Windows ConPTY** rendering fixes.
+- **Drop = paste** (#307): a drop on a terminal takes the same route as Ctrl+V — files insert their
+  escaped absolute paths, an image with no file behind it (a screenshot, an image dragged out of a
+  web page) is saved to a temp file so the CLI can read it as a path, and text inserts as text. A
+  drop never submits, and it focuses the session it landed on, so the next keystroke goes where the
+  path went. Those temp images are age- and size-pruned (#308).
 - **Terminal renderer robustness** — a VSCode-style **`gpuAcceleration` mode (Auto / On / Off)**:
   Auto tries WebGL and auto-falls back to the DOM renderer for all terminals once the GPU/driver
   drops or corrupts a WebGL context (ports VSCode's suggested-renderer fallback). Every open terminal

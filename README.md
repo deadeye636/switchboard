@@ -31,7 +31,8 @@ first-class setup.
 **Sessions as tabs.** The primary layout is tabbed: open sessions sit in a tab strip with a
 right-click menu (close, stop, relaunch), and the terminal is live — connect to a running session or
 start a new one without leaving the app. Seven terminal themes, configurable font and zoom,
-clipboard image paste, GPU rendering with automatic fallback.
+clipboard image paste, drag-and-drop that inserts files and images the same way, GPU rendering with
+automatic fallback.
 
 **It tells you when an agent needs you.** A prioritized attention inbox, OS notifications, a taskbar
 badge and a tray icon — even when the window is in the background. Detection runs off CLI hooks, so

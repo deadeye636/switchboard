@@ -7,6 +7,138 @@
 // Depends on: toggleGridView, isSessionNavKey, handleSessionNavKey, focusGridCard,
 // wrapInGridCard, showGridView (grid-view.js)
 // Depends on: shellEscape (utils.js)
+// Depends on: pasteIntoTerminal, fileUriToPath (terminal-context-menu.js)
+
+// --- One insert route for paste and drop (#307) ---
+// Paste and drop hand the terminal the same thing — a DataTransfer — so they read it the same way.
+// Before #307 the drop handler had its own thin version: on-disk paths only, sent raw, no trailing
+// space, and an image dragged out of a browser (which carries no file at all) was silently dropped.
+//
+// The order below is by specificity, not by convenience:
+//   1. a clipboard bitmap (paste only) — a screenshot has no file behind it, main snapshots it
+//   2. files with a real on-disk path — the common case for both paste and drop
+//   3. an image with no path — dropped/pasted bytes, or an image dragged out of a page (a URL only)
+//   4. plain text
+// A path insert carries a trailing space so the next word cannot stick to it. Nothing here ever
+// appends a CR: an insert never submits, the user does.
+const IMAGE_EXT_BY_MIME = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif',
+  'image/webp': 'webp', 'image/bmp': 'bmp',
+};
+
+function imageExtFor(file) {
+  const byMime = IMAGE_EXT_BY_MIME[String(file.type || '').toLowerCase()];
+  if (byMime) return byMime;
+  const m = /\.([a-z0-9]+)$/i.exec(file.name || '');
+  return m ? m[1].toLowerCase() : 'png';
+}
+
+// The URL of an IMAGE a page handed the drag — and only that. Dragging an image out of Chromium
+// fills text/html with the <img> markup and text/uri-list with its source; dragging a plain LINK
+// fills text/uri-list too, and that one must never be fetched, so a bare URL is only accepted when
+// it names an image. Everything else falls through to the text branch.
+const IMAGE_URL_RE = /\.(png|jpe?g|gif|webp|bmp)(?:[?#]|$)/i;
+function transferImageUri(dt) {
+  let html = '';
+  try { html = dt.getData('text/html') || ''; } catch { /* not offered */ }
+  const img = /<img[^>]+src\s*=\s*["']([^"']+)["']/i.exec(html);
+  if (img) return img[1].trim();
+  let uri = '';
+  try { uri = (dt.getData('text/uri-list') || '').split('\n').find(l => l && !l.startsWith('#')) || ''; } catch { /* not offered */ }
+  uri = uri.trim();
+  if (!uri) return '';
+  if (/^data:image\//i.test(uri)) return uri;
+  if (/^file:/i.test(uri)) return uri; // a local file dragged as a URI — a path insert, no fetch
+  return IMAGE_URL_RE.test(uri) ? uri : '';
+}
+
+// Mirrors MAX_IMAGE_BYTES in src/app/terminal/images.js. Main enforces the real limit; this one
+// exists so the renderer never materializes a huge blob (or decodes a huge base64 string on the UI
+// thread) just to have main refuse it.
+const MAX_TRANSFER_IMAGE_BYTES = 25 * 1024 * 1024;
+
+// The images this transfer carries bytes for, or can name a URL for. Returns the temp paths main
+// wrote — several when several imageless images were dropped at once — or [] when there is no image.
+async function saveTransferImages(dt, files) {
+  const blobs = files.filter(f => f.type && f.type.startsWith('image/'));
+  if (blobs.length) {
+    const saved = [];
+    for (const blob of blobs) {
+      if (blob.size > MAX_TRANSFER_IMAGE_BYTES) continue; // main would refuse it anyway
+      try {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        if (!bytes.length) continue;
+        const file = await window.api.saveImageBuffer(bytes, imageExtFor(blob));
+        if (file) saved.push(file);
+      } catch { /* unreadable blob — skip it */ }
+    }
+    if (saved.length) return saved;
+  }
+  const uri = transferImageUri(dt);
+  if (!uri) return [];
+  if (/^file:/i.test(uri)) {
+    const p = fileUriToPath(uri); // a local file dragged as a URI, not as a file
+    return p ? [p] : [];
+  }
+  if (/^data:image\//i.test(uri)) {
+    try {
+      const [head, b64] = uri.split(',');
+      // 4 base64 chars carry 3 bytes — measure before decoding, not after.
+      if (!b64 || (b64.length / 4) * 3 > MAX_TRANSFER_IMAGE_BYTES) return [];
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const mime = /^data:([^;,]+)/i.exec(head);
+      const file = await window.api.saveImageBuffer(bytes, IMAGE_EXT_BY_MIME[(mime ? mime[1] : '').toLowerCase()] || 'png');
+      return file ? [file] : [];
+    } catch { return []; }
+  }
+  if (/^https?:/i.test(uri)) {
+    try {
+      const file = await window.api.saveImageUrl(uri);
+      return file ? [file] : [];
+    } catch { return []; }
+  }
+  return [];
+}
+
+async function insertFromDataTransfer(dt, terminal, sessionId, { clipboardBitmap = false } = {}) {
+  if (!dt) return;
+  const send = (s) => { if (s) pasteIntoTerminal(terminal, sessionId, s); };
+  const sendPaths = (paths) => {
+    const escaped = paths.map(p => shellEscape(p)).filter(Boolean);
+    if (!escaped.length) return false;
+    send(escaped.join(' ') + ' ');
+    return true;
+  };
+
+  const files = Array.from(dt.files || []);
+  const items = Array.from(dt.items || []);
+  const hasImage = files.some(f => f.type && f.type.startsWith('image/'))
+    || items.some(it => it.kind === 'file' && it.type && it.type.startsWith('image/'));
+  let text = '';
+  try { text = dt.getData('text') || ''; } catch { /* a drop may expose no text */ }
+
+  // 1. A clipboard bitmap. A copied image FILE has no bitmap, so this returns null and its real
+  //    path is used below instead.
+  if (clipboardBitmap && hasImage) {
+    let snapshot = null;
+    try { snapshot = await window.api.saveClipboardImage(); } catch { /* no bitmap */ }
+    if (snapshot && sendPaths([snapshot])) return;
+  }
+
+  // 2. Real files (pdf/txt/exe/an image file/…) — insert their absolute paths.
+  if (sendPaths(files.map(f => window.api.getPathForFile(f)).filter(Boolean))) return;
+
+  // 3. Image(s) with no file behind them.
+  if (hasImage || transferImageUri(dt)) {
+    const saved = await saveTransferImages(dt, files);
+    if (saved.length && sendPaths(saved)) return;
+  }
+
+  // 4. Plain text — bracketed multiline handled by pasteIntoTerminal.
+  send(text);
+}
 
 // --- Terminal key bindings ---
 // Shift+Enter → kitty protocol (CSI 13;2u) so Claude Code treats it as newline, not submit.
@@ -147,38 +279,9 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
     e.stopPropagation();
     // Swallow the paste that the Insert-variable shortcut (Ctrl/Cmd+Shift+V) emits.
     if (suppressPasteOnce) { suppressPasteOnce = false; return; }
-    const cd = e.clipboardData;
-    if (!cd) return;
-    const text = cd.getData('text');
-    const files = cd.files;
-    const hasImageItem = Array.from(cd.items || [])
-      .some(it => it.kind === 'file' && it.type && it.type.startsWith('image/'));
-
-    const send = (s) => { if (s) pasteIntoTerminal(terminal, getSessionId(), s); };
-    const filePaths = () => (files && files.length)
-      ? Array.from(files).map(f => shellEscape(window.api.getPathForFile(f))).filter(Boolean).join(' ')
-      : '';
-
-    if (hasImageItem) {
-      // A screenshot/bitmap → snapshot to a temp PNG and insert its path (Claude
-      // Code shows it as [Image #N]). A copied image FILE has no bitmap, so the
-      // save returns null and we fall back to its real path below.
-      window.api.saveClipboardImage()
-        .then((imgPath) => {
-          if (imgPath) return send(shellEscape(imgPath) + ' ');
-          const p = filePaths();
-          send(p ? p + ' ' : text);
-        })
-        .catch(() => { const p = filePaths(); send(p ? p + ' ' : text); });
-      return;
-    }
-
-    // Copied files (pdf/txt/exe/…) → insert absolute path(s), like drag-and-drop.
-    const p = filePaths();
-    if (p) { send(p + ' '); return; }
-
-    // Plain text — bracketed multiline handled by pasteIntoTerminal.
-    send(text);
+    // clipboardBitmap: only a paste can ask main for a clipboard snapshot — a drop's image never
+    // travels through the system clipboard.
+    insertFromDataTransfer(e.clipboardData, terminal, getSessionId(), { clipboardBitmap: true });
   }, { capture: true });
 
   // Ctrl/Cmd + mouse wheel → terminal-only font zoom (VS Code / Windows Terminal
@@ -1139,7 +1242,7 @@ function createTerminalEntry(session, opts = {}) {
   });
   setupTerminalKeyBindings(terminal, container, () => entry.session.sessionId, { onFind: openSearchBar });
   setupTerminalContextMenu(container, terminal, () => entry.session.sessionId, () => hoveredLinkUri);
-  setupDragAndDrop(container, () => entry.session.sessionId);
+  setupDragAndDrop(container, terminal, () => entry.session.sessionId);
   terminal.onResize(({ cols, rows }) => {
     // #27: only the focused session gets the post-resize settle-repaint (the ConPTY
     // full-frame nudge that fixes the cursor after reflow). Background/grid cards
@@ -1470,7 +1573,18 @@ function showSession(sessionId) {
   if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
 }
 
-function setupDragAndDrop(container, getSessionId) {
+// A drop lands in the session it was dropped ON, so the caret has to follow it. Dropping on a grid
+// card or a background tab used to insert the path there while the keyboard stayed where it was —
+// the next keystroke went to a different session than the path did (#307).
+function focusSessionForInsert(sessionId, terminal) {
+  if (sessionId && sessionId !== activeSessionId) {
+    showSession(sessionId);
+    return;
+  }
+  try { terminal.focus(); } catch { /* disposed mid-drop */ }
+}
+
+function setupDragAndDrop(container, terminal, getSessionId) {
   let dragCounter = 0;
   container.addEventListener('dragenter', (e) => {
     e.preventDefault();
@@ -1492,10 +1606,10 @@ function setupDragAndDrop(container, getSessionId) {
     e.preventDefault();
     dragCounter = 0;
     container.classList.remove('drag-over');
-    const files = e.dataTransfer.files;
-    if (!files.length) return;
-    const paths = Array.from(files).map(f => shellEscape(window.api.getPathForFile(f)));
-    window.api.sendInput(getSessionId(), paths.join(' '));
+    const sessionId = getSessionId();
+    focusSessionForInsert(sessionId, terminal);
+    // Same route as paste — files, images without a path, text (#307). Never a CR: a drop inserts.
+    insertFromDataTransfer(e.dataTransfer, terminal, sessionId);
   });
 }
 

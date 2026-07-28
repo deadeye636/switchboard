@@ -163,6 +163,10 @@ contextBridge.exposeInMainWorld('api', {
   writeClipboard: (text) => ipcRenderer.invoke('clipboard-write-text', text),
   readClipboard: () => ipcRenderer.invoke('read-clipboard'),
   saveClipboardImage: () => ipcRenderer.invoke('save-clipboard-image'),
+  // An image that has no on-disk path: bytes the renderer already holds (a dropped or pasted
+  // bitmap, a decoded data: URL), or the URL of an image dragged out of a web page (#307).
+  saveImageBuffer: (bytes, ext) => ipcRenderer.invoke('save-image-buffer', bytes, ext),
+  saveImageUrl: (url) => ipcRenderer.invoke('save-image-url', url),
 
   // Send (fire-and-forget)
   sendInput: (id, data) => ipcRenderer.send('terminal-input', id, data),

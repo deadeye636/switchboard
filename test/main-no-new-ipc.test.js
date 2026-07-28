@@ -37,7 +37,7 @@ const GRANDFATHERED = [
   'project-tags-all', 'project-tags-get', 'project-tags-list-all', 'project-tags-set', 'read-clipboard',
   'read-file-dataurl', 'read-file-for-panel', 'read-session-jsonl',
   'read-subagent-jsonl', 'rebuild-cache', 'refresh-stats', 'rename-session',
-  'run-custom-launcher', 'save-clipboard-image', 'save-file-for-panel', 'save-handoff',
+  'run-custom-launcher', 'save-file-for-panel', 'save-handoff',
   'search', 'session-backends-get-all', 'session-tags-all', 'session-tags-get',
   'session-tags-set', 'set-log-level', 'start-subagent-watch', 'stop-session', 'stop-subagent-watch',
   'tag-def-color', 'tag-def-create', 'tag-def-delete', 'tag-def-flags', 'tag-def-rename', 'tag-defs-list',
@@ -46,6 +46,8 @@ const GRANDFATHERED = [
 ];
 // 'worktree-status' moved to src/app/vcs.js (#277 F5) — deleted from this list so it cannot be written
 // back into main.js and pass.
+// 'save-clipboard-image' moved to src/app/terminal/images.js (#307), which now owns every image the
+// terminal inserts as a path — the clipboard snapshot, dropped bytes, a remote image — and their pruning.
 // Shrank by 10 in #227: get-plans/read-plan/save-plan/get-memories/read-memory/save-memory/
 // get-work-files/read-work-file/delete-work-file moved to src/app/plans-memory.js, and the dead
 // get-stats handler was deleted. A name left here would let its handler be written back into main.js.
