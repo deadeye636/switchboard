@@ -5,7 +5,7 @@ views are one instance per kind, not one per pane — #311. Written *before* the
 different from specs 01–15: it is the **record of the layout options and why one was chosen**, and a
 later rework should read it before re-running the argument.
 
-**As built.** `views/pane-tree.js` (pure model, 39 tests) + `views/panes-view.js` (the DOM half) ship
+**As built.** `views/pane-tree.js` (pure model, 38 tests) + `views/panes-view.js` (the DOM half) ship
 the tree, the per-pane strip, the `…` pane menu (A), tab drag with the 10 % edge split, sashes,
 localStorage persistence and the two shortcuts (#309). The typed views followed (#310): preview and
 diff, plus message history, plan, activity and memory, are pane tabs.
