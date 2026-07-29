@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (25 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (23 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-29
 
@@ -34,7 +34,5 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#281](https://github.com/deadeye636/switchboard/issues/281) Explore: rendered Markdown editing in the internal editor (approach TBD) · _feature_
 - [#305](https://github.com/deadeye636/switchboard/issues/305) A terminal whose CLI lost its --settings argv is invisible to the live bindings · _bug_
 - [#311](https://github.com/deadeye636/switchboard/issues/311) Panes: preview and diff instantiable per pane · _feature_
-- [#319](https://github.com/deadeye636/switchboard/issues/319) Detach: a session without a process cannot be moved to its own window · _feature_
-- [#327](https://github.com/deadeye636/switchboard/issues/327) Detach: fold the menu-entry duplication into the shared helper · _chore_
 - [#329](https://github.com/deadeye636/switchboard/issues/329) agy: check whether it speaks the Gemini CLI IDE-companion protocol, and serve it if it does · _feature_
 - [#330](https://github.com/deadeye636/switchboard/issues/330) Codex: offer Switchboard's diff surface as an MCP server the CLI can call · _feature_
