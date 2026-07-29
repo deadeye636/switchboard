@@ -119,6 +119,7 @@ default with the main window. Three things had to be told not to write:
 
 | Case | Behaviour |
 |---|---|
+| Detached without a process (#319) | The window opens and **shows** the session — named, with a Launch button — instead of starting it. Mounting is what would start it (`openSession` → `openTerminal` spawns when it finds no live PTY), so the window simply does not mount, and Launch is the press that does. Panes mode draws this from the pane's own placeholder (#318); tabs mode has no `#placeholder` here (it says "select a session in the sidebar", and this window has none), so the same block is built for it. Launching starts the process in **this** window: main already has the session down as its, so the bytes route here |
 | Window closed by hand | **Every** session it still holds returns to the main window (#316) — each one unless its process has ended: taking it back always reopened it, which silently resumed a CLI the user had stopped |
 | Reattach / move action | Main deletes the map entry **before** destroying the window, so the `closed` handler stays silent and the notification fires once |
 | Last session moved out | The window closes: no sidebar, nothing to show, nothing to pick (#316) |

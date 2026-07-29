@@ -231,11 +231,17 @@ function registerIpc(ipc) {
       win.focus();
       return { ok: true, already: true };
     }
-    const session = ctx.activeSessions.get(sessionId);
-    if (!session) return { ok: false, error: 'session is not running' };
+    // A session with no process may go too (#319). The refusal used to live here because the new
+    // window mounts by calling openTerminal, and with nothing running that lands in the SPAWN branch
+    // — so detaching a dead session opened a window and silently started a CLI. What changed is the
+    // renderer: since #318 a session without a process is shown with a Launch button instead of being
+    // started by the act of opening it, and the detached window now does the same. The guard that
+    // mattered ("a detach never spawns") therefore moved to where it belongs — the window does not
+    // mount what has no process.
+    const running = !!ctx.activeSessions.get(sessionId);
     const win = createDetachWindow(sessionId, title);
     detachedWindows.set(sessionId, win);
-    ctx.log.info(`[detach] session moved to its own window: ${sessionId}`);
+    ctx.log.info(`[detach] session moved to its own window: ${sessionId}${running ? '' : ' (not running)'}`);
     // The main renderer releases its terminal for this session; the PTY keeps running, and the new
     // window attaches to it. Two renderers on one PTY would double every keystroke's echo.
     sendToMain('session-detached', sessionId);

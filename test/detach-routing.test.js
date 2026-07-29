@@ -117,11 +117,28 @@ test('the main window is told to release the session it just handed over', () =>
   assert.deepEqual(main.sent, [['session-detached', 's1']]);
 });
 
-test('a session with no live process cannot be detached', () => {
+// #319 reversed this. The refusal existed because the new window mounted by calling openTerminal,
+// which SPAWNS when it finds no live PTY — so a detach used to start a CLI on its own. The renderer
+// stopped doing that (#318/#319: a session without a process is shown with a Launch button), so the
+// window may open; what must not happen is a process appearing because of it.
+test('a session with no live process gets its window too, and nothing is started', () => {
+  const { ipc, created, activeSessions } = setup({ sessions: [] });
+  assert.deepEqual(ipc.call('detach-session', 's1', 'Dormant one'), { ok: true });
+  assert.equal(created.length, 1);
+  assert.equal(detach.windowForSession('s1'), created[0]);
+  assert.equal(activeSessions.size, 0, 'detaching is a view operation — it never spawns');
+});
+
+test('a move between existing windows still needs a process', () => {
+  // Unlike a detach, a handover is a release/adopt pair over a live PTY: there is nothing to hand.
+  const { ipc } = setup({ sessions: [] });
+  ipc.call('detach-session', 's1');
+  assert.match(ipc.call('move-session-to-window', 's1', 'main').error, /not running/);
+});
+
+test('a session with no id is still refused', () => {
   const { ipc, created } = setup({ sessions: [] });
-  const res = ipc.call('detach-session', 's1');
-  assert.equal(res.ok, false);
-  assert.match(res.error, /not running/);
+  assert.equal(ipc.call('detach-session', '').ok, false);
   assert.equal(created.length, 0);
 });
 

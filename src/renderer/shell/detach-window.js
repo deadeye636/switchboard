@@ -70,11 +70,66 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     mounting.add(id);
     try {
       await openSession(session, undefined, { show });
+      clearDormantState(); // something is running here now — whatever it was, the placeholder is stale
       // Re-check AFTER the await: the release can land while openSession is in flight.
       if (cancelledMounts.has(id) && openSessions.has(id) && typeof destroySession === 'function') {
         destroySession(id);
       }
     } finally { mounting.delete(id); }
+  }
+
+  /** Does this session have a process, asked of main — the authority, not the renderer's poll. */
+  async function isRunning(sessionId) {
+    try { return ((await window.api.getActiveSessions()) || []).includes(sessionId); }
+    catch { return typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId); }
+  }
+
+  /**
+   * What a detached window shows for a session that is not running (#319).
+   *
+   * Panes mode already has this: a pane whose tab has no mounted session draws the placeholder with
+   * the Launch button (#318), and `loadTree` gives this window that tab. Tabs mode never needed one —
+   * a detached window meant one session, mounted on boot — so the app's own `#placeholder` is hidden
+   * here by CSS and says "select a session in the sidebar", which this window does not have.
+   *
+   * Same wording and the same classes as the pane's, because it is the same statement: nothing is
+   * running, and starting it is a button the user presses, not a side effect of opening a window.
+   */
+  function showDormantState(session) {
+    if (window.panesView && window.panesView.active()) return; // the pane draws its own
+    const host = document.getElementById('terminals');
+    if (!host || document.getElementById('detached-dormant')) return;
+    const empty = document.createElement('div');
+    empty.id = 'detached-dormant';
+    empty.className = 'pane-empty';
+    // Name it. A pane's dormant tab carries the session name (`buildTab` reads sessionMap, not
+    // openSessions), but the tab strip in this mode only lists MOUNTED sessions — so without this the
+    // only thing identifying the window is its OS title bar, which is nothing to go on with several
+    // detached windows open.
+    const name = document.createElement('div');
+    name.className = 'pane-empty-title';
+    name.textContent = sessionLabel(session.sessionId);
+    empty.appendChild(name);
+    const text = document.createElement('div');
+    text.textContent = 'This session is not running. Launching it starts the CLI again; its history stays either way.';
+    empty.appendChild(text);
+    const launch = document.createElement('button');
+    launch.type = 'button';
+    launch.className = 'new-session-secondary-btn pane-empty-launch';
+    launch.textContent = 'Launch';
+    launch.addEventListener('click', async () => {
+      launch.disabled = true;
+      // Starts HERE: main already has this window down as the session's, so the PTY it spawns sends
+      // its bytes to this renderer rather than to the window the session was detached from.
+      await mountOnce(session, true);
+      refreshViews();
+    });
+    empty.appendChild(launch);
+    host.appendChild(empty);
+  }
+
+  function clearDormantState() {
+    document.getElementById('detached-dormant')?.remove();
   }
 
   async function waitForSessionRecord(sessionId, tries) {
@@ -93,9 +148,17 @@ if (detachedSessionId) document.body.classList.add('detached-window');
       return;
     }
     document.title = sessionLabel(detachedSessionId);
-    // The PTY is already running; this attaches to it and replays its buffer, exactly like clicking the
-    // session in the main window would.
-    await mountOnce(session, true);
+    // A session with no process is SHOWN, not started (#319). Mounting is what would start it:
+    // `openSession` calls openTerminal, which spawns when it finds no live PTY — so the act of
+    // opening the window would launch a CLI the user did not ask for. Ask main rather than the
+    // renderer's polled set, which in a window this young has not run once.
+    if (await isRunning(detachedSessionId)) {
+      // The PTY is already running; this attaches to it and replays its buffer, exactly like clicking
+      // the session in the main window would.
+      await mountOnce(session, true);
+    } else {
+      showDormantState(session);
+    }
     await adoptOwnedSessions();
     // Not just the title: a session mounted without a tab is a session the user cannot reach — this
     // window has no sidebar to pick one from. `refreshViews` is what builds the strip (and the pane
@@ -122,8 +185,14 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     let owned = [];
     try { owned = (await window.api.sessionsInMyWindow()) || []; }
     catch { return; /* older main process: the URL session is all there is */ }
+    if (!owned.length) return;
+    // Mounting a session with no process STARTS one (#319) — `openSession` falls through to the spawn
+    // branch. This loop must not do that on its own: what the user asked for was a window, and the
+    // Launch button is where a CLI begins.
+    let live = [];
+    try { live = (await window.api.getActiveSessions()) || []; } catch { return; }
     for (const id of owned) {
-      if (openSessions.has(id)) continue;
+      if (openSessions.has(id) || !live.includes(id)) continue;
       const session = await waitForSessionRecord(id, 20);
       // No record after a second: the session is gone from the list. Leave it — mounting a session we
       // cannot describe is worse than a window that shows one less.
@@ -271,9 +340,14 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     // A window of its own is only worth offering in the direction the user is not already in: from a
     // detached window the useful move is back (#314). Listing "main" twice — once by name here, once
     // as a move target below — reads as two different actions.
+    //
+    // The two directions are gated differently, and the difference is real: a window of its own can
+    // show a session that is not running (#319) — it identifies it and offers Launch, the way a pane
+    // does since #318. Moving between EXISTING windows still needs a process, because that handover
+    // is a release/adopt pair over a live PTY.
     const anchor = detached
       ? addItem('Return to main window', () => { window.reattachSession?.(sessionId); }, { disabled: !live })
-      : addItem('Move to new window', () => { window.detachSession?.(sessionId); }, { disabled: !live });
+      : addItem('Move to new window', () => { window.detachSession?.(sessionId); }, { disabled: !sessionId });
     if (!live || !anchor) return;
 
     const targets = (await window.listSessionWindows(sessionId))
@@ -342,20 +416,15 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     if (ids && ids.length) refreshViews();
   }).catch(() => { /* older main process — nothing detached */ });
 
-  // Move a session into a window of its own. Returns false when it has no live process: there is
-  // nothing to render over there, and the caller says so rather than opening an empty window.
+  // Move a session into a window of its own. A session without a process may go as well (#319) — the
+  // window identifies it and offers Launch rather than starting a CLI by opening.
   window.detachSession = async (sessionId) => {
     const session = sessionMap.get(sessionId);
     const title = (typeof cleanDisplayName === 'function'
       ? cleanDisplayName(session && (session.name || session.aiTitle || session.summary)) : '') || 'Session';
     const res = await window.api.detachSession(sessionId, title);
     if (!res || !res.ok) {
-      window.showControlToast?.({
-        message: (res && res.error === 'session is not running')
-          ? 'Only a running session can move to its own window'
-          : 'Could not detach this session',
-        timeoutMs: 3000,
-      });
+      window.showControlToast?.({ message: 'Could not detach this session', timeoutMs: 3000 });
       return false;
     }
     return true;
