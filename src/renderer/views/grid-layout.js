@@ -166,13 +166,20 @@
   // direction's axis; among those, the cross-axis distance is weighted 3× so the
   // same row (for left/right) or column (for up/down) wins ties. Returns the
   // winning index, or -1 when nothing lies that way.
+  // How much two ranges share. Zero or less means they do not touch.
+  function rangeOverlap(aStart, aEnd, bStart, bEnd) {
+    return Math.min(aEnd, bEnd) - Math.max(aStart, bStart);
+  }
+
   function pickGridNeighbor(rects, fromIndex, direction, deadzone = GRID_NAV_DEADZONE) {
     const cur = rects[fromIndex];
     if (!cur) return -1;
     const curCx = cur.left + cur.width / 2;
     const curCy = cur.top + cur.height / 2;
     const dz = Number.isFinite(deadzone) ? deadzone : GRID_NAV_DEADZONE;
+    const horizontal = direction === 'left' || direction === 'right';
     let best = -1;
+    let bestOverlaps = false;
     let bestDist = Infinity;
     for (let i = 0; i < rects.length; i++) {
       if (i === fromIndex) continue;
@@ -187,11 +194,22 @@
         case 'down':  valid = dy > dz; break;
       }
       if (!valid) continue;
+      // Does it actually lie ACROSS from us (#354)? Centres alone are not enough when the neighbours
+      // are different sizes: a pane much taller than yours can have a lower centre while sitting
+      // entirely beside you, so "down" moved sideways. A candidate whose extent overlaps ours on the
+      // cross axis is the one in that direction, whatever the centres say.
+      const overlaps = (horizontal
+        ? rangeOverlap(cur.top, cur.top + cur.height, r.top, r.top + r.height)
+        : rangeOverlap(cur.left, cur.left + cur.width, r.left, r.left + r.width)) > 0;
       // left/right prefer the same row (small dy); up/down prefer the same column.
-      const dist = (direction === 'left' || direction === 'right')
+      const dist = horizontal
         ? Math.abs(dy) * 3 + Math.abs(dx)
         : Math.abs(dx) * 3 + Math.abs(dy);
-      if (dist < bestDist) {
+      // Overlap first, distance second. A non-overlapping candidate still wins when nothing overlaps
+      // — the direction stays reachable rather than becoming a dead end.
+      const better = overlaps === bestOverlaps ? dist < bestDist : overlaps;
+      if (better) {
+        bestOverlaps = overlaps;
         bestDist = dist;
         best = i;
       }

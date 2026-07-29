@@ -163,6 +163,36 @@ test('pickGridNeighbor weights the cross axis so the same row/column wins ties',
   assert.equal(pickGridNeighbor(GRID_2X2, 0, 'down'), 2);
 });
 
+test('pickGridNeighbor prefers a neighbour that lies across from you (#354)', () => {
+  // The live panes case: a narrow column, and to its left a full-height pane whose centre is lower
+  // than ours. By centres alone that tall one is "down"; it is not — it is beside us.
+  const rects = [
+    { left: 344, top: 0, width: 30, height: 839 },   // 0 — tall, to the left
+    { left: 378, top: 0, width: 30, height: 418 },   // 1 — us
+    { left: 378, top: 422, width: 30, height: 418 }, // 2 — directly below us
+  ];
+  assert.equal(pickGridNeighbor(rects, 1, 'down'), 2);
+});
+
+test('pickGridNeighbor still answers when nothing overlaps (#354)', () => {
+  // Nothing below us shares our column; the only card that way is offset. It is still offered —
+  // preferring overlap must not turn a direction into a dead end.
+  const rects = [
+    { left: 0, top: 0, width: 100, height: 100 },    // 0 — us
+    { left: 400, top: 300, width: 100, height: 100 },// 1 — down and far to the side
+  ];
+  assert.equal(pickGridNeighbor(rects, 0, 'down'), 1);
+});
+
+test('pickGridNeighbor prefers overlap over a closer non-overlapping card (#354)', () => {
+  const rects = [
+    { left: 0, top: 0, width: 100, height: 100 },     // 0 — us
+    { left: 130, top: 110, width: 100, height: 100 }, // 1 — nearer, but no column overlap
+    { left: 0, top: 200, width: 100, height: 100 },   // 2 — further, straight below
+  ];
+  assert.equal(pickGridNeighbor(rects, 0, 'down'), 2);
+});
+
 test('pickGridNeighbor honours the dead zone on the primary axis', () => {
   // Two cards overlapping on x, one 5px lower — below the default 10px dead zone.
   const rects = [
