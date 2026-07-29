@@ -86,11 +86,11 @@ async function restoreOpenSessionsOnLaunch() {
   // them a second time, each fighting the main window for the same PTY.
   if (window.__suppressLaunchRestore) return false;
   // Read the live setting (the cached copy may not be populated yet at boot).
-  let tabsMode = false;
+  let gridAllowed = true;
   try {
     const global = await window.api.getSetting('global');
     if (global && global.restoreSessionsOnLaunch === false) return false;
-    tabsMode = global?.sessionDisplayMode === 'tabs';
+    gridAllowed = gridAllowedForMode(global?.sessionDisplayMode);
   } catch {}
 
   let state = null;
@@ -101,12 +101,13 @@ async function restoreOpenSessionsOnLaunch() {
   // it is refreshed on the next normal quit.
   if (!hasRestorableUpdateSessions(state)) return false;
 
-  // Don't restore the grid mosaic in tabs mode (single-view only) — a stale grid
-  // flag would otherwise leave gridViewActive=true in tabs and desync the
-  // tab→grid restore. Read the mode from settings, not the <body> class: the
-  // class is set by a separate async chain (_applySessionDisplaySettings) that can
-  // lose the race against this one, which would let the flag leak into tabs mode.
-  if (state.gridViewActive && !tabsMode) {
+  // Don't restore the grid mosaic outside grid mode (#343) — tabs is single-view,
+  // and panes hosts its tree in #terminals, so a stale flag would leave
+  // gridViewActive=true there and desync the restore. Read the mode from settings,
+  // not the <body> class: the class is set by a separate async chain
+  // (_applySessionDisplaySettings) that can lose the race against this one, which
+  // would let the flag leak into the mode it must not reach.
+  if (state.gridViewActive && gridAllowed) {
     localStorage.setItem('gridViewActive', '1');
     if (!gridViewActive) showGridView();
   }

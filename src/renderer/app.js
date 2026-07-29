@@ -1852,22 +1852,28 @@ loadProjects().then(async () => {
   window._refreshProjectTagFilter?.();
   // Apply the configured startup collapse default once the sidebar (incl. project
   // sections) is built. 'remember' is a no-op (persisted state already applied).
-  let tabsMode = false;
+  let gridAllowed = true;
   try {
     const g = await window.api.getSetting('global');
     // applyCollapseDefault is in shell/sidebar-collapse.js (loads after app.js, #228); guard so a boot that
-    // reaches here before that script parses degrades to a no-op rather than throwing and skipping tabsMode.
+    // reaches here before that script parses degrades to a no-op rather than throwing and skipping the mode.
     if (typeof applyCollapseDefault === 'function') applyCollapseDefault(g?.sidebarCollapseDefault || 'remember');
-    tabsMode = g?.sessionDisplayMode === 'tabs';
+    gridAllowed = gridAllowedForMode(g?.sessionDisplayMode);
   } catch { /* ignore */ }
 
   // Restore grid view preference before opening sessions so they enter grid mode.
-  // Tabs mode is single-view only: never open grid there, and heal a stale grid
-  // flag (a desync from a lost startup race) back to 0 so it can't fire next boot.
-  // Read the mode from settings, not the <body> class — the class is set by a
-  // separate async chain that can still be pending here.
-  if (tabsMode) {
+  // The mosaic belongs to grid mode alone (#343) — tabs is single-view, panes hosts
+  // its tree in #terminals. In both, heal a stale grid flag (a desync from a lost
+  // startup race, or a boot that predates the gate) back to 0 so it can't fire next
+  // boot either. Read the mode from settings, not the <body> class — the class is
+  // set by a separate async chain that can still be pending here.
+  if (!gridAllowed) {
     if (localStorage.getItem('gridViewActive') === '1') localStorage.setItem('gridViewActive', '0');
+    // The RUNTIME flag has to be healed too, not just the stored one. `gridViewActive` is read at
+    // parse time (line 89) and `showSession`'s grid branch trusts it directly, so leaving it true
+    // would keep a fifth door open all boot long — and the body class this could otherwise be read
+    // from is set by a separate async chain that has not necessarily run yet.
+    gridViewActive = false;
   } else if (localStorage.getItem('gridViewActive') === '1') {
     showGridView();
     // Auto-fill the grid with already-running sessions on launch. A fresh poll

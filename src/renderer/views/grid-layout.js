@@ -199,12 +199,39 @@
     return best;
   }
 
+  // --- Which display mode may run the mosaic (#343) ---
+  // Only `sessionDisplayMode: grid`. Tabs is single-view, and in panes `#terminals` is the pane
+  // tree's host — a mosaic switched on there pulls every terminal container out of its pane, drops
+  // `.visible` everywhere and leaves `grid-layout` and `display-mode-panes` live at once. That state
+  // is persisted, so it survives the restart, and the visible way out is hidden by CSS in panes mode.
+  // One predicate for every entry path: the tabs-only test it replaces was copied to four sites and
+  // missed the third mode in all of them.
+  const GRID_BLOCKED_MODES = ['tabs', 'panes'];
+
+  // From the stored setting. Anything that is not a blocked mode is grid — a missing value and the
+  // legacy 'legacy' spelling both mean grid mode.
+  function gridAllowedForMode(mode) {
+    return !GRID_BLOCKED_MODES.includes(mode);
+  }
+
+  // From the DOM, for the paths that run long after the mode settled (the toggle chord). The BOOT
+  // paths must not use this: the body class is set by a separate async chain that can still be
+  // pending there, which is why they read the setting instead.
+  function gridAllowedInDom(body) {
+    const cl = body && body.classList;
+    if (!cl) return true;
+    return !GRID_BLOCKED_MODES.some((m) => cl.contains('display-mode-' + m));
+  }
+
   return {
     MIN_GRID_CARD_WIDTH,
     GRID_GAP,
     GRID_NAV_DEADZONE,
     MAX_GRID_ROWS,
     MOVE_MODE_DIRECTIONS,
+    GRID_BLOCKED_MODES,
+    gridAllowedForMode,
+    gridAllowedInDom,
     calculateGridColumnCount,
     normalizeSpan,
     applyLayout,

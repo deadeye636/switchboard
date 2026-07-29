@@ -538,6 +538,12 @@ async function ensureGridActiveSessionsMounted() {
 }
 
 function showGridView() {
+  // The mosaic belongs to grid mode alone, and THIS is the funnel every entry path runs through —
+  // the toggle chord, the boot restore, the launch restore, `showSession`'s grid branch and the
+  // auto-mount rebuild (#343). Gating the chord alone left the other four open, and this function
+  // also WRITES `gridViewActive` and its localStorage flag: an ungated call is exactly what made the
+  // broken state survive the restart.
+  if (!gridAllowedInDom(document.body)) return;
   // Also reached WITHOUT user input — a rebuild after an auto-mounted session reflows every card
   // (#207). The palette anchors to one terminal's rectangle, so it would end up hanging over a
   // different session's card while still inserting into the one it captured.
@@ -783,8 +789,9 @@ function toggleGridView() {
       placeholder.style.display = '';
     }
   } else {
-    // Tabs mode is single-view only — never activate the grid mosaic there.
-    if (document.body.classList.contains('display-mode-tabs')) return;
+    // The mosaic belongs to grid mode alone (#343): tabs is single-view, and in panes `#terminals`
+    // hosts the pane tree, so a mosaic there would pull every container out of its pane.
+    if (!gridAllowedInDom(document.body)) return;
     terminalHeader.style.display = 'none';
     showGridView();
     // Surface every currently-running session as a card. Kick a fresh poll so
