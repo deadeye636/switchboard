@@ -80,7 +80,12 @@ function setupPanesDom(opts = {}) {
     clearActiveTerminalView: 0,
     filePanelRelayout: 0,
     closeFilePanel: 0,
+    dialogs: [],
+    toasts: [],
   };
+  // What the next confirm dialog answers. `true` is the ordinary "the user pressed the button";
+  // set it to false to exercise a cancel.
+  const answers = { confirm: true };
 
   const openSessions = new Map();
   const sessionMap = new Map();
@@ -140,6 +145,16 @@ function setupPanesDom(opts = {}) {
     showJsonlViewer: () => {},
     openTasksView: () => {},
     hideAllViewers: () => { calls.hideAllViewers++; },
+    // The two control-dialog helpers panes-view reaches for as bare globals (they are UMD exports
+    // spread onto `window` by dialogs/control-dialogs.js in the real renderer).
+    // `answers.whileOpen` runs before the dialog resolves — the window in which the world can move
+    // under a caller that captured state before awaiting.
+    showControlDialog: async (opts) => {
+      calls.dialogs.push(opts);
+      if (answers.whileOpen) await answers.whileOpen();
+      return answers.confirm;
+    },
+    showControlToast: (opts) => { calls.toasts.push(opts); },
   };
 
   for (const [k, v] of Object.entries(stubs)) {
@@ -182,6 +197,7 @@ function setupPanesDom(opts = {}) {
     document: window.document,
     pointer,
     calls,
+    answers,
     openSessions,
     sessionMap,
     activePtyIds,

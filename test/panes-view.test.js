@@ -91,6 +91,131 @@ test('a detached window persists nothing at all, on any path (#344)', async () =
   } finally { h.destroy(); }
 });
 
+// --- #347: closing a pane decides about processes the way closing a tab does --
+
+// A pane of its own holding `ids`, so `closePane` has something to close that is not the last pane.
+async function paneWith(h, ids, opts = {}) {
+  h.mount('keep-me');
+  h.enable(opts);
+  await h.settle();
+  h.panes.splitActivePane('right');
+  for (const id of ids) { h.mount(id, opts.mountAs || {}); h.panes.show(id); }
+  await h.settle();
+  const paneId = h.document.querySelector(`.session-tab[data-session-id="${ids[0]}"]`).closest('.pane').dataset.paneId;
+  return paneId;
+}
+
+test('closing a pane stops the terminals that closing their tabs would stop (#347)', async () => {
+  const h = setupPanesDom();
+  try {
+    // terminalCloseBehavior defaults to `kill`, so a plain terminal's × ends its shell.
+    const paneId = await paneWith(h, ['t1', 't2'], { mountAs: { type: 'terminal' } });
+    await h.panes.closePane(paneId);
+    await h.settle();
+    assert.deepEqual(h.calls.stopSession.sort(), ['t1', 't2'], 'both processes were stopped, not orphaned');
+    assert.deepEqual(h.calls.destroySession.sort(), ['t1', 't2']);
+  } finally { h.destroy(); }
+});
+
+test('closing a pane asks once, naming how many processes it stops (#347)', async () => {
+  const h = setupPanesDom();
+  try {
+    const paneId = await paneWith(h, ['t1', 't2'], { mountAs: { type: 'terminal' } });
+    await h.panes.closePane(paneId);
+    assert.equal(h.calls.dialogs.length, 1, 'one question for the whole pane, not one per session');
+    assert.match(h.calls.dialogs[0].message, /stops 2 running processes/);
+    assert.equal(h.calls.dialogs[0].tone, 'danger');
+  } finally { h.destroy(); }
+});
+
+test('cancelling the question leaves the pane and its sessions alone (#347)', async () => {
+  const h = setupPanesDom();
+  try {
+    const paneId = await paneWith(h, ['t1'], { mountAs: { type: 'terminal' } });
+    const panesBefore = h.document.querySelectorAll('.pane').length;
+    h.answers.confirm = false;
+    await h.panes.closePane(paneId);
+    await h.settle();
+    assert.deepEqual(h.calls.stopSession, []);
+    assert.deepEqual(h.calls.destroySession, []);
+    assert.equal(h.document.querySelectorAll('.pane').length, panesBefore, 'the pane is still there');
+    assert.equal(h.openSessions.has('t1'), true);
+  } finally { h.destroy(); }
+});
+
+test('with the keep setting, closing a pane says what stays running instead of asking (#347)', async () => {
+  const h = setupPanesDom();
+  try {
+    const paneId = await paneWith(h, ['t1'], { terminalCloseBehavior: 'keep', mountAs: { type: 'terminal' } });
+    await h.panes.closePane(paneId);
+    await h.settle();
+    assert.deepEqual(h.calls.dialogs, [], 'nothing is stopped, so nothing is asked');
+    assert.deepEqual(h.calls.stopSession, [], 'the process is kept, as configured');
+    assert.equal(h.calls.toasts.length, 1, 'but the user is told it is still out there');
+    assert.match(h.calls.toasts[0].message, /keeps running/);
+  } finally { h.destroy(); }
+});
+
+test('a pane with nothing running closes without a question (#347)', async () => {
+  const h = setupPanesDom();
+  try {
+    const paneId = await paneWith(h, ['t1'], { mountAs: { type: 'terminal', running: false } });
+    await h.panes.closePane(paneId);
+    await h.settle();
+    assert.deepEqual(h.calls.dialogs, [], 'no process to stop, so no click to spend');
+    assert.deepEqual(h.calls.toasts, []);
+    assert.deepEqual(h.calls.destroySession, ['t1'], 'the tab still goes');
+  } finally { h.destroy(); }
+});
+
+test('an agent session follows tabCloseBehavior, not the terminal one (#347)', async () => {
+  const h = setupPanesDom();
+  try {
+    // Default `closeView`: closing an agent tab leaves its process alone, so the pane close must too.
+    const paneId = await paneWith(h, ['a1']);
+    await h.panes.closePane(paneId);
+    await h.settle();
+    assert.deepEqual(h.calls.stopSession, []);
+    assert.equal(h.calls.toasts.length, 1);
+  } finally { h.destroy(); }
+});
+
+test('a session that ends while the question is open is not acted on twice (#347)', async () => {
+  const h = setupPanesDom();
+  try {
+    const paneId = await paneWith(h, ['t1', 't2'], { mountAs: { type: 'terminal' } });
+    // t2's process exits while the dialog is up, so its tab leaves the tree. The captured leaf is a
+    // snapshot of a tree that no longer exists — acting on it would stop an id nothing holds.
+    h.answers.whileOpen = () => { h.unmount('t2'); h.panes.dropSession('t2'); };
+    await h.panes.closePane(paneId);
+    await h.settle();
+    assert.deepEqual(h.calls.stopSession, ['t1'], 'only the session still in the pane');
+    assert.deepEqual(h.calls.destroySession, ['t1']);
+  } finally { h.destroy(); }
+});
+
+test('closing a pane twice in a row does not run the teardown twice (#347)', async () => {
+  const h = setupPanesDom();
+  try {
+    const paneId = await paneWith(h, ['t1'], { mountAs: { type: 'terminal' } });
+    await Promise.all([h.panes.closePane(paneId), h.panes.closePane(paneId)]);
+    await h.settle();
+    assert.deepEqual(h.calls.stopSession, ['t1'], 'the second run finds the pane gone');
+    assert.deepEqual(h.calls.destroySession, ['t1']);
+  } finally { h.destroy(); }
+});
+
+test('with stopSession set, an agent pane stops its processes too (#347)', async () => {
+  const h = setupPanesDom();
+  try {
+    const paneId = await paneWith(h, ['a1'], { tabCloseBehavior: 'stopSession' });
+    await h.panes.closePane(paneId);
+    await h.settle();
+    assert.deepEqual(h.calls.stopSession, ['a1']);
+    assert.match(h.calls.dialogs[0].message, /stops one running process/);
+  } finally { h.destroy(); }
+});
+
 // --- #345: a sash drag must never strand `pane-sashing` on <body> ------------
 
 // Two panes side by side with a sash between them, and the gesture started on that sash.

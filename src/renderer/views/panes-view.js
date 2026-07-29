@@ -942,14 +942,56 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     persist();
   }
 
-  function closePane(leafId) {
-    const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
+  // Does closing this session's tab end its process? A plain terminal follows
+  // `terminalCloseBehavior`, an agent session `tabCloseBehavior`. ONE reader for the decision,
+  // because closing a pane has to answer it exactly as closing each of its tabs would (#347) — it
+  // used to skip the question entirely and orphan every process in the pane, which is the opposite
+  // of what the × on those same tabs does.
+  function closeStopsProcess(sessionId) {
+    const entry = openSessions.get(sessionId);
+    if (!entry) return false;
+    const isTerminal = !!(entry.session && entry.session.type === 'terminal');
+    return isTerminal ? (terminalCloseBehavior === 'kill') : (closeBehavior === 'stopSession');
+  }
+
+  // Ask before a pane close ends processes — once, naming how many, not once per session. A pane
+  // with nothing running must not gain a click, so this is only reached when something would stop.
+  function confirmClosePane(stopping, keeping) {
+    if (typeof showControlDialog !== 'function') return Promise.resolve(true);
+    const what = stopping === 1 ? 'one running process' : `${stopping} running processes`;
+    return showControlDialog({
+      title: 'Close pane',
+      message: keeping
+        ? `Closing this pane stops ${what}. ${keeping === 1 ? 'One other session' : `${keeping} other sessions`} keep running.`
+        : `Closing this pane stops ${what}.`,
+      confirmLabel: 'Close pane',
+      cancelLabel: 'Cancel',
+      tone: 'danger',
+    });
+  }
+
+  async function closePane(leafId) {
+    let leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
     if (!leaf) return;
     if (PaneTree.leaves(tree).length === 1) return; // the last pane stays
-    // Closing a pane closes its views, not its sessions: every PTY keeps running
-    // and every session stays in the sidebar, reopenable. destroySession() calls
-    // back into dropSession(), which is what takes each tab out of the tree — so
-    // this loop must not remove them a second time.
+
+    // What this is about to do to the processes in the pane, decided before anything is torn down.
+    const live = leaf.tabs.map(sessionOfTab).filter((id) => id && openSessions.has(id) && sessionIsLive(id));
+    const stopping = live.filter(closeStopsProcess);
+    if (stopping.length && !(await confirmClosePane(stopping.length, live.length - stopping.length))) return;
+    // Re-resolve after the await. Every PaneTree operation returns a NEW tree, so `leaf` is a
+    // snapshot: a session that exited while the dialog was open took its tab out of the real tree
+    // and left it in this copy. Re-reading also settles a second click on the same pane — by then
+    // the pane is gone and there is nothing left to close.
+    leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
+    if (!leaf || PaneTree.leaves(tree).length === 1) return;
+    // …and the answer about the processes has to come from the tree that is actually being closed.
+    const keeping = leaf.tabs.map(sessionOfTab)
+      .filter((id) => id && openSessions.has(id) && sessionIsLive(id) && !closeStopsProcess(id));
+
+    // A session's own tab closing keeps its PTY or stops it depending on the settings; the pane
+    // close now says the same thing. destroySession() calls back into dropSession(), which is what
+    // takes each tab out of the tree — so this loop must not remove them a second time.
     for (const tab of leaf.tabs.slice()) {
       // A view tab in this pane loses its tab with the pane, so its view has to be
       // closed too — otherwise the element goes home still visible and covers the
@@ -960,7 +1002,18 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         continue;
       }
       const sessionId = sessionOfTab(tab);
-      if (sessionId && typeof destroySession === 'function') destroySession(sessionId);
+      if (!sessionId) continue;
+      if (closeStopsProcess(sessionId)) { try { window.api.stopSession(sessionId); } catch { /* already gone */ } }
+      if (typeof destroySession === 'function') destroySession(sessionId);
+    }
+    // Say what is still out there. Without this the sessions the settings deliberately keep alive
+    // leave no trace on screen at all — the pane that pointed at them is what just went away.
+    if (keeping.length && typeof showControlToast === 'function') {
+      showControlToast({
+        message: keeping.length === 1
+          ? 'Pane closed — its session keeps running.'
+          : `Pane closed — ${keeping.length} of its sessions keep running.`,
+      });
     }
     // An empty pane is left behind when it had no tabs to begin with, or when the
     // last dropSession collapsed nothing because the pane was already the target.
@@ -982,10 +1035,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // Close one session's tab. Mirrors tabs mode: the view goes, the PTY survives —
   // unless the close behaviour says otherwise for this kind of session.
   function closeSessionTab(sessionId) {
-    const entry = openSessions.get(sessionId);
-    const isTerminal = !!(entry && entry.session && entry.session.type === 'terminal');
-    const kill = isTerminal ? (terminalCloseBehavior === 'kill') : (closeBehavior === 'stopSession');
-    if (kill) { try { window.api.stopSession(sessionId); } catch { /* ignore */ } }
+    if (closeStopsProcess(sessionId)) { try { window.api.stopSession(sessionId); } catch { /* ignore */ } }
     if (typeof destroySession === 'function') destroySession(sessionId); // → dropSession()
     showActiveOrPlaceholder();
   }
@@ -1620,6 +1670,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     closeViewTab,
     hasViewTab: (kind) => !!(enabled && tree && PaneTree.leafOfTab(tree, viewTabId(kind))),
     splitActivePane,
+    closePane,
     focusPaneByIndex,
     focusNeighbourPane,
   };
