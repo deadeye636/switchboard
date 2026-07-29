@@ -216,6 +216,165 @@ test('with stopSession set, an agent pane stops its processes too (#347)', async
   } finally { h.destroy(); }
 });
 
+// --- #349: the strip has to show, reach and clear the tabs it holds ----------
+
+const tabTexts = (h) => [...h.document.querySelectorAll('.pane-strip .session-tab .session-tab-label')]
+  .map((l) => l.textContent);
+
+test('activating a tab scrolls it into view (#349)', async () => {
+  const h = setupPanesDom();
+  try {
+    for (let i = 0; i < 12; i++) h.mount('s' + i);
+    h.enable();
+    await h.settle();
+    // jsdom does no layout, so scrollIntoView is recorded rather than measured — what matters is
+    // that the active tab is the one asked for, from the strip that holds it.
+    const scrolled = [];
+    h.window.HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this); };
+    h.panes.show('s7');
+    await h.settle();
+    const active = h.document.querySelector('.pane-strip .session-tab.active');
+    assert.equal(active.dataset.sessionId, 's7');
+    assert.ok(scrolled.includes(active), 'the active tab was the element brought into view');
+  } finally { h.destroy(); }
+});
+
+test('the strip only grows overflow controls when it overflows (#349)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('s1');
+    h.enable();
+    await h.settle();
+    const controls = h.document.querySelector('.pane-strip .session-tabs-controls');
+    assert.ok(controls, 'the controls exist');
+    assert.equal(controls.classList.contains('visible'), false, 'hidden while everything fits');
+    assert.deepEqual([...controls.querySelectorAll('button')].map((b) => b.textContent), ['◀', '▶', '▾']);
+  } finally { h.destroy(); }
+});
+
+test('the tab list names every tab in the pane and activates the one picked (#349)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('alpha', { name: 'Alpha' });
+    h.mount('beta', { name: 'Beta' });
+    h.mount('gamma', { name: 'Gamma' });
+    h.enable();
+    await h.settle();
+    h.document.querySelector('.pane-strip .session-tabs-controls button:last-child').click();
+    const items = [...h.document.querySelectorAll('.session-tabs-overflow-item')];
+    assert.deepEqual(items.map((i) => i.textContent), ['Alpha', 'Beta', 'Gamma']);
+    items[0].click();
+    await h.settle();
+    assert.equal(h.document.querySelector('.pane-strip .session-tab.active').dataset.sessionId, 'alpha');
+    assert.equal(h.document.querySelector('.session-tabs-overflow'), null, 'the list closed behind the pick');
+  } finally { h.destroy(); }
+});
+
+test('the tab list filters (#349)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('alpha', { name: 'Alpha' });
+    h.mount('beta', { name: 'Beta' });
+    h.enable();
+    await h.settle();
+    h.document.querySelector('.pane-strip .session-tabs-controls button:last-child').click();
+    const input = h.document.querySelector('.session-tabs-overflow-filter');
+    input.value = 'bet';
+    input.dispatchEvent(new h.window.Event('input'));
+    assert.deepEqual([...h.document.querySelectorAll('.session-tabs-overflow-item')].map((i) => i.textContent), ['Beta']);
+  } finally { h.destroy(); }
+});
+
+test('two tabs with the same name are told apart by their project (#349)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a', { name: 'build' });
+    h.mount('b', { name: 'build' });
+    h.mount('c', { name: 'deploy' });
+    h.sessionMap.get('a').projectPath = '/projects/frontend';
+    h.sessionMap.get('b').projectPath = '/projects/api-gateway';
+    h.enable();
+    await h.settle();
+    const labels = tabTexts(h);
+    assert.deepEqual(labels, ['build — frontend', 'build — api-gateway', 'deploy']);
+  } finally { h.destroy(); }
+});
+
+test('close others, close to the right and close all (#349)', async () => {
+  const h = setupPanesDom();
+  try {
+    for (const id of ['t1', 't2', 't3', 't4']) h.mount(id, { running: false });
+    h.enable();
+    await h.settle();
+    // The menu is built for the tab that was right-clicked; drive it through the same entry point.
+    const tab = h.document.querySelector('.session-tab[data-session-id="t2"]');
+    tab.dispatchEvent(new h.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    const labels = [...h.document.querySelectorAll('.session-tab-menu-item')].map((b) => b.textContent);
+    assert.ok(labels.includes('Close others'));
+    assert.ok(labels.includes('Close to the right'));
+    assert.ok(labels.includes('Close all'));
+    // "to the right" of t2 is t3 and t4.
+    [...h.document.querySelectorAll('.session-tab-menu-item')].find((b) => b.textContent === 'Close to the right').click();
+    await h.settle();
+    assert.deepEqual(h.calls.destroySession.sort(), ['t3', 't4']);
+    assert.deepEqual([...h.document.querySelectorAll('.pane-strip .session-tab')].map((t) => t.dataset.sessionId), ['t1', 't2']);
+  } finally { h.destroy(); }
+});
+
+test('a bulk close asks once before it stops processes (#349)', async () => {
+  const h = setupPanesDom();
+  try {
+    for (const id of ['t1', 't2', 't3']) h.mount(id, { type: 'terminal' });
+    h.enable();
+    await h.settle();
+    const tab = h.document.querySelector('.session-tab[data-session-id="t1"]');
+    tab.dispatchEvent(new h.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    [...h.document.querySelectorAll('.session-tab-menu-item')].find((b) => b.textContent === 'Close others').click();
+    await h.settle();
+    assert.equal(h.calls.dialogs.length, 1, 'one question for the set');
+    assert.match(h.calls.dialogs[0].message, /stops 2 running processes/);
+    assert.deepEqual(h.calls.stopSession.sort(), ['t2', 't3']);
+  } finally { h.destroy(); }
+});
+
+test('cancelling a bulk close leaves every tab alone (#349)', async () => {
+  const h = setupPanesDom();
+  try {
+    for (const id of ['t1', 't2']) h.mount(id, { type: 'terminal' });
+    h.enable();
+    await h.settle();
+    h.answers.confirm = false;
+    const tab = h.document.querySelector('.session-tab[data-session-id="t1"]');
+    tab.dispatchEvent(new h.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    [...h.document.querySelectorAll('.session-tab-menu-item')].find((b) => b.textContent === 'Close all').click();
+    await h.settle();
+    assert.deepEqual(h.calls.destroySession, []);
+    assert.equal(h.document.querySelectorAll('.pane-strip .session-tab').length, 2);
+  } finally { h.destroy(); }
+});
+
+test('a menu replaced within the same tick does not leak its dismiss listeners (#349)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('s1');
+    h.enable();
+    await h.settle();
+    const added = [];
+    const removed = [];
+    const origAdd = h.document.addEventListener.bind(h.document);
+    const origRemove = h.document.removeEventListener.bind(h.document);
+    h.document.addEventListener = (t, fn, c) => { if (t === 'mousedown' || t === 'keydown') added.push(fn); origAdd(t, fn, c); };
+    h.document.removeEventListener = (t, fn, c) => { if (t === 'mousedown' || t === 'keydown') removed.push(fn); origRemove(t, fn, c); };
+    const more = h.document.querySelector('.pane-more-btn');
+    for (let i = 0; i < 5; i++) more.click();     // five opens inside one tick
+    await h.settle();
+    h.document.querySelector('.pane-more-btn').dispatchEvent(
+      new h.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await h.settle();
+    assert.ok(added.length <= 2, `only the live menu arms a pair, got ${added.length}`);
+  } finally { h.destroy(); }
+});
+
 // --- #345: a sash drag must never strand `pane-sashing` on <body> ------------
 
 // Two panes side by side with a sash between them, and the gesture started on that sash.

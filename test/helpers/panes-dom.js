@@ -122,7 +122,15 @@ function setupPanesDom(opts = {}) {
     placeholder: window.document.getElementById('placeholder'),
     terminalHeader: window.document.getElementById('terminal-header'),
 
-    showSession: (id) => { calls.showSession.push(id); window.activeSessionId = id; },
+    // The real `showSession` routes through the panes view first when the mode is on
+    // (terminal-manager.js: `if (panesView.active() && panesView.show(sessionId))`). A stub that only
+    // recorded the id would make every "clicking this shows that session" assertion pass without the
+    // pane ever being asked.
+    showSession: (id) => {
+      calls.showSession.push(id);
+      window.activeSessionId = id;
+      if (window.panesView && window.panesView.active()) window.panesView.show(id);
+    },
     // destroySession's real contract: it calls back into dropSession(), which is what takes the tab
     // out of the tree. A stub that only deleted the entry would make closePane look like it cleans
     // up when it does not.

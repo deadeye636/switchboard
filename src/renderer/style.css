@@ -8055,6 +8055,16 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
   background: linear-gradient(90deg, rgba(128, 136, 255, 0.9), rgba(128, 136, 255, 0));
 }
 
+/* A full pane used to shrink every tab equally, down to labels of about 11 px — fifteen identical
+   two-character stubs, while the action bar beside them spent 700 px on the session id (#349). The
+   tab you are actually looking at keeps a readable width and the others give way instead, which is
+   what Windows Terminal does. Below the point where even that stops working the inactive tabs go
+   down to their dot, and the ▾ list is how you read the rest. */
+.pane-strip .session-tab { min-width: 0; }
+.pane-strip .session-tab.active { min-width: 96px; flex-shrink: 0; }
+.pane-strip .session-tab:not(.active) { flex-shrink: 4; }
+.pane-strip .session-tab:not(.active) .session-tab-label { min-width: 0; }
+
 /* A tab from the restored layout whose session is not mounted: it is a shortcut,
    not a live view, so it reads as dimmed until it is clicked open. */
 .session-tab.session-tab-dormant { opacity: 0.55; }

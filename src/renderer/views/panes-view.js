@@ -222,7 +222,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     drainRevealed();
     applyWebglPolicy();
     refitVisible();
-    updateToolsOverflow();
+    updateStripChrome();
   }
 
   /** Write out each revealed pane's replay backlog. Runs right after `applyVisibility`. */
@@ -353,6 +353,17 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return empty;
   }
 
+  function stripCtrl(text, title, onClick) {
+    const b = document.createElement('button');
+    b.className = 'session-tabs-ctrl';
+    b.type = 'button';
+    b.textContent = text;
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    return b;
+  }
+
   function buildStrip(leaf) {
     const strip = document.createElement('div');
     strip.className = 'pane-strip';
@@ -365,6 +376,17 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       if (e.deltaY !== 0) { list.scrollLeft += e.deltaY; e.preventDefault(); }
     }, { passive: false });
     strip.appendChild(list);
+
+    // The overflow set tabs mode already has (#349). Without it a strip that overflows offers a
+    // mouse wheel and nothing else, so a tab scrolled out of sight is unreachable by any other
+    // means — no arrows, no scrollbar, no list. Hidden until the tabs actually overflow.
+    const controls = document.createElement('div');
+    controls.className = 'session-tabs-controls';
+    controls.appendChild(stripCtrl('◀', 'Scroll tabs left', () => list.scrollBy({ left: -200, behavior: 'smooth' })));
+    controls.appendChild(stripCtrl('▶', 'Scroll tabs right', () => list.scrollBy({ left: 200, behavior: 'smooth' })));
+    const allBtn = stripCtrl('▾', 'All tabs in this pane', () => openTabListMenu(allBtn, leaf.id));
+    controls.appendChild(allBtn);
+    strip.appendChild(controls);
 
     if (toolsPlacement === 'strip') {
       strip.appendChild(buildTools(leaf));
@@ -427,13 +449,44 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId);
   }
 
+  const sessionOfId = (sessionId) =>
+    sessionMap.get(sessionId) || (openSessions.get(sessionId) || {}).session || null;
+
+  // The name a tab shows before anything is done about duplicates.
+  function tabBaseName(tab) {
+    if (isViewTab(tab)) return viewTabLabel(tab);
+    const sessionId = sessionOfTab(tab);
+    const session = sessionOfId(sessionId);
+    return (typeof cleanDisplayName === 'function'
+      ? cleanDisplayName(session && (session.name || session.aiTitle || session.summary)) : '')
+      || String(sessionId || '').slice(0, 8);
+  }
+
+  // The last segment of a session's project path — what tells two same-named sessions apart.
+  function projectLabelOf(session) {
+    const p = session && session.projectPath;
+    if (!p) return '';
+    const parts = String(p).split(/[\\/]/).filter(Boolean);
+    return parts[parts.length - 1] || '';
+  }
+
+  // What a tab is CALLED. Two sessions with the same name in one pane rendered as two identical
+  // chips with nothing to tell them apart (#349), so a duplicate is qualified by its project folder
+  // — the same answer VS Code gives for two open files with the same name. Only duplicates pay the
+  // extra width.
+  function tabLabel(leaf, tab) {
+    const base = tabBaseName(tab);
+    const clashes = leaf.tabs.some((t) => t !== tab && tabBaseName(t) === base);
+    if (!clashes) return base;
+    const qualifier = projectLabelOf(sessionOfId(sessionOfTab(tab)));
+    return qualifier ? `${base} — ${qualifier}` : base;
+  }
+
   function buildTab(leaf, tab, runtime) {
     if (isViewTab(tab)) return buildViewTab(leaf, tab);
     const sessionId = sessionOfTab(tab);
-    const session = sessionMap.get(sessionId) || (openSessions.get(sessionId) || {}).session || null;
-    const name = (typeof cleanDisplayName === 'function'
-      ? cleanDisplayName(session && (session.name || session.aiTitle || session.summary)) : '')
-      || String(sessionId || '').slice(0, 8);
+    const session = sessionOfId(sessionId);
+    const name = tabLabel(leaf, tab);
 
     const el = document.createElement('div');
     el.className = 'session-tab' + (tab.id === leaf.activeTabId ? ' active' : '');
@@ -802,6 +855,38 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     }
   }
 
+  // Show the scroll arrows and the tab list only when the tabs actually overflow — the same test
+  // tabs mode makes, so a pane with three tabs does not grow chrome it has no use for.
+  function updateStripOverflow() {
+    for (const strip of terminalsEl.querySelectorAll('.pane-strip')) {
+      const list = strip.querySelector('.session-tabs-list');
+      const controls = strip.querySelector('.session-tabs-controls');
+      if (!list || !controls) continue;
+      controls.classList.toggle('visible', list.scrollWidth > list.clientWidth + 1);
+    }
+  }
+
+  // Bring each pane's active tab into view (#349). A strip holding 25 tabs showed the first sixteen
+  // with nothing highlighted, and the only thing on screen naming the session you had just clicked
+  // was the action bar. Runs after a rebuild — which is also what resets the scroll offset, so this
+  // never fights a position the user still has.
+  function revealActiveTabs() {
+    for (const list of terminalsEl.querySelectorAll('.pane-strip .session-tabs-list')) {
+      const active = list.querySelector('.session-tab.active');
+      if (active && typeof active.scrollIntoView === 'function') {
+        active.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+      }
+    }
+  }
+
+  // The three things every strip rebuild has to settle. One name, so a new render path cannot pick
+  // up two of them and quietly miss the third.
+  function updateStripChrome() {
+    updateToolsOverflow();
+    updateStripOverflow();
+    revealActiveTabs();
+  }
+
   // --- Visibility + fit -----------------------------------------------------
 
   function applyVisibility() {
@@ -903,7 +988,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       }
       // A second frame: the fit above can change the pane's own metrics, and the
       // fold-away threshold has to see the settled width, not the one mid-reflow.
-      requestAnimationFrame(updateToolsOverflow);
+      requestAnimationFrame(updateStripChrome);
     });
   }
 
@@ -1094,10 +1179,48 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     closeSessionTab(sessionId);
   }
 
+  // Ask once before a bulk close ends processes, the way `confirmClosePane` does for a pane. Its own
+  // wording, because this is about tabs and not about a pane, but the same counting.
+  function confirmCloseTabs(stopping) {
+    if (typeof showControlDialog !== 'function') return Promise.resolve(true);
+    const what = stopping === 1 ? 'one running process' : `${stopping} running processes`;
+    return showControlDialog({
+      title: 'Close tabs',
+      message: `Closing these tabs stops ${what}.`,
+      confirmLabel: 'Close tabs',
+      cancelLabel: 'Cancel',
+      tone: 'danger',
+    });
+  }
+
+  // Close a SET of tabs as one action (#349). Emptying a full pane used to be one click per tab on a
+  // 12-px `×`. One question for the whole set, then each tab down the path its own `×` takes, so the
+  // configured close behaviour still decides per session.
+  async function closeTabs(tabs) {
+    const live = tabs.map(sessionOfTab).filter((id) => id && openSessions.has(id) && sessionIsLive(id));
+    const stopping = live.filter(closeStopsProcess);
+    if (stopping.length && !(await confirmCloseTabs(stopping.length))) return;
+    for (const tab of tabs) {
+      // Re-read the owner each time: closing one tab can move or remove others (a pane collapses, an
+      // exiting session drops its own tab), so a leaf id captured up front goes stale mid-loop.
+      const owner = PaneTree.leafOfTab(tree, tab.id);
+      if (!owner) continue;
+      closeTabFromUi(owner.id, tab);
+    }
+  }
+
   // The tab half of the context menu. A view tab has no process, so it gets Close
   // and nothing else.
   function addTabItems(item, leafId, tab) {
     item('Close', () => closeTabFromUi(leafId, tab));
+    const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
+    const siblings = leaf ? leaf.tabs : [];
+    const at = siblings.findIndex((t) => t.id === tab.id);
+    const others = siblings.filter((t) => t.id !== tab.id);
+    const toRight = at >= 0 ? siblings.slice(at + 1) : [];
+    item('Close others', () => closeTabs(others), { disabled: !others.length });
+    item('Close to the right', () => closeTabs(toRight), { disabled: !toRight.length });
+    item('Close all', () => closeTabs(siblings.slice()), { disabled: !siblings.length });
     if (isViewTab(tab)) return;
     const sessionId = sessionOfTab(tab);
     item('Stop & close', () => {
@@ -1107,6 +1230,59 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     item('Relaunch', () => window.relaunchSession(sessionId), {
       disabled: typeof window.relaunchSession !== 'function',
     });
+  }
+
+  // Every tab in this pane, filterable — the panes counterpart of the "All open tabs" list in tabs
+  // mode (#349). With a strip that overflows this is the only way to reach a tab that scrolled off.
+  function openTabListMenu(anchor, leafId) {
+    closePaneMenu();
+    const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
+    if (!leaf) return;
+    focusPane(leafId);
+
+    const pop = document.createElement('div');
+    pop.className = 'popover session-tabs-overflow';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'session-tabs-overflow-filter';
+    input.placeholder = 'Filter tabs in this pane…';
+    const listEl = document.createElement('div');
+    listEl.className = 'session-tabs-overflow-list';
+    pop.appendChild(input);
+    pop.appendChild(listEl);
+
+    const renderList = () => {
+      const q = input.value.trim().toLowerCase();
+      listEl.replaceChildren();
+      for (const tab of leaf.tabs) {
+        const label = tabLabel(leaf, tab);
+        if (q && !label.toLowerCase().includes(q)) continue;
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'session-tabs-overflow-item' + (tab.id === leaf.activeTabId ? ' active' : '');
+        b.textContent = label;
+        b.addEventListener('click', () => {
+          closePaneMenu();
+          if (isViewTab(tab)) {
+            tree = PaneTree.setActiveTab(tree, leaf.id, tab.id);
+            activeLeafId = leaf.id;
+            render();
+            persist();
+            return;
+          }
+          openFromTab(leaf, tab, sessionOfId(sessionOfTab(tab)));
+        });
+        listEl.appendChild(b);
+      }
+    };
+    input.addEventListener('input', renderList);
+    renderList();
+
+    document.body.appendChild(pop);
+    positionPaneMenu(pop, { anchor });
+    activeMenu = pop;
+    input.focus();
+    armMenuDismiss(pop);
   }
 
   // Under the `…` button, or at the cursor for a right-click — clamped into the
@@ -1181,8 +1357,16 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     document.body.appendChild(pop);
     positionPaneMenu(pop, at);
     activeMenu = pop;
+    armMenuDismiss(pop);
+  }
+
+  // Arm the dismiss listeners for `pop` on the next tick, so the click that opened the menu does not
+  // close it again. The test is `activeMenu !== pop`, not `!activeMenu`: a menu replaced within the
+  // same tick would otherwise arm ITS pair into the single `menuDismissHandlers` slot on top of the
+  // live menu's, and the overwritten pair could never be removed again.
+  function armMenuDismiss(pop) {
     setTimeout(() => {
-      if (!activeMenu) return; // closed again before the listeners went up
+      if (activeMenu !== pop) return; // closed, or replaced, before the listeners went up
       const out = (e) => { if (activeMenu && !activeMenu.contains(e.target)) closePaneMenu(); };
       const esc = (e) => { if (e.key === 'Escape') closePaneMenu(); };
       menuDismissHandlers = { out, esc };
@@ -1614,7 +1798,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       else if (bar) bar.remove();
       else if (next) pane.insertBefore(next, pane.querySelector('.pane-body'));
     }
-    updateToolsOverflow();
+    // A chrome refresh rebuilds the strips, which resets their scroll offset — so the active tab has
+    // to be brought back into view here too, not only after a full render.
+    updateStripChrome();
   }
 
   function applySettings(g) {
