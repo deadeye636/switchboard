@@ -628,10 +628,17 @@ window._setTerminalFontFamily = (family) => {
   return terminalFontFamily;
 };
 
-// Tabs mode "live render background tabs" setting (default on). When on, terminal
-// output is written to xterm even while a tab is in the background instead of being
-// buffered and replayed on show — the replay write + scroll snap was the source of
-// the flicker when returning to a tab that produced output. Off = legacy buffering.
+// Tabs mode "live render background tabs" setting (default on). Despite the name it decides nothing
+// about RENDERING: a covered tab is never painted either way. What it decides is whether the VT
+// stream is PARSED as it arrives (`terminal.write` while the tab is in the background) or held as
+// raw bytes and replayed on show — that replay write plus its scroll snap was the flicker this
+// removed. Off = legacy buffering.
+//
+// Nor is "live" immediate: the flush cadence is gated on `isSessionVisible`, not on this flag, so a
+// live-rendered background tab is written at the background interval (2 s), not per chunk. Nobody
+// sees the lag because `showSession` flushes on switch.
+//
+// Tabs mode only — panes and grid never consult it (#339).
 let tabsLiveRenderEnabled = true;
 window._setTabsLiveRender = (v) => { tabsLiveRenderEnabled = v !== false; };
 
@@ -814,6 +821,9 @@ const rawReplayBuffers = new Map();
 // Hard cap to avoid unbounded memory for long-background high-throughput sessions.
 // Oldest chunks are dropped when total exceeds the cap (lossy, matching the
 // existing scrollback LRU trade-off: the user accepted data loss on background eviction).
+// Note what is dropped: whole CHUNKS, and a chunk boundary is an arbitrary point in the VT stream.
+// So a truncated replay can begin inside a CSI/OSC sequence — the loss is not only of content but
+// potentially of a well-formed start, which a full-screen TUI notices more than plain output does.
 const RAW_REPLAY_BUFFER_CAP_BYTES = 2 * 1024 * 1024; // 2 MB
 
 // Enforce the per-session cap: drop oldest chunks from the front until total ≤ cap.
@@ -827,12 +837,18 @@ function enforceReplayBufferCap(sessionId) {
   }
 }
 
-// True when the session's terminal container is visible to the user:
-// - Single view: entry.element has the 'visible' CSS class.
-// - Grid view: entry.element has BOTH 'visible' and 'grid-mode' classes, AND the
-//   card is on screen — off-screen cards (tracked by grid-view's
-//   IntersectionObserver in gridOffscreenSessions) skip writes too; their data
-//   accumulates in the replay buffer and drains when scrolled back in (#81).
+// True when this session is the one the user is looking at — NOT "is this element being painted".
+// The distinction matters: in tabs and panes mode a background container is still `display:block`,
+// laid out and painted, merely covered by an opaque sibling. It is only invisible in the sense that
+// counts here.
+//
+// What is actually tested:
+// - the 'visible' CSS class on the container, which every mode sets on what it shows, and
+// - not being scrolled out of the grid mosaic (grid-view's IntersectionObserver keeps
+//   `gridOffscreenSessions`); an off-screen card skips writes and drains when scrolled back in (#81).
+//
+// Grid cards carry 'grid-mode' alongside 'visible', but that class is not part of the test — an
+// earlier version of this comment claimed it was.
 // Using the .visible class as the canonical visibility signal avoids gating on
 // activeSessionId, which would incorrectly treat every grid card except the
 // focused one as "background" and freeze them in mosaic mode.

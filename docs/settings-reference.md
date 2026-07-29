@@ -78,7 +78,7 @@ back on Save.
 | `tabDragReorder` | Reorder tabs by dragging | bool | `true` | global |
 | `tabAutoCloseMode` | Auto-close tab after a session exits | `never` \| `onSuccess` \| `always` | `always` | global |
 | `tabAutoCloseDelaySec` | Auto-close delay (seconds) | 0–120 | `5` | global |
-| `tabsLiveRender` | Live-render background tabs — *Advanced* | bool | `true` | global |
+| `tabsLiveRender` | Live-render background tabs — *Advanced*. Parses background output as it arrives instead of replaying it on switch; it does **not** change what is painted (a covered tab is never drawn). **Tabs mode only** — panes and grid always buffer (#339) | bool | `true` | global |
 | `sidebarWidth` | (no UI — drag the divider) | px | `340` | **cascades** |
 | `tabOrder`, `windowBounds` | (no UI) | — | — | global; `windowBounds` is never exported |
 

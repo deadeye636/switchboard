@@ -1,4 +1,4 @@
-// Tests for the background-write optimisation in public/terminal-manager.js.
+// Tests for the background-write optimisation in src/renderer/terminal/terminal-manager.js.
 //
 // Stage B: non-visible sessions use a slow flush cadence (BACKGROUND_FLUSH_INTERVAL_MS)
 //          instead of MIN_FLUSH_INTERVAL_MS (~30 fps) so parse CPU is reduced.
@@ -6,7 +6,8 @@
 //          accumulate in a rawReplayBuffers Map and are drained on (re)visibility.
 //
 // isSessionVisible(sessionId) is true when entry.element has the 'visible' CSS class —
-// this covers both single view (.visible) and grid mode (.visible.grid-mode) without
+// this covers both single view and grid mode (a grid card carries .grid-mode too, but the
+// predicate only tests .visible) without
 // gating on activeSessionId (which would break grid cards).
 
 const test = require('node:test');
@@ -205,14 +206,14 @@ test('Stage B: flushTerminalBuffer uses background interval for non-visible sess
     inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
 
     const buf = inCtx(`terminalWriteBuffers.get('s1')`);
-    // The timer delay for a non-visible session must be >= BACKGROUND_FLUSH_INTERVAL_MS (1500 ms)
+    // The timer delay for a non-visible session must be >= BACKGROUND_FLUSH_INTERVAL_MS (2000 ms)
     // We can only verify a timer was set (not the value directly), but we can check
     // that BACKGROUND_FLUSH_INTERVAL_MS is defined and > MIN_FLUSH_INTERVAL_MS.
     assert.ok(buf.timerId !== 0, 'a timer is scheduled (not immediate RAF)');
     assert.ok(inCtx('BACKGROUND_FLUSH_INTERVAL_MS') > inCtx('MIN_FLUSH_INTERVAL_MS'),
       'BACKGROUND_FLUSH_INTERVAL_MS must be greater than MIN_FLUSH_INTERVAL_MS');
     assert.ok(inCtx('BACKGROUND_FLUSH_INTERVAL_MS') >= 1500,
-      'background interval is at least 1500 ms');
+      'background interval is at least 1500 ms — the constant is 2000');
   } finally {
     destroy();
   }

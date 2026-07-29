@@ -546,8 +546,8 @@
                   <div class="settings-field">
                     <div class="settings-field-info">
                       <div class="settings-field-header"><span class="settings-label">Live-render background tabs</span>${help}</div>
-                      <div class="settings-description">Draw output in background tabs right away instead of on switch. No flicker, but more CPU for busy sessions.</div>
-                      <div class="settings-more">Removes the flicker when returning to a tab that produced output, at some CPU/GPU cost for busy background sessions. Off = buffer the output and replay it when you switch to the tab.</div>
+                      <div class="settings-description">Parse output from background tabs as it arrives instead of replaying it on switch. No catch-up jump when you return to a tab.</div>
+                      <div class="settings-more">On: a background tab's output is parsed as it arrives (a few times a second), so switching to it shows the current screen with nothing to catch up. Off: the output is held as raw bytes and written in one go when you switch, which jumps the view to the bottom and costs memory while the tab waits. Neither setting changes what is drawn — a covered tab is never painted.</div>
                     </div>
                     <div class="settings-field-control">
                       <label class="settings-toggle"><input type="checkbox" id="sv-tabs-live-render" ${tabsLiveRenderValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
