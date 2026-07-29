@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (28 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (29 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-29
 
@@ -41,3 +41,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#334](https://github.com/deadeye636/switchboard/issues/334) Tabs: the tooltip should say which project, backend and state a session is in · _feature_
 - [#335](https://github.com/deadeye636/switchboard/issues/335) Tabs: hover preview of a tab's terminal, like the Windows taskbar · _feature_
 - [#338](https://github.com/deadeye636/switchboard/issues/338) Terminal: four comments in the output path describe behaviour the code does not have · _chore_
+- [#339](https://github.com/deadeye636/switchboard/issues/339) Terminal: one rule for background output, instead of three per-mode answers · _chore_
