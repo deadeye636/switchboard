@@ -3,9 +3,9 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (28 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (25 open). The board is maintained via `gh issue`, not here.
 
-**As of:** 2026-07-28
+**As of:** 2026-07-29
 
 
 ## P2 — after that
@@ -14,7 +14,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#274](https://github.com/deadeye636/switchboard/issues/274) Command palette (Ctrl/Cmd+K) to jump to sessions/projects and run actions · _feature_
-- [#331](https://github.com/deadeye636/switchboard/issues/331) Detach: a move into a window that is still booting is lost · _bug_
 
 ## P3 — someday
 
@@ -36,8 +35,6 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#305](https://github.com/deadeye636/switchboard/issues/305) A terminal whose CLI lost its --settings argv is invisible to the live bindings · _bug_
 - [#311](https://github.com/deadeye636/switchboard/issues/311) Panes: preview and diff instantiable per pane · _feature_
 - [#319](https://github.com/deadeye636/switchboard/issues/319) Detach: a session without a process cannot be moved to its own window · _feature_
-- [#326](https://github.com/deadeye636/switchboard/issues/326) Detach: a reloaded detached window loses the sessions moved into it · _bug_
 - [#327](https://github.com/deadeye636/switchboard/issues/327) Detach: fold the menu-entry duplication into the shared helper · _chore_
-- [#328](https://github.com/deadeye636/switchboard/issues/328) Terminal: rendererAttached has no ordering guarantee across windows · _chore_
 - [#329](https://github.com/deadeye636/switchboard/issues/329) agy: check whether it speaks the Gemini CLI IDE-companion protocol, and serve it if it does · _feature_
 - [#330](https://github.com/deadeye636/switchboard/issues/330) Codex: offer Switchboard's diff surface as an MCP server the CLI can call · _feature_
