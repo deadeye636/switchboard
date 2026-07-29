@@ -623,12 +623,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       || String(sessionId || '').slice(0, 8);
   }
 
-  // The last segment of a session's project path — what tells two same-named sessions apart.
+  // The last segment of a session's project path — what tells two same-named sessions apart. The
+  // splitter lives in session-tabs.js, so the tab label and the tooltip cannot disagree about what a
+  // project is called (#334, #349).
   function projectLabelOf(session) {
-    const p = session && session.projectPath;
-    if (!p) return '';
-    const parts = String(p).split(/[\\/]/).filter(Boolean);
-    return parts[parts.length - 1] || '';
+    return (typeof projectTailOf === 'function') ? projectTailOf(session && session.projectPath) : '';
   }
 
   // What a tab is CALLED. Two sessions with the same name in one pane rendered as two identical
@@ -670,7 +669,6 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     el.dataset.sessionId = sessionId;
     el.dataset.tabId = tab.id;
     el.dataset.paneId = leaf.id;
-    el.title = name;
     el.draggable = true;
     // Roving tabindex (#351): the active tab is the strip's single tab stop, the rest are reachable
     // with the arrows once focus is inside.
@@ -684,6 +682,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // drift between the three places that show it (#257, #269).
     const status = (session && typeof getSessionStatus === 'function') ? getSessionStatus(session, runtime) : null;
     if (status) el.classList.add(status.className);
+    // Project · backend · state beside the name (#334). Built by the same helper the tabs-mode strip
+    // uses, so the two cannot drift on what a tooltip says.
+    el.title = (session && typeof window.tabTooltipFor === 'function' && window.tabTooltipFor(session, status)) || name;
     const dot = document.createElement('span');
     dot.className = 'session-tab-dot status-dot' + (status ? ' ' + status.className : '');
     el.appendChild(dot);
@@ -695,7 +696,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
     const mounted = openSessions.has(sessionId);
     if (!mounted) el.classList.add(hasExited(sessionId) ? 'session-tab-exited' : 'session-tab-dormant');
-    if (!mounted && hasExited(sessionId)) el.title = name + ' — this session has exited.';
+    if (!mounted && hasExited(sessionId)) el.title += '\nThis session has exited.';
 
     el.appendChild(buildTabClose(leaf, tab, name));
 

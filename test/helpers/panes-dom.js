@@ -185,7 +185,16 @@ function setupPanesDom(opts = {}) {
   const ctx = dom.getInternalVMContext();
   // grid-layout.js first: it spreads `pickGridNeighbor` (the spatial neighbour geometry panes mode
   // shares with the grid, #350) onto the window, and panes-view reads it as a bare global.
-  for (const rel of ['renderer/views/grid-layout.js', 'renderer/views/pane-tree.js', 'renderer/views/panes-view.js']) {
+  // Same order as index.html. session-tabs.js loads AFTER panes-view.js there and is loaded here for
+  // the same reason it is there: panes-view reaches into it at call time for the shared tab tooltip
+  // and the project-path splitter (#334), and a harness without it would silently exercise the
+  // fallbacks instead of the real thing.
+  for (const rel of [
+    'renderer/views/grid-layout.js',
+    'renderer/views/pane-tree.js',
+    'renderer/views/panes-view.js',
+    'renderer/session/session-tabs.js',
+  ]) {
     vm.runInContext(fs.readFileSync(path.join(SRC_DIR, rel), 'utf8'), ctx, { filename: path.basename(rel) });
   }
 

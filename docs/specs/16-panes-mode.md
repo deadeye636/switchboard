@@ -5,7 +5,7 @@ views are one instance per kind, not one per pane — #311. Written *before* the
 different from specs 01–15: it is the **record of the layout options and why one was chosen**, and a
 later rework should read it before re-running the argument.
 
-**As built.** `views/pane-tree.js` (pure model, 38 tests) + `views/panes-view.js` (the DOM half) ship
+**As built.** `views/pane-tree.js` (pure model) + `views/panes-view.js` (the DOM half) ship
 the tree, the per-pane strip, the `…` pane menu (A), tab drag with the 10 % edge split, sashes,
 localStorage persistence and the two shortcuts (#309). The typed views followed (#310): preview and
 diff, plus message history, plan, activity and memory, are pane tabs.
@@ -42,6 +42,49 @@ Two things diverge from the plan above and are load-bearing:
   and diff and sequenced after detach (#2). Message history, plan, activity and memory stay
   single-instance deliberately: they are read, not compared, and the transcript viewer's state
   (current session, search hits, bookmarks, subagent watches) would have to be unpicked for no gain.
+
+### The audit pass (#343–#352)
+
+Two agents read and drove the mode against VS Code, Windows Terminal, tmux, iTerm2 and Zed. Nothing
+below was found by the suite — **no test loaded `panes-view.js` at all** until this pass, which is
+the finding behind all the others. `test/helpers/panes-dom.js` is the jsdom harness that ended it.
+
+Four defects that outlived whatever caused them:
+
+- **The grid mosaic could be switched on inside panes mode** (#343) and pulled every terminal
+  container out of its pane. The gate was a tabs-only test copied to four entry paths; it now sits in
+  `showGridView()`, the funnel all five run through, and the boot heal clears the runtime flag as
+  well as the stored one.
+- **A detached window overwrote the layout on teardown** (#344) — `disable()` wrote past the guard
+  `persist()` has. One writer, one check, per spec 17 §4.
+- **A sash drag could never end** (#345). Its listeners hung on the sash, which every rebuild
+  destroys, so `pane-sashing` stayed on `<body>`. Listeners live on `window` now, `pointercancel`
+  and `lostpointercapture` end it, and both paths that destroy the sash finish the gesture first.
+  Note for whoever reads that CSS: `body.pane-sashing .terminal-container` LOSES on specificity to
+  `body.display-mode-panes .terminal-container.visible`, so the rule does nothing for the terminal
+  you can see — the drag survives a terminal because of `setPointerCapture`, not because of it.
+- **A `/clear` orphaned the pane tab** (#346). A tab id is derived from its session id, so an id move
+  left the tree naming a retired one. `PaneTree.replaceTab` renames it in place.
+
+Behaviour the mode was missing, and now has:
+
+- **Closing a pane follows the same close behaviour as closing its tabs** (#347). It used to skip it
+  entirely and orphan every process in the pane — the opposite of what the `×` on those tabs does. It
+  asks once when it would stop processes, and says so when the settings keep them running.
+- **The strip can show, reach and clear its tabs** (#349): the active tab scrolls into view, arrows
+  and a filterable list appear when the tabs overflow, only inactive tabs shrink, duplicate names are
+  qualified by project, and the tab menu closes others / to the right / all.
+- **A keyboard model** (#350). Pane arrows are spatial — they were indexing the leaves in render
+  order and wrapping, so "up" could go left. Plus zoom, split down, tab navigation within a pane, and
+  close tab / close pane. `docs/settings-reference.md` lists every binding.
+- **The strip is a tab list** (#351): roles, `aria-selected`, roving tabindex, a focusable sash that
+  resizes and resets from the keyboard, and a live region of its own.
+
+Still open: `docs/BACKLOG.md` #352 carries the remaining checklist — chiefly that the **LRU cap does
+not bound the live terminal count** (measured 22 open against a cap of 12) and that panes does not
+trim the scrollback of a background tab. The second is deliberately unfixed: grid can trim because a
+card is a preview, while a background pane tab is a session the user will switch back to, and xterm
+cannot restore lines a shrunk buffer dropped.
 
 Issue: #309 · builds the ownership model that detachable windows (#2) then consume.
 

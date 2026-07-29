@@ -300,6 +300,22 @@ test('two tabs with the same name are told apart by their project (#349)', async
   } finally { h.destroy(); }
 });
 
+test('the tab tooltip names the project, the backend and the state (#334)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a', { name: 'Auth refactor' });
+    h.sessionMap.get('a').projectPath = '/projects/frontend';
+    h.sessionMap.get('a').backendId = 'claude';
+    h.window.getBackend = (id) => (id === 'claude' ? { id, label: 'Claude' } : null);
+    // The state comes from the same source the dot uses, so the two cannot disagree.
+    h.window.getSessionStatus = () => ({ className: 'status-busy', label: 'Working' });
+    h.enable();
+    await h.settle();
+    const tab = h.document.querySelector('.session-tab[data-session-id="a"]');
+    assert.equal(tab.title, 'Auth refactor\nfrontend · Claude · Working');
+  } finally { h.destroy(); }
+});
+
 test('close others, close to the right and close all (#349)', async () => {
   const h = setupPanesDom();
   try {

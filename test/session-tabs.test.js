@@ -9,7 +9,39 @@ const {
   resolveAutoCloseMode,
   resolveAutoCloseDelaySec,
   shouldAutoClose,
+  buildTabTooltip,
+  projectTailOf,
 } = require('../src/renderer/session/session-tabs');
+
+// --- The tab tooltip (#334) --------------------------------------------------
+
+test('the tooltip carries project, backend and state beside the name', () => {
+  assert.equal(
+    buildTabTooltip({ name: 'Auth refactor', project: 'frontend', backend: 'Claude', state: 'Working' }),
+    'Auth refactor\nfrontend · Claude · Working',
+  );
+});
+
+test('the tooltip leaves out what is not known rather than showing it blank', () => {
+  assert.equal(buildTabTooltip({ name: 'Solo' }), 'Solo');
+  assert.equal(buildTabTooltip({ name: 'Solo', state: 'Idle' }), 'Solo\nIdle');
+  assert.equal(buildTabTooltip({ name: 'Solo', project: 'api', state: '' }), 'Solo\napi');
+  // A backend that declares no label costs no separator.
+  assert.equal(buildTabTooltip({ name: 'Solo', project: 'api', backend: null, state: 'Idle' }), 'Solo\napi · Idle');
+});
+
+test('the tooltip survives an empty call', () => {
+  assert.equal(buildTabTooltip(), '');
+  assert.equal(buildTabTooltip({}), '');
+});
+
+test('projectTailOf reads the last segment of either path flavour', () => {
+  assert.equal(projectTailOf('/srv/projects/api-gateway'), 'api-gateway');
+  assert.equal(projectTailOf('D:\\work\\frontend'), 'frontend');
+  assert.equal(projectTailOf('/srv/projects/api-gateway/'), 'api-gateway');
+  assert.equal(projectTailOf(''), '');
+  assert.equal(projectTailOf(undefined), '');
+});
 
 const S = (sessionId, name, closed = false) => ({ sessionId, name, closed });
 

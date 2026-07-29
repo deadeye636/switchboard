@@ -52,8 +52,29 @@ function shouldAutoClose(mode, exitCode) {
   return false; // 'never' or unknown
 }
 
+// Pure: the tooltip a session's tab carries (#334). It used to be the name and nothing else — which
+// is a tooltip that repeats what is already on screen, in the one place a truncated label can be read
+// in full and the one place "which of these two is the one in the other project" can be answered.
+// Empty parts are left out rather than shown blank: a backend that declares no label, or a session
+// with no project, should cost a line, not an empty one.
+function buildTabTooltip({ name, project, backend, state } = {}) {
+  const title = String(name || '').trim();
+  const detail = [project, backend, state].map((v) => String(v || '').trim()).filter(Boolean);
+  return [title, detail.join(' · ')].filter(Boolean).join('\n');
+}
+
+// The last segment of a project path — what tells two same-named sessions apart.
+function projectTailOf(projectPath) {
+  if (!projectPath) return '';
+  const parts = String(projectPath).split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { buildTabModel, resolveAutoCloseMode, resolveAutoCloseDelaySec, shouldAutoClose };
+  module.exports = {
+    buildTabModel, resolveAutoCloseMode, resolveAutoCloseDelaySec, shouldAutoClose,
+    buildTabTooltip, projectTailOf,
+  };
 }
 
 (function () {
@@ -205,7 +226,8 @@ if (typeof module !== 'undefined' && module.exports) {
       if (tabStatus) tab.classList.add(tabStatus.className); // status-busy / status-running / …
       if (isSubagentActive(t.sessionId)) tab.classList.add('subagent-active'); // #123
       tab.dataset.sessionId = t.sessionId;
-      tab.title = t.name;
+      // Project · backend · state beside the name (#334), not the name on its own.
+      tab.title = (tabSession && window.tabTooltipFor(tabSession, tabStatus)) || t.name;
       if (dragReorder) tab.draggable = true;
 
       const dot = document.createElement('span');
@@ -522,6 +544,24 @@ if (typeof module !== 'undefined' && module.exports) {
     }
     return true;
   }
+
+  // The tooltip for a session's tab, wherever that tab is (#334). Panes mode calls this too: the two
+  // strips build their tabs from the same session data, and a tooltip that said different things in
+  // the two modes would be worse than the name-only one it replaces. The state comes from
+  // `getSessionStatus`, the same source the dot uses, so the two cannot disagree — and the backend is
+  // its own declared label, never an id.
+  window.tabTooltipFor = function (session, status) {
+    if (!session) return '';
+    const backend = (typeof window.getBackend === 'function') ? window.getBackend(session.backendId) : null;
+    const name = (typeof cleanDisplayName === 'function'
+      ? cleanDisplayName(session.name || session.aiTitle || session.summary) : '') || session.sessionId;
+    return buildTabTooltip({
+      name,
+      project: projectTailOf(session.projectPath),
+      backend: backend && backend.label,
+      state: status && status.label,
+    });
+  };
 
   window.refreshSessionTabs = refreshSessionTabs;
   window.patchTabStatuses = patchTabStatuses;
