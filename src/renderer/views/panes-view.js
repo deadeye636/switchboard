@@ -205,9 +205,25 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // backlog instead, which is what the tabs and grid reveal paths already do.
     flushBeforeReveal();
     applyVisibility();
+    // Drain SYNCHRONOUSLY, in the same task as the reveal. It used to ride along in `refitVisible`'s
+    // deferred frame, which left a window between "the element is visible" and "the backlog is
+    // written": any flush landing in it takes the write path (the session now counts as visible) and
+    // the deferred drain then puts older data on top — the same inversion, only narrower. Chromium
+    // throttles rAF in an occluded window, which is exactly where that window is widest.
+    drainRevealed();
     applyWebglPolicy();
     refitVisible();
     updateToolsOverflow();
+  }
+
+  /** Write out each revealed pane's replay backlog. Runs right after `applyVisibility`. */
+  function drainRevealed() {
+    if (typeof drainReplayBuffer !== 'function') return;
+    for (const leaf of PaneTree.leaves(tree)) {
+      const sessionId = sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId));
+      if (!sessionId || !openSessions.has(sessionId)) continue;
+      try { drainReplayBuffer(sessionId); } catch { /* one bad session must not stop the rest */ }
+    }
   }
 
   /**
