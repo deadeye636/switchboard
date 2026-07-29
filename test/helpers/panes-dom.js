@@ -16,8 +16,8 @@ const { JSDOM } = require('jsdom');
 
 const SRC_DIR = path.join(__dirname, '..', '..', 'src');
 
-// The elements panes-view addresses by id: the terminal host and the five view singletons it can
-// adopt into a pane (#310).
+// The elements panes-view addresses by id: the terminal host, the file panel, and every main-area
+// view singleton it can adopt into a pane — five in #310, all eleven since #342.
 const HTML = `<!DOCTYPE html><html><body>
   <div id="main">
     <div id="terminal-area">
@@ -32,6 +32,13 @@ const HTML = `<!DOCTYPE html><html><body>
     <div id="plan-viewer" style="display:none"></div>
     <div id="stats-viewer" style="display:none"></div>
     <div id="memory-viewer" style="display:none"></div>
+    <div id="projects-viewer" style="display:none"></div>
+    <div id="variables-admin-content" style="display:none"></div>
+    <div id="work-files-viewer" style="display:none"></div>
+    <div id="settings-viewer" style="display:none"></div>
+    <div id="tasks-viewer" style="display:none"></div>
+    <div id="bookmarks-viewer" style="display:none"></div>
+    <div id="timeline-viewer" style="display:none"></div>
   </div>
   <div id="pane-live-region" aria-live="polite" aria-atomic="true"></div>
 </body></html>`;
@@ -78,6 +85,7 @@ function setupPanesDom(opts = {}) {
     drain: [],
     flush: [],
     hideAllViewers: 0,
+    closeAdminView: 0,
     clearActiveTerminalView: 0,
     filePanelRelayout: 0,
     closeFilePanel: 0,
@@ -153,7 +161,24 @@ function setupPanesDom(opts = {}) {
     confirmAndStopSession: () => {},
     showJsonlViewer: () => {},
     openTasksView: () => {},
-    hideAllViewers: () => { calls.hideAllViewers++; },
+    hideAllViewers: () => {
+      calls.hideAllViewers++;
+      // The real one hides every main-area surface at once and puts the terminal area back. Stubbing
+      // it as a counter alone would hide the observer cascade a real teardown produces.
+      for (const id of ['jsonl-viewer', 'plan-viewer', 'stats-viewer', 'memory-viewer', 'projects-viewer',
+        'work-files-viewer', 'settings-viewer', 'tasks-viewer', 'bookmarks-viewer', 'timeline-viewer']) {
+        const el = window.document.getElementById(id);
+        if (el) el.style.display = 'none';
+      }
+    },
+    // The admin close route: the sidebar tab goes back, which is what hides the surface (#342).
+    closeAdminView: () => {
+      calls.closeAdminView++;
+      for (const id of ['projects-viewer', 'variables-admin-content', 'stats-viewer']) {
+        const el = window.document.getElementById(id);
+        if (el) el.style.display = 'none';
+      }
+    },
     // What `shell/session-ipc.js` reaches into app.js for. Only the parts `rekeySessionState`
     // touches are real; the rest exist so the file can be loaded at all.
     pendingSessions: new Map(),

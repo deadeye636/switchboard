@@ -80,6 +80,25 @@ Behaviour the mode was missing, and now has:
 - **The strip is a tab list** (#351): roles, `aria-selected`, roving tabindex, a focusable sash that
   resizes and resets from the keyboard, and a live region of its own.
 
+And the follow-ups that came out of it:
+
+- **The split chord could not be pressed** (#353). `paneSplit` asked for Shift plus the character
+  `\`, which cannot happen together — the Backslash key reports `|` under Shift on a US layout and
+  does not exist on a German one. Dead since #309, and it survived a live check because a scripted
+  keydown sets `key` directly. Bindings can now name a **physical key**; splitting gained its other
+  two directions in the same pass.
+- **Direction is decided by overlap, not by centres** (#354). A pane taller than yours could have a
+  lower centre while sitting beside you, so "down" moved sideways. Shared geometry, so the grid got
+  the same fix.
+- **Every main-area surface is a pane tab** (#342). `#terminal-area` is the LAST child of `#main` and
+  the viewers are earlier siblings at `z-index: auto` — in the other modes they take over by hiding
+  that area, which this mode deliberately prevents, so DOM order put the pane tree on top of them.
+  Extending `VIEW_KINDS` was chosen over a takeover layer, because Activity already worked that way
+  and because the "admin vs session" line does not cut cleanly (Tasks and Timeline are opened
+  session-scoped). Two close routes, matching the `data-close-admin` / `data-close-viewer` split the
+  viewers' own headers already use — and only a **user** close runs one, or hiding Projects to show
+  Variables sends the sidebar back and undoes the switch.
+
 Still open: `docs/BACKLOG.md` #352 carries the remaining checklist — chiefly that the **LRU cap does
 not bound the live terminal count** (measured 22 open against a cap of 12) and that panes does not
 trim the scrollback of a background tab. The second is deliberately unfixed: grid can trim because a

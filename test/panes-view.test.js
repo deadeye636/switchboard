@@ -391,6 +391,139 @@ test('a menu replaced within the same tick does not leak its dismiss listeners (
   } finally { h.destroy(); }
 });
 
+// --- #342: every main-area surface becomes a pane tab ------------------------
+
+// The surfaces and what their tab is called. Projects, Variables and Activity are driven by a
+// sidebar tab, so they close through it; the rest close through the viewer teardown.
+const MAIN_AREA_SURFACES = [
+  ['projects', 'projects-viewer', 'Projects', 'admin'],
+  ['variables', 'variables-admin-content', 'Variables', 'admin'],
+  ['stats', 'stats-viewer', 'Activity', 'admin'],
+  ['workFiles', 'work-files-viewer', 'Work files', 'viewer'],
+  ['settings', 'settings-viewer', 'Settings', 'viewer'],
+  ['tasks', 'tasks-viewer', 'Tasks', 'viewer'],
+  ['bookmarks', 'bookmarks-viewer', 'Bookmarks', 'viewer'],
+  ['timeline', 'timeline-viewer', 'Timeline', 'viewer'],
+  ['jsonl', 'jsonl-viewer', 'Messages', 'viewer'],
+  ['plan', 'plan-viewer', 'Plan', 'viewer'],
+  ['memory', 'memory-viewer', 'Memory', 'viewer'],
+];
+
+for (const [kind, hostId, title, route] of MAIN_AREA_SURFACES) {
+  test(`${title} is adopted into a pane instead of rendering behind it (#342)`, async () => {
+    const h = setupPanesDom();
+    try {
+      h.mount('s1');
+      h.enable();
+      await h.settle();
+      // Opening one of these means setting `display` — that is how they announce themselves, and how
+      // the pane view learns about them.
+      const host = h.document.getElementById(hostId);
+      host.style.display = 'flex';
+      await h.settle();
+      assert.ok(host.classList.contains('pane-hosted'), `${title} was moved into a pane`);
+      assert.equal(host.closest('.pane-body') !== null, true, 'and it is inside a pane body');
+      const tab = [...h.document.querySelectorAll('.session-tab-view .session-tab-label')]
+        .find((l) => l.textContent === title);
+      assert.ok(tab, `a tab labelled ${title}`);
+    } finally { h.destroy(); }
+  });
+}
+
+// Closing the tab has to take the route that surface's OWN × takes: `closeAdminView` for the three a
+// sidebar tab drives, the viewer teardown for the rest. `variables-admin-content` is the one the issue
+// flags as absent from `hideAllViewers`, so the wrong route there means it is never hidden at all.
+for (const [, hostId, title, route] of MAIN_AREA_SURFACES) {
+  test(`closing ${title} takes the ${route} route (#342)`, async () => {
+    const h = setupPanesDom();
+    try {
+      h.mount('s1');
+      h.enable();
+      await h.settle();
+      h.document.getElementById(hostId).style.display = 'flex';
+      await h.settle();
+      h.calls.closeAdminView = 0;
+      h.calls.hideAllViewers = 0;
+      [...h.document.querySelectorAll('.session-tab-view .session-tab-close')][0].click();
+      await h.settle();
+      if (route === 'admin') {
+        assert.equal(h.calls.closeAdminView, 1, `${title} goes back through its sidebar tab`);
+        assert.equal(h.calls.hideAllViewers, 0, 'not through the viewer teardown');
+      } else {
+        assert.equal(h.calls.hideAllViewers, 1, `${title} goes through the viewer teardown`);
+        assert.equal(h.calls.closeAdminView, 0, 'and does not touch the sidebar tab');
+      }
+      // Either way the element ends up hidden and back home.
+      const host = h.document.getElementById(hostId);
+      assert.equal(host.style.display, 'none', `${title} is hidden`);
+      assert.equal(host.parentElement.id, 'main', 'and back in #main');
+    } finally { h.destroy(); }
+  });
+}
+
+test('closing a PANE that holds an admin view closes the view too (#342)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a', { running: false });
+    h.enable();
+    await h.settle();
+    h.panes.splitActivePane('right');
+    await h.settle();
+    // The view opens into the new, empty pane — so closing that pane is the only thing taking it down.
+    const host = h.document.getElementById('variables-admin-content');
+    host.style.display = 'flex';
+    await h.settle();
+    const paneId = host.closest('.pane').dataset.paneId;
+    h.calls.closeAdminView = 0;
+    await h.panes.closePane(paneId);
+    await h.settle();
+    assert.equal(h.calls.closeAdminView, 1, 'the pane close ran the surface\'s own route');
+    assert.equal(host.style.display, 'none', 'so it is not left covering the workspace');
+    assert.equal(host.parentElement.id, 'main', 'and it went home rather than with the pane');
+    assert.equal(h.document.querySelectorAll('.session-tab-view').length, 0);
+  } finally { h.destroy(); }
+});
+
+test('closing the tab hands the surface back home, with the layout intact (#342)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.enable();
+    await h.settle();
+    h.panes.splitActivePane('right');
+    await h.open('b');
+    const before = layoutSignature(h);
+    const host = h.document.getElementById('projects-viewer');
+    const home = host.parentElement;
+
+    host.style.display = 'flex';
+    await h.settle();
+    assert.notEqual(host.parentElement, home, 'it left home for a pane');
+
+    [...h.document.querySelectorAll('.session-tab-view .session-tab-close')][0].click();
+    await h.settle();
+    assert.equal(host.parentElement, home, 'and went back to the exact slot');
+    assert.equal(host.classList.contains('pane-hosted'), false);
+    assert.equal(layoutSignature(h), before, 'no pane lost, no split changed');
+  } finally { h.destroy(); }
+});
+
+test('leaving panes mode returns every hosted surface home (#342)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('s1');
+    h.enable();
+    await h.settle();
+    const host = h.document.getElementById('variables-admin-content');
+    const home = host.parentElement;
+    host.style.display = 'flex';
+    await h.settle();
+    assert.notEqual(host.parentElement, home);
+    h.disable();
+    assert.equal(host.parentElement, home, 'a mode switch must not take the app\'s only Variables panel');
+  } finally { h.destroy(); }
+});
+
 // --- #348: the window that RENDERS a session re-keys it ----------------------
 
 test('rekeySessionState moves every table a session is keyed by (#348)', async () => {

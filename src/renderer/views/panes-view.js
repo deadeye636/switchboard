@@ -75,12 +75,30 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // of them without editing a show path in every viewer file. The file panel is
   // the exception — it toggles a class and a width, so showPanel/hidePanel call in
   // directly (`watched: false`).
+  // `close` names which teardown the tab's × runs, and it is the same distinction the viewers' own
+  // header buttons already make: `data-close-admin` for the three surfaces a SIDEBAR TAB drives, and
+  // `data-close-viewer` for the rest. Hiding an admin surface without switching the sidebar tab back
+  // leaves the sidebar asserting a view that is no longer on screen (#342).
+  //
+  // Every one of these is an earlier sibling of `#terminal-area` inside `#main`, all `position:
+  // absolute; inset: 0`, all shown by setting `display`. In tabs and grid mode they take over by
+  // hiding `#terminal-area`; in panes mode `display: flex !important` keeps that area alive, so the
+  // takeover is neutralised and DOM order decides — the pane tree, being the last child, paints over
+  // them. Measured: opening Projects put a `pane-sash` on top of it, both at `z-index: auto`. Hence
+  // every main-area surface belongs in this table, not just the session-shaped ones (#342).
   const VIEW_KINDS = {
     preview: { hostId: 'file-panel', title: 'Preview', watched: false },
     jsonl: { hostId: 'jsonl-viewer', title: 'Messages', watched: true },
     plan: { hostId: 'plan-viewer', title: 'Plan', watched: true },
-    stats: { hostId: 'stats-viewer', title: 'Activity', watched: true },
+    stats: { hostId: 'stats-viewer', title: 'Activity', watched: true, close: 'admin' },
     memory: { hostId: 'memory-viewer', title: 'Memory', watched: true },
+    projects: { hostId: 'projects-viewer', title: 'Projects', watched: true, close: 'admin' },
+    variables: { hostId: 'variables-admin-content', title: 'Variables', watched: true, close: 'admin' },
+    workFiles: { hostId: 'work-files-viewer', title: 'Work files', watched: true },
+    settings: { hostId: 'settings-viewer', title: 'Settings', watched: true },
+    tasks: { hostId: 'tasks-viewer', title: 'Tasks', watched: true },
+    bookmarks: { hostId: 'bookmarks-viewer', title: 'Bookmarks', watched: true },
+    timeline: { hostId: 'timeline-viewer', title: 'Timeline', watched: true },
   };
   const viewTabId = (kind) => 'view:' + kind;
   const isViewTab = (tab) => !!(tab && VIEW_KINDS[tab.kind]);
@@ -792,13 +810,18 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return true;
   }
 
-  function closeViewTab(kind) {
+  // `closeTheView` says WHO is closing. The user clicking the tab's × wants the view itself told to
+  // close; the observer calling this because the element was hidden must not tell it anything — the
+  // app has already done it, and repeating the app's own close route here is actively wrong for the
+  // sidebar-driven surfaces: switching from Projects to Variables hides Projects, and answering that
+  // with `closeAdminView()` sent the sidebar back to the previous tab and undid the switch (#342).
+  function closeViewTab(kind, { closeTheView = false } = {}) {
     if (!enabled) return;
     const tabId = viewTabId(kind);
     const leaf = PaneTree.leafOfTab(tree, tabId);
     if (!leaf) return;
     releaseViewElement(kind);
-    hideViewElement(kind);
+    if (closeTheView) hideViewElement(kind);
     tree = PaneTree.closeTab(tree, leaf.id, tabId);
     activeLeaf();
     render();
@@ -834,10 +857,15 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const spec = VIEW_KINDS[kind];
     const host = hostElementFor(kind);
     if (!spec || !spec.watched || !host) return;
-    // Through the app's own teardown where there is one: hideAllViewers also puts
-    // the terminal area back and drains the transcript's file watches (#75), which
-    // setting `display` alone would leave polling. Only one of these can be open at
-    // a time, so hiding all of them costs nothing.
+    // A surface a sidebar tab drives has to close the way its own × does — through the tab (#342).
+    // `hideAllViewers` would hide the element and leave the sidebar sitting on the tab that opened
+    // it, asserting a view the user can no longer see. It also does not know
+    // `variables-admin-content` at all.
+    if (spec.close === 'admin' && typeof closeAdminView === 'function') { closeAdminView(); return; }
+    // Otherwise through the app's own teardown: hideAllViewers also puts the terminal
+    // area back and drains the transcript's file watches (#75), which setting `display`
+    // alone would leave polling. Only one of these can be open at a time, so hiding all
+    // of them costs nothing.
     if (typeof hideAllViewers === 'function') hideAllViewers();
     else host.style.display = 'none';
   }
@@ -1361,7 +1389,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       // whether it reappears, and a tab-only close would be undone by the next
       // session switch. Its own close path comes back through closeViewTab.
       if (tab.kind === 'preview' && typeof window.closeFilePanel === 'function') window.closeFilePanel();
-      else closeViewTab(tab.kind);
+      else closeViewTab(tab.kind, { closeTheView: true });
       return;
     }
     const sessionId = sessionOfTab(tab);

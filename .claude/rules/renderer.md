@@ -112,19 +112,32 @@ reflexive Escape closes a `showControlDialog` — fine for a question, wrong for
 something the user cannot get back (a handoff packet an agent spent tokens writing). Pass
 `dismissible: false`, or ask before discarding.
 
-## Panes mode hosts the app's own view elements (#310)
+## Panes mode hosts the app's own view elements (#310, #342)
 
 In `sessionDisplayMode: panes`, a tab whose kind is not `terminal` does not build a view — it **moves
-the app's single existing element** (`#file-panel`, `#jsonl-viewer`, `#plan-viewer`, `#stats-viewer`,
-`#memory-viewer`) into the pane and hands it back to the exact slot it came from on close. Three
-consequences that are easy to break:
+the app's single existing element** into the pane and hands it back to the exact slot it came from on
+close. `VIEW_KINDS` in `views/panes-view.js` is the list; read it there rather than from here.
+
+**It is EVERY main-area surface, not the session-shaped ones** (#342). `#terminal-area` is the last
+child of `#main` and these viewers are earlier siblings at `z-index: auto`. In tabs and grid mode they
+take over by hiding `#terminal-area`; panes mode keeps that area alive on purpose
+(`display: flex !important`), so DOM order decides and the pane tree paints over anything not adopted.
+Projects and Variables sat behind the tree for exactly that reason while Activity worked — the only
+difference was being in the table. A new main-area viewer must be added to it.
+
+Four consequences that are easy to break:
 
 - **`views/panes-view.js` parks every hosted element at home before it rebuilds** `#terminals`.
   Anything still inside the old pane DOM is destroyed by `replaceChildren` — and these are singletons,
   so that would take the app's only preview panel with it.
-- **Closing the tab has to close the VIEW.** These four announce themselves by setting `display`, which
-  is also how panes-view adopts them; a tab-only close leaves an element that covers the whole main
-  area with no tab left to dismiss it.
+- **Closing the tab has to close the VIEW**, and there are **two routes**, the same two the viewers'
+  own header buttons use: `close: 'admin'` → `closeAdminView()` for the surfaces a SIDEBAR TAB drives
+  (Projects, Variables, Activity), the viewer teardown for the rest. Hiding an admin surface without
+  moving the sidebar tab back leaves the sidebar asserting a view that is gone, and `hideAllViewers()`
+  does not know `#variables-admin-content` at all.
+- **Only a USER close may run a route.** The `MutationObserver` also fires when the app hides a
+  surface to show another one; answering that with the app's close route undoes the switch — clicking
+  Projects then Variables left the sidebar on `sessions` with no tab. Hence `closeTheView`.
 - **A second window shares this origin.** A detached window (#2) must not write the layout, the
   open-sessions restore state, or `gridViewActive` — see `docs/specs/17-detached-windows.md` §4.
 

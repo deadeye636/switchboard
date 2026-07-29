@@ -32,7 +32,14 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   // What a tab can render. A tab whose kind is not in here is dropped on load
   // rather than mounted — an unknown kind means a downgrade or a corrupt store.
-  const TAB_KINDS = ['terminal', 'preview', 'diff', 'plan', 'stats', 'memory', 'jsonl'];
+  // What a tab can render. A tab whose kind is not in here is dropped on load rather than mounted —
+  // an unknown kind means a downgrade or a corrupt store. The list mirrors `VIEW_KINDS` in
+  // panes-view.js (#342 added the remaining main-area surfaces); a kind in one and not the other is
+  // not an error today, because a view tab is never restored from the store, but it is a trap.
+  const TAB_KINDS = [
+    'terminal', 'preview', 'diff', 'plan', 'stats', 'memory', 'jsonl',
+    'projects', 'variables', 'workFiles', 'settings', 'tasks', 'bookmarks', 'timeline',
+  ];
 
   // Smallest share of its parent a pane may be squeezed to by a sash drag. Below
   // this the tab strip stops being usable, and a pane that reaches 0 is impossible
