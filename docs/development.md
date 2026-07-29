@@ -182,5 +182,6 @@ contributor follows — where a module goes, why migrations are append-only, why
 belongs in `main.js`, and which document to read before touching an area. The path-scoped rules in
 `.claude/rules/` go into more detail per area.
 
-The task board is **GitHub Issues**; `docs/BACKLOG.md` and `docs/BACKLOG.jsonl` are generated
-mirrors of it (`node scripts/build-backlog.js`) and are never hand-edited.
+The task board is **GitHub Issues**. `node scripts/build-backlog.js` generates `docs/BACKLOG.md` and
+`docs/BACKLOG.jsonl` from it — both are **gitignored**, so a fresh clone has to run the script once;
+neither is ever hand-edited.

@@ -71,6 +71,8 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 
 - **Read it:** `gh issue list` / `gh issue view <n>`. For in-context grepping the generated mirror
   `docs/BACKLOG.md`; machine-readable `docs/BACKLOG.jsonl`. Both open-issues-only — **never hand-edit**.
+- **Both are gitignored** — a fresh clone or worktree has neither. If one is missing or stale, run
+  `node scripts/build-backlog.js`; the result stays local and is **never committed**.
 - **Regenerate:** `node scripts/build-backlog.js` after any issue change.
 - **New task:** `gh issue create` with the requirement + labels; plan/discuss in comments.
 - **Issue shape (keep it):** body = **the requirement only**. Plan/design and implementation go in

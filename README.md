@@ -244,8 +244,8 @@ Other documents worth knowing about:
 | [`docs/specs/`](docs/specs/) | Design records — why a feature is built the way it is |
 | [`docs/build-windows.md`](docs/build-windows.md) | The Windows toolchain (node-gyp override, node-pty patch) |
 
-The task board is **GitHub Issues**; [`docs/BACKLOG.md`](docs/BACKLOG.md) is a generated mirror for
-grepping.
+The task board is **GitHub Issues**. `node scripts/build-backlog.js` writes a local, untracked mirror
+(`docs/BACKLOG.md`) for grepping.
 
 ## Lineage & credits
 

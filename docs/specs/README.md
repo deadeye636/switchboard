@@ -1,6 +1,6 @@
 # Switchboard Feature Specs
 
-Each file in this folder is a **self-contained spec for one feature**, written so a single agent can pick it up and implement it without needing the original planning conversation. They derive from the productivity roadmap (since migrated to GitHub Issues — see `docs/BACKLOG.md`).
+Each file in this folder is a **self-contained spec for one feature**, written so a single agent can pick it up and implement it without needing the original planning conversation. They derive from the productivity roadmap (since migrated to GitHub Issues).
 
 **Specs 01–15 were implemented; two of those features have since been removed** (07 and 14 — their specs stay as design/rebuild records, marked in the table and in their own `Status:` line). **16 is the first spec written before the build** — it records the layout options for panes mode and why one was chosen, so a later rework does not re-run the argument. Its `Status:` line says what shipped and which gap is open by decision. Each spec's `Status:` line and an "As built" note (where the implementation diverged) reflect the final state. Line-number references below describe the codebase at spec-writing time and have drifted.
 

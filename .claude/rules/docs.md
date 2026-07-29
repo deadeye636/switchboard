@@ -14,7 +14,7 @@ paths:
 | **How a human builds, runs, tests or packages it** | `docs/development.md`. The README links there and keeps only the build-from-source block the security section needs. |
 | **Agent-facing procedure** (release, porting, running, driving) | `docs/ai/<topic>.md` + a row in the CLAUDE.md router |
 | **Fork feature list** | `README.md` "What this fork adds" **and** `docs/fork-features.md` (Wave 4) — a new fork feature goes in **both** |
-| **Backlog** | GitHub Issues. `docs/BACKLOG.md` / `.jsonl` are **generated** (`node scripts/build-backlog.js`) — never hand-edit |
+| **Backlog** | GitHub Issues. `docs/BACKLOG.md` / `.jsonl` are **generated** (`node scripts/build-backlog.js`) and **gitignored** — never hand-edit, never commit, and never link to them from a doc (they do not exist in the public repo) |
 | **Planning scaffolding** (task lists, state trackers, agent prompts, mockups) | `docs/plans/<issue-nr>-<slug>/` — `PLAN.md` for the working plan, `mockups/` for HTML/image mockups. This tree is **gitignored** (local only), so it never reaches the public repo. Once the work lands, its lasting parts belong in a spec; the rest is noise, and stale plan text next to a correct spec is worse than no plan text. **Do not** drop plans in `.claude/scratchpad/` or a system temp dir — `docs/plans/<slug>/` is the one home. |
 
 ## A setting changed → `docs/settings-reference.md`

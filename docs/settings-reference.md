@@ -363,7 +363,7 @@ Hermes inject nothing and use their own auth.
 | `ELECTRON_RUN_AS_NODE=1 electron scripts/demo-content.js` | Seeds the demo's DB-only content. Driven by `SWITCHBOARD_DATA_DIR` + `SWITCHBOARD_DEMO_DIR`; refuses a data dir outside the demo tree. |
 | `node scripts/upstream-check.js [--seen]` | Without the flag it only reports. |
 | `node scripts/check-debug-port.js` | Exists because Electron silently starts *without* a debug port when the port is taken. |
-| `node scripts/build-backlog.js` | Regenerates `docs/BACKLOG.md` / `.jsonl` from GitHub issues. |
+| `node scripts/build-backlog.js` | Regenerates `docs/BACKLOG.md` / `.jsonl` from GitHub issues. Both outputs are gitignored — run it once per clone. |
 
 ## Known inconsistency
 

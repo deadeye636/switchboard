@@ -5,6 +5,10 @@
 // machine consumption by agents (one issue per line: number, title, prio, labels,
 // url, refs, body). Do NOT hand-edit either file.
 //
+// Both outputs are gitignored: the issues are the source of truth, and committing a
+// regenerated mirror per issue change buried the history. A fresh clone or worktree
+// has neither file until this runs.
+//
 //   node scripts/build-backlog.js
 //
 // Needs the `gh` CLI (authenticated). Default repo via `gh repo set-default`.

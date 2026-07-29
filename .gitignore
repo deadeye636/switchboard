@@ -26,3 +26,8 @@ app.png
 
 # Local, untracked planning for large efforts (e.g. multi-LLM #142)
 docs/plans/
+
+# Generated backlog mirror — GitHub Issues are the source of truth, and one commit
+# per issue change buried the log. Rebuild with `node scripts/build-backlog.js`.
+docs/BACKLOG.md
+docs/BACKLOG.jsonl

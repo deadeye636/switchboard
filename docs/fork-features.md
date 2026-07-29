@@ -21,7 +21,7 @@ At a glance:
 
 > How this was derived: `git diff upstream/main...main`. Per-feature design docs
 > live in `docs/specs/` (features 01–08); the planning context now lives in the
-> GitHub Issues (backlog mirror: `docs/BACKLOG.md`).
+> GitHub Issues.
 
 ---
 
@@ -583,7 +583,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   writes (`cliHomeEnv()` per backend), so a session actually launched in the demo lands in the demo store —
   and `npm run demo:auth` copies your existing CLI logins into it so such a session can run at all.
 - **`upstream:check`** tooling to detect portable upstream changes across all fork branches.
-- **Issue-based workflow** — Conventional-Commits (English), backlog migrated to GitHub Issues (mirrored to `docs/BACKLOG.md`).
+- **Issue-based workflow** — Conventional-Commits (English), backlog migrated to GitHub Issues.
 - Windows build path for **VS 2026** (node-gyp 13 override, node-pty Spectre-off patch).
 
 ---
