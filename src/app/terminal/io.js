@@ -15,6 +15,9 @@ let ctx = null;
  * @param {object} context
  * @param {Map} context.activeSessions
  * @param {object} context.log
+ * @param {(sessionId: string) => Electron.BrowserWindow|null} [context.windowForSession]
+ *   which window renders this session — `app/detach.js`. Optional: without it `close-terminal`
+ *   behaves as it did before #328.
  */
 function init(context) {
   ctx = context;
@@ -164,15 +167,42 @@ function registerIpc(ipc) {
   // The tab is gone from the renderer; the session is not. It keeps running (and buffering) so it can be
   // reattached. Only an already-dead one is dropped here — the live ones die with the window, or when
   // stop-session kills them.
-  ipc.on('close-terminal', (_event, sessionId) => {
+  ipc.on('close-terminal', (event, sessionId) => {
     const session = ctx.activeSessions.get(sessionId);
     if (session) {
-      session.rendererAttached = false;
+      // Only the window that CURRENTLY owns the session may clear the flag (#328). A move (#316) is
+      // two fire-and-forget legs from two different renderers — the giver's `close-terminal` and the
+      // taker's `open-terminal` — and their arrival order here is not guaranteed. Ownership is
+      // re-registered synchronously inside the move handler, before either leg lands, so asking
+      // `windowForSession` turns a race into a fact: a release from the window that just gave the
+      // session away is not a detach, and must not report the session as unattached.
+      //
+      // The guarantee covers the handover, not a target that never arrives: if the taking window dies
+      // before it attaches, the flag stays true until that window closes and the session comes back to
+      // main. Acceptable while nothing reads it (see the definition in spawn.js) — a reader that acts
+      // on it needs a reclaim path, not just this check.
+      if (isOwningSender(sessionId, event)) session.rendererAttached = false;
       if (session.exited) {
         ctx.activeSessions.delete(sessionId);
       }
     }
   });
+}
+
+/**
+ * Did this `close-terminal` come from the window that still owns the session? Without
+ * `windowForSession` in ctx (the older wiring, and every unit test) the answer is yes, which is the
+ * behaviour that predates #328.
+ */
+function isOwningSender(sessionId, event) {
+  if (typeof ctx.windowForSession !== 'function') return true;
+  const sender = event && event.sender;
+  if (!sender) return true;
+  const owner = ctx.windowForSession(sessionId);
+  // Not dead code: `windowForSession` filters DETACHED windows for this, but falls back to the main
+  // window unfiltered — which can be gone during teardown. Nobody left to own it, so the flag may fall.
+  if (!owner || owner.isDestroyed()) return true;
+  return owner.webContents === sender;
 }
 
 module.exports = { init, registerIpc, RESIZE_SETTLE_ENABLED };

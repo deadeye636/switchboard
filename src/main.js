@@ -1761,7 +1761,7 @@ ipcMain.handle('archive-session', (_event, sessionId, archived) => {
 
 // --- Terminal I/O: input, resize, redraw, flow control (#74), detach -> app/terminal/io.js ---
 const terminalIo = require('./app/terminal/io');
-terminalIo.init({ activeSessions, log });
+terminalIo.init({ activeSessions, log, windowForSession: (sessionId) => detach.windowForSession(sessionId) });
 terminalIo.registerIpc(ipcMain);
 
 

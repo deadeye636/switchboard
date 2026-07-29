@@ -41,6 +41,8 @@ function fakeIpc() {
     on: (ch, fn) => on.set(ch, fn),
     handle: (ch, fn) => handle.set(ch, fn),
     send: (ch, ...args) => on.get(ch)(null, ...args),
+    // `close-terminal` cares WHICH window sent it (#328) — everything else ignores the event.
+    sendFrom: (ch, sender, ...args) => on.get(ch)({ sender }, ...args),
     invoke: (ch, ...args) => handle.get(ch)(null, ...args),
     channels: () => [...on.keys(), ...handle.keys()],
   };
@@ -58,13 +60,21 @@ function fakePty(over = {}) {
   };
 }
 
-function setup(sessions = []) {
+function setup(sessions = [], { windowForSession } = {}) {
   const warnings = [];
   const activeSessions = new Map(sessions);
-  io.init({ activeSessions, log: { info() {}, warn: (...a) => warnings.push(a.join(' ')), error() {} } });
+  const ctx = { activeSessions, log: { info() {}, warn: (...a) => warnings.push(a.join(' ')), error() {} } };
+  if (windowForSession) ctx.windowForSession = windowForSession;
+  io.init(ctx);
   const ipc = fakeIpc();
   io.registerIpc(ipc);
   return { ipc, activeSessions, warnings };
+}
+
+// A window is only ever compared by identity here — `close-terminal` asks "did this come from the
+// window that owns the session?", and nothing else about it matters.
+function fakeWindow() {
+  return { webContents: {}, isDestroyed: () => false };
 }
 
 const session = (over = {}) => ({ pty: fakePty(), exited: false, isPlainTerminal: false, ...over });
@@ -224,6 +234,48 @@ test('closing a tab detaches the renderer but keeps a live session alive', () =>
   ipc.send('close-terminal', 'live');
   assert.equal(live.rendererAttached, false);
   assert.equal(activeSessions.has('live'), true, 'it is still running, and reattachable');
+});
+
+// A move (#316) is two fire-and-forget legs from two different renderers, and their arrival order
+// here is not guaranteed (#328). Ownership is re-registered synchronously inside the move handler,
+// before either leg lands — so asking who owns the session turns that race into a fact.
+test('a release from the window that owns the session clears the flag', () => {
+  const owner = fakeWindow();
+  const live = session({ rendererAttached: true });
+  const { ipc } = setup([['live', live]], { windowForSession: () => owner });
+
+  ipc.sendFrom('close-terminal', owner.webContents, 'live');
+  assert.equal(live.rendererAttached, false);
+});
+
+test('a release from the window that just gave the session away does NOT', () => {
+  const newOwner = fakeWindow();
+  const formerOwner = fakeWindow();
+  const live = session({ rendererAttached: true });
+  const { ipc, activeSessions } = setup([['live', live]], { windowForSession: () => newOwner });
+
+  ipc.sendFrom('close-terminal', formerOwner.webContents, 'live');
+  assert.equal(live.rendererAttached, true, 'the taking window is attached — this was a handover, not a detach');
+  assert.equal(activeSessions.has('live'), true);
+});
+
+test('an already-dead session is dropped whoever releases it', () => {
+  // The ownership check guards the FLAG, not the cleanup: a session with no process has to leave the
+  // map either way, or it lingers as a ghost that a later reattach would try to resume.
+  const newOwner = fakeWindow();
+  const dead = session({ exited: true, rendererAttached: true });
+  const { ipc, activeSessions } = setup([['dead', dead]], { windowForSession: () => newOwner });
+
+  ipc.sendFrom('close-terminal', fakeWindow().webContents, 'dead');
+  assert.equal(activeSessions.has('dead'), false);
+});
+
+test('without the ownership question wired, a release behaves as it did before #328', () => {
+  const live = session({ rendererAttached: true });
+  const { ipc } = setup([['live', live]]); // no windowForSession in ctx
+
+  ipc.sendFrom('close-terminal', fakeWindow().webContents, 'live');
+  assert.equal(live.rendererAttached, false);
 });
 
 test('closing the tab of an already-dead session is what finally drops it', () => {

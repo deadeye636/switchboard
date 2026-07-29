@@ -86,6 +86,12 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   const existingSession = ctx.activeSessions.get(sessionId);
   if (existingSession && !existingSession.exited) {
     const session = existingSession;
+    // `rendererAttached` means "some window is rendering this session" — not "this window is".
+    // Nothing reads it today. Before anything does, read the invariant behind it (#328): a move
+    // between windows is two fire-and-forget legs from two different renderers, so `close-terminal`
+    // only clears the flag when it comes from the window that CURRENTLY owns the session
+    // (`isOwningSender` in io.js). That covers the handover; it does not cover a target window that
+    // dies before it attaches, which leaves the flag true until that window closes.
     session.rendererAttached = true;
     session.firstResize = !session.isPlainTerminal;
 

@@ -15,7 +15,8 @@ That is the whole feature. Everything below is a consequence of it.
 ```
 detach-session (IPC)  →  new BrowserWindow: index.html?detached=<sessionId>
                       →  main renderer releases its terminal for that session (close-terminal only
-                         clears `rendererAttached`; the process runs on)
+                         clears `rendererAttached`, and only for the window that still OWNS the
+                         session — #328; the process runs on either way)
                       →  the new window calls openTerminal → the reattach branch → buffer replay
 ```
 
