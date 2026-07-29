@@ -38,6 +38,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   if (typeof document === 'undefined') return; // node test context
 
   const STORE_KEY = 'paneTree';
+  const ACTIVE_KEY = 'paneActiveLeaf';
   const PERSIST_DEBOUNCE_MS = 400;
   // Below this the tools would crowd out the tabs, so they fold into the `…` menu.
   // One rule for the whole group — collapsing icon by icon reads as a glitch.
@@ -129,7 +130,15 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // between a handover and the window closing — long enough to write.
   function writeTree() {
     if (window.isDetachedWindow && window.isDetachedWindow()) return;
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(PaneTree.serialize(tree))); } catch { /* best effort */ }
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(PaneTree.serialize(tree)));
+      // Which pane was focused, beside the tree (#352). Only the tree was stored, so after every
+      // reload the active pane was `leaves(tree)[0]` again — and "a sidebar click opens in the
+      // active pane" quietly meant "in pane 1". Its own key: the tree's shape is the serialised
+      // model and nothing else belongs inside it.
+      if (activeLeafId) localStorage.setItem(ACTIVE_KEY, activeLeafId);
+      else localStorage.removeItem(ACTIVE_KEY);
+    } catch { /* best effort */ }
   }
 
   function persist() {
@@ -970,8 +979,16 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     if (active && active.entry.webglAddon && typeof forceRepaint === 'function') forceRepaint(active.entry);
   }
 
+  // One pending frame at a time (#352). A window resize fires several events per frame and each one
+  // used to queue a full pass over every visible pane — flush, drain and `safeFit` each — so a drag
+  // of the window border ran the most expensive thing in this file dozens of times for one final
+  // size. Coalescing is safe because the pass reads the layout as it is when it runs, not as it was
+  // when it was asked for.
+  let refitFrame = 0;
   function refitVisible() {
-    requestAnimationFrame(() => {
+    if (refitFrame) return;
+    refitFrame = requestAnimationFrame(() => {
+      refitFrame = 0;
       for (const leaf of PaneTree.leaves(tree)) {
         const sessionId = sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId));
         const entry = sessionId ? openSessions.get(sessionId) : null;
@@ -1120,6 +1137,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     activeLeaf();
     render();
     persist();
+    // Every other close path ends here; this one did not (#352). Dropping the last dormant tab of
+    // the active pane left the main area showing whatever the closed tab had been in front of.
+    showActiveOrPlaceholder();
   }
 
   // Close one session's tab. Mirrors tabs mode: the view goes, the PTY survives —
@@ -1635,7 +1655,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     enabled = true;
     document.body.classList.add('display-mode-panes');
     tree = loadTree();
-    activeLeaf();
+    // Restore the focused pane, not just the tree (#352). A detached window has its own one-pane
+    // tree and must not read the main window's choice.
+    if (!(window.isDetachedWindow && window.isDetachedWindow())) {
+      try { activeLeafId = localStorage.getItem(ACTIVE_KEY) || null; } catch { activeLeafId = null; }
+    }
+    activeLeaf(); // falls back to the first leaf when the stored id is not in this tree
     // The tools moved into the strips (O13/H2) — the singleton header would only
     // repeat them, for one of the panes, above all of them.
     if (typeof terminalHeader !== 'undefined' && terminalHeader) terminalHeader.style.display = 'none';
@@ -1762,7 +1787,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // rebuild on every busy edge would churn the DOM and cancel a drag (#124).
   function patchStatuses() {
     if (!enabled) return false;
-    const tabs = terminalsEl.querySelectorAll('.pane-strip .session-tab');
+    // Terminal tabs only. The selector used to take the view tabs too (#352) — they carry no
+    // `data-session-id`, so every status tick ran `sessionMap.get(undefined)` once per view tab and
+    // then stripped the status classes off an element that never had one.
+    const tabs = terminalsEl.querySelectorAll('.pane-strip .session-tab[data-session-id]');
     if (!tabs.length) return false;
     const runtime = (typeof getSessionRuntimeState === 'function') ? getSessionRuntimeState() : {};
     const statusClasses = (typeof SESSION_STATUS_CLASSES !== 'undefined') ? SESSION_STATUS_CLASSES : [];

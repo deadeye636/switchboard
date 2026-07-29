@@ -1533,7 +1533,14 @@ function showSession(sessionId) {
   // activating its tab in the pane that holds it (or adopting it into the active
   // pane). panes-view then moves the container, refits and repaints — the branches
   // below are the single-view/grid paths and must not also run.
-  if (window.panesView && window.panesView.active() && window.panesView.show(sessionId)) {
+  // A MODE GATE, not a return-if-true (#352). `show()` answers false when the session is not
+  // mounted, and this used to fall through into the single-view branch below — which calls
+  // `hideAllViewers()` (closing every view tab and collapsing the pane that held it) and
+  // `showTerminalHeader()` (bringing back the header `enable()` deliberately hid). Measured: one
+  // call with a dormant session set `terminalHeader.style.display` from 'none' to ''. Panes mode
+  // owns the terminal area; there is nothing below here for it to fall into.
+  if (window.panesView && window.panesView.active()) {
+    if (!window.panesView.show(sessionId)) return;
     placeholder.style.display = 'none';
     // NOT hidePlanViewer() here, unlike the single-view path below: in this mode
     // the viewers are tabs, and hiding them would make the observer close those

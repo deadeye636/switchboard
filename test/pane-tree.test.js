@@ -312,6 +312,54 @@ test('a serialize → deserialize round trip returns the same tree', () => {
   assert.deepEqual(deserialize(serialize(tree)), tree);
 });
 
+test('deserialize drops a duplicate leaf id rather than loading two panes under one name (#352)', () => {
+  // No UI path makes this; a hand-edited store or a merge of two saved layouts does. What it costs
+  // if it loads: removeLeaf takes the FIRST match, so "Close pane" can close the wrong pane.
+  const tree = deserialize({
+    type: 'branch',
+    orientation: 'row',
+    children: [
+      { type: 'leaf', id: 'p1', tabs: [term('t1')], activeTabId: 't1', size: 0.5 },
+      { type: 'leaf', id: 'p1', tabs: [term('t2')], activeTabId: 't2', size: 0.5 },
+    ],
+  });
+  assert.deepEqual(ids(tree), ['p1']);
+  assert.ok(isLeaf(tree), 'the branch collapsed to the one pane that survived');
+  assert.deepEqual(tree.tabs.map((t) => t.id), ['t1'], 'the first one wins, the second is dropped');
+});
+
+test('deserialize drops a duplicate tab id, wherever the twin sits (#352)', () => {
+  // A duplicate tab id makes a tab that cannot be closed: dropSession removes the first match and
+  // the second is re-rendered untouched.
+  const sameLeaf = deserialize({ type: 'leaf', id: 'p1', tabs: [term('t1'), term('t1'), term('t2')], activeTabId: 't1' });
+  assert.deepEqual(sameLeaf.tabs.map((t) => t.id), ['t1', 't2']);
+
+  const acrossLeaves = deserialize({
+    type: 'branch',
+    orientation: 'row',
+    children: [
+      { type: 'leaf', id: 'p1', tabs: [term('t1')], activeTabId: 't1', size: 0.5 },
+      { type: 'leaf', id: 'p2', tabs: [term('t1'), term('t2')], activeTabId: 't1', size: 0.5 },
+    ],
+  });
+  assert.equal(leafOfTab(acrossLeaves, 't1').id, 'p1', 'the first pane keeps it');
+  assert.deepEqual(nodeAt(acrossLeaves, pathOfLeaf(acrossLeaves, 'p2')).tabs.map((t) => t.id), ['t2']);
+});
+
+test('a pane left with no tabs by the dedup is not kept as furniture (#352)', () => {
+  const tree = deserialize({
+    type: 'branch',
+    orientation: 'row',
+    children: [
+      { type: 'leaf', id: 'p1', tabs: [term('t1')], activeTabId: 't1', size: 0.5 },
+      { type: 'leaf', id: 'p2', tabs: [term('t1')], activeTabId: 't1', size: 0.5 },
+    ],
+  });
+  // p2's only tab was the duplicate, so p2 loads empty — a valid layout, and the tree still holds it.
+  assert.deepEqual(ids(tree), ['p1', 'p2']);
+  assert.deepEqual(nodeAt(tree, pathOfLeaf(tree, 'p2')).tabs, []);
+});
+
 test('deserialize falls back to one empty pane for garbage', () => {
   for (const junk of [null, undefined, 42, 'tree', {}, { type: 'leaf' }, { type: 'branch', children: [] }]) {
     const tree = deserialize(junk, 'pane-1');

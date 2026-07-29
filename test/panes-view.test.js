@@ -375,6 +375,105 @@ test('a menu replaced within the same tick does not leak its dismiss listeners (
   } finally { h.destroy(); }
 });
 
+// --- #352: the smaller findings ----------------------------------------------
+
+test('the focused pane survives a reload, instead of resetting to pane 1 (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanes(h);
+    const focused = h.document.querySelector('.pane.pane-active').dataset.paneId;
+    assert.notEqual(focused, 'pane-1', 'the split moved focus off the first pane');
+    h.disable();                        // writes tree + active leaf
+    const tree = h.rawStored();
+    const active = h.window.localStorage.getItem('paneActiveLeaf');
+    assert.equal(active, focused);
+
+    // A fresh window with the same storage — what a reload is.
+    const h2 = setupPanesDom({ storedTree: tree });
+    try {
+      h2.window.localStorage.setItem('paneActiveLeaf', active);
+      h2.mount('a'); h2.mount('b');
+      h2.enable();
+      await h2.settle();
+      assert.equal(h2.document.querySelector('.pane.pane-active').dataset.paneId, focused);
+    } finally { h2.destroy(); }
+  } finally { h.destroy(); }
+});
+
+test('a stored active pane that is not in the tree falls back to the first (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.window.localStorage.setItem('paneActiveLeaf', 'pane-does-not-exist');
+    h.mount('a');
+    h.enable();
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane.pane-active').length, 1);
+  } finally { h.destroy(); }
+});
+
+test('a detached window does not adopt the main window\'s focused pane (#352)', async () => {
+  const h = setupPanesDom({ detached: true, detachedSessionId: 's1' });
+  try {
+    h.window.localStorage.setItem('paneActiveLeaf', 'pane-7');
+    h.mount('s1');
+    h.enable();
+    await h.settle();
+    assert.equal(h.document.querySelector('.pane.pane-active').dataset.paneId, 'pane-1');
+    assert.equal(h.window.localStorage.getItem('paneActiveLeaf'), 'pane-7', 'and did not write over it');
+  } finally { h.destroy(); }
+});
+
+test('several resize events in one frame produce one fit pass (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.enable();
+    await h.settle();
+    h.calls.safeFit.length = 0;
+    for (let i = 0; i < 8; i++) h.window.dispatchEvent(new h.window.Event('resize'));
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(h.calls.safeFit.length, 1, `eight resize events, one fit — got ${h.calls.safeFit.length}`);
+  } finally { h.destroy(); }
+});
+
+test('dropping a dormant tab settles the view like every other close does (#352)', async () => {
+  const h = setupPanesDom({
+    storedTree: JSON.stringify({
+      type: 'leaf', id: 'pane-1', size: 1, activeTabId: 'term:gone',
+      tabs: [{ id: 'term:gone', kind: 'terminal', ref: 'gone' }],
+    }),
+  });
+  try {
+    h.sessionMap.set('gone', { sessionId: 'gone', name: 'gone' });  // known, not mounted
+    h.enable();
+    await h.settle();
+    const tab = h.document.querySelector('.session-tab[data-session-id="gone"]');
+    assert.ok(tab, 'the dormant tab is there');
+    h.calls.clearActiveTerminalView = 0;
+    tab.querySelector('.session-tab-close').click();
+    await h.settle();
+    assert.equal(h.document.querySelector('.session-tab[data-session-id="gone"]'), null);
+    assert.equal(h.calls.clearActiveTerminalView, 1, 'the main area was settled rather than left as it was');
+  } finally { h.destroy(); }
+});
+
+test('the status patch ignores view tabs (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('s1');
+    h.enable();
+    await h.settle();
+    h.panes.openViewTab('jsonl', { nearSessionId: 's1' });
+    await h.settle();
+    assert.ok(h.document.querySelector('.session-tab-view'), 'a view tab is in the strip');
+    const asked = [];
+    const realGet = h.sessionMap.get.bind(h.sessionMap);
+    h.sessionMap.get = (k) => { asked.push(k); return realGet(k); };
+    h.panes.patchStatuses();
+    assert.ok(!asked.includes(undefined), `no lookup for an absent id, got ${JSON.stringify(asked)}`);
+  } finally { h.destroy(); }
+});
+
 // --- #350: the keyboard model ------------------------------------------------
 
 // Lay four panes out in a 2×2 grid and tell the harness where each one is, so the spatial

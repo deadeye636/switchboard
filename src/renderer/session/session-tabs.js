@@ -328,7 +328,20 @@ if (typeof module !== 'undefined' && module.exports) {
   // --- Tab context menu (right-click) ---
 
   let activeCtxMenu = null;
-  function closeTabContextMenu() { if (activeCtxMenu) { activeCtxMenu.remove(); activeCtxMenu = null; } }
+  // Take the document listeners down WITH the menu (#352). They used to remove themselves, which
+  // only works on the paths they detect: closing the menu by clicking one of its own items — the
+  // ordinary way to use it — reached neither, so every use left a capture-phase `mousedown` on
+  // `document` behind, permanently, one per use for the lifetime of the window. The pane menu next
+  // door describes this fix in a comment; this half never got it.
+  let ctxDismissHandlers = null;
+  function closeTabContextMenu() {
+    if (ctxDismissHandlers) {
+      document.removeEventListener('mousedown', ctxDismissHandlers.out, true);
+      document.removeEventListener('keydown', ctxDismissHandlers.esc, true);
+      ctxDismissHandlers = null;
+    }
+    if (activeCtxMenu) { activeCtxMenu.remove(); activeCtxMenu = null; }
+  }
 
   // Right-click a tab: Close (close the view, PTY keeps running), Stop & close
   // (kill the process, then close), Relaunch (stop + reopen fresh).
@@ -377,12 +390,15 @@ if (typeof module !== 'undefined' && module.exports) {
     pop.style.top = Math.max(4, Math.min(y, window.innerHeight - rect.height - 4)) + 'px';
     activeCtxMenu = pop;
     setTimeout(() => {
-      document.addEventListener('mousedown', function out(e) {
-        if (activeCtxMenu && !activeCtxMenu.contains(e.target)) { closeTabContextMenu(); document.removeEventListener('mousedown', out, true); }
-      }, true);
-      document.addEventListener('keydown', function esc(e) {
-        if (e.key === 'Escape') { closeTabContextMenu(); document.removeEventListener('keydown', esc, true); }
-      }, true);
+      // Against THIS menu, not "some menu is open": a menu replaced inside one tick would otherwise
+      // arm its pair into the single slot on top of the live one's, and the overwritten pair could
+      // never be removed again.
+      if (activeCtxMenu !== pop) return;
+      const out = (e) => { if (activeCtxMenu && !activeCtxMenu.contains(e.target)) closeTabContextMenu(); };
+      const esc = (e) => { if (e.key === 'Escape') closeTabContextMenu(); };
+      ctxDismissHandlers = { out, esc };
+      document.addEventListener('mousedown', out, true);
+      document.addEventListener('keydown', esc, true);
     }, 0);
   }
 

@@ -357,26 +357,39 @@
   // with no tabs is a valid, usable layout, so there is always a floor to fall back
   // to. `fallbackLeafId` names that floor.
   function deserialize(data, fallbackLeafId = 'pane-1') {
-    const parsed = parseNode(data, 1);
+    // Ids have to be UNIQUE across the whole tree, and stored data is the one place they might not
+    // be (#352). Nothing in the UI can produce a duplicate; a hand-edited store, a merge of two
+    // saved layouts or a downgrade can. What it costs when they get through: `removeLeaf` takes the
+    // FIRST leaf with that id, so "Close pane" can close a pane other than the one clicked, and a
+    // duplicate TAB id makes a tab that cannot be closed at all, because `dropSession` removes the
+    // first match and the second one is re-rendered untouched. A dropped duplicate is a layout the
+    // user can fix in a second; a duplicate that loads is a pane that lies about which one it is.
+    const seen = { leaves: new Set(), tabs: new Set() };
+    const parsed = parseNode(data, 1, seen);
     return parsed || makeLeaf(fallbackLeafId, [], null, 1);
   }
 
-  function parseNode(node, size) {
+  function parseNode(node, size, seen) {
     if (!node || typeof node !== 'object') return null;
     const ownSize = Number(node.size) > 0 ? Number(node.size) : size;
 
     if (node.type === 'leaf') {
       if (typeof node.id !== 'string' || !node.id) return null;
-      const tabs = Array.isArray(node.tabs) ? node.tabs.filter(isValidTab).map((t) => ({
-        id: t.id, kind: t.kind, ref: t.ref,
-      })) : [];
+      if (seen.leaves.has(node.id)) return null;   // a second pane under a name already taken
+      seen.leaves.add(node.id);
+      const tabs = [];
+      for (const t of Array.isArray(node.tabs) ? node.tabs : []) {
+        if (!isValidTab(t) || seen.tabs.has(t.id)) continue;
+        seen.tabs.add(t.id);
+        tabs.push({ id: t.id, kind: t.kind, ref: t.ref });
+      }
       return makeLeaf(node.id, tabs, node.activeTabId, ownSize);
     }
 
     if (node.type === 'branch') {
       const orientation = node.orientation === 'col' ? 'col' : 'row';
       const kids = Array.isArray(node.children) ? node.children : [];
-      const children = kids.map((c) => parseNode(c, 1 / Math.max(1, kids.length))).filter(Boolean);
+      const children = kids.map((c) => parseNode(c, 1 / Math.max(1, kids.length), seen)).filter(Boolean);
       if (!children.length) return null;
       normalizeSizes(children);
       return collapse({ type: 'branch', orientation, size: ownSize, children });

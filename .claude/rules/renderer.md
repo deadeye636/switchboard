@@ -138,9 +138,16 @@ arrived at twice from opposite directions:
 
 | Mode | Policy | Why |
 |---|---|---|
-| tabs / single | every open terminal keeps its context | only one is *visible*; a reveal repaints (`forceRepaint`, #118), which heals whatever a sibling did to the atlas meanwhile. The LRU cap (12) bounds the count against the raised budget (32, `main.js`) |
+| tabs / single | every open terminal keeps its context | only one is *visible*; a reveal repaints (`forceRepaint`, #118), which heals whatever a sibling did to the atlas meanwhile. **Nothing bounds the count** — see below |
 | **panes** | **WebGL only while ONE terminal is visible; two or more panes → every terminal on DOM**, never a mix | two visible terminals have no reveal moment, so the one nobody touched keeps the holes. All-or-nothing because a split renderer is a split *cell metric* — at dpr 2, 8.000 px under WebGL against 8.2065 px under DOM (#320) |
 | grid | only the focused card | same reason, reached first (#140) |
+
+**The LRU cap does NOT bound the live count, and this file used to say it did** (#352). `lruEvictOne`
+skips everything active, everything with a live PTY and everything not already `closed` — which is
+every session a user actually has open. Measured: `open 22 · webgl 22 · lruCap 12 · lruLen 22 ·
+closed 0 · canvases 45`. So in tabs/single mode the context count is whatever the user opens, and
+past roughly 32 Chromium starts killing contexts. Panes mode is saved by its own two-visible rule;
+tabs mode has nothing. Do not reason from the cap until something makes it true.
 
 **#320 is the cautionary tale.** It doubted the atlas, measured two WebGL terminals under a flood of
 18 000 codepoints, saw no corruption, and gave every pane a context. Daily use disproved it within
