@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (27 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (28 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-29
 
@@ -14,6 +14,7 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#146](https://github.com/deadeye636/switchboard/issues/146) Onboarding: first-time-launch welcome screen · _feature_
 - [#172](https://github.com/deadeye636/switchboard/issues/172) Claude: resuming a session that a live process owns dies with a raw CLI error · _bug_
 - [#274](https://github.com/deadeye636/switchboard/issues/274) Command palette (Ctrl/Cmd+K) to jump to sessions/projects and run actions · _feature_
+- [#337](https://github.com/deadeye636/switchboard/issues/337) Panes: revealing a tab writes its newest output before its oldest · _bug_
 
 ## P3 — someday
 
@@ -39,4 +40,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#333](https://github.com/deadeye636/switchboard/issues/333) agy: offer Switchboard's diff surface as an MCP server the CLI can call · _feature_
 - [#334](https://github.com/deadeye636/switchboard/issues/334) Tabs: the tooltip should say which project, backend and state a session is in · _feature_
 - [#335](https://github.com/deadeye636/switchboard/issues/335) Tabs: hover preview of a tab's terminal, like the Windows taskbar · _feature_
-- [#336](https://github.com/deadeye636/switchboard/issues/336) Settings: "Live-render background tabs" names something that does not happen · _chore_
+- [#338](https://github.com/deadeye636/switchboard/issues/338) Terminal: four comments in the output path describe behaviour the code does not have · _chore_
