@@ -13,6 +13,7 @@ const {
   splitLeaf,
   addTab,
   setActiveTab,
+  replaceTab,
   closeTab,
   removeLeaf,
   moveTab,
@@ -115,6 +116,35 @@ test('addTab appends by default and refuses a duplicate id', () => {
 test('setActiveTab only accepts a tab the pane actually holds', () => {
   assert.equal(setActiveTab(base(), 'p1', 't2').activeTabId, 't2');
   assert.equal(setActiveTab(base(), 'p1', 'ghost').activeTabId, 't1');
+});
+
+test('replaceTab swaps a tab in place, keeping its position (#346)', () => {
+  const tree = replaceTab(base(), 'p1', 't1', term('t9'));
+  assert.deepEqual(tree.tabs.map((t) => t.id), ['t9', 't2']);
+  assert.deepEqual(tree.tabs[0], term('t9'));
+});
+
+test('replaceTab carries the active flag with the tab it replaces (#346)', () => {
+  // t1 is active → the replacement is.
+  assert.equal(replaceTab(base(), 'p1', 't1', term('t9')).activeTabId, 't9');
+  // t2 is not → the focus stays on t1.
+  assert.equal(replaceTab(base(), 'p1', 't2', term('t9')).activeTabId, 't1');
+});
+
+test('replaceTab refuses an unknown tab, a missing replacement and a duplicate id (#346)', () => {
+  assert.deepEqual(replaceTab(base(), 'p1', 'ghost', term('t9')), base());
+  assert.deepEqual(replaceTab(base(), 'ghost', 't1', term('t9')), base());
+  assert.deepEqual(replaceTab(base(), 'p1', 't1', null), base());
+  assert.deepEqual(replaceTab(base(), 'p1', 't1', { kind: 'terminal' }), base());
+  // t2 is already in this pane — replacing t1 with it would make two tabs share an id.
+  assert.deepEqual(replaceTab(base(), 'p1', 't1', term('t2')), base());
+});
+
+test('replaceTab finds the tab in a nested pane (#346)', () => {
+  const tree = splitLeaf(base(), 'p1', 'right', { newLeafId: 'p2', tab: term('t3') });
+  const next = replaceTab(tree, 'p2', 't3', term('t4'));
+  assert.equal(leafOfTab(next, 't4').id, 'p2');
+  assert.equal(leafOfTab(next, 't3'), null);
 });
 
 test('closing the active tab focuses its successor, then the last one', () => {

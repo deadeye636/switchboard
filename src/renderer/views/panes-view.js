@@ -120,17 +120,22 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // localStorage, like gridLayout/gridViewActive next door. Sizes are fractions,
   // so a layout saved on a 4K screen restores sanely on a laptop.
 
-  function persist() {
-    // A detached window owns no layout (#2). It shares this origin's localStorage with the main
-    // window, so writing here would overwrite the user's arrangement with the pane it happens to
-    // show. Ask the URL, not `__detachedSessionId`: that one follows the window's session set since
-    // #325 and is empty between a handover and the window closing — long enough to write.
+  // The ONE writer of the layout key, guard included (#344). A detached window owns no layout (#2):
+  // it shares this origin's localStorage with the main window, so writing here would overwrite the
+  // user's arrangement with the single pane it happens to show. The guard belongs to the key, not to
+  // one of its writers — `disable()` used to write past it, and a display-mode change with a
+  // detached window open replaced a three-pane layout with one session, with no undo. Ask the URL,
+  // not `__detachedSessionId`: that one follows the window's session set since #325 and is empty
+  // between a handover and the window closing — long enough to write.
+  function writeTree() {
     if (window.isDetachedWindow && window.isDetachedWindow()) return;
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(PaneTree.serialize(tree))); } catch { /* best effort */ }
+  }
+
+  function persist() {
     clearTimeout(persistTimer);
     // A sash drag fires dozens of updates per gesture; write once it settles.
-    persistTimer = setTimeout(() => {
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(PaneTree.serialize(tree))); } catch { /* best effort */ }
-    }, PERSIST_DEBOUNCE_MS);
+    persistTimer = setTimeout(writeTree, PERSIST_DEBOUNCE_MS);
   }
 
   function loadTree() {
@@ -187,6 +192,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
   function render() {
     if (!enabled || !tree) return;
+    // A rebuild replaces every sash, so a drag in flight has already lost the element it was
+    // holding. End it here — before the tree is walked, so the size it dragged to is the one drawn
+    // — instead of leaving the gesture and its `pane-sashing` body class behind (#345).
+    if (endSashDrag) endSashDrag();
     adoptOrphans();
     // Park every view element at home first. The rebuild below re-adopts the ones
     // that still have a tab; anything left inside the old pane DOM would be
@@ -1304,10 +1313,33 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   }
 
   // --- Sash drag ------------------------------------------------------------
+  //
+  // The gesture outlives the element it starts on, so its listeners must too (#345). They used to
+  // hang on the SASH, and the only thing that removed `pane-sashing` from <body> was its `pointerup`
+  // — while every `render()` does `replaceChildren` and takes the sash with it. A background session
+  // ending mid-drag (destroySession → dropSession → scheduleRender) was enough: the sash died before
+  // it could be released, the class stayed, and `body.pane-sashing .terminal-container` kept
+  // `pointer-events: none` on every terminal for the rest of the window's life. Nothing was
+  // clickable, selectable or right-clickable, and the only way out was performing another complete
+  // sash drag.
+  //
+  // Ways a pointer gesture ends. `pointerup` is the ordinary one; `pointercancel` arrives when the
+  // browser takes the pointer away (a touch turning into a scroll, the window losing it), and
+  // `lostpointercapture` when the capture goes — including the implicit release when the captured
+  // element is removed from the document. Several of them can arrive for one gesture, so the ender
+  // has to be idempotent.
+  const SASH_END_EVENTS = ['pointerup', 'pointercancel', 'lostpointercapture'];
+
+  // The in-flight gesture's ender, or null. `render()` calls it: a rebuild takes the sash away, so
+  // the drag has already lost its anchor and finishing it there is what keeps the class off <body>.
+  let endSashDrag = null;
 
   function startSashDrag(e, sash, path, index, orientation) {
     if (e.button !== 0) return;
     e.preventDefault();
+    // A second gesture cannot start on top of a live one — end the old one first, or its listeners
+    // and the body class would outlive it.
+    if (endSashDrag) endSashDrag();
     const branchEl = sash.parentElement;
     const extent = orientation === 'row' ? branchEl.clientWidth : branchEl.clientHeight;
     if (!extent) return;
@@ -1334,20 +1366,27 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         if (kids[i]) kids[i].style.flex = `${child.size} 1 0`;
       });
     };
-    const onUp = () => {
-      sash.removeEventListener('pointermove', onMove);
-      sash.removeEventListener('pointerup', onUp);
+    const finish = () => {
+      if (endSashDrag !== finish) return; // already ended — a second ender for the same gesture
+      endSashDrag = null;
+      window.removeEventListener('pointermove', onMove, true);
+      for (const type of SASH_END_EVENTS) window.removeEventListener(type, finish, true);
       sash.classList.remove('dragging');
+      // The one line this whole rework exists for: it runs no matter which way the gesture ended.
       document.body.classList.remove('pane-sashing');
       if (pending) {
+        // Commit what was dragged rather than discarding it. When the ender is a rebuild, `render()`
+        // calls this BEFORE it walks the tree, so the new sizes are the ones it draws.
         tree = PaneTree.resizeSash(tree, path, index, pending);
         persist();
       }
       // The panes changed size, so every visible terminal needs a fresh fit.
       refitVisible();
     };
-    sash.addEventListener('pointermove', onMove);
-    sash.addEventListener('pointerup', onUp);
+    endSashDrag = finish;
+    // On `window`, in the capture phase: the sash is the one element this gesture cannot rely on.
+    window.addEventListener('pointermove', onMove, true);
+    for (const type of SASH_END_EVENTS) window.addEventListener(type, finish, true);
   }
 
   // --- Mode lifecycle -------------------------------------------------------
@@ -1368,8 +1407,16 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
   function disable() {
     if (!enabled) return;
+    // End an in-flight sash drag before the panes go (#345). This path removes the pane DOM without
+    // going through `render()`, so its hook does not fire — and `body.pane-sashing .terminal-container
+    // { pointer-events: none }` is NOT scoped to panes mode, so the class left behind here would go
+    // on killing clicks in the mode being switched INTO. A settings change is broadcast to every
+    // window, so this is reachable while the user is still holding the mouse down.
+    if (endSashDrag) endSashDrag();
+    // Write the final state NOW rather than letting the debounce fire into a torn-down mode — but
+    // through the one guarded writer, so a detached window still writes nothing (#344).
     clearTimeout(persistTimer);
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(PaneTree.serialize(tree))); } catch { /* best effort */ }
+    writeTree();
     closePaneMenu();
     // Off FIRST, before anything that can call back in. `filePanelRelayout` below
     // re-shows the panel, and while this still read as active that took the panes
@@ -1432,6 +1479,28 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       tree = PaneTree.setActiveTab(tree, leaf.id, tabId);
     }
     activeLeafId = leaf.id;
+    scheduleRender();
+    persist();
+    return true;
+  }
+
+  // A live session moved to a new id (#346). `/clear` in a CLI is the everyday case: the CLI starts
+  // a fresh session, main reports it, and the renderer re-keys openSessions/sessionMap onto the new
+  // id. A tab id is DERIVED from the session id (`tabIdFor`), so without this the tree keeps naming
+  // the retired one — the pane finds nothing mounted behind its own active tab and falls back to
+  // the empty state, while `adoptOrphans` gives the session that IS running a fresh tab in whatever
+  // pane happens to be active. Rename in place, so the session stays where the user put it.
+  function rekeySession(oldId, newId) {
+    if (!enabled || !tree || !oldId || !newId || oldId === newId) return false;
+    const fromTabId = tabIdFor(oldId);
+    const leaf = PaneTree.leafOfTab(tree, fromTabId);
+    if (!leaf) return false;
+    // The new id can already have a tab of its own — a dormant one from a saved layout. Then there
+    // is nothing to rename onto: retire the old tab and leave the existing one where it is.
+    tree = PaneTree.leafOfTab(tree, tabIdFor(newId))
+      ? PaneTree.closeTab(tree, leaf.id, fromTabId)
+      : PaneTree.replaceTab(tree, leaf.id, fromTabId, makeTerminalTab(newId));
+    activeLeaf();
     scheduleRender();
     persist();
     return true;
@@ -1541,6 +1610,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     active: () => enabled,
     applySettings,
     show,
+    rekeySession,
     dropSession,
     patchStatuses,
     refreshChrome,

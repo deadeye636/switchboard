@@ -119,6 +119,12 @@ window.api.onSessionForked((oldId, newId) => {
   // Re-key file panel state for the new session ID
   if (typeof rekeyFilePanelState === 'function') rekeyFilePanelState(oldId, newId);
 
+  // …and the pane that renders it (#346). A pane tab's id is derived from the session id, so
+  // without this the layout keeps naming the retired one: the pane shows its empty state and the
+  // running session is re-adopted into whatever pane is active. Tabs mode needs nothing — its strip
+  // is rendered straight from openSessions, which was re-keyed above.
+  if (window.panesView) window.panesView.rekeySession(oldId, newId);
+
   // Re-key pending session to newId so sidebar item persists until DB has real data
   const pendingEntry = pendingSessions.get(oldId);
   pendingSessions.delete(oldId);

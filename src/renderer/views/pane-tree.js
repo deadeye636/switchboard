@@ -214,6 +214,23 @@
     return replaceAt(tree, path, leaf);
   }
 
+  // Swap one tab for another IN PLACE — same pane, same position in the strip, and still the pane's
+  // active tab when it was (#346). A live session that moves to a new id keeps its place in the
+  // layout this way; closing the old tab and adding a new one would send it to whichever pane
+  // happens to be active. Unknown tab, or a replacement whose id already sits in this pane, is a
+  // no-op.
+  function replaceTab(tree, leafId, tabId, next) {
+    const path = pathOfLeaf(tree, leafId);
+    if (!path || !next || !next.id) return clone(tree);
+    const leaf = clone(nodeAt(tree, path));
+    const idx = leaf.tabs.findIndex((t) => t.id === tabId);
+    if (idx === -1) return clone(tree);
+    if (next.id !== tabId && leaf.tabs.some((t) => t.id === next.id)) return clone(tree);
+    leaf.tabs[idx] = { id: next.id, kind: next.kind, ref: next.ref };
+    if (leaf.activeTabId === tabId) leaf.activeTabId = next.id;
+    return replaceAt(tree, path, leaf);
+  }
+
   // Close a tab. When it was the pane's last one the pane goes and its siblings
   // take the space (#309 O10) — except for the root pane, which stays behind empty
   // so the tree always has somewhere to open the next tab.
@@ -386,6 +403,7 @@
     splitLeaf,
     addTab,
     setActiveTab,
+    replaceTab,
     closeTab,
     removeLeaf,
     moveTab,
