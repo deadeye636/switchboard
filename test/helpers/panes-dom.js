@@ -33,6 +33,7 @@ const HTML = `<!DOCTYPE html><html><body>
     <div id="stats-viewer" style="display:none"></div>
     <div id="memory-viewer" style="display:none"></div>
   </div>
+  <div id="pane-live-region" aria-live="polite" aria-atomic="true"></div>
 </body></html>`;
 
 /**

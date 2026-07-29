@@ -311,6 +311,21 @@
   // `delta` is a fraction of the branch's extent. Both neighbours keep at least
   // MIN_PANE_FRACTION; everything else in the branch is untouched, which is what
   // makes a drag feel local instead of reflowing the whole row.
+  // Give every child of a branch the same share (#351 — the keyboard's reset, and the "distribute
+  // evenly" the pointer path has never had). NOT a sequence of `resizeSash` calls: that one moves a
+  // single boundary and clamps against its immediate neighbour's slack, so walking it left to right
+  // stalls the moment one neighbour is already at the floor — which is exactly the squeezed layout
+  // someone reaches for a reset from. Above 1/MIN_PANE_FRACTION children an even share IS below the
+  // floor; even is still even, and there is no arrangement of that many panes that is not.
+  function distributeEvenly(tree, path) {
+    const branch = nodeAt(tree, path);
+    if (!isBranch(branch)) return clone(tree);
+    const next = clone(branch);
+    const even = 1 / next.children.length;
+    for (const child of next.children) child.size = even;
+    return replaceAt(tree, path, next);
+  }
+
   function resizeSash(tree, path, index, delta) {
     const branch = nodeAt(tree, path);
     if (!isBranch(branch) || index < 0 || index + 1 >= branch.children.length) return clone(tree);
@@ -421,6 +436,7 @@
     removeLeaf,
     moveTab,
     resizeSash,
+    distributeEvenly,
     pruneTabs,
     serialize,
     deserialize,

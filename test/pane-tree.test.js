@@ -18,6 +18,7 @@ const {
   removeLeaf,
   moveTab,
   resizeSash,
+  distributeEvenly,
   pruneTabs,
   serialize,
   deserialize,
@@ -296,6 +297,33 @@ test('resizeSash ignores a bad path, a bad index or a zero delta', () => {
   assert.deepEqual(resizeSash(tree, [], 1, 0.1), tree, 'no sash after the last child');
   assert.deepEqual(resizeSash(tree, [], 0, 0), tree);
   assert.deepEqual(resizeSash(tree, [], 0, NaN), tree);
+});
+
+test('distributeEvenly gives every child the same share (#351)', () => {
+  let tree = splitLeaf(base(), 'p1', 'right', { newLeafId: 'p2', tab: term('t3') });
+  tree = splitLeaf(tree, 'p2', 'right', { newLeafId: 'p3', tab: term('t4') });
+  tree = resizeSash(tree, [], 0, 0.2);
+  assert.notDeepEqual(sizes(tree), [0.3333, 0.3333, 0.3333]);
+  const even = distributeEvenly(tree, []);
+  assert.deepEqual(sizes(even), [0.3333, 0.3333, 0.3333]);
+});
+
+test('distributeEvenly resets a layout resizeSash could not walk back (#351)', () => {
+  // Two neighbours squeezed to the floor: stepping one boundary at a time stalls, because each move
+  // is clamped by the slack of the pane right next to it. That squeezed state is exactly when
+  // someone reaches for a reset.
+  let tree = splitLeaf(base(), 'p1', 'right', { newLeafId: 'p2', tab: term('t3') });
+  tree = splitLeaf(tree, 'p2', 'right', { newLeafId: 'p3', tab: term('t4') });
+  tree = resizeSash(tree, [], 0, -1);   // p1 down to the floor
+  tree = resizeSash(tree, [], 1, -1);   // p2 down to the floor
+  assert.equal(Number(tree.children[0].size.toFixed(4)), MIN_PANE_FRACTION);
+  const even = distributeEvenly(tree, []);
+  assert.deepEqual(sizes(even), [0.3333, 0.3333, 0.3333]);
+});
+
+test('distributeEvenly ignores a path that is not a branch (#351)', () => {
+  assert.deepEqual(distributeEvenly(base(), []), base());
+  assert.deepEqual(distributeEvenly(base(), [3, 1]), base());
 });
 
 test('pruneTabs drops what the caller no longer recognises, panes and all', () => {

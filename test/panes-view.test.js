@@ -375,6 +375,164 @@ test('a menu replaced within the same tick does not leak its dismiss listeners (
   } finally { h.destroy(); }
 });
 
+// --- #351: the strip has to be a tab list, and usable without a mouse --------
+
+test('the strip announces itself as a tab list with selectable tabs (#351)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a', { name: 'Alpha' });
+    h.mount('b', { name: 'Beta' });
+    h.enable();
+    await h.settle();
+    const list = h.document.querySelector('.pane-strip .session-tabs-list');
+    assert.equal(list.getAttribute('role'), 'tablist');
+    assert.equal(list.getAttribute('aria-orientation'), 'horizontal');
+    const tabs = [...list.querySelectorAll('.session-tab')];
+    assert.equal(tabs.length, 2);
+    for (const t of tabs) {
+      assert.equal(t.getAttribute('role'), 'tab');
+      assert.ok(t.getAttribute('aria-label'), 'every tab has a name');
+      assert.ok(t.id, 'and an id the panel can point at');
+    }
+    assert.deepEqual(tabs.map((t) => t.getAttribute('aria-selected')), ['false', 'true']);
+    // The pane body is the panel, labelled by whichever tab is on top.
+    const body = h.document.querySelector('.pane-body');
+    assert.equal(body.getAttribute('role'), 'tabpanel');
+    assert.equal(body.getAttribute('aria-labelledby'), tabs[1].id);
+  } finally { h.destroy(); }
+});
+
+test('the accessible name carries the state a sighted user reads from the dot (#351)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('live', { name: 'Live' });
+    h.mount('stopped', { name: 'Stopped', running: false });
+    h.enable();
+    await h.settle();
+    const nameOf = (sid) => h.document.querySelector(`.session-tab[data-session-id="${sid}"]`).getAttribute('aria-label');
+    assert.equal(nameOf('live'), 'Live, running');
+    assert.equal(nameOf('stopped'), 'Stopped, stopped');
+  } finally { h.destroy(); }
+});
+
+test('the strip is ONE tab stop, and the close buttons are not (#351)', async () => {
+  const h = setupPanesDom();
+  try {
+    for (const id of ['a', 'b', 'c']) h.mount(id);
+    h.enable();
+    await h.settle();
+    const tabs = [...h.document.querySelectorAll('.pane-strip .session-tab')];
+    assert.deepEqual(tabs.map((t) => t.tabIndex), [-1, -1, 0], 'only the active tab is reachable by Tab');
+    for (const btn of h.document.querySelectorAll('.session-tab-close')) {
+      assert.equal(btn.tabIndex, -1, 'a close button is not a tab stop of its own');
+      assert.ok(btn.getAttribute('aria-label').startsWith('Close '), 'but it is still named');
+    }
+  } finally { h.destroy(); }
+});
+
+test('arrows move focus inside the strip without activating anything (#351)', async () => {
+  const h = setupPanesDom();
+  try {
+    for (const id of ['a', 'b', 'c']) h.mount(id);
+    h.enable();
+    await h.settle();
+    const list = h.document.querySelector('.pane-strip .session-tabs-list');
+    const tabs = [...list.querySelectorAll('.session-tab')];
+    const selectedBefore = tabs.map((t) => t.getAttribute('aria-selected'));
+    h.calls.showSession.length = 0;   // the setup already showed one; only the arrows are on trial
+    tabs[2].focus();
+    const press = (key, opts = {}) => tabs.find((t) => t === h.document.activeElement)
+      .dispatchEvent(new h.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...opts }));
+
+    press('ArrowLeft');
+    assert.equal(h.document.activeElement.dataset.sessionId, 'b');
+    press('Home');
+    assert.equal(h.document.activeElement.dataset.sessionId, 'a');
+    press('End');
+    assert.equal(h.document.activeElement.dataset.sessionId, 'c');
+    // Focus is not selection: nothing was opened on the way.
+    assert.deepEqual([...list.querySelectorAll('.session-tab')].map((t) => t.getAttribute('aria-selected')), selectedBefore);
+    assert.deepEqual(h.calls.showSession, []);
+  } finally { h.destroy(); }
+});
+
+test('Enter selects the focused tab, Delete closes it (#351)', async () => {
+  const h = setupPanesDom();
+  try {
+    for (const id of ['a', 'b', 'c']) h.mount(id, { running: false });
+    h.enable();
+    await h.settle();
+    let tabs = [...h.document.querySelectorAll('.pane-strip .session-tab')];
+    tabs[0].focus();
+    tabs[0].dispatchEvent(new h.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await h.settle();
+    assert.equal(h.document.querySelector('.session-tab.active').dataset.sessionId, 'a');
+
+    tabs = [...h.document.querySelectorAll('.pane-strip .session-tab')];
+    tabs[1].focus();
+    tabs[1].dispatchEvent(new h.window.KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+    await h.settle();
+    assert.deepEqual(h.calls.destroySession, ['b']);
+  } finally { h.destroy(); }
+});
+
+test('Shift+F10 opens the menu for the FOCUSED tab, not the active one (#351)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a'); h.mount('b');
+    h.enable();
+    await h.settle();
+    const tabs = [...h.document.querySelectorAll('.pane-strip .session-tab')];
+    tabs[0].focus();
+    tabs[0].dispatchEvent(new h.window.KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true }));
+    const menu = h.document.querySelector('.session-tab-menu');
+    assert.ok(menu, 'a menu opened');
+    // A tab menu carries the tab items; the pane-only menu does not.
+    assert.ok([...menu.querySelectorAll('.session-tab-menu-item')].some((b) => b.textContent === 'Stop & close'));
+  } finally { h.destroy(); }
+});
+
+test('the sash is focusable, resizes with the arrows and resets with Home (#351)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanes(h);
+    const sash = h.document.querySelector('.pane-sash');
+    assert.equal(sash.tabIndex, 0, 'the separator role finally has something behind it');
+    assert.equal(sash.getAttribute('aria-valuenow'), '50');
+    assert.ok(sash.getAttribute('aria-label'));
+
+    sash.focus();
+    sash.dispatchEvent(new h.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+    let now = Number(h.document.querySelector('.pane-sash').getAttribute('aria-valuenow'));
+    assert.equal(now, 45, 'one step to the left');
+    assert.equal(h.document.activeElement.classList.contains('pane-sash'), true,
+      'and the focus followed the rebuilt element');
+
+    h.document.querySelector('.pane-sash').dispatchEvent(
+      new h.window.KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true, cancelable: true }));
+    now = Number(h.document.querySelector('.pane-sash').getAttribute('aria-valuenow'));
+    assert.equal(now, 46, 'Shift is a nudge');
+
+    h.document.querySelector('.pane-sash').dispatchEvent(
+      new h.window.KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    now = Number(h.document.querySelector('.pane-sash').getAttribute('aria-valuenow'));
+    assert.equal(now, 50, 'Home distributes evenly — the reset the pointer path never had');
+  } finally { h.destroy(); }
+});
+
+test('what changes is announced (#351)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanes(h);
+    const region = h.document.getElementById('pane-live-region');
+    assert.ok(region, 'panes have their own live region, so the attention summary cannot clobber it');
+    h.document.querySelector('.pane-sash').focus();
+    h.document.querySelector('.pane-sash').dispatchEvent(
+      new h.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+    assert.match(region.textContent, /percent/);
+  } finally { h.destroy(); }
+});
+
 // --- #352: the smaller findings ----------------------------------------------
 
 test('the focused pane survives a reload, instead of resetting to pane 1 (#352)', async () => {

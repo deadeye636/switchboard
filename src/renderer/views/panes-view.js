@@ -275,14 +275,70 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return el;
   }
 
+  // How far one arrow press moves a sash, as a fraction of the branch. Coarse enough to get
+  // somewhere, fine enough to land where you meant; Shift makes it a nudge.
+  const SASH_KEY_STEP = 0.05;
+  const SASH_KEY_STEP_FINE = 0.01;
+
   function buildSash(branch, path, index) {
     const sash = document.createElement('div');
     sash.className = 'pane-sash pane-sash-' + branch.orientation;
     sash.setAttribute('role', 'separator');
     sash.setAttribute('aria-orientation', branch.orientation === 'row' ? 'vertical' : 'horizontal');
+    // The role was there already, on an element with no tabindex and no key handling — an ARIA
+    // promise with nothing behind it (#351). Now it is focusable and it resizes, and it reports the
+    // share of the pane before it so the number a screen reader hears is the one that changes.
+    sash.tabIndex = 0;
+    sash.setAttribute('aria-label', 'Resize panes');
+    // A keyboard resize rebuilds the tree, which destroys this element — so it has to be findable
+    // again afterwards, or the focus would land back at the top of the document on the first press.
+    sash.dataset.sash = path.join('.') + ':' + index;
+    const before = branch.children[index];
+    if (before) {
+      sash.setAttribute('aria-valuenow', String(Math.round(before.size * 100)));
+      sash.setAttribute('aria-valuemin', String(Math.round(PaneTree.MIN_PANE_FRACTION * 100)));
+      sash.setAttribute('aria-valuemax', String(100 - Math.round(PaneTree.MIN_PANE_FRACTION * 100)));
+    }
     sash.addEventListener('pointerdown', (e) => startSashDrag(e, sash, path, index, branch.orientation));
+    sash.addEventListener('keydown', (e) => handleSashKey(e, branch.orientation, path, index));
     return sash;
   }
+
+  // Resize from the keyboard. Home distributes the branch evenly again, which is also the "reset"
+  // the pointer path has never had.
+  // Put the focus back on the sash the user is holding, after the rebuild took the element away.
+  function refocusSash(path, index) {
+    const key = path.join('.') + ':' + index;
+    const el = terminalsEl.querySelector('.pane-sash[data-sash="' + key + '"]');
+    if (el && typeof el.focus === 'function') el.focus();
+  }
+
+  function handleSashKey(e, orientation, path, index) {
+    const back = orientation === 'row' ? 'ArrowLeft' : 'ArrowUp';
+    const fwd = orientation === 'row' ? 'ArrowRight' : 'ArrowDown';
+    const step = e.shiftKey ? SASH_KEY_STEP_FINE : SASH_KEY_STEP;
+    let delta = 0;
+    if (e.key === back) delta = -step;
+    else if (e.key === fwd) delta = step;
+    else if (e.key === 'Home') {
+      e.preventDefault();
+      tree = PaneTree.distributeEvenly(tree, path);
+      render();
+      persist();
+      refocusSash(path, index);
+      announcePane('Panes distributed evenly');
+      return;
+    } else return;
+    e.preventDefault();
+    tree = PaneTree.resizeSash(tree, path, index, delta);
+    render();
+    persist();
+    refocusSash(path, index);
+    const branch = PaneTree.nodeAt(tree, path);
+    const size = branch && branch.children[index] ? Math.round(branch.children[index].size * 100) : null;
+    if (size !== null) announcePane('Pane ' + (index + 1) + ', ' + size + ' percent');
+  }
+
 
   function buildPane(leaf) {
     const pane = document.createElement('div');
@@ -297,6 +353,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
     const body = document.createElement('div');
     body.className = 'pane-body';
+    // The panel the tab list controls (#351). Labelled by whichever tab is on top, so a screen
+    // reader moving into the body is told what it is looking at.
+    body.setAttribute('role', 'tabpanel');
+    if (leaf.activeTabId) body.setAttribute('aria-labelledby', domTabId(leaf.id, leaf.activeTabId));
     for (const tab of leaf.tabs) {
       if (isViewTab(tab)) {
         // The element follows its TAB, active or not — parked out of sight when
@@ -365,6 +425,90 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return empty;
   }
 
+  // --- Accessibility (#351) -------------------------------------------------
+  //
+  // The strip was a row of unlabelled divs: no `role`, no `aria-selected`, `tabIndex -1`, and 93
+  // focusable elements across the panes — almost all of them the `×` on each tab. So tabbing handed
+  // the user a destroy button for every tab and no way to select one.
+  //
+  // The model is VS Code's editor tabs, which is also what a screen reader user will already know:
+  // `role="tablist"` over `role="tab"` with `aria-selected`, the pane body as the tab panel, and a
+  // ROVING TABINDEX — the whole strip is ONE tab stop, and arrows move inside it. That is what turns
+  // the `×` buttons from tab stops into what they are, buttons you reach deliberately.
+
+  const paneLiveRegion = document.getElementById('pane-live-region');
+  function announcePane(message) {
+    if (paneLiveRegion) paneLiveRegion.textContent = message;
+  }
+
+  // A DOM id for a tab element, so the pane body can point at the one that labels it. Tab ids carry
+  // a colon (`term:<uuid>`), which is legal in an id but awkward everywhere it is later selected.
+  const domTabId = (leafId, tabId) => 'pt-' + leafId + '-' + String(tabId).replace(/[^a-zA-Z0-9_-]/g, '_');
+
+  // What a screen reader hears for a tab: the name plus the state a sighted user reads from the dot
+  // and the dimming. Without the state it would announce a dead session and a running one alike.
+  function tabAccessibleName(leaf, tab) {
+    const label = tabLabel(leaf, tab);
+    if (isViewTab(tab)) return label + ', view';
+    const sessionId = sessionOfTab(tab);
+    if (!openSessions.has(sessionId)) return label + (hasExited(sessionId) ? ', exited' : ', not open');
+    return label + (sessionIsLive(sessionId) ? ', running' : ', stopped');
+  }
+
+  // Move focus inside the strip. Roving tabindex: exactly one tab is reachable by Tab, and the
+  // arrows move both the focus and which one that is. Focus does NOT activate — a screen reader user
+  // has to be able to walk past a tab without opening every session on the way.
+  function focusTabAt(list, index) {
+    const tabs = [...list.querySelectorAll('.session-tab')];
+    if (!tabs.length) return;
+    const at = Math.max(0, Math.min(index, tabs.length - 1));
+    for (const [i, el] of tabs.entries()) el.tabIndex = i === at ? 0 : -1;
+    tabs[at].focus();
+    if (typeof tabs[at].scrollIntoView === 'function') tabs[at].scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }
+
+  function wireStripKeys(list, leaf) {
+    list.addEventListener('keydown', (e) => {
+      const tabs = [...list.querySelectorAll('.session-tab')];
+      const at = tabs.indexOf(e.target.closest ? e.target.closest('.session-tab') : null);
+      if (at < 0) return;
+      const tab = leaf.tabs[at];
+      switch (e.key) {
+        case 'ArrowLeft': e.preventDefault(); focusTabAt(list, at - 1); return;
+        case 'ArrowRight': e.preventDefault(); focusTabAt(list, at + 1); return;
+        case 'Home': e.preventDefault(); focusTabAt(list, 0); return;
+        case 'End': e.preventDefault(); focusTabAt(list, tabs.length - 1); return;
+        case 'Enter':
+        case ' ':
+          e.preventDefault();
+          if (!tab) return;
+          if (isViewTab(tab)) {
+            tree = PaneTree.setActiveTab(tree, leaf.id, tab.id);
+            activeLeafId = leaf.id;
+            render();
+            persist();
+          } else {
+            openFromTab(leaf, tab, sessionOfId(sessionOfTab(tab)));
+          }
+          announcePane(tabAccessibleName(leaf, tab) + ', selected');
+          return;
+        case 'Delete':
+        case 'Backspace':
+          e.preventDefault();
+          if (tab) { announcePane(tabLabel(leaf, tab) + ', closed'); closeTabFromUi(leaf.id, tab); }
+          return;
+        default:
+          // Shift+F10 and the menu key are the keyboard's context menu, on the FOCUSED tab — the
+          // `…` button reaches the pane's menu, never a particular tab's.
+          if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+            e.preventDefault();
+            const r = tabs[at].getBoundingClientRect();
+            openPaneMenu({ x: r.left, y: r.bottom }, leaf.id, tab);
+          }
+      }
+    });
+  }
+
   function stripCtrl(text, title, onClick) {
     const b = document.createElement('button');
     b.className = 'session-tabs-ctrl';
@@ -382,8 +526,13 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
     const list = document.createElement('div');
     list.className = 'session-tabs-list';
+    // The strip IS a tab list (#351) — it just never said so.
+    list.setAttribute('role', 'tablist');
+    list.setAttribute('aria-orientation', 'horizontal');
+    list.setAttribute('aria-label', 'Tabs in this pane');
     const runtime = (typeof getSessionRuntimeState === 'function') ? getSessionRuntimeState() : {};
     for (const tab of leaf.tabs) list.appendChild(buildTab(leaf, tab, runtime));
+    wireStripKeys(list, leaf);
     list.addEventListener('wheel', (e) => {
       if (e.deltaY !== 0) { list.scrollLeft += e.deltaY; e.preventDefault(); }
     }, { passive: false });
@@ -494,6 +643,21 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return qualifier ? `${base} — ${qualifier}` : base;
   }
 
+  // The `×` on a tab. NOT its own tab stop (#351): ninety-three focusable elements in the panes were
+  // almost all of these, so Tab offered a destroy button per tab and no way to select one. It stays
+  // clickable and stays labelled; the keyboard route to it is Delete on the focused tab.
+  function buildTabClose(leaf, tab, name) {
+    const close = document.createElement('button');
+    close.className = 'session-tab-close';
+    close.type = 'button';
+    close.title = 'Close tab';
+    close.textContent = '×';
+    close.tabIndex = -1;
+    close.setAttribute('aria-label', 'Close ' + name);
+    close.addEventListener('click', (e) => { e.stopPropagation(); closeTabFromUi(leaf.id, tab); });
+    return close;
+  }
+
   function buildTab(leaf, tab, runtime) {
     if (isViewTab(tab)) return buildViewTab(leaf, tab);
     const sessionId = sessionOfTab(tab);
@@ -501,12 +665,20 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const name = tabLabel(leaf, tab);
 
     const el = document.createElement('div');
-    el.className = 'session-tab' + (tab.id === leaf.activeTabId ? ' active' : '');
+    const isActive = tab.id === leaf.activeTabId;
+    el.className = 'session-tab' + (isActive ? ' active' : '');
     el.dataset.sessionId = sessionId;
     el.dataset.tabId = tab.id;
     el.dataset.paneId = leaf.id;
     el.title = name;
     el.draggable = true;
+    // Roving tabindex (#351): the active tab is the strip's single tab stop, the rest are reachable
+    // with the arrows once focus is inside.
+    el.id = domTabId(leaf.id, tab.id);
+    el.setAttribute('role', 'tab');
+    el.setAttribute('aria-selected', String(isActive));
+    el.tabIndex = isActive ? 0 : -1;
+    el.setAttribute('aria-label', tabAccessibleName(leaf, tab));
 
     // Status dot: the sidebar's classes verbatim, so colour and motion cannot
     // drift between the three places that show it (#257, #269).
@@ -525,13 +697,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     if (!mounted) el.classList.add(hasExited(sessionId) ? 'session-tab-exited' : 'session-tab-dormant');
     if (!mounted && hasExited(sessionId)) el.title = name + ' — this session has exited.';
 
-    const close = document.createElement('button');
-    close.className = 'session-tab-close';
-    close.type = 'button';
-    close.title = 'Close tab';
-    close.textContent = '×';
-    close.addEventListener('click', (e) => { e.stopPropagation(); closeTabFromUi(leaf.id, tab); });
-    el.appendChild(close);
+    el.appendChild(buildTabClose(leaf, tab, name));
 
     el.addEventListener('click', () => { openFromTab(leaf, tab, session); });
     el.addEventListener('auxclick', (e) => {
@@ -557,10 +723,16 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // down, so reopening the same file lands in the same place.
   function buildViewTab(leaf, tab) {
     const el = document.createElement('div');
-    el.className = 'session-tab session-tab-view' + (tab.id === leaf.activeTabId ? ' active' : '');
+    const isActive = tab.id === leaf.activeTabId;
+    el.className = 'session-tab session-tab-view' + (isActive ? ' active' : '');
     el.dataset.tabId = tab.id;
     el.dataset.paneId = leaf.id;
     el.draggable = true;
+    el.id = domTabId(leaf.id, tab.id);
+    el.setAttribute('role', 'tab');
+    el.setAttribute('aria-selected', String(isActive));
+    el.tabIndex = isActive ? 0 : -1;
+    el.setAttribute('aria-label', tabAccessibleName(leaf, tab));
 
     const label = document.createElement('span');
     label.className = 'session-tab-label';
@@ -568,13 +740,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     el.title = label.textContent;
     el.appendChild(label);
 
-    const close = document.createElement('button');
-    close.className = 'session-tab-close';
-    close.type = 'button';
-    close.title = 'Close tab';
-    close.textContent = '×';
-    close.addEventListener('click', (e) => { e.stopPropagation(); closeTabFromUi(leaf.id, tab); });
-    el.appendChild(close);
+    el.appendChild(buildTabClose(leaf, tab, label.textContent));
 
     el.addEventListener('click', () => {
       activeLeafId = leaf.id;
