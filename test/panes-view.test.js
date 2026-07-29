@@ -798,6 +798,37 @@ test('several resize events in one frame produce one fit pass (#352)', async () 
   } finally { h.destroy(); }
 });
 
+test('a visible terminal is refitted even when the window never paints a frame (#355)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.enable();
+    await h.settle();
+    // An occluded or minimised window gets no `requestAnimationFrame` at all — measured with
+    // `document.hidden === true`, a pane zoomed to a 1043 px box kept its terminal at 8 columns
+    // indefinitely. Take rAF away entirely and the fit must still land.
+    h.window.requestAnimationFrame = () => 0;
+    h.calls.safeFit.length = 0;
+    h.window.dispatchEvent(new h.window.Event('resize'));
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(h.calls.safeFit.length, 1, 'the fit ran on the timer instead of the frame');
+  } finally { h.destroy(); }
+});
+
+test('the coalescing still holds when the frame never comes (#355)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.enable();
+    await h.settle();
+    h.window.requestAnimationFrame = () => 0;
+    h.calls.safeFit.length = 0;
+    for (let i = 0; i < 8; i++) h.window.dispatchEvent(new h.window.Event('resize'));
+    await new Promise((r) => setTimeout(r, 120));
+    assert.equal(h.calls.safeFit.length, 1, `eight resizes, one fit — got ${h.calls.safeFit.length}`);
+  } finally { h.destroy(); }
+});
+
 test('dropping a dormant tab settles the view like every other close does (#352)', async () => {
   const h = setupPanesDom({
     storedTree: JSON.stringify({

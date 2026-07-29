@@ -1174,16 +1174,36 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     if (active && active.entry.webglAddon && typeof forceRepaint === 'function') forceRepaint(active.entry);
   }
 
-  // One pending frame at a time (#352). A window resize fires several events per frame and each one
+  // Run `fn` after the layout has settled, in a window that may not be VISIBLE.
+  //
+  // Chromium does not fire `requestAnimationFrame` in a hidden or occluded window, and this file
+  // already says so about `scheduleRender` — the fit that follows the render was left on a bare rAF
+  // anyway. Measured with `document.hidden === true`: a pane zoomed to a 1043 px box kept a terminal
+  // at 8 columns for six seconds and counting, because the frame never came. A TUI then wraps its
+  // prompt at a width the box does not have, which looks exactly like text arriving with line breaks
+  // nobody typed. Same family as #81 and #322.
+  //
+  // So: a frame if one comes, a timer if it does not, whichever is first — a fit needs measured
+  // layout, so a microtask (what `scheduleRender` uses) would run too early.
+  const HIDDEN_FRAME_MS = 32; // ~2 frames; only ever used when rAF is not running
+  function afterLayout(fn) {
+    let done = false;
+    const run = () => { if (done) return; done = true; clearTimeout(timer); fn(); };
+    const timer = setTimeout(run, HIDDEN_FRAME_MS);
+    requestAnimationFrame(run);
+  }
+
+  // One pending pass at a time (#352). A window resize fires several events per frame and each one
   // used to queue a full pass over every visible pane — flush, drain and `safeFit` each — so a drag
   // of the window border ran the most expensive thing in this file dozens of times for one final
   // size. Coalescing is safe because the pass reads the layout as it is when it runs, not as it was
   // when it was asked for.
-  let refitFrame = 0;
+  let refitPending = false;
   function refitVisible() {
-    if (refitFrame) return;
-    refitFrame = requestAnimationFrame(() => {
-      refitFrame = 0;
+    if (refitPending) return;
+    refitPending = true;
+    afterLayout(() => {
+      refitPending = false;
       for (const leaf of PaneTree.leaves(tree)) {
         const sessionId = sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId));
         const entry = sessionId ? openSessions.get(sessionId) : null;
@@ -1201,9 +1221,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
           if (typeof safeFit === 'function') safeFit(entry);
         } catch { /* keep fitting the rest */ }
       }
-      // A second frame: the fit above can change the pane's own metrics, and the
-      // fold-away threshold has to see the settled width, not the one mid-reflow.
-      requestAnimationFrame(updateStripChrome);
+      // A second pass: the fit above can change the pane's own metrics, and the fold-away threshold
+      // has to see the settled width, not the one mid-reflow. Same scheduler, same reason.
+      afterLayout(updateStripChrome);
     });
   }
 
