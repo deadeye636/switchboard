@@ -197,10 +197,31 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // The containers were moved into the fresh panes above, so what is left in
     // #terminals is the previous (now empty) pane scaffolding.
     terminalsEl.replaceChildren(root);
+    // Flush BEFORE anything becomes visible (#337). A background tab's output is buffered in this
+    // mode, and the coalescing buffer can hold up to two seconds of it. Once the element carries
+    // `.visible`, that pending chunk takes the write path immediately — and the drain in
+    // `refitVisible` then puts the OLDER backlog on top of it, so the terminal shows newer output
+    // above older. Flushing while the session is still non-visible parks the chunk behind the
+    // backlog instead, which is what the tabs and grid reveal paths already do.
+    flushBeforeReveal();
     applyVisibility();
     applyWebglPolicy();
     refitVisible();
     updateToolsOverflow();
+  }
+
+  /**
+   * Push each pane's pending coalesced chunk into its replay buffer while the session is still
+   * non-visible, so the replay stays in order. Deliberately the ACTIVE tab of every leaf: those are
+   * the ones `applyVisibility` is about to reveal.
+   */
+  function flushBeforeReveal() {
+    if (typeof flushTerminalBuffer !== 'function') return;
+    for (const leaf of PaneTree.leaves(tree)) {
+      const sessionId = sessionOfTab(leaf.tabs.find((t) => t.id === leaf.activeTabId));
+      if (!sessionId || !openSessions.has(sessionId)) continue;
+      try { flushTerminalBuffer(sessionId); } catch { /* one bad session must not stop the rest */ }
+    }
   }
 
   function buildNode(node, path) {
@@ -845,8 +866,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         // One terminal that cannot be fitted (disposed mid-frame, zero-sized box)
         // must not take the other panes' fits — or the chrome pass below — with it.
         try {
-          // A moved container has a new box; flush what buffered while it was in
-          // the background before fitting, so the fit sees the final line count.
+          // The flush that matters for ORDER happened before `applyVisibility` (#337). This one is
+          // for the paths that reach here without a rebuild — a window resize, a sash drag — where
+          // the session is already visible and a flush writes straight through. It must stay ahead of
+          // the drain either way: with a pending chunk and a backlog both present, writing the chunk
+          // second would show newer output above older.
           if (typeof flushTerminalBuffer === 'function') flushTerminalBuffer(sessionId);
           if (typeof drainReplayBuffer === 'function') drainReplayBuffer(sessionId);
           if (typeof safeFit === 'function') safeFit(entry);
@@ -1362,7 +1386,13 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const entry = (typeof activeSessionId !== 'undefined' && activeSessionId)
       ? openSessions.get(activeSessionId) : null;
     if (entry) {
+      // Same order as any other reveal (#337): flush while still non-visible so the pending chunk
+      // parks behind the backlog, then reveal, then drain. This session was a background tab in a
+      // pane a moment ago, so it can carry both — and without the drain the backlog would sit there
+      // until some later showSession wrote it AFTER newer output.
+      if (typeof flushTerminalBuffer === 'function') flushTerminalBuffer(activeSessionId);
       entry.element.classList.add('visible');
+      if (typeof drainReplayBuffer === 'function') drainReplayBuffer(activeSessionId);
       if (typeof restoreTerminalWebgl === 'function') restoreTerminalWebgl(activeSessionId);
       requestAnimationFrame(() => {
         if (openSessions.get(activeSessionId) === entry && typeof safeFit === 'function') safeFit(entry);
