@@ -391,6 +391,61 @@ test('a menu replaced within the same tick does not leak its dismiss listeners (
   } finally { h.destroy(); }
 });
 
+// --- #348: the window that RENDERS a session re-keys it ----------------------
+
+test('rekeySessionState moves every table a session is keyed by (#348)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('old');
+    h.enable();
+    await h.settle();
+    const entry = h.openSessions.get('old');
+    assert.equal(h.window.rekeySessionState('old', 'new'), true);
+    await h.settle();
+    assert.equal(h.openSessions.get('new'), entry, 'the same live entry, under the new key');
+    assert.equal(h.openSessions.has('old'), false);
+    assert.equal(h.sessionMap.has('new'), true);
+    assert.equal(h.sessionMap.has('old'), false);
+    assert.equal(entry.session.sessionId, 'new');
+    // …and the pane tab followed, which is what a detached window in panes mode was missing.
+    assert.ok(h.document.querySelector('.session-tab[data-session-id="new"]'));
+    assert.equal(h.document.querySelector('.session-tab[data-session-id="old"]'), null);
+  } finally { h.destroy(); }
+});
+
+test('a window that does not render the session says so and changes nothing (#348)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('mine');
+    h.enable();
+    await h.settle();
+    assert.equal(h.window.rekeySessionState('someone-elses', 'new'), false);
+    assert.equal(h.openSessions.has('mine'), true);
+    assert.equal(h.openSessions.has('new'), false);
+    // A no-op id move is not a move either.
+    assert.equal(h.window.rekeySessionState('mine', 'mine'), false);
+    assert.equal(h.openSessions.has('mine'), true);
+  } finally { h.destroy(); }
+});
+
+test('a detached window re-keys its own session the way the main one does (#348)', async () => {
+  // The detached window learns about the move through `detached-session-rekeyed`, not
+  // `session-forked` — which is addressed to the main window alone. Both now run the same function,
+  // so this asserts the shared half against a window built as a detached one.
+  const h = setupPanesDom({ detached: true, detachedSessionId: 'old' });
+  try {
+    h.mount('old');
+    h.enable();
+    await h.settle();
+    assert.equal(h.window.isDetachedWindow(), true);
+    assert.equal(h.window.rekeySessionState('old', 'new'), true);
+    await h.settle();
+    assert.equal(h.openSessions.has('new'), true, 'output under the new id now finds an entry here');
+    assert.ok(h.document.querySelector('.session-tab[data-session-id="new"]'));
+    assert.equal(h.rawStored(), null, 'and it still writes no layout');
+  } finally { h.destroy(); }
+});
+
 // --- #351: the strip has to be a tab list, and usable without a mouse --------
 
 test('the strip announces itself as a tab list with selectable tabs (#351)', async () => {

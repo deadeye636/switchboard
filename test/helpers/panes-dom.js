@@ -154,6 +154,34 @@ function setupPanesDom(opts = {}) {
     showJsonlViewer: () => {},
     openTasksView: () => {},
     hideAllViewers: () => { calls.hideAllViewers++; },
+    // What `shell/session-ipc.js` reaches into app.js for. Only the parts `rekeySessionState`
+    // touches are real; the rest exist so the file can be loaded at all.
+    pendingSessions: new Map(),
+    userStoppedSessions: new Set(),
+    terminalWriteBuffers: new Map(),
+    sessionTimelineStore: { eventsBySession: new Map() },
+    setActiveSession: (id) => { window.activeSessionId = id; },
+    recordTimelineEvent: () => {},
+    trackActivity: () => {},
+    flowTrackReceived: () => {},
+    scheduleFlush: () => {},
+    recordFileTouched: () => {},
+    handleSessionViewed: () => {},
+    loadProjects: () => Promise.resolve([]),
+    sessionRowEls: () => [],
+    canonicalSessionRow: () => null,
+    refreshSidebar: () => {},
+    pollActiveSessions: () => {},
+    setActivity: () => {},
+    applyAttention: () => {},
+    classifyAttentionSignal: () => null,
+    gridViewActive: false,
+    cachedProjects: [],
+    cachedAllProjects: [],
+    terminalHeaderId: window.document.createElement('span'),
+    terminalHeaderName: window.document.createElement('span'),
+    terminalHeaderPtyTitle: window.document.createElement('span'),
+    gridViewerCount: window.document.createElement('span'),
     // The two control-dialog helpers panes-view reaches for as bare globals (they are UMD exports
     // spread onto `window` by dialogs/control-dialogs.js in the real renderer).
     // `answers.whileOpen` runs before the dialog resolves — the window in which the world can move
@@ -170,9 +198,17 @@ function setupPanesDom(opts = {}) {
     Object.defineProperty(window, k, { value: v, writable: true, configurable: true });
   }
 
-  window.api = {
+  // Every `on*` registrar answers with a no-op so `shell/session-ipc.js` can be loaded for its
+  // exported `rekeySessionState` without wiring the whole IPC surface.
+  window.api = new Proxy({
     stopSession: (id) => { calls.stopSession.push(id); },
-  };
+  }, {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      if (typeof prop === 'string' && prop.startsWith('on')) return () => {};
+      return () => Promise.resolve(null);
+    },
+  });
   window.isDetachedWindow = () => !!opts.detached;
   window.__detachedSessionId = opts.detachedSessionId || null;
   window.clearActiveTerminalView = () => { calls.clearActiveTerminalView++; window.activeSessionId = null; };
@@ -194,9 +230,21 @@ function setupPanesDom(opts = {}) {
     'renderer/views/pane-tree.js',
     'renderer/views/panes-view.js',
     'renderer/session/session-tabs.js',
+    // Loaded for `window.rekeySessionState` (#346, #348) — the one function both the main window's
+    // `session-forked` handler and a detached window's rekey call.
+    'renderer/shell/session-ipc.js',
   ]) {
     vm.runInContext(fs.readFileSync(path.join(SRC_DIR, rel), 'utf8'), ctx, { filename: path.basename(rel) });
   }
+
+  // `session-ipc.js` installs the real `clearActiveTerminalView` when it loads, replacing the stub
+  // above. Wrap it rather than replacing it back: the tests want to know it was called AND want the
+  // real thing to run.
+  const realClear = window.clearActiveTerminalView;
+  window.clearActiveTerminalView = () => {
+    calls.clearActiveTerminalView++;
+    if (typeof realClear === 'function') realClear();
+  };
 
   const readStored = () => {
     const raw = window.localStorage.getItem('paneTree');

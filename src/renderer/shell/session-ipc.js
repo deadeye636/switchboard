@@ -100,9 +100,20 @@ window.api.onSessionDetected((tempId, realId) => {
   pollActiveSessions();
 });
 
-window.api.onSessionForked((oldId, newId) => {
+// Move every piece of renderer state a session is keyed by onto its new id.
+//
+// Split out of the `session-forked` handler because that event reaches the MAIN window only — by
+// design, since the sidebar and the badges live there (see `.claude/rules/main-process.md`). A
+// detached window learns about the move through `detached-session-rekeyed` instead, and used to do
+// nothing with it beyond its own title: its `openSessions` and `sessionMap` stayed on the id the CLI
+// had retired, so terminal output arriving under the new id found no entry and went nowhere (#348).
+// One function, called by both, so the two windows cannot answer the same event differently.
+//
+// Returns false when this window does not render the session — the ordinary case for whichever
+// window it is not in.
+window.rekeySessionState = function (oldId, newId) {
   const entry = openSessions.get(oldId);
-  if (!entry) return;
+  if (!entry || !newId || oldId === newId) return false;
 
   entry.session.sessionId = newId;
   if (activeSessionId === oldId) setActiveSession(newId);
@@ -137,6 +148,11 @@ window.api.onSessionForked((oldId, newId) => {
   }
   sessionMap.delete(oldId);
   sessionMap.set(newId, entry.session);
+  return true;
+};
+
+window.api.onSessionForked((oldId, newId) => {
+  if (!window.rekeySessionState(oldId, newId)) return;
 
   terminalHeaderId.textContent = newId;
 

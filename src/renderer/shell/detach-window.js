@@ -397,7 +397,12 @@ if (detachedSessionId) document.body.classList.add('detached-window');
       // window currently calls its own — so re-derive rather than filter on a single id (#325). The
       // new id carries a new session record, hence a possibly new name in the title.
       if (fromId === window.__detachedSessionId) window.__detachedSessionId = toId;
-      updateDetachedWindowTitle();
+      // This is this window's `session-forked` (#348). That event is addressed to the MAIN window
+      // alone, by design — the sidebar and the badges live there — so nothing else was moving this
+      // window's own `openSessions`, `sessionMap` and pane tab onto the new id. Output arrives under
+      // the new id from this moment on and would have found no entry here at all.
+      if (typeof window.rekeySessionState === 'function') window.rekeySessionState(fromId, toId);
+      refreshViews(); // updates the title too, and repaints the tab strip / pane onto the new id
     });
     // Closing the window hands its sessions back; main sees the `closed` event and tells the main window.
     return;
