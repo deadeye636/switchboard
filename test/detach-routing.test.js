@@ -254,6 +254,9 @@ test('the window list names every window and marks the one holding the session',
   assert.equal(windows[1].title, 'Session one');
   assert.equal(windows[1].current, true);
   assert.deepEqual(windows[1].sessionIds, ['s1']);
+  // Main's set is not knowable from here — it renders everything this map does not claim. `null`
+  // says that; an empty array would read as "holds nothing" (#327).
+  assert.equal(windows[0].sessionIds, null);
   // Asked about a session that is NOT in that window, the same window is not current.
   assert.equal(ipc.call('list-session-windows', 's2')[1].current, false);
 });

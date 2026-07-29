@@ -1062,22 +1062,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
     item('Split right', () => splitActivePane('right'));
     item('Split down', () => splitActivePane('down'));
-    // Detach (#2): the session moves into a window of its own. Only a running session
-    // can — there is nothing to render in the new window otherwise.
-    const detachId = sessionOfTab(subject);
-    const live = !!detachId && activePtyIds.has(detachId);
-    const detached = !!window.isDetachedWindow?.();
-    const anchor = detached
-      // Already in a window of its own, so the useful direction is back (#314).
-      ? item('Return to main window', () => { window.reattachSession?.(detachId); }, { disabled: !live })
-      : item('Move to new window', () => { window.detachSession?.(detachId); }, { disabled: !live });
-    // …and into any window that already exists (#316). The list lives in main, so these arrive after
-    // the menu is on screen; they are inserted next to the entry above rather than after Close pane.
-    if (live && typeof window.appendWindowMoveItems === 'function') {
-      // The cursor walks with each insert, or the second entry would land in front of the first.
-      let cursor = anchor;
-      const insert = (label, handler) => { cursor = item(label, handler, { before: cursor.nextSibling }); return cursor; };
-      window.appendWindowMoveItems(detachId, insert, () => activeMenu === pop, { skipMain: detached });
+    // Where this session renders (#2, #314, #316): a window of its own, or any window that already
+    // exists. The shared helper builds the block (#327) — including the window list, which lives in
+    // main and therefore arrives after the menu is on screen, inserted next to the entry it extends
+    // rather than after Close pane.
+    if (typeof window.appendWindowItems === 'function') {
+      window.appendWindowItems(sessionOfTab(subject), item, () => activeMenu === pop);
     }
     // Closing the PANE is not a tab action: a right-click on a tab is about that tab,
     // and with one tab in the pane the two would read as the same thing. It stays on

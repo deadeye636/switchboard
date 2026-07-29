@@ -342,6 +342,10 @@ if (typeof module !== 'undefined' && module.exports) {
       const b = document.createElement('button');
       b.className = 'session-tab-menu-item' + (opts.danger ? ' danger' : '');
       b.textContent = label;
+      // An action that cannot apply right now is shown greyed rather than left out (#327): the pane
+      // menu has always done it that way, and an entry that silently disappears reads as a feature
+      // the app does not have.
+      if (opts.disabled) b.disabled = true;
       b.addEventListener('click', () => { closeTabContextMenu(); handler(); });
       // `before` places an item that arrived late (the window list, #316) next to the one it extends.
       if (opts.before && opts.before.parentElement === pop) pop.insertBefore(b, opts.before);
@@ -357,24 +361,12 @@ if (typeof module !== 'undefined' && module.exports) {
     addItem('Relaunch', () => {
       if (typeof window.relaunchSession === 'function') window.relaunchSession(sessionId);
     });
-    // Where this session renders (#2, #314, #316) — only for one with a live process; there is nothing
-    // for another window to show otherwise. The tab goes with the session: the window that has it
-    // releases its terminal, the one that takes it attaches.
-    const live = typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId);
-    const detached = !!window.isDetachedWindow?.();
-    let anchor = null;
-    if (live && detached && typeof window.reattachSession === 'function') {
-      anchor = addItem('Return to main window', () => window.reattachSession(sessionId));
-    } else if (live && typeof window.detachSession === 'function') {
-      anchor = addItem('Move to new window', () => window.detachSession(sessionId));
-    }
-    if (live && anchor && typeof window.appendWindowMoveItems === 'function') {
-      let cursor = anchor;
-      const insert = (label, handler) => {
-        cursor = addItem(label, handler, { before: cursor.nextSibling });
-        return cursor;
-      };
-      window.appendWindowMoveItems(sessionId, insert, () => activeCtxMenu === pop, { skipMain: detached });
+    // Where this session renders (#2, #314, #316). The whole block — the direction to offer, whether a
+    // session without a process may go, and the windows it can be moved to — is built by the shared
+    // helper (#327); this menu contributes only how an item looks. The tab goes with the session: the
+    // window that has it releases its terminal, the one that takes it attaches.
+    if (typeof window.appendWindowItems === 'function') {
+      window.appendWindowItems(sessionId, addItem, () => activeCtxMenu === pop);
     }
 
     document.body.appendChild(pop);

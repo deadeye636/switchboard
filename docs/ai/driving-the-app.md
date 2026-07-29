@@ -84,6 +84,8 @@ since #325 the **active** one, not the one it was opened with. Neither tells you
 `--target=detached=` matches every detached window. For what is where, ask main:
 `await window.api.listSessionWindows(sessionId)` returns one entry per window
 (`{id, title, isMain, sessionIds, current}`), with `current` on the one holding that session.
+`sessionIds` is `null` for the main window — it renders everything the detach map does not claim, so
+the answer is not knowable from main (#327). An empty array would read as "holds nothing".
 
 ## A drag has to be a real drag
 

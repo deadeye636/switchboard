@@ -250,23 +250,40 @@ if (detachedSessionId) document.body.classList.add('detached-window');
   };
 
   /**
-   * Menu helper (#316). Appends one "Move to <window>" entry per window the session is NOT in, to a
-   * menu that is already on screen — the window list lives in the main process, so it cannot be part
-   * of the synchronous build. `addItem(label, handler)` is the menu's own item builder; `isOpen()`
-   * lets the caller drop the result if the user closed the menu in the meantime.
+   * The whole "where does this session render" block of a context menu (#316, #327): the way out or
+   * back by name, then one "Move to <window>" entry per window it is not in.
+   *
+   * Both menus that offer this — the tab strip's and the pane's — used to build the block themselves
+   * and only shared the last step. That left the decision above it (which direction to offer, and
+   * whether a session without a process may go at all) copied verbatim in two files, which is exactly
+   * the pair that drifts. This owns all of it; what stays with the caller is `addItem` — the menus
+   * style and disable their items differently, and that difference is real.
+   *
+   * `addItem(label, handler, { disabled, before })` must return the created element, because the
+   * window list arrives from the main process AFTER the menu is on screen, and each late entry is
+   * inserted next to the one before it rather than at the end of the menu.
+   * `isOpen()` lets the result be dropped if the user closed the menu in the meantime.
    */
-  window.appendWindowMoveItems = async (sessionId, addItem, isOpen, opts = {}) => {
-    if (!sessionId || typeof addItem !== 'function') return;
-    const windows = await window.listSessionWindows(sessionId);
-    // `skipMain` is for a caller that already offers the way back by name ("Return to main window",
-    // #314) — listing it twice under two labels reads as two different actions.
-    const targets = windows.filter((w) => !w.current && !(opts.skipMain && w.isMain));
+  window.appendWindowItems = async (sessionId, addItem, isOpen) => {
+    if (typeof addItem !== 'function') return;
+    const live = !!sessionId && typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId);
+    const detached = !!window.isDetachedWindow?.();
+    // A window of its own is only worth offering in the direction the user is not already in: from a
+    // detached window the useful move is back (#314). Listing "main" twice — once by name here, once
+    // as a move target below — reads as two different actions.
+    const anchor = detached
+      ? addItem('Return to main window', () => { window.reattachSession?.(sessionId); }, { disabled: !live })
+      : addItem('Move to new window', () => { window.detachSession?.(sessionId); }, { disabled: !live });
+    if (!live || !anchor) return;
+
+    const targets = (await window.listSessionWindows(sessionId))
+      .filter((w) => !w.current && !(detached && w.isMain));
     if (!targets.length || (typeof isOpen === 'function' && !isOpen())) return;
+    let cursor = anchor;
     for (const target of targets) {
-      const label = target.isMain
-        ? 'Move to main window'
-        : `Move to “${target.title}”`;
-      addItem(label, () => window.moveSessionToWindow(sessionId, target.id));
+      const label = target.isMain ? 'Move to main window' : `Move to “${target.title}”`;
+      cursor = addItem(label, () => window.moveSessionToWindow(sessionId, target.id),
+        { before: cursor.nextSibling }) || cursor;
     }
   };
 

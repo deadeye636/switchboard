@@ -89,7 +89,10 @@ function listSessionWindows(sessionId) {
     id: MAIN_WINDOW_ID,
     title: 'Main window',
     isMain: true,
-    sessionIds: [],
+    // NOT an empty set — main renders everything this map does not claim, and answering that here
+    // would mean walking the renderer's state from the main process. `null` says "not knowable from
+    // here"; an empty array would read as "holds nothing", which is the opposite of true.
+    sessionIds: null,
     current: !!sessionId && !holderLive,
   }];
   const seen = new Set();
