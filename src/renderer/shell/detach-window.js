@@ -46,13 +46,46 @@ if (detachedSessionId) document.body.classList.add('detached-window');
 
   // --- The detached window ---------------------------------------------------
 
-  async function bootDetachedWindow() {
-    // Wait for the session list: the window needs the session record (name, project, backend) that
-    // openSession takes, and the scan that fills sessionMap is part of the normal boot.
-    for (let i = 0; i < 200 && !sessionMap.has(detachedSessionId); i++) {
+  /**
+   * Wait for a session's RECORD (name, project, backend) — what `openSession` takes. It arrives with
+   * the scan that is part of the normal boot, so a window opened a moment ago does not have it yet.
+   * Returns null once the budget is spent.
+   */
+  // Mounts in flight. `openSessions` only gains its entry once `openSession` has awaited its way
+  // through main, and two paths can now reach for the same session in that gap — the boot reconcile
+  // and an adopt that arrived while it was running. Two xterms on one PTY echo every keystroke twice.
+  const mounting = new Set();
+
+  // Sessions this window was told to let go of while a mount for them was still pending. The boot
+  // reconcile works from a SNAPSHOT of what main said it owns, and a move out of this window during
+  // that loop arrives as a release for a session that is not mounted yet — so `releaseSession` has
+  // nothing to tear down and silently does nothing. Without this the stale loop would mount it after
+  // the new owner already has, and `terminal-input` carries no ownership check: keystrokes typed into
+  // the orphan still reach the live PTY.
+  const cancelledMounts = new Set();
+
+  async function mountOnce(session, show) {
+    const id = session.sessionId;
+    if (openSessions.has(id) || mounting.has(id) || cancelledMounts.has(id)) return;
+    mounting.add(id);
+    try {
+      await openSession(session, undefined, { show });
+      // Re-check AFTER the await: the release can land while openSession is in flight.
+      if (cancelledMounts.has(id) && openSessions.has(id) && typeof destroySession === 'function') {
+        destroySession(id);
+      }
+    } finally { mounting.delete(id); }
+  }
+
+  async function waitForSessionRecord(sessionId, tries) {
+    for (let i = 0; i < tries && !sessionMap.has(sessionId); i++) {
       await new Promise((r) => setTimeout(r, 50));
     }
-    const session = sessionMap.get(detachedSessionId);
+    return sessionMap.get(sessionId) || null;
+  }
+
+  async function bootDetachedWindow() {
+    const session = await waitForSessionRecord(detachedSessionId, 200);
     if (!session) {
       // The session vanished between detaching and this window booting. Say so rather than showing an
       // empty frame the user cannot interpret.
@@ -62,8 +95,42 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     document.title = sessionLabel(detachedSessionId);
     // The PTY is already running; this attaches to it and replays its buffer, exactly like clicking the
     // session in the main window would.
-    await openSession(session, undefined, { show: true });
-    updateDetachedWindowTitle();
+    await mountOnce(session, true);
+    await adoptOwnedSessions();
+    // Not just the title: a session mounted without a tab is a session the user cannot reach — this
+    // window has no sidebar to pick one from. `refreshViews` is what builds the strip (and the pane
+    // tree in panes mode) for the sessions the reconcile just brought in.
+    refreshViews();
+  }
+
+  /**
+   * Ask main what this window holds, and mount whatever is missing (#326, #331).
+   *
+   * The URL names ONE session — the one the window was opened for — and since #316 a window can hold
+   * several. Two ways that diverges, both ending with main routing a session's bytes to a window that
+   * draws it nowhere:
+   *
+   *   - a renderer RELOAD: the window comes back knowing only its URL, while main still has the rest
+   *     registered against it (#326);
+   *   - a move that lands MID-BOOT: `session-reattached` arrives before the scan has filled
+   *     `sessionMap`, so `adoptSession` has no record to mount from and silently does nothing (#331).
+   *
+   * Running this at the end of boot answers both, because main is the authority in both cases. It is
+   * additive — nothing already mounted is touched — so it is safe wherever it runs.
+   */
+  async function adoptOwnedSessions() {
+    let owned = [];
+    try { owned = (await window.api.sessionsInMyWindow()) || []; }
+    catch { return; /* older main process: the URL session is all there is */ }
+    for (const id of owned) {
+      if (openSessions.has(id)) continue;
+      const session = await waitForSessionRecord(id, 20);
+      // No record after a second: the session is gone from the list. Leave it — mounting a session we
+      // cannot describe is worse than a window that shows one less.
+      if (!session) continue;
+      // Not shown: the window keeps the session it booted on in front, and the rest arrive as tabs.
+      await mountOnce(session, false);
+    }
   }
 
   // --- The window's title ------------------------------------------------------
@@ -109,6 +176,8 @@ if (detachedSessionId) document.body.classList.add('detached-window');
 
   function releaseSession(sessionId) {
     if (!detachedSessionId) detachedSessions.add(sessionId);
+    // Also cancels a mount that has not finished yet — see `cancelledMounts`.
+    cancelledMounts.add(sessionId);
     // Let go of the terminal WITHOUT touching the process: close-terminal only clears
     // `rendererAttached` in main, so the PTY runs on and the receiving window attaches to it.
     if (openSessions.has(sessionId) && typeof destroySession === 'function') destroySession(sessionId);
@@ -117,7 +186,15 @@ if (detachedSessionId) document.body.classList.add('detached-window');
 
   async function adoptSession(sessionId, running) {
     detachedSessions.delete(sessionId);
-    const session = sessionMap.get(sessionId);
+    // An adopt is the opposite statement to a release, so it lifts the cancellation — otherwise a
+    // session moved out and later moved back would never mount here again.
+    cancelledMounts.delete(sessionId);
+    // A record can be missing for a session that is genuinely new — started seconds ago and moved
+    // before the scan caught up. Wait briefly rather than dropping the adopt (#331); the boot
+    // reconcile covers the other window of time, but not this one.
+    const hadRecord = sessionMap.has(sessionId);
+    const session = sessionMap.get(sessionId) || await waitForSessionRecord(sessionId, 20);
+
     // Only a session that still HAS a process is taken back. Without this check, taking back a session
     // that had exited (or was stopped from the sidebar) would resume the CLI: openSession finds no live
     // PTY and spawns one, which is a process the user never asked for.
@@ -125,11 +202,27 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     // Main answers this, not `activePtyIds`: that set is refreshed by a poll which backs off to 30 s in
     // an idle window, so a session started or stopped seconds ago can still read the other way. Falling
     // back to it keeps an older main process working.
-    const stillRunning = typeof running === 'boolean'
+    //
+    // And if we WAITED above, the answer main sent is that much older than the decision it is about —
+    // long enough for the user to stop the session in between, which is exactly the resume #315 exists
+    // to prevent. So re-ask, from the same authority the poll uses, rather than trusting a fact that
+    // has since had a second to stop being one.
+    let stillRunning = typeof running === 'boolean'
       ? running
       : (typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId));
-    if (session && stillRunning && !openSessions.has(sessionId) && typeof openSession === 'function') {
-      await openSession(session, undefined, { show: true });
+    if (stillRunning && !hadRecord) {
+      try { stillRunning = ((await window.api.getActiveSessions()) || []).includes(sessionId); }
+      catch { /* keep what main sent */ }
+    }
+
+    if (session && stillRunning && typeof openSession === 'function') {
+      await mountOnce(session, true);
+    } else if (detachedSessionId && !cancelledMounts.has(sessionId)) {
+      // Nothing was mounted, and main still has this window down as the one rendering it. Give the
+      // claim back rather than leaving a session routed to a window that draws it nowhere (#331) —
+      // the main window's own adopt then decides whether there is a process left worth showing.
+      try { await window.api.releaseSessionClaim(sessionId); }
+      catch { /* older main process: nothing to hand back to */ }
     }
     refreshViews();
   }

@@ -92,6 +92,12 @@ contextBridge.exposeInMainWorld('api', {
   // Move a session between windows (#316): 'main' or a detached window's id, from `listSessionWindows`.
   moveSessionToWindow: (sessionId, windowId) => ipcRenderer.invoke('move-session-to-window', sessionId, windowId),
   listSessionWindows: (sessionId) => ipcRenderer.invoke('list-session-windows', sessionId),
+  // What does THIS window hold? Asked by a detached window on boot — its URL names only the session it
+  // was opened for, and main is the one that knows the rest (#326, #331).
+  sessionsInMyWindow: () => ipcRenderer.invoke('sessions-in-my-window'),
+  // "I cannot render this one after all" — hands the claim back so main stops routing a session to a
+  // window that shows it nowhere (#331).
+  releaseSessionClaim: (sessionId) => ipcRenderer.invoke('release-session-claim', sessionId),
   // Main renderer: release your terminal for this session / take it back. Both carry the session id.
   onSessionDetached: (cb) => ipcRenderer.on('session-detached', (_e, sessionId) => cb(sessionId)),
   // `running` comes from main's own session map — the renderer's copy is polled and can be half a

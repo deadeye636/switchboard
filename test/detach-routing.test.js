@@ -13,6 +13,12 @@ const detach = require('../src/app/detach');
 let nextWindowId = 1;
 function makeWindowClass(created) {
   return class FakeWindow {
+    // Electron's own static. `sessions-in-my-window` addresses a window by its ASKER, so the test has
+    // to be able to answer "which window is this webContents?" the way the real class does.
+    static fromWebContents(sender) {
+      return created.find((w) => w.webContents === sender) || null;
+    }
+
     constructor(opts) {
       this.opts = opts;
       this.id = nextWindowId++;
@@ -48,6 +54,8 @@ function makeIpc() {
   return {
     handle: (channel, fn) => handlers.set(channel, fn),
     call: (channel, ...args) => handlers.get(channel)(null, ...args),
+    // For the handlers that answer the ASKER rather than an argument (`sessions-in-my-window`).
+    callFrom: (channel, sender, ...args) => handlers.get(channel)({ sender }, ...args),
     has: (channel) => handlers.has(channel),
   };
 }
@@ -351,4 +359,84 @@ test('the adopt notification carries whether the process is still alive', () => 
 
   win.destroy(); // the user closes the window of a session that is no longer running
   assert.deepEqual(main.sent, [['session-reattached', 's1', false]]);
+});
+
+// --- What a window holds, asked by the window itself (#326, #331) ------------------------------
+//
+// A detached window's URL names ONE session. Everything moved in later lives only in main's map, so
+// after a reload — or after a move that landed while the window was still booting — the window and
+// main disagree about what it holds, and main is the one that decides where the bytes go.
+
+test('a detached window can ask main which sessions it holds', () => {
+  const { ipc, created } = setup({ sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1');
+  const win = created[0];
+  ipc.call('move-session-to-window', 's2', String(win.id));
+
+  assert.deepEqual(ipc.callFrom('sessions-in-my-window', win.webContents).sort(), ['s1', 's2'],
+    'both, not just the one in the URL');
+});
+
+test('the main window holds nothing in that map, and says so', () => {
+  // Not "no sessions" — everything NOT in the map is main's already. The question only means
+  // something for a window that has a set of its own.
+  const { ipc, main } = setup({ sessions: ['s1'] });
+  ipc.call('detach-session', 's1');
+  assert.deepEqual(ipc.callFrom('sessions-in-my-window', main.webContents), []);
+});
+
+test('an unknown or missing sender answers empty rather than throwing', () => {
+  const { ipc, created } = setup({ sessions: ['s1'] });
+  ipc.call('detach-session', 's1');
+  assert.deepEqual(ipc.call('sessions-in-my-window'), [], 'no event at all');
+  assert.deepEqual(ipc.callFrom('sessions-in-my-window', { stranger: true }), []);
+  created[0].destroy();
+  assert.deepEqual(ipc.callFrom('sessions-in-my-window', created[0].webContents), [],
+    'a destroyed window owns nothing');
+});
+
+// --- Giving a claim back (#331) ---------------------------------------------------------------
+//
+// An adopt can fail on the renderer's side — the session record never arrives, or the process ended
+// while the window waited for it. Main must not keep routing that session to a window that draws it
+// nowhere, so the taking window hands the claim back.
+
+test('a window that cannot render a session hands the claim back to main', () => {
+  const { ipc, main, created } = setup({ sessions: ['s1'] });
+  ipc.call('detach-session', 's1');
+  const win = created[0];
+  main.sent.length = 0;
+
+  win.sent.length = 0;
+
+  assert.deepEqual(ipc.callFrom('release-session-claim', win.webContents, 's1'), { ok: true });
+  assert.equal(detach.isDetached('s1'), false, 'main stops routing it there');
+  assert.deepEqual(main.sent, [['session-reattached', 's1', true]], 'and the main window is offered it');
+  assert.deepEqual(win.sent, [['session-detached', 's1']],
+    'the giving window is told to let go first — anything it did mount must not survive the handover');
+  assert.equal(win.isDestroyed(), false, 'the window stays — it may still hold others');
+});
+
+test('only the window that holds the session may give it up', () => {
+  // A stale hand-back from a window that has since passed the session on would un-register the NEW
+  // owner, and main would route the bytes to a window that let go.
+  const { ipc, main, created } = setup({ sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1');
+  ipc.call('detach-session', 's2');
+  const [winA, winB] = created;
+  ipc.call('move-session-to-window', 's1', String(winB.id)); // s1 now belongs to winB
+  main.sent.length = 0;
+
+  assert.deepEqual(ipc.callFrom('release-session-claim', winA.webContents, 's1'), { ok: false });
+  assert.equal(detach.windowForSession('s1'), winB, 'the new owner keeps it');
+  assert.deepEqual(main.sent, []);
+});
+
+test('a hand-back for something nobody holds is refused rather than announced', () => {
+  const { ipc, main, created } = setup({ sessions: ['s1'] });
+  ipc.call('detach-session', 's1');
+  main.sent.length = 0;
+  assert.deepEqual(ipc.callFrom('release-session-claim', created[0].webContents, 'ghost'), { ok: false });
+  assert.deepEqual(ipc.call('release-session-claim', 's1'), { ok: false }, 'no sender, no claim');
+  assert.deepEqual(main.sent, []);
 });

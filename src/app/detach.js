@@ -287,6 +287,53 @@ function registerIpc(ipc) {
 
   ipc.handle('list-session-windows', (_event, sessionId) => listSessionWindows(sessionId));
 
+  /**
+   * "What do I hold?", asked by a detached window about ITSELF (#326, #331).
+   *
+   * The window cannot answer this on its own. Its URL names the session it was opened for, and that
+   * is all it knows: sessions moved in later live only in this map, and a session moved in while the
+   * window was still booting was announced to a renderer that had no session list yet to mount it
+   * from. Both end the same way — main routes a session's bytes to a window that draws it nowhere.
+   *
+   * So main answers, addressed by the ASKER rather than by an id the renderer would have to guess.
+   * The main window is not in the map and correctly gets an empty list: what it shows is its own
+   * business, and everything not in this map is already its.
+   */
+  ipc.handle('sessions-in-my-window', (event) => {
+    const sender = event && event.sender;
+    if (!sender) return [];
+    const win = ctx.BrowserWindow.fromWebContents(sender);
+    if (!win || win.isDestroyed()) return [];
+    return sessionsInWindow(win);
+  });
+
+  /**
+   * "I cannot render this one" — the taking window gives a claim back (#331).
+   *
+   * An adopt can fail on the renderer's side: the session record never arrives, or the process ended
+   * while the window was waiting for it. Main would otherwise keep routing that session's bytes to a
+   * window that draws it nowhere, and `listSessionWindows` would keep offering it as held. So the
+   * claim falls here, and the main window is told to take it — its own adopt then decides whether
+   * there is still a process worth mounting.
+   *
+   * Only the window that HOLDS the session may give it up: a stale message from a window that has
+   * since handed it on must not un-register the new owner.
+   */
+  ipc.handle('release-session-claim', (event, sessionId) => {
+    const sender = event && event.sender;
+    const holder = sessionId ? detachedWindows.get(sessionId) : null;
+    if (!holder || holder.isDestroyed() || !sender || holder.webContents !== sender) return { ok: false };
+    // Same order as a move — release, re-register, adopt. The release leg looks redundant (the caller
+    // reaches this because it mounted NOTHING) but it is what makes the handover safe rather than
+    // dependent on the caller being right about itself: if anything did get mounted meanwhile, this
+    // tears it down before the main window attaches, instead of leaving two renderers on one PTY.
+    holder.webContents.send('session-detached', sessionId);
+    detachedWindows.delete(sessionId);
+    ctx.log.info(`[detach] window ${holder.id} could not render ${sessionId}; the claim returns to the main window`);
+    sendAdopt(null, sessionId);
+    return { ok: true };
+  });
+
   ipc.handle('is-session-detached', (_event, sessionId) => isDetached(sessionId));
   ipc.handle('detached-session-ids', () => detachedSessionIds());
 
