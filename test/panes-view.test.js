@@ -375,6 +375,188 @@ test('a menu replaced within the same tick does not leak its dismiss listeners (
   } finally { h.destroy(); }
 });
 
+// --- #350: the keyboard model ------------------------------------------------
+
+// Lay four panes out in a 2×2 grid and tell the harness where each one is, so the spatial
+// neighbour choice has real geometry to read. jsdom does no layout, so the rectangles are supplied.
+async function grid2x2(h) {
+  // A session lands in the ACTIVE pane when it is mounted (adoptOrphans) — `show()` only activates a
+  // tab where it already is. So each pane is filled after the split that created it.
+  h.mount('a');
+  h.enable();
+  await h.settle();
+  h.panes.splitActivePane('right');   // a | (new, active)
+  await h.open('b');
+  h.panes.splitActivePane('down');    // a | b over (new, active)
+  await h.open('c');
+  h.panes.focusPaneByIndex(1);        // back to a
+  h.panes.splitActivePane('down');    // a over (new, active) | b over c
+  await h.open('d');
+  const panes = [...h.document.querySelectorAll('.pane')];
+  assert.equal(panes.length, 4, 'four panes');
+  // Left column top/bottom, right column top/bottom — the order buildNode produces for this tree.
+  const boxes = {
+    a: { left: 0, top: 0, width: 500, height: 400 },
+    d: { left: 0, top: 400, width: 500, height: 400 },
+    b: { left: 500, top: 0, width: 500, height: 400 },
+    c: { left: 500, top: 400, width: 500, height: 400 },
+  };
+  for (const pane of panes) {
+    const sid = pane.querySelector('.session-tab').dataset.sessionId;
+    const box = boxes[sid];
+    pane.getBoundingClientRect = () => ({ ...box, right: box.left + box.width, bottom: box.top + box.height });
+  }
+  const paneOf = (sid) => h.document.querySelector(`.session-tab[data-session-id="${sid}"]`).closest('.pane').dataset.paneId;
+  return { paneOf, activeSid: () => h.document.querySelector('.pane.pane-active .session-tab').dataset.sessionId };
+}
+
+test('pane arrows move to the neighbour on screen, not the next leaf in render order (#350)', async () => {
+  const h = setupPanesDom();
+  try {
+    const g = await grid2x2(h);
+    h.panes.focusPaneByIndex(1);                 // top-left
+    assert.equal(g.activeSid(), 'a');
+    assert.equal(h.panes.focusNeighbourPane('right'), true);
+    assert.equal(g.activeSid(), 'b', 'right of top-left is top-right');
+    assert.equal(h.panes.focusNeighbourPane('down'), true);
+    assert.equal(g.activeSid(), 'c', 'down from top-right is bottom-right');
+    assert.equal(h.panes.focusNeighbourPane('left'), true);
+    assert.equal(g.activeSid(), 'd', 'left of bottom-right is bottom-left');
+    assert.equal(h.panes.focusNeighbourPane('up'), true);
+    assert.equal(g.activeSid(), 'a', 'up from bottom-left is top-left');
+  } finally { h.destroy(); }
+});
+
+test('an arrow off the edge of the layout does nothing instead of wrapping (#350)', async () => {
+  const h = setupPanesDom();
+  try {
+    const g = await grid2x2(h);
+    h.panes.focusPaneByIndex(1);
+    assert.equal(g.activeSid(), 'a');
+    assert.equal(h.panes.focusNeighbourPane('left'), false, 'nothing to the left of the leftmost pane');
+    assert.equal(g.activeSid(), 'a', 'and the focus did not move');
+    assert.equal(h.panes.focusNeighbourPane('up'), false);
+    assert.equal(g.activeSid(), 'a');
+  } finally { h.destroy(); }
+});
+
+// A signature of the whole arrangement: which panes exist, what they hold, and their shares. Zoom is
+// a view state, so all of it has to come back byte-identical.
+const layoutSignature = (h) => [...h.document.querySelectorAll('.pane')].map((p) => [
+  p.dataset.paneId,
+  [...p.querySelectorAll('.session-tab')].map((t) => t.dataset.tabId).join(','),
+  p.style.flex,
+].join('|')).join(' / ');
+
+// Two panes side by side, one session each.
+async function twoPanes(h) {
+  h.mount('a');
+  h.enable();
+  await h.settle();
+  h.panes.splitActivePane('right');
+  await h.open('b');
+}
+
+test('zoom fills the area and puts the layout back untouched (#350)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanes(h);
+    const before = layoutSignature(h);
+    const target = h.document.querySelector('.pane.pane-active').dataset.paneId;
+
+    assert.equal(h.panes.toggleZoom(), true);
+    assert.equal(h.panes.isZoomed(), true);
+    assert.equal(h.document.getElementById('terminals').classList.contains('pane-zoomed'), true);
+    assert.equal(h.document.querySelector('.pane.pane-zoom-target').dataset.paneId, target);
+    assert.equal(h.document.querySelectorAll('.pane').length, 2, 'the other pane is still in the tree');
+
+    assert.equal(h.panes.toggleZoom(), true);
+    assert.equal(h.panes.isZoomed(), false);
+    assert.equal(h.document.getElementById('terminals').classList.contains('pane-zoomed'), false);
+    assert.equal(h.document.querySelector('.pane.pane-zoom-target'), null);
+    assert.equal(layoutSignature(h), before, 'the arrangement came back exactly as it was');
+  } finally { h.destroy(); }
+});
+
+test('a rebuild keeps the zoom, and losing the pane drops it (#350)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanes(h);
+    h.panes.toggleZoom();                    // the pane holding b
+    h.panes.render();
+    assert.equal(h.document.getElementById('terminals').classList.contains('pane-zoomed'), true,
+      'a rebuild re-asserts the zoom');
+    // The zoomed pane goes away with its only tab.
+    h.window.destroySession('b');
+    await h.settle();
+    assert.equal(h.panes.isZoomed(), false);
+    assert.equal(h.document.getElementById('terminals').classList.contains('pane-zoomed'), false);
+  } finally { h.destroy(); }
+});
+
+test('a split leaves zoom, so the new pane is not hidden behind it (#350)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanes(h);
+    h.panes.toggleZoom();
+    h.panes.splitActivePane('down');
+    await h.settle();
+    assert.equal(h.panes.isZoomed(), false);
+  } finally { h.destroy(); }
+});
+
+test('tab navigation stays inside the focused pane (#350)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('x1'); h.mount('x2');
+    h.enable();
+    await h.settle();
+    h.panes.splitActivePane('right');
+    await h.open('y1');
+    await h.open('y2');
+    const activeSid = () => h.document.querySelector('.pane.pane-active .session-tab.active').dataset.sessionId;
+    assert.equal(activeSid(), 'y2');
+    assert.equal(h.panes.navigateTabInPane(-1), true);
+    await h.settle();
+    assert.equal(activeSid(), 'y1', 'stepped inside this pane');
+    assert.equal(h.panes.navigateTabInPane(-1), true);
+    await h.settle();
+    assert.equal(activeSid(), 'y2', 'wraps within the pane rather than leaving it');
+    // The other pane never became active.
+    assert.equal(h.document.querySelectorAll('.pane.pane-active').length, 1);
+  } finally { h.destroy(); }
+});
+
+test('the close chords act on the focused pane (#350)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a', { running: false });
+    h.enable();
+    await h.settle();
+    h.panes.splitActivePane('right');
+    await h.open('b', { running: false });
+    await h.open('c', { running: false });
+    assert.equal(h.panes.closeActiveTab(), true);
+    await h.settle();
+    assert.deepEqual(h.calls.destroySession, ['c']);
+    assert.equal(await h.panes.closeActivePane(), true);
+    await h.settle();
+    assert.deepEqual(h.calls.destroySession.sort(), ['b', 'c']);
+    assert.equal(h.document.querySelectorAll('.pane').length, 1, 'the pane went with its tabs');
+  } finally { h.destroy(); }
+});
+
+test('the last pane refuses the close chord (#350)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.enable();
+    await h.settle();
+    assert.equal(h.panes.closeActivePane(), false);
+    assert.equal(h.document.querySelectorAll('.pane').length, 1);
+  } finally { h.destroy(); }
+});
+
 // --- #345: a sash drag must never strand `pane-sashing` on <body> ------------
 
 // Two panes side by side with a sash between them, and the gesture started on that sash.

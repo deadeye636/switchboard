@@ -46,6 +46,21 @@ const DEFAULT_SHORTCUTS = {
   // Ctrl/Cmd+Shift+1..9 — focus the n-th pane. Shift matters here too: bare
   // Ctrl+3..8 are ESC/FS/GS/RS/US/DEL, all real control characters.
   paneFocusDigit: { primary: true, alt: false, shift: true },
+  // Ctrl/Cmd+Shift+Alt+\ — split the active pane DOWNWARD, the other axis of paneSplit (#350).
+  // Same key, one more modifier, so the pair reads as one gesture with a direction.
+  paneSplitDown: { primary: true, alt: true, shift: true, key: '\\' },
+  // Ctrl/Cmd+Shift+Z — zoom the active pane to fill the terminal area, and back. A toggle, not a
+  // resize: the layout is untouched underneath, which is what tmux `prefix z` and Windows Terminal
+  // `togglePaneZoom` do. Not Ctrl+Z: the terminal needs that (SIGTSTP).
+  paneZoom: { primary: true, alt: false, shift: true, key: 'z' },
+  // Ctrl/Cmd+Shift+W — close the active tab. Not bare Ctrl+W: that is a word-erase in every shell.
+  paneCloseTab: { primary: true, alt: false, shift: true, key: 'w' },
+  // Ctrl/Cmd+Shift+K — close the active pane. Deliberately not Q: on macOS Cmd+Shift+Q logs the
+  // user out, and a binding whose default can end the session is not a default.
+  paneClose: { primary: true, alt: false, shift: true, key: 'k' },
+  // Ctrl/Cmd+Alt+[ / ] — previous/next tab WITHIN the active pane. The Shift pair next door
+  // (sessionNavBrackets) walks the sidebar order across every pane, which is a different journey.
+  paneTabNav: { primary: true, alt: true, shift: false },
 };
 
 // Settings groups, in render order. `SHORTCUT_DEFS[].group` points at one of these.
@@ -121,10 +136,45 @@ const SHORTCUT_DEFS = [
     group: 'panes',
   },
   {
+    id: 'paneSplitDown',
+    label: 'Split pane downward',
+    description: 'Split the active pane downward; the new pane takes focus and the next session you open lands there',
+    family: 'key',
+    group: 'panes',
+  },
+  {
     id: 'paneFocusDigit',
     label: 'Focus pane 1…9',
     description: 'Focus the n-th pane in reading order',
     family: 'digits',
+    group: 'panes',
+  },
+  {
+    id: 'paneTabNav',
+    label: 'Previous / next tab in this pane',
+    description: 'Step through the tabs of the focused pane; the session-navigation pair next to it walks every pane instead',
+    family: 'brackets',
+    group: 'panes',
+  },
+  {
+    id: 'paneZoom',
+    label: 'Zoom pane',
+    description: 'Make the focused pane fill the terminal area, and the same key puts the layout back unchanged',
+    family: 'key',
+    group: 'panes',
+  },
+  {
+    id: 'paneCloseTab',
+    label: 'Close tab',
+    description: 'Close the focused pane’s active tab, following the configured close behaviour',
+    family: 'key',
+    group: 'panes',
+  },
+  {
+    id: 'paneClose',
+    label: 'Close pane',
+    description: 'Close the focused pane; it asks first when that would stop running processes',
+    family: 'key',
     group: 'panes',
   },
 ];

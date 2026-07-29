@@ -182,7 +182,9 @@ function setupPanesDom(opts = {}) {
   window.relaunchSession = () => {};
 
   const ctx = dom.getInternalVMContext();
-  for (const rel of ['renderer/views/pane-tree.js', 'renderer/views/panes-view.js']) {
+  // grid-layout.js first: it spreads `pickGridNeighbor` (the spatial neighbour geometry panes mode
+  // shares with the grid, #350) onto the window, and panes-view reads it as a bare global.
+  for (const rel of ['renderer/views/grid-layout.js', 'renderer/views/pane-tree.js', 'renderer/views/panes-view.js']) {
     vm.runInContext(fs.readFileSync(path.join(SRC_DIR, rel), 'utf8'), ctx, { filename: path.basename(rel) });
   }
 
@@ -210,6 +212,15 @@ function setupPanesDom(opts = {}) {
     sessionMap,
     activePtyIds,
     mount,
+    // Mount a session AND let the view adopt it, which is what the app's own open path does (a
+    // mount is always followed by a showSession). `mount` alone changes the maps and nothing else,
+    // so a test that only mounted was asserting against stale DOM.
+    open: async (sessionId, opts) => {
+      const m = mount(sessionId, opts);
+      if (window.panesView && window.panesView.active()) window.panesView.render();
+      await new Promise((r) => setTimeout(r, 0));
+      return m;
+    },
     unmount,
     readStored,
     rawStored: () => window.localStorage.getItem('paneTree'),
@@ -221,7 +232,13 @@ function setupPanesDom(opts = {}) {
     disable: (extra = {}) => window.panesView.applySettings({ sessionDisplayMode: 'tabs', ...extra }),
     // panes-view schedules its rebuild in a microtask (scheduleRender); await this to let it land.
     settle: () => new Promise((r) => setTimeout(r, 0)),
-    destroy: () => window.close(),
+    // Turn the view off before the window goes: that clears the persist debounce and ends any live
+    // sash gesture. A timer left running fires into a closed jsdom window and the runner reports it
+    // as an async leak from whichever test happened to be last.
+    destroy: () => {
+      try { window.panesView.applySettings({ sessionDisplayMode: 'tabs' }); } catch { /* already off */ }
+      window.close();
+    },
   };
 }
 

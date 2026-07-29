@@ -8001,6 +8001,8 @@ body.display-mode-panes #terminals {
   /* The negative margin + the container inset below reserve a scrollbar gutter in
      single view. A pane body has no gutter to reserve — it clips its own. */
   margin-right: 0;
+  /* The containing block a zoomed pane is positioned against (#350). */
+  position: relative;
 }
 
 /* The root node fills the area. Only a branch's CHILDREN carry an inline flex
@@ -8064,6 +8066,31 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
 .pane-strip .session-tab.active { min-width: 96px; flex-shrink: 0; }
 .pane-strip .session-tab:not(.active) { flex-shrink: 4; }
 .pane-strip .session-tab:not(.active) .session-tab-label { min-width: 0; }
+
+/* Zoom (#350): the focused pane fills the terminal area while the tree underneath is untouched, so
+   leaving zoom restores the arrangement exactly. Done by lifting the target out of the flex flow
+   rather than by rewriting the layout — a resize would have to be undone, and there is no undo. */
+body.display-mode-panes #terminals.pane-zoomed .pane:not(.pane-zoom-target) { visibility: hidden; }
+body.display-mode-panes #terminals.pane-zoomed .pane-sash { visibility: hidden; }
+body.display-mode-panes #terminals.pane-zoomed .pane.pane-zoom-target {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  visibility: visible;
+}
+/* The zoomed pane says so, so a full-area pane is not mistaken for the only pane there is. */
+body.display-mode-panes #terminals.pane-zoomed .pane.pane-zoom-target > .pane-strip::before {
+  content: 'Zoomed';
+  order: -1;
+  flex-shrink: 0;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8088ff;
+  border: 1px solid rgba(128, 136, 255, 0.4);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
 
 /* A tab from the restored layout whose session is not mounted: it is a shortcut,
    not a live view, so it reads as dimmed until it is clicked open. */

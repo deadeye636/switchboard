@@ -206,6 +206,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // The containers were moved into the fresh panes above, so what is left in
     // #terminals is the previous (now empty) pane scaffolding.
     terminalsEl.replaceChildren(root);
+    // The zoom lives on the DOM, not in the tree, so a rebuild has to re-assert it — and drop it
+    // when the pane it pointed at is no longer there (#350).
+    applyZoom();
     // Flush BEFORE anything becomes visible (#337). A background tab's output is buffered in this
     // mode, and the coalescing buffer can hold up to two seconds of it. Once the element carries
     // `.visible`, that pending chunk takes the write path immediately — and the drain in
@@ -1018,6 +1021,8 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const leaf = activeLeaf();
     if (!leaf) return;
     const newLeafId = nextLeafId();
+    // A split while zoomed would put the new pane behind the zoomed one, where nothing points at it.
+    zoomedLeafId = null;
     // The new pane starts EMPTY and takes focus: a terminal cannot be shown twice
     // (one PTY, one container), so there is nothing to duplicate into it. The next
     // sidebar click fills it, which is exactly what O7 promises.
@@ -1830,15 +1835,91 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return true;
   }
 
-  // Move focus to the neighbouring pane in render order. Panes-mode answer to the
-  // arrow chord that cycles sessions in single view and walks cells in the grid.
-  function focusNeighbourPane(delta) {
+  // Move focus to the pane that lies in `direction` ON SCREEN (#350).
+  //
+  // This used to index `PaneTree.leaves()` in render order and wrap, which is not a direction: in an
+  // L-shaped arrangement "up" from the top-right pane went left and "right" went down. Grid mode in
+  // this same app measures bounding rectangles and gets it right, and `pickGridNeighbor` is that
+  // geometry already factored out — dead zone on the primary axis, cross-axis distance weighted so
+  // the same row or column wins ties. Panes gets the same answer from the same code.
+  //
+  // No wrap. An arrow that walks off the edge of the layout does nothing, which is what every tiling
+  // window manager does; wrapping is how the old version turned "up" into "somewhere else".
+  function focusNeighbourPane(direction) {
     if (!enabled || !tree) return false;
-    const all = PaneTree.leaves(tree);
-    if (all.length < 2) return false;
-    const at = Math.max(0, all.findIndex((l) => l.id === activeLeafId));
-    const next = all[(at + delta + all.length) % all.length];
-    focusPane(next.id);
+    const panes = [...terminalsEl.querySelectorAll('.pane')];
+    if (panes.length < 2) return false;
+    const at = panes.findIndex((p) => p.dataset.paneId === activeLeafId);
+    if (at < 0) return false;
+    const rects = panes.map((p) => p.getBoundingClientRect());
+    const best = (typeof pickGridNeighbor === 'function') ? pickGridNeighbor(rects, at, direction) : -1;
+    if (best < 0) return false;
+    focusPane(panes[best].dataset.paneId);
+    return true;
+  }
+
+  // --- Zoom (#350) ----------------------------------------------------------
+  // A pane can only be read properly by dragging a sash, which has a 5 % floor and no reset. Zoom is
+  // the answer every comparable tool has (tmux `prefix z`, Windows Terminal `togglePaneZoom`, iTerm2,
+  // VS Code) and it is a VIEW state, not a layout change: the tree is untouched, so leaving zoom puts
+  // the arrangement back exactly as it was. Nothing is persisted — a zoom is where you are, not how
+  // your workspace is set up.
+  let zoomedLeafId = null;
+
+  function applyZoom() {
+    const on = !!zoomedLeafId && PaneTree.leaves(tree || null).some((l) => l.id === zoomedLeafId);
+    if (!on) zoomedLeafId = null;
+    terminalsEl.classList.toggle('pane-zoomed', on);
+    for (const pane of terminalsEl.querySelectorAll('.pane')) {
+      pane.classList.toggle('pane-zoom-target', on && pane.dataset.paneId === zoomedLeafId);
+    }
+  }
+
+  function toggleZoom(leafId) {
+    if (!enabled || !tree) return false;
+    const target = leafId || activeLeafId;
+    if (!target || !PaneTree.leaves(tree).some((l) => l.id === target)) return false;
+    zoomedLeafId = (zoomedLeafId === target) ? null : target;
+    if (zoomedLeafId) focusPane(zoomedLeafId);
+    applyZoom();
+    // Both terminals just changed box: the one filling the area and the ones it covered.
+    refitVisible();
+    return true;
+  }
+
+  // Step through the ACTIVE PANE's own tabs. The bracket pair next to this one walks the sidebar
+  // order across every pane, which is why it reads as a lie when you are looking at one strip.
+  function navigateTabInPane(delta) {
+    if (!enabled || !tree) return false;
+    const leaf = activeLeaf();
+    if (!leaf || leaf.tabs.length < 2) return false;
+    const at = leaf.tabs.findIndex((t) => t.id === leaf.activeTabId);
+    const next = leaf.tabs[((at < 0 ? 0 : at) + delta + leaf.tabs.length) % leaf.tabs.length];
+    if (!next) return false;
+    if (isViewTab(next)) {
+      tree = PaneTree.setActiveTab(tree, leaf.id, next.id);
+      render();
+      persist();
+      return true;
+    }
+    openFromTab(leaf, next, sessionOfId(sessionOfTab(next)));
+    return true;
+  }
+
+  // Close the active pane's active tab — the keyboard route to the × on it.
+  function closeActiveTab() {
+    if (!enabled || !tree) return false;
+    const leaf = activeLeaf();
+    const tab = leaf && leaf.tabs.find((t) => t.id === leaf.activeTabId);
+    if (!tab) return false;
+    closeTabFromUi(leaf.id, tab);
+    return true;
+  }
+
+  function closeActivePane() {
+    if (!enabled || !tree || !activeLeafId) return false;
+    if (PaneTree.leaves(tree).length === 1) return false;
+    closePane(activeLeafId);
     return true;
   }
 
@@ -1857,8 +1938,13 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     hasViewTab: (kind) => !!(enabled && tree && PaneTree.leafOfTab(tree, viewTabId(kind))),
     splitActivePane,
     closePane,
+    closeActivePane,
+    closeActiveTab,
     focusPaneByIndex,
     focusNeighbourPane,
+    navigateTabInPane,
+    toggleZoom,
+    isZoomed: () => !!zoomedLeafId,
   };
 
   // A window resize changes every pane's box; refit what is on screen.

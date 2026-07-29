@@ -103,14 +103,21 @@ function isSessionNavKey(e) {
   // Grid move mode: the activation chord, plus every key the mode consumes while
   // it runs — otherwise bare arrows would reach the PTY.
   if (isGridMoveModeKey(e)) return true;
-  // Panes mode: split / focus-pane. Without this the terminal would swallow them
-  // — Ctrl+Shift+\ and Ctrl+Shift+1..9 are keys xterm otherwise forwards (#309).
-  if (window.panesView && window.panesView.active()
-    && (matchShortcut('paneSplit', e, isMac, appShortcuts) || matchShortcut('paneFocusDigit', e, isMac, appShortcuts))) {
+  // Panes mode: every chord the mode owns. Without this the terminal would swallow them — these are
+  // keys xterm otherwise forwards (#309, #350).
+  if (window.panesView && window.panesView.active() && PANE_SHORTCUTS.some((id) => matchShortcut(id, e, isMac, appShortcuts))) {
     return true;
   }
   return false;
 }
+
+// The chords panes mode answers. One list, so the "keep it away from the terminal" check above and
+// the dispatch below cannot drift — a chord in only one of them either does nothing or reaches the
+// PTY as a control character (#350).
+const PANE_SHORTCUTS = [
+  'paneSplit', 'paneSplitDown', 'paneFocusDigit', 'paneTabNav',
+  'paneZoom', 'paneCloseTab', 'paneClose',
+];
 
 // Resolve the active next-attention binding (override-aware) without coupling
 // grid-view to app.js init order.
@@ -151,14 +158,21 @@ function handleSessionNavKey(e) {
   // on Ctrl/Cmd+Shift because the bare versions are control characters the PTY
   // needs — Ctrl+\ is SIGQUIT, Ctrl+3..8 are ESC/FS/GS/RS/US/DEL.
   if (window.panesView && window.panesView.active()) {
-    if (matchShortcut('paneSplit', e, isMac, appShortcuts)) {
+    // What each pane chord does. Keyed by the same ids PANE_SHORTCUTS lists, so a chord cannot be
+    // guarded against the terminal without being dispatched, or the other way round.
+    const paneActions = {
+      paneSplit: () => window.panesView.splitActivePane('right'),
+      paneSplitDown: () => window.panesView.splitActivePane('down'),
+      paneFocusDigit: () => window.panesView.focusPaneByIndex(Number((e.code || '').replace('Digit', ''))),
+      paneTabNav: () => window.panesView.navigateTabInPane(e.code === 'BracketLeft' ? -1 : 1),
+      paneZoom: () => window.panesView.toggleZoom(),
+      paneCloseTab: () => window.panesView.closeActiveTab(),
+      paneClose: () => window.panesView.closeActivePane(),
+    };
+    for (const id of PANE_SHORTCUTS) {
+      if (!matchShortcut(id, e, isMac, appShortcuts)) continue;
       e.preventDefault();
-      if (e.type === 'keydown') window.panesView.splitActivePane('right');
-      return true;
-    }
-    if (matchShortcut('paneFocusDigit', e, isMac, appShortcuts)) {
-      e.preventDefault();
-      if (e.type === 'keydown') window.panesView.focusPaneByIndex(Number((e.code || '').replace('Digit', '')));
+      if (e.type === 'keydown') paneActions[id]();
       return true;
     }
   }
@@ -169,7 +183,10 @@ function handleSessionNavKey(e) {
     e.preventDefault();
     if (e.type === 'keydown') {
       if (window.panesView && window.panesView.active()) {
-        window.panesView.focusNeighbourPane((e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 1);
+        // The direction, not a step (#350). This used to collapse four arrows into ±1 over the
+        // leaves in render order, which is why "up" from a top-right pane went left.
+        const dirMap = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
+        window.panesView.focusNeighbourPane(dirMap[e.key]);
       } else if (gridViewActive) {
         const dirMap = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
         navigateGrid(dirMap[e.key]);

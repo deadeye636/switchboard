@@ -145,9 +145,18 @@ Warn/crit pairs are clamped so warn < crit; an invalid pair falls back to the de
 | `insertVariable` | Insert variable | primary+Shift+V |
 | `gridToggle` | Toggle grid view | primary+Shift+G |
 | `gridMoveMode` | Move / resize grid card | primary+Shift+M |
-| `paneSplit` | Split pane (panes mode) | primary+Shift+`\` |
+| `paneSplit` | Split pane to the right (panes mode) | primary+Shift+`\` |
+| `paneSplitDown` | Split pane downward (panes mode) | primary+Shift+Alt+`\` |
 | `paneFocusDigit` | Focus pane 1…9 (panes mode) | primary+Shift+`1`…`9` |
+| `paneTabNav` | Previous / next tab **in this pane** (panes mode) | primary+Alt+`[` / `]` |
+| `paneZoom` | Zoom the focused pane, and back (panes mode) | primary+Shift+Z |
+| `paneCloseTab` | Close the focused pane's active tab (panes mode) | primary+Shift+W |
+| `paneClose` | Close the focused pane (panes mode) | primary+Shift+K |
 | `nextAttention` | Next attention item | primary+Shift+A — **not re-bindable**, preserved on save |
+
+`sessionNavArrows` means three different journeys depending on the display mode: it cycles sessions in
+single view, walks the mosaic in grid, and in **panes** it moves to the pane that lies that way **on
+screen** — chosen by geometry, and it stops at the edge of the layout instead of wrapping.
 
 ## Handoff
 
