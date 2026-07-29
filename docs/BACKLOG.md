@@ -3,7 +3,7 @@
 
 # Switchboard — Backlog
 
-Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (23 open). The board is maintained via `gh issue`, not here.
+Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/switchboard/issues) (24 open). The board is maintained via `gh issue`, not here.
 
 **As of:** 2026-07-29
 
@@ -36,3 +36,4 @@ Read-only mirror of the **open** [GitHub issues](https://github.com/deadeye636/s
 - [#311](https://github.com/deadeye636/switchboard/issues/311) Panes: preview and diff instantiable per pane · _feature_
 - [#329](https://github.com/deadeye636/switchboard/issues/329) agy: check whether it speaks the Gemini CLI IDE-companion protocol, and serve it if it does · _feature_
 - [#330](https://github.com/deadeye636/switchboard/issues/330) Codex: offer Switchboard's diff surface as an MCP server the CLI can call · _feature_
+- [#332](https://github.com/deadeye636/switchboard/issues/332) Detach: a session without a process is stranded in a window it shares · _bug_
