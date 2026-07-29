@@ -10,8 +10,17 @@
 //   brackets    → [ and ]                   (previous/next session)
 //   commaPeriod → , and .                   (back/forward through visited sessions)
 //   digits      → 1…9                       (pane focus, #309)
-//   key         → a single literal key      (e.g. grid toggle = G)
+//   key         → a single literal CHARACTER (e.g. grid toggle = G)
+//   code        → a single PHYSICAL key      (e.g. split = the Backslash key, #353)
 // The user customises the *modifiers*; `primary` is Cmd on macOS / Ctrl elsewhere.
+//
+// WHY BOTH `key` AND `code`. A letter is the same character on every layout, so matching `e.key` is
+// right for it and reads better in the settings. Punctuation is not: the Backslash key with Shift
+// held reports `|` on a US layout, and a German layout has no Backslash key at all — `\` is AltGr+ß,
+// and AltGr arrives as Ctrl+Alt, which the modifier check rejects. So `paneSplit`, defined as
+// Shift plus the character `\`, could not be pressed on any keyboard from #309 until #353. It
+// survived a live verification because a scripted keydown sets `key` directly, which no keyboard
+// does. Anything that is not a letter belongs in the `code` family.
 
 const DEFAULT_SHORTCUTS = {
   // Ctrl/Cmd+Shift+Arrows — moved off bare Ctrl+Arrows so the terminal keeps
@@ -40,15 +49,16 @@ const DEFAULT_SHORTCUTS = {
   // second arrow chord) keeps this off Ctrl+Alt+Arrow, which is the workspace
   // switcher on most Linux desktops — see the sessionNavArrows note above.
   gridMoveMode: { primary: true, alt: false, shift: true, key: 'm' },
-  // Ctrl/Cmd+Shift+\ — split the active pane (panes mode, #309). NOT bare Ctrl+\:
-  // that is 0x1c (SIGQUIT) to the PTY, so the terminal would lose it.
-  paneSplit: { primary: true, alt: false, shift: true, key: '\\' },
+  // Splitting, by PHYSICAL key (#353). Two keys, one per axis, with Alt reversing the direction:
+  // `\` draws a vertical divider (left/right), `-` a horizontal one (up/down) — the shape Windows
+  // Terminal uses. NOT bare Ctrl+\: that is 0x1c (SIGQUIT) to the PTY, so the terminal would lose it.
+  paneSplit: { primary: true, alt: false, shift: true, code: 'Backslash' },
+  paneSplitLeft: { primary: true, alt: true, shift: true, code: 'Backslash' },
   // Ctrl/Cmd+Shift+1..9 — focus the n-th pane. Shift matters here too: bare
   // Ctrl+3..8 are ESC/FS/GS/RS/US/DEL, all real control characters.
   paneFocusDigit: { primary: true, alt: false, shift: true },
-  // Ctrl/Cmd+Shift+Alt+\ — split the active pane DOWNWARD, the other axis of paneSplit (#350).
-  // Same key, one more modifier, so the pair reads as one gesture with a direction.
-  paneSplitDown: { primary: true, alt: true, shift: true, key: '\\' },
+  paneSplitDown: { primary: true, alt: false, shift: true, code: 'Minus' },
+  paneSplitUp: { primary: true, alt: true, shift: true, code: 'Minus' },
   // Ctrl/Cmd+Shift+Z — zoom the active pane to fill the terminal area, and back. A toggle, not a
   // resize: the layout is untouched underneath, which is what tmux `prefix z` and Windows Terminal
   // `togglePaneZoom` do. Not Ctrl+Z: the terminal needs that (SIGTSTP).
@@ -130,16 +140,30 @@ const SHORTCUT_DEFS = [
   },
   {
     id: 'paneSplit',
-    label: 'Split pane',
+    label: 'Split pane to the right',
     description: 'Split the active pane to the right; the new pane takes focus and the next session you open lands there',
-    family: 'key',
+    family: 'code',
+    group: 'panes',
+  },
+  {
+    id: 'paneSplitLeft',
+    label: 'Split pane to the left',
+    description: 'Split the active pane to the left; the new pane takes focus and the next session you open lands there',
+    family: 'code',
     group: 'panes',
   },
   {
     id: 'paneSplitDown',
     label: 'Split pane downward',
     description: 'Split the active pane downward; the new pane takes focus and the next session you open lands there',
-    family: 'key',
+    family: 'code',
+    group: 'panes',
+  },
+  {
+    id: 'paneSplitUp',
+    label: 'Split pane upward',
+    description: 'Split the active pane upward; the new pane takes focus and the next session you open lands there',
+    family: 'code',
     group: 'panes',
   },
   {
@@ -208,6 +232,10 @@ function normalizeShortcuts(stored) {
         ? s.key.toLowerCase()
         : base.key;
     }
+    if (def.family === 'code') {
+      // A `code` is a KeyboardEvent.code — a name, not a character, so it is kept verbatim.
+      b.code = s && typeof s.code === 'string' && s.code ? s.code : base.code;
+    }
     out[def.id] = b;
   }
   return out;
@@ -249,6 +277,10 @@ function matchShortcut(id, e, isMac, shortcuts) {
     const want = (sc.key || DEFAULT_SHORTCUTS[id].key || '').toLowerCase();
     return (e.key || '').toLowerCase() === want;
   }
+  if (def.family === 'code') {
+    // By the PHYSICAL key: what `e.key` reports for it depends on the layout and on Shift (#353).
+    return (e.code || '') === (sc.code || DEFAULT_SHORTCUTS[id].code || '');
+  }
   return false;
 }
 
@@ -276,8 +308,23 @@ function formatBinding(id, isMac, shortcuts) {
   else if (def.family === 'brackets') parts.push('[ / ]');
   else if (def.family === 'commaPeriod') parts.push(', / .');
   else if (def.family === 'digits') parts.push('1…9');
+  else if (def.family === 'code') parts.push(codeLabel(sc.code || DEFAULT_SHORTCUTS[id].code));
   else parts.push((sc.key || DEFAULT_SHORTCUTS[id].key || '').toUpperCase());
   return parts.join('+');
+}
+
+// What to call a physical key on screen. The character it usually carries where that is unambiguous,
+// otherwise the code itself — a label has to name a key the user can find, and for a layout where
+// the Backslash key does not exist there is no honest character to print.
+const CODE_LABELS = {
+  Backslash: '\\', Minus: '-', Equal: '=', Slash: '/', Backquote: '`',
+  Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']',
+  Comma: ',', Period: '.', Space: 'Space',
+};
+function codeLabel(code) {
+  if (!code) return '';
+  if (CODE_LABELS[code]) return CODE_LABELS[code];
+  return String(code).replace(/^(Key|Digit)/, '');
 }
 
 // Build a binding from a captured keydown event (for the settings rebind UI).
@@ -298,6 +345,11 @@ function captureBinding(e, def, isMac) {
     if (e.key && e.key.length === 1) binding.key = e.key.toLowerCase();
     else return null;
   }
+  if (def.family === 'code') {
+    // The physical key, whatever character it happens to produce under these modifiers (#353).
+    if (e.code) binding.code = e.code;
+    else return null;
+  }
   return binding;
 }
 
@@ -312,6 +364,7 @@ if (typeof module !== 'undefined' && module.exports) {
     matchShortcut,
     isSessionNavShortcut,
     formatBinding,
+    codeLabel,
     captureBinding,
   };
 }

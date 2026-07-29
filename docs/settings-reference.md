@@ -135,6 +135,12 @@ Warn/crit pairs are clamped so warn < crit; an invalid pair falls back to the de
 
 `primary` = Cmd on macOS, Ctrl elsewhere. Defaults live in `src/renderer/shell/shortcuts.js`.
 
+A binding names either a **character** (letters — the same key wherever the layout puts it) or a
+**physical key** (`code`, for punctuation). The split chords are physical: the Backslash key reports
+`|` when Shift is held on a US layout and does not exist at all on a German one, so a binding on the
+character `\` could not be pressed on any keyboard (#353). The four punctuation chords below store a
+`code`; everything else stores a `key`.
+
 | Key | Action | Default |
 |---|---|---|
 | `sessionNavArrows` | Navigate sessions / grid | primary+Shift+arrows |
@@ -146,7 +152,9 @@ Warn/crit pairs are clamped so warn < crit; an invalid pair falls back to the de
 | `gridToggle` | Toggle grid view | primary+Shift+G |
 | `gridMoveMode` | Move / resize grid card | primary+Shift+M |
 | `paneSplit` | Split pane to the right (panes mode) | primary+Shift+`\` |
-| `paneSplitDown` | Split pane downward (panes mode) | primary+Shift+Alt+`\` |
+| `paneSplitLeft` | Split pane to the left (panes mode) | primary+Shift+Alt+`\` |
+| `paneSplitDown` | Split pane downward (panes mode) | primary+Shift+`-` |
+| `paneSplitUp` | Split pane upward (panes mode) | primary+Shift+Alt+`-` |
 | `paneFocusDigit` | Focus pane 1…9 (panes mode) | primary+Shift+`1`…`9` |
 | `paneTabNav` | Previous / next tab **in this pane** (panes mode) | primary+Alt+`[` / `]` |
 | `paneZoom` | Zoom the focused pane, and back (panes mode) | primary+Shift+Z |

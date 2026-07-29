@@ -169,6 +169,70 @@ test('isSessionNavShortcut covers the history pair, so xterm blocks it', () => {
   assert.equal(isSessionNavShortcut(ev(',', '', 'Comma'), false, D), false);
 });
 
+// --- #353: a chord on a punctuation key has to survive the keyboard ----------
+
+test('the split chords fire from the events a REAL keyboard sends', () => {
+  const sc = normalizeShortcuts(null);
+  // A US layout with Shift held on the Backslash key sends key "|", never "\".
+  const usSplit = { key: '|', code: 'Backslash', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false };
+  assert.equal(matchShortcut('paneSplit', usSplit, false, sc), true);
+  // A German layout has no Backslash key; the physical key in that position sends something else
+  // again — the code is what both have in common.
+  const deSplit = { key: '#', code: 'Backslash', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false };
+  assert.equal(matchShortcut('paneSplit', deSplit, false, sc), true);
+});
+
+test('all four split directions are distinct chords (#353)', () => {
+  const sc = normalizeShortcuts(null);
+  const ev = (code, mods) => ({
+    key: 'x', code, ctrlKey: !!mods.ctrl, shiftKey: !!mods.shift, altKey: !!mods.alt, metaKey: false,
+  });
+  const right = ev('Backslash', { ctrl: true, shift: true });
+  const left = ev('Backslash', { ctrl: true, shift: true, alt: true });
+  const down = ev('Minus', { ctrl: true, shift: true });
+  const up = ev('Minus', { ctrl: true, shift: true, alt: true });
+  const hits = (e) => ['paneSplit', 'paneSplitLeft', 'paneSplitDown', 'paneSplitUp']
+    .filter((id) => matchShortcut(id, e, false, sc));
+  assert.deepEqual(hits(right), ['paneSplit']);
+  assert.deepEqual(hits(left), ['paneSplitLeft']);
+  assert.deepEqual(hits(down), ['paneSplitDown']);
+  assert.deepEqual(hits(up), ['paneSplitUp']);
+});
+
+test('a split chord does not claim the control character the terminal needs (#353)', () => {
+  const sc = normalizeShortcuts(null);
+  // Bare Ctrl+\ is SIGQUIT to the PTY and must stay the terminal's.
+  const sigquit = { key: '\\', code: 'Backslash', ctrlKey: true, shiftKey: false, altKey: false, metaKey: false };
+  for (const id of ['paneSplit', 'paneSplitLeft', 'paneSplitDown', 'paneSplitUp']) {
+    assert.equal(matchShortcut(id, sigquit, false, sc), false, id);
+  }
+});
+
+test('formatBinding names a physical key by the character it usually carries (#353)', () => {
+  const sc = normalizeShortcuts(null);
+  assert.equal(formatBinding('paneSplit', false, sc), 'Ctrl+Shift+\\');
+  assert.equal(formatBinding('paneSplitUp', false, sc), 'Ctrl+Alt+Shift+-');
+});
+
+test('captureBinding records the physical key for a code-family action (#353)', () => {
+  const def = SHORTCUT_DEFS.find((d) => d.id === 'paneSplit');
+  const captured = captureBinding(
+    { key: '|', code: 'Backslash', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false },
+    def, false,
+  );
+  assert.deepEqual(captured, { primary: true, alt: false, shift: true, code: 'Backslash' });
+  // And a rebind survives normalisation, so Save actually sticks.
+  const sc = normalizeShortcuts({ paneSplit: captured });
+  assert.equal(sc.paneSplit.code, 'Backslash');
+});
+
+test('a letter chord still matches by character, not by code (#353)', () => {
+  const sc = normalizeShortcuts(null);
+  // A German layout puts Z where a US one puts Y. `paneZoom` is the letter Z wherever it sits.
+  const zOnQwertz = { key: 'Z', code: 'KeyY', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false };
+  assert.equal(matchShortcut('paneZoom', zOnQwertz, false, sc), true);
+});
+
 test('captureBinding: needs a modifier + real key; rejects bare/modifier-only presses', () => {
   const arrowsDef = SHORTCUT_DEFS.find(d => d.id === 'sessionNavArrows');
   const keyDef = SHORTCUT_DEFS.find(d => d.id === 'gridToggle');

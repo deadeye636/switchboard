@@ -115,8 +115,8 @@ function isSessionNavKey(e) {
 // the dispatch below cannot drift — a chord in only one of them either does nothing or reaches the
 // PTY as a control character (#350).
 const PANE_SHORTCUTS = [
-  'paneSplit', 'paneSplitDown', 'paneFocusDigit', 'paneTabNav',
-  'paneZoom', 'paneCloseTab', 'paneClose',
+  'paneSplit', 'paneSplitLeft', 'paneSplitDown', 'paneSplitUp',
+  'paneFocusDigit', 'paneTabNav', 'paneZoom', 'paneCloseTab', 'paneClose',
 ];
 
 // Resolve the active next-attention binding (override-aware) without coupling
@@ -162,7 +162,9 @@ function handleSessionNavKey(e) {
     // guarded against the terminal without being dispatched, or the other way round.
     const paneActions = {
       paneSplit: () => window.panesView.splitActivePane('right'),
+      paneSplitLeft: () => window.panesView.splitActivePane('left'),
       paneSplitDown: () => window.panesView.splitActivePane('down'),
+      paneSplitUp: () => window.panesView.splitActivePane('up'),
       paneFocusDigit: () => window.panesView.focusPaneByIndex(Number((e.code || '').replace('Digit', ''))),
       paneTabNav: () => window.panesView.navigateTabInPane(e.code === 'BracketLeft' ? -1 : 1),
       paneZoom: () => window.panesView.toggleZoom(),
