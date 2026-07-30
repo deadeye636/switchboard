@@ -92,7 +92,7 @@ absent from the installer.
 
 | Area | What lives there |
 |---|---|
-| `src/main.js` | composition root: requires, `DATA_DIR`, wiring for thirteen modules, 76 legacy IPC handlers |
+| `src/main.js` | composition root: requires, `DATA_DIR`, wiring for thirteen modules, the legacy IPC handlers (`GRANDFATHERED` in `test/main-no-new-ipc.test.js` is the list — count it there) |
 | `src/app/**` | the areas main.js used to hold — lifecycle, windows, notifications, hooks, variables, settings, quit-guard, settings-transfer, plans-memory, vcs, detach, `terminal/` |
 | `src/preload.js` | the **only** IPC surface — `window.api.*` |
 | `src/shared/**` | the four modules **both** processes load (`attention-source`, `custom-launchers`, `variable-insert`, `preview-kind`) |

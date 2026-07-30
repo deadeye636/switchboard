@@ -101,11 +101,21 @@ And the follow-ups that came out of it:
   viewers' own headers already use — and only a **user** close runs one, or hiding Projects to show
   Variables sends the sidebar back and undoes the switch.
 
-Still open: `docs/BACKLOG.md` #352 carries the remaining checklist — chiefly that the **LRU cap does
-not bound the live terminal count** (measured 22 open against a cap of 12) and that panes does not
-trim the scrollback of a background tab. The second is deliberately unfixed: grid can trim because a
-card is a preview, while a background pane tab is a session the user will switch back to, and xterm
-cannot restore lines a shrunk buffer dropped.
+**#352 is closed.** Its last boxes landed as decisions rather than patches, and both are worth knowing:
+
+- **The LRU still does not bound the live terminal count**, and that is deliberate. `lruEvictOne` skips
+  everything with a live PTY, because discarding a running session's scrollback while it keeps
+  producing output is a visible loss, not a cache decision. What was missing is that the limit was
+  invisible until Chromium began dropping GPU contexts — so the status bar counts live terminals from
+  24 up (`shell/terminal-pressure.js`), amber there and red at 30.
+- **Trimming a background tab's scrollback is a setting, off by default** (`paneBackgroundScrollback`).
+  The reasoning for the default stands: grid can trim because a card is a preview, while a background
+  pane tab is a session the user will switch back to, and xterm cannot restore lines a shrunk buffer
+  dropped. Whoever keeps twenty panes open can now make that trade knowingly.
+
+Also from that pass: undo for layout changes and named layouts, "Distribute evenly" and a
+double-click sash reset, actions on an empty pane (plus `paneCloseEmpty`), and a tab dragged out of
+the window to detach it (spec 17 §2b carries the window half, including #360).
 
 Issue: #309 · builds the ownership model that detachable windows (#2) then consume.
 
@@ -321,7 +331,30 @@ status filter, bulk actions over card selection, and the card chrome. VS Code ha
 bulk actions to the sidebar and rebuilding the a11y move mode on the tree; that is its own issue, not a
 side effect of this one. The tree model is pure, so the option stays open.
 
-### 4.5 Why the layout is still hand-rolled (#359)
+### 4.5 What panes gained so grid could be retired without loss (#356)
+
+Grid is an overview, and four things hung off that framing with no counterpart on a tree. Three were
+built; the fourth was struck after reading the code rather than deferred:
+
+- **Tiling all open sessions** — a COMMAND that builds a tree, not a mode. It replaces the arrangement
+  and asks nothing, because undo (§4.6) is one click away. Its column count is **not** grid's:
+  `calculateTileColumnCount` takes the height as well, because grid scrolls while a pane tree shares one
+  viewport. Measured: grid's formula answered "one column" for seven sessions on 1020 × 952 — seven
+  panes of 136 px, six terminal rows each.
+- **A keyboard move mode** — the chord enters it on the active tab, arrows move that tab into the pane
+  in that direction (`pickGridNeighbor`, shared geometry), Escape leaves. Its marker is a projection of
+  the state, re-asserted by every render: built the other way round it ended on the first rebuild, and
+  this mode rebuilds constantly.
+- **A selection, and bulk actions over it** — Ctrl-click marks, Shift-click takes a range inside one
+  strip (two panes' tabs have no order a user could predict), a plain click leaves. Stop, Close and Tag
+  act on the set; Close goes down the same path a single `×` takes, so the close behaviour still decides
+  per session. **Grid has no selection model at all** — its "bulk actions" act on what the status chips
+  admit — so this is the one capability panes has and grid does not.
+- **A status filter — struck.** It already exists elsewhere: the sidebar's attention inbox carries it
+  with a Focus-next button, and every pane tab shows its status dot. A filter here would be a third
+  place for what is stated in two, and a hand-arranged tree is the wrong thing to hide panes from.
+
+### 4.6 Why the layout is still hand-rolled (#359)
 
 Evaluated against dockview-core (7.0.4, MIT, zero dependencies, 291 KB minified) and `@lumino/widgets`
 (2.9.0, BSD-3, eleven packages, 186 KB). Golden Layout is out — no release since February 2023 — and
