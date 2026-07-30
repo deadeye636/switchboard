@@ -8107,6 +8107,33 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
 .pane-strip .session-tab:not(.active) { flex-shrink: 4; }
 .pane-strip .session-tab:not(.active) .session-tab-label { min-width: 0; }
 
+/* Selection (#356): a modified click marks tabs for a bulk action. Distinct from `.active`, which
+   says "this is the tab on screen" — a tab can be both, and the two must not look the same. */
+body.display-mode-panes .pane-strip .session-tab.selected {
+  box-shadow: inset 0 0 0 1px #8088ff;
+  background: rgba(128, 136, 255, 0.14);
+}
+
+/* The bar only exists while something is selected, and it FLOATS: a bar that took a row from the
+   layout would resize every terminal in the window each time a selection started and ended. */
+.pane-selection-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #4a4a5a;
+  border-radius: 8px;
+  background: #1c1c24;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.pane-selection-count { font-size: 12px; color: #c8c8dc; margin-right: 4px; }
+.pane-selection-bar .new-session-secondary-btn.danger { color: #ff9a9a; border-color: rgba(220, 60, 60, 0.5); }
+
 /* Keyboard move mode (#356): the pane holding the tab being moved says so, because the mode owns the
    bare arrow keys and a mode with no visible state is a mode the user cannot leave on purpose. Same
    idea as the zoom badge below, in the colour the app uses for "this is active". */

@@ -2442,3 +2442,147 @@ test('leaving panes mode leaves the move mode too (#356)', async () => {
     assert.equal(h.panes.isTabMoveModeActive(), false, 'the panes it was navigating are gone');
   } finally { h.destroy(); }
 });
+
+// --- #356: selection and bulk actions ----------------------------------------
+
+const tabEl = (h, sessionId) =>
+  h.document.querySelector(`.pane-strip .session-tab[data-session-id="${sessionId}"]`);
+const clickTab = (h, sessionId, mods = {}) =>
+  tabEl(h, sessionId).dispatchEvent(new h.window.MouseEvent('click', { bubbles: true, cancelable: true, ...mods }));
+const selectionBar = (h) => h.document.getElementById('pane-selection-bar');
+const barButtons = (h) => [...(selectionBar(h)?.querySelectorAll('button') || [])].map((b) => b.textContent);
+
+test('a modified click selects, a plain one opens (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    for (const id of ['a', 'b', 'c']) await h.open(id);
+    assert.equal(selectionBar(h), null, 'no bar at rest — the mode loses no height');
+
+    clickTab(h, 'a', { ctrlKey: true });
+    clickTab(h, 'c', { ctrlKey: true });
+    assert.equal(h.panes.selectedTabCount(), 2);
+    assert.ok(tabEl(h, 'a').classList.contains('selected'));
+    assert.ok(!tabEl(h, 'b').classList.contains('selected'));
+    assert.ok(selectionBar(h), 'the bar appeared');
+    assert.match(selectionBar(h).textContent, /2 selected/);
+
+    // Ctrl-clicking a selected tab takes it back out.
+    clickTab(h, 'a', { ctrlKey: true });
+    assert.equal(h.panes.selectedTabCount(), 1);
+
+    // A plain click is how you leave a selection.
+    clickTab(h, 'b');
+    assert.equal(h.panes.selectedTabCount(), 0);
+    assert.equal(selectionBar(h), null);
+  } finally { h.destroy(); }
+});
+
+test('Shift-click takes the range inside one strip (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    for (const id of ['a', 'b', 'c', 'd']) await h.open(id);
+    clickTab(h, 'a', { ctrlKey: true });
+    clickTab(h, 'd', { shiftKey: true });
+    assert.equal(h.panes.selectedTabCount(), 4, 'a through d');
+  } finally { h.destroy(); }
+});
+
+test('a view tab cannot be selected (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.openViewTab('jsonl');
+    await h.settle();
+    h.document.querySelector('.pane-strip .session-tab-view')
+      .dispatchEvent(new h.window.MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+    // No process to stop and no session to tag — including it would mean every action explaining
+    // what it did not do to it.
+    assert.equal(h.panes.selectedTabCount(), 0);
+  } finally { h.destroy(); }
+});
+
+test('the bar offers Stop only when something in the selection runs (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a', { running: false });
+    await h.open('b', { running: false });
+    clickTab(h, 'a', { ctrlKey: true });
+    assert.deepEqual(barButtons(h), ['Stop', 'Close', 'Tag…', 'Clear']);
+    assert.equal(selectionBar(h).querySelector('button').disabled, true, 'nothing to stop');
+
+    clickTab(h, 'b', { ctrlKey: true });
+    h.activePtyIds.add('b');
+    h.panes.render();
+    await h.settle();
+    assert.equal(selectionBar(h).querySelector('button').disabled, false);
+  } finally { h.destroy(); }
+});
+
+test('Close acts on every selected tab, asking once (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    // With the close behaviour that ENDS processes, so the one-question rule has something to ask.
+    h.enable({ tabCloseBehavior: 'stopSession' });
+    for (const id of ['a', 'b', 'c']) await h.open(id);
+    clickTab(h, 'a', { ctrlKey: true });
+    clickTab(h, 'b', { ctrlKey: true });
+
+    [...selectionBar(h).querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await h.settle();
+    // Down the path a single tab's × takes, so the configured close behaviour still decides.
+    assert.deepEqual(h.calls.destroySession.sort(), ['a', 'b']);
+    assert.equal(h.calls.dialogs.length, 1, 'one question for the set, not one per tab');
+    assert.equal(h.panes.selectedTabCount(), 0);
+  } finally { h.destroy(); }
+});
+
+test('Stop asks first and stops only what runs (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    await h.open('b', { running: false });
+    clickTab(h, 'a', { ctrlKey: true });
+    clickTab(h, 'b', { ctrlKey: true });
+
+    [...selectionBar(h).querySelectorAll('button')].find((b) => b.textContent === 'Stop').click();
+    await h.settle();
+    assert.equal(h.calls.dialogs.length, 1);
+    assert.deepEqual(h.calls.stopSession, ['a'], 'b was not running');
+  } finally { h.destroy(); }
+});
+
+test('a selection drops tabs the tree no longer has (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    await h.open('b');
+    clickTab(h, 'a', { ctrlKey: true });
+    clickTab(h, 'b', { ctrlKey: true });
+    assert.equal(h.panes.selectedTabCount(), 2);
+
+    // The session exited and took its tab with it.
+    h.unmount('a');
+    h.panes.dropSession('a');
+    await h.settle();
+    assert.equal(h.panes.selectedTabCount(), 1, 'a count the user can still explain');
+  } finally { h.destroy(); }
+});
+
+test('leaving panes mode takes the selection and its bar (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    clickTab(h, 'a', { ctrlKey: true });
+    assert.ok(selectionBar(h));
+    h.disable();
+    assert.equal(h.panes.selectedTabCount(), 0);
+    assert.equal(selectionBar(h), null);
+  } finally { h.destroy(); }
+});

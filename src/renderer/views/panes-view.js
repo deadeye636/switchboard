@@ -359,6 +359,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // gave up on any render would be unusable in the running app, which is exactly how it behaved
     // when it was first driven. Grid states the same rule from the other side (`gridInteracting`).
     markMoveModePane();
+    // A selection names tabs; a rebuild is where tabs disappear (#356). Prune first, then paint — a
+    // count that includes a tab nobody can see is a count the user cannot explain.
+    pruneTabSelection();
+    refreshSelectionUi();
     // Flush BEFORE anything becomes visible (#337). A background tab's output is buffered in this
     // mode, and the coalescing buffer can hold up to two seconds of it. Once the element carries
     // `.visible`, that pending chunk takes the write path immediately — and the drain in
@@ -982,7 +986,15 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
     el.appendChild(buildTabClose(leaf, tab, name));
 
-    el.addEventListener('click', () => { openFromTab(leaf, tab, session); });
+    el.addEventListener('click', (e) => {
+      // A modified click selects rather than opens (#356) — the same pair every file manager and
+      // editor uses, so nothing here has to be taught.
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); toggleTabSelection(leaf, tab); return; }
+      if (e.shiftKey) { e.preventDefault(); extendTabSelection(leaf, tab); return; }
+      // A plain click on a tab is how you leave a selection: it is what "no, that one" means.
+      if (selectedTabIds.size) clearTabSelection();
+      openFromTab(leaf, tab, session);
+    });
     el.addEventListener('auxclick', (e) => {
       if (middleClickCloses && e.button === 1) { e.preventDefault(); closeSessionTab(sessionId); }
     });
@@ -2543,6 +2555,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // with the element inside it.
     enabled = false;
     tabMoveMode = false; // the panes it was navigating are about to go
+    selectedTabIds.clear();
+    selectionAnchor = null;
+    document.getElementById('pane-selection-bar')?.remove();
     // Hand every shrunk buffer its full budget back (#352) — the setting is a panes-mode one, and
     // tabs and grid decide this for themselves.
     restoreScrollbackBudgets();
@@ -2812,6 +2827,188 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return best < 0 ? null : panes[best].dataset.paneId;
   }
 
+  // --- Selection and bulk actions (#356) -------------------------------------
+  //
+  // Grid has no selection model — its "bulk actions" act on whatever the status chips admit — so this
+  // is new rather than a port. It spans the whole TREE, not one pane: a bulk action is about sessions,
+  // and which pane they happen to sit in is not part of the question.
+  //
+  // Only terminal tabs can be selected. A view tab has no process to stop and no session to tag, so
+  // including one would mean every action explaining what it did not do to it.
+
+  const selectedTabIds = new Set();
+  // Where a Shift-click measures its range from: the last tab the user picked deliberately.
+  let selectionAnchor = null;
+
+  const isTabSelected = (tabId) => selectedTabIds.has(tabId);
+
+  function selectableTabsOf(leaf) {
+    return leaf ? leaf.tabs.filter((t) => !!sessionOfTab(t)) : [];
+  }
+
+  function toggleTabSelection(leaf, tab) {
+    if (!sessionOfTab(tab)) return;
+    if (selectedTabIds.has(tab.id)) selectedTabIds.delete(tab.id);
+    else selectedTabIds.add(tab.id);
+    selectionAnchor = selectedTabIds.has(tab.id) ? tab.id : null;
+    refreshSelectionUi();
+  }
+
+  // Shift-click takes the range within ONE strip. Across panes there is no "between" a user could
+  // predict — the tree is two-dimensional and the tabs of two panes have no shared order.
+  function extendTabSelection(leaf, tab) {
+    const tabs = selectableTabsOf(leaf);
+    const to = tabs.findIndex((t) => t.id === tab.id);
+    if (to < 0) return;
+    const from = tabs.findIndex((t) => t.id === selectionAnchor);
+    if (from < 0) { toggleTabSelection(leaf, tab); return; }
+    const [lo, hi] = from <= to ? [from, to] : [to, from];
+    for (let i = lo; i <= hi; i++) selectedTabIds.add(tabs[i].id);
+    refreshSelectionUi();
+  }
+
+  function clearTabSelection() {
+    if (!selectedTabIds.size) return;
+    selectedTabIds.clear();
+    selectionAnchor = null;
+    refreshSelectionUi();
+  }
+
+  // Drop anything the tree no longer holds. Called after every rebuild: a session that exited took its
+  // tab with it, and a selection naming a tab nobody can see is a count the user cannot explain.
+  function pruneTabSelection() {
+    if (!selectedTabIds.size) return;
+    const live = new Set();
+    for (const leaf of PaneTree.leaves(tree)) for (const t of leaf.tabs) live.add(t.id);
+    for (const id of [...selectedTabIds]) if (!live.has(id)) selectedTabIds.delete(id);
+    if (selectionAnchor && !live.has(selectionAnchor)) selectionAnchor = null;
+  }
+
+  /** The selected tabs, in visual order, as `{ leaf, tab }` — the shape every action needs. */
+  function selectedEntries() {
+    const out = [];
+    for (const leaf of PaneTree.leaves(tree)) {
+      for (const tab of leaf.tabs) if (selectedTabIds.has(tab.id)) out.push({ leaf, tab });
+    }
+    return out;
+  }
+
+  function refreshSelectionUi() {
+    for (const el of terminalsEl.querySelectorAll('.pane-strip .session-tab')) {
+      el.classList.toggle('selected', selectedTabIds.has(el.dataset.tabId));
+    }
+    renderSelectionBar();
+  }
+
+  /**
+   * The bar that appears ONLY while something is selected, so the mode loses no height at rest.
+   *
+   * It floats over the tree rather than taking a row from it: a bar that pushed the panes down would
+   * resize every terminal in the window each time a selection started and ended.
+   */
+  function renderSelectionBar() {
+    const existing = document.getElementById('pane-selection-bar');
+    const entries = selectedEntries();
+    if (!enabled || !entries.length) { if (existing) existing.remove(); return; }
+
+    const bar = existing || document.createElement('div');
+    bar.id = 'pane-selection-bar';
+    bar.className = 'pane-selection-bar';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Selected tabs');
+    bar.replaceChildren();
+
+    const running = entries.map(({ tab }) => sessionOfTab(tab)).filter((id) => id && sessionIsLive(id));
+    const count = document.createElement('span');
+    count.className = 'pane-selection-count';
+    count.textContent = `${entries.length} selected`;
+    bar.appendChild(count);
+
+    const action = (label, handler, opts = {}) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'new-session-secondary-btn' + (opts.danger ? ' danger' : '');
+      b.textContent = label;
+      if (opts.disabled) b.disabled = true;
+      else b.addEventListener('click', handler);
+      bar.appendChild(b);
+      return b;
+    };
+
+    action('Stop', () => stopSelectedSessions(), {
+      danger: true,
+      // Nothing running in the selection: the button would ask a question with no answer.
+      disabled: !running.length,
+    });
+    action('Close', () => closeSelectedTabs());
+    action('Tag…', () => tagSelectedSessions());
+    action('Clear', () => clearTabSelection());
+
+    if (!existing) document.body.appendChild(bar);
+  }
+
+  async function stopSelectedSessions() {
+    const ids = selectedEntries().map(({ tab }) => sessionOfTab(tab)).filter((id) => id && sessionIsLive(id));
+    if (!ids.length) return;
+    if (typeof showControlDialog === 'function') {
+      const ok = await showControlDialog({
+        title: 'Stop sessions',
+        message: ids.length === 1
+          ? 'This stops one running process. Its history stays either way.'
+          : `This stops ${ids.length} running processes. Their history stays either way.`,
+        confirmLabel: ids.length === 1 ? 'Stop session' : 'Stop sessions',
+        cancelLabel: 'Cancel',
+        tone: 'danger',
+      });
+      if (!ok) return;
+    }
+    for (const id of ids) {
+      try { window.api.stopSession(id); } catch { /* already gone */ }
+    }
+    clearTabSelection();
+  }
+
+  // Down the path a single tab's × already takes, one question for the set — `closeTabs` is the
+  // function #349 built for exactly this, so the configured close behaviour still decides per session.
+  async function closeSelectedTabs() {
+    const tabs = selectedEntries().map(({ tab }) => tab);
+    if (!tabs.length) return;
+    clearTabSelection();
+    await closeTabs(tabs);
+  }
+
+  /**
+   * Add a tag to every selected session (#356).
+   *
+   * ADD, not replace: tags are per session and the selection is a set of different ones, so writing a
+   * single list over all of them would silently drop whatever each already had. The dialog says so.
+   */
+  async function tagSelectedSessions() {
+    const ids = selectedEntries().map(({ tab }) => sessionOfTab(tab)).filter(Boolean);
+    if (!ids.length || typeof showControlDialog !== 'function') return;
+    const tag = await showControlDialog({
+      title: ids.length === 1 ? 'Tag session' : `Tag ${ids.length} sessions`,
+      message: 'The tag is added to what each session already has; nothing is replaced.',
+      prompt: { placeholder: 'Tag name', maxLength: 40 },
+      confirmLabel: 'Add tag',
+    });
+    if (!tag) return;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        const current = (await window.api.sessionTagsGet(id)) || [];
+        if (!current.includes(tag)) await window.api.sessionTagsSet(id, current.concat(tag));
+      } catch { failed++; }
+    }
+    clearTabSelection();
+    if (typeof showControlToast === 'function') {
+      showControlToast(failed
+        ? { message: `Tagged ${ids.length - failed} of ${ids.length} sessions — ${failed} could not be written` }
+        : { message: `Tagged ${ids.length} session${ids.length === 1 ? '' : 's'} “${tag}”` });
+    }
+    if (typeof refreshSidebar === 'function') refreshSidebar();
+  }
+
   // --- Keyboard move mode (#356) --------------------------------------------
   //
   // Grid has one; panes had arrows, splits and drag, and no keyboard way to say "move this tab there".
@@ -2979,6 +3176,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     isZoomed: () => !!zoomedLeafId,
     undoLayout,
     tileAllSessions,
+    selectTab: (tabId) => { selectedTabIds.add(tabId); refreshSelectionUi(); },
+    selectedTabCount: () => selectedTabIds.size,
+    clearTabSelection,
     enterTabMoveMode,
     exitTabMoveMode,
     isTabMoveModeActive,
