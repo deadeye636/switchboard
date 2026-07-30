@@ -112,7 +112,13 @@ function setupPanesDom(opts = {}) {
     const session = { sessionId, name, type };
     if (projectPath) session.projectPath = projectPath;
     sessionMap.set(sessionId, session);
-    openSessions.set(sessionId, { session, element, webglAddon: null });
+    // A stand-in xterm carrying only what panes-view reads of it: the scrollback budget (#352).
+    // terminal-manager.js is not loaded here, so `SCROLLBACK_SINGLE` is not either — the value below
+    // is that constant, and panes-view falls back to the same number when it cannot see it.
+    openSessions.set(sessionId, {
+      session, element, webglAddon: null,
+      terminal: { options: { scrollback: 10000 } },
+    });
     if (running) activePtyIds.add(sessionId);
     return { session, element };
   }

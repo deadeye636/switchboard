@@ -71,6 +71,7 @@ back on Save.
 | `sessionDisplayMode` | Display mode | `grid` \| `tabs` \| `panes` | `grid` | global |
 | `paneToolsPlacement` | Session tools (panes mode) | `bar` \| `strip` | `bar` | global |
 | `paneCloseEmpty` | Close a pane when it becomes empty | `true` \| `false` | `false` | global |
+| `paneBackgroundScrollback` | Scrollback of a background pane tab | `0` (keep all) \| `5000` \| `2000` \| `1000` | `0` | global |
 | `settingsOpenMode` | Open settings as | `overlay` \| `window` | `overlay` | global |
 | `sidebarCollapseDefault` | Sidebar on startup | `expanded` \| `collapsed` \| `remember` | `remember` | global |
 | `tabPosition` | Tab position | `top` \| `bottom` | `top` | global |

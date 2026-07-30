@@ -50,7 +50,7 @@
       DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
       collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
-      paneCloseEmptyValue,
+      paneCloseEmptyValue, paneBackgroundScrollbackValue,
       externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
@@ -75,7 +75,7 @@
           <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">6</span></button>
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item settings-nav-sub" data-cat="tools">Terminal tools</button>
-          <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
+          <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">12</span></button>
           <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">11</span></button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
           <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
@@ -452,6 +452,21 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-pane-close-empty" ${paneCloseEmptyValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Scrollback of a background pane tab</span>
+                    <div class="settings-description">Panes mode: how much history a tab keeps while another tab is on screen in its pane.</div>
+                    <div class="settings-more"><b>This throws history away, and it does not come back.</b> A 10,000-line buffer costs roughly 3 MB per terminal, so twenty background tabs carry about 60 MB nobody is reading — but xterm trims the moment the limit drops, and the lines it drops are gone even after the tab comes forward again. Off by default for that reason: a background tab here is a session you are coming back to, not a preview. Grid trims its cards because a card <i>is</i> a preview.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-pane-bg-scrollback">
+                      <option value="0" ${paneBackgroundScrollbackValue === '0' ? 'selected' : ''}>Keep all of it</option>
+                      <option value="5000" ${paneBackgroundScrollbackValue === '5000' ? 'selected' : ''}>5,000 lines</option>
+                      <option value="2000" ${paneBackgroundScrollbackValue === '2000' ? 'selected' : ''}>2,000 lines</option>
+                      <option value="1000" ${paneBackgroundScrollbackValue === '1000' ? 'selected' : ''}>1,000 lines</option>
+                    </select>
                   </div>
                 </div>
                 <div class="settings-field">

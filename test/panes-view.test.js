@@ -1875,3 +1875,66 @@ test('an empty pane stays put while paneCloseEmpty is off (#352)', async () => {
     assert.equal(h.document.querySelectorAll('.pane').length, 2);
   } finally { h.destroy(); }
 });
+
+// --- #352: scrollback of a background pane tab -------------------------------
+
+const scrollbackOf = (h, id) => h.openSessions.get(id).terminal.options.scrollback;
+
+test('a background tab keeps its full scrollback while the setting is off (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    await h.open('b'); // same pane, so `a` is now behind `b`
+    assert.equal(scrollbackOf(h, 'a'), 10000, 'the default is the opinion: history is not traded away');
+    assert.equal(scrollbackOf(h, 'b'), 10000);
+  } finally { h.destroy(); }
+});
+
+test('paneBackgroundScrollback shrinks the tab that is not on screen (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable({ paneBackgroundScrollback: 2000 });
+    await h.open('a');
+    await h.open('b');
+    assert.equal(scrollbackOf(h, 'a'), 2000, 'behind');
+    assert.equal(scrollbackOf(h, 'b'), 10000, 'in front');
+
+    // Coming forward raises it again. What was already trimmed stays gone — xterm cannot restore it,
+    // which is the whole reason this is off by default.
+    h.panes.show('a');
+    await h.settle();
+    assert.equal(scrollbackOf(h, 'a'), 10000);
+    assert.equal(scrollbackOf(h, 'b'), 2000);
+  } finally { h.destroy(); }
+});
+
+test('leaving panes mode hands every budget back (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable({ paneBackgroundScrollback: 1000 });
+    await h.open('a');
+    await h.open('b');
+    assert.equal(scrollbackOf(h, 'a'), 1000);
+    h.disable();
+    // Tabs and grid decide this for themselves; a shrunk buffer left behind would apply a panes-mode
+    // setting to a mode that never asked for it.
+    assert.equal(scrollbackOf(h, 'a'), 10000);
+    assert.equal(scrollbackOf(h, 'b'), 10000);
+  } finally { h.destroy(); }
+});
+
+test('turning the setting off raises the buffers that are already shrunk (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable({ paneBackgroundScrollback: 1000 });
+    await h.open('a');
+    await h.open('b');
+    assert.equal(scrollbackOf(h, 'a'), 1000);
+    // Nothing else would ever raise it: the per-tab path returns early once the setting is 0, so
+    // without this the buffers would stay small for the rest of the session.
+    h.enable({ paneBackgroundScrollback: 0 });
+    await h.settle();
+    assert.equal(scrollbackOf(h, 'a'), 10000);
+  } finally { h.destroy(); }
+});

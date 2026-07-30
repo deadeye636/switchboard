@@ -218,6 +218,7 @@
     // #352 the two panes-mode behaviours that are opinions rather than defaults: close a pane the
     // moment it is empty, and shrink the scrollback of a pane tab that is not on top.
     const paneCloseEmptyValue = fieldValue('paneCloseEmpty', false);
+    const paneBackgroundScrollbackValue = String(fieldValue('paneBackgroundScrollback', 0) || 0);
     const settingsOpenModeValue = fieldValue('settingsOpenMode', 'overlay');
     const collapseDefaultValue = fieldValue('sidebarCollapseDefault', 'remember');
     // #277 VCS chip (global): master switch, poll interval, untracked counting.
@@ -427,7 +428,7 @@
         DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
         collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
         confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
-        paneCloseEmptyValue,
+        paneCloseEmptyValue, paneBackgroundScrollbackValue,
         externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
@@ -749,6 +750,7 @@
         settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'grid';
         settings.paneToolsPlacement = settingsViewerBody.querySelector('#sv-pane-tools')?.value || 'bar';
         settings.paneCloseEmpty = !!settingsViewerBody.querySelector('#sv-pane-close-empty')?.checked;
+        { const n = parseInt(settingsViewerBody.querySelector('#sv-pane-bg-scrollback')?.value, 10); settings.paneBackgroundScrollback = Number.isFinite(n) && n > 0 ? n : 0; }
         settings.projectSortMode = settingsViewerBody.querySelector('#sv-project-sort')?.value || 'activity';
         settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
         // The subagent controls are absent when the capability gate hid the section (#230/#231). set-setting

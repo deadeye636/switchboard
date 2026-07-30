@@ -57,6 +57,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // VS Code's `closeEmptyGroups`, off by default (#352) — see `focusPane` for why it hangs on the
   // active pane changing rather than on focus leaving the pane.
   let closeEmptyPanes = false;
+  // Lines a pane tab keeps while it is NOT the one on screen (#352). 0 = off, which is the default —
+  // see `applyBackgroundScrollback` for why that default is the opinion.
+  let backgroundScrollback = 0;
   let persistTimer = 0;
 
   // A terminal tab's id is derived from its session, never generated: the same
@@ -1231,8 +1234,40 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       for (const tab of leaf.tabs) {
         const entry = openSessions.get(sessionOfTab(tab));
         if (!entry) continue;
-        entry.element.classList.toggle('visible', tab.id === leaf.activeTabId);
+        const visible = tab.id === leaf.activeTabId;
+        entry.element.classList.toggle('visible', visible);
+        applyBackgroundScrollback(entry, visible);
       }
+    }
+  }
+
+  /**
+   * Shrink a background tab's scrollback, if the user asked for it (#352).
+   *
+   * OFF by default, and the default is the opinion: grid can trim its cards because a card is a
+   * PREVIEW, while a background pane tab is a session the user is coming back to — and xterm cannot
+   * restore lines a shrunk buffer dropped, so the trim is permanent the moment the tab loses focus.
+   * Trading someone's history for memory without asking is the wrong way round.
+   *
+   * What it does buy, for whoever does ask: a 10 000-line buffer is roughly 3 MB per terminal, so a
+   * window holding twenty background tabs is carrying ~60 MB of scrollback nobody is reading.
+   *
+   * Raising it back on reveal is free — the budget grows, and what was already dropped stays dropped.
+   */
+  function applyBackgroundScrollback(entry, visible) {
+    if (!backgroundScrollback || !entry.terminal || !entry.terminal.options) return;
+    const full = (typeof SCROLLBACK_SINGLE !== 'undefined') ? SCROLLBACK_SINGLE : 10000;
+    const want = visible ? full : Math.min(backgroundScrollback, full);
+    if (entry.terminal.options.scrollback !== want) entry.terminal.options.scrollback = want;
+  }
+
+  // Every terminal goes back to the full budget when the mode ends — leaving a shrunk buffer behind
+  // would apply a panes-mode setting to tabs and grid, which have their own answers.
+  function restoreScrollbackBudgets() {
+    if (!backgroundScrollback) return;
+    const full = (typeof SCROLLBACK_SINGLE !== 'undefined') ? SCROLLBACK_SINGLE : 10000;
+    for (const entry of openSessions.values()) {
+      if (entry && entry.terminal && entry.terminal.options) entry.terminal.options.scrollback = full;
     }
   }
 
@@ -2198,6 +2233,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // branch, re-adopted the element into a pane — and the pane was then removed
     // with the element inside it.
     enabled = false;
+    // Hand every shrunk buffer its full budget back (#352) — the setting is a panes-mode one, and
+    // tabs and grid decide this for themselves.
+    restoreScrollbackBudgets();
     stopViewWatch();
     // An instanced view has no home to be released to: outside panes mode the side panel shows one
     // thing at a time, so everything past the one it will show is closed here — answering its diff
@@ -2404,6 +2442,16 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     terminalCloseBehavior = g.terminalCloseBehavior === 'keep' ? 'keep' : 'kill';
     middleClickCloses = g.tabMiddleClickCloses !== false;
     closeEmptyPanes = g.paneCloseEmpty === true;
+    const prevScrollback = backgroundScrollback;
+    const wanted = Number(g.paneBackgroundScrollback);
+    backgroundScrollback = Number.isFinite(wanted) && wanted > 0 ? Math.floor(wanted) : 0;
+    // Turned OFF while the mode is running: nothing else would ever raise a shrunk buffer again,
+    // because `applyBackgroundScrollback` returns early once the setting is 0.
+    if (enabled && prevScrollback && !backgroundScrollback) {
+      backgroundScrollback = prevScrollback;
+      restoreScrollbackBudgets();
+      backgroundScrollback = 0;
+    }
     if (g.sessionDisplayMode === 'panes') {
       const wasEnabled = enabled;
       enable();
