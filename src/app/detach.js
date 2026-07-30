@@ -38,6 +38,8 @@ const detachedWindows = new Map();
  * @param {Map} context.activeSessions
  * @param {object} context.log
  * @param {typeof Electron.BrowserWindow} context.BrowserWindow  through ctx — see the header.
+ * @param {Electron.Screen} [context.screen]  optional: which display a detach opens on (#362). Absent
+ *   in `node --test`, where placement falls back to the pre-#362 offset from the main window.
  */
 function init(context) {
   ctx = context;
@@ -163,15 +165,77 @@ function sendAdopt(win, sessionId) {
   else sendToMain('session-reattached', sessionId, running);
 }
 
-function createDetachWindow(sessionId, title) {
+/**
+ * Where a detached window goes on a given display (#362).
+ *
+ * Pure so `node --test` can exercise the multi-monitor cases, which are exactly the ones a machine
+ * with one screen can never show. `workArea` is the target display's usable box (taskbar already
+ * subtracted) and `source` is the window being detached FROM, both in screen DIPs.
+ *
+ * The size is a fraction of the source window, but never larger than the display it is going to — a
+ * window torn off a 4K screen onto a laptop panel would otherwise open bigger than the panel.
+ *
+ * The offset exists so a detach never lands exactly on top of what it came from. That anchor only
+ * means something while both are on the same display; across displays it would place the window by
+ * the coordinates of a screen it is leaving, so the target's own origin is used instead. Either way
+ * the result is clamped into the work area, because a window half off the edge is worse than one
+ * sitting a little off where the user aimed.
+ */
+function detachWindowBounds(workArea, source) {
+  // The display has the last word, minimum size included: a work area smaller than the minimum is
+  // rare but real (a small secondary panel, a scaled display), and flooring to 640x400 there would
+  // hang the window off two edges of the screen it was just placed on. Better a window smaller than
+  // the minimum than one the user cannot reach.
+  const width = Math.min(Math.max(640, Math.round(source.width * 0.6)), workArea.width);
+  const height = Math.min(Math.max(400, Math.round(source.height * 0.8)), workArea.height);
+  const sourceOnTarget = source.x >= workArea.x && source.x < workArea.x + workArea.width
+    && source.y >= workArea.y && source.y < workArea.y + workArea.height;
+  const anchorX = (sourceOnTarget ? source.x : workArea.x) + 60;
+  const anchorY = (sourceOnTarget ? source.y : workArea.y) + 60;
+  const clamp = (v, lo, hi) => Math.round(Math.max(lo, Math.min(v, hi)));
+  return {
+    width,
+    height,
+    x: clamp(anchorX, workArea.x, workArea.x + workArea.width - width),
+    y: clamp(anchorY, workArea.y, workArea.y + workArea.height - height),
+  };
+}
+
+/**
+ * The work area of the display the user pointed at, or null when that cannot be answered — no
+ * `screen` module (the module is loadable without Electron on purpose) or a point nobody sent.
+ * A null answer means "place it the way it was always placed", never a guessed display.
+ */
+function workAreaForPoint(point) {
+  const screen = ctx && ctx.screen;
+  if (!screen) return null;
+  try {
+    const at = (point && Number.isFinite(point.x) && Number.isFinite(point.y))
+      ? { x: Math.round(point.x), y: Math.round(point.y) }
+      : screen.getCursorScreenPoint();
+    const display = screen.getDisplayNearestPoint(at);
+    return (display && display.workArea) || null;
+  } catch {
+    return null; // an unusable screen module must not stop a detach
+  }
+}
+
+function createDetachWindow(sessionId, title, screenPoint) {
   const main = ctx.getMainWindow();
-  const bounds = main && !main.isDestroyed() ? main.getBounds() : { width: 1100, height: 700, x: 80, y: 80 };
-  const win = new ctx.BrowserWindow({
-    width: Math.max(640, Math.round(bounds.width * 0.6)),
-    height: Math.max(400, Math.round(bounds.height * 0.8)),
+  const source = main && !main.isDestroyed() ? main.getBounds() : { width: 1100, height: 700, x: 80, y: 80 };
+  const workArea = workAreaForPoint(screenPoint);
+  const bounds = workArea ? detachWindowBounds(workArea, source) : {
+    width: Math.max(640, Math.round(source.width * 0.6)),
+    height: Math.max(400, Math.round(source.height * 0.8)),
     // Offset from the main window so a detach never lands exactly on top of it.
-    x: bounds.x + 60,
-    y: bounds.y + 60,
+    x: source.x + 60,
+    y: source.y + 60,
+  };
+  const win = new ctx.BrowserWindow({
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x,
+    y: bounds.y,
     title: title || 'Switchboard — Session',
     icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
     show: false,
@@ -246,12 +310,22 @@ function closeAll() {
  * @param {Electron.IpcMain} ipc  passed in, not required — see the header.
  */
 function registerIpc(ipc) {
-  ipc.handle('detach-session', (_event, sessionId, title) => {
+  // `at` (#362) is optional and carries where the user aimed: `{ point, box }` in the ASKING
+  // renderer's coordinates, the same pair `window-at-screen-point` takes and for the same reason —
+  // only the ratio of the two boxes converts CSS pixels into the DIPs `screen` speaks. Absent (a menu
+  // or keyboard detach, an older renderer) the display under the pointer is used instead.
+  ipc.handle('detach-session', (event, sessionId, title, at) => {
     if (!sessionId) return { ok: false, error: 'no session' };
-    if (isDetached(sessionId)) {
-      const win = detachedWindows.get(sessionId);
-      win.focus();
-      return { ok: true, already: true, windowId: windowIdOf(win) };
+    // Already in a window of its own? Then this is nothing to do, and focusing it is the honest
+    // answer. But "detached" is not the same as "alone" since #316: a detached window can hold
+    // several sessions, and tearing one out of THAT (#363) is a real request — the session does not
+    // have a window of its own yet, it is sharing one. So only the window holding it alone
+    // short-circuits; a shared one falls through and the session gets its own.
+    const holder = detachedWindows.get(sessionId);
+    const holderLive = holder && !holder.isDestroyed() ? holder : null;
+    if (holderLive && sessionsInWindow(holderLive).length <= 1) {
+      holderLive.focus();
+      return { ok: true, already: true, windowId: windowIdOf(holderLive) };
     }
     // A session with no process may go too (#319). The refusal used to live here because the new
     // window mounts by calling openTerminal, and with nothing running that lands in the SPAWN branch
@@ -261,12 +335,19 @@ function registerIpc(ipc) {
     // mattered ("a detach never spawns") therefore moved to where it belongs — the window does not
     // mount what has no process.
     const running = !!ctx.activeSessions.get(sessionId);
-    const win = createDetachWindow(sessionId, title);
+    const sender = event && event.sender;
+    const asking = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
+    const aimedAt = (at && at.point) ? toScreenPoint(asking, at.point, at.box) : null;
+    const win = createDetachWindow(sessionId, title, aimedAt);
     detachedWindows.set(sessionId, win);
     ctx.log.info(`[detach] session moved to its own window: ${sessionId}${running ? '' : ' (not running)'}`);
-    // The main renderer releases its terminal for this session; the PTY keeps running, and the new
-    // window attaches to it. Two renderers on one PTY would double every keystroke's echo.
-    sendToMain('session-detached', sessionId);
+    // Whoever holds it now releases its terminal; the PTY keeps running, and the new window attaches
+    // to it. Two renderers on one PTY would double every keystroke's echo. Addressed to the window
+    // that actually has it (#363) — main for the ordinary case, the sharing detached window when the
+    // session was torn out of one. Telling main to let go of a session it never held releases
+    // nothing, and the old window would keep drawing a session that had moved away.
+    if (holderLive) holderLive.webContents.send('session-detached', sessionId);
+    else sendToMain('session-detached', sessionId);
     // The id of the window just made, so the caller can send more sessions after it (#340). Moving a
     // whole pane is "detach the first tab, move the rest to where it went", and without this the
     // renderer would have to identify that window by guessing at `listSessionWindows` — by the title
@@ -442,6 +523,7 @@ module.exports = {
   init,
   registerIpc,
   rekey,
+  detachWindowBounds,
   windowForSession,
   isDetached,
   detachedSessionIds,

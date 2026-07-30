@@ -85,7 +85,10 @@ contextBridge.exposeInMainWorld('api', {
   hideSettingsWindow: () => ipcRenderer.send('hide-settings-window'),
   // Detached session windows (#2). The PTY never moves; only the window that renders its output does,
   // so `detachSession` is a view operation and never touches the process.
-  detachSession: (sessionId, title) => ipcRenderer.invoke('detach-session', sessionId, title),
+  // `at` (#362) is optional: `{ point: {x, y}, box: {x, y, width, height} }` in this renderer's own
+  // coordinates, so the new window opens on the display the tab was dragged to rather than on the
+  // main window's. Omitted for a menu or keyboard detach — main then uses the pointer's display.
+  detachSession: (sessionId, title, at) => ipcRenderer.invoke('detach-session', sessionId, title, at),
   isSessionDetached: (sessionId) => ipcRenderer.invoke('is-session-detached', sessionId),
   detachedSessionIds: () => ipcRenderer.invoke('detached-session-ids'),
   focusDetachedWindow: (sessionId) => ipcRenderer.invoke('focus-detached-window', sessionId),

@@ -2032,18 +2032,30 @@ test('a view tab dragged out says why instead of vanishing (#352)', async () => 
   } finally { h.destroy(); }
 });
 
-test('from a detached window the gesture means "back to main" (#352)', async () => {
+// #363 reversed this. It used to mean "back to the main window" when asked from a detached window,
+// because `detachSession` was defined below detach-window.js's early return and did not exist there
+// at all. One gesture then meant two different things depending on which window the drag started in,
+// while the main window was already reachable by name from the tab's own menu. Now a drop on empty
+// space means the same thing everywhere: a window of its own, at the point it was dropped.
+test('from a detached window the gesture still means "a window of its own" (#363)', async () => {
   const h = setupPanesDom({ detached: true, detachedSessionId: 'a' });
   try {
     const tab = await draggableTab(h);
     const moved = [];
+    const detached = [];
     h.window.moveSessionToWindow = (id, target) => { moved.push([id, target]); };
-    // `detachSession` does not exist in a detached window — its half of detach-window.js never runs.
-    h.window.detachSession = undefined;
+    h.window.detachSession = (id, at) => { detached.push([id, at]); };
 
     dragEndAt(h, tab, { screenX: 1400, screenY: 400 });
     await h.settle();
-    assert.deepEqual(moved, [['a', 'main']]);
+    assert.deepEqual(moved, [], 'the main window is the menu\'s job, not the gesture\'s');
+    assert.equal(detached.length, 1);
+    assert.equal(detached[0][0], 'a');
+    // The drop point travels with it (#362), or the new window cannot open where it was dropped.
+    // Field by field: the object comes from the jsdom realm, so its prototype is not this one's and
+    // deepEqual refuses it even when the structure matches.
+    assert.equal(detached[0][1].point.x, 1400);
+    assert.equal(detached[0][1].point.y, 400);
   } finally { h.destroy(); }
 });
 
@@ -2584,5 +2596,56 @@ test('leaving panes mode takes the selection and its bar (#356)', async () => {
     h.disable();
     assert.equal(h.panes.selectedTabCount(), 0);
     assert.equal(selectionBar(h), null);
+  } finally { h.destroy(); }
+});
+
+// --- #366: what the window is SHOWING, which is not what is mounted ---
+
+test('the layout names the selected tab even when its session is not running (#366)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('dorm-1', { sessionId: 'dorm-1', name: 'Dormant one', type: 'agent' });
+    h.panes.openDormantTab('dorm-1');
+    await h.settle();
+
+    // `activeSessionId` is the wrong question here and that is the whole of #366: selecting a tab
+    // whose session has no process never reaches `showSession`, so the global still names the
+    // running one. The layout knows anyway — the tab is selected in it either way.
+    assert.equal(h.panes.shownSessionId(), 'dorm-1');
+    assert.deepEqual([...h.panes.sessionIdsInLayout()], ['live-1', 'dorm-1'],
+      'a dormant tab is still a tab this window holds');
+  } finally { h.destroy(); }
+});
+
+test('the layout follows the selection back to a running tab (#366)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('dorm-1', { sessionId: 'dorm-1', name: 'Dormant one', type: 'agent' });
+    h.panes.openDormantTab('dorm-1');
+    await h.settle();
+    assert.equal(h.panes.shownSessionId(), 'dorm-1');
+
+    // `show` is what `showSession` routes to in this mode — the path a click on a running tab takes.
+    // Re-opening an already-mounted session is not a selection and would leave the dormant tab active.
+    h.panes.show('live-1');
+    await h.settle();
+    assert.equal(h.panes.shownSessionId(), 'live-1');
+  } finally { h.destroy(); }
+});
+
+test('a selected view tab is not a session and is not named as one (#366)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.panes.openViewTab('jsonl');
+    await h.settle();
+
+    assert.equal(h.panes.shownSessionId(), null, 'a view has no session to name the window after');
+    assert.deepEqual([...h.panes.sessionIdsInLayout()], ['live-1'], 'and it is not counted as one');
   } finally { h.destroy(); }
 });

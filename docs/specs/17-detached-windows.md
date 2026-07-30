@@ -46,6 +46,7 @@ by **session**, so several keys pointing at one window was already legal.
 | any → any existing window | "Move to <window>" per window, appended to the same menus (#316) |
 | a whole PANE → a window of its own | "Move pane to new window" in the pane menu (#340) — detach the first tab, then move the rest to where it went |
 | a tab DRAGGED onto another window | the tear-off gesture (#352) resolved against `window-at-screen-point` (#360) |
+| a tab DROPPED on empty space | a window of its own, on the display it was dropped on (#362, #363) |
 
 One handler serves all three (`move-session-to-window`), and the order inside it is the invariant of
 §3 in miniature: **release, re-register, adopt.** The giving window is told to let go first, *or* two
@@ -67,6 +68,32 @@ Four consequences worth stating:
 
 - **A detached window that gives away its last session closes.** It has no sidebar to pick a new one
   with, so an empty one is a window the user cannot use and cannot interpret.
+- **A new window opens on the display it was asked for** (#362). The renderer sends the drop point
+  with the detach — the same point-plus-box pair `window-at-screen-point` takes, converted the same
+  way — and main places the window on `getDisplayNearestPoint`'s answer. A detach with no drag (a
+  menu, a keyboard) carries no point and uses the pointer's display, which is where the menu was
+  clicked. The bounds are then clamped into that display's work area, and the minimum window size
+  gives way to a work area smaller than itself: a window hanging off two edges of the screen it was
+  just placed on is worse than a small one.
+- **A drop on empty space means the same thing in every window** (#363). It used to mean "back to the
+  main window" when the drag started in a detached one — because `window.detachSession` was defined
+  below detach-window.js's early return and did not exist there at all — so one gesture had two
+  meanings depending on where it began, and the drop point was discarded. Returning a session to main
+  is what the tab menu offers by name; the gesture is for giving it a window of its own.
+
+  **"Detached" is not "alone", and `detach-session` has to tell them apart.** Its idempotency guard
+  used to answer "already detached" by focusing that window, which was written when a detached window
+  held exactly one session — since #316 it can hold several, and a session sharing one has no window
+  of its own yet. Reached from the tear-off gesture, that guard swallowed the drag whole: no window
+  made, no placement run, nothing moved. So only a window holding the session ALONE short-circuits.
+  The release then has to be addressed to the window that actually holds it, not to main — main
+  letting go of a session it never had releases nothing, and the sharing window would keep drawing
+  one that had moved away.
+
+  **Open, deliberately unresolved:** tearing out the ONLY tab of a detached window still just focuses
+  it. The session does already have a window of its own, so "give it one" is satisfied — but the drop
+  point is discarded, and moving that window to where the user dropped it would be a different
+  operation (moving a window, not detaching a session). Left as it is until someone asks for it.
 - **A drag cannot cross a window boundary, so main answers where it ended** (#360). HTML5 drag and
   drop is per renderer process: the far window never sees a `drop`, and the near one only knows the
   pointer left its own box. `window-at-screen-point` turns that into a window id — the same id

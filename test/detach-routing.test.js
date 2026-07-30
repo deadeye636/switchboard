@@ -64,7 +64,9 @@ function makeIpc() {
 }
 
 // One wired-up module per test: `detachedWindows` is module state, so every case starts from empty.
-function setup({ sessions = ['s1'], quitting = false } = {}) {
+// `screen` is optional (#362): without it placement falls back to the offset from the main window,
+// which is what a single-display machine and every pre-#362 test expect.
+function setup({ sessions = ['s1'], quitting = false, screen = undefined } = {}) {
   const created = [];
   const main = {
     destroyed: false,
@@ -80,6 +82,7 @@ function setup({ sessions = ['s1'], quitting = false } = {}) {
     activeSessions,
     log: { info() {}, warn() {} },
     BrowserWindow: makeWindowClass(created),
+    screen,
   });
   const ipc = makeIpc();
   detach.registerIpc(ipc);
@@ -581,4 +584,176 @@ test('#360: a point that is not a point answers null rather than guessing', () =
   const { ipc } = setup();
   assert.equal(ipc.call('window-at-screen-point', null), null);
   assert.equal(ipc.call('window-at-screen-point', { x: 'over there', y: 3 }), null);
+});
+
+// --- #362: which display a detached window opens on ---
+//
+// Pure bounds math, so the multi-monitor cases a single-screen machine can never show are covered
+// here. The `screen` module itself is Electron's and is not restated.
+
+const LAPTOP = { x: 0, y: 0, width: 1920, height: 1040 };      // primary, taskbar subtracted
+const SECOND = { x: 1920, y: -180, width: 2560, height: 1400 }; // to the right, taller, offset up
+
+test('#362: detaching onto the source display keeps the offset from the source window', () => {
+  const source = { x: 100, y: 80, width: 1600, height: 900 };
+  const b = detach.detachWindowBounds(LAPTOP, source);
+  assert.deepEqual(b, { x: 160, y: 140, width: 960, height: 720 });
+});
+
+test('#362: detaching onto another display anchors on that display, not the old coordinates', () => {
+  const source = { x: 100, y: 80, width: 1600, height: 900 };
+  const b = detach.detachWindowBounds(SECOND, source);
+  // x=100+60 would sit on the LAPTOP; the target's own origin is what the offset applies to.
+  assert.equal(b.x, SECOND.x + 60);
+  assert.equal(b.y, SECOND.y + 60);
+});
+
+test('#362: a window never opens larger than the display it is going to', () => {
+  // Torn off a 4K screen onto a small panel: 60% of 3840 is wider than the panel is.
+  const source = { x: 0, y: 0, width: 3840, height: 2160 };
+  const small = { x: 0, y: 0, width: 1280, height: 720 };
+  const b = detach.detachWindowBounds(small, source);
+  assert.equal(b.width, 1280);
+  assert.equal(b.height, 720);
+});
+
+test('#362: the window is clamped fully onto the display it lands on', () => {
+  // A source near the bottom-right corner would push the offset window off the edge.
+  const source = { x: 1500, y: 900, width: 1600, height: 900 };
+  const b = detach.detachWindowBounds(LAPTOP, source);
+  assert.ok(b.x >= LAPTOP.x, `x ${b.x} is left of the display`);
+  assert.ok(b.y >= LAPTOP.y, `y ${b.y} is above the display`);
+  assert.ok(b.x + b.width <= LAPTOP.x + LAPTOP.width, 'right edge is off the display');
+  assert.ok(b.y + b.height <= LAPTOP.y + LAPTOP.height, 'bottom edge is off the display');
+});
+
+test('#362: a display with a negative origin still places the window inside it', () => {
+  const source = { x: 2000, y: 0, width: 1600, height: 900 };
+  const b = detach.detachWindowBounds(SECOND, source);
+  assert.ok(b.y >= SECOND.y, `y ${b.y} is above the display top ${SECOND.y}`);
+  assert.ok(b.y + b.height <= SECOND.y + SECOND.height, 'bottom edge is off the display');
+});
+
+test('#362: the minimum window size wins over a tiny source window', () => {
+  const source = { x: 0, y: 0, width: 400, height: 300 };
+  const b = detach.detachWindowBounds(LAPTOP, source);
+  assert.equal(b.width, 640);
+  assert.equal(b.height, 400);
+});
+
+test('#362: with no screen module an aimed-at point changes nothing', () => {
+  const { ipc, created } = setup(); // setup() passes no `screen` — see the header
+  ipc.call('detach-session', 's1', 'One', { point: { x: 3000, y: 500 } });
+  ipc.call('detach-session', 's2', 'Two');
+  // Asserted as a relation, not as coordinates: the harness's main window is shared module state and
+  // earlier tests move it, so absolute numbers here would pass or fail on test ORDER. The claim is
+  // that without a display to consult, a point cannot invent one — both windows land the same way.
+  assert.equal(created[0].opts.x, created[1].opts.x);
+  assert.equal(created[0].opts.y, created[1].opts.y);
+});
+
+test('#362: a work area smaller than the minimum window size still holds the window', () => {
+  // The minimum must not win over the display: flooring to 640x400 on a smaller panel would hang
+  // the window off two edges of the screen it was just placed on.
+  const tiny = { x: 0, y: 0, width: 320, height: 200 };
+  const source = { x: 0, y: 0, width: 1600, height: 900 };
+  const b = detach.detachWindowBounds(tiny, source);
+  assert.ok(b.x + b.width <= tiny.x + tiny.width, `right edge ${b.x + b.width} is past ${tiny.width}`);
+  assert.ok(b.y + b.height <= tiny.y + tiny.height, `bottom edge ${b.y + b.height} is past ${tiny.height}`);
+  assert.ok(b.width > 0 && b.height > 0, 'a window with no extent is not a window');
+});
+
+// A stand-in for Electron's `screen`: two displays side by side, the second one taller and offset
+// up, so a wrong display shows up as a wrong ORIGIN rather than only a wrong size.
+function makeScreen(cursor = { x: 10, y: 10 }) {
+  const displays = [
+    { workArea: { x: 0, y: 0, width: 1920, height: 1040 } },
+    { workArea: { x: 1920, y: -180, width: 2560, height: 1400 } },
+  ];
+  return {
+    asked: [],
+    getCursorScreenPoint() { return cursor; },
+    getDisplayNearestPoint(point) {
+      this.asked.push(point);
+      return displays.find((d) => point.x >= d.workArea.x && point.x < d.workArea.x + d.workArea.width)
+        || displays[0];
+    },
+  };
+}
+
+test('#362: end to end, a drop point on the second display opens the window there', () => {
+  const screen = makeScreen();
+  const { ipc, created } = setup({ screen });
+  // The asking renderer is main: its box as the renderer measured it, and a point on its right half
+  // that converts to a screen coordinate past 1920.
+  const box = { x: 100, y: 50, width: 1400, height: 900 };
+  ipc.call('detach-session', 's1', 'One', { point: { x: 2600, y: 300 }, box });
+  assert.equal(created.length, 1);
+  assert.ok(created[0].opts.x >= 1920, `x ${created[0].opts.x} is not on the second display`);
+  assert.ok(created[0].opts.y >= -180, `y ${created[0].opts.y} is above the second display`);
+});
+
+test('#362: end to end, no drop point asks the display under the cursor', () => {
+  const screen = makeScreen({ x: 2500, y: 200 }); // cursor parked on the second display
+  const { ipc, created } = setup({ screen });
+  ipc.call('detach-session', 's1', 'One'); // a menu detach carries no point
+  assert.deepEqual(screen.asked, [{ x: 2500, y: 200 }]);
+  assert.ok(created[0].opts.x >= 1920, `x ${created[0].opts.x} is not on the cursor's display`);
+});
+
+test('#362: end to end, a screen module that throws does not stop the detach', () => {
+  const screen = { getCursorScreenPoint() { throw new Error('no display server'); }, getDisplayNearestPoint() { throw new Error('nope'); } };
+  const { ipc, created } = setup({ screen });
+  const res = ipc.call('detach-session', 's1', 'One');
+  assert.equal(res.ok, true);
+  assert.equal(created.length, 1);
+});
+
+test('#362: end to end, the drop point is converted from the asking renderer\'s frame', () => {
+  // The #362 tests above all use `ipc.call`, which sends no `event.sender` — so `toScreenPoint` is
+  // handed a null window and returns the point unchanged. That leaves the CSS-pixel → DIP conversion
+  // unexercised through THIS handler, and a swap of `point` and `box` in the wiring would pass them
+  // all. Here the asker is a real window reporting itself at half size, the way a zoomed renderer
+  // does, so only the converted point lands on the second display.
+  const screen = makeScreen();
+  const { ipc, created } = setup({ sessions: ['s1', 's2'], screen });
+  ipc.call('detach-session', 's1', 'One');
+  const asker = created[0];
+  asker.bounds = { x: 0, y: 0, width: 1600, height: 1000 };
+  const box = { x: 0, y: 0, width: 800, height: 500 };
+
+  ipc.callFrom('detach-session', asker.webContents, 's2', 'Two', { point: { x: 1000, y: 100 }, box });
+  // 1000 in the asker's frame is 2000 on screen — the second display. Unconverted it would read as
+  // 1000 and land on the first, which is the regression this pins.
+  assert.equal(created.length, 2);
+  assert.ok(created[1].opts.x >= 1920, `x ${created[1].opts.x} is not on the second display`);
+});
+
+// --- #363: tearing a session out of a window it SHARES ---
+
+test('#363: a session sharing a detached window gets one of its own', () => {
+  const { ipc, created, main } = setup({ sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1', 'One');
+  ipc.call('move-session-to-window', 's2', String(created[0].id)); // now one window holds both
+  assert.deepEqual([...detach.sessionsInWindow(created[0])].sort(), ['s1', 's2']);
+  created[0].sent.length = 0;
+  main.sent.length = 0;
+
+  assert.equal(ipc.call('detach-session', 's2', 'Two').ok, true);
+  assert.equal(created.length, 2, 'a second window was made rather than the first one focused');
+  assert.equal(detach.windowForSession('s2'), created[1]);
+  assert.deepEqual(detach.sessionsInWindow(created[0]), ['s1'], 'the shared window keeps the rest');
+  // The release goes to the window that HELD it. Telling main to let go of a session it never had
+  // releases nothing, and the old window would keep drawing one that has moved away.
+  assert.deepEqual(created[0].sent, [['session-detached', 's2']]);
+  assert.deepEqual(main.sent, []);
+});
+
+test('#363: a session already alone in its window is still just focused', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const res = ipc.call('detach-session', 's1', 'One');
+  assert.deepEqual(res, { ok: true, already: true, windowId: String(created[0].id) });
+  assert.equal(created.length, 1, 'it already has a window of its own — nothing to do');
+  assert.equal(created[0].focused, 1);
 });

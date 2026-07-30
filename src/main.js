@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain, net, safeStorage, session, shell } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, net, safeStorage, screen, session, shell } = require('electron');
 const { Worker } = require('worker_threads');
 const { execFile } = require('child_process');
 const path = require('path');
@@ -278,6 +278,7 @@ detach.init({
   activeSessions,
   log,
   BrowserWindow,
+  screen, // which display a detach opens on (#362)
 });
 detach.registerIpc(ipcMain);
 

@@ -247,17 +247,27 @@ if (detachedSessionId) document.body.classList.add('detached-window');
   }
 
   /**
-   * Name the window after what it holds: its active session, plus a count of the rest. Everything a
-   * detached window holds, it renders — so `openSessions` IS its set, no separate bookkeeping.
+   * Name the window after what it holds: the session it is SHOWING, plus a count of the rest.
    * Doubles as the place `__detachedSessionId` follows the set, since both answer the same question.
+   *
+   * In panes mode the layout is the authority on both halves, and `openSessions` is not (#366). It
+   * holds mounted terminals only, so a session that is not running is missing from it entirely — its
+   * tab is in the window, drawn with a Launch placeholder, and the user can select it. Naming the
+   * window from `openSessions` therefore skipped straight past the selected tab to whichever running
+   * session happened to be first, and undercounted the rest. Outside panes mode there are no dormant
+   * tabs, so `openSessions` IS the set and stays the answer.
    */
   function updateDetachedWindowTitle() {
     if (!detachedSessionId) return; // the main window titles itself
-    const ids = [...openSessions.keys()];
+    const panes = (window.panesView && window.panesView.active()) ? window.panesView : null;
+    const ids = panes ? panes.sessionIdsInLayout() : [...openSessions.keys()];
     if (!ids.length) return; // mid-handover: keep the last name rather than flashing a generic one
-    const activeId = (typeof activeSessionId !== 'undefined' && openSessions.has(activeSessionId))
-      ? activeSessionId
-      : ids[0];
+    const shown = panes ? panes.shownSessionId() : null;
+    // A view tab is selected (`shown` is null) or the layout has not caught up: fall back to the
+    // focused session, then to the first tab. Never to a session this window does not hold.
+    const activeId = (shown && ids.includes(shown)) ? shown
+      : (typeof activeSessionId !== 'undefined' && ids.includes(activeSessionId)) ? activeSessionId
+        : ids[0];
     window.__detachedSessionId = activeId;
     const label = sessionLabel(activeId);
     document.title = ids.length > 1 ? `${label} +${ids.length - 1}` : label;
@@ -436,6 +446,35 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     return window.moveSessionToWindow(id, 'main');
   };
 
+  // Move a session into a window of its own. A session without a process may go as well (#319) — the
+  // window identifies it and offers Launch rather than starting a CLI by opening.
+  //
+  // Answers with the new window's ID rather than a bare `true` (#340): moving a whole PANE is this
+  // call for its first tab and `moveSessionToWindow` for every one after it, and the id is the only
+  // way to name the window that was just made. Titles cannot serve — a window is named after a
+  // session, and two sessions can carry the same name.
+  //
+  // `at` (#362) is where the user aimed, when the caller knows: a tear-off drag passes its drop point
+  // so the window opens on that display. A menu entry passes nothing and main falls back to the
+  // pointer's display, which is where the menu was clicked anyway.
+  //
+  // Defined ABOVE the detached-window return on purpose (#363): dropping a tab on empty space has to
+  // mean the same thing in every window, and while this lived below, a detached window had no
+  // `detachSession` at all — so the gesture there fell back to "send it to the main window", wherever
+  // it had actually been dropped. Nothing in here is main-window-specific; `sessionMap` is app.js's
+  // and both windows load it, and a session it does not know simply gets the generic title.
+  window.detachSession = async (sessionId, at) => {
+    const session = typeof sessionMap !== 'undefined' ? sessionMap.get(sessionId) : null;
+    const title = (typeof cleanDisplayName === 'function'
+      ? cleanDisplayName(session && (session.name || session.aiTitle || session.summary)) : '') || 'Session';
+    const res = await window.api.detachSession(sessionId, title, at);
+    if (!res || !res.ok) {
+      window.showControlToast?.({ message: 'Could not detach this session', timeoutMs: 3000 });
+      return null;
+    }
+    return res.windowId || null;
+  };
+
   if (detachedSessionId) {
     // A detached window opens on one session; since #316 it can be given more. The launch restore must
     // not reopen the whole set here — that would mount every session a second time, each one fighting
@@ -472,24 +511,5 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     for (const id of ids || []) detachedSessions.add(id);
     if (ids && ids.length) refreshViews();
   }).catch(() => { /* older main process — nothing detached */ });
-
-  // Move a session into a window of its own. A session without a process may go as well (#319) — the
-  // window identifies it and offers Launch rather than starting a CLI by opening.
-  //
-  // Answers with the new window's ID rather than a bare `true` (#340): moving a whole PANE is this
-  // call for its first tab and `moveSessionToWindow` for every one after it, and the id is the only
-  // way to name the window that was just made. Titles cannot serve — a window is named after a
-  // session, and two sessions can carry the same name.
-  window.detachSession = async (sessionId) => {
-    const session = sessionMap.get(sessionId);
-    const title = (typeof cleanDisplayName === 'function'
-      ? cleanDisplayName(session && (session.name || session.aiTitle || session.summary)) : '') || 'Session';
-    const res = await window.api.detachSession(sessionId, title);
-    if (!res || !res.ok) {
-      window.showControlToast?.({ message: 'Could not detach this session', timeoutMs: 3000 });
-      return null;
-    }
-    return res.windowId || null;
-  };
 
 })();

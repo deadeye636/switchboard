@@ -380,6 +380,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     applyWebglPolicy();
     refitVisible();
     updateStripChrome();
+    // A detached window is named after the tab it is showing (#366). This is the one place every
+    // layout and active-tab change funnels through — `setActiveSession` is not, because selecting a
+    // tab whose session is not running never reaches it (see `openFromTab`). A no-op in the main
+    // window, which titles itself.
+    if (typeof window.updateDetachedWindowTitle === 'function') window.updateDetachedWindowTitle();
   }
 
   /** Write out each revealed pane's replay backlog. Runs right after `applyVisibility`. */
@@ -2267,14 +2272,14 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       return;
     }
 
-    // Nothing under the pointer: the desktop, or another application. A detached window has no
-    // `detachSession` — its half of detach-window.js never runs — so there the gesture means the same
-    // thing its menu offers by name: back to the main window.
-    if (window.isDetachedWindow && window.isDetachedWindow()) {
-      if (typeof window.moveSessionToWindow === 'function') window.moveSessionToWindow(sessionId, 'main');
-      return;
-    }
-    if (typeof window.detachSession === 'function') window.detachSession(sessionId);
+    // Nothing under the pointer: the desktop, or another application. The session gets a window of
+    // its own, and the drop point travels with it so that window opens on the display it was dragged
+    // to (#362) rather than on the main window's.
+    //
+    // This is the same answer in EVERY window since #363. It used to be "back to the main window"
+    // when asked from a detached one, which made one gesture mean two things depending on where the
+    // drag started — and the main window is already reachable by name from the tab's own menu.
+    if (typeof window.detachSession === 'function') window.detachSession(sessionId, pointerAim(e));
   }
 
   /**
@@ -2286,18 +2291,31 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
    * must not be answered with a plausible guess, because the guess is what moves a session somewhere
    * the user did not aim at, which is the defect this fixes.
    */
-  async function windowUnderPointer(e) {
-    if (!e || typeof window.api?.windowAtScreenPoint !== 'function') return false;
-    // The box this renderer measured for itself travels with the point. Main compares it against the
-    // same window's real bounds, which is what converts CSS pixels (zoomable) into screen DIPs.
-    const box = {
-      x: Number(window.screenX) || 0,
-      y: Number(window.screenY) || 0,
-      width: Number(window.outerWidth) || 0,
-      height: Number(window.outerHeight) || 0,
+  /**
+   * Where a drag ended, in the pair main needs to place it on the screen: the point, plus the box
+   * this renderer measured for ITSELF. Main compares that box against the same window's real bounds,
+   * which is what converts CSS pixels (zoomable) into screen DIPs — see `toScreenPoint` in
+   * `app/detach.js`. Used both to hit-test other windows (#360) and to choose the display a torn-off
+   * tab opens on (#362), so the two can never disagree about what the point meant.
+   */
+  function pointerAim(e) {
+    if (!e) return null;
+    return {
+      point: { x: e.screenX, y: e.screenY },
+      box: {
+        x: Number(window.screenX) || 0,
+        y: Number(window.screenY) || 0,
+        width: Number(window.outerWidth) || 0,
+        height: Number(window.outerHeight) || 0,
+      },
     };
+  }
+
+  async function windowUnderPointer(e) {
+    const aim = pointerAim(e);
+    if (!aim || typeof window.api?.windowAtScreenPoint !== 'function') return false;
     try {
-      const id = await window.api.windowAtScreenPoint({ x: e.screenX, y: e.screenY }, box);
+      const id = await window.api.windowAtScreenPoint(aim.point, aim.box);
       return id || null;
     } catch {
       return false;
@@ -3151,8 +3169,42 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return true;
   }
 
+  /**
+   * The session this window is SHOWING — the active pane's active tab (#366).
+   *
+   * Not the same question as `activeSessionId`, and the difference is the whole of #366: that global
+   * only moves when a session is shown in a terminal, and selecting a tab whose session is not
+   * running never gets that far (`openFromTab`). The layout knows anyway, because the tab is
+   * selected in it either way. `null` when the active tab is one of the app's own views, which is
+   * not a session and must not be named as one.
+   */
+  function shownSessionId() {
+    const leaf = activeLeaf();
+    if (!leaf) return null;
+    const tab = leaf.tabs.find((t) => t.id === leaf.activeTabId);
+    return tab && !isViewTab(tab) ? sessionOfTab(tab) : null;
+  }
+
+  /**
+   * Every session this window holds, in tab order. Dormant sessions included — a tab is a tab
+   * whether or not it has a process, and a window that holds three must not call itself "+1".
+   */
+  function sessionIdsInLayout() {
+    const ids = [];
+    for (const leaf of PaneTree.leaves(tree)) {
+      for (const tab of leaf.tabs) {
+        if (isViewTab(tab)) continue;
+        const id = sessionOfTab(tab);
+        if (id && !ids.includes(id)) ids.push(id);
+      }
+    }
+    return ids;
+  }
+
   window.panesView = {
     active: () => enabled,
+    shownSessionId,
+    sessionIdsInLayout,
     applySettings,
     show,
     openDormantTab,
