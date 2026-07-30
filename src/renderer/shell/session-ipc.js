@@ -22,7 +22,8 @@
 //   openSessions, sessionMap, pendingSessions, launchExitedSessions, userStoppedSessions (session tables),
 //   activeSessionId, cachedAllProjects, cachedProjects, gridViewActive, sessionTimelineStore,
 //   refreshSidebar, setActiveSession, trackActivity, recordTimelineEvent, and the terminal-header DOM
-//   handles (placeholder, terminalHeader, terminalHeaderId/Name/PtyTitle, gridViewerCount).
+//   handles (placeholder, terminalHeader, terminalHeaderName/PtyTitle, gridViewerCount) and
+//   `refreshSessionHeaderChrome` for the facts that live in the name's tooltip (#358).
 //   Cross-module: setActivity / applyAttention (shell/attention-engine.js), recordFileTouched
 //   (shell/away-summary-banner.js), classifyAttentionSignal (shared/attention-source.js).
 
@@ -86,8 +87,10 @@ window.api.onSessionDetected((tempId, realId) => {
   }
   recordTimelineEvent(realId, 'started', 'Session detected', 'Claude wrote its real session id.');
 
-  terminalHeaderId.textContent = realId;
+  // The header shows the id in the name's tooltip since #358, so a new id is a tooltip refresh rather
+  // than a write into a span of its own.
   terminalHeaderName.textContent = 'New session';
+  window.refreshSessionHeaderChrome?.();
 
   // Refresh sidebar to show the new session, then select it
   loadProjects().then(() => {
@@ -154,7 +157,8 @@ window.rekeySessionState = function (oldId, newId) {
 window.api.onSessionForked((oldId, newId) => {
   if (!window.rekeySessionState(oldId, newId)) return;
 
-  terminalHeaderId.textContent = newId;
+  // A fork moves the header onto the new id, which now lives in the name's tooltip (#358).
+  window.refreshSessionHeaderChrome?.();
 
   loadProjects().then(() => {
     const rows = sessionRowEls(newId);

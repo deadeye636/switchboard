@@ -207,6 +207,47 @@ global setting, so every pane drew the same mark; and it toggles nothing where i
 on the sidebar row now, beside the status it qualifies, once per session instead of once per pane. The
 singleton `#terminal-header` chip is unchanged for the other display modes.
 
+**What the row says, since #358: the name, then the project.** It used to carry the name, the terminal's
+own title and the full session id — and the pty title is usually the AI title with an activity glyph in
+front of it, so the row read as the same sentence twice, in the space the project needed. The project is
+the fact that tells two sessions with the same summary apart, and it was the one thing the row never
+showed. The id is a string to copy, not to read.
+
+Everything that left moved into the name's tooltip, built by `buildSessionBarTooltip` beside the tab's
+own builder, so the first two lines say the same thing in both places. It drops any line that repeats
+one already there, compared with a leading non-alphanumeric run stripped — otherwise a renamed session
+shows *Review the handoff* and *✳ Review the handoff* under each other on every tooltip.
+
+**Clicking the name renames the session.** Not a new mechanism: `startSessionRename` in `app.js` is the
+tabs-mode header's inline rename, generalised to take an element and a session id. What a typed name
+*means* is `resolveRenameTarget` beside the tooltip builders, and it is shared by all three surfaces
+(sidebar row, header, pane bar) because the answer is not "store what was typed": empty stores `null`,
+and so does the automatic title itself — otherwise confirming a rename that changed nothing freezes
+today's AI title as a manual name and no better one can ever replace it. The sidebar's own copy had
+drifted: it compared against the RAW automatic title while its field showed the cleaned one, so a
+no-op rename of any session with a plan prefix or an XML-ish tag in its title silently switched the
+automatic title off.
+
+Three things a rename in a pane has to survive, and two of them were defects the tests could not see:
+
+- **`refreshChrome` must not rebuild a bar that is mid-edit.** It runs on any session's busy/idle edge,
+  so an unrelated session starting work tore the edit out from under the user — losing the text and
+  leaving the rename flag set, which killed every later rename *and* the header's AI-title refresh until
+  the renderer restarted.
+- **A full `render` ends the edit rather than orphaning it**, the same way it ends a sash drag two lines
+  above (#345). It commits: the text is the user's, and the alternative is a sentence that vanishes
+  because a tab opened somewhere.
+- **The press is `mousedown`, not `click`.** Focusing a pane that is not the active one routes through
+  `showSession` → `show` → `scheduleRender`, whose microtask runs *between* mousedown and click — and a
+  click whose mousedown target has left the document never reaches that node's listener. So a title in a
+  background pane took two clicks. The handler also re-resolves the element after that render settles,
+  rather than handing the edit the node its closure captured.
+
+**The two surfaces differ in exactly one place, and it is not an oversight.** The tabs-mode header keeps
+its pty-title span: `onTerminalNotification` writes the CLI's OSC-9 notification text into it
+(`shell/session-ipc.js`), so removing it would drop a signal nobody asked to remove. The header loses
+the id and gains the project like the pane bar does.
+
 ### 4.3 Preview and diff
 
 Today `file-panel.js` builds `#terminal-split` at startup, moves `#terminals` into it and puts the

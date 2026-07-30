@@ -346,16 +346,20 @@ function startRename(summaryEl, session) {
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'session-rename-input';
-  input.value = session.name || session.aiTitle || session.summary;
+  // The CLEANED form, which is what the row shows (line 54) and what the header and the pane bar edit
+  // (#358). It used to prefill the raw value, so opening the rename changed the text in front of the
+  // user — and the comparison in `resolveRenameTarget` then never matched, so confirming without
+  // editing anything stored the cleaned string as a MANUAL name and switched the automatic title off.
+  const display = (value) => (typeof cleanDisplayName === 'function' ? cleanDisplayName(value) : value) || '';
+  input.value = display(session.name || session.aiTitle || session.summary);
 
   summaryEl.replaceWith(input);
   input.focus();
   input.select();
 
   const save = async () => {
-    const newName = input.value.trim();
-    const fallback = session.aiTitle || session.summary;
-    const nameToSave = (newName && newName !== fallback) ? newName : null;
+    const fallback = display(session.aiTitle || session.summary);
+    const nameToSave = resolveRenameTarget(input.value, fallback);
     await window.api.renameSession(session.sessionId, nameToSave);
     session.name = nameToSave;
 

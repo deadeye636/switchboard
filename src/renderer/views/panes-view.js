@@ -223,6 +223,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // holding. End it here — before the tree is walked, so the size it dragged to is the one drawn
     // — instead of leaving the gesture and its `pane-sashing` body class behind (#345).
     if (endSashDrag) endSashDrag();
+    // Same reasoning for an inline rename (#358): the rebuild below replaces every action bar, so an
+    // open edit has already lost the element it was typed into. `refreshChrome` can step around one; a
+    // full render cannot, because the tree itself changed. Committing rather than discarding — the text
+    // is the user's, and the alternative is a sentence that vanishes when a tab opens somewhere.
+    if (window.isSessionRenaming?.()) window.endSessionRename?.(true);
     adoptOrphans();
     // Park every view element at home first. The rebuild below re-adopts the ones
     // that still have a tab; anything left inside the old pane DOM would be
@@ -1029,24 +1034,50 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     status.setAttribute('aria-label', status.title);
     info.appendChild(status);
 
+    // The name, and after it the project — nothing twice (#358). What the row used to spell out beside
+    // it (the terminal's own title, which is usually the same sentence again, and the full session id)
+    // is in the tooltip, built by the same helper the tabs-mode header uses.
     const name = document.createElement('span');
     name.className = 'pane-actionbar-name';
     name.textContent = (typeof cleanDisplayName === 'function'
       ? cleanDisplayName(session && (session.name || session.aiTitle || session.summary)) : '') || sessionId;
+    const barStatus = (session && typeof getSessionStatus === 'function')
+      ? getSessionStatus(session, (typeof getSessionRuntimeState === 'function') ? getSessionRuntimeState() : {})
+      : null;
+    const barTooltip = (session && typeof window.sessionBarTooltipFor === 'function')
+      ? window.sessionBarTooltipFor(session, barStatus, entry && entry.ptyTitle) : '';
+    name.title = [barTooltip || name.textContent, 'Click to rename'].filter(Boolean).join('\n');
+    // Renaming here renames the session, not the pane: the same call the header makes, so an empty name
+    // means the same thing in both places (back to following the AI title). `stopPropagation` keeps the
+    // click from also reaching the row's own handlers.
+    // `mousedown`, not `click`. Focusing a pane that is not the active one routes through `showSession`
+    // → `panesView.show` → `scheduleRender`, and that render runs in a microtask — i.e. between mousedown
+    // and click. A click whose mousedown target has since left the document never reaches that node's
+    // listener, so on a background pane the first click only focused it and a second was needed to rename.
+    name.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return; // middle/right belong to the row's own gestures
+      focusPane(leaf.id);
+      // Let the render the focus may have queued settle, then take the element that exists NOW — the one
+      // this closure captured is the one the rebuild just threw away.
+      queueMicrotask(() => {
+        const fresh = terminalsEl.querySelector(
+          '.pane[data-pane-id="' + leaf.id + '"] .pane-actionbar-name');
+        if (fresh && typeof window.startSessionRename === 'function') {
+          window.startSessionRename(fresh, sessionId);
+        }
+      });
+    });
     info.appendChild(name);
 
-    const ptyTitle = entry && entry.ptyTitle;
-    if (ptyTitle) {
-      const pty = document.createElement('span');
-      pty.className = 'pane-actionbar-pty';
-      pty.textContent = ptyTitle;
-      info.appendChild(pty);
+    const projectLabel = (session && typeof window.sessionProjectLabel === 'function')
+      ? window.sessionProjectLabel(session) : '';
+    if (projectLabel) {
+      const project = document.createElement('span');
+      project.className = 'pane-actionbar-project';
+      project.textContent = projectLabel;
+      project.title = (session && session.projectPath) || projectLabel;
+      info.appendChild(project);
     }
-
-    const id = document.createElement('span');
-    id.className = 'pane-actionbar-id';
-    id.textContent = sessionId;
-    info.appendChild(id);
 
     bar.appendChild(info);
     bar.appendChild(buildTools(leaf));
@@ -2079,6 +2110,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         if (bar) bar.remove();
         continue;
       }
+      // A rename in flight lives in THIS bar's name element (#358), and this function runs on every
+      // session's busy/idle edge — so rebuilding it would tear the edit out from under the user while
+      // some other session merely started working. The bar carries a name, a project and a status dot;
+      // none of them is worth a lost sentence, so the pane keeps its chrome until the edit ends.
+      if (window.isSessionRenaming?.(bar?.querySelector('.pane-actionbar-name'))) continue;
       const next = buildActionBar(leaf);
       if (bar && next) pane.replaceChild(next, bar);
       else if (bar) bar.remove();

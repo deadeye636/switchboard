@@ -2516,6 +2516,7 @@ body.restoring-sessions #restore-progress { display: flex; }
   flex-shrink: 1;
   min-width: 60px;
   max-width: 30%;
+  cursor: text; /* it renames on click (#358) */
 }
 
 /* Inline header rename (issue #95): expand + outline while editing in place. */
@@ -2542,12 +2543,18 @@ body.restoring-sessions #restore-progress { display: flex; }
   border-left: 1px solid rgba(255,255,255,0.08);
 }
 
-#terminal-header-id {
-  font-size: 10px;
-  color: #6a6a80;
-  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+/* `#terminal-header-id` used to sit here. The id moved into the name's tooltip (#358) and the project
+   took its place on the row — same treatment as the pane's action bar, which is the same row. */
+#terminal-header-project {
+  font-size: 11px;
+  color: #9090a8;
+  font-weight: 400;
   white-space: nowrap;
-  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 2;
 }
 
 #terminal-header-shell {
@@ -8119,15 +8126,22 @@ body.display-mode-panes #terminals.pane-zoomed .pane.pane-zoom-target > .pane-st
 .pane-actionbar-name {
   font-size: 12px; color: #b0b0c4; font-weight: 500;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  cursor: text; /* it renames on click (#358) — the pointer says so before the click does */
 }
-.pane-actionbar-pty {
+/* The project, where the second title and the id used to be (#358). Dimmer and behind a divider, so the
+   row reads as two fields rather than one long string, and it yields the ellipsis first: the name is
+   what identifies the session, the project only tells two same-named ones apart. */
+.pane-actionbar-project {
   font-size: 11px; color: #9090a8; padding-left: 6px;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 2;
 }
-.pane-actionbar-id {
-  font-size: 10px; color: #6a6a80; font-family: ui-monospace, Consolas, monospace;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1;
+/* Inline rename, matching #terminal-header-name.editing — the same gesture on the same kind of text. */
+.pane-actionbar-name.editing {
+  outline: 1px solid rgba(128, 136, 255, 0.55);
+  background: rgba(128, 136, 255, 0.10);
+  border-radius: 3px; padding: 0 4px; color: #d8d8ec;
+  overflow: visible; text-overflow: clip;
 }
 /* The dot alone, with the word in the tooltip (#321) — same colours as
    #terminal-header-status, which this replaces per pane. It leads the session name,
@@ -8136,8 +8150,9 @@ body.display-mode-panes #terminals.pane-zoomed .pane.pane-zoom-target > .pane-st
 .pane-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .pane-status.running::before { background: #3ecf5a; box-shadow: 0 0 6px rgba(62, 207, 90, 0.5); }
 .pane-status.stopped::before { background: #6a6a80; }
-/* A narrow pane drops the bar's tools the same way it drops the strip's. */
-.pane.pane-narrow .pane-actionbar-id { display: none; }
+/* A narrow pane drops the bar's tools the same way it drops the strip's — and the project with them,
+   since the name is the part that has to survive. It stays in the tooltip either way. */
+.pane.pane-narrow .pane-actionbar-project { display: none; }
 
 .pane-tools { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .pane-tool-btn { display: flex; align-items: center; }

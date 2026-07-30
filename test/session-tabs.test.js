@@ -10,6 +10,8 @@ const {
   resolveAutoCloseDelaySec,
   shouldAutoClose,
   buildTabTooltip,
+  buildSessionBarTooltip,
+  resolveRenameTarget,
   projectTailOf,
 } = require('../src/renderer/session/session-tabs');
 
@@ -112,4 +114,98 @@ test('shouldAutoClose applies the mode against the exit code', () => {
   assert.equal(shouldAutoClose('always', 0), true);
   assert.equal(shouldAutoClose('always', 1), true);
   assert.equal(shouldAutoClose('bogus', 0), false);
+});
+
+// --- The session bar's tooltip (#358) ----------------------------------------
+//
+// The row shows the name and the project. Everything it used to spell out beside them is in here, and
+// the point of the builder is that it never says the same thing twice — that repetition on the row is
+// what the issue was about.
+
+test('the bar tooltip carries the AI title, the pty title and the id under the tab tooltip', () => {
+  assert.equal(
+    buildSessionBarTooltip({
+      name: 'Auth refactor',
+      aiTitle: 'Refactor the auth middleware',
+      ptyTitle: 'claude — running tests',
+      sessionId: 'abc-123',
+      project: 'frontend',
+      backend: 'Claude',
+      state: 'Working',
+    }),
+    'Auth refactor\nfrontend · Claude · Working\nRefactor the auth middleware\nclaude — running tests\nabc-123');
+});
+
+test('the bar tooltip drops a line that repeats the name it is attached to', () => {
+  // The everyday case: no manual rename, so the displayed name IS the AI title, and the CLI's own title
+  // tracks it. Repeating it twice under itself is exactly the noise this replaced.
+  assert.equal(
+    buildSessionBarTooltip({
+      name: 'Review the handoff',
+      aiTitle: 'Review the handoff',
+      ptyTitle: 'Review the handoff',
+      sessionId: 'abc-123',
+      project: 'switchboard',
+    }),
+    'Review the handoff\nswitchboard\nabc-123');
+});
+
+test('the bar tooltip keeps the pty title when it differs from the AI title', () => {
+  assert.equal(
+    buildSessionBarTooltip({ name: 'Renamed', aiTitle: 'Renamed', ptyTitle: 'npm test', sessionId: 'x' }),
+    'Renamed\nnpm test\nx');
+});
+
+test('the bar tooltip is the id alone when there is nothing else to say', () => {
+  assert.equal(buildSessionBarTooltip({ name: 'x', sessionId: 'x' }), 'x',
+    'a session whose name IS its id says it once');
+  assert.equal(buildSessionBarTooltip({ sessionId: 'only-id' }), 'only-id');
+  assert.equal(buildSessionBarTooltip(), '');
+});
+
+test('the bar tooltip treats a CLI title with an activity glyph as the same sentence', () => {
+  // What Claude actually writes: the AI title with a spinner in front. Two different strings, one
+  // sentence — and the everyday case for a renamed session, so it would be noise on every tooltip.
+  assert.equal(
+    buildSessionBarTooltip({
+      name: 'Renamed by hand',
+      aiTitle: 'Review the handoff',
+      ptyTitle: '✳ Review the handoff',
+      sessionId: 'abc-123',
+      project: 'switchboard',
+    }),
+    'Renamed by hand\nswitchboard\nReview the handoff\nabc-123');
+  // …and a leading marker does not make it match the NAME either.
+  assert.equal(
+    buildSessionBarTooltip({ name: 'Review the handoff', ptyTitle: '✳ Review the handoff', sessionId: 'x' }),
+    'Review the handoff\nx');
+  // A title that is only a marker carries nothing to show.
+  assert.equal(buildSessionBarTooltip({ name: 'A', ptyTitle: '✳ ', sessionId: 'x' }), 'A\nx');
+});
+
+// --- What a typed name means (#95, #358) -------------------------------------
+//
+// One rule, three surfaces. It used to be written out three times and the sidebar's copy compared
+// against the RAW automatic title while the field showed the cleaned one — so confirming a rename
+// without editing anything stored the cleaned string as a manual name and switched the automatic
+// title off for good.
+
+test('an empty name drops the override so the automatic title applies again', () => {
+  assert.equal(resolveRenameTarget('', 'Review the handoff'), null);
+  assert.equal(resolveRenameTarget('   ', 'Review the handoff'), null);
+  assert.equal(resolveRenameTarget(null, 'Review the handoff'), null);
+});
+
+test('a name equal to the automatic title is not stored as a manual one', () => {
+  // Otherwise a click that changed nothing freezes today's AI title, and a better one later never lands.
+  assert.equal(resolveRenameTarget('Review the handoff', 'Review the handoff'), null);
+  assert.equal(resolveRenameTarget('  Review the handoff  ', 'Review the handoff'), null);
+});
+
+test('anything else is the session\'s name from then on', () => {
+  assert.equal(resolveRenameTarget('Auth refactor', 'Review the handoff'), 'Auth refactor');
+  assert.equal(resolveRenameTarget('  Auth refactor  ', 'Review the handoff'), 'Auth refactor');
+  // No automatic title to compare against — the typed name simply wins.
+  assert.equal(resolveRenameTarget('Auth refactor', ''), 'Auth refactor');
+  assert.equal(resolveRenameTarget('Auth refactor', null), 'Auth refactor');
 });

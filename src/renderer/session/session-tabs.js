@@ -63,6 +63,59 @@ function buildTabTooltip({ name, project, backend, state } = {}) {
   return [title, detail.join(' · ')].filter(Boolean).join('\n');
 }
 
+// The tooltip for a session BAR — the row under the tabs, which shows the name and the project and
+// nothing else (#358). Everything the row used to spell out moves in here: the AI title when the name
+// shown is a rename over it, the terminal's own title, and the session id. Built on the tab's tooltip
+// rather than beside it, so the first two lines say the same thing in both places.
+//
+// Each extra line is dropped when it repeats one already there. A row whose name IS the AI title would
+// otherwise show the same sentence three times, which is the thing this issue removed from the row.
+function buildSessionBarTooltip({ name, aiTitle, ptyTitle, sessionId, project, backend, state } = {}) {
+  const head = buildTabTooltip({ name, project, backend, state });
+  // Compared without a leading marker, because a CLI's own title is usually the AI title with an
+  // activity glyph in front of it ("✳ Review the handoff"). Those are two different strings and one
+  // sentence, and listing both is the repetition this issue removed one level up. Only the leading
+  // run is stripped, and only for the comparison — what gets shown is what the CLI wrote.
+  const key = (value) => String(value || '').trim().replace(/^[^\p{L}\p{N}]+/u, '').toLowerCase();
+  const shown = key(name);
+  const lines = [];
+  const seen = new Set([shown]);
+  const add = (value) => {
+    const text = String(value || '').trim();
+    const k = key(value);
+    if (!text || !k || seen.has(k)) return;
+    seen.add(k);
+    lines.push(text);
+  };
+  add(aiTitle);
+  add(ptyTitle);
+  // The id goes through the same filter: a session with no name of any kind is DISPLAYED as its id
+  // (`tabTooltipFor` falls back to it), and printing it again under itself is the repetition this
+  // whole change removed from the row.
+  add(sessionId);
+  return [head, ...lines].filter(Boolean).join('\n');
+}
+
+// What a typed name MEANS (#95, #358). Three surfaces rename a session — the sidebar row, the tabs-mode
+// header and every pane's action row — and all three must agree, because the answer is not "store what
+// was typed":
+//
+//   empty                     -> null: drop the override, follow the automatic title again. There is no
+//                                such thing as a session with an empty name.
+//   the automatic title       -> null as well. Otherwise confirming without editing anything freezes
+//                                TODAY's AI title as a MANUAL name, and no better one can replace it.
+//   anything else             -> the typed name.
+//
+// `fallback` is the automatic title AS DISPLAYED — `cleanDisplayName`'d. Against the raw string the
+// second rule never matched for a title carrying a plan prefix or an XML-ish tag, so a rename that
+// changed nothing silently switched the automatic title off. That was the sidebar's behaviour until
+// #358, while the header compared the cleaned form: one rule, two answers.
+function resolveRenameTarget(typed, fallback) {
+  const name = String(typed == null ? '' : typed).trim();
+  const auto = String(fallback == null ? '' : fallback).trim();
+  return (name && name !== auto) ? name : null;
+}
+
 // The last segment of a project path — what tells two same-named sessions apart.
 function projectTailOf(projectPath) {
   if (!projectPath) return '';
@@ -73,7 +126,7 @@ function projectTailOf(projectPath) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     buildTabModel, resolveAutoCloseMode, resolveAutoCloseDelaySec, shouldAutoClose,
-    buildTabTooltip, projectTailOf,
+    buildTabTooltip, buildSessionBarTooltip, resolveRenameTarget, projectTailOf,
   };
 }
 
@@ -562,6 +615,27 @@ if (typeof module !== 'undefined' && module.exports) {
       state: status && status.label,
     });
   };
+
+  // The session bar's tooltip and the project it shows beside the name (#358). Both surfaces that carry
+  // a session bar — the pane's action row and the tabs-mode header — read them from here, for the same
+  // reason `tabTooltipFor` exists: two compositions of the same facts is the pair that drifts.
+  window.sessionBarTooltipFor = function (session, status, ptyTitle) {
+    if (!session) return '';
+    const backend = (typeof window.getBackend === 'function') ? window.getBackend(session.backendId) : null;
+    const name = (typeof cleanDisplayName === 'function'
+      ? cleanDisplayName(session.name || session.aiTitle || session.summary) : '') || session.sessionId;
+    return buildSessionBarTooltip({
+      name,
+      aiTitle: (typeof cleanDisplayName === 'function'
+        ? cleanDisplayName(session.aiTitle || session.summary) : (session.aiTitle || session.summary)),
+      ptyTitle,
+      sessionId: session.sessionId,
+      project: projectTailOf(session.projectPath),
+      backend: backend && backend.label,
+      state: status && status.label,
+    });
+  };
+  window.sessionProjectLabel = (session) => projectTailOf(session && session.projectPath);
 
   window.refreshSessionTabs = refreshSessionTabs;
   window.patchTabStatuses = patchTabStatuses;

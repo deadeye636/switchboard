@@ -91,7 +91,11 @@ function setupPanesDom(opts = {}) {
     closeFilePanel: 0,
     dialogs: [],
     toasts: [],
+    renames: [],
+    renameEnds: [],
   };
+  // The inline rename as panes-view sees it: open or not, and in which element (#358).
+  const renameState = { open: false, el: null };
   // What the next confirm dialog answers. `true` is the ordinary "the user pressed the button";
   // set it to false to exercise a cancel.
   const answers = { confirm: true };
@@ -203,7 +207,6 @@ function setupPanesDom(opts = {}) {
     gridViewActive: false,
     cachedProjects: [],
     cachedAllProjects: [],
-    terminalHeaderId: window.document.createElement('span'),
     terminalHeaderName: window.document.createElement('span'),
     terminalHeaderPtyTitle: window.document.createElement('span'),
     gridViewerCount: window.document.createElement('span'),
@@ -240,6 +243,32 @@ function setupPanesDom(opts = {}) {
   window.filePanelRelayout = () => { calls.filePanelRelayout++; };
   window.closeFilePanel = () => { calls.closeFilePanel++; };
   window.filePanelTabLabel = () => 'Preview';
+  // The inline rename the action bar's name calls (#358). It lives in app.js, which this harness does
+  // not load — recorded rather than performed, since what the pane owes is the call with ITS element
+  // and ITS session, not the editing behaviour (that is app.js's, and shared with the tabs header).
+  // …and it puts the element into the same state the real one does, because that state is what panes-view
+  // has to step around: a rebuild of the bar destroys the element the edit lives in. A recorder alone made
+  // both of those defects invisible to the suite.
+  window.startSessionRename = (el, sessionId) => {
+    if (!el || renameState.open) return;
+    calls.renames.push([el && el.className, sessionId, el && el.isConnected]);
+    renameState.open = true;
+    renameState.el = el;
+    el.classList.add('editing');
+    el.contentEditable = 'plaintext-only';
+  };
+  window.isSessionRenaming = (el) => {
+    if (!renameState.open || !renameState.el || !renameState.el.isConnected) return false;
+    return el ? renameState.el === el : true;
+  };
+  window.endSessionRename = (commit) => {
+    if (!renameState.open) return;
+    calls.renameEnds.push(commit !== false);
+    renameState.el.classList.remove('editing');
+    renameState.el.contentEditable = 'false';
+    renameState.open = false;
+    renameState.el = null;
+  };
   window.isMcpActiveForSession = () => false;
   window.relaunchSession = () => {};
 
@@ -291,6 +320,7 @@ function setupPanesDom(opts = {}) {
     pointer,
     calls,
     answers,
+    renameState,
     openSessions,
     sessionMap,
     activePtyIds,

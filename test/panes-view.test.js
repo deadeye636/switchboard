@@ -1370,3 +1370,135 @@ test('the boot reconcile fills a dormant tab in behind what the window shows (#3
     assert.equal(h.document.querySelectorAll('.pane-empty-launch').length, 0);
   } finally { h.destroy(); }
 });
+
+// --- The session bar (#358) ---------------------------------------------------
+//
+// The row under the tabs. It used to carry the name, the terminal's own title (usually the same
+// sentence again) and the full session id, and no project — so the one fact that tells two sessions
+// with the same summary apart was the one missing.
+
+test('the pane bar shows the name and the project, and nothing twice (#358)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    const { session } = await h.open('s1', { name: 'Auth refactor' });
+    session.projectPath = '/srv/projects/api-gateway';
+    session.aiTitle = 'Refactor the auth middleware';
+    h.openSessions.get('s1').ptyTitle = 'claude — running tests';
+    h.panes.render();
+    await h.settle();
+
+    assert.equal(h.document.querySelectorAll('.pane-actionbar-pty').length, 0, 'the second title is gone');
+    assert.equal(h.document.querySelectorAll('.pane-actionbar-id').length, 0, 'the id is off the row');
+    assert.equal(h.document.querySelector('.pane-actionbar-name').textContent, 'Auth refactor');
+    assert.equal(h.document.querySelector('.pane-actionbar-project').textContent, 'api-gateway');
+
+    // Everything that left the row is reachable without leaving it.
+    const title = h.document.querySelector('.pane-actionbar-name').title;
+    assert.match(title, /Refactor the auth middleware/, 'the AI title behind the rename');
+    assert.match(title, /claude — running tests/, 'the terminal\'s own title');
+    assert.match(title, /\bs1\b/, 'the session id');
+    assert.match(title, /Click to rename/, 'and the affordance the row does not spell out');
+  } finally { h.destroy(); }
+});
+
+test('clicking the pane bar name renames the session, with the pane bar as the element (#358)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('s1', { name: 'Auth refactor' });
+    h.panes.render();
+    await h.settle();
+
+    // The same call the tabs-mode header makes, so an empty name means the same thing in both places.
+    // The pane owes the call with ITS element and ITS session; the editing itself is app.js's.
+    h.pointer(h.document.querySelector('.pane-actionbar-name'), 'mousedown');
+    await h.settle();
+    assert.deepEqual(h.calls.renames, [['pane-actionbar-name', 's1', true]]);
+  } finally { h.destroy(); }
+});
+
+test('a pane bar for a session without a project shows no empty divider (#358)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('s1');
+    h.panes.render();
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane-actionbar-project').length, 0);
+    assert.equal(h.document.querySelectorAll('.pane-actionbar-name').length, 1);
+  } finally { h.destroy(); }
+});
+
+test('renaming works on the FIRST press in a pane that is not focused (#358)', async () => {
+  const h = setupPanesDom();
+  try {
+    // Two panes, and the press lands in the one that is not active. Focusing it routes through
+    // showSession → show() → scheduleRender, whose microtask rebuilds that bar — so a `click` handler
+    // never ran: the node its mousedown landed on had already left the document.
+    await paneWith(h, ['s2']);
+    h.panes.show('keep-me');
+    await h.settle();
+    const target = h.document.querySelector('.session-tab[data-session-id="s2"]')
+      .closest('.pane').querySelector('.pane-actionbar-name');
+
+    h.pointer(target, 'mousedown');
+    await h.settle();
+
+    assert.equal(h.calls.renames.length, 1, 'one press is enough');
+    assert.equal(h.calls.renames[0][1], 's2', 'and it renames the session that was pressed');
+    assert.equal(h.calls.renames[0][2], true, 'on an element that is actually in the document');
+    assert.equal(h.window.isSessionRenaming(), true);
+    // This is what makes the assertion above a regression test rather than a restatement: the node the
+    // handler's closure captured is gone by the time the rename starts, so passing it — which is what the
+    // code did — hands the edit an element no longer in the document.
+    assert.equal(target.isConnected, false, 'the pressed node did not survive the focus');
+    assert.notEqual(h.renameState.el, target, 'so the edit runs in the element that replaced it');
+  } finally { h.destroy(); }
+});
+
+test('a status edge does not tear an open rename out of the pane (#358)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('s1', { name: 'Auth refactor' });
+    h.panes.render();
+    await h.settle();
+    h.pointer(h.document.querySelector('.pane-actionbar-name'), 'mousedown');
+    await h.settle();
+    const editing = h.renameState.el;
+    editing.textContent = 'half-typed nam';
+
+    // What `refreshSessionStatusViews` calls on ANY session's busy/idle edge — not the user's doing.
+    // It used to rebuild the bar unconditionally, which discarded the text and left the rename flag
+    // set: every later rename and the header's AI-title refresh were dead until a restart.
+    h.panes.refreshChrome();
+    await h.settle();
+
+    assert.equal(editing.isConnected, true, 'the element being typed into survives');
+    assert.equal(editing.textContent, 'half-typed nam', 'and so does the text');
+    assert.deepEqual(h.calls.renameEnds, [], 'nothing ended the edit behind the user');
+  } finally { h.destroy(); }
+});
+
+test('a full render commits an open rename instead of discarding it (#358)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('s1', { name: 'Auth refactor' });
+    h.panes.render();
+    await h.settle();
+    h.pointer(h.document.querySelector('.pane-actionbar-name'), 'mousedown');
+    await h.settle();
+
+    // A render rebuilds every bar, so unlike refreshChrome it cannot step around the edit — the tree
+    // itself changed. Same shape as the sash drag it ends two lines above (#345): end the gesture rather
+    // than leave it holding an element that is gone.
+    h.panes.show('s1');
+    h.panes.render();
+    await h.settle();
+
+    assert.deepEqual(h.calls.renameEnds, [true], 'committed — the text is the user\'s');
+    assert.equal(h.window.isSessionRenaming(), false, 'and the flag is clear for the next rename');
+  } finally { h.destroy(); }
+});

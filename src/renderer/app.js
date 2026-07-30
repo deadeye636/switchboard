@@ -11,8 +11,12 @@ const starToggle = document.getElementById('star-toggle');
 const searchInput = document.getElementById('search-input');
 const terminalHeader = document.getElementById('terminal-header');
 const terminalHeaderName = document.getElementById('terminal-header-name');
-const terminalHeaderId = document.getElementById('terminal-header-id');
-let headerRenaming = false; // true while the header title is being inline-renamed (issue #95)
+// `#terminal-header-id` was here and is gone (#358): the id is a string to copy, not to read, so it
+// moved into the name's tooltip. The project took its place on the row, which is the fact that tells
+// two sessions with the same summary apart.
+const terminalHeaderProject = document.getElementById('terminal-header-project');
+let headerRenaming = false; // true while a session name is being inline-renamed (issue #95, #358)
+let activeRename = null;    // { el, sessionId, finish } for the edit that flag belongs to (#358)
 const terminalHeaderStatus = document.getElementById('terminal-header-status');
 const terminalHeaderShell = document.getElementById('terminal-header-shell');
 const terminalVariablesBtn = document.getElementById('terminal-variables-btn');
@@ -1127,16 +1131,29 @@ function openNewSession(project) {
   return launchNewSession(project);
 }
 
-// Inline-rename the active session from the header title (top-left), mirroring the
-// sidebar's startRename: double-click → edit in place → save on Enter/blur, cancel
-// on Escape, then sync the sidebar. Same backend as the sidebar (issue #95).
-function startHeaderRename() {
-  if (headerRenaming || !activeSessionId) return;
-  const entry = openSessions.get(activeSessionId);
-  const session = (entry && entry.session) || sessionMap.get(activeSessionId);
+// Inline-rename a session from wherever its name is shown, mirroring the sidebar's startRename:
+// click → edit in place → save on Enter/blur, cancel on Escape, then sync the sidebar. Same backend as
+// the sidebar (issue #95).
+//
+// It takes the element and the session (#358), because there are now two places a session's name is
+// read and edited: the tabs-mode header and every pane's action row. A second implementation would have
+// meant a second answer to "what does an empty name mean" — and the answer here is load-bearing: a name
+// equal to the AI-title fallback is stored as `null`, which is what puts the session back to following
+// its own summary instead of freezing today's summary as a manual name.
+//
+// `headerRenaming` stays a single flag rather than one per element: it exists to stop the AI-title
+// refresh from overwriting the text mid-edit, and only one edit can be in flight — the caret is in it.
+function startSessionRename(el, sessionId) {
+  // The element an edit lives in can be destroyed under it — a pane's action bar is rebuilt on every
+  // status edge (#358). `activeRename` is what lets the owner of that DOM end the edit first, and what
+  // makes a lost element recoverable: without this the flag stayed true and every later rename, plus the
+  // header's own AI-title refresh, was dead until the renderer restarted.
+  if (activeRename && !activeRename.el.isConnected) endActiveRename(false);
+  if (headerRenaming || !el || !sessionId) return;
+  const entry = openSessions.get(sessionId);
+  const session = (entry && entry.session) || sessionMap.get(sessionId);
   if (!session) return;
   headerRenaming = true;
-  const el = terminalHeaderName;
   const original = el.textContent;
   el.contentEditable = 'plaintext-only';
   el.spellcheck = false;
@@ -1151,18 +1168,26 @@ function startHeaderRename() {
   const finish = async (commit) => {
     if (!headerRenaming) return;
     headerRenaming = false;
+    activeRename = null;
     el.removeEventListener('keydown', onKey);
     el.removeEventListener('blur', onBlur);
     el.contentEditable = 'false';
     el.classList.remove('editing');
     if (commit) {
-      const newName = el.textContent.trim();
       const fallback = cleanDisplayName(session.aiTitle || session.summary);
-      const nameToSave = (newName && newName !== fallback) ? newName : null;
+      // The shared rule (#358): empty or "the automatic title again" both store null, which is what puts
+      // the session back to following its own summary. The sidebar's copy of this had drifted.
+      const nameToSave = resolveRenameTarget(el.textContent, fallback);
       try { await window.api.renameSession(session.sessionId, nameToSave); } catch {}
       session.name = nameToSave;
       el.textContent = nameToSave || fallback || session.sessionId;
       if (typeof refreshSidebar === 'function') refreshSidebar();
+      // The name is on screen in up to four places at once — the sidebar row, the tab, the header and
+      // every pane's action row (#358). Repaint them from the record we just changed, or the one the
+      // user did NOT rename from keeps yesterday's name until something else redraws it.
+      if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
+      if (window.panesView && window.panesView.active()) window.panesView.render();
+      refreshSessionHeaderChrome();
     } else {
       el.textContent = original;
     }
@@ -1175,15 +1200,64 @@ function startHeaderRename() {
   function onBlur() { finish(true); }
   el.addEventListener('keydown', onKey);
   el.addEventListener('blur', onBlur);
+  activeRename = { el, sessionId, finish };
 }
+
+// Is an inline rename open — in this element, or anywhere? Asked by whoever is about to rebuild the DOM
+// the edit lives in (#358).
+function isSessionRenaming(el) {
+  if (!activeRename || !activeRename.el.isConnected) return false;
+  return el ? activeRename.el === el : true;
+}
+// End an open edit before its element goes away. `commit` defaults to keeping what was typed: a repaint
+// the user did not ask for must not throw their text away.
+function endActiveRename(commit) {
+  if (!activeRename) { headerRenaming = false; return; }
+  const rename = activeRename;
+  activeRename = null;
+  headerRenaming = true; // finish() bails unless this is set — it was, unless the element already died
+  rename.finish(commit !== false);
+}
+window.isSessionRenaming = isSessionRenaming;
+window.endSessionRename = endActiveRename;
+// The pane's action row calls the same thing with its own element (#358).
+window.startSessionRename = startSessionRename;
+function startHeaderRename() { startSessionRename(terminalHeaderName, activeSessionId); }
+// A single click renames, and the double-click that used to be the only way still works — the gesture
+// this was discovered by should not stop working because a cheaper one was added.
+terminalHeaderName.addEventListener('click', (e) => { e.stopPropagation(); startHeaderRename(); });
 terminalHeaderName.addEventListener('dblclick', (e) => { e.stopPropagation(); startHeaderRename(); });
-terminalHeaderName.title = 'Double-click to rename';
+
+// The header's name carries what the row no longer spells out: the AI title behind a rename, the
+// terminal's own title, and the session id (#358). Beside the name goes the project, which is the fact
+// that tells two sessions with the same summary apart and was the one thing the row never showed.
+// Re-derived rather than written once, because all three inputs change under a running session — a fork
+// re-keys the id, the CLI rewrites its title, and dedup fills in an AI title minutes later.
+function refreshSessionHeaderChrome() {
+  const session = activeSessionId
+    ? ((openSessions.get(activeSessionId) || {}).session || sessionMap.get(activeSessionId))
+    : null;
+  if (!session) return;
+  const runtime = (typeof getSessionRuntimeState === 'function') ? getSessionRuntimeState() : {};
+  const status = (typeof getSessionStatus === 'function') ? getSessionStatus(session, runtime) : null;
+  const ptyTitle = (openSessions.get(activeSessionId) || {}).ptyTitle || '';
+  const tooltip = (typeof window.sessionBarTooltipFor === 'function')
+    ? window.sessionBarTooltipFor(session, status, ptyTitle) : '';
+  terminalHeaderName.title = [tooltip, 'Click to rename'].filter(Boolean).join('\n');
+  if (terminalHeaderProject) {
+    const project = (typeof window.sessionProjectLabel === 'function')
+      ? window.sessionProjectLabel(session) : '';
+    terminalHeaderProject.textContent = project;
+    terminalHeaderProject.style.display = project ? '' : 'none';
+  }
+}
+window.refreshSessionHeaderChrome = refreshSessionHeaderChrome;
 
 async function showTerminalHeader(session) {
   const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary);
   if (!headerRenaming) terminalHeaderName.textContent = displayName;
-  terminalHeaderId.textContent = session.sessionId;
   terminalHeader.style.display = '';
+  refreshSessionHeaderChrome();
   updateTerminalHeader();
 
   // Show active shell profile
