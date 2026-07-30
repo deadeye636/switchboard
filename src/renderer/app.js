@@ -780,17 +780,10 @@ function updateRunningIndicators() {
       const running = activePtyIds.has(id);
       if (item.classList.contains('has-running-pty') !== running) statusChanged = true;
       item.classList.toggle('has-running-pty', running);
-      // Bringing a detached session back needs a process to bring back (#315). The row is not
-      // rebuilt on an exit, so the button's state is patched here with the rest of the pty-derived
-      // chrome — otherwise it stays clickable until something else happens to redraw the sidebar,
-      // and clicking it can only produce a refusal.
-      const reattachBtn = item.querySelector('.session-reattach-btn');
-      if (reattachBtn) {
-        reattachBtn.disabled = !running;
-        reattachBtn.title = running
-          ? 'Bring back to this window'
-          : 'This session has ended — close its window to dismiss it';
-      }
+      // "Bring back to this window" used to be patched here, because it was disabled without a live
+      // process and this repaint is where a row learns its pty died. Since #332 the move works with or
+      // without one, so the button no longer depends on anything this loop knows — leaving the patch in
+      // would keep re-deriving a state the button does not have.
       if (!running) {
         // A pty that vanished takes only the busy flag with it — "Working" is meaningless without a
         // live process. attention/ready (and the finish stamp / reason behind them) are the user's

@@ -68,6 +68,39 @@ Two consequences worth stating:
 - **Closing a window hands back everything it holds**, not the one session it was opened for. The
   explicit paths delete their entry *before* destroying, so `closed` never repeats a handover.
 
+**A session with no process moves too, and the rule it used to break lives elsewhere now (#332).**
+`move-session-to-window` refused one until then, and that refusal predated #319: back when the taking
+window mounted whatever it was given, a mount with no live PTY *spawned* one, so a move resumed a CLI
+the user had stopped (#315). Since #318/#319 the renderer states that rule where the mount happens —
+the boot reconcile, `adoptOwnedSessions` and `adoptSession` each gate on whether the session runs, from
+main's answer rather than their own poll — and a second copy of it in the move handler is what stranded
+a dormant session: the menu entry was disabled *and* the call refused, so closing the whole window was
+its only exit, which handed back every live session that window held as well.
+
+What the taking window then does with it depends on what that window has to show it in, and the two
+answers are deliberate:
+
+| Taking window | Dormant session lands as |
+|---|---|
+| any window in **panes** mode | a **dormant tab** — the pane draws the "not running / Launch" placeholder it already draws for a tab restored from a saved layout (#318). `panesView.openDormantTab` is the one path that puts an unmounted session into the tree: `show` refuses one, because it is the choke point every `showSession` goes through and a phantom tab there would be worse than a declined move |
+| the **main** window in tabs mode | nothing is mounted and nothing is drawn — the sidebar lists the session, which is the way back the move existed for |
+| a **detached** window in tabs mode | refused before it starts, by name ("that window cannot show a session that is not running"). That strip is built from `openSessions` and the window has no sidebar, so the session would be held by a window that shows it nowhere |
+
+The adopt tells those cases apart rather than falling back on `release-session-claim`. That channel
+means "I cannot render this one" (#331); a window that *can* show a dormant session keeps the claim,
+because handing it back would undo the move the user just made.
+
+Two places had to learn the same thing, and both were the bug again in miniature:
+
+- **The boot reconcile.** `adoptOwnedSessions` mounted only what runs and *skipped* the rest, so a
+  reload of a window holding a dormant session came back without its tab while main still recorded the
+  window as its owner — unreachable, which is what this issue is about. It now gives it the same dormant
+  tab, with `{ activate: false }` so it lands behind whatever the boot path already chose to show, and
+  hands the claim back when there is nowhere to put one.
+- **The sidebar's own "Bring back to this window".** It was disabled without a live process, with a
+  comment pointing at the refusal in main. That refusal is gone, so the button is offered either way —
+  it was the more discoverable of the two exits from a shared window, and it was the one still shut.
+
 The window list is built in main (`list-session-windows`) and names each window by what it shows;
 "window 3" means nothing to the user. It marks the window that already holds the session, because the
 renderer cannot work that out: a detached window does not track its own set, and "not detached means
@@ -122,6 +155,7 @@ default with the main window. Three things had to be told not to write:
 | Detached without a process (#319) | The window opens and **shows** the session — named, with a Launch button — instead of starting it. Mounting is what would start it (`openSession` → `openTerminal` spawns when it finds no live PTY), so the window simply does not mount, and Launch is the press that does. Panes mode draws this from the pane's own placeholder (#318); tabs mode has no `#placeholder` here (it says "select a session in the sidebar", and this window has none), so the same block is built for it. Launching starts the process in **this** window: main already has the session down as its, so the bytes route here |
 | Window closed by hand | **Every** session it still holds returns to the main window (#316) — each one unless its process has ended: taking it back always reopened it, which silently resumed a CLI the user had stopped |
 | Reattach / move action | Main deletes the map entry **before** destroying the window, so the `closed` handler stays silent and the notification fires once |
+| Moved without a process (#332) | The move runs and starts nothing — see §2b for where it lands, which depends on the taking window's display mode. A window left holding only live sessions stays open; the dormant one no longer needs the window closed to get out |
 | Last session moved out | The window closes: no sidebar, nothing to show, nothing to pick (#316) |
 | Main window closed | `closeAll` clears the map **first**, then destroys: on the plain Alt+F4 path `appQuitting` is still false, and a reattach would land in a renderer being torn down |
 | App quit | Same call; nothing is handed back |
@@ -142,14 +176,16 @@ has no tab there, and clicking its sidebar row raises its window.
 
 ## 7 · Tests
 
-`test/detach-routing.test.js` (26) covers the routing and the state machine without Electron —
+`test/detach-routing.test.js` (36) covers the routing and the state machine without Electron —
 `BrowserWindow` arrives through ctx for exactly that reason. It pins per-session routing, the window's
 shape (no `parent`: a child window is always on top, which defeats a second monitor; no background
 throttling), double detach, reattach, close-by-hand, quit, `closeAll` off the quit path, a window
 destroyed without its event, the focus path, and the re-key in both directions. The move cases (#316)
 are there too: the window list and its `current` marking, main → detached, detached → main, detached →
 detached, a window closing with several sessions, a move onto the window a session is already in, and
-the two refusals.
+the refusals that are left. Since #332 that includes the dormant moves in both directions, and that
+moving one spawns nothing; the renderer's half of that decision — which window can *show* a dormant
+session — is in `test/panes-view.test.js` (`openDormantTab`), because it is a pane-tree question.
 
 What it cannot cover is the invariant in §3: that lives in the renderer, and it is where both real
 bugs were. `docs/ai/driving-the-app.md` has the two traps that made checking it harder than it should

@@ -48,6 +48,12 @@ detached → detached. Four things follow, and `docs/specs/17-detached-windows.m
   adopting a dead session resumes its CLI.
 - **`reattach-session` no longer exists.** It was `move-session-to-window(id, 'main')` with a window
   destroy hard-coded, which is wrong for a window holding more than one session.
+- **A move does NOT require a live process, and do not put that guard back (#332).** It was there, it
+  predated #319, and by the time it was removed it stranded a dormant session in a window it shared —
+  the only exit was closing the window, which handed back the live sessions too. The rule it protected
+  ("a window change never resumes a CLI") belongs where the mount happens: the renderer gates on it in
+  three places from the `running` flag above. Which window can *show* a dormant session is a renderer
+  question too — `docs/specs/17-detached-windows.md` §2b has the three answers.
 
 ## Where an IPC handler goes
 

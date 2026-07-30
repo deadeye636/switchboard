@@ -261,7 +261,14 @@ function registerIpc(ipc) {
    */
   ipc.handle('move-session-to-window', (_event, sessionId, targetWindowId) => {
     if (!sessionId) return { ok: false, error: 'no session' };
-    if (!ctx.activeSessions.get(sessionId)) return { ok: false, error: 'session is not running' };
+    // A session with no process moves too (#332). The refusal that stood here predated #319: back then
+    // the taking window mounted whatever it was given, and mounting a session with no PTY spawns one —
+    // so a move resumed a CLI the user had stopped (#315). That rule now lives where the mount does.
+    // The renderer gates on it three times over (the boot reconcile, `adoptOwnedSessions` and
+    // `adoptSession`), each from the authoritative answer `sendAdopt` carries rather than its own poll.
+    // A second copy of the rule here is what stranded a dormant session in a window it shared: the menu
+    // entry was disabled and this call refused it, so closing the whole window was the only way out —
+    // which handed back every live session the window held as well.
     const target = String(targetWindowId) === MAIN_WINDOW_ID ? null : detachedWindowById(targetWindowId);
     if (String(targetWindowId) !== MAIN_WINDOW_ID && !target) return { ok: false, error: 'window is gone' };
 

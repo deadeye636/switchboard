@@ -1963,6 +1963,44 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return true;
   }
 
+  // A session moved into this window with no process (#332). It has no mount to hang a tab off, and
+  // every other way into the tree needs one: `show` refuses a session that is not in `openSessions`,
+  // and `adoptOrphans` walks that map. So this is the one path that puts an UNMOUNTED session into the
+  // tree — and what it produces is nothing new, just the tab a saved layout restores: `buildTab` marks
+  // it dormant and the pane body draws the "not running / Launch" placeholder (#318).
+  //
+  // It becomes the pane's active tab by default, like a mounted adopt does (`mountOnce(session, true)`):
+  // the user moved this session here, so showing it is the feedback that the move happened. The boot
+  // reconcile passes `{ activate: false }` — it is filling tabs in BEHIND whatever the window is already
+  // showing, and stealing the front there would undo the choice the boot path just made.
+  //
+  // Refused without a session record. `buildTab` reads the name from `sessionMap`, so a tab without one
+  // is an unnamed placeholder the user cannot identify — worse than the move being declined.
+  function openDormantTab(sessionId, opts) {
+    if (!enabled || !tree || !sessionId) return false;
+    if (typeof sessionMap === 'undefined' || !sessionMap.has(sessionId)) return false;
+    const activate = !opts || opts.activate !== false;
+    const tabId = tabIdFor(sessionId);
+    let leaf = PaneTree.leafOfTab(tree, tabId);
+    if (!leaf) {
+      const target = activeLeaf();
+      // `addTab` makes what it adds the pane's active tab, so a non-activating call has to put the
+      // previous choice back rather than the model growing a second way to add one.
+      const wasActive = target.activeTabId;
+      tree = PaneTree.addTab(tree, target.id, makeTerminalTab(sessionId));
+      leaf = PaneTree.leafOfTab(tree, tabId);
+      if (!leaf) return false;
+      if (!activate && wasActive) tree = PaneTree.setActiveTab(tree, leaf.id, wasActive);
+    }
+    if (activate) {
+      tree = PaneTree.setActiveTab(tree, leaf.id, tabId);
+      activeLeafId = leaf.id;
+    }
+    scheduleRender();
+    persist();
+    return true;
+  }
+
   // A live session moved to a new id (#346). `/clear` in a CLI is the everyday case: the CLI starts
   // a fresh session, main reports it, and the renderer re-keys openSessions/sessionMap onto the new
   // id. A tab id is DERIVED from the session id (`tabIdFor`), so without this the tree keeps naming
@@ -2170,6 +2208,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     active: () => enabled,
     applySettings,
     show,
+    openDormantTab,
     rekeySession,
     dropSession,
     patchStatuses,

@@ -258,7 +258,11 @@ side effect of this one. The tree model is pure, so the option stays open.
   session bar and every terminal fix; the ghost tab #2's own plan proposed turned out to be
   unnecessary. The one thing panes had to learn: a detached window shares this origin's localStorage,
   so it neither loads nor writes the saved layout — otherwise popping a session out would overwrite
-  the user's arrangement with a single pane.
+  the user's arrangement with a single pane. Since **#332** the dormant tab is load-bearing for detach
+  as well: a session with no process can be moved between windows, and a pane is the only place that
+  can show one, because a tab whose session is not mounted is a state panes mode already renders (#318).
+  `panesView.openDormantTab` exists for that one caller — the choke point `show` deliberately still
+  refuses an unmounted session, so a stray `showSession` cannot conjure a tab.
 - **Spec 08** — flexible grid layout. The pure-module shape (`grid-layout.js`: order, spans, pointer
   geometry, keyboard move mode, all DOM-free and require-able) is the template for `pane-tree.js`.
 - **Spec 06** — grid bulk actions. One of the features that keeps grid a mode of its own (§4.4).

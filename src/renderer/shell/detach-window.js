@@ -132,6 +132,24 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     document.getElementById('detached-dormant')?.remove();
   }
 
+  /**
+   * Show a session that has no process as a dormant tab, and say whether that worked (#332).
+   *
+   * Panes mode is the only place with somewhere to put one: a pane renders a tab whose session is not
+   * mounted as the "not running / Launch" placeholder (#318), and nothing else in the renderer can put
+   * an UNMOUNTED session into a strip — the tabs-mode one is built from `openSessions`.
+   *
+   * So the answer differs per window, and both halves are deliberate. In the MAIN window a `false` is
+   * fine: the sidebar lists the session, which is the way back the move existed for. In a DETACHED
+   * window there is no sidebar, so a `false` would mean holding a session it shows nowhere — which is
+   * why `moveSessionToWindow` refuses that combination before it starts, and why the caller falls
+   * through to handing the claim back if it ever gets here anyway.
+   */
+  function showDormantTab(sessionId, opts) {
+    if (!window.panesView || !window.panesView.active()) return false;
+    return !!window.panesView.openDormantTab?.(sessionId, opts);
+  }
+
   async function waitForSessionRecord(sessionId, tries) {
     for (let i = 0; i < tries && !sessionMap.has(sessionId); i++) {
       await new Promise((r) => setTimeout(r, 50));
@@ -192,11 +210,24 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     let live = [];
     try { live = (await window.api.getActiveSessions()) || []; } catch { return; }
     for (const id of owned) {
-      if (openSessions.has(id) || !live.includes(id)) continue;
+      if (openSessions.has(id)) continue;
       const session = await waitForSessionRecord(id, 20);
       // No record after a second: the session is gone from the list. Leave it — mounting a session we
       // cannot describe is worse than a window that shows one less.
       if (!session) continue;
+      if (!live.includes(id)) {
+        // Owned, with no process. It cannot be mounted — that is what would spawn — but it must not be
+        // dropped either: main still records this window as the one rendering it, so a reload that
+        // silently skipped it left the session unreachable again, which is the bug #332 is about. It
+        // gets the dormant tab a move gives it, behind whatever the boot path is showing.
+        if (showDormantTab(id, { activate: false })) continue;
+        // Nowhere to put one: tabs mode lists only mounted sessions and this window has no sidebar.
+        // That is exactly what `release-session-claim` states, so main takes it back instead of
+        // recording this window as the owner of something it draws nowhere.
+        try { await window.api.releaseSessionClaim(id); }
+        catch { /* older main process: nothing to hand back to */ }
+        continue;
+      }
       // Not shown: the window keeps the session it booted on in front, and the rest arrive as tabs.
       await mountOnce(session, false);
     }
@@ -250,6 +281,12 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     // Let go of the terminal WITHOUT touching the process: close-terminal only clears
     // `rendererAttached` in main, so the PTY runs on and the receiving window attaches to it.
     if (openSessions.has(sessionId) && typeof destroySession === 'function') destroySession(sessionId);
+    // Nothing mounted, but a pane can still hold a TAB for it — a dormant one, from a saved layout or
+    // from a dormant session moved in (#332). `destroySession` is what normally takes the tab with it,
+    // so without this the window keeps a tab for a session another window now renders: clicking it
+    // does nothing the user can interpret, because `openSession` raises that window instead of
+    // mounting. The adopt puts the tab back if the session ever comes here again.
+    else if (window.panesView && window.panesView.active()) window.panesView.dropSession(sessionId);
     refreshViews();
   }
 
@@ -286,6 +323,10 @@ if (detachedSessionId) document.body.classList.add('detached-window');
 
     if (session && stillRunning && typeof openSession === 'function') {
       await mountOnce(session, true);
+    } else if (session && !cancelledMounts.has(sessionId) && showDormantTab(sessionId)) {
+      // Nothing to mount, but this window can SHOW it (#332). The claim stays here on purpose: handing
+      // it back would undo the move the user just made, and `release-session-claim` states "I cannot
+      // render this one", which is the opposite of what just happened.
     } else if (detachedSessionId && !cancelledMounts.has(sessionId)) {
       // Nothing was mounted, and main still has this window down as the one rendering it. Give the
       // claim back rather than leaving a session routed to a window that draws it nowhere (#331) —
@@ -341,17 +382,20 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     // detached window the useful move is back (#314). Listing "main" twice — once by name here, once
     // as a move target below — reads as two different actions.
     //
-    // The two directions are gated differently, and the difference is real: a window of its own can
-    // show a session that is not running (#319) — it identifies it and offers Launch, the way a pane
-    // does since #318. Moving between EXISTING windows still needs a process, because that handover
-    // is a release/adopt pair over a live PTY.
+    // A session with no process may take either of those two (#332): a window of its own identifies it
+    // and offers Launch (#319), and the window it returns to has the sidebar. What is still gated is
+    // narrower — an EXISTING detached window can only take a dormant session in panes mode, where a
+    // pane draws a dormant tab (#318). The tabs-mode strip lists only what is mounted, and a detached
+    // window has no sidebar, so there it would arrive nowhere at all.
     const anchor = detached
-      ? addItem('Return to main window', () => { window.reattachSession?.(sessionId); }, { disabled: !live })
+      ? addItem('Return to main window', () => { window.reattachSession?.(sessionId); }, { disabled: !sessionId })
       : addItem('Move to new window', () => { window.detachSession?.(sessionId); }, { disabled: !sessionId });
-    if (!live || !anchor) return;
+    if (!anchor) return;
 
+    const canTakeDormant = !!window.panesView?.active();
     const targets = (await window.listSessionWindows(sessionId))
-      .filter((w) => !w.current && !(detached && w.isMain));
+      .filter((w) => !w.current && !(detached && w.isMain))
+      .filter((w) => live || w.isMain || canTakeDormant);
     if (!targets.length || (typeof isOpen === 'function' && !isOpen())) return;
     let cursor = anchor;
     for (const target of targets) {
@@ -362,14 +406,22 @@ if (detachedSessionId) document.body.classList.add('detached-window');
   };
 
   window.moveSessionToWindow = async (sessionId, windowId) => {
-    const res = await window.api.moveSessionToWindow(sessionId, windowId);
-    if (!res || !res.ok) {
+    // The one combination a move still cannot serve (#332): a session with no process into an EXISTING
+    // detached window outside panes mode. There is no dormant tab in that strip and no sidebar beside
+    // it, so the session would be held by a window that shows it nowhere — and the adopt would hand the
+    // claim straight back, which looks like a move that silently undid itself. Refuse it by name.
+    // Asked of main rather than `activePtyIds`, which backs off to 30 s in an idle window: refusing on a
+    // stale answer would block a move that is perfectly fine.
+    if (String(windowId) !== 'main' && !window.panesView?.active() && !(await isRunning(sessionId))) {
       window.showControlToast?.({
-        message: (res && res.error === 'session is not running')
-          ? 'Only a running session can move between windows'
-          : 'Could not move this session',
+        message: 'That window cannot show a session that is not running',
         timeoutMs: 3000,
       });
+      return false;
+    }
+    const res = await window.api.moveSessionToWindow(sessionId, windowId);
+    if (!res || !res.ok) {
+      window.showControlToast?.({ message: 'Could not move this session', timeoutMs: 3000 });
       return false;
     }
     return true;

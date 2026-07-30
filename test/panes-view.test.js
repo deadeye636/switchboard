@@ -1269,3 +1269,104 @@ test('a second sash gesture does not leave the first one running (#345)', async 
       'one pointerup ends whatever gesture is live');
   } finally { h.destroy(); }
 });
+
+// --- A dormant session moved into this window (#332) -------------------------------------------
+//
+// The only path that puts an UNMOUNTED session into the tree. `show` refuses one (it is the choke
+// point every showSession goes through, and a phantom tab there would be worse than a declined move)
+// and `adoptOrphans` walks `openSessions`, so a session moved in with no process had nowhere to land.
+
+test('a dormant session moved in gets a tab, and the pane offers Launch (#332)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    // What a moved-in dormant session looks like from the renderer's side: a record and no mount.
+    h.sessionMap.set('dorm-1', { sessionId: 'dorm-1', name: 'Dormant one', type: 'agent' });
+
+    assert.equal(h.panes.openDormantTab('dorm-1'), true);
+    await h.settle();
+
+    const labels = [...h.document.querySelectorAll('.session-tab-label')].map((el) => el.textContent);
+    assert.deepEqual(labels, ['live-1', 'Dormant one']);
+    const tab = [...h.document.querySelectorAll('.session-tab')]
+      .find((el) => el.querySelector('.session-tab-label').textContent === 'Dormant one');
+    assert.equal(tab.classList.contains('session-tab-dormant'), true);
+    assert.equal(tab.getAttribute('aria-selected'), 'true',
+      'the user moved it here — showing it is the feedback that the move happened');
+    // The placeholder, not an empty pane: this is the one state where opening the session spawns a
+    // CLI, so the button says so instead of a tab click doing it silently (#318).
+    assert.equal(h.document.querySelectorAll('.pane-empty-launch').length, 1);
+  } finally { h.destroy(); }
+});
+
+test('a dormant tab is not created for a session it cannot name (#332)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    // No record: `buildTab` reads the name from sessionMap, so the tab would be an unnamed
+    // placeholder the user cannot identify. The caller hands the claim back instead.
+    assert.equal(h.panes.openDormantTab('ghost'), false);
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.session-tab').length, 1);
+  } finally { h.destroy(); }
+});
+
+test('moving the same dormant session in twice activates its tab rather than adding a second (#332)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('dorm-1', { sessionId: 'dorm-1', name: 'Dormant one', type: 'agent' });
+    h.panes.openDormantTab('dorm-1');
+    await h.settle();
+    h.window.panesView.show('live-1');
+    await h.settle();
+
+    assert.equal(h.panes.openDormantTab('dorm-1'), true);
+    await h.settle();
+    const tabs = [...h.document.querySelectorAll('.session-tab')];
+    assert.equal(tabs.length, 2);
+    const dormant = tabs.find((el) => el.querySelector('.session-tab-label').textContent === 'Dormant one');
+    assert.equal(dormant.getAttribute('aria-selected'), 'true');
+  } finally { h.destroy(); }
+});
+
+test('show() still refuses a session that is not mounted (#332)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('dorm-1', { sessionId: 'dorm-1', name: 'Dormant one', type: 'agent' });
+    // The dormant path is deliberately its own entry point. Relaxing `show` instead would mean every
+    // showSession for an unmounted session silently created a tab.
+    assert.equal(h.panes.show('dorm-1'), false);
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.session-tab').length, 1);
+  } finally { h.destroy(); }
+});
+
+test('the boot reconcile fills a dormant tab in behind what the window shows (#332)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('dorm-1', { sessionId: 'dorm-1', name: 'Dormant one', type: 'agent' });
+
+    // `adoptOwnedSessions` runs at the end of a detached window's boot, after the boot path has already
+    // decided what to show. A tab it adds must not take the front — `addTab` makes what it adds active,
+    // so this is the case that would silently move it.
+    assert.equal(h.panes.openDormantTab('dorm-1', { activate: false }), true);
+    await h.settle();
+
+    const tabs = [...h.document.querySelectorAll('.session-tab')];
+    assert.equal(tabs.length, 2, 'the tab exists');
+    const byLabel = (text) => tabs.find((el) => el.querySelector('.session-tab-label').textContent === text);
+    assert.equal(byLabel('Dormant one').getAttribute('aria-selected'), 'false');
+    assert.equal(byLabel('live-1').getAttribute('aria-selected'), 'true',
+      'the session the window was showing keeps the front');
+    // And the live one still has its terminal on screen, rather than the dormant placeholder.
+    assert.equal(h.document.querySelectorAll('.pane-empty-launch').length, 0);
+  } finally { h.destroy(); }
+});

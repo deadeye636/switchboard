@@ -129,11 +129,18 @@ test('a session with no live process gets its window too, and nothing is started
   assert.equal(activeSessions.size, 0, 'detaching is a view operation — it never spawns');
 });
 
-test('a move between existing windows still needs a process', () => {
-  // Unlike a detach, a handover is a release/adopt pair over a live PTY: there is nothing to hand.
-  const { ipc } = setup({ sessions: [] });
+test('a move no longer needs a process, and moving one starts nothing', () => {
+  // #332: the refusal that stood here predated #319. The rule it protected ("a window change never
+  // resumes a CLI") lives in the renderer now, which is where the mount happens — so main lets the
+  // move through and says, in the adopt, that there is nothing running to attach to.
+  const { ipc, main, created, activeSessions } = setup({ sessions: [] });
   ipc.call('detach-session', 's1');
-  assert.match(ipc.call('move-session-to-window', 's1', 'main').error, /not running/);
+  main.sent.length = 0;
+
+  assert.deepEqual(ipc.call('move-session-to-window', 's1', 'main'), { ok: true });
+  assert.deepEqual(main.sent, [['session-reattached', 's1', false]]);
+  assert.equal(activeSessions.size, 0, 'a move is a view operation — it never spawns');
+  assert.equal(created[0].destroyed, true, 'the window gave away its last session');
 });
 
 test('a session with no id is still refused', () => {
@@ -360,12 +367,53 @@ test('moving a session to the window it is already in changes nothing', () => {
   assert.equal(win.destroyed, false);
 });
 
-test('a move refuses a dead session and a window that is gone', () => {
+test('a move still refuses a window that is gone, and leaves the source alone', () => {
   const { ipc, created } = setup({ sessions: ['s1'] });
   ipc.call('detach-session', 's1');
-  assert.match(ipc.call('move-session-to-window', 'ghost', 'main').error, /not running/);
+  assert.equal(ipc.call('move-session-to-window', '').ok, false);
   assert.match(ipc.call('move-session-to-window', 's1', '9999').error, /window is gone/);
   assert.equal(created[0].destroyed, false, 'a refused move leaves the window alone');
+});
+
+// --- A dormant session is not stranded in a window it shares (#332) ---------------------------
+//
+// Reachable only since #319, which let a session without a process be detached at all. The window
+// holds one dormant and one live session; before this, the dormant one could not be moved and the
+// only exit was closing the window — which handed the live one back too and took its window with it.
+
+test('a dormant session leaves the window it shares, and the live one stays where it is', () => {
+  const { ipc, main, created, activeSessions } = setup({ sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1');
+  const win = created[0];
+  ipc.call('move-session-to-window', 's2', String(win.id));
+  activeSessions.delete('s1'); // its CLI exits while the window shows both
+  main.sent.length = 0;
+  win.sent.length = 0;
+
+  assert.deepEqual(ipc.call('move-session-to-window', 's1', 'main'), { ok: true });
+  assert.deepEqual(win.sent, [['session-detached', 's1']], 'the window it leaves lets go of it');
+  assert.deepEqual(main.sent, [['session-reattached', 's1', false]], 'and main is told nothing runs');
+  assert.equal(detach.windowForSession('s1'), main);
+  assert.equal(win.destroyed, false, 'the window stays — it still holds the live session');
+  assert.deepEqual(detach.sessionsInWindow(win), ['s2']);
+});
+
+test('a dormant session moves into an existing detached window', () => {
+  // The renderer decides whether the TARGET can show one — a pane draws a dormant tab, the tabs-mode
+  // strip has no entry for an unmounted session. Main's part is that the map follows and the adopt is
+  // honest about the process, so the taking window mounts nothing.
+  const { ipc, main, created, activeSessions } = setup({ sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1');
+  const win = created[0];
+  activeSessions.delete('s2'); // s2 sits dormant in the main window
+  win.sent.length = 0;
+  main.sent.length = 0;
+
+  assert.deepEqual(ipc.call('move-session-to-window', 's2', String(win.id)), { ok: true });
+  assert.deepEqual(main.sent, [['session-detached', 's2']]);
+  assert.deepEqual(win.sent, [['session-reattached', 's2', false]]);
+  assert.equal(detach.windowForSession('s2'), win);
+  assert.equal(activeSessions.has('s2'), false, 'still nothing spawned');
 });
 
 test('the adopt notification carries whether the process is still alive', () => {
