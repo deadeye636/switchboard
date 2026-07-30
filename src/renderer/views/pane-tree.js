@@ -333,6 +333,24 @@
     return replaceAt(tree, path, next);
   }
 
+  // Every branch in the tree gets an even share, not just one (#352). This is VS Code's "Even Editor
+  // Group Sizes", and its semantics are per LEVEL: two panes beside a column of two end up 1/2 and
+  // 1/4 each, not four quarters. Making them literally equal would mean re-shaping the tree, which
+  // would move panes the user arranged deliberately — a reset of the SIZES is what is being asked for.
+  function distributeAllEvenly(tree) {
+    let next = clone(tree);
+    const walk = (node, path) => {
+      if (!isBranch(node)) return;
+      next = distributeEvenly(next, path);
+      // Read the children back out of the tree being built: `distributeEvenly` returns a new tree
+      // each time, so `node`'s own children are a snapshot from before this level was rewritten.
+      const rewritten = nodeAt(next, path);
+      rewritten.children.forEach((child, i) => walk(child, path.concat(i)));
+    };
+    walk(next, []);
+    return next;
+  }
+
   function resizeSash(tree, path, index, delta) {
     const branch = nodeAt(tree, path);
     if (!isBranch(branch) || index < 0 || index + 1 >= branch.children.length) return clone(tree);
@@ -444,6 +462,7 @@
     moveTab,
     resizeSash,
     distributeEvenly,
+    distributeAllEvenly,
     pruneTabs,
     serialize,
     deserialize,

@@ -50,6 +50,7 @@
       DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
       collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
+      paneCloseEmptyValue,
       externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
@@ -441,6 +442,16 @@
                       <option value="bar" ${paneToolsPlacementValue !== 'strip' ? 'selected' : ''}>Own bar</option>
                       <option value="strip" ${paneToolsPlacementValue === 'strip' ? 'selected' : ''}>In the tab strip</option>
                     </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Close a pane when it becomes empty</span>
+                    <div class="settings-description">Panes mode: a pane with no tabs left disappears instead of waiting to be filled.</div>
+                    <div class="settings-more">Off by default, because a split makes an empty pane <b>on purpose</b> — it is the one you are about to click a session into. With this on, a pane closes as soon as focus moves to another pane while it holds nothing, which is VS Code's <code>closeEmptyGroups</code>. Clicking the sidebar to fill it does not count as leaving.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-pane-close-empty" ${paneCloseEmptyValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">

@@ -937,7 +937,7 @@ test('an arrow off the edge of the layout does nothing instead of wrapping (#350
 const layoutSignature = (h) => [...h.document.querySelectorAll('.pane')].map((p) => [
   p.dataset.paneId,
   [...p.querySelectorAll('.session-tab')].map((t) => t.dataset.tabId).join(','),
-  p.style.flex,
+  p.style.flexGrow,
 ].join('|')).join(' / ');
 
 // Two panes side by side, one session each.
@@ -1548,8 +1548,8 @@ test('the pane menu says which subject each group acts on (#340)', async () => {
       'two headings, and the session one names the session it means');
     // The order is what makes the headings mean anything: everything under "Pane" acts on the pane.
     const items = menuItems(h);
-    assert.deepEqual(items.slice(0, 4),
-      ['Split right', 'Split down', 'Move pane to new window', 'Close pane']);
+    assert.deepEqual(items.slice(0, 5),
+      ['Split right', 'Split down', 'Distribute evenly', 'Move pane to new window', 'Close pane']);
     assert.ok(items.indexOf('Move to new window') > items.indexOf('Close pane'),
       'the session block comes after the pane block, under its own heading');
   } finally { h.destroy(); }
@@ -1720,5 +1720,158 @@ test('a view tab on top survives the pane losing every session it had (#340)', a
 
     assert.equal(h.calls.clearActiveTerminalView, clearsBefore, 'nothing cleared the view that is on screen');
     assert.ok(h.panes.hasViewTab('jsonl'), 'and the tab is still there');
+  } finally { h.destroy(); }
+});
+
+// --- #352: resetting the sizes ----------------------------------------------
+
+// The share each pane got, read off the DOM the way the user sees it (`buildNode` writes
+// `flex: <size> 1 0`). Reading localStorage instead would mean waiting out the persist debounce.
+const paneShares = (h) => [...h.document.querySelectorAll('.pane')].map((p) => p.style.flexGrow);
+
+test('double-clicking a sash resets its branch, like Home does (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanes(h);
+    // Drag it off centre first — there is nothing to reset from an even layout.
+    h.pointer(h.document.querySelector('.pane-sash'), 'pointerdown', { x: 500, y: 300 });
+    h.pointer(h.window, 'pointermove', { x: 300, y: 300 });
+    h.pointer(h.window, 'pointerup', { x: 300, y: 300 });
+    await h.settle();
+    const moved = paneShares(h);
+    assert.notEqual(moved[0], moved[1], `the drag moved the boundary (${moved.join(' / ')})`);
+
+    h.document.querySelector('.pane-sash')
+      .dispatchEvent(new h.window.MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane').length, 2, 'both panes are still there');
+    assert.deepEqual(paneShares(h), ['0.5', '0.5']);
+    h.disable();
+    assert.deepEqual(h.readStored().children.map((c) => c.size), [0.5, 0.5], 'and it was persisted');
+  } finally { h.destroy(); }
+});
+
+test('"Distribute evenly" evens the whole tree from the pane menu (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanes(h);
+    h.panes.splitActivePane('down'); // a nested branch, so "the whole tree" means something
+    await h.settle();
+    h.pointer(h.document.querySelector('.pane-sash'), 'pointerdown', { x: 500, y: 300 });
+    h.pointer(h.window, 'pointermove', { x: 300, y: 300 });
+    h.pointer(h.window, 'pointerup', { x: 300, y: 300 });
+    await h.settle();
+    assert.notEqual(paneShares(h)[0], '0.5');
+
+    h.document.querySelector('.pane.pane-active .pane-more-btn').click();
+    await h.settle();
+    menuItem(h, 'Distribute evenly').click();
+    await h.settle();
+
+    h.disable();
+    const stored = h.readStored();
+    assert.deepEqual(stored.children.map((c) => c.size), [0.5, 0.5]);
+    const nested = stored.children.find((c) => c.type === 'branch');
+    assert.deepEqual(nested.children.map((c) => c.size), [0.5, 0.5], 'the nested branch too');
+  } finally { h.destroy(); }
+});
+
+test('"Distribute evenly" is disabled while there is only one pane (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.document.querySelector('.pane-more-btn').click();
+    await h.settle();
+    assert.equal(menuItem(h, 'Distribute evenly').disabled, true);
+  } finally { h.destroy(); }
+});
+
+// --- #352: an empty pane offers a way out and a way to fill it ---------------
+
+const emptyActions = (h) => [...h.document.querySelectorAll('.pane.pane-active .pane-empty-actions button')]
+  .map((b) => b.textContent);
+
+test('an empty pane offers New session and Close pane (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a', { projectPath: '/projects/demo' });
+    h.window.activeSessionId = 'a'; // the sidebar sets this in the app; `open` alone does not
+    h.window.cachedProjects = [{ projectPath: '/projects/demo', name: 'demo' }];
+    const opened = [];
+    h.window.showNewSessionPopover = (project) => { opened.push(project.projectPath); };
+    h.panes.splitActivePane('right');
+    await h.settle();
+
+    const empty = h.document.querySelector('.pane.pane-active .pane-empty');
+    assert.ok(empty, 'the new pane draws the empty state');
+    assert.deepEqual(emptyActions(h), ['New session', 'Close pane']);
+
+    // The project is the active session's — an empty pane names none, and that is the one the user
+    // is working in.
+    h.document.querySelector('.pane.pane-active .pane-empty-actions button').click();
+    await h.settle();
+    assert.deepEqual(opened, ['/projects/demo']);
+  } finally { h.destroy(); }
+});
+
+test('an empty pane with nothing active offers only Close pane (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.settle();
+    h.panes.splitActivePane('right');
+    await h.settle();
+    // No session anywhere, so there is no project to launch into — and a button that can never be
+    // pressed is furniture.
+    assert.deepEqual(emptyActions(h), ['Close pane']);
+  } finally { h.destroy(); }
+});
+
+test('Close pane in the empty state removes it (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.splitActivePane('right');
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane').length, 2);
+
+    [...h.document.querySelectorAll('.pane-empty-actions button')]
+      .find((b) => b.textContent === 'Close pane').click();
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane').length, 1);
+  } finally { h.destroy(); }
+});
+
+test('paneCloseEmpty closes an empty pane only when focus moves to another one (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable({ paneCloseEmpty: true });
+    await h.open('a');
+    h.panes.splitActivePane('right');
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane').length, 2, 'the split is not undone on the spot');
+
+    // Clicking a session that lives in the OTHER pane is the everyday way focus leaves an empty one,
+    // and it goes through `show`, not `focusPane` — wiring only the latter left the setting doing
+    // nothing on the path people actually take.
+    h.panes.show('a');
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane').length, 1);
+  } finally { h.destroy(); }
+});
+
+test('an empty pane stays put while paneCloseEmpty is off (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.splitActivePane('right');
+    await h.settle();
+    h.panes.show('a');
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane').length, 2);
   } finally { h.destroy(); }
 });

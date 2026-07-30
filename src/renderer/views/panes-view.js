@@ -54,6 +54,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   let closeBehavior = 'closeView';     // closeView | stopSession (agent sessions)
   let terminalCloseBehavior = 'kill';  // kill | keep (plain terminals)
   let middleClickCloses = true;
+  // VS Code's `closeEmptyGroups`, off by default (#352) — see `focusPane` for why it hangs on the
+  // active pane changing rather than on focus leaving the pane.
+  let closeEmptyPanes = false;
   let persistTimer = 0;
 
   // A terminal tab's id is derived from its session, never generated: the same
@@ -301,7 +304,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     node.children.forEach((child, i) => {
       if (i > 0) el.appendChild(buildSash(node, path, i - 1));
       const childEl = buildNode(child, path.concat(i));
-      childEl.style.flex = `${child.size} 1 0`;
+      // The long form, not `flex: <size> 1 0` — identical to the browser, and readable in a test.
+      // jsdom drops the shorthand entirely (`style.flex` reads back as ''), so `layoutSignature` was
+      // comparing empty strings and the size half of every layout assertion silently passed (#352).
+      childEl.style.flexGrow = String(child.size);
+      childEl.style.flexShrink = '1';
+      childEl.style.flexBasis = '0';
       el.appendChild(childEl);
     });
     return el;
@@ -333,7 +341,31 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     }
     sash.addEventListener('pointerdown', (e) => startSashDrag(e, sash, path, index, branch.orientation));
     sash.addEventListener('keydown', (e) => handleSashKey(e, branch.orientation, path, index));
+    // Double-click resets this branch, the gesture every tiling UI has and the pointer path did not
+    // (#352) — the same reset Home already gives the keyboard, so there is one answer to "put it
+    // back", not two. The drag that necessarily precedes the second click moves nothing: the pointer
+    // has not travelled, so `startSashDrag` applies a zero delta.
+    sash.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      resetBranchSizes(path, index);
+    });
     return sash;
+  }
+
+  function distributeAllPanes() {
+    if (!enabled || !tree) return;
+    tree = PaneTree.distributeAllEvenly(tree);
+    render();
+    persist();
+    announcePane('Panes distributed evenly');
+  }
+
+  function resetBranchSizes(path, index) {
+    tree = PaneTree.distributeEvenly(tree, path);
+    render();
+    persist();
+    refocusSash(path, index);
+    announcePane('Panes distributed evenly');
   }
 
   // Resize from the keyboard. Home distributes the branch evenly again, which is also the "reset"
@@ -354,11 +386,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     else if (e.key === fwd) delta = step;
     else if (e.key === 'Home') {
       e.preventDefault();
-      tree = PaneTree.distributeEvenly(tree, path);
-      render();
-      persist();
-      refocusSash(path, index);
-      announcePane('Panes distributed evenly');
+      resetBranchSizes(path, index);
       return;
     } else return;
     e.preventDefault();
@@ -429,11 +457,65 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // whose session has no process. The last one carries the Launch button, because
   // that is the only case where opening it spawns a CLI (#318) — the button says so
   // instead of a tab click doing it silently.
+  // Which project a "New session" from an EMPTY pane belongs to. The pane names none, so the active
+  // session's is the honest guess — that is the project the user is in. Prefer the entry from the
+  // project list: a bare path is enough for the popover, but the entry carries the name the button's
+  // tooltip shows.
+  function emptyPaneProject() {
+    const session = (typeof activeSessionId !== 'undefined' && activeSessionId)
+      ? sessionOfId(activeSessionId) : null;
+    const projectPath = session && session.projectPath;
+    if (!projectPath) return null;
+    for (const list of [
+      typeof cachedProjects !== 'undefined' ? cachedProjects : [],
+      typeof cachedAllProjects !== 'undefined' ? cachedAllProjects : [],
+    ]) {
+      const found = (list || []).find((p) => p && p.projectPath === projectPath);
+      if (found) return found;
+    }
+    return { projectPath };
+  }
+
   function buildEmptyState(leaf, activeTab) {
     const empty = document.createElement('div');
     empty.className = 'pane-empty';
     if (!leaf.tabs.length) {
-      empty.textContent = 'Pick a session in the sidebar to open it here.';
+      // A split leaves this pane behind, and until #352 the sentence was all it had — so the two
+      // things a user does next (fill it, or decide against it) both meant going somewhere else.
+      // Neither button acts on its own: nothing here starts a process or removes a pane without a
+      // click, which is the whole reason an empty pane is not simply closed for them.
+      const text = document.createElement('div');
+      text.textContent = 'Pick a session in the sidebar to open it here.';
+      empty.appendChild(text);
+      const actions = document.createElement('div');
+      actions.className = 'pane-empty-actions';
+      // "New session" needs a project, and an empty pane has none — the active session's is the
+      // honest guess, because that is the project the user is working in. With nothing active there
+      // is nothing to guess from, and a button that can never be pressed is furniture, so it is left
+      // out rather than shown disabled.
+      const project = emptyPaneProject();
+      if (project && typeof showNewSessionPopover === 'function') {
+        const create = document.createElement('button');
+        create.type = 'button';
+        create.className = 'new-session-secondary-btn';
+        create.textContent = 'New session';
+        create.title = 'New session in ' + (project.name || project.projectPath || 'this project');
+        create.addEventListener('click', (e) => {
+          e.stopPropagation();
+          focusPane(leaf.id); // …so the session it launches lands in THIS pane (#309 O7)
+          showNewSessionPopover(project, create);
+        });
+        actions.appendChild(create);
+      }
+      if (PaneTree.leaves(tree).length > 1) {
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'new-session-secondary-btn';
+        close.textContent = 'Close pane';
+        close.addEventListener('click', (e) => { e.stopPropagation(); closePane(leaf.id); });
+        actions.appendChild(close);
+      }
+      if (actions.childElementCount) empty.appendChild(actions);
       return empty;
     }
     const sessionId = sessionOfTab(activeTab);
@@ -1277,10 +1359,34 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
   // --- Actions --------------------------------------------------------------
 
+  /**
+   * VS Code's `closeEmptyGroups`, off by default here (#352). `leftId` is the pane that was active
+   * until a moment ago; it goes if it holds nothing.
+   *
+   * It hangs on the ACTIVE PANE changing and on nothing else, which is the whole care this needs: the
+   * ordinary way to fill a fresh pane is to click a session in the sidebar, and that is a focus change
+   * in the DOM but not a change of active pane — a rule written on document focus would close the pane
+   * between the split and the click that was about to use it.
+   *
+   * Both routes that move the active pane call this: `focusPane` (a click on a pane, the keyboard) and
+   * `show` (a sidebar click landing in the pane that already holds that session). Only wiring the
+   * first left the setting doing nothing on the path people actually take.
+   */
+  function dropEmptyPaneLeft(leftId) {
+    if (!closeEmptyPanes || !leftId || leftId === activeLeafId) return;
+    const leaving = PaneTree.leaves(tree).find((l) => l.id === leftId);
+    if (!leaving || leaving.tabs.length || PaneTree.leaves(tree).length === 1) return;
+    tree = PaneTree.removeLeaf(tree, leftId);
+    render();
+    persist();
+  }
+
   function focusPane(leafId) {
     if (!enabled || leafId === activeLeafId) return;
     if (!PaneTree.leaves(tree).some((l) => l.id === leafId)) return;
+    const leaving = activeLeafId;
     activeLeafId = leafId;
+    dropEmptyPaneLeft(leaving);
     for (const pane of terminalsEl.querySelectorAll('.pane')) {
       pane.classList.toggle('pane-active', pane.dataset.paneId === leafId);
     }
@@ -1740,6 +1846,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     groupLabel('Pane');
     item('Split right', () => splitActivePane('right'));
     item('Split down', () => splitActivePane('down'));
+    // The whole arrangement back to even (#352). Per LEVEL, like VS Code's — see
+    // `distributeAllEvenly`. Nothing to reset with one pane, and the entry says so rather than
+    // disappearing between one right-click and the next.
+    item('Distribute evenly', () => distributeAllPanes(), {
+      disabled: PaneTree.leaves(tree).length === 1,
+    });
     // The whole pane, with all of its tabs (#340) — a leaf has no split structure to lose, so what
     // arrives on the other side is the same pane. From a detached window the only direction is back,
     // the same asymmetry `appendWindowItems` draws for a single session.
@@ -2021,7 +2133,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       if (!branch || !previewBranch) return;
       const kids = Array.from(branchEl.children).filter((c) => !c.classList.contains('pane-sash'));
       previewBranch.children.forEach((child, i) => {
-        if (kids[i]) kids[i].style.flex = `${child.size} 1 0`;
+        if (kids[i]) kids[i].style.flexGrow = String(child.size); // the long form — see `buildNode`
       });
     };
     const finish = () => {
@@ -2145,7 +2257,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     } else {
       tree = PaneTree.setActiveTab(tree, leaf.id, tabId);
     }
+    const leaving = activeLeafId;
     activeLeafId = leaf.id;
+    dropEmptyPaneLeft(leaving);
     scheduleRender();
     persist();
     return true;
@@ -2289,6 +2403,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     closeBehavior = g.tabCloseBehavior === 'stopSession' ? 'stopSession' : 'closeView';
     terminalCloseBehavior = g.terminalCloseBehavior === 'keep' ? 'keep' : 'kill';
     middleClickCloses = g.tabMiddleClickCloses !== false;
+    closeEmptyPanes = g.paneCloseEmpty === true;
     if (g.sessionDisplayMode === 'panes') {
       const wasEnabled = enabled;
       enable();

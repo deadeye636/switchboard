@@ -8225,6 +8225,9 @@ body.display-mode-panes #terminals.pane-zoomed .pane.pane-zoom-target > .pane-st
 }
 /* The one empty state that offers an action: a tab whose session has no process (#318). */
 .pane-empty-launch { flex: 0 0 auto; }
+/* A pane with no tabs at all offers two (#352) — side by side, so neither reads as the primary one:
+   filling the pane and giving up on it are equally ordinary answers to a split. */
+.pane-empty-actions { display: flex; gap: 8px; flex: 0 0 auto; }
 /* Which session this is. A pane says it on the dormant tab; a detached window in tabs mode has no
    tab for an unmounted session, so the placeholder has to say it itself (#319). */
 .pane-empty-title { color: #c8c8d8; font-size: 13px; font-weight: 500; max-width: 90%; }

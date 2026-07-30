@@ -105,11 +105,12 @@ function setupPanesDom(opts = {}) {
   const activePtyIds = new Set();
 
   // A mounted session as the renderer holds it: a container element plus the session record.
-  function mount(sessionId, { type = 'agent', name = sessionId, running = true } = {}) {
+  function mount(sessionId, { type = 'agent', name = sessionId, running = true, projectPath = null } = {}) {
     const element = window.document.createElement('div');
     element.className = 'terminal-container';
     element.dataset.sessionId = sessionId;
     const session = { sessionId, name, type };
+    if (projectPath) session.projectPath = projectPath;
     sessionMap.set(sessionId, session);
     openSessions.set(sessionId, { session, element, webglAddon: null });
     if (running) activePtyIds.add(sessionId);

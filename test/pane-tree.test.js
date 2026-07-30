@@ -19,6 +19,7 @@ const {
   moveTab,
   resizeSash,
   distributeEvenly,
+  distributeAllEvenly,
   pruneTabs,
   serialize,
   deserialize,
@@ -445,4 +446,34 @@ test('every operation leaves the input tree untouched', () => {
   setActiveTab(original, 'p1', 't2');
   pruneTabs(original, () => false);
   assert.deepEqual(original, snapshot);
+});
+
+// --- #352: "Distribute evenly" over the whole tree ---------------------------
+
+test('distributeAllEvenly evens every branch, not just the root (#352)', () => {
+  // Two panes beside a column of two, all of them lopsided.
+  const tree = {
+    type: 'branch', orientation: 'row', size: 1,
+    children: [
+      { type: 'leaf', id: 'pane-1', tabs: [], activeTabId: null, size: 0.8 },
+      {
+        type: 'branch', orientation: 'col', size: 0.2,
+        children: [
+          { type: 'leaf', id: 'pane-2', tabs: [], activeTabId: null, size: 0.9 },
+          { type: 'leaf', id: 'pane-3', tabs: [], activeTabId: null, size: 0.1 },
+        ],
+      },
+    ],
+  };
+  const out = distributeAllEvenly(tree);
+  assert.deepEqual(out.children.map((c) => c.size), [0.5, 0.5], 'the root is even');
+  assert.deepEqual(out.children[1].children.map((c) => c.size), [0.5, 0.5], 'and so is the nested branch');
+  // Per level, like VS Code's: pane-2 is half of a half. Making all three literally equal would mean
+  // re-shaping the tree, which moves panes the user arranged on purpose.
+  assert.equal(out.children[1].children[0].size * out.children[1].size, 0.25);
+});
+
+test('distributeAllEvenly leaves a single-leaf tree alone (#352)', () => {
+  const tree = createTree('pane-1', []);
+  assert.deepEqual(distributeAllEvenly(tree), tree);
 });
