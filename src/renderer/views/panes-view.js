@@ -87,7 +87,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // them. Measured: opening Projects put a `pane-sash` on top of it, both at `z-index: auto`. Hence
   // every main-area surface belongs in this table, not just the session-shaped ones (#342).
   const VIEW_KINDS = {
-    preview: { hostId: 'file-panel', title: 'Preview', watched: false },
+    // Instanced kinds (#311): there is no single host element to move, because a pane owns its own
+    // preview or diff. `file-panel.js` builds one instance per thing shown and hands over its root; this
+    // side only asks. Hence no `hostId`, no home to park at, and a tab id that carries the `ref`.
+    preview: { instanced: true, title: 'Preview', watched: false },
+    diff: { instanced: true, title: 'Diff', watched: false },
     jsonl: { hostId: 'jsonl-viewer', title: 'Messages', watched: true },
     plan: { hostId: 'plan-viewer', title: 'Plan', watched: true },
     stats: { hostId: 'stats-viewer', title: 'Activity', watched: true, close: 'admin' },
@@ -100,9 +104,14 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     bookmarks: { hostId: 'bookmarks-viewer', title: 'Bookmarks', watched: true },
     timeline: { hostId: 'timeline-viewer', title: 'Timeline', watched: true },
   };
-  const viewTabId = (kind) => 'view:' + kind;
+  const isInstancedKind = (kind) => !!(VIEW_KINDS[kind] && VIEW_KINDS[kind].instanced);
+  // A singleton kind has one tab; an instanced one has a tab per thing it shows, so its id carries the
+  // ref — the file path for a preview, the diff id for a diff.
+  const viewTabId = (kind, ref) => (isInstancedKind(kind) ? 'view:' + kind + ':' + String(ref) : 'view:' + kind);
   const isViewTab = (tab) => !!(tab && VIEW_KINDS[tab.kind]);
-  const hostElementFor = (kind) => document.getElementById(VIEW_KINDS[kind].hostId);
+  const hostElementFor = (kind, ref) => (isInstancedKind(kind)
+    ? (typeof window.filePanelHostFor === 'function' ? window.filePanelHostFor(kind, ref) : null)
+    : document.getElementById(VIEW_KINDS[kind].hostId));
 
   // Where each view element came from, remembered the first time it is adopted.
   // Guessing a home is not good enough: #file-panel lives inside #terminal-split
@@ -385,9 +394,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         // The element follows its TAB, active or not — parked out of sight when
         // the pane shows something else. Leaving it behind on a switch would hand
         // it to the next replaceChildren.
-        const host = hostElementFor(tab.kind);
+        const host = hostElementFor(tab.kind, tab.ref);
         if (host) {
-          rememberHome(tab.kind, host);
+          // An instanced element has no home to go back to: it is created with its tab and destroyed
+          // with it. Remembering one would send it to a slot that was never its.
+          if (!isInstancedKind(tab.kind)) rememberHome(tab.kind, host);
           host.classList.add('pane-hosted');
           host.classList.toggle('pane-hosted-hidden', tab.id !== leaf.activeTabId);
           body.appendChild(host);
@@ -781,8 +792,8 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // session whose transcript it is); the kind's own title is the fallback.
   function viewTabLabel(tab) {
     const spec = VIEW_KINDS[tab.kind];
-    if (tab.kind === 'preview' && typeof window.filePanelTabLabel === 'function') {
-      return window.filePanelTabLabel(tab.ref) || spec.title;
+    if (isInstancedKind(tab.kind) && typeof window.filePanelTabLabel === 'function') {
+      return window.filePanelTabLabel(tab.kind, tab.ref) || spec.title;
     }
     return spec.title;
   }
@@ -793,7 +804,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // the view lands beside the terminal that produced it.
   function openViewTab(kind, { ref = null, nearSessionId = null } = {}) {
     if (!enabled || !VIEW_KINDS[kind]) return false;
-    const tabId = viewTabId(kind);
+    const tabId = viewTabId(kind, ref);
     const existing = PaneTree.leafOfTab(tree, tabId);
     const target = (nearSessionId && PaneTree.leafOfTab(tree, tabIdFor(nearSessionId))) || activeLeaf();
     if (!target) return false;
@@ -820,13 +831,15 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // app has already done it, and repeating the app's own close route here is actively wrong for the
   // sidebar-driven surfaces: switching from Projects to Variables hides Projects, and answering that
   // with `closeAdminView()` sent the sidebar back to the previous tab and undid the switch (#342).
-  function closeViewTab(kind, { closeTheView = false } = {}) {
+  function closeViewTab(kind, { ref = null, closeTheView = false } = {}) {
     if (!enabled) return;
-    const tabId = viewTabId(kind);
+    const tabId = viewTabId(kind, ref);
     const leaf = PaneTree.leafOfTab(tree, tabId);
     if (!leaf) return;
-    releaseViewElement(kind);
-    if (closeTheView) hideViewElement(kind);
+    releaseViewElement(kind, ref);
+    // An instanced view is destroyed, not hidden — its owner answers an unresolved diff on the way out.
+    if (closeTheView && isInstancedKind(kind)) window.filePanelCloseInstance?.(kind, ref);
+    else if (closeTheView) hideViewElement(kind);
     tree = PaneTree.closeTab(tree, leaf.id, tabId);
     activeLeaf();
     render();
@@ -836,8 +849,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
   // Put a view element back where the HTML had it. Every other display mode looks
   // for it there, so leaving it inside a pane would take the view with the pane.
-  function releaseViewElement(kind) {
-    const host = hostElementFor(kind);
+  function releaseViewElement(kind, ref) {
+    if (isInstancedKind(kind)) return; // nothing to put back — see `hostElementFor`
+    const host = hostElementFor(kind, ref);
     const home = viewHomes.get(kind);
     if (!host || !home || !home.parent) return;
     host.classList.remove('pane-hosted', 'pane-hosted-hidden');
@@ -849,7 +863,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   }
 
   function releaseAllViewElements() {
-    for (const kind of Object.keys(VIEW_KINDS)) releaseViewElement(kind);
+    for (const kind of Object.keys(VIEW_KINDS)) if (!isInstancedKind(kind)) releaseViewElement(kind);
   }
 
   // Closing the TAB has to close the VIEW. These four are shown by setting
@@ -860,6 +874,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // panel's own close, which owns its visibility.
   function hideViewElement(kind) {
     const spec = VIEW_KINDS[kind];
+    if (isInstancedKind(kind)) return;
     const host = hostElementFor(kind);
     if (!spec || !spec.watched || !host) return;
     // A surface a sidebar tab drives has to close the way its own × does — through the tab (#342).
@@ -891,7 +906,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         const kind = watchedKindOf(rec.target);
         if (!kind) continue;
         const visible = rec.target.style.display !== 'none';
-        const hasTab = !!PaneTree.leafOfTab(tree, viewTabId(kind));
+        const hasTab = !!PaneTree.leafOfTab(tree, viewTabId(kind, null));
         if (visible && !hasTab) {
           openViewTab(kind, {
             ref: activeSessionId || null,
@@ -918,10 +933,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // above cannot see it. Open in the previous mode means: still a fixed side
     // strip, squeezing the pane tree, with no tab — the one layout this mode is
     // supposed to end.
-    const panel = hostElementFor('preview');
+    const panel = document.getElementById('file-panel');
     if (panel && panel.classList.contains('open')) {
       panel.style.width = '';
-      openViewTab('preview', { ref: activeSessionId || null, nearSessionId: activeSessionId || null });
+      // Whatever it holds becomes a pane tab — since #311 that can be several things at once, and only
+      // the file panel knows what they are.
+      window.filePanelReopenInPanes?.();
     }
   }
 
@@ -1350,7 +1367,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       // closed too — otherwise the element goes home still visible and covers the
       // workspace with nothing left to dismiss it.
       if (isViewTab(tab)) {
-        if (tab.kind === 'preview' && typeof window.closeFilePanel === 'function') window.closeFilePanel();
+        // An instanced view is destroyed with its tab (#311); a singleton is hidden, so it goes home
+        // invisible instead of covering the workspace with nothing left to dismiss it.
+        if (isInstancedKind(tab.kind)) window.filePanelCloseInstance?.(tab.kind, tab.ref);
         else hideViewElement(tab.kind);
         continue;
       }
@@ -1439,8 +1458,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       // Tell the VIEW to close, not just the layout: it owns the state that decides
       // whether it reappears, and a tab-only close would be undone by the next
       // session switch. Its own close path comes back through closeViewTab.
-      if (tab.kind === 'preview' && typeof window.closeFilePanel === 'function') window.closeFilePanel();
-      else closeViewTab(tab.kind, { closeTheView: true });
+      closeViewTab(tab.kind, { ref: tab.ref, closeTheView: true });
       return;
     }
     const sessionId = sessionOfTab(tab);
@@ -1934,6 +1952,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // with the element inside it.
     enabled = false;
     stopViewWatch();
+    // An instanced view has no home to be released to: outside panes mode the side panel shows one
+    // thing at a time, so everything past the one it will show is closed here — answering its diff
+    // instead of leaving the entry unreachable and the CLI waiting (#311).
+    window.filePanelCollapseToOne?.();
     releaseAllViewElements();
     // Hand every container back to #terminals before the panes go, or they would
     // be removed with their pane and the session would lose its terminal.
@@ -2253,7 +2275,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     showActiveOrPlaceholder,
     openViewTab,
     closeViewTab,
-    hasViewTab: (kind) => !!(enabled && tree && PaneTree.leafOfTab(tree, viewTabId(kind))),
+    hasViewTab: (kind, ref) => !!(enabled && tree && PaneTree.leafOfTab(tree, viewTabId(kind, ref))),
     splitActivePane,
     closePane,
     closeActivePane,

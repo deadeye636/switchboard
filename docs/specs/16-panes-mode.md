@@ -259,6 +259,29 @@ preview/diff panel beside it (width in `filePanelWidth`).
 | P1 | The panel stays fixed beside the whole tree | **+** no rework, no risk to the diff viewer. **−** with four panes nothing says which pane the preview belongs to; two layout systems run side by side |
 | P3 | P1 first, P2 later | Only viable if the tree is typed from day one — otherwise the switch is a second rebuild. P2 makes it moot |
 
+**Built in #311, in two steps.** Step 1 pulled the panel body out of module-level singletons addressed by
+element id (`#file-panel-viewer`, `#file-panel-body`, `#diff-title`, …) into `createPanelInstance` — an id
+is unique, so there could only ever be one of each, which IS the symptom. Step 2 made it a registry:
+
+- **`panelTabs`, keyed `<kind>:<ref>`** — the file path for a preview, the diff id for a diff. A natural
+  key, because the MCP bridge re-sends the same file on every session switch and a counter would stack
+  duplicates nobody asked for; re-opening lands on the tab that already has it.
+- **One model in every display mode.** The mode decides one thing only: outside panes the side panel shows
+  one entry per session, so opening closes the previous — which is what tabs and grid always promised. In
+  panes nothing closes.
+- **`diff` is its own kind now.** It used to render through the `preview` host because both were
+  `#file-panel`.
+- **Every path that drops a diff answers it**, except the two where the CLI already decided (`close_tab`,
+  `closeAllDiffTabs`). Displacing one in the side panel, closing its pane, and leaving panes mode all
+  reject it — otherwise the CLI's `tools/call` hangs until the bridge's ten-minute timeout. Leaving panes
+  mode is the one a review caught: the pane teardown had already taken the DOM, so an entry left behind
+  was unreachable *and* unanswered.
+- **An entry carries its own `sessionId`**, because that is what answers the bridge — so a re-key (`/clear`,
+  an accepted plan) has to move the entries too, or a `close_tab` under the new id matches nothing.
+- **Instanced elements never go through `viewHomes`.** They have no home: they are created with their tab
+  and destroyed with it. The singletons still must be parked before a rebuild, or `replaceChildren` takes
+  the app's only preview panel with it (#310, #342).
+
 ### 4.4 Why grid is not folded in
 
 Grid was considered as "auto-arranged panes" and kept separate. It carries features panes do not have

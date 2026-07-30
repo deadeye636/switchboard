@@ -103,14 +103,31 @@ function setupFilePanelDom(opts = {}) {
     return entry;
   }
 
+  // Stands in for the pane body an instanced view is hosted in.
+  const paneHost = window.document.createElement('div');
+  paneHost.id = 'fake-pane-body';
+  window.document.body.appendChild(paneHost);
+
   // Panes mode as file-panel sees it: whether it is on, and the two calls it makes into the tree.
   const paneTabs = new Set();
   const panesView = {
     _active: !!opts.panes,
     active: () => panesView._active,
-    openViewTab: (kind, options) => { calls.openViewTab.push([kind, options]); paneTabs.add(kind); return true; },
-    closeViewTab: (kind) => { calls.closeViewTab.push(kind); paneTabs.delete(kind); },
-    hasViewTab: (kind) => paneTabs.has(kind),
+    // The tree's one job for an instanced kind: take the element file-panel built and put it on screen.
+    // Without this the roots stay detached and every "is it there" assertion answers about nothing.
+    openViewTab: (kind, options) => {
+      calls.openViewTab.push([kind, options]);
+      const key = kind + ':' + (options && options.ref);
+      paneTabs.add(key);
+      const host = window.filePanelHostFor?.(kind, options && options.ref);
+      if (host) paneHost.appendChild(host);
+      return true;
+    },
+    closeViewTab: (kind, options) => {
+      calls.closeViewTab.push([kind, options]);
+      paneTabs.delete(kind + ':' + (options && options.ref));
+    },
+    hasViewTab: (kind, ref) => paneTabs.has(kind + ':' + ref),
     refreshChrome: () => { calls.refreshChrome++; },
   };
 

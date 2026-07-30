@@ -23,11 +23,26 @@ let filePanelResizeHandle = null;
 let terminalSplitEl = null;
 let currentPanelSessionId = null;
 
-// The one panel instance — the thing that actually renders a preview or a diff. It used to be a set of
-// module-level singletons (the content container, one ViewerPanel, the diff toolbar/body/actions) found
-// by element id, which is why a second preview could not exist: ids are unique and there was one of each.
-// It is a factory now, still called exactly once here; per-pane instances are #311's second half.
-let panelInstance = null;
+// Every preview and every diff that is open, keyed by what it shows (#311).
+//
+//   key = `<kind>:<ref>`   ref = the file path for a preview, the diff id for a diff
+//
+// A NATURAL key on purpose: the MCP bridge re-sends the same file on every session switch, so a counter
+// would pile up duplicates nobody asked for. Re-opening the same thing lands on the tab that has it.
+//
+// One model in every display mode, and the mode decides only one thing: outside panes mode the side panel
+// shows one thing at a time, so opening a preview closes that session's previous one — which is what tabs
+// and grid have always promised. In panes mode nothing closes; each entry is a tab of its own.
+//
+// entry = { key, kind, ref, sessionId, tab, instance }
+//   `tab`      the state — label, filePath, diffId, contents, `resolved`, `editorView`
+//   `instance` the DOM, from createPanelInstance. `instance.root` IS the element a pane hosts.
+const panelTabs = new Map();
+const tabKey = (kind, ref) => kind + ':' + String(ref);
+const panesActive = () => !!(window.panesView && window.panesView.active());
+// Set while a close is travelling through the pane tree, so panes-view calling back here does not start
+// the same teardown a second time.
+let closingThroughPanes = false;
 
 const PANEL_WIDTH_KEY = 'filePanelWidth';
 const DEFAULT_PANEL_WIDTH = parseInt(localStorage.getItem(PANEL_WIDTH_KEY), 10) || 450;
@@ -212,17 +227,10 @@ function initFilePanel() {
   filePanelResizeHandle.id = 'file-panel-resize-handle';
   terminalSplitEl.appendChild(filePanelResizeHandle);
 
-  // Create the file panel — the side-panel shell. Everything that renders inside it is one instance,
-  // built by the factory above; there is exactly one here, and panes mode will ask for more (#311).
+  // The side-panel shell. It holds no content of its own any more (#311): whichever entry is on screen
+  // parks its instance root in here, and in panes mode the roots live in panes instead.
   filePanelEl = document.createElement('div');
   filePanelEl.id = 'file-panel';
-
-  panelInstance = createPanelInstance(filePanelEl, {
-    onClose: handleClose,
-    onDiffSave: handleDiffSave,
-    onToggleDiffMode: handleDiffModeToggle,
-    onDiffAction: handleDiffAction,
-  });
 
   terminalSplitEl.appendChild(filePanelEl);
   terminalArea.appendChild(terminalSplitEl);
@@ -234,32 +242,17 @@ function initFilePanel() {
 
 // ── Handlers ────────────────────────────────────────────────────────
 
-function handleClose() {
-  if (!currentPanelSessionId) return;
-  const state = getSessionState(currentPanelSessionId);
-  const tab = state.currentTab;
-
-  if (tab) {
-    if (tab.type === 'diff' && !tab.resolved) {
-      window.api.mcpDiffResponse(currentPanelSessionId, tab.diffId, 'reject', null);
-    }
-    if (tab.type === 'diff' && tab.editorView) {
-      tab.editorView.destroy();
-      tab.editorView = null;
-    }
-    if (tab.type === 'file') {
-      panelInstance.destroyViewer();
-    }
-    state.currentTab = null;
-  }
-
-  state.panelVisible = false;
+// The panel's own close button, for the entry that owns it. Outside panes mode this is also what the
+// side panel's × means, because there is only ever one entry on screen there.
+function handleClose(entry) {
+  const target = entry || shownEntryFor(currentPanelSessionId);
+  if (target) { closePanelTab(target.key); return; }
+  if (currentPanelSessionId) getSessionState(currentPanelSessionId).panelVisible = false;
   hidePanel();
 }
 
-async function handleDiffSave() {
-  const state = currentPanelSessionId ? getSessionState(currentPanelSessionId) : null;
-  const tab = state?.currentTab;
+async function handleDiffSave(entry) {
+  const tab = entry && entry.tab;
   if (!tab || tab.type !== 'diff' || !tab.editorView || !tab.filePath) return;
 
   let content;
@@ -272,23 +265,22 @@ async function handleDiffSave() {
 
   const result = await window.api.saveFileForPanel(tab.filePath, content);
   if (result.ok) {
-    const btn = panelInstance.root.querySelector('.fp-save-btn');
+    const btn = entry.instance.root.querySelector('.fp-save-btn');
     if (btn) flashButtonText(btn, 'Saved!');
   }
 }
 
+// Side-by-side or inline is a SETTING, so it applies to every diff on screen — the label and the rebuild
+// are per instance, the choice is not.
 function handleDiffModeToggle() {
   diffMode = diffMode === 'inline' ? 'side-by-side' : 'inline';
   localStorage.setItem(DIFF_MODE_KEY, diffMode);
-  panelInstance.applyDiffModeLabel(diffMode);
-
-  if (currentPanelSessionId) {
-    const state = getSessionState(currentPanelSessionId);
-    const tab = state.currentTab;
-    if (tab && tab.type === 'diff') {
-      if (tab.editorView) { tab.editorView.destroy(); tab.editorView = null; }
-      panelInstance.render(currentPanelSessionId, tab);
-    }
+  for (const entry of panelTabs.values()) {
+    entry.instance.applyDiffModeLabel(diffMode);
+    if (entry.tab.type !== 'diff') continue;
+    if (entry.tab.editorView) { entry.tab.editorView.destroy(); entry.tab.editorView = null; }
+    entry.instance.forgetEditorBars();
+    entry.instance.render(entry.sessionId, entry.tab);
   }
 }
 
@@ -317,7 +309,8 @@ function wireIpcListeners() {
 function getSessionState(sessionId) {
   if (!filePanelState.has(sessionId)) {
     filePanelState.set(sessionId, {
-      currentTab: null,
+      currentTab: null,   // what the side panel shows for this session — the entry it opened last
+      shownKey: null,     // …and that entry's key in `panelTabs` (#311)
       panelVisible: false,
       panelWidth: DEFAULT_PANEL_WIDTH,
       mcpActive: false,
@@ -352,17 +345,155 @@ function rekeyFilePanelState(oldId, newId) {
     filePanelState.delete(oldId);
     filePanelState.set(newId, state);
   }
+  // The entries have to follow too (#311). They carry the session id themselves, because that is what
+  // answers the bridge — so a `/clear` left every open preview and diff tagged with a session that no
+  // longer exists: `close_tab` from the CLI arrives under the NEW id and matched nothing, and closing an
+  // entry looked up a state bucket that had already moved.
+  for (const entry of panelTabs.values()) {
+    if (entry.sessionId === oldId) entry.sessionId = newId;
+  }
 }
+
+/**
+ * Leaving panes mode collapses to one entry per session (#311).
+ *
+ * The side panel shows one thing at a time, so the others have nowhere to go — and a pane rebuild has
+ * already taken their DOM. Left in the registry they would be unreachable AND unanswered, which is the
+ * hang this whole change exists to prevent: closing them answers the diffs, exactly as displacing one in
+ * the side panel does.
+ */
+window.filePanelCollapseToOne = () => {
+  const keep = new Set();
+  for (const state of filePanelState.values()) if (state.shownKey) keep.add(state.shownKey);
+  for (const key of [...panelTabs.keys()]) {
+    if (!keep.has(key)) closePanelTab(key, { keepPanel: true });
+  }
+};
 
 // ── Tab Operations ──────────────────────────────────────────────────
 
+/** Every entry belonging to a session, oldest first. */
+function entriesOf(sessionId) {
+  return [...panelTabs.values()].filter((e) => e.sessionId === sessionId);
+}
+
+/** What the side panel shows for a session: the one it opened last. */
+function shownEntryFor(sessionId) {
+  const state = sessionId ? filePanelState.get(sessionId) : null;
+  const key = state && state.shownKey;
+  return (key && panelTabs.get(key)) || null;
+}
+
+/**
+ * Create the entry for a preview or a diff, or re-target the one that already shows it.
+ *
+ * Re-targeting rather than replacing is the whole point of the natural key: the same file arriving again
+ * keeps its instance, its place in the layout and the pane the user dropped it into.
+ */
+function upsertPanelTab(sessionId, kind, ref, tab) {
+  const key = tabKey(kind, ref);
+  const existing = panelTabs.get(key);
+  if (existing) {
+    destroyTabContent(existing);
+    existing.sessionId = sessionId;
+    existing.tab = tab;
+    return existing;
+  }
+  // Outside panes mode the side panel shows one thing at a time. Closing the previous entry here is what
+  // keeps tabs and grid behaving exactly as before — and it answers the unresolved diff on the way out,
+  // instead of leaving a CLI waiting for a call nothing can reach any more.
+  if (!panesActive()) for (const e of entriesOf(sessionId)) closePanelTab(e.key, { keepPanel: true });
+
+  const entry = { key, kind, ref, sessionId, tab, instance: null };
+  entry.instance = createPanelInstance(null, {
+    onClose: () => handleClose(entry),
+    onDiffSave: () => handleDiffSave(entry),
+    onToggleDiffMode: handleDiffModeToggle,
+    onDiffAction: (_sid, _tab, action) => handleDiffAction(entry, action),
+  });
+  panelTabs.set(key, entry);
+  return entry;
+}
+
+/** The element a pane hosts for this tab (#311). Panes-view asks; it never builds one. */
+window.filePanelHostFor = (kind, ref) => {
+  const entry = panelTabs.get(tabKey(kind, ref));
+  return (entry && entry.instance.root) || null;
+};
+
+/** What a pane tab for this entry is called — the file or the diff it shows. */
+window.filePanelTabLabel = (kind, ref) => {
+  const entry = panelTabs.get(tabKey(kind, ref));
+  return (entry && entry.tab.label) || null;
+};
+
+/** Closing the pane tab closes the view — panes-view routes here (#311). */
+window.filePanelCloseInstance = (kind, ref) => {
+  closingThroughPanes = true;
+  try { closePanelTab(tabKey(kind, ref)); } finally { closingThroughPanes = false; }
+};
+
+/**
+ * Take everything that is open into the pane tree. Called when panes mode turns on with the side panel
+ * already showing something: left alone it stays a fixed strip squeezing the tree, with no tab (#310).
+ */
+window.filePanelReopenInPanes = () => {
+  for (const entry of panelTabs.values()) {
+    window.panesView?.openViewTab(entry.kind, { ref: entry.ref, nearSessionId: entry.sessionId });
+  }
+};
+
+/** Tear down what an entry RENDERS, leaving the entry itself in place (a re-target, a mode toggle). */
+function destroyTabContent(entry) {
+  const tab = entry.tab;
+  if (!tab) return;
+  if (tab.type === 'diff' && tab.editorView) {
+    tab.editorView.destroy();
+    tab.editorView = null;
+    entry.instance.forgetEditorBars();
+  }
+  if (tab.type === 'file') entry.instance.destroyViewer();
+}
+
+/**
+ * Close one entry for good.
+ *
+ * An unanswered diff is REJECTED on the way out, per entry: a pane holding three diff tabs rejects those
+ * three and nothing else. Without it the CLI's `tools/call` hangs until the bridge's ten-minute timeout.
+ */
+function closePanelTab(key, { keepPanel = false, answer = true } = {}) {
+  const entry = panelTabs.get(key);
+  if (!entry) return;
+  const tab = entry.tab;
+  if (answer && tab && tab.type === 'diff' && !tab.resolved) {
+    tab.resolved = true;
+    window.api.mcpDiffResponse(entry.sessionId, tab.diffId, 'reject', null);
+  }
+  destroyTabContent(entry);
+  entry.instance.root.remove();
+  panelTabs.delete(key);
+
+  // The pane tab goes with it — unless the pane tree is what asked for this close.
+  if (panesActive() && !closingThroughPanes && window.panesView?.hasViewTab?.(entry.kind, entry.ref)) {
+    window.panesView.closeViewTab(entry.kind, { ref: entry.ref });
+  }
+
+  const state = filePanelState.get(entry.sessionId);
+  if (state && state.shownKey === key) {
+    const next = entriesOf(entry.sessionId).pop();
+    state.shownKey = next ? next.key : null;
+    state.currentTab = next ? next.tab : null;
+    state.panelVisible = !!next;
+    if (!keepPanel && currentPanelSessionId === entry.sessionId) {
+      if (next) { showPanel(state); renderPanel(entry.sessionId); }
+      else hidePanel();
+    }
+  }
+}
+
 function openDiffTab(sessionId, diffId, data) {
   const state = getSessionState(sessionId);
-
-  // Destroy previous
-  destroyCurrentTab(state);
-
-  state.currentTab = {
+  const entry = upsertPanelTab(sessionId, 'diff', diffId, {
     type: 'diff',
     label: data.tabName || basename(data.oldFilePath),
     filePath: data.oldFilePath,
@@ -371,47 +502,39 @@ function openDiffTab(sessionId, diffId, data) {
     newContent: data.newContent,
     resolved: false,
     editorView: null,
-  };
-
-  state.panelVisible = true;
-
-  if (currentPanelSessionId === sessionId) {
-    showPanel(state);
-    renderPanel(sessionId);
-  }
+  });
+  revealEntry(state, sessionId, entry);
 }
 
 function openFileTab(sessionId, data) {
   const state = getSessionState(sessionId);
-
-  // Destroy previous
-  destroyCurrentTab(state);
-
-  state.currentTab = {
+  const entry = upsertPanelTab(sessionId, 'preview', data.filePath, {
     type: 'file',
     label: basename(data.filePath),
     filePath: data.filePath,
     content: data.content,
-  };
+  });
+  revealEntry(state, sessionId, entry);
+}
 
+/** Make this entry the one on screen: a pane tab in panes mode, the side panel's content otherwise. */
+function revealEntry(state, sessionId, entry) {
+  state.shownKey = entry.key;
+  state.currentTab = entry.tab;
   state.panelVisible = true;
-
+  if (panesActive()) {
+    // The shell still has to enter its panes state: `.open` is how a later mode switch learns something
+    // is showing, and the width and the resize handle belong to a side panel that does not exist here.
+    showPanel(state);
+    // The instance root goes wherever the tree puts it; rendering happens once it has a box.
+    window.panesView.openViewTab(entry.kind, { ref: entry.ref, nearSessionId: sessionId });
+    entry.instance.render(sessionId, entry.tab);
+    window.panesView.refreshChrome?.();
+    return;
+  }
   if (currentPanelSessionId === sessionId) {
     showPanel(state);
     renderPanel(sessionId);
-  }
-}
-
-function destroyCurrentTab(state) {
-  const tab = state.currentTab;
-  if (!tab) return;
-  if (tab.type === 'diff' && tab.editorView) {
-    tab.editorView.destroy();
-    tab.editorView = null;
-    panelInstance.forgetEditorBars();
-  }
-  if (tab.type === 'file') {
-    panelInstance.destroyViewer();
   }
 }
 
@@ -432,27 +555,16 @@ async function openFileInPanel(sessionId, filePath) {
 }
 
 function closeAllDiffs(sessionId) {
-  const state = filePanelState.get(sessionId);
-  if (!state) return;
-
-  if (state.currentTab?.type === 'diff') {
-    destroyCurrentTab(state);
-    state.currentTab = null;
-    state.panelVisible = false;
-    if (currentPanelSessionId === sessionId) hidePanel();
+  // The CLI asked for this, so its calls are already settled — closing must not answer them.
+  for (const entry of entriesOf(sessionId)) {
+    if (entry.tab.type === 'diff') closePanelTab(entry.key, { answer: false });
   }
 }
 
 function closeDiffByDiffId(sessionId, diffId) {
-  const state = filePanelState.get(sessionId);
-  if (!state || !state.currentTab) return;
-  if (state.currentTab.type !== 'diff' || state.currentTab.diffId !== diffId) return;
-
-  state.currentTab.resolved = true;
-  destroyCurrentTab(state);
-  state.currentTab = null;
-  state.panelVisible = false;
-  if (currentPanelSessionId === sessionId) hidePanel();
+  const entry = panelTabs.get(tabKey('diff', diffId));
+  if (!entry || entry.sessionId !== sessionId) return;
+  closePanelTab(entry.key, { answer: false });
 }
 
 // ── Panel Show/Hide ─────────────────────────────────────────────────
@@ -460,16 +572,18 @@ function closeDiffByDiffId(sessionId, diffId) {
 function showPanel(state) {
   if (!filePanelEl) return;
   filePanelEl.classList.add('open');
-  // Panes mode (#310): the panel is not a fixed strip beside the terminal area,
-  // it is a tab in the pane that produced it. The element is the same one — it
-  // moves into that pane — so everything below (state, rendering, diff actions)
-  // is unchanged. Width and the split handle belong to the side-panel layout.
-  if (window.panesView && window.panesView.active()) {
+  // Panes mode (#310, #311): the panel is not a fixed strip beside the terminal area, and since #311 it
+  // is not one element either — each entry's instance root is a tab in the pane that produced it. Width
+  // and the split handle belong to the side-panel layout, which does not exist here.
+  if (panesActive()) {
     filePanelEl.style.width = '';
     filePanelResizeHandle.style.display = 'none';
-    window.panesView.openViewTab('preview', { ref: currentPanelSessionId, nearSessionId: currentPanelSessionId });
     return;
   }
+  // Outside panes mode the shell holds whichever entry is on screen. `replaceChildren` rather than append:
+  // the previous entry's root must not be left behind stacked underneath it.
+  const entry = shownEntryFor(currentPanelSessionId);
+  if (entry) filePanelEl.replaceChildren(entry.instance.root);
   filePanelEl.style.width = (state.panelWidth || DEFAULT_PANEL_WIDTH) + 'px';
   filePanelResizeHandle.style.display = 'block';
   refitActiveTerminal();
@@ -478,13 +592,13 @@ function showPanel(state) {
 function hidePanel() {
   if (!filePanelEl) return;
   filePanelEl.classList.remove('open');
-  if (window.panesView && window.panesView.active()) {
-    // Drop the side-panel width too: left behind, it becomes an empty strip of the
-    // old width the moment the mode changes back.
+  if (panesActive()) {
+    // Drop the side-panel width too: left behind, it becomes an empty strip of the old width the moment
+    // the mode changes back.
     filePanelEl.style.width = '';
-    if (window.panesView.hasViewTab('preview')) window.panesView.closeViewTab('preview');
     return;
   }
+  filePanelEl.replaceChildren();
   filePanelEl.style.width = '0';
   filePanelResizeHandle.style.display = 'none';
   refitActiveTerminal();
@@ -499,14 +613,6 @@ window.closeFilePanel = () => handleClose();
 // showPanel skipped width and the resize handle while it was a pane tab.
 window.filePanelRelayout = () => { if (currentPanelSessionId) switchPanel(currentPanelSessionId); };
 
-// What the pane tab for this panel is called: the file or diff it currently
-// shows, so the tab reads like an editor tab rather than like a container.
-window.filePanelTabLabel = (sessionId) => {
-  const state = filePanelState.get(sessionId || currentPanelSessionId);
-  const tab = state && state.currentTab;
-  return tab ? tab.label : null;
-};
-
 function switchPanel(sessionId) {
   currentPanelSessionId = sessionId;
   updateMcpIndicator();
@@ -518,7 +624,7 @@ function switchPanel(sessionId) {
 
   const state = getSessionState(sessionId);
 
-  if (state.panelVisible && state.currentTab) {
+  if (state.panelVisible && shownEntryFor(sessionId)) {
     showPanel(state);
     renderPanel(sessionId);
   } else {
@@ -550,17 +656,15 @@ window.isMcpActiveForSession = (sessionId) => {
 
 function renderPanel(sessionId) {
   if (!filePanelEl || currentPanelSessionId !== sessionId) return;
-
-  const state = getSessionState(sessionId);
-  if (!state) return;
-
-  panelInstance.render(sessionId, state.currentTab);
+  const entry = shownEntryFor(sessionId);
+  if (entry) entry.instance.render(sessionId, entry.tab);
 }
 
 // ── Diff Actions ────────────────────────────────────────────────────
 
-function handleDiffAction(sessionId, tab, action) {
-  if (tab.resolved) return;
+function handleDiffAction(entry, action) {
+  const tab = entry && entry.tab;
+  if (!tab || tab.resolved) return;
   tab.resolved = true;
 
   if (action === 'accept') {
@@ -574,15 +678,15 @@ function handleDiffAction(sessionId, tab, action) {
     }
 
     if (editedContent && editedContent !== tab.newContent) {
-      window.api.mcpDiffResponse(sessionId, tab.diffId, 'accept-edited', editedContent);
+      window.api.mcpDiffResponse(entry.sessionId, tab.diffId, 'accept-edited', editedContent);
     } else {
-      window.api.mcpDiffResponse(sessionId, tab.diffId, 'accept', null);
+      window.api.mcpDiffResponse(entry.sessionId, tab.diffId, 'accept', null);
     }
   } else {
-    window.api.mcpDiffResponse(sessionId, tab.diffId, 'reject', null);
+    window.api.mcpDiffResponse(entry.sessionId, tab.diffId, 'reject', null);
   }
 
-  panelInstance.hideDiffActions();
+  entry.instance.hideDiffActions();
 }
 
 // ── IDE Emulation Indicator ─────────────────────────────────────────
