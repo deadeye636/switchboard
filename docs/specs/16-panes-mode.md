@@ -321,6 +321,27 @@ status filter, bulk actions over card selection, and the card chrome. VS Code ha
 bulk actions to the sidebar and rebuilding the a11y move mode on the tree; that is its own issue, not a
 side effect of this one. The tree model is pure, so the option stays open.
 
+### 4.5 Why the layout is still hand-rolled (#359)
+
+Evaluated against dockview-core (7.0.4, MIT, zero dependencies, 291 KB minified) and `@lumino/widgets`
+(2.9.0, BSD-3, eleven packages, 186 KB). Golden Layout is out — no release since February 2023 — and
+flexlayout-react and rc-dock are React-only, which this renderer is not.
+
+**Both candidates pass the test that decides it.** A throwaway harness moved a live `@xterm/xterm`
+between groups in each: same DOM node, same terminal instance, buffer unchanged, 24 rows before and
+after. Both also answer "how many are visible" (2 split, 1 stacked), which is what #320's renderer
+policy is built on — Dockview per panel, Lumino only through `layoutModified`. A WebGL context survives
+the reparent as well: no context-loss events, `isContextLost()` false afterwards.
+
+So it is not a capability question, and the answer rests on what the trade is: **946 lines out**
+(`pane-tree.js` entire, plus 461 of `panes-view.js`'s 2833 — sixteen per cent) against 186–291 KB of
+third-party code, a second bundle in a renderer that has one, a one-way migration of the saved
+`localStorage` tree, and re-securing every behaviour the audit paid for (#310, #311, #320, #342, #354,
+#355) on a model we do not own, with 183 tests rewritten because they are written against ours.
+
+**Kept.** If the question ever returns, Dockview is the candidate — zero dependencies against eleven,
+and per-panel visibility events are what the WebGL policy needs.
+
 ## 5 · Constraints the code imposes
 
 | Finding | Consequence |
