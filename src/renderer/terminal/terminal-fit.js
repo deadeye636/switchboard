@@ -30,5 +30,60 @@
     return (rows * cellHeight) - contentHeight > 1;
   }
 
-  return { clampRowsToContentBox, bottomRowClipped };
+  // Does the visible screen run off the end of the buffer (#361)?
+  //
+  // xterm maps screen row `r` to buffer line `baseY + r`, so the last visible row is line
+  // `baseY + rows - 1` and the buffer must hold at least `baseY + rows` lines. Growing a
+  // terminal on Windows can break that: the row count rises while `baseY` stays where it
+  // was, and the bottom rows then address lines that do not exist. What the user sees is
+  // the screen sitting `baseY` rows low with a stale fragment of the previous frame above
+  // it — the CLI's prompt box ends up over its own transcript.
+  //
+  // A non-zero `baseY` is NOT the defect and must not be treated as one: it is the ordinary
+  // state of a buffer with anything scrolled off the top, on the alternate screen as much as
+  // the normal one (measured: rows 59, baseY 4, length 63 — perfectly healthy). Only the
+  // arithmetic decides. Reading `baseY > 0` as the fault repairs healthy terminals, which is
+  // exactly what it did before this was measured properly.
+  // `baseY > 0` is a REQUIRED part of the condition, not a shortcut for the common case. A buffer
+  // that has not been filled yet legitimately holds fewer lines than the terminal has rows — xterm
+  // skips the whole adjustment block in `Buffer.resize` while `lines.length` is 0, and
+  // `fillViewportRows` only fills an empty one — so `baseY 0, length < rows` is what a terminal looks
+  // like before its first paint, not a fault. Without this half, the repair fires during startup, on
+  // a buffer that is merely young. Nothing has scrolled off the top yet, so the screen cannot have
+  // been left behind by a scroll: that is what makes the case safe to skip rather than merely
+  // convenient.
+  function screenOutsideBuffer(rows, baseY, length) {
+    if (!(rows > 0) || !(baseY > 0)) return false;
+    return baseY + rows > length;
+  }
+
+  // Bring the screen back inside the buffer by resizing, and say whether it worked.
+  //
+  // Shrinking the row count and growing back restores the arithmetic; it is xterm's own bookkeeping
+  // that does the work, which is why this goes through the public `resize` rather than writing
+  // `ybase`. Traced through `Buffer.resize` for the alternate buffer, where the defect was measured:
+  // the regrow overshoots the line cap and the trim that follows lowers `baseY` by what it removed.
+  // The normal buffer reaches the same end state by a different route, so this claims the OUTCOME
+  // for both and the mechanism only for the one it was traced on.
+  //
+  // A loop, not a single correction: one pass cannot shrink below one row, so a drift wider than the
+  // screen needs several. The bound is a backstop against a terminal that never converges — better a
+  // screen that is still wrong than a resize loop nobody can interrupt. Takes the terminal as an
+  // argument so `node --test` can drive it without a DOM; the caller owns the re-entrancy guard.
+  const REPAIR_PASSES = 8;
+  function repairScreenPastBuffer(terminal) {
+    for (let pass = 0; pass < REPAIR_PASSES; pass++) {
+      const buffer = terminal.buffer && terminal.buffer.active;
+      if (!buffer) return false;
+      const rows = terminal.rows;
+      if (!screenOutsideBuffer(rows, buffer.baseY, buffer.length)) return true;
+      if (rows < 2) return false; // nothing to shrink into
+      const over = buffer.baseY + rows - buffer.length;
+      terminal.resize(terminal.cols, rows - Math.min(over, rows - 1));
+      terminal.resize(terminal.cols, rows);
+    }
+    return false;
+  }
+
+  return { clampRowsToContentBox, bottomRowClipped, screenOutsideBuffer, repairScreenPastBuffer };
 });

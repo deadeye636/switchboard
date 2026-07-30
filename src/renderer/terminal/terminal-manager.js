@@ -345,6 +345,48 @@ function isBottomRowClipped(entry) {
   return bottomRowClipped(entry.terminal.rows, rsCellH, el.clientHeight, terminalVerticalPadding(el));
 }
 
+// --- Screen-past-the-buffer repair (#361) ---
+// Growing a terminal that is running a full-screen CLI can leave the visible screen
+// addressing lines the buffer does not have: the row count rises while `baseY` stays put,
+// so the last rows map past the end of the line list. The screen then sits `baseY` rows
+// low with a stale fragment of the previous frame above it, and the CLI's prompt box ends
+// up over its own transcript. Measured: rows 75, baseY 4, length 75 — the bottom four rows
+// had nowhere to point.
+//
+// It comes in through the ConPTY-specific resize branch in xterm's Buffer.resize, which we
+// opt into with the `windowsPty` option (set for ConPTY reflow tracking — see
+// createTerminalEntry). That branch appends rows without the `ybase--` correction the
+// generic branch applies. We cannot drop `windowsPty` — it is what keeps multi-line TUI
+// redraws from desyncing — so the arithmetic is restored here instead.
+//
+// Read `screenOutsideBuffer` before changing the condition. A non-zero `baseY` is NOT the
+// fault, on either buffer, and treating it as one repairs healthy terminals: an earlier cut
+// of this function did exactly that and left a freshly detached window with its bottom rows
+// blank until the next resize. Only `baseY + rows > length` is the defect.
+//
+// Two things that look like they would fix it and do NOT, both measured: `scrollToBottom()`
+// is a no-op on the alternate buffer, and a PTY repaint nudge changes nothing because the
+// frame is already correct — only where it is addressed from is wrong.
+//
+// The repair itself lives in terminal-fit.js so `node --test` can drive it; the state it
+// reads (`baseY`, `length`, `rows`) is all public xterm API, so nothing depends on private
+// shape. What stays here is what needs an `entry`: the re-entrancy flag, and swallowing a
+// throw rather than letting one terminal's odd state take the whole fit pass down.
+//
+// Each pass issues two real PTY resizes (xterm's `onResize` → `resizeTerminal`), so this
+// must stay behind a condition that is false for a healthy terminal — see
+// `screenOutsideBuffer`, and the entry in docs/ai/lessons.md about the version of this that
+// was not.
+function repairTerminalScreen(entry) {
+  const t = entry && entry.terminal;
+  if (!t || entry._repairingScreen) return;
+  entry._repairingScreen = true; // a resize can come back through this file's fit paths
+  try {
+    repairScreenPastBuffer(t);
+  } catch { /* xterm's shape moved — leave the buffer alone rather than corrupt it */ }
+  finally { entry._repairingScreen = false; }
+}
+
 // Fit terminal to container, clamping rows to the container's true content-box
 // height to avoid bottom-row clipping (see clampRowsToContentBox above).
 function safeFit(entry) {
@@ -383,6 +425,13 @@ function safeFit(entry) {
     entry.fitAddon.fit();
     measured = false;
   }
+  // A row change can leave the screen addressing past the end of the buffer (#361). Panes,
+  // grid, the window-resize handlers and the DPR re-fit all reach their fits through here, so
+  // one call covers them. It is NOT every fit in the renderer: `refitActiveTerminal` in
+  // views/file-panel.js calls `fitAddon.fit()` directly and never passes this way. That path
+  // is a side-panel width drag, so it does not currently change the row count — the day it
+  // does, it needs this call too.
+  repairTerminalScreen(entry);
   if (el && measured) {
     // Cache the container size this fit was computed for, so showSession can skip
     // a redundant resize (and its reflow) when the box hasn't changed on a tab

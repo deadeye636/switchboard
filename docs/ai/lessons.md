@@ -172,3 +172,38 @@ Two things to take from it:
 
 The final rule is one live GL renderer whenever more than one terminal is on screen — in every mode.
 The churn fix from #320 was right and stays; only the conclusion drawn from the bench was wrong.
+
+## An invariant asserted from one measurement (#361)
+
+A window snapped to maximized drew its terminal four rows off: the CLI's prompt box appeared above
+its own transcript, and doing it a second time corrected it. Three explanations were proposed and
+each was killed by the next measurement.
+
+1. **"Panes mode never scrolls back to the bottom after a fit."** True as an observation —
+   `refitVisible` calls `safeFit` while every other resize path calls `fitAndScroll` — and irrelevant
+   as a cause. `scrollToBottom()` in the broken state moved nothing: it is a no-op on the alternate
+   buffer, which is where a full-screen CLI lives.
+2. **"The TUI needs a repaint nudge."** `terminal-redraw` in the broken state left the buffer byte
+   for byte unchanged. The frame was already correct; only where it was addressed from was wrong.
+3. **"On the alternate buffer `ybase` must be 0, so `ybase > 0` is the defect."** This one was worse
+   than wrong, because it *fixed the reported bug*. It shipped, the snap symptom went away, and it
+   quietly wrecked every freshly detached window — bottom rows blank until the next resize. A healthy
+   terminal measured `rows 59, baseY 4, length 63`: a non-zero `baseY` on the alternate buffer is
+   perfectly ordinary. The broken one measured `rows 75, baseY 4, length 75`. The difference is not
+   `baseY`; it is `baseY + rows > length` — the screen addressing lines the buffer does not have.
+
+The third is the entry. The first two were disproved cheaply because they predicted something that
+could be checked in the broken state. The third predicted nothing: it explained the observation, the
+repair built on it made the observation go away, and the suite went green — so nothing pointed at the
+terminals it was corrupting. What found it was an **A/B run in the app**: the same gesture with the
+repair compiled out. Repair off, the snap bug returned and the detach was clean; repair on, the
+reverse. Two symptoms that exclude each other are one predicate that is too wide.
+
+- **A rule derived from a single broken sample is a description of that sample.** Before treating a
+  value as impossible, measure a HEALTHY one and check the rule still says so. Here that was one
+  `eval` away and would have saved a shipped regression.
+- **A fix that makes the symptom go away is not evidence the model is right.** It is evidence the
+  repair overlaps the fault somewhere. The overlap can be much larger than the fault.
+- **The self-check that worked was removing the fix, not adding to it.** When a repair runs on every
+  fit, "does the bug come back without it, and is everything else still fine with it" is one run and
+  answers both halves.

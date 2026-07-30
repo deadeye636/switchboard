@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { clampRowsToContentBox, bottomRowClipped } = require('../src/renderer/terminal/terminal-fit');
+const { clampRowsToContentBox, bottomRowClipped, screenOutsideBuffer, repairScreenPastBuffer } = require('../src/renderer/terminal/terminal-fit');
 
 // --- clampRowsToContentBox (regression guard for the original clip fix) ---
 
@@ -54,4 +54,111 @@ test('bottomRowClipped: zero rows never alarms', () => {
 test('bottomRowClipped: accounts for vertical padding', () => {
   // 10 rows * 20px = 200px rendered; clientHeight 210 − 16px padding = 194px box → clipped.
   assert.equal(bottomRowClipped(10, 20, 210, 16), true);
+});
+
+// --- screenOutsideBuffer (#361 repair predicate) ---
+//
+// The two cases that matter are both measured, from the same session minutes apart, and the pair is
+// the whole point: they differ only in the arithmetic, not in whether baseY is zero.
+
+test('screenOutsideBuffer: the measured BROKEN state — the screen runs past the buffer', () => {
+  // rows 75, baseY 4, length 75: the last four rows address lines 75..78, which do not exist.
+  assert.equal(screenOutsideBuffer(75, 4, 75), true);
+});
+
+test('screenOutsideBuffer: the measured HEALTHY state — a non-zero baseY is not a fault', () => {
+  // rows 59, baseY 4, length 63: the screen is lines 4..62, all present. Reading baseY > 0 as the
+  // defect flagged this and the repair wrecked a perfectly good terminal.
+  assert.equal(screenOutsideBuffer(59, 4, 63), false);
+});
+
+test('screenOutsideBuffer: a buffer at the origin is never outside itself', () => {
+  assert.equal(screenOutsideBuffer(24, 0, 24), false);
+});
+
+test('screenOutsideBuffer: ordinary scrollback on the normal buffer is fine', () => {
+  assert.equal(screenOutsideBuffer(50, 1000, 1050), false);
+});
+
+test('screenOutsideBuffer: one row short still counts', () => {
+  assert.equal(screenOutsideBuffer(50, 1000, 1049), true);
+});
+
+test('screenOutsideBuffer: a buffer longer than it needs to be is fine', () => {
+  assert.equal(screenOutsideBuffer(10, 2, 100), false);
+});
+
+test('screenOutsideBuffer: a terminal with no rows yet never alarms', () => {
+  assert.equal(screenOutsideBuffer(0, 4, 0), false);
+});
+
+// --- repairScreenPastBuffer (#361 repair loop) ---
+//
+// Driven against a stand-in terminal, so what is pinned here is the LOOP — convergence, the bound,
+// and that a healthy buffer is left untouched — not xterm's resize behaviour. The stand-in models the
+// one property the repair relies on and that was measured on the real thing: shrinking the row count
+// by N lowers `baseY` by N, growing back does not give it back. Anything this file claims about xterm
+// itself would be a claim about the model, so it claims none.
+function fakeTerminal({ cols = 80, rows, baseY, length, type = 'alternate' }) {
+  const t = {
+    cols,
+    rows,
+    resizes: [],
+    buffer: { active: { baseY, length, type } },
+    resize(c, r) {
+      this.resizes.push([c, r]);
+      const b = this.buffer.active;
+      const shrunkBy = this.rows - r;
+      if (shrunkBy > 0) b.baseY = Math.max(0, b.baseY - shrunkBy);
+      this.rows = r;
+      this.cols = c;
+    },
+  };
+  return t;
+}
+
+test('repairScreenPastBuffer: the measured broken state is brought back inside in one pass', () => {
+  const t = fakeTerminal({ rows: 75, baseY: 4, length: 75 });
+  assert.equal(repairScreenPastBuffer(t), true);
+  assert.equal(t.rows, 75, 'it ends at the size it started from');
+  assert.equal(t.buffer.active.baseY, 0);
+  assert.equal(t.resizes.length, 2, 'one shrink and one regrow — no thrashing');
+});
+
+test('repairScreenPastBuffer: a healthy buffer is not touched at all', () => {
+  // The state that a wrong predicate wrecked: alternate buffer, baseY 4, and every line present.
+  const t = fakeTerminal({ rows: 59, baseY: 4, length: 63 });
+  assert.equal(repairScreenPastBuffer(t), true);
+  assert.deepEqual(t.resizes, [], 'no resize means no PTY round trip and no repaint');
+});
+
+test('repairScreenPastBuffer: an unfilled buffer at startup is not touched', () => {
+  const t = fakeTerminal({ rows: 24, baseY: 0, length: 0, type: 'normal' });
+  assert.equal(repairScreenPastBuffer(t), true);
+  assert.deepEqual(t.resizes, []);
+});
+
+test('repairScreenPastBuffer: a drift wider than the screen takes several passes and still converges', () => {
+  // baseY 30 on a 20-row screen: one pass cannot shrink below a single row, so it chips away.
+  const t = fakeTerminal({ rows: 20, baseY: 30, length: 20 });
+  assert.equal(repairScreenPastBuffer(t), true);
+  assert.equal(t.rows, 20);
+  assert.ok(t.resizes.length > 2, 'more than one pass was needed');
+});
+
+test('repairScreenPastBuffer: a terminal too short to shrink into is left alone', () => {
+  const t = fakeTerminal({ rows: 1, baseY: 3, length: 1 });
+  assert.equal(repairScreenPastBuffer(t), false);
+  assert.deepEqual(t.resizes, [], 'better a wrong screen than a resize to zero rows');
+});
+
+test('repairScreenPastBuffer: a terminal that never converges gives up instead of looping', () => {
+  const stuck = fakeTerminal({ rows: 40, baseY: 5, length: 40 });
+  stuck.resize = function (c, r) { this.resizes.push([c, r]); this.rows = r; }; // baseY never moves
+  assert.equal(repairScreenPastBuffer(stuck), false);
+  assert.ok(stuck.resizes.length <= 16, `bounded, got ${stuck.resizes.length} resizes`);
+});
+
+test('repairScreenPastBuffer: a terminal with no buffer yet is not an error', () => {
+  assert.equal(repairScreenPastBuffer({ cols: 80, rows: 24, buffer: null }), false);
 });
