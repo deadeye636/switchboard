@@ -6472,56 +6472,56 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   background: rgba(224,80,112,0.10);
 }
 
-#file-panel-content {
+.fp-content {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-#file-panel-viewer,
-#file-panel-diff {
+.fp-viewer,
+.fp-diff {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-#file-panel-body {
+.fp-body {
   flex: 1;
   min-height: 0;
   position: relative;
   overflow: hidden;
 }
 
-#file-panel-body .cm-editor {
+.fp-body .cm-editor {
   height: 100%;
 }
 
-#file-panel-body .cm-merge-view {
+.fp-body .cm-merge-view {
   height: 100%;
   overflow: auto;
   font-size: 12.5px;
 }
 
 /* Diff line backgrounds */
-#file-panel-body .cm-merge-a .cm-changedLine,
-#file-panel-body .cm-deletedChunk {
+.fp-body .cm-merge-a .cm-changedLine,
+.fp-body .cm-deletedChunk {
   background-color: rgba(248, 81, 73, 0.12) !important;
 }
-#file-panel-body .cm-merge-b .cm-changedLine {
+.fp-body .cm-merge-b .cm-changedLine {
   background-color: rgba(63, 185, 80, 0.12) !important;
 }
 /* Inner word-level change highlighting (replace underlines with backgrounds) */
-#file-panel-body .cm-merge-a .cm-changedText,
-#file-panel-body .cm-deletedChunk .cm-deletedText {
+.fp-body .cm-merge-a .cm-changedText,
+.fp-body .cm-deletedChunk .cm-deletedText {
   background: rgba(248, 81, 73, 0.35) !important;
 }
-#file-panel-body .cm-merge-b .cm-changedText {
+.fp-body .cm-merge-b .cm-changedText {
   background: rgba(63, 185, 80, 0.35) !important;
 }
 
-#file-panel-actions {
+.fp-actions {
   display: flex;
   gap: 8px;
   padding: 6px 12px;
@@ -6538,13 +6538,13 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   pointer-events: none;
 }
 
-#file-panel-body:hover ~ #file-panel-actions,
-#file-panel-actions:hover {
+.fp-body:hover ~ .fp-actions,
+.fp-actions:hover {
   opacity: 1;
   pointer-events: auto;
 }
 
-#file-panel-actions button {
+.fp-actions button {
   padding: 6px 16px;
   border-radius: 5px;
   font-size: 12px;

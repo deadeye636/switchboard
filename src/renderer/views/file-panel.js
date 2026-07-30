@@ -19,19 +19,15 @@ const filePanelState = new Map();
 // ── DOM References ──────────────────────────────────────────────────
 
 let filePanelEl = null;
-let filePanelContentEl = null;  // container for ViewerPanel or diff content
 let filePanelResizeHandle = null;
 let terminalSplitEl = null;
 let currentPanelSessionId = null;
 
-// ViewerPanel instance for file-type tabs
-let fpViewerPanel = null;
-
-// Diff-specific DOM
-let diffToolbarEl = null;
-let diffBodyEl = null;
-let diffActionsEl = null;
-let diffToggleBtn = null;
+// The one panel instance — the thing that actually renders a preview or a diff. It used to be a set of
+// module-level singletons (the content container, one ViewerPanel, the diff toolbar/body/actions) found
+// by element id, which is why a second preview could not exist: ids are unique and there was one of each.
+// It is a factory now, still called exactly once here; per-pane instances are #311's second half.
+let panelInstance = null;
 
 const PANEL_WIDTH_KEY = 'filePanelWidth';
 const DEFAULT_PANEL_WIDTH = parseInt(localStorage.getItem(PANEL_WIDTH_KEY), 10) || 450;
@@ -39,6 +35,163 @@ const MIN_PANEL_WIDTH = 280;
 
 const DIFF_MODE_KEY = 'filePanelDiffMode';
 let diffMode = localStorage.getItem(DIFF_MODE_KEY) || 'side-by-side';
+
+// ── A panel instance ────────────────────────────────────────────────
+//
+// One preview or one diff, rendered into a container of its own (#311). Everything in here used to be a
+// module-level singleton addressed by element id — `#file-panel-viewer`, `#file-panel-diff`,
+// `#file-panel-body`, `#file-panel-actions`, `#diff-title`, `#diff-path`. An id is unique, so there could
+// only ever be one, which IS the reported symptom: opening a second preview moved the first.
+//
+// The ids are classes now (`fp-viewer`, `fp-diff`, `fp-body`, `fp-actions`), and every part is reached
+// through this closure instead of the document. The two title spans lost their ids entirely — nothing
+// styled them; `.viewer-toolbar-title` / `-path` did.
+//
+// What it does NOT own: the panel element, the resize handle, the width, which session is on screen. Those
+// belong to the side-panel LAYOUT, of which there is one in tabs and grid mode, and none in panes mode.
+//
+// `tab` is state and stays outside — it carries `editorView`, `resolved` and the content, and it outlives
+// a re-render (a diff-mode toggle rebuilds the view from the same tab). The instance is the DOM.
+function createPanelInstance(parent, hooks = {}) {
+  const root = document.createElement('div');
+  root.className = 'fp-content';
+
+  const viewerContainer = document.createElement('div');
+  viewerContainer.className = 'fp-viewer';
+  viewerContainer.style.display = 'none';
+  root.appendChild(viewerContainer);
+
+  const viewerPanel = new ViewerPanel(viewerContainer, {
+    language: 'auto',
+    onSave: (filePath, content) => window.api.saveFileForPanel(filePath, content),
+    onClose: () => hooks.onClose?.(),
+    // Open the current file in the external editor, then close the panel (#69).
+    onExternalOpen: (filePath) => { window.api.openInEditor(filePath); hooks.onClose?.(); },
+  });
+
+  const diffContainer = document.createElement('div');
+  diffContainer.className = 'fp-diff';
+  diffContainer.style.display = 'none';
+  root.appendChild(diffContainer);
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'viewer-toolbar';
+  const info = document.createElement('div');
+  info.className = 'viewer-toolbar-info';
+  info.innerHTML = '<span class="viewer-toolbar-title"></span><span class="viewer-toolbar-path"></span>';
+  toolbar.appendChild(info);
+  const titleEl = info.querySelector('.viewer-toolbar-title');
+  const pathEl = info.querySelector('.viewer-toolbar-path');
+
+  const controls = document.createElement('div');
+  controls.className = 'viewer-toolbar-controls';
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.className = 'fp-toolbar-btn';
+  toggleBtn.addEventListener('click', () => hooks.onToggleDiffMode?.());
+  controls.appendChild(toggleBtn);
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'fp-toolbar-btn fp-save-btn fp-icon-btn';
+  saveBtn.title = 'Save changes';
+  saveBtn.innerHTML = '<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 448 512" width="14" height="14" xmlns="http://www.w3.org/2000/svg"><path d="M433.941 129.941l-83.882-83.882A48 48 0 0 0 316.118 32H48C21.49 32 0 53.49 0 80v352c0 26.51 21.49 48 48 48h352c26.51 0 48-21.49 48-48V163.882a48 48 0 0 0-14.059-33.941zM272 80v80H144V80h128zm122 352H54a6 6 0 0 1-6-6V86a6 6 0 0 1 6-6h42v104c0 13.255 10.745 24 24 24h176c13.255 0 24-10.745 24-24V83.882l78.243 78.243a6 6 0 0 1 1.757 4.243V426a6 6 0 0 1-6 6zM224 232c-48.523 0-88 39.477-88 88s39.477 88 88 88 88-39.477 88-88-39.477-88-88-88zm0 128c-22.056 0-40-17.944-40-40s17.944-40 40-40 40 17.944 40 40-17.944 40-40 40z"></path></svg>';
+  saveBtn.addEventListener('click', () => hooks.onDiffSave?.());
+  controls.appendChild(saveBtn);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'fp-toolbar-btn fp-close-btn fp-icon-btn';
+  closeBtn.innerHTML = '<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 512 512" width="14" height="14" xmlns="http://www.w3.org/2000/svg"><path d="M400 145.49 366.51 112 256 222.51 145.49 112 112 145.49 222.51 256 112 366.51 145.49 400 256 289.49 366.51 400 400 366.51 289.49 256 400 145.49z"></path></svg>';
+  closeBtn.title = 'Close panel';
+  closeBtn.addEventListener('click', () => hooks.onClose?.());
+  controls.appendChild(closeBtn);
+
+  toolbar.appendChild(controls);
+  diffContainer.appendChild(toolbar);
+
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'fp-body';
+  diffContainer.appendChild(bodyEl);
+
+  const actionsEl = document.createElement('div');
+  actionsEl.className = 'fp-actions';
+  actionsEl.style.display = 'none';
+  diffContainer.appendChild(actionsEl);
+
+  if (parent) parent.appendChild(root);
+
+  function applyDiffModeLabel(mode) {
+    toggleBtn.textContent = mode === 'inline' ? 'Side-by-Side' : 'Inline';
+    toggleBtn.title = mode === 'inline' ? 'Switch to side-by-side diff' : 'Switch to inline diff';
+  }
+  applyDiffModeLabel(diffMode);
+
+  function showNothing() {
+    viewerContainer.style.display = 'none';
+    diffContainer.style.display = 'none';
+  }
+
+  function renderDiff(sessionId, tab) {
+    bodyEl.innerHTML = '';
+    titleEl.textContent = tab.label;
+    pathEl.textContent = tab.filePath || '';
+
+    // Accept/reject is rendered synchronously so the UI appears immediately; the diff viewer itself is
+    // deferred until the bundle loads.
+    if (!tab.resolved) {
+      actionsEl.style.display = 'flex';
+      actionsEl.innerHTML = '';
+      const acceptBtn = document.createElement('button');
+      acceptBtn.className = 'file-panel-accept-btn';
+      acceptBtn.textContent = 'Accept';
+      acceptBtn.addEventListener('click', () => hooks.onDiffAction?.(sessionId, tab, 'accept'));
+      const rejectBtn = document.createElement('button');
+      rejectBtn.className = 'file-panel-reject-btn';
+      rejectBtn.textContent = 'Reject';
+      rejectBtn.addEventListener('click', () => hooks.onDiffAction?.(sessionId, tab, 'reject'));
+      actionsEl.appendChild(acceptBtn);
+      actionsEl.appendChild(rejectBtn);
+    } else {
+      actionsEl.style.display = 'none';
+    }
+
+    window.loadCodeMirrorBundle().then(() => {
+      if (tab.resolved) return; // accepted/rejected before the bundle loaded
+      if (!tab.editorView) {
+        const build = diffMode === 'inline' ? window.createUnifiedMergeViewer : window.createMergeViewer;
+        tab.editorView = build(bodyEl, tab.oldContent, tab.newContent, tab.filePath);
+        tab._diffMode = diffMode === 'inline' ? 'inline' : 'side-by-side';
+        tab.editorView.dom.addEventListener('click', () => tab.editorView.dom.focus());
+      } else {
+        bodyEl.appendChild(tab.editorView.dom);
+      }
+    }).catch((err) => {
+      console.error('[file-panel] Failed to load codemirror-bundle:', err);
+    });
+  }
+
+  return {
+    root,
+    render(sessionId, tab) {
+      if (!tab) { showNothing(); return; }
+      if (tab.type === 'file') {
+        diffContainer.style.display = 'none';
+        viewerContainer.style.display = 'flex';
+        viewerPanel.open(tab.label, tab.filePath, tab.content);
+      } else {
+        viewerContainer.style.display = 'none';
+        diffContainer.style.display = 'flex';
+        renderDiff(sessionId, tab);
+      }
+    },
+    showNothing,
+    hideDiffActions() { actionsEl.style.display = 'none'; },
+    applyDiffModeLabel,
+    // A tab's editor view lives in this body, so its search / goto-line bars are cached on it. Dropping
+    // the tab without forgetting them leaves the next diff reusing a bar attached to a destroyed view.
+    forgetEditorBars() { delete bodyEl._cmSearchBar; delete bodyEl._cmGotoLine; },
+    destroyViewer() { viewerPanel.destroy(); },
+  };
+}
 
 // ── Initialization ──────────────────────────────────────────────────
 
@@ -59,79 +212,17 @@ function initFilePanel() {
   filePanelResizeHandle.id = 'file-panel-resize-handle';
   terminalSplitEl.appendChild(filePanelResizeHandle);
 
-  // Create the file panel
+  // Create the file panel — the side-panel shell. Everything that renders inside it is one instance,
+  // built by the factory above; there is exactly one here, and panes mode will ask for more (#311).
   filePanelEl = document.createElement('div');
   filePanelEl.id = 'file-panel';
 
-  // Content container — holds either ViewerPanel or diff UI
-  filePanelContentEl = document.createElement('div');
-  filePanelContentEl.id = 'file-panel-content';
-  filePanelEl.appendChild(filePanelContentEl);
-
-  // ── ViewerPanel for file-type tabs ──
-  const vpContainer = document.createElement('div');
-  vpContainer.id = 'file-panel-viewer';
-  vpContainer.style.display = 'none';
-  filePanelContentEl.appendChild(vpContainer);
-
-  fpViewerPanel = new ViewerPanel(vpContainer, {
-    language: 'auto',
-    onSave: (filePath, content) => window.api.saveFileForPanel(filePath, content),
+  panelInstance = createPanelInstance(filePanelEl, {
     onClose: handleClose,
-    // Open the current file in the external editor, then close the panel (#69).
-    onExternalOpen: (filePath) => { window.api.openInEditor(filePath); handleClose(); },
+    onDiffSave: handleDiffSave,
+    onToggleDiffMode: handleDiffModeToggle,
+    onDiffAction: handleDiffAction,
   });
-
-  // ── Diff-specific UI ──
-  const diffContainer = document.createElement('div');
-  diffContainer.id = 'file-panel-diff';
-  diffContainer.style.display = 'none';
-  filePanelContentEl.appendChild(diffContainer);
-
-  // Diff toolbar
-  diffToolbarEl = document.createElement('div');
-  diffToolbarEl.className = 'viewer-toolbar';
-
-  const diffInfo = document.createElement('div');
-  diffInfo.className = 'viewer-toolbar-info';
-  diffInfo.innerHTML = '<span class="viewer-toolbar-title" id="diff-title"></span><span class="viewer-toolbar-path" id="diff-path"></span>';
-  diffToolbarEl.appendChild(diffInfo);
-
-  const diffControls = document.createElement('div');
-  diffControls.className = 'viewer-toolbar-controls';
-
-  diffToggleBtn = document.createElement('button');
-  diffToggleBtn.className = 'fp-toolbar-btn';
-  diffToggleBtn.textContent = diffMode === 'inline' ? 'Side-by-Side' : 'Inline';
-  diffToggleBtn.title = diffMode === 'inline' ? 'Switch to side-by-side diff' : 'Switch to inline diff';
-  diffToggleBtn.addEventListener('click', handleDiffModeToggle);
-  diffControls.appendChild(diffToggleBtn);
-
-  const diffSaveBtn = document.createElement('button');
-  diffSaveBtn.className = 'fp-toolbar-btn fp-save-btn fp-icon-btn';
-  diffSaveBtn.title = 'Save changes';
-  diffSaveBtn.innerHTML = '<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 448 512" width="14" height="14" xmlns="http://www.w3.org/2000/svg"><path d="M433.941 129.941l-83.882-83.882A48 48 0 0 0 316.118 32H48C21.49 32 0 53.49 0 80v352c0 26.51 21.49 48 48 48h352c26.51 0 48-21.49 48-48V163.882a48 48 0 0 0-14.059-33.941zM272 80v80H144V80h128zm122 352H54a6 6 0 0 1-6-6V86a6 6 0 0 1 6-6h42v104c0 13.255 10.745 24 24 24h176c13.255 0 24-10.745 24-24V83.882l78.243 78.243a6 6 0 0 1 1.757 4.243V426a6 6 0 0 1-6 6zM224 232c-48.523 0-88 39.477-88 88s39.477 88 88 88 88-39.477 88-88-39.477-88-88-88zm0 128c-22.056 0-40-17.944-40-40s17.944-40 40-40 40 17.944 40 40-17.944 40-40 40z"></path></svg>';
-  diffSaveBtn.addEventListener('click', handleDiffSave);
-  diffControls.appendChild(diffSaveBtn);
-
-  const diffCloseBtn = document.createElement('button');
-  diffCloseBtn.className = 'fp-toolbar-btn fp-close-btn fp-icon-btn';
-  diffCloseBtn.innerHTML = '<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 512 512" width="14" height="14" xmlns="http://www.w3.org/2000/svg"><path d="M400 145.49 366.51 112 256 222.51 145.49 112 112 145.49 222.51 256 112 366.51 145.49 400 256 289.49 366.51 400 400 366.51 289.49 256 400 145.49z"></path></svg>';
-  diffCloseBtn.title = 'Close panel';
-  diffCloseBtn.addEventListener('click', handleClose);
-  diffControls.appendChild(diffCloseBtn);
-
-  diffToolbarEl.appendChild(diffControls);
-  diffContainer.appendChild(diffToolbarEl);
-
-  diffBodyEl = document.createElement('div');
-  diffBodyEl.id = 'file-panel-body';
-  diffContainer.appendChild(diffBodyEl);
-
-  diffActionsEl = document.createElement('div');
-  diffActionsEl.id = 'file-panel-actions';
-  diffActionsEl.style.display = 'none';
-  diffContainer.appendChild(diffActionsEl);
 
   terminalSplitEl.appendChild(filePanelEl);
   terminalArea.appendChild(terminalSplitEl);
@@ -157,7 +248,7 @@ function handleClose() {
       tab.editorView = null;
     }
     if (tab.type === 'file') {
-      fpViewerPanel.destroy();
+      panelInstance.destroyViewer();
     }
     state.currentTab = null;
   }
@@ -181,7 +272,7 @@ async function handleDiffSave() {
 
   const result = await window.api.saveFileForPanel(tab.filePath, content);
   if (result.ok) {
-    const btn = diffToolbarEl.querySelector('.fp-save-btn');
+    const btn = panelInstance.root.querySelector('.fp-save-btn');
     if (btn) flashButtonText(btn, 'Saved!');
   }
 }
@@ -189,15 +280,14 @@ async function handleDiffSave() {
 function handleDiffModeToggle() {
   diffMode = diffMode === 'inline' ? 'side-by-side' : 'inline';
   localStorage.setItem(DIFF_MODE_KEY, diffMode);
-  diffToggleBtn.textContent = diffMode === 'inline' ? 'Side-by-Side' : 'Inline';
-  diffToggleBtn.title = diffMode === 'inline' ? 'Switch to side-by-side diff' : 'Switch to inline diff';
+  panelInstance.applyDiffModeLabel(diffMode);
 
   if (currentPanelSessionId) {
     const state = getSessionState(currentPanelSessionId);
     const tab = state.currentTab;
     if (tab && tab.type === 'diff') {
       if (tab.editorView) { tab.editorView.destroy(); tab.editorView = null; }
-      renderTabContent(currentPanelSessionId, tab);
+      panelInstance.render(currentPanelSessionId, tab);
     }
   }
 }
@@ -318,14 +408,10 @@ function destroyCurrentTab(state) {
   if (tab.type === 'diff' && tab.editorView) {
     tab.editorView.destroy();
     tab.editorView = null;
-    // Clear stale search/goto-line bar references
-    if (diffBodyEl) {
-      delete diffBodyEl._cmSearchBar;
-      delete diffBodyEl._cmGotoLine;
-    }
+    panelInstance.forgetEditorBars();
   }
   if (tab.type === 'file') {
-    fpViewerPanel.destroy();
+    panelInstance.destroyViewer();
   }
 }
 
@@ -468,85 +554,7 @@ function renderPanel(sessionId) {
   const state = getSessionState(sessionId);
   if (!state) return;
 
-  renderTabContent(sessionId, state.currentTab);
-}
-
-function renderTabContent(sessionId, tab) {
-  const vpContainer = document.getElementById('file-panel-viewer');
-  const diffContainer = document.getElementById('file-panel-diff');
-
-  if (!tab) {
-    vpContainer.style.display = 'none';
-    diffContainer.style.display = 'none';
-    return;
-  }
-
-  if (tab.type === 'file') {
-    // Use ViewerPanel
-    diffContainer.style.display = 'none';
-    vpContainer.style.display = 'flex';
-    fpViewerPanel.open(tab.label, tab.filePath, tab.content);
-  } else {
-    // Diff mode
-    vpContainer.style.display = 'none';
-    diffContainer.style.display = 'flex';
-    renderDiffContent(sessionId, tab);
-  }
-}
-
-function renderDiffContent(sessionId, tab) {
-  diffBodyEl.innerHTML = '';
-
-  // Update diff toolbar info
-  const titleEl = diffToolbarEl.querySelector('#diff-title');
-  const pathEl = diffToolbarEl.querySelector('#diff-path');
-  if (titleEl) titleEl.textContent = tab.label;
-  if (pathEl) pathEl.textContent = tab.filePath || '';
-
-  // Accept/reject buttons are rendered synchronously so the UI appears
-  // immediately; the diff viewer itself is deferred until the bundle loads.
-  if (!tab.resolved) {
-    diffActionsEl.style.display = 'flex';
-    diffActionsEl.innerHTML = '';
-
-    const acceptBtn = document.createElement('button');
-    acceptBtn.className = 'file-panel-accept-btn';
-    acceptBtn.textContent = 'Accept';
-    acceptBtn.addEventListener('click', () => handleDiffAction(sessionId, tab, 'accept'));
-
-    const rejectBtn = document.createElement('button');
-    rejectBtn.className = 'file-panel-reject-btn';
-    rejectBtn.textContent = 'Reject';
-    rejectBtn.addEventListener('click', () => handleDiffAction(sessionId, tab, 'reject'));
-
-    diffActionsEl.appendChild(acceptBtn);
-    diffActionsEl.appendChild(rejectBtn);
-  } else {
-    diffActionsEl.style.display = 'none';
-  }
-
-  // Defer merge-viewer creation until codemirror-bundle.js is available.
-  window.loadCodeMirrorBundle().then(() => {
-    if (tab.resolved) return;  // tab was accepted/rejected before bundle loaded
-    if (!tab.editorView) {
-      if (diffMode === 'inline') {
-        tab.editorView = window.createUnifiedMergeViewer(
-          diffBodyEl, tab.oldContent, tab.newContent, tab.filePath,
-        );
-        tab._diffMode = 'inline';
-      } else {
-        tab.editorView = window.createMergeViewer(
-          diffBodyEl, tab.oldContent, tab.newContent, tab.filePath,
-        );
-        tab._diffMode = 'side-by-side';
-      }
-      tab.editorView.dom.addEventListener('click', () => tab.editorView.dom.focus());
-    } else {
-      diffBodyEl.appendChild(tab.editorView.dom);
-    }
-  }).catch((err) => {
-    console.error('[file-panel] Failed to load codemirror-bundle:', err);
-  });
+  panelInstance.render(sessionId, state.currentTab);
 }
 
 // ── Diff Actions ────────────────────────────────────────────────────
@@ -574,7 +582,7 @@ function handleDiffAction(sessionId, tab, action) {
     window.api.mcpDiffResponse(sessionId, tab.diffId, 'reject', null);
   }
 
-  diffActionsEl.style.display = 'none';
+  panelInstance.hideDiffActions();
 }
 
 // ── IDE Emulation Indicator ─────────────────────────────────────────
