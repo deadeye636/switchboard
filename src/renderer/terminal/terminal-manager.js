@@ -1236,6 +1236,8 @@ function createTerminalEntry(session, opts = {}) {
   openSessions.set(sessionId, entry);
   lruTouch(sessionId);
   loadTerminalWebgl(entry);
+  // …and the one place every ADDITION funnels through, for the status bar's terminal count (#352).
+  if (typeof renderDefaultStatus === 'function') renderDefaultStatus();
 
   // Late-settle guards (see containerResizeObserver above): refit on real box
   // changes, and once after fonts are ready (already-resolved promise → an
@@ -1506,6 +1508,9 @@ function destroySession(sessionId) {
     gridViewerCount.textContent = gridCards.size + ' session' + (gridCards.size !== 1 ? 's' : '');
   }
   if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
+  // The status bar counts live terminals from the threshold up (#352), and this is the one place
+  // every removal funnels through — the same reason the title update below sits here.
+  if (typeof renderDefaultStatus === 'function') renderDefaultStatus();
   // A detached window is named after the set it holds (#325), and this is the one place EVERY
   // removal funnels through. Closing the tab of a session that is not the active one reaches
   // neither `setActiveSession` nor the release/adopt handover — so the window kept a `+N` for a

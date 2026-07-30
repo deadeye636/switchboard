@@ -340,6 +340,12 @@ input:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* How many terminals this window holds, shown only once there are enough of them to matter (#352).
+   Amber is "worth knowing", red is "close some" — the tooltip says why, because a coloured number on
+   its own is a warning nobody can act on. */
+.status-bar-terminals { cursor: help; }
+.status-bar-terminals.warn { color: #d9a441; }
+.status-bar-terminals.high { color: #e06c6c; font-weight: 600; }
 
 #status-bar-usage {
   display: inline-flex;

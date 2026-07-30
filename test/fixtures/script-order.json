@@ -43,6 +43,7 @@
     "session-card-details.js",
     "session-cleanup.js",
     "sidebar-state.js",
+    "terminal-pressure.js",
     "usage-status.js",
     "control-dialogs.js",
     "session-timeline.js",

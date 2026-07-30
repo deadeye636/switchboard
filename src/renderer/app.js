@@ -1990,7 +1990,19 @@ function renderDefaultStatus() {
   if (running > 0) parts.push(`${running} running`);
   parts.push(`${totalSessions} sessions`);
   parts.push(`${totalProjects} projects`);
-  statusBarInfo.textContent = parts.join(' \u00b7 ');
+  statusBarInfo.replaceChildren(document.createTextNode(parts.join(' \u00b7 ')));
+
+  // How full this window is (#352). Only from the threshold up \u2014 below it the number is clutter, and
+  // the point is to be noticed on the day it matters. `terminal-pressure.js` owns the thresholds and
+  // the sentence; this only paints them.
+  const pressure = terminalPressure(openSessions.size);
+  if (pressure.level === 'none') return;
+  const seg = document.createElement('span');
+  seg.className = 'status-bar-terminals ' + pressure.level;
+  seg.textContent = pressure.label;
+  seg.title = pressure.title;
+  statusBarInfo.appendChild(document.createTextNode(' \u00b7 '));
+  statusBarInfo.appendChild(seg);
 }
 
 
