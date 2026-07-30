@@ -1969,7 +1969,15 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       // terminal by any drop that reached it.
       try { e.dataTransfer.setData(PANE_TAB_MIME, tabId); } catch { /* type refused */ }
     });
-    el.addEventListener('dragend', () => { drag = null; el.classList.remove('dragging'); clearDropFeedback(); });
+    el.addEventListener('dragend', (e) => {
+      const dragged = drag;
+      drag = null;
+      el.classList.remove('dragging');
+      clearDropFeedback();
+      // Dropped on the desktop: give this tab a window of its own (#352). VS Code and Windows
+      // Terminal both do this, and #340 built the menu route it shares.
+      if (dragged && droppedOutOfWindow(e)) tearOffTab(dragged.fromLeafId, dragged.tabId);
+    });
     el.addEventListener('dragover', (e) => {
       if (!isTabDrag(e)) return;
       e.preventDefault();
@@ -1984,6 +1992,64 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       e.stopPropagation();
       applyMove(drag, leafId, tabDropGap(el, leafId, tabId, e).index);
     });
+  }
+
+  /**
+   * Did this drag end on the DESKTOP rather than anywhere in this window (#352)?
+   *
+   * Two conditions, and both are load-bearing. `dropEffect === 'none'` says no drop target took it —
+   * but that is also what a drop on a non-target part of our OWN window reports, and tearing a tab
+   * off for that would turn every mis-aimed drag into a new window. So the pointer's screen position
+   * has to be outside the window box as well.
+   *
+   * A drop on ANOTHER application also reports `none` with a position outside this window, and reads
+   * as a tear-off here. That is the same answer VS Code gives, and the alternative — asking the OS
+   * what is under the cursor — is not something a renderer can do.
+   *
+   * Bails on a position it cannot trust: some platforms report 0/0 on `dragend`, and an untrusted
+   * zero would detach a tab the user dropped in the middle of the window.
+   */
+  function droppedOutOfWindow(e) {
+    if (!e || !e.dataTransfer || e.dataTransfer.dropEffect !== 'none') return false;
+    const x = Number(e.screenX);
+    const y = Number(e.screenY);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || (x === 0 && y === 0)) return false;
+    const width = Number(window.outerWidth);
+    const height = Number(window.outerHeight);
+    if (!width || !height) return false;
+    const left = Number(window.screenX) || 0;
+    const top = Number(window.screenY) || 0;
+    return x < left || x > left + width || y < top || y > top + height;
+  }
+
+  /**
+   * The gesture's half of "move to new window" (#340's menu entry is the other).
+   *
+   * A view tab cannot go, for the reasons the pane move already states — the element belongs to this
+   * renderer — and here that has to be SAID: a drag that visibly ends nowhere, with no window and no
+   * explanation, reads as the app having dropped the tab.
+   */
+  function tearOffTab(leafId, tabId) {
+    const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
+    const tab = leaf && leaf.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    if (isViewTab(tab)) {
+      // `typeof`, not `?.` — these are bare globals from another classic script, and optional
+      // chaining on an undeclared name is a ReferenceError, not undefined.
+      if (typeof showControlToast === 'function') {
+        showControlToast({ message: 'A view stays in the window it was opened in', timeoutMs: 3000 });
+      }
+      return;
+    }
+    const sessionId = sessionOfTab(tab);
+    if (!sessionId) return;
+    // A detached window has no `detachSession` — its half of detach-window.js never runs. There the
+    // gesture means the same thing its menu offers by name: back to the main window.
+    if (window.isDetachedWindow && window.isDetachedWindow()) {
+      if (typeof window.moveSessionToWindow === 'function') window.moveSessionToWindow(sessionId, 'main');
+      return;
+    }
+    if (typeof window.detachSession === 'function') window.detachSession(sessionId);
   }
 
   // Which gap a drop on this tab means, and where the caret marking it sits. The

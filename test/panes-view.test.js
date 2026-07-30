@@ -1938,3 +1938,107 @@ test('turning the setting off raises the buffers that are already shrunk (#352)'
     assert.equal(scrollbackOf(h, 'a'), 10000);
   } finally { h.destroy(); }
 });
+
+// --- #352: dragging a tab out into a window of its own -----------------------
+
+// A `dragend` as the browser reports one. `screen` is where the pointer was when the drag ended;
+// `dropEffect` is what the drop target (if any) accepted.
+function dragEndAt(h, el, { screenX, screenY, dropEffect = 'none' }) {
+  const ev = new h.window.MouseEvent('dragend', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'screenX', { value: screenX });
+  Object.defineProperty(ev, 'screenY', { value: screenY });
+  Object.defineProperty(ev, 'dataTransfer', { value: { dropEffect } });
+  el.dispatchEvent(ev);
+}
+
+// The window box the tear-off measures against. jsdom reports 1024×768 at 0/0 by default; naming it
+// here is what lets a test say "outside" and mean it.
+function windowBox(h, { x = 0, y = 0, width = 1000, height = 800 } = {}) {
+  for (const [k, v] of Object.entries({ screenX: x, screenY: y, outerWidth: width, outerHeight: height })) {
+    Object.defineProperty(h.window, k, { value: v, configurable: true });
+  }
+}
+
+async function draggableTab(h) {
+  h.enable();
+  await h.open('a');
+  await h.open('b');
+  windowBox(h);
+  const tab = h.document.querySelector('.pane-strip .session-tab[data-session-id="a"]');
+  const start = new h.window.MouseEvent('dragstart', { bubbles: true, cancelable: true });
+  Object.defineProperty(start, 'dataTransfer', { value: { setData() {}, types: [], effectAllowed: '' } });
+  tab.dispatchEvent(start);
+  return tab;
+}
+
+test('a tab dropped on the desktop asks for a window of its own (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    const tab = await draggableTab(h);
+    const detached = [];
+    h.window.detachSession = (id) => { detached.push(id); };
+
+    dragEndAt(h, tab, { screenX: 1400, screenY: 400 }); // past the right edge of the window box
+    assert.deepEqual(detached, ['a']);
+  } finally { h.destroy(); }
+});
+
+test('a drop inside the window is not a tear-off (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    const tab = await draggableTab(h);
+    const detached = [];
+    h.window.detachSession = (id) => { detached.push(id); };
+
+    // `dropEffect: 'none'` is also what a drop on a non-target part of OUR window reports — without
+    // the position check every mis-aimed drag would open a window.
+    dragEndAt(h, tab, { screenX: 500, screenY: 400 });
+    assert.deepEqual(detached, [], 'inside the box');
+
+    // …and a position that cannot be trusted (0/0, which some platforms report) must not either.
+    dragEndAt(h, tab, { screenX: 0, screenY: 0 });
+    assert.deepEqual(detached, []);
+
+    // A drop the layout DID take reports an effect, and that is the ordinary tab move.
+    dragEndAt(h, tab, { screenX: 1400, screenY: 400, dropEffect: 'move' });
+    assert.deepEqual(detached, []);
+  } finally { h.destroy(); }
+});
+
+test('a view tab dragged out says why instead of vanishing (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.openViewTab('jsonl');
+    await h.settle();
+    windowBox(h);
+    const detached = [];
+    h.window.detachSession = (id) => { detached.push(id); };
+
+    const viewTab = h.document.querySelector('.pane-strip .session-tab-view');
+    const start = new h.window.MouseEvent('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(start, 'dataTransfer', { value: { setData() {}, types: [], effectAllowed: '' } });
+    viewTab.dispatchEvent(start);
+    dragEndAt(h, viewTab, { screenX: 1400, screenY: 400 });
+
+    assert.deepEqual(detached, [], 'the element belongs to this renderer');
+    assert.equal(h.calls.toasts.length, 1, 'and the drag ending nowhere is explained');
+    assert.match(h.calls.toasts[0].message, /stays in the window/);
+    assert.ok(h.panes.hasViewTab('jsonl'), 'the tab is still there');
+  } finally { h.destroy(); }
+});
+
+test('from a detached window the gesture means "back to main" (#352)', async () => {
+  const h = setupPanesDom({ detached: true, detachedSessionId: 'a' });
+  try {
+    const tab = await draggableTab(h);
+    const moved = [];
+    h.window.moveSessionToWindow = (id, target) => { moved.push([id, target]); };
+    // `detachSession` does not exist in a detached window — its half of detach-window.js never runs.
+    h.window.detachSession = undefined;
+
+    dragEndAt(h, tab, { screenX: 1400, screenY: 400 });
+    assert.deepEqual(moved, [['a', 'main']]);
+  } finally { h.destroy(); }
+});
