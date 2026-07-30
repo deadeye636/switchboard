@@ -92,6 +92,9 @@ contextBridge.exposeInMainWorld('api', {
   // Move a session between windows (#316): 'main' or a detached window's id, from `listSessionWindows`.
   moveSessionToWindow: (sessionId, windowId) => ipcRenderer.invoke('move-session-to-window', sessionId, windowId),
   listSessionWindows: (sessionId) => ipcRenderer.invoke('list-session-windows', sessionId),
+  // Which Switchboard window sits at this screen point, if any (#360). A tab dragged out of a window
+  // has to know whether it landed ON another one — the far window never sees the drag at all.
+  windowAtScreenPoint: (point, box) => ipcRenderer.invoke('window-at-screen-point', point, box),
   // What does THIS window hold? Asked by a detached window on boot — its URL names only the session it
   // was opened for, and main is the one that knows the rest (#326, #331).
   sessionsInMyWindow: () => ipcRenderer.invoke('sessions-in-my-window'),

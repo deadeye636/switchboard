@@ -45,6 +45,7 @@ by **session**, so several keys pointing at one window was already legal.
 | main ← detached | the sidebar row's own action; a detached row is marked `⧉` and cannot be opened in place (#315) |
 | any → any existing window | "Move to <window>" per window, appended to the same menus (#316) |
 | a whole PANE → a window of its own | "Move pane to new window" in the pane menu (#340) — detach the first tab, then move the rest to where it went |
+| a tab DRAGGED onto another window | the tear-off gesture (#352) resolved against `window-at-screen-point` (#360) |
 
 One handler serves all three (`move-session-to-window`), and the order inside it is the invariant of
 §3 in miniature: **release, re-register, adopt.** The giving window is told to let go first, *or* two
@@ -62,10 +63,18 @@ renderer's `activePtyIds` is a polled snapshot that backs off to 30 s in an idle
 adopting on its own answer could refuse a session that started seconds ago — or worse, accept one that
 has died and resume its CLI.
 
-Three consequences worth stating:
+Four consequences worth stating:
 
 - **A detached window that gives away its last session closes.** It has no sidebar to pick a new one
   with, so an empty one is a window the user cannot use and cannot interpret.
+- **A drag cannot cross a window boundary, so main answers where it ended** (#360). HTML5 drag and
+  drop is per renderer process: the far window never sees a `drop`, and the near one only knows the
+  pointer left its own box. `window-at-screen-point` turns that into a window id — the same id
+  `move-session-to-window` takes. Two limits are deliberate: with two windows stacked under the
+  pointer the topmost cannot be identified (Electron exposes no z-order, first match wins), and a
+  point that cannot be resolved moves **nothing**, because a plausible guess is what puts a session
+  where the user did not aim. The renderer sends the box it measured for itself alongside the point;
+  main converts through that window's real bounds, so a zoomed renderer still hit-tests correctly.
 - **`detach-session` answers with the id of the window it made** (#340). Moving several sessions to
   one new window is "detach the first, move the rest to where it went", and the id is the only way to
   name it: a window is titled after a session, and two sessions can carry the same name.

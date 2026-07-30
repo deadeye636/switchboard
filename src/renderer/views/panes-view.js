@@ -2110,7 +2110,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       clearDropFeedback();
       // Dropped on the desktop: give this tab a window of its own (#352). VS Code and Windows
       // Terminal both do this, and #340 built the menu route it shares.
-      if (dragged && droppedOutOfWindow(e)) tearOffTab(dragged.fromLeafId, dragged.tabId);
+      if (dragged && droppedOutOfWindow(e)) tearOffTab(dragged.fromLeafId, dragged.tabId, e);
     });
     el.addEventListener('dragover', (e) => {
       if (!isTabDrag(e)) return;
@@ -2163,7 +2163,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
    * renderer — and here that has to be SAID: a drag that visibly ends nowhere, with no window and no
    * explanation, reads as the app having dropped the tab.
    */
-  function tearOffTab(leafId, tabId) {
+  async function tearOffTab(leafId, tabId, e) {
     const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
     const tab = leaf && leaf.tabs.find((t) => t.id === tabId);
     if (!tab) return;
@@ -2177,13 +2177,51 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     }
     const sessionId = sessionOfTab(tab);
     if (!sessionId) return;
-    // A detached window has no `detachSession` — its half of detach-window.js never runs. There the
-    // gesture means the same thing its menu offers by name: back to the main window.
+
+    // Did it land ON another Switchboard window (#360)? Only main can say: the far window is a second
+    // renderer process and never sees this drag at all, so nothing here could have been told.
+    const onto = await windowUnderPointer(e);
+    if (onto === false) return; // could not be answered — see below
+    if (onto) {
+      if (typeof window.moveSessionToWindow === 'function') window.moveSessionToWindow(sessionId, onto);
+      return;
+    }
+
+    // Nothing under the pointer: the desktop, or another application. A detached window has no
+    // `detachSession` — its half of detach-window.js never runs — so there the gesture means the same
+    // thing its menu offers by name: back to the main window.
     if (window.isDetachedWindow && window.isDetachedWindow()) {
       if (typeof window.moveSessionToWindow === 'function') window.moveSessionToWindow(sessionId, 'main');
       return;
     }
     if (typeof window.detachSession === 'function') window.detachSession(sessionId);
+  }
+
+  /**
+   * Which window the drop landed on: a window id, `null` for none, or `false` for "cannot be answered".
+   *
+   * The three answers are deliberately distinct. `null` is a RESULT — the pointer was over the desktop
+   * or another application — and the tear-off proceeds. `false` is a FAILURE (an older main process,
+   * an IPC that threw), and there the session stays exactly where it is: a drop that cannot be resolved
+   * must not be answered with a plausible guess, because the guess is what moves a session somewhere
+   * the user did not aim at, which is the defect this fixes.
+   */
+  async function windowUnderPointer(e) {
+    if (!e || typeof window.api?.windowAtScreenPoint !== 'function') return false;
+    // The box this renderer measured for itself travels with the point. Main compares it against the
+    // same window's real bounds, which is what converts CSS pixels (zoomable) into screen DIPs.
+    const box = {
+      x: Number(window.screenX) || 0,
+      y: Number(window.screenY) || 0,
+      width: Number(window.outerWidth) || 0,
+      height: Number(window.outerHeight) || 0,
+    };
+    try {
+      const id = await window.api.windowAtScreenPoint({ x: e.screenX, y: e.screenY }, box);
+      return id || null;
+    } catch {
+      return false;
+    }
   }
 
   // Which gap a drop on this tab means, and where the caret marking it sits. The

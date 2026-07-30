@@ -30,6 +30,9 @@ function makeWindowClass(created) {
       this.loaded = null;
       this.sent = [];
       this.webContents = { send: (...args) => this.sent.push(args) };
+      // Where this window sits on screen. A field rather than a constant, because `window-at-screen-point`
+      // (#360) is decided by geometry and every window answering the same rectangle would test nothing.
+      this.bounds = { x: 10, y: 20, width: 1200, height: 800 };
       created.push(this);
     }
     setMenu() {}
@@ -43,7 +46,7 @@ function makeWindowClass(created) {
     focus() { this.focused++; }
     isMinimized() { return this.minimized; }
     restore() { this.minimized = false; }
-    getBounds() { return { x: 10, y: 20, width: 1200, height: 800 }; }
+    getBounds() { return this.bounds; }
     getTitle() { return this.opts.title; }
   };
 }
@@ -520,4 +523,62 @@ test('a hand-back for something nobody holds is refused rather than announced', 
   assert.deepEqual(ipc.callFrom('release-session-claim', created[0].webContents, 'ghost'), { ok: false });
   assert.deepEqual(ipc.call('release-session-claim', 's1'), { ok: false }, 'no sender, no claim');
   assert.deepEqual(main.sent, []);
+});
+
+// --- #360: which window is at a screen point --------------------------------
+//
+// A tab dragged out of a window has to know whether it landed ON another one. The far window is a
+// second renderer process and never sees the drag, so only this side can answer.
+
+test('#360: a point inside the main window answers "main"', () => {
+  const { ipc } = setup();
+  // main sits at 100,50 and is 1400×900.
+  assert.equal(ipc.call('window-at-screen-point', { x: 400, y: 300 }), 'main');
+});
+
+test('#360: a point inside a detached window answers that window', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  created[0].bounds = { x: 2000, y: 100, width: 800, height: 600 };
+  assert.equal(ipc.call('window-at-screen-point', { x: 2400, y: 400 }), String(created[0].id));
+});
+
+test('#360: a point over nothing of ours answers null', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  created[0].bounds = { x: 2000, y: 100, width: 800, height: 600 };
+  // Right of the detached window, below main. The desktop, or another application — either way the
+  // tear-off proceeds as before.
+  assert.equal(ipc.call('window-at-screen-point', { x: 3500, y: 3000 }), null);
+});
+
+test('#360: the asking window is skipped by identity, not geometry', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const win = created[0];
+  win.bounds = { x: 200, y: 100, width: 400, height: 300 };
+  // A point inside the ASKER's own box. It is the one window whose box the caller has already ruled
+  // out, so re-deciding it here from different numbers could only disagree with the caller.
+  assert.equal(ipc.callFrom('window-at-screen-point', win.webContents, { x: 300, y: 200 }), 'main');
+});
+
+test('#360: the point is converted from the asking renderer\'s frame', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const win = created[0];
+  win.bounds = { x: 1000, y: 0, width: 800, height: 600 };
+  // The asker reports its own box as half the size — what a zoomed renderer does, since its CSS pixels
+  // are not the OS's DIPs. A point at its own right edge must land at the window's real right edge.
+  const box = { x: 500, y: 0, width: 400, height: 300 };
+  assert.equal(ipc.callFrom('window-at-screen-point', win.webContents, { x: 300, y: 100 }, box), 'main');
+  // Without the conversion this would read as x=300 — inside main (100..1500) either way, so the
+  // sharper check is a point that only lands correctly once converted: 900 in the asker's frame is
+  // 1800 on screen, past main's right edge at 1500 and outside the detached window too.
+  assert.equal(ipc.callFrom('window-at-screen-point', win.webContents, { x: 900, y: 100 }, box), null);
+});
+
+test('#360: a point that is not a point answers null rather than guessing', () => {
+  const { ipc } = setup();
+  assert.equal(ipc.call('window-at-screen-point', null), null);
+  assert.equal(ipc.call('window-at-screen-point', { x: 'over there', y: 3 }), null);
 });

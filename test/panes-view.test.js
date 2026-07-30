@@ -1980,6 +1980,7 @@ test('a tab dropped on the desktop asks for a window of its own (#352)', async (
     h.window.detachSession = (id) => { detached.push(id); };
 
     dragEndAt(h, tab, { screenX: 1400, screenY: 400 }); // past the right edge of the window box
+    await h.settle(); // the tear-off asks main which window is there first (#360)
     assert.deepEqual(detached, ['a']);
   } finally { h.destroy(); }
 });
@@ -2022,6 +2023,7 @@ test('a view tab dragged out says why instead of vanishing (#352)', async () => 
     Object.defineProperty(start, 'dataTransfer', { value: { setData() {}, types: [], effectAllowed: '' } });
     viewTab.dispatchEvent(start);
     dragEndAt(h, viewTab, { screenX: 1400, screenY: 400 });
+    await h.settle();
 
     assert.deepEqual(detached, [], 'the element belongs to this renderer');
     assert.equal(h.calls.toasts.length, 1, 'and the drag ending nowhere is explained');
@@ -2040,6 +2042,7 @@ test('from a detached window the gesture means "back to main" (#352)', async () 
     h.window.detachSession = undefined;
 
     dragEndAt(h, tab, { screenX: 1400, screenY: 400 });
+    await h.settle();
     assert.deepEqual(moved, [['a', 'main']]);
   } finally { h.destroy(); }
 });
@@ -2158,5 +2161,77 @@ test('a detached window never writes a saved layout (#352, #344)', async () => {
     // It shares this origin's localStorage with the main window and owns no arrangement — the same
     // rule the tree itself follows.
     assert.equal(h.window.localStorage.getItem('panePresets'), null);
+  } finally { h.destroy(); }
+});
+
+// --- #360: dropping a tab onto another Switchboard window --------------------
+
+test('a tab dropped on another Switchboard window moves into it (#360)', async () => {
+  const h = setupPanesDom();
+  try {
+    const tab = await draggableTab(h);
+    const detached = [];
+    const moved = [];
+    h.window.detachSession = (id) => { detached.push(id); };
+    h.window.moveSessionToWindow = (id, target) => { moved.push([id, target]); };
+    h.window.api.windowAtScreenPoint = async () => '4';
+
+    dragEndAt(h, tab, { screenX: 1400, screenY: 400 });
+    await h.settle();
+
+    assert.deepEqual(moved, [['a', '4']], 'the same move the menu offers by name');
+    assert.deepEqual(detached, [], 'no window of its own — it landed on one that exists');
+  } finally { h.destroy(); }
+});
+
+test('a drop over nothing still detaches (#360)', async () => {
+  const h = setupPanesDom();
+  try {
+    const tab = await draggableTab(h);
+    const detached = [];
+    h.window.detachSession = (id) => { detached.push(id); };
+    h.window.api.windowAtScreenPoint = async () => null; // the desktop, or another application
+
+    dragEndAt(h, tab, { screenX: 1400, screenY: 400 });
+    await h.settle();
+    assert.deepEqual(detached, ['a']);
+  } finally { h.destroy(); }
+});
+
+test('a drop that cannot be resolved moves nothing (#360)', async () => {
+  const h = setupPanesDom();
+  try {
+    const tab = await draggableTab(h);
+    const detached = [];
+    const moved = [];
+    h.window.detachSession = (id) => { detached.push(id); };
+    h.window.moveSessionToWindow = (id, target) => { moved.push([id, target]); };
+    h.window.api.windowAtScreenPoint = async () => { throw new Error('older main process'); };
+
+    dragEndAt(h, tab, { screenX: 1400, screenY: 400 });
+    await h.settle();
+
+    // A guess here is what moves a session somewhere the user did not aim at — the defect this fixes.
+    assert.deepEqual(detached, []);
+    assert.deepEqual(moved, []);
+  } finally { h.destroy(); }
+});
+
+test('the point sent to main carries the box this renderer measured (#360)', async () => {
+  const h = setupPanesDom();
+  try {
+    const tab = await draggableTab(h); // sets the window box to 0,0 1000×800
+    const asked = [];
+    h.window.api.windowAtScreenPoint = async (point, box) => { asked.push([point, box]); return null; };
+    h.window.detachSession = () => {};
+
+    dragEndAt(h, tab, { screenX: 1400, screenY: 400 });
+    await h.settle();
+
+    // Compared as JSON: these objects were built inside the jsdom realm, so their prototype is not
+    // this one's and `deepEqual` fails on identical values.
+    assert.equal(JSON.stringify(asked),
+      JSON.stringify([[{ x: 1400, y: 400 }, { x: 0, y: 0, width: 1000, height: 800 }]]),
+      'main converts the point against this same window\'s real bounds');
   } finally { h.destroy(); }
 });

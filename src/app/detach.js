@@ -67,6 +67,28 @@ function sessionsInWindow(win) {
   return ids;
 }
 
+/**
+ * Convert a point the ASKING renderer measured into the screen coordinates `getBounds()` speaks (#360).
+ *
+ * The renderer reports CSS pixels in its own frame; a zoom factor scales those, and the OS's DIPs do
+ * not move with it. Both boxes describe the same window, so their ratio is exactly the conversion —
+ * no zoom factor has to be fetched, and a wrong guess about how zoom behaves cannot creep in.
+ *
+ * Falls through to the point as given when there is nothing to compare against: a caller that sends no
+ * box, a box with no extent, or a window that is gone. Being slightly off beats refusing to answer.
+ */
+function toScreenPoint(win, point, box) {
+  if (!win || win.isDestroyed() || !box) return point;
+  const w = Number(box.width);
+  const h = Number(box.height);
+  if (!(w > 0) || !(h > 0)) return point;
+  const bounds = win.getBounds();
+  return {
+    x: bounds.x + ((point.x - Number(box.x || 0)) * (bounds.width / w)),
+    y: bounds.y + ((point.y - Number(box.y || 0)) * (bounds.height / h)),
+  };
+}
+
 function detachedWindowById(windowId) {
   for (const win of detachedWindows.values()) {
     if (!win.isDestroyed() && String(win.id) === String(windowId)) return win;
@@ -306,6 +328,54 @@ function registerIpc(ipc) {
   });
 
   ipc.handle('list-session-windows', (_event, sessionId) => listSessionWindows(sessionId));
+
+  /**
+   * "Which of my windows is at this point on the screen?" (#360)
+   *
+   * Asked when a tab is dragged OUT of a window. HTML5 drag and drop ends at the window boundary —
+   * two windows are two renderer processes with no shared drag context, so the far side never sees a
+   * `drop` and the near side only knows the pointer left its own box. Which window it left it FOR is
+   * a question only this process can answer, because only it has the windows in screen coordinates.
+   *
+   * `box` is the asking window as its own renderer measured it (`window.screenX/outerWidth`, …). It is
+   * not redundant with `getBounds()`: the renderer's numbers are CSS pixels in its frame and can carry
+   * a zoom factor, while bounds are DIPs in the OS's. The ratio between the two boxes converts the
+   * point exactly, whatever the zoom is, and without it a zoomed window would hit-test its neighbours
+   * at the wrong place. A caller that sends no box is trusted as-is.
+   *
+   * Answers with the id `move-session-to-window` takes, or null for "no window of ours is there".
+   */
+  ipc.handle('window-at-screen-point', (event, point, box) => {
+    const x = Number(point && point.x);
+    const y = Number(point && point.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const sender = event && event.sender;
+    const asking = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
+    const screenPoint = toScreenPoint(asking, { x, y }, box);
+
+    const main = ctx.getMainWindow();
+    const candidates = [];
+    if (main && !main.isDestroyed()) candidates.push({ id: MAIN_WINDOW_ID, win: main });
+    const seen = new Set();
+    for (const win of detachedWindows.values()) {
+      if (win.isDestroyed() || seen.has(win.id)) continue;
+      seen.add(win.id);
+      candidates.push({ id: windowIdOf(win), win });
+    }
+    for (const candidate of candidates) {
+      // The asking window is skipped by IDENTITY rather than geometry: it is the one window whose own
+      // box the caller has already ruled out, and re-deciding that here from different numbers could
+      // only disagree with it.
+      if (asking && candidate.win === asking) continue;
+      const b = candidate.win.getBounds();
+      if (screenPoint.x < b.x || screenPoint.x > b.x + b.width) continue;
+      if (screenPoint.y < b.y || screenPoint.y > b.y + b.height) continue;
+      // First match wins. Electron exposes no z-order, so with two windows stacked under the pointer
+      // the topmost one cannot be identified — this is the known limit of the answer, not an oversight.
+      return candidate.id;
+    }
+    return null;
+  });
 
   /**
    * "What do I hold?", asked by a detached window about ITSELF (#326, #331).
