@@ -1,9 +1,13 @@
 // --- Session tabs (Phase 1) ---
 //
-// VS-Code-style tab strip over the terminal area — an alternative switcher to the
-// sidebar, active only in display mode 'tabs'. Reuses the single-view machinery:
-// a tab click → showSession(); closing a tab → destroySession() (PTY keeps running,
-// the session stays in the sidebar) or stopSession() depending on tabCloseBehavior.
+// What is LEFT of this file is shared with panes mode (#357): the pure `buildTabModel`, the tab
+// tooltip and the project-path splitter (#334), the auto-close rules and `closeTabNow`. Panes calls
+// them; nothing here renders panes' tabs.
+//
+// The strip itself is the retired tabs mode's own switcher — a VS-Code-style bar over the terminal
+// area. With the mode gone there is no setting that turns it on, so `refreshSessionTabs` only ever
+// empties it now. The markup, the drag handlers and the tab builders below are unreachable and want
+// removing as their own pass; they are left in one piece rather than half-cut.
 //
 // Loaded as a classic <script> (exposes window.* hooks) AND require()-d by node
 // tests for the pure buildTabModel(). Keep buildTabModel free of DOM/globals.
@@ -133,7 +137,7 @@ if (typeof module !== 'undefined' && module.exports) {
 (function () {
   if (typeof document === 'undefined') return; // node test context
 
-  let displayMode = 'grid';        // grid | tabs | panes (#309, rendered by views/panes-view.js)
+  let displayMode = 'grid';        // grid | panes (#309, rendered by views/panes-view.js)
   let tabPosition = 'top';         // top | bottom
   let closeBehavior = 'closeView'; // closeView | stopSession (Claude sessions)
   let terminalCloseBehavior = 'kill'; // kill | keep (plain terminals, decoupled)
@@ -214,9 +218,8 @@ if (typeof module !== 'undefined' && module.exports) {
   // only when the mode/exit-code combination opts in. The timer no-ops if the
   // session was relaunched (a fresh, non-closed entry exists) or already torn down.
   function scheduleTabAutoClose(sessionId, exitCode) {
-    // Panes mode has tabs too (#309/#310) — an exited session should not leave a
-    // dead tab sitting in a pane any more than it should in the strip.
-    if (displayMode !== 'tabs' && displayMode !== 'panes') return;
+    // An exited session should not leave a dead tab sitting in a pane.
+    if (displayMode !== 'panes') return;
     if (!shouldAutoClose(autoCloseMode, exitCode)) return;
     cancelTabAutoClose(sessionId);
     const t = setTimeout(() => {
@@ -244,7 +247,13 @@ if (typeof module !== 'undefined' && module.exports) {
   function refreshSessionTabs() {
     const strip = stripEl();
     if (!strip) return;
-    if (displayMode !== 'tabs') { strip.innerHTML = ''; return; }
+    // The mode that filled this strip is retired (#357), so emptying it is all that is left to do —
+    // and it still has to be DONE, once, or an upgrade leaves the last render painted there.
+    // Everything below is unreachable from here on. It is left whole rather than half-cut: the
+    // builders, the drag handlers and the overflow menu come out together, as their own pass.
+    strip.innerHTML = '';
+    return;
+
     // Keep the strip empty while the launch restore mounts the tabs — otherwise it
     // fills in one by one. The restore rebuilds it once at the end (flag cleared).
     if (typeof window !== 'undefined' && window.__restoringOpenSessions) { strip.innerHTML = ''; return; }
@@ -499,7 +508,6 @@ if (typeof module !== 'undefined' && module.exports) {
   // --- Settings apply ---
 
   function applyMode() {
-    document.body.classList.toggle('display-mode-tabs', displayMode === 'tabs');
     document.body.classList.toggle('tabs-bottom', tabPosition === 'bottom');
     refreshSessionTabs();
   }
@@ -510,8 +518,8 @@ if (typeof module !== 'undefined' && module.exports) {
     // 'grid' is the legacy mode (sidebar + grid overview / single view); stored
     // 'legacy' still maps there. 'panes' (#309) renders its own tree and shares
     // this mode switch, but nothing else in this file.
-    displayMode = g.sessionDisplayMode === 'tabs' ? 'tabs'
-      : (g.sessionDisplayMode === 'panes' ? 'panes' : 'grid');
+    // A stored 'tabs' resolves to 'panes' (#357) — one place decides that, in grid-layout.js.
+    displayMode = resolveSessionDisplayMode(g.sessionDisplayMode);
     tabPosition = g.tabPosition === 'bottom' ? 'bottom' : 'top';
     closeBehavior = g.tabCloseBehavior === 'stopSession' ? 'stopSession' : 'closeView';
     terminalCloseBehavior = g.terminalCloseBehavior === 'keep' ? 'keep' : 'kill';
@@ -539,7 +547,7 @@ if (typeof module !== 'undefined' && module.exports) {
     // preference (saved separately so grid mode keeps its mosaic). Skip on the first
     // apply (startup) — the persisted gridViewActive already matches the mode.
     if (initialized && prevMode !== displayMode) {
-      if (displayMode === 'tabs' || displayMode === 'panes') {
+      if (displayMode === 'panes') {
         try { localStorage.setItem('gridModePref', localStorage.getItem('gridViewActive') || '0'); } catch { /* ignore */ }
         if (typeof gridViewActive !== 'undefined' && gridViewActive && typeof toggleGridView === 'function') {
           toggleGridView(); // hide grid → single (persists gridViewActive=0)
@@ -652,7 +660,7 @@ if (typeof module !== 'undefined' && module.exports) {
   // take that one down: the timed auto-close is the other branch, for a process that
   // ended on its own (#317). Grid/legacy manage their own view.
   window.closeTabNow = (sessionId) => {
-    if (displayMode === 'tabs' || displayMode === 'panes') performClose(sessionId);
+    if (displayMode === 'panes') performClose(sessionId);
   };
   window._applySessionDisplaySettings = applySessionDisplaySettings;
 })();

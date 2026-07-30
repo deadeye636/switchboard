@@ -2795,7 +2795,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       restoreScrollbackBudgets();
       backgroundScrollback = 0;
     }
-    if (g.sessionDisplayMode === 'panes') {
+    if (resolveSessionDisplayMode(g.sessionDisplayMode) === 'panes') {
       const wasEnabled = enabled;
       enable();
       // Moving the tools between the bar and the strip changes the pane's shape,

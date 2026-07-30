@@ -2649,3 +2649,26 @@ test('a selected view tab is not a session and is not named as one (#366)', asyn
     assert.deepEqual([...h.panes.sessionIdsInLayout()], ['live-1'], 'and it is not counted as one');
   } finally { h.destroy(); }
 });
+
+// --- #357: the retired tabs mode arrives here ---
+
+test('a stored tabs mode turns panes on, in one pane (#357)', async () => {
+  const h = setupPanesDom();
+  try {
+    // The migration is a resolve on read, so nothing rewrote this value: an install that never opens
+    // settings still has 'tabs' in its database and has to land in panes, NOT fall through to grid.
+    // The unit test covers the resolver; this covers the wiring it sits in.
+    h.panes.applySettings({ sessionDisplayMode: 'tabs' });
+    await h.settle();
+    assert.equal(h.panes.active(), true);
+    assert.equal(h.document.body.classList.contains('display-mode-panes'), true);
+    assert.equal(h.document.body.classList.contains('display-mode-tabs'), false,
+      'nothing sets that class any more — the mode it belonged to is gone');
+
+    await h.open('live-1');
+    await h.settle();
+    // One pane is what tabs mode rendered, so that is what the upgrade has to produce.
+    assert.equal(h.document.querySelectorAll('.pane').length, 1);
+    assert.deepEqual([...h.panes.sessionIdsInLayout()], ['live-1']);
+  } finally { h.destroy(); }
+});

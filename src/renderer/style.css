@@ -2708,8 +2708,6 @@ body.restoring-sessions #restore-progress { display: flex; }
    Keeping them painted means a switch never triggers a hidden->visible repaint,
    so the terminal text doesn't reflow/"staircase" on switch — even if the target
    gained lines while inactive. Tabs mode is single-view only (no grid). */
-body.display-mode-tabs .terminal-container { display: block; z-index: 0; pointer-events: none; }
-body.display-mode-tabs .terminal-container.visible { z-index: 1; pointer-events: auto; }
 
 /* While the launch restore mounts the saved sessions, none of them is `.visible`
    yet, so in tabs mode each newly mounted terminal would paint over the previous
@@ -7885,23 +7883,6 @@ body.grid-dragging .grid-card-header {
 #settings-popout-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
 
 #session-tabs { display: none; }
-/* Tabs mode is single-view only → the grid toggle button has no place there. */
-body.display-mode-tabs #grid-toggle-btn { display: none; }
-body.display-mode-tabs #session-tabs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  background: #14141b;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  flex-shrink: 0;
-  min-height: 34px;
-}
-body.display-mode-tabs.tabs-bottom #session-tabs {
-  order: 2;
-  border-bottom: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
 .session-tabs-list {
   display: flex;
   align-items: center;

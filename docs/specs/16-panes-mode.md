@@ -122,11 +122,14 @@ Issue: #309 · builds the ownership model that detachable windows (#2) then cons
 ## 1 · Problem
 
 Sessions render either as a **grid mosaic** (all sessions auto-tiled, column count from window width)
-or in **single view**, and `sessionDisplayMode = tabs` puts a tab strip over that single view. Neither
-lets someone arrange *chosen* sessions side by side: grid decides the arrangement, tabs show one at a
+or in **single view**, and `sessionDisplayMode = tabs` put a tab strip over that single view. Neither
+let someone arrange *chosen* sessions side by side: grid decides the arrangement, tabs showed one at a
 time. On a wide screen that wastes the screen; on a narrow one grid collapses to a long vertical list.
 
-Panes mode adds the third possibility: a tiled split tree the way VS Code lays out editor groups.
+Panes mode adds the third possibility: a tiled split tree the way VS Code lays out editor groups —
+and since #357 it has **absorbed** tabs mode, which a single-leaf tree renders exactly: same strip,
+same session bar, same tools. Two modes drawing the same thing meant every tab feature had to be
+built twice, and the audit (#343–#355) kept finding the second one lagging.
 
 ## 2 · The model
 
@@ -140,6 +143,15 @@ Taken from VS Code's `vs/base/browser/ui/grid/grid.ts` and `editorDropTarget.ts`
   not a second format.
 - Drag & drop: an editor-style drag uses a **10 % edge zone per axis**. Edge = split in that direction,
   centre = move the tab into that pane.
+
+**Where a restored session lands** (#357). The saved tree carries the tab-to-pane assignment, so
+`loadTree` puts a session back in the pane it was in, and `activeLeafId` is persisted too — "the
+active pane" after a launch is the one the user left active, not `leaves(tree)[0]`. What is left to
+decide is only where a session with **no** stored tab goes: `adoptOrphans` puts it in the **active
+pane**, and that stays. It is what a sidebar click does, so a restore behaves like the user's own
+opening rather than like a mechanism of its own. It matters more now than it did as one mode of
+three — with tabs retired this is the only tabbed mode, so "everything piled into one pane" would be
+the first thing seen after a launch.
 
 **A tab is a typed view, not a session id** (see O11/O12 below). `{id, kind, ref}` with
 `kind ∈ terminal | preview | diff | plan | stats | memory | jsonl`. This is the decision with the
@@ -381,7 +393,7 @@ and per-panel visibility events are what the WebGL policy needs.
 |---|---|
 | Grid already moves a live terminal container into a card and back (`grid-view.js` `wrapInGridCard` / `unwrapGridCards`) | Reparenting a running xterm is proven, not a research question. Refit after every move |
 | `file-panel.js` builds `#terminal-split` at startup | Splitting the main area is precedent; under P2 this container goes away in panes mode |
-| Tabs mode stacks all terminals in one box and switches by z-index (`style.css`, `body.display-mode-tabs`) | Same trick per pane — a switch inside a pane still causes no repaint |
+| Tabs mode stacked all terminals in one box and switched by z-index | The same trick per pane — a switch inside a pane still causes no repaint. It is panes' own now (`style.css`, `body.display-mode-panes .terminal-container`): the mode this was learned from is retired (#357), and the selector it named went with it |
 | `addMcpToggle()` injects the IDE chip into a single `#terminal-header-controls` id | Needs a per-pane mount point, or the chip lands in the first pane only |
 | Bare `Ctrl+\` is `0x1c` (SIGQUIT) to the pty; bare `Ctrl+3..8` are ESC/FS/GS/RS/US/DEL | Split and pane-focus shortcuts go on `Ctrl/Cmd+Shift+…`, matching every other binding in `shortcuts.js`. Pane navigation reuses `sessionNavArrows` rather than Alt+arrows, which are the terminal's word jump |
 | The layout must exist before `session-restore` mounts terminals | Otherwise the first fit measures a box that is about to change |
@@ -395,6 +407,7 @@ and per-panel visibility events are what the WebGL policy needs.
 | | Risk | Mitigation |
 |---|---|---|
 | R1 | WebGL — reparenting plus many visible terminals is the corner of #118 (stale atlas), #128 (context loss / stale fit) and #262 (atlas contention). Panes make grid's exceptional case the normal one | **Real, and it cost two attempts.** #320 first read #140's corruption as context *churn* — which it partly was, and `loadTerminalWebgl` is idempotent now — and cleared the atlas on a bench test: two WebGL terminals, ~18 000 codepoints flooded through each, no corruption. Daily use disproved that within hours: two panes rendering **alternately over minutes** drop glyphs, because there is no reveal repaint to heal them. Final rule: WebGL only while ONE terminal is visible, everything on DOM from two panes up. All-or-nothing either way — a mixed layout splits the cell metric visibly at dpr ≠ 1 |
+| R5 | With tabs retired (#357), **splitting** is what costs the GPU renderer, and panes is now the only tabbed mode | Accepted as the trade, and said out loud in the Display mode setting. A user who never splits loses nothing: one pane means one visible terminal, which is exactly the case that keeps WebGL. The direction that actually favoured retiring tabs is the opposite one — tabs kept a context per OPEN terminal with **nothing** bounding the count (`lruEvictOne` skips everything running), and Chromium starts dropping contexts past roughly 32. Panes' two-visible rule bounds it structurally |
 | R2 | Status drift — sidebar, tab and grid card already drifted apart four times (#124, #253, #257, #269); panes multiply the tab case | One render path for a tab's status, shared with `.status-dot.status-*` |
 | R3 | Every `terminal-header*` lookup assumes a singleton | Convert them in one pass, `addMcpToggle()` included |
 | R4 | Typed views (P2) touch every view module | Terminal tabs first; the tab type exists from day one so nothing is rebuilt later |

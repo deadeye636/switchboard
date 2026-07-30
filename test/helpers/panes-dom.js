@@ -349,14 +349,14 @@ function setupPanesDom(opts = {}) {
     inCtx: (code) => vm.runInContext(code, ctx),
     // Turn panes mode on with the settings the app would pass.
     enable: (extra = {}) => window.panesView.applySettings({ sessionDisplayMode: 'panes', ...extra }),
-    disable: (extra = {}) => window.panesView.applySettings({ sessionDisplayMode: 'tabs', ...extra }),
+    disable: (extra = {}) => window.panesView.applySettings({ sessionDisplayMode: 'grid', ...extra }),
     // panes-view schedules its rebuild in a microtask (scheduleRender); await this to let it land.
     settle: () => new Promise((r) => setTimeout(r, 0)),
     // Turn the view off before the window goes: that clears the persist debounce and ends any live
     // sash gesture. A timer left running fires into a closed jsdom window and the runner reports it
     // as an async leak from whichever test happened to be last.
     destroy: () => {
-      try { window.panesView.applySettings({ sessionDisplayMode: 'tabs' }); } catch { /* already off */ }
+      try { window.panesView.applySettings({ sessionDisplayMode: 'grid' }); } catch { /* already off */ }
       window.close();
     },
   };

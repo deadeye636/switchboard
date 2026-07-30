@@ -70,13 +70,15 @@ stored preference survives — the setting stopped being about tabs when panes s
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
-| `sessionDisplayMode` | Display mode | `grid` \| `tabs` \| `panes` | `grid` | global |
+| `sessionDisplayMode` | Display mode | `grid` \| `panes` | `grid` | global |
+| | | *(a stored `tabs` resolves to `panes` — the mode was retired in #357 and a single pane is what it rendered)* | | |
 | `paneToolsPlacement` | Session tools (panes mode) | `bar` \| `strip` | `bar` | global |
 | `paneCloseEmpty` | Close a pane when it becomes empty | `true` \| `false` | `false` | global |
 | `paneBackgroundScrollback` | Scrollback of a background pane tab | `0` (keep all) \| `5000` \| `2000` \| `1000` | `0` | global |
 | `settingsOpenMode` | Open settings as | `overlay` \| `window` | `overlay` | global |
 | `sidebarCollapseDefault` | Sidebar on startup | `expanded` \| `collapsed` \| `remember` | `remember` | global |
 | `tabPosition` | Tab position | `top` \| `bottom` | `top` | global |
+| | | *(no effect since #357 — it moved the retired tabs-mode strip; panes draws its own strips per pane. Kept rather than removed, because it is the setting a per-pane version would reuse)* | | |
 | `tabCloseBehavior` | Closing a tab (×) | `closeView` \| `stopSession` | `closeView` | global |
 | `tabMiddleClickCloses` | Middle-click closes a tab | bool | `true` | global |
 | `tabDragReorder` | Reorder tabs by dragging | bool | `true` | global |

@@ -123,8 +123,8 @@ answers are deliberate:
 | Taking window | Dormant session lands as |
 |---|---|
 | any window in **panes** mode | a **dormant tab** — the pane draws the "not running / Launch" placeholder it already draws for a tab restored from a saved layout (#318). `panesView.openDormantTab` is the one path that puts an unmounted session into the tree: `show` refuses one, because it is the choke point every `showSession` goes through and a phantom tab there would be worse than a declined move |
-| the **main** window in tabs mode | nothing is mounted and nothing is drawn — the sidebar lists the session, which is the way back the move existed for |
-| a **detached** window in tabs mode | refused before it starts, by name ("that window cannot show a session that is not running"). That strip is built from `openSessions` and the window has no sidebar, so the session would be held by a window that shows it nowhere |
+| the **main** window in grid mode | nothing is mounted and nothing is drawn — the sidebar lists the session, which is the way back the move existed for |
+| a **detached** window in grid mode | refused before it starts, by name ("that window cannot show a session that is not running"). Nothing there is built to draw an unmounted session and the window has no sidebar, so it would be held by a window that shows it nowhere |
 
 The adopt tells those cases apart rather than falling back on `release-session-claim`. That channel
 means "I cannot render this one" (#331); a window that *can* show a dormant session keeps the claim,
@@ -192,7 +192,7 @@ default with the main window. Three things had to be told not to write:
 
 | Case | Behaviour |
 |---|---|
-| Detached without a process (#319) | The window opens and **shows** the session — named, with a Launch button — instead of starting it. Mounting is what would start it (`openSession` → `openTerminal` spawns when it finds no live PTY), so the window simply does not mount, and Launch is the press that does. Panes mode draws this from the pane's own placeholder (#318); tabs mode has no `#placeholder` here (it says "select a session in the sidebar", and this window has none), so the same block is built for it. Launching starts the process in **this** window: main already has the session down as its, so the bytes route here |
+| Detached without a process (#319) | The window opens and **shows** the session — named, with a Launch button — instead of starting it. Mounting is what would start it (`openSession` → `openTerminal` spawns when it finds no live PTY), so the window simply does not mount, and Launch is the press that does. Panes mode draws this from the pane's own placeholder (#318); grid mode has no `#placeholder` here (it says "select a session in the sidebar", and this window has none), so the same block is built for it. Launching starts the process in **this** window: main already has the session down as its, so the bytes route here |
 | Window closed by hand | **Every** session it still holds returns to the main window (#316) — each one unless its process has ended: taking it back always reopened it, which silently resumed a CLI the user had stopped |
 | Reattach / move action | Main deletes the map entry **before** destroying the window, so the `closed` handler stays silent and the notification fires once |
 | Moved without a process (#332) | The move runs and starts nothing — see §2b for where it lands, which depends on the taking window's display mode. A window left holding only live sessions stays open; the dormant one no longer needs the window closed to get out |

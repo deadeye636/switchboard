@@ -421,13 +421,16 @@
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Display mode</span>${help}</div>
                     <div class="settings-description">Grid overview, a tab bar above the terminal, or split panes.</div>
-                    <div class="settings-more"><b>Grid</b>: sidebar + grid overview / single view. <b>Tabs</b>: a tab bar above the terminal to switch between open sessions; the grid mosaic stays reachable via the overview button. <b>Panes</b>: split the terminal area into panes, each with its own tabs — drag a tab onto a pane edge to split, onto its middle to move it there. The pane menu (…) splits and closes panes.</div>
+                    <div class="settings-more"><b>Grid</b>: sidebar + grid overview / single view. <b>Panes</b>: split the terminal area into panes, each with its own tabs — drag a tab onto a pane edge to split, onto its middle to move it there. The pane menu (…) splits and closes panes. A single pane is a plain tab bar, which is what the retired Tabs mode was. Splitting turns the GPU renderer off for every terminal in the window: two visible terminals share one glyph atlas and corrupt each other's text, with no reveal repaint to heal it.</div>
                   </div>
                   <div class="settings-field-control">
                     <select class="settings-select" id="sv-display-mode">
-                      <option value="grid" ${displayModeValue !== 'tabs' && displayModeValue !== 'panes' ? 'selected' : ''}>Grid</option>
-                      <option value="tabs" ${displayModeValue === 'tabs' ? 'selected' : ''}>Tabs</option>
-                      <option value="panes" ${displayModeValue === 'panes' ? 'selected' : ''}>Panes</option>
+                      <!-- A stored 'tabs' shows as Panes (#357). The retired mode has no option left, and
+                           without this the select would fall through to Grid and rewrite the user's mode on
+                           the next Save. This page does not load grid-layout.js, so the mapping is spelled
+                           out here rather than reaching for its resolver. -->
+                      <option value="grid" ${displayModeValue !== 'panes' && displayModeValue !== 'tabs' ? 'selected' : ''}>Grid</option>
+                      <option value="panes" ${displayModeValue === 'panes' || displayModeValue === 'tabs' ? 'selected' : ''}>Panes</option>
                     </select>
                   </div>
                 </div>

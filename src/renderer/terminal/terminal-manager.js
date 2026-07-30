@@ -1336,17 +1336,6 @@ function createTerminalEntry(session, opts = {}) {
     trackActivity(entry.session.sessionId, '\x07');
   });
 
-  // Tabs mode: the container is laid out the moment it's appended (visibility:hidden,
-  // not display:none), so fit it now — before its first paint — and cache the size.
-  // Otherwise the first showSession would run the initial fit and reflow the grid
-  // once, a one-time text jump on the first switch to the session.
-  if (document.body.classList.contains('display-mode-tabs') &&
-      container.clientWidth > 0 && container.clientHeight > 0) {
-    // z-index stack: the container is laid out immediately (no display:none), so fit
-    // it now — before its first show — to avoid a one-time reflow on first reveal.
-    safeFit(entry);
-  }
-
   return entry;
 }
 
@@ -1652,77 +1641,21 @@ function showSession(sessionId) {
       entry.terminal.options.scrollback = SCROLLBACK_SINGLE;
       const el = entry.element;
 
-      if (document.body.classList.contains('display-mode-tabs')) {
-        // Tabs mode: z-index stack. Every open terminal stays mounted AND painted
-        // (see the CSS — no display:none / visibility:hidden); switching just moves
-        // the target on top (z-index via .visible) and enables its input. Because the
-        // target was already painted underneath, there is no hidden->visible repaint,
-        // so no "staircase"/reflow flicker even when it gained lines while inactive.
-        // Refit only on a real size change (file panel width, window resize); a plain
-        // switch keeps the box, so we skip the resize (sub-row jitter would otherwise
-        // reflow ±1 row).
-        const w = el.clientWidth, h = el.clientHeight;
-        const REFIT_TOL = 8;
-        if (w > 0 && h > 0 && (Math.abs(w - (entry._fitW || 0)) > REFIT_TOL || Math.abs(h - (entry._fitH || 0)) > REFIT_TOL)) {
-          safeFit(entry); // records _fitW/_fitH
-        }
-        // Flush a pending coalesced chunk first — background sessions flush at
-        // BACKGROUND_FLUSH_INTERVAL_MS (2 s), so without this the output tail
-        // could stay stale for up to 2 s after the switch (#81).
-        flushTerminalBuffer(sessionId);
-        drainReplayBuffer(sessionId);
-        // Promote this terminal on top; demote the others. Inactive containers get
-        // pointer-events:none via CSS and only the active terminal is focused, so
-        // input always lands on the visible one (no `inert` needed → no cross-mode
-        // cleanup when switching to grid mode).
-        document.querySelectorAll('.terminal-container.visible').forEach(c => {
-          if (c !== el) c.classList.remove('visible');
-        });
-        el.classList.add('visible');
-        // NOTE: no per-switch WebGL suspend/restore of OTHER tabs here. Swapping
-        // the renderer DOM↔WebGL on every tab click changes the effective cell
-        // height by a device-pixel rounding step (fractional display scaling),
-        // invalidating the cached fit right after the clip self-heal ran with
-        // stale metrics — the "half a row offscreen after a tab switch" bug.
-        // All open tabs keep their GL context instead: the LRU cap (12) stays
-        // under Chromium's context limit (raised to 32 in main.js), and a lost
-        // context auto-falls back to the DOM renderer. Only restore THIS terminal's GL if it lost
-        // it earlier (grid off-screen suspend) — a one-time renderer switch,
-        // followed by a deferred re-fit because the cell metrics may have
-        // shifted and the render service reports them only after a frame.
-        if (shouldLoadWebgl() && !entry.webglAddon) {
-          restoreTerminalWebgl(sessionId);
-          requestAnimationFrame(() => {
-            if (openSessions.get(entry.session.sessionId) === entry) safeFit(entry);
-          });
-        }
-        // WebGL: the texture atlas may have been grown/recycled by another terminal
-        // while this tab was covered — its last painted frame then shows scrambled
-        // glyphs until the first write re-renders the cells (#118). Clear the atlas
-        // and repaint the full frame on every switch (no-op on the DOM renderer;
-        // also covers the context-restore path above).
-        forceRepaint(entry);
-        entry.terminal.focus();
-        // Self-heal for the sub-REFIT_TOL case: a switch that skipped the re-fit
-        // above (height delta ≤ 8px) can still leave the bottom row clipped. Catch
-        // it directly instead of lowering REFIT_TOL (which would reintroduce ±1-row
-        // tab-switch jitter) (#59).
-        if (isBottomRowClipped(entry)) safeFit(entry);
-      } else {
-        // Grid mode, single view: inactive containers are display:none (not painted),
-        // so reveal first (to gain layout), then drain + fit.
-        restoreTerminalWebgl(sessionId);
-        // Flush the pending coalesced chunk while still non-visible so it lands
-        // BEHIND the accumulated replay data (order preserved), then reveal and
-        // drain everything in one go (#81).
-        flushTerminalBuffer(sessionId);
-        document.querySelectorAll('.terminal-container.visible').forEach(c => c.classList.remove('visible'));
-        el.classList.add('visible');
-        drainReplayBuffer(sessionId);
-        forceRepaint(entry); // stale WebGL atlas heal on reveal (#118); no-op on DOM renderer
-        entry.terminal.focus();
-        fitAndScroll(entry);
-      }
+      // Reveal first (to gain layout), then drain and fit: an inactive container is
+      // display:none, so it is not painted. The z-index stack this used to branch on belonged to
+      // tabs mode, which is retired (#357) — panes never used it, it keeps its containers laid
+      // out per pane and refits through its own render path.
+      restoreTerminalWebgl(sessionId);
+      // Flush the pending coalesced chunk while still non-visible so it lands
+      // BEHIND the accumulated replay data (order preserved), then reveal and
+      // drain everything in one go (#81).
+      flushTerminalBuffer(sessionId);
+      document.querySelectorAll('.terminal-container.visible').forEach(c => c.classList.remove('visible'));
+      el.classList.add('visible');
+      drainReplayBuffer(sessionId);
+      forceRepaint(entry); // stale WebGL atlas heal on reveal (#118); no-op on DOM renderer
+      entry.terminal.focus();
+      fitAndScroll(entry);
     }
   }
   if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();

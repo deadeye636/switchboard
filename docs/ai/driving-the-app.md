@@ -114,7 +114,7 @@ To reproduce more than one live terminal at once — needed to see the tabs-mode
 the low-level PTY spawn in main and creates neither a tab nor an `openSessions` entry, so a second
 call just replaces the first and `dims` still reports one open terminal. Session objects come from
 `await window.api.getProjects(false)`. Tabs exist when `getSetting('global').sessionDisplayMode`
-is `'tabs'` or `'panes'`. With two tabs open, `dims <id>` on each confirms both hold a live WebGL
+is `'panes'` (a stored `'tabs'` resolves to it — #357). With two tabs open, `dims <id>` on each confirms both hold a live WebGL
 context (`webglAddon: true`) — the shared-atlas state to test against.
 
 **Tabs mode is the only place several terminals hold a context at once.** Panes drops every terminal to

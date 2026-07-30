@@ -253,19 +253,34 @@
     return best;
   }
 
-  // --- Which display mode may run the mosaic (#343) ---
-  // Only `sessionDisplayMode: grid`. Tabs is single-view, and in panes `#terminals` is the pane
-  // tree's host — a mosaic switched on there pulls every terminal container out of its pane, drops
-  // `.visible` everywhere and leaves `grid-layout` and `display-mode-panes` live at once. That state
-  // is persisted, so it survives the restart, and the visible way out is hidden by CSS in panes mode.
-  // One predicate for every entry path: the tabs-only test it replaces was copied to four sites and
-  // missed the third mode in all of them.
-  const GRID_BLOCKED_MODES = ['tabs', 'panes'];
+  // --- What the stored display mode means (#357) ---
+  // Tabs mode is retired: a pane tree with a single leaf IS what it rendered — same strip, same
+  // session bar, same tools — and keeping both meant every tab feature had to be built twice, which
+  // the panes audit kept catching (tooltips, overflow arrows, roles, close chords). So a stored
+  // 'tabs' resolves to 'panes', and the single-pane tree it lands in is the mode the user had.
+  //
+  // Resolved on READ rather than rewritten in the database, the way the `tabsLiveRender` rename was
+  // (#339): nothing has to run before the setting is first used, and an install that never opens
+  // settings is migrated just as well as one that does.
+  //
+  // Every other value is grid, including a missing one and the legacy 'legacy' spelling.
+  function resolveSessionDisplayMode(stored) {
+    return (stored === 'panes' || stored === 'tabs') ? 'panes' : 'grid';
+  }
 
-  // From the stored setting. Anything that is not a blocked mode is grid — a missing value and the
-  // legacy 'legacy' spelling both mean grid mode.
+  // --- Which display mode may run the mosaic (#343) ---
+  // Only `sessionDisplayMode: grid`. In panes `#terminals` is the pane tree's host — a mosaic
+  // switched on there pulls every terminal container out of its pane, drops `.visible` everywhere
+  // and leaves `grid-layout` and `display-mode-panes` live at once. That state is persisted, so it
+  // survives the restart, and the visible way out is hidden by CSS in panes mode. One predicate for
+  // every entry path: the tabs-only test it replaces was copied to four sites and missed the third
+  // mode in all of them.
+  const GRID_BLOCKED_MODES = ['panes'];
+
+  // From the stored setting, which is resolved first — so an install still on 'tabs' is blocked for
+  // the same reason panes is, rather than falling through to grid and switching on the mosaic.
   function gridAllowedForMode(mode) {
-    return !GRID_BLOCKED_MODES.includes(mode);
+    return !GRID_BLOCKED_MODES.includes(resolveSessionDisplayMode(mode));
   }
 
   // From the DOM, for the paths that run long after the mode settled (the toggle chord). The BOOT
@@ -284,6 +299,7 @@
     MAX_GRID_ROWS,
     MOVE_MODE_DIRECTIONS,
     GRID_BLOCKED_MODES,
+    resolveSessionDisplayMode,
     gridAllowedForMode,
     gridAllowedInDom,
     calculateGridColumnCount,

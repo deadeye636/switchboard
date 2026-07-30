@@ -9,13 +9,33 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
-const { gridAllowedForMode, gridAllowedInDom } = require('../src/renderer/views/grid-layout');
+const { gridAllowedForMode, gridAllowedInDom, resolveSessionDisplayMode } = require('../src/renderer/views/grid-layout');
 
 const body = (...classes) => ({ classList: { contains: (c) => classes.includes(c) } });
 
-test('the mosaic is refused in tabs mode and in panes mode', () => {
-  assert.equal(gridAllowedForMode('tabs'), false);
+// --- What a stored display mode means (#357) ---------------------------------
+
+test('a stored tabs mode resolves to panes, which is what it rendered', () => {
+  // The migration IS this function: nothing rewrites the database, so an install that never opens
+  // settings has to land on panes the first time the setting is read.
+  assert.equal(resolveSessionDisplayMode('tabs'), 'panes');
+  assert.equal(resolveSessionDisplayMode('panes'), 'panes');
+});
+
+test('every other stored value is grid, including the ones that were never written', () => {
+  assert.equal(resolveSessionDisplayMode('grid'), 'grid');
+  assert.equal(resolveSessionDisplayMode('legacy'), 'grid', 'the legacy spelling of grid mode');
+  assert.equal(resolveSessionDisplayMode(undefined), 'grid');
+  assert.equal(resolveSessionDisplayMode(null), 'grid');
+  assert.equal(resolveSessionDisplayMode(''), 'grid');
+  assert.equal(resolveSessionDisplayMode('Tabs'), 'grid', 'the stored value is lower case; this is not it');
+});
+
+test('the mosaic is refused in panes mode, and for the retired mode that resolves to it', () => {
   assert.equal(gridAllowedForMode('panes'), false);
+  // #357: tabs is retired and a stored value still says so. It resolves to panes, so it is blocked
+  // for the same reason — not by a leftover entry in the blocked list.
+  assert.equal(gridAllowedForMode('tabs'), false);
 });
 
 test('grid mode allows it, and so does every spelling that means grid mode', () => {
@@ -27,8 +47,9 @@ test('grid mode allows it, and so does every spelling that means grid mode', () 
 });
 
 test('the DOM gate reads the body classes the mode chain sets', () => {
-  assert.equal(gridAllowedInDom(body('display-mode-tabs')), false);
   assert.equal(gridAllowedInDom(body('display-mode-panes')), false);
+  // `display-mode-tabs` is not in the list because nothing sets it any more (#357). A body that
+  // somehow carried it would be a body from before the upgrade, and the mode chain rewrites it.
   assert.equal(gridAllowedInDom(body()), true);
   // A class that merely starts the same way is not the mode.
   assert.equal(gridAllowedInDom(body('display-mode-panes-something')), true);
@@ -88,15 +109,6 @@ test('showGridView refuses in panes mode, and writes no flag (#343)', () => {
     assert.equal(g.seen.paletteClosed, 0, 'the gate returned before the body of the function');
     assert.equal(g.window.gridViewActive, false);
     assert.equal(g.window.localStorage.getItem('gridViewActive'), null, 'no persisted flag to survive a restart');
-  } finally { g.dom.window.close(); }
-});
-
-test('showGridView refuses in tabs mode too (#343)', () => {
-  const g = loadGridView('display-mode-tabs');
-  try {
-    g.call();
-    assert.equal(g.seen.paletteClosed, 0);
-    assert.equal(g.window.localStorage.getItem('gridViewActive'), null);
   } finally { g.dom.window.close(); }
 });
 
