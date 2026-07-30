@@ -60,7 +60,7 @@
       stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
       orphanSubagentMaxAgeDaysValue,
       tabAutoCloseDelayValue, tabAutoCloseModeValue,
-      tabCloseValue, tabDragValue, tabMiddleClickValue, tabPositionValue, tabsLiveRenderValue,
+      tabCloseValue, tabDragValue, tabMiddleClickValue, tabPositionValue, liveRenderBackgroundValue,
       terminalCloseValue, terminalFontCustomValue, terminalFontSelectValue, terminalFontSizeValue,
       terminalShellProfileValue, themeValue, usage5hCritValue, usage5hWarnValue, usage7dCritValue,
       usage7dWarnValue, usageBackendRowsHtml, visCountValue,
@@ -571,12 +571,12 @@
                 <div class="settings-section">
                   <div class="settings-field">
                     <div class="settings-field-info">
-                      <div class="settings-field-header"><span class="settings-label">Live-render background tabs</span>${help}</div>
-                      <div class="settings-description">Parse output from background tabs as it arrives instead of replaying it on switch. No catch-up jump when you return to a tab.</div>
-                      <div class="settings-more">On: a background tab's output is parsed as it arrives (a few times a second), so switching to it shows the current screen with nothing to catch up. Off: the output is held as raw bytes and written in one go when you switch, which jumps the view to the bottom and costs memory while the tab waits. Neither setting changes what is drawn — a covered tab is never painted.</div>
+                      <div class="settings-field-header"><span class="settings-label">Live-render background sessions</span>${help}</div>
+                      <div class="settings-description">Parse a background session's output as it arrives instead of replaying it on switch. No catch-up jump when you come back to it.</div>
+                      <div class="settings-more">On: the output of a session that is open but not on top is parsed as it arrives (a few times a second), so switching to it shows the current screen with nothing to catch up. Off: it is held as raw bytes and written in one go when you switch, which jumps the view to the bottom and costs memory while it waits. Neither setting changes what is <i>drawn</i> — a covered terminal is never painted. Applies in tabs and panes mode, where every open terminal stays mounted; a grid card scrolled out of view always buffers, because it is not laid out at all.</div>
                     </div>
                     <div class="settings-field-control">
-                      <label class="settings-toggle"><input type="checkbox" id="sv-tabs-live-render" ${tabsLiveRenderValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                      <label class="settings-toggle"><input type="checkbox" id="sv-live-render-background" ${liveRenderBackgroundValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                     </div>
                   </div>
                 </div>

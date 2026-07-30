@@ -245,6 +245,10 @@ test('Stage B: visible session uses the fast 33ms cadence (no regression)', () =
 test('Stage A: flushTerminalBuffer does NOT call write() for a non-visible session', () => {
   const { window, spies, inCtx, destroy } = setupDom();
   try {
+    // Stage A is the BUFFERED path, and since #339 what selects it is the setting (or grid mode),
+    // not "the display mode is not tabs" — with live render on, a mounted background session is
+    // written to as its output arrives.
+    window._setLiveRenderBackground(false);
     window.createTerminalEntry({ sessionId: 's1' });
     // No 'visible' class → non-visible
 
@@ -260,6 +264,10 @@ test('Stage A: flushTerminalBuffer does NOT call write() for a non-visible sessi
 test('Stage A: flushTerminalBuffer accumulates raw chunks in rawReplayBuffers for non-visible session', () => {
   const { window, inCtx, destroy } = setupDom();
   try {
+    // Stage A is the BUFFERED path, and since #339 what selects it is the setting (or grid mode),
+    // not "the display mode is not tabs" — with live render on, a mounted background session is
+    // written to as its output arrives.
+    window._setLiveRenderBackground(false);
     window.createTerminalEntry({ sessionId: 's1' });
 
     inCtx(`terminalWriteBuffers.set('s1', { chunks: ['hello'], rafId: 0, timerId: 0 })`);
@@ -299,6 +307,10 @@ test('Stage A: flushTerminalBuffer calls write() for a visible session (no regre
 test('Stage A: showSession drains rawReplayBuffer via a single write() and clears it', () => {
   const { window, spies, inCtx, destroy } = setupDom();
   try {
+    // Stage A is the BUFFERED path, and since #339 what selects it is the setting (or grid mode),
+    // not "the display mode is not tabs" — with live render on, a mounted background session is
+    // written to as its output arrives.
+    window._setLiveRenderBackground(false);
     window.createTerminalEntry({ sessionId: 's1' });
 
     // Simulate two background flushes accumulating data in replay buffer
@@ -388,6 +400,10 @@ test('Stage A: grid card (visible + grid-mode) still receives writes — activeS
 test('Stage A: destroySession clears rawReplayBuffers entry', () => {
   const { window, inCtx, destroy } = setupDom();
   try {
+    // Stage A is the BUFFERED path, and since #339 what selects it is the setting (or grid mode),
+    // not "the display mode is not tabs" — with live render on, a mounted background session is
+    // written to as its output arrives.
+    window._setLiveRenderBackground(false);
     window.createTerminalEntry({ sessionId: 's1' });
 
     // Accumulate some data
@@ -475,6 +491,57 @@ test('#128: no re-fit when the id was reused by a different entry', async () => 
 
     assert.equal(spies.resize, before.resize, 'the replacement entry is left alone');
     assert.equal(spies.refresh, before.refresh);
+  } finally {
+    destroy();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// #339 — the live/buffered decision is about the SESSION, not the display mode
+// ---------------------------------------------------------------------------
+
+test('#339: a mounted background session is written to live, whatever mode is on', () => {
+  const { window, spies, inCtx, destroy } = setupDom();
+  try {
+    window.createTerminalEntry({ sessionId: 's1' }); // no 'visible' class → behind another one
+    // No `display-mode-tabs` on the body. That used to be the whole condition, which is why panes
+    // buffered: its background tabs are mounted and laid out exactly like tabs' are.
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['data'], rafId: 0, timerId: 0 })`);
+    window.flushTerminalBuffer('s1');
+
+    assert.strictEqual(spies.write, 1, 'written as it arrives');
+    assert.strictEqual(inCtx(`rawReplayBuffers.has('s1')`), false, 'so there is nothing to replay');
+  } finally {
+    destroy();
+  }
+});
+
+test('#339: a grid card out of view still buffers', () => {
+  const { window, spies, inCtx, destroy } = setupDom();
+  try {
+    window.createTerminalEntry({ sessionId: 's1' });
+    // Grid is the case that genuinely differs: a card scrolled out of its box is not laid out, so the
+    // write buys nothing and the replay buffer is the cheaper place for the bytes.
+    inCtx(`gridViewActive = true`);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['data'], rafId: 0, timerId: 0 })`);
+    window.flushTerminalBuffer('s1');
+
+    assert.strictEqual(spies.write, 0);
+    assert.strictEqual(inCtx(`rawReplayBuffers.get('s1').join('')`), 'data');
+  } finally {
+    destroy();
+  }
+});
+
+test('#339: the switch still turns it off', () => {
+  const { window, spies, inCtx, destroy } = setupDom();
+  try {
+    window.createTerminalEntry({ sessionId: 's1' });
+    window._setLiveRenderBackground(false);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['data'], rafId: 0, timerId: 0 })`);
+    window.flushTerminalBuffer('s1');
+
+    assert.strictEqual(spies.write, 0, 'buffered on request, in every mode');
   } finally {
     destroy();
   }

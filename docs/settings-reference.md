@@ -57,6 +57,8 @@ back on Save.
 | `secretRefSweepMinutes` | Secret temp-file sweep (minutes) — *Advanced* | ≥ 0, `0` = off | `0` | global |
 
 `terminalWebgl` is a retired key: a stored `false` migrates to `gpuAcceleration: 'off'`.
+`tabsLiveRender` is retired too (#339): it is read as the fallback for `liveRenderBackground`, so a
+stored preference survives — the setting stopped being about tabs when panes started obeying it.
 
 ## Terminal tools
 
@@ -80,7 +82,7 @@ back on Save.
 | `tabDragReorder` | Reorder tabs by dragging | bool | `true` | global |
 | `tabAutoCloseMode` | Auto-close tab after a session exits | `never` \| `onSuccess` \| `always` | `always` | global |
 | `tabAutoCloseDelaySec` | Auto-close delay (seconds) | 0–120 | `5` | global |
-| `tabsLiveRender` | Live-render background tabs — *Advanced*. Parses background output as it arrives instead of replaying it on switch; it does **not** change what is painted (a covered tab is never drawn). **Tabs mode only** — panes and grid always buffer (#339) | bool | `true` | global |
+| `liveRenderBackground` | Live-render background sessions — *Advanced*. Parses a background session's output as it arrives instead of replaying it on switch; it does **not** change what is painted (a covered terminal is never drawn). Applies in **tabs and panes**, where every open terminal stays mounted; a grid card scrolled out of view always buffers, because it is not laid out (#339) | bool | `true` | global |
 | `sidebarWidth` | (no UI — drag the divider) | px | `340` | **cascades** |
 | `tabOrder`, `windowBounds` | (no UI) | — | — | global; `windowBounds` is never exported |
 

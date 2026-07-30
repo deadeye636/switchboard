@@ -519,7 +519,13 @@ if (typeof module !== 'undefined' && module.exports) {
     dragReorder = g.tabDragReorder !== false;
     autoCloseMode = resolveAutoCloseMode(g);
     autoCloseDelaySec = resolveAutoCloseDelaySec(g);
-    if (typeof window._setTabsLiveRender === 'function') window._setTabsLiveRender(g.tabsLiveRender !== false);
+    // `tabsLiveRender` is the retired name (#339): the setting stopped being about tabs when panes
+    // started obeying it. A stored preference still counts — reading the old key second is what makes
+    // the rename invisible to whoever had already turned it off.
+    if (typeof window._setLiveRenderBackground === 'function') {
+      const stored = g.liveRenderBackground !== undefined ? g.liveRenderBackground : g.tabsLiveRender;
+      window._setLiveRenderBackground(stored !== false);
+    }
     tabOrder = Array.isArray(g.tabOrder) ? g.tabOrder.slice() : [];
     applyMode();
     // Panes mode owns the terminal area itself (#309): it enables on 'panes' and

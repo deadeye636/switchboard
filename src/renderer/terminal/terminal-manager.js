@@ -639,8 +639,8 @@ window._setTerminalFontFamily = (family) => {
 // sees the lag because `showSession` flushes on switch.
 //
 // Tabs mode only — panes and grid never consult it (#339).
-let tabsLiveRenderEnabled = true;
-window._setTabsLiveRender = (v) => { tabsLiveRenderEnabled = v !== false; };
+let liveRenderBackgroundEnabled = true;
+window._setLiveRenderBackground = (v) => { liveRenderBackgroundEnabled = v !== false; };
 
 // Persist the zoomed size back into the global blob so it survives a restart.
 // Merge-read so we never clobber other global keys.
@@ -990,10 +990,17 @@ function flushTerminalBuffer(sessionId) {
   if (terminalMouseMode === 'off') data = stripMouseReporting(data);
   lastFlushAt.set(sessionId, performance.now());
 
-  // Live-render mode (tabs, default on): write output to background tabs too, so
-  // there's nothing to replay on show → no catch-up write/scroll flicker when
-  // returning to a tab that produced output. Off (or grid): buffer + replay.
-  const liveRender = tabsLiveRenderEnabled && document.body.classList.contains('display-mode-tabs');
+  // Live render (default on): write a background session's output as it arrives, so there is nothing
+  // to replay on show → no catch-up write and no scroll snap when returning to a session that produced
+  // output while it was behind another one. Off: buffer the raw bytes and replay them on reveal.
+  //
+  // The question this asks is about the SESSION, not the display mode (#339). A terminal that is
+  // mounted and laid out — every open one in tabs mode, every pane tab in panes mode — costs a parse
+  // and no paint to write to, because nothing covering it is redrawn. A grid card scrolled out of its
+  // box is the other case: it is not laid out, the write buys nothing, and the replay buffer is the
+  // cheaper place for the bytes. Panes used to sit on the buffered side purely because this line named
+  // a mode, though its background tabs are in exactly the situation tabs' are.
+  const liveRender = liveRenderBackgroundEnabled && !gridViewActive;
 
   // Stage A: skip write() for non-visible sessions; accumulate raw data for replay.
   if (!liveRender && !isSessionVisible(sessionId)) {

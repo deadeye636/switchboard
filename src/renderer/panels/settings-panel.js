@@ -232,7 +232,9 @@
     const tabDragValue = fieldValue('tabDragReorder', true);
     const tabAutoCloseModeValue = fieldValue('tabAutoCloseMode', 'always');
     const tabAutoCloseDelayValue = fieldValue('tabAutoCloseDelaySec', 5);
-    const tabsLiveRenderValue = fieldValue('tabsLiveRender', true);
+    // #339: renamed from `tabsLiveRender` when panes started obeying it. The old key is the fallback,
+    // so a stored preference survives the rename.
+    const liveRenderBackgroundValue = fieldValue('liveRenderBackground', fieldValue('tabsLiveRender', true));
     const restoreSessionsValue = fieldValue('restoreSessionsOnLaunch', true);
     const confirmQuitValue = fieldValue('confirmQuitWithRunningSessions', true);
     const attentionHooksValue = fieldValue('attentionHooks', false);
@@ -438,7 +440,7 @@
         stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
         orphanSubagentMaxAgeDaysValue,
         tabAutoCloseDelayValue, tabAutoCloseModeValue,
-        tabCloseValue, tabDragValue, tabMiddleClickValue, tabPositionValue, tabsLiveRenderValue,
+        tabCloseValue, tabDragValue, tabMiddleClickValue, tabPositionValue, liveRenderBackgroundValue,
         terminalCloseValue, terminalFontCustomValue, terminalFontSelectValue, terminalFontSizeValue,
         terminalShellProfileValue, themeValue, usage5hCritValue, usage5hWarnValue, usage7dCritValue,
         usage7dWarnValue, usageBackendRowsHtml, visCountValue,
@@ -784,7 +786,7 @@
           const d = parseInt(settingsViewerBody.querySelector('#sv-tab-autoclose-delay').value, 10);
           settings.tabAutoCloseDelaySec = Math.max(0, Math.min(120, Number.isFinite(d) ? d : 5));
         }
-        settings.tabsLiveRender = settingsViewerBody.querySelector('#sv-tabs-live-render').checked;
+        settings.liveRenderBackground = settingsViewerBody.querySelector('#sv-live-render-background').checked;
         settings.restoreSessionsOnLaunch = settingsViewerBody.querySelector('#sv-restore-sessions').checked;
         settings.confirmQuitWithRunningSessions = settingsViewerBody.querySelector('#sv-confirm-quit').checked;
         // The attention hook now lives on the CLAUDE backend page (it patches Claude's own
