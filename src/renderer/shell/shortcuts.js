@@ -49,6 +49,9 @@ const DEFAULT_SHORTCUTS = {
   // second arrow chord) keeps this off Ctrl+Alt+Arrow, which is the workspace
   // switcher on most Linux desktops — see the sessionNavArrows note above.
   gridMoveMode: { primary: true, alt: false, shift: true, key: 'm' },
+  // The same chord as grid's, deliberately: the two modes cannot both be on, and "move mode" meaning
+  // one thing in the app is worth more than two bindings nobody would remember apart (#356).
+  paneMoveMode: { primary: true, alt: false, shift: true, key: 'm' },
   // Splitting, by PHYSICAL key (#353). Two keys, one per axis, with Alt reversing the direction:
   // `\` draws a vertical divider (left/right), `-` a horizontal one (up/down) — the shape Windows
   // Terminal uses. NOT bare Ctrl+\: that is 0x1c (SIGQUIT) to the PTY, so the terminal would lose it.
@@ -191,6 +194,13 @@ const SHORTCUT_DEFS = [
     id: 'paneCloseTab',
     label: 'Close tab',
     description: 'Close the focused pane’s active tab, following the configured close behaviour',
+    family: 'key',
+    group: 'panes',
+  },
+  {
+    id: 'paneMoveMode',
+    label: 'Move a tab between panes',
+    description: 'Enter move mode on the active tab: arrows move it to the pane in that direction, Esc or Enter leaves',
     family: 'key',
     group: 'panes',
   },

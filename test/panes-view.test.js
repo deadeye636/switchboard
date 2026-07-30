@@ -2327,3 +2327,118 @@ test('"Tile all sessions" appears once there is something to tile (#356)', async
     assert.equal(tile.disabled, false);
   } finally { h.destroy(); }
 });
+
+// --- #356: the keyboard move mode --------------------------------------------
+
+// Two panes side by side WITH geometry: `neighbourPaneId` reads bounding rectangles, and jsdom has
+// none, so a move mode test without these would find no neighbour in any direction.
+async function twoPanesWithBoxes(h) {
+  await twoPanes(h);
+  const panes = [...h.document.querySelectorAll('.pane')];
+  const boxes = [
+    { left: 0, top: 0, width: 500, height: 800 },
+    { left: 500, top: 0, width: 500, height: 800 },
+  ];
+  panes.forEach((pane, i) => {
+    const box = boxes[i];
+    pane.getBoundingClientRect = () => ({ ...box, right: box.left + box.width, bottom: box.top + box.height });
+  });
+  return panes;
+}
+
+test('move mode needs a second pane, and says so (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    assert.equal(h.panes.enterTabMoveMode(), false, 'one pane, nowhere to move to');
+    assert.equal(h.panes.isTabMoveModeActive(), false);
+  } finally { h.destroy(); }
+});
+
+test('move mode marks its pane and moves the active tab (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanesWithBoxes(h); // 'a' in pane-1, 'b' in pane-2, side by side
+    h.panes.focusPaneByIndex(1);
+    await h.settle();
+
+    assert.equal(h.panes.enterTabMoveMode(), true);
+    assert.equal(h.panes.isTabMoveModeActive(), true);
+    assert.ok(h.document.querySelector('.pane.pane-move-mode'), 'the pane says it is in the mode');
+
+    assert.equal(h.panes.moveTabInDirection('right'), true);
+    await h.settle();
+    // 'a' followed the move into pane-2, and pane-1 collapsed with its last tab (#309 O10).
+    const panes = [...h.document.querySelectorAll('.pane')];
+    assert.equal(panes.length, 1);
+    assert.deepEqual(
+      [...panes[0].querySelectorAll('.session-tab[data-session-id]')].map((t) => t.dataset.sessionId).sort(),
+      ['a', 'b']);
+    // Nothing left to move between, so the mode ended itself rather than running with no target.
+    assert.equal(h.panes.isTabMoveModeActive(), false);
+  } finally { h.destroy(); }
+});
+
+test('a direction with no pane in it moves nothing (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanesWithBoxes(h);
+    h.panes.focusPaneByIndex(1);
+    h.panes.enterTabMoveMode();
+    await h.settle();
+
+    assert.equal(h.panes.moveTabInDirection('up'), false, 'nothing above in a row layout');
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane').length, 2, 'the layout is untouched');
+    assert.equal(h.panes.isTabMoveModeActive(), true, 'and the mode is still running');
+  } finally { h.destroy(); }
+});
+
+test('a move made by the mode is undoable (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanesWithBoxes(h);
+    h.panes.focusPaneByIndex(1);
+    h.panes.enterTabMoveMode();
+    h.panes.moveTabInDirection('right');
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane').length, 1);
+
+    h.panes.undoLayout();
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane').length, 2, 'both panes are back');
+  } finally { h.destroy(); }
+});
+
+test('the mode survives a rebuild, and keeps its marker (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanesWithBoxes(h);
+    h.panes.focusPaneByIndex(1);
+    h.panes.enterTabMoveMode();
+    await h.settle();
+    const marked = h.document.querySelector('.pane.pane-move-mode').dataset.paneId;
+
+    // This mode renders constantly — a status tick, a session adopted, a settings change — and a
+    // rebuild throws the marker class away. Driven in the running app, a mode that ended on any
+    // render was over before the first arrow key: it has to survive one instead.
+    h.panes.render();
+    await h.settle();
+    assert.equal(h.panes.isTabMoveModeActive(), true, 'still running');
+    assert.equal(h.document.querySelector('.pane.pane-move-mode').dataset.paneId, marked,
+      'and the marker came back on the same pane');
+  } finally { h.destroy(); }
+});
+
+test('leaving panes mode leaves the move mode too (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanesWithBoxes(h);
+    h.panes.focusPaneByIndex(1);
+    h.panes.enterTabMoveMode();
+    await h.settle();
+    h.disable();
+    assert.equal(h.panes.isTabMoveModeActive(), false, 'the panes it was navigating are gone');
+  } finally { h.destroy(); }
+});

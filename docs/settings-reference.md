@@ -164,6 +164,7 @@ character `\` could not be pressed on any keyboard (#353). The four punctuation 
 | `paneZoom` | Zoom the focused pane, and back (panes mode) | primary+Shift+Z |
 | `paneCloseTab` | Close the focused pane's active tab (panes mode) | primary+Shift+W |
 | `paneClose` | Close the focused pane (panes mode) | primary+Shift+K |
+| `paneMoveMode` | Move a tab between panes (panes mode) — arrows move it, Esc leaves | primary+Shift+M |
 | `nextAttention` | Next attention item | primary+Shift+A — **not re-bindable**, preserved on save |
 
 `sessionNavArrows` means three different journeys depending on the display mode: it cycles sessions in

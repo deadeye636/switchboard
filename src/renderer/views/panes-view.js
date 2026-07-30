@@ -354,6 +354,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // The zoom lives on the DOM, not in the tree, so a rebuild has to re-assert it — and drop it
     // when the pane it pointed at is no longer there (#350).
     applyZoom();
+    // Same for the move mode's marker (#356). It must SURVIVE a rebuild rather than end on one: this
+    // mode renders constantly — a status tick, a session adopted, a settings change — so a mode that
+    // gave up on any render would be unusable in the running app, which is exactly how it behaved
+    // when it was first driven. Grid states the same rule from the other side (`gridInteracting`).
+    markMoveModePane();
     // Flush BEFORE anything becomes visible (#337). A background tab's output is buffered in this
     // mode, and the coalescing buffer can hold up to two seconds of it. Once the element carries
     // `.visible`, that pending chunk takes the write path immediately — and the drain in
@@ -2537,6 +2542,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // branch, re-adopted the element into a pane — and the pane was then removed
     // with the element inside it.
     enabled = false;
+    tabMoveMode = false; // the panes it was navigating are about to go
     // Hand every shrunk buffer its full budget back (#352) — the setting is a panes-mode one, and
     // tabs and grid decide this for themselves.
     restoreScrollbackBudgets();
@@ -2787,15 +2793,99 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // No wrap. An arrow that walks off the edge of the layout does nothing, which is what every tiling
   // window manager does; wrapping is how the old version turned "up" into "somewhere else".
   function focusNeighbourPane(direction) {
-    if (!enabled || !tree) return false;
+    const target = neighbourPaneId(direction);
+    if (!target) return false;
+    focusPane(target);
+    return true;
+  }
+
+  // The pane that lies in `direction` from the active one, on screen. Shared with the move mode below,
+  // so "which pane is to my left" has one answer whether you are moving the focus or a tab.
+  function neighbourPaneId(direction) {
+    if (!enabled || !tree) return null;
     const panes = [...terminalsEl.querySelectorAll('.pane')];
-    if (panes.length < 2) return false;
+    if (panes.length < 2) return null;
     const at = panes.findIndex((p) => p.dataset.paneId === activeLeafId);
-    if (at < 0) return false;
+    if (at < 0) return null;
     const rects = panes.map((p) => p.getBoundingClientRect());
     const best = (typeof pickGridNeighbor === 'function') ? pickGridNeighbor(rects, at, direction) : -1;
-    if (best < 0) return false;
-    focusPane(panes[best].dataset.paneId);
+    return best < 0 ? null : panes[best].dataset.paneId;
+  }
+
+  // --- Keyboard move mode (#356) --------------------------------------------
+  //
+  // Grid has one; panes had arrows, splits and drag, and no keyboard way to say "move this tab there".
+  // Same shape as grid's so the gesture transfers: a chord enters it, arrows act, Escape or Enter
+  // leaves, and every step is announced through the strip's live region (#351).
+  //
+  // What it moves is the ACTIVE TAB of the active pane — the same subject the rest of the pane
+  // shortcuts act on, so there is no second notion of "the tab you mean".
+
+  let tabMoveMode = false;
+
+  const isTabMoveModeActive = () => tabMoveMode;
+
+  // Put the marker back on whichever pane is active now. Called by every rebuild, so the class is a
+  // projection of the state rather than the state itself.
+  function markMoveModePane() {
+    if (!enabled) return;
+    for (const pane of terminalsEl.querySelectorAll('.pane-move-mode')) pane.classList.remove('pane-move-mode');
+    if (!tabMoveMode) return;
+    const pane = terminalsEl.querySelector('.pane[data-pane-id="' + activeLeafId + '"]');
+    if (pane) pane.classList.add('pane-move-mode');
+  }
+
+  function enterTabMoveMode() {
+    if (!enabled || !tree || tabMoveMode) return false;
+    const leaf = activeLeaf();
+    const tab = leaf && leaf.tabs.find((t) => t.id === leaf.activeTabId);
+    if (!tab) return false;
+    if (PaneTree.leaves(tree).length < 2) {
+      announcePane('Move mode needs a second pane. Split this one first.');
+      return false;
+    }
+    tabMoveMode = true;
+    markMoveModePane();
+    announcePane(`Move mode. ${tabBaseName(tab)}. Arrows move it to the pane in that direction, Escape leaves.`);
+    return true;
+  }
+
+  function exitTabMoveMode({ announce = false } = {}) {
+    if (!tabMoveMode) return;
+    tabMoveMode = false;
+    markMoveModePane();
+    if (announce) announcePane('Move mode off.');
+  }
+
+  /**
+   * Move the active tab into the pane that lies in `direction`, and follow it.
+   *
+   * Following is the point: the mode exists to place a tab, and a user who cannot see where it went
+   * has to leave the mode to find out. The pane it left collapses if that was its last tab, which is
+   * the same rule every other close path follows (#309 O10) — so the mode ends when the tree it was
+   * navigating no longer has two panes.
+   */
+  function moveTabInDirection(direction) {
+    if (!enabled || !tree || !tabMoveMode) return false;
+    const leaf = activeLeaf();
+    const tab = leaf && leaf.tabs.find((t) => t.id === leaf.activeTabId);
+    const target = neighbourPaneId(direction);
+    if (!tab || !target) {
+      announcePane(`No pane to the ${direction}.`);
+      return false;
+    }
+    pushUndo();
+    tree = PaneTree.moveTab(tree, { fromLeafId: leaf.id, toLeafId: target, tabId: tab.id });
+    activeLeafId = target;
+    activeLeaf(); // the source pane can have collapsed away with its last tab
+    render();
+    persist();
+    showActiveOrPlaceholder();
+    const panes = PaneTree.leaves(tree);
+    const at = panes.findIndex((l) => l.id === activeLeafId);
+    announcePane(`${tabBaseName(tab)} moved ${direction}. Pane ${at + 1} of ${panes.length}.`);
+    // Nothing left to move between: the source pane went with the tab.
+    if (panes.length < 2) exitTabMoveMode({ announce: true });
     return true;
   }
 
@@ -2889,6 +2979,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     isZoomed: () => !!zoomedLeafId,
     undoLayout,
     tileAllSessions,
+    enterTabMoveMode,
+    exitTabMoveMode,
+    isTabMoveModeActive,
+    moveTabInDirection,
   };
 
   // A window resize changes every pane's box; refit what is on screen.

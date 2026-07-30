@@ -8107,6 +8107,28 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
 .pane-strip .session-tab:not(.active) { flex-shrink: 4; }
 .pane-strip .session-tab:not(.active) .session-tab-label { min-width: 0; }
 
+/* Keyboard move mode (#356): the pane holding the tab being moved says so, because the mode owns the
+   bare arrow keys and a mode with no visible state is a mode the user cannot leave on purpose. Same
+   idea as the zoom badge below, in the colour the app uses for "this is active". */
+body.display-mode-panes .pane.pane-move-mode {
+  outline: 2px solid #8088ff;
+  outline-offset: -2px;
+}
+body.display-mode-panes .pane.pane-move-mode > .pane-strip::before {
+  content: 'Moving';
+  order: -1;
+  flex-shrink: 0;
+  align-self: center;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8088ff;
+  border: 1px solid rgba(128, 136, 255, 0.4);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-right: 6px;
+}
+
 /* Zoom (#350): the focused pane fills the terminal area while the tree underneath is untouched, so
    leaving zoom restores the arrangement exactly. Done by lifting the target out of the flex flow
    rather than by rewriting the layout — a resize would have to be undone, and there is no undo. */

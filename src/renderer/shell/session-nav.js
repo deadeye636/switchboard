@@ -117,7 +117,43 @@ function isSessionNavKey(e) {
 const PANE_SHORTCUTS = [
   'paneSplit', 'paneSplitLeft', 'paneSplitDown', 'paneSplitUp',
   'paneFocusDigit', 'paneTabNav', 'paneZoom', 'paneCloseTab', 'paneClose',
+  'paneMoveMode',
 ];
+
+/**
+ * The pane move mode's keys (#356), answered before anything else — while it runs it owns the bare
+ * arrows, and its activation chord must not fall through to another action. Grid's equivalent sits
+ * directly above for the same reason.
+ *
+ * The chord test is `isMoveModeChord`, the same one grid uses: bare or Shift-only arrows, Escape and
+ * Enter, and nothing carrying the primary or alt modifier — so session navigation still works inside
+ * the mode.
+ */
+function handlePaneMoveModeKey(e) {
+  const panes = window.panesView;
+  if (!panes || !panes.active()) return false;
+
+  if (matchShortcut('paneMoveMode', e, isMac, appShortcuts)) {
+    e.preventDefault();
+    if (e.type !== 'keydown') return true;
+    if (panes.isTabMoveModeActive()) panes.exitTabMoveMode({ announce: true });
+    else panes.enterTabMoveMode();
+    return true;
+  }
+
+  if (!panes.isTabMoveModeActive() || typeof isMoveModeChord !== 'function' || !isMoveModeChord(e, isMac)) {
+    return false;
+  }
+  e.preventDefault();
+  if (e.type !== 'keydown') return true;
+  if (e.key === 'Escape' || e.key === 'Enter') {
+    panes.exitTabMoveMode({ announce: true });
+    return true;
+  }
+  const direction = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }[e.key];
+  if (direction) panes.moveTabInDirection(direction);
+  return true;
+}
 
 // Resolve the active next-attention binding (override-aware) without coupling
 // grid-view to app.js init order.
@@ -129,6 +165,7 @@ function handleSessionNavKey(e) {
   // Move mode first: while it runs it owns bare arrows / Esc / Enter, and its
   // activation chord must not fall through to another action.
   if (handleGridMoveModeKey(e)) return true;
+  if (handlePaneMoveModeKey(e)) return true;
 
   // Cmd/Ctrl+Shift+A — focus next session needing attention
   if (typeof isNextAttentionKey === 'function' && isNextAttentionKey(e, nextAttentionBindingForNav())) {
@@ -170,6 +207,9 @@ function handleSessionNavKey(e) {
       paneZoom: () => window.panesView.toggleZoom(),
       paneCloseTab: () => window.panesView.closeActiveTab(),
       paneClose: () => window.panesView.closeActivePane(),
+      // Handled earlier by `handlePaneMoveModeKey`; listed so the guard list and this table stay the
+      // same set, which is what that list exists to guarantee.
+      paneMoveMode: () => {},
     };
     for (const id of PANE_SHORTCUTS) {
       if (!matchShortcut(id, e, isMac, appShortcuts)) continue;
