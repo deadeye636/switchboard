@@ -453,6 +453,64 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     return sash;
   }
 
+  /**
+   * Give every open session a pane of its own, in a grid the window's width decides (#356).
+   *
+   * Grid's counterpart is a MODE that arranges continuously; this is a command that produces an
+   * arrangement the user then owns and edits like any other. That difference is the whole reason panes
+   * can have it without becoming grid.
+   *
+   * It replaces what is there, and that is safe because "Undo layout change" (#352) is one click away —
+   * a confirm dialog for something a single click reverses is a question nobody wants asked.
+   *
+   * Nothing is mounted here. Tiling arranges sessions that are ALREADY open, so grid's auto-open seam
+   * (`attachRunningSession`, and the guard that keeps a detached session from being mounted twice) is
+   * not on this path at all.
+   */
+  function tileAllSessions() {
+    if (!enabled || !tree) return false;
+    // Keep the order the user already sees: tabs in visual order first, then anything mounted that has
+    // no tab yet. Re-sorting here would move sessions for no reason the user could name.
+    const seen = new Set();
+    const tabs = [];
+    for (const leaf of PaneTree.leaves(tree)) {
+      for (const tab of leaf.tabs) {
+        const sessionId = sessionOfTab(tab);
+        // View tabs are dropped: a tiling is about sessions, and a pane holding only a preview would
+        // be a pane the command invented for something the user did not ask to see.
+        if (!sessionId || seen.has(sessionId)) continue;
+        seen.add(sessionId);
+        tabs.push(tab);
+      }
+    }
+    for (const sessionId of openSessions.keys()) {
+      if (seen.has(sessionId)) continue;
+      seen.add(sessionId);
+      tabs.push(makeTerminalTab(sessionId));
+    }
+    if (!tabs.length) return false;
+
+    const width = (terminalsEl && terminalsEl.clientWidth) || 0;
+    const height = (terminalsEl && terminalsEl.clientHeight) || 0;
+    // `calculateTileColumnCount`, NOT grid's own: grid scrolls, so width alone can constrain it, while
+    // a pane tree shares one viewport and every pane takes height from the others. Measured on a
+    // 1020 × 952 area, grid's formula answered "one column" for seven sessions — seven six-row
+    // terminals. The shared module owns both formulas (#350, #354); this one just picks the right one.
+    const columns = (typeof calculateTileColumnCount === 'function' && width && height)
+      ? calculateTileColumnCount({ width, height, count: tabs.length })
+      : Math.ceil(Math.sqrt(tabs.length));
+
+    pushUndo();
+    tree = PaneTree.tileTabs(tabs, columns);
+    activeLeafId = PaneTree.leaves(tree)[0].id;
+    zoomedLeafId = null; // a zoom points at a pane that no longer exists
+    render();
+    persist();
+    showActiveOrPlaceholder();
+    announcePane(`Tiled ${tabs.length} session${tabs.length === 1 ? '' : 's'} into ${columns} column${columns === 1 ? '' : 's'}`);
+    return true;
+  }
+
   function distributeAllPanes() {
     if (!enabled || !tree) return;
     pushUndo();
@@ -2015,10 +2073,15 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // has no keyboard shortcut on purpose: Ctrl+Z belongs to whatever runs in the terminal, and a
     // layout undo stealing it would be the more surprising of the two.
     const presets = readPresets();
-    if (undoStack.length || presets.length || PaneTree.leaves(tree).length > 1) {
+    if (undoStack.length || presets.length || PaneTree.leaves(tree).length > 1 || openSessions.size > 1) {
       separator();
       groupLabel('Layout');
       item('Undo layout change', () => undoLayout(), { disabled: !undoStack.length });
+      // One pane per open session, in a grid the window's width decides (#356) — a command, not a
+      // mode. Nothing to tile with a single session already in its own pane.
+      item('Tile all sessions', () => tileAllSessions(), {
+        disabled: openSessions.size < 2 && PaneTree.leaves(tree).length < 2,
+      });
       item('Save layout…', () => saveLayoutPreset());
       for (const preset of presets) {
         // Shift-click deletes, so a saved layout needs neither a submenu nor an editing mode to be
@@ -2825,6 +2888,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     toggleZoom,
     isZoomed: () => !!zoomedLeafId,
     undoLayout,
+    tileAllSessions,
   };
 
   // A window resize changes every pane's box; refit what is on screen.

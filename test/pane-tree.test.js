@@ -11,6 +11,7 @@ const {
   leaves,
   leafOfTab,
   splitLeaf,
+  tileTabs,
   addTab,
   setActiveTab,
   replaceTab,
@@ -476,4 +477,45 @@ test('distributeAllEvenly evens every branch, not just the root (#352)', () => {
 test('distributeAllEvenly leaves a single-leaf tree alone (#352)', () => {
   const tree = createTree('pane-1', []);
   assert.deepEqual(distributeAllEvenly(tree), tree);
+});
+
+// --- #356: tiling every open session into a fresh tree -----------------------
+
+test('tileTabs gives every tab a pane of its own, column-major (#356)', () => {
+  const tabs = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => term('term:' + id, id));
+  const tree = tileTabs(tabs, 3);
+  assert.equal(tree.type, 'branch');
+  assert.equal(tree.orientation, 'row');
+  assert.equal(leaves(tree).length, 7, 'one pane per tab');
+  // Seven into three: 3, 2, 2 — the remainder goes to the first columns, where the eye starts.
+  assert.deepEqual(tree.children.map((c) => (c.type === 'leaf' ? 1 : c.children.length)), [3, 2, 2]);
+  assert.deepEqual(sizes(tree), [0.3333, 0.3333, 0.3333]);
+  // Visual order: column by column, which is the order the tabs came in.
+  assert.deepEqual(leaves(tree).map((l) => l.tabs[0].ref), ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
+  assert.deepEqual(ids(tree), ['pane-1', 'pane-2', 'pane-3', 'pane-4', 'pane-5', 'pane-6', 'pane-7']);
+});
+
+test('tileTabs makes each tab the active one in its pane (#356)', () => {
+  const tree = tileTabs([term('term:a', 'a'), term('term:b', 'b')], 2);
+  for (const leaf of leaves(tree)) assert.equal(leaf.activeTabId, leaf.tabs[0].id);
+});
+
+test('tileTabs collapses the degenerate shapes rather than nesting for nothing (#356)', () => {
+  // One tab: a plain leaf, not a branch holding one child.
+  const one = tileTabs([term('term:a', 'a')], 3);
+  assert.equal(one.type, 'leaf');
+  assert.equal(one.size, 1);
+  // One column, three tabs: a single column branch, not a row of one.
+  const column = tileTabs(['a', 'b', 'c'].map((id) => term('term:' + id, id)), 1);
+  assert.equal(column.type, 'branch');
+  assert.equal(column.orientation, 'col');
+  assert.equal(column.children.length, 3);
+  assert.equal(column.size, 1);
+});
+
+test('tileTabs survives no tabs and a nonsense column count (#356)', () => {
+  assert.deepEqual(leaves(tileTabs([], 4)).length, 1, 'a tree is never empty');
+  assert.equal(leaves(tileTabs([term('term:a', 'a'), term('term:b', 'b')], 99)).length, 2);
+  assert.equal(leaves(tileTabs([term('term:a', 'a'), term('term:b', 'b')], 0)).length, 2);
+  assert.equal(leaves(tileTabs([term('term:a', 'a'), term('term:b', 'b')], NaN)).length, 2);
 });

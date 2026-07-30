@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   MAX_GRID_ROWS,
   calculateGridColumnCount,
+  calculateTileColumnCount,
   normalizeSpan,
   applyLayout,
   reorder,
@@ -202,4 +203,46 @@ test('pickGridNeighbor honours the dead zone on the primary axis', () => {
   assert.equal(pickGridNeighbor(rects, 0, 'down'), -1);
   // A smaller dead zone lets the same candidate qualify.
   assert.equal(pickGridNeighbor(rects, 0, 'down', 1), 1);
+});
+
+// --- #356: the column count for tiling a pane tree ---------------------------
+//
+// Not grid's formula, and the difference is the mode. Grid scrolls, so width alone can constrain it.
+// A pane tree shares one viewport: every pane takes height from the others.
+
+test('calculateTileColumnCount uses the height, which grid never has to (#356)', () => {
+  // Measured case: seven sessions on a 1020 x 952 area. Grid's formula answers one column — seven
+  // panes of 136 px, six terminal rows each. This one answers two.
+  assert.equal(calculateGridColumnCount({ width: 1020, cardCount: 7 }), 1);
+  assert.equal(calculateTileColumnCount({ width: 1020, height: 952, count: 7 }), 2);
+});
+
+test('calculateTileColumnCount prefers a square-ish shape (#356)', () => {
+  // Plenty of room both ways: neither floor binds, so the preference decides.
+  assert.equal(calculateTileColumnCount({ width: 3840, height: 2000, count: 9 }), 3);
+  assert.equal(calculateTileColumnCount({ width: 3840, height: 2000, count: 4 }), 2);
+  assert.equal(calculateTileColumnCount({ width: 3840, height: 2000, count: 2 }), 2);
+});
+
+test('the height floor beats the width floor when they disagree (#356)', () => {
+  // A narrow, short area with many sessions: one column would make each pane unreadably short, so
+  // more columns is the lesser evil. A narrow terminal is usable; a six-row one is not.
+  const cols = calculateTileColumnCount({ width: 700, height: 600, count: 9 });
+  assert.ok(cols >= 3, `height forces columns even on a narrow area (got ${cols})`);
+  // …but only when the height actually demands it. Two sessions on that same area fit as two rows of
+  // 300 px, which beats two columns of 350 px — the floor is a floor, not a preference for width.
+  assert.equal(calculateTileColumnCount({ width: 700, height: 600, count: 2 }), 1);
+  // And never more columns than there are panes.
+  assert.equal(calculateTileColumnCount({ width: 4000, height: 300, count: 3 }), 3);
+});
+
+test('calculateTileColumnCount never returns something unusable (#356)', () => {
+  for (const args of [
+    {}, { count: 0 }, { width: 0, height: 0, count: 5 },
+    { width: NaN, height: NaN, count: 3 }, { width: -100, height: -100, count: 4 },
+  ]) {
+    const cols = calculateTileColumnCount(args);
+    assert.ok(Number.isInteger(cols) && cols >= 1, `${JSON.stringify(args)} -> ${cols}`);
+    if (args.count > 0) assert.ok(cols <= args.count, 'never more columns than panes');
+  }
 });

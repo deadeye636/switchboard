@@ -2235,3 +2235,95 @@ test('the point sent to main carries the box this renderer measured (#360)', asy
       'main converts the point against this same window\'s real bounds');
   } finally { h.destroy(); }
 });
+
+// --- #356: tile every open session -------------------------------------------
+
+test('tiling gives every open session a pane of its own (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    for (const id of ['a', 'b', 'c', 'd']) await h.open(id);
+    // All four landed in one pane, which is what "open" does without a layout.
+    assert.equal(h.document.querySelectorAll('.pane').length, 1);
+
+    assert.equal(h.panes.tileAllSessions(), true);
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane').length, 4);
+    assert.deepEqual(
+      [...h.document.querySelectorAll('.pane')].map((p) => p.querySelectorAll('.session-tab').length),
+      [1, 1, 1, 1], 'one tab each');
+  } finally { h.destroy(); }
+});
+
+test('tiling keeps the order the user already sees (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    for (const id of ['a', 'b', 'c']) await h.open(id);
+    h.panes.tileAllSessions();
+    await h.settle();
+    assert.deepEqual(
+      [...h.document.querySelectorAll('.pane .session-tab[data-session-id]')].map((t) => t.dataset.sessionId),
+      ['a', 'b', 'c'], 'no reordering the user could not name');
+  } finally { h.destroy(); }
+});
+
+test('tiling is undoable, and does not ask first (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    for (const id of ['a', 'b', 'c']) await h.open(id);
+    h.panes.splitActivePane('right');
+    await h.settle();
+    const before = h.document.querySelectorAll('.pane').length;
+
+    h.panes.tileAllSessions();
+    await h.settle();
+    assert.deepEqual(h.calls.dialogs, [], 'no confirm for something one click reverses');
+    assert.equal(h.document.querySelectorAll('.pane').length, 3);
+
+    h.panes.undoLayout();
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane').length, before, 'the arrangement came back');
+  } finally { h.destroy(); }
+});
+
+test('tiling leaves view tabs out of the arrangement (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    await h.open('b');
+    h.panes.openViewTab('jsonl');
+    await h.settle();
+
+    h.panes.tileAllSessions();
+    await h.settle();
+    // Two panes, one per session. A pane invented to hold a preview is a pane nobody asked for — the
+    // view keeps its tab wherever the rebuild leaves it, but it does not get a pane of its own.
+    assert.equal(h.document.querySelectorAll('.pane').length, 2);
+    assert.equal(h.panes.hasViewTab('jsonl'), false, 'the view tab is not carried into the new tree');
+  } finally { h.destroy(); }
+});
+
+test('"Tile all sessions" appears once there is something to tile (#356)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    stubWindowItems(h);
+    h.document.querySelector('.pane-more-btn').click();
+    await h.settle();
+    // One session in one pane, nothing arranged yet: the whole Layout group is absent, which is the
+    // rule it already had — an entry that could do nothing is worse than no entry.
+    assert.deepEqual(menuGroups(h), ['Pane', 'Session · a']);
+    assert.equal(menuItem(h, 'Tile all sessions'), undefined);
+
+    await h.open('b');
+    h.document.querySelector('.pane.pane-active .pane-more-btn').click();
+    await h.settle();
+    const tile = menuItem(h, 'Tile all sessions');
+    assert.ok(tile, 'two sessions, so there is an arrangement to make');
+    assert.equal(tile.disabled, false);
+  } finally { h.destroy(); }
+});

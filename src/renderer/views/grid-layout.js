@@ -20,6 +20,42 @@
     return Math.max(1, Math.min(fitCols, safeCardCount));
   }
 
+  // Smallest pane a tiling should produce (#356). The width is the point at which a pane's session
+  // tools fold into its tab strip (`TOOLS_MIN_PANE_WIDTH` in panes-view.js) — below that a pane is
+  // already compromised. The height is about ten terminal rows plus the strip and bar.
+  const MIN_TILE_WIDTH = 420;
+  const MIN_TILE_HEIGHT = 200;
+
+  /**
+   * How many columns to tile `count` panes into (#356).
+   *
+   * NOT `calculateGridColumnCount`, and the difference is the mode: grid scrolls, so only width can
+   * constrain it and more cards simply means a longer page. A pane tree shares one viewport — every
+   * pane the tiling creates takes height from the others — so seven panes in one column are seven
+   * six-row terminals, which is measured, not hypothetical (1020 × 952 produced exactly that).
+   *
+   * Three inputs, in order of authority:
+   *   - the height floor is HARD. Fewer columns than this means rows too short to read.
+   *   - a square-ish shape is the preference, because it wastes the least of both axes.
+   *   - the width floor is a CEILING on the preference, not on the floor: when the two disagree, the
+   *     height wins. A narrow terminal is usable; a six-row one is not.
+   */
+  function calculateTileColumnCount({
+    width, height, count,
+    minWidth = MIN_TILE_WIDTH, minHeight = MIN_TILE_HEIGHT, gap = GRID_GAP,
+  } = {}) {
+    const n = Math.max(1, Math.floor(Number(count) || 1));
+    const safeGap = Math.max(0, Number(gap) || 0);
+    const safeW = Number(width) || 0;
+    const safeH = Number(height) || 0;
+    const maxRows = Math.max(1, Math.floor((safeH + safeGap) / (Math.max(1, minHeight) + safeGap)));
+    const neededForHeight = Math.min(n, Math.ceil(n / maxRows));
+    const allowedByWidth = Math.max(1, Math.floor((safeW + safeGap) / (Math.max(1, minWidth) + safeGap)));
+    const square = Math.min(n, Math.ceil(Math.sqrt(n)));
+    const ceiling = Math.max(allowedByWidth, neededForHeight);
+    return Math.max(1, Math.min(n, Math.max(neededForHeight, Math.min(square, ceiling))));
+  }
+
   function clampInt(value, min, max, fallback) {
     const n = Math.floor(Number(value));
     if (!Number.isFinite(n)) return fallback;
@@ -251,6 +287,7 @@
     gridAllowedForMode,
     gridAllowedInDom,
     calculateGridColumnCount,
+    calculateTileColumnCount,
     normalizeSpan,
     applyLayout,
     reorder,

@@ -198,6 +198,47 @@
     return replaceAt(tree, path, branch);
   }
 
+  /**
+   * Build a fresh tree that gives every tab a pane of its own, `columns` panes wide (#356).
+   *
+   * This is a COMMAND, not a mode: grid arranges continuously and panes are arranged by hand, so what
+   * "auto-tiling" means here is one act that produces an arrangement the user then owns and can edit.
+   *
+   * Column-major, like grid's flow: with seven tabs in three columns the columns hold 3, 2 and 2 —
+   * filling left to right so the extra ones land at the start, which is where the eye goes.
+   *
+   * Leaf ids are `pane-1…N` in visual order. They are generated here rather than passed in (the one
+   * exception to this file's rule) because the caller cannot know the count until the split is decided,
+   * and the whole tree is being replaced anyway — nothing outside holds the old ids.
+   */
+  function tileTabs(tabs, columns) {
+    const list = (Array.isArray(tabs) ? tabs : []).filter(Boolean);
+    if (!list.length) return createTree('pane-1', []);
+    const cols = Math.max(1, Math.min(Math.floor(Number(columns) || 1), list.length));
+    if (cols === 1 && list.length === 1) return createTree('pane-1', [list[0]]);
+
+    // How many rows each column takes: the remainder is spread over the first columns, one each, so no
+    // column is ever more than one pane taller than its neighbour.
+    const base = Math.floor(list.length / cols);
+    const extra = list.length % cols;
+    const children = [];
+    let at = 0;
+    let id = 0;
+    for (let c = 0; c < cols; c++) {
+      const rows = base + (c < extra ? 1 : 0);
+      const leaves = [];
+      for (let r = 0; r < rows; r++) {
+        const tab = list[at++];
+        leaves.push(makeLeaf('pane-' + (++id), [tab], tab.id, 1 / rows));
+      }
+      children.push(leaves.length === 1
+        ? { ...leaves[0], size: 1 / cols }
+        : { type: 'branch', orientation: 'col', size: 1 / cols, children: leaves });
+    }
+    if (children.length === 1) return { ...children[0], size: 1 };
+    return { type: 'branch', orientation: 'row', size: 1, children };
+  }
+
   // Add a tab to a pane at `index` (default: last) and make it active — opening
   // something always shows it.
   function addTab(tree, leafId, tab, index = -1) {
@@ -469,6 +510,7 @@
     leaves,
     leafOfTab,
     splitLeaf,
+    tileTabs,
     addTab,
     setActiveTab,
     replaceTab,
