@@ -37,12 +37,13 @@ Two things diverge from the plan above and are load-bearing:
 - **H2 became a setting, not a decision.** `paneToolsPlacement` picks `bar` (default — the session
   tools on a row of their own, §4.2 H1) or `strip` (H2). Seeing H2 in place is what changed the call;
   both render paths are cheap, so the choice moved to the user.
-- **One instance per view kind, not one per pane.** Each of these views is a single element with
-  module-wide state, so the tab moves to the pane you opened it from instead of being duplicated.
-  Two previews or two diffs side by side therefore do not work yet — that is #311, scoped to preview
-  and diff and sequenced after detach (#2). Message history, plan, activity and memory stay
-  single-instance deliberately: they are read, not compared, and the transcript viewer's state
-  (current session, search hits, bookmarks, subagent watches) would have to be unpicked for no gain.
+- **One instance per view kind, not one per pane** — except preview and diff. Each of these views is a
+  single element with module-wide state, so the tab moves to the pane you opened it from instead of
+  being duplicated. Preview and diff got an instance per tab in #311 (§4.3), which is what two diffs
+  side by side needed. Message history, plan, activity and memory stay single-instance deliberately:
+  they are read, not compared, and the transcript viewer's state (current session, search hits,
+  bookmarks, subagent watches) would have to be unpicked for no gain. **Neither flavour can change
+  window** — see O16.
 
 ### The audit pass (#343–#352)
 
@@ -152,6 +153,7 @@ detached window (#2) "a tree with one leaf" instead of a separate mechanism.
 | O11 | Plan, stats, memory and JSONL views may live in panes | |
 | O12 | Preview and diff are ordinary tabs | variant **P2**, §4.3 |
 | O13 | Session tools merge into the pane's tab strip | variant **H2**, §4.2 |
+| O16 | The `…` menu groups its entries by subject, and a whole pane can be moved to a window of its own (#340) | Headings, not just a separator — the two subjects were indistinguishable. Only terminal tabs travel; a view tab is named before anything moves. §4.1 |
 
 Chosen combination: **A + H2 + P2**.
 
@@ -177,6 +179,33 @@ D            [ tab ][ tab ]                     ▾ │ ⫽▾ …
 
 A won because H2 already spends the strip's right-hand space on the session tools. B's icons would have
 to fold away at the width where they matter most.
+
+**What the menu contains, and who it acts on (#340).** A grew two subjects and nothing between them:
+split and close-pane are about the PANE, "Move to new window" and the window list about the active
+SESSION. Each group now carries a heading (`.session-tab-menu-label`), and the session's names the
+session it means — with a right-click that is the tab that was clicked, from the `…` button the pane's
+active tab, and until then nothing on screen said which.
+
+```
+Close · Close others · Close to the right · Close all · Stop & close · Relaunch   ← only on a right-click
+──────────
+PANE       Split right · Split down · Move pane to new window · Close pane
+──────────
+SESSION · <name>       Move to new window · Move to "<window>"
+```
+
+**Moving the whole pane** needs no mechanism of its own: detaching the first terminal tab creates the
+window (`detach-session` answers with its id for exactly this), and every further tab follows through
+`move-session-to-window`, which has gone in any direction since #316. A leaf has no split structure to
+lose, and the target window builds a single pane (`loadTree`) that `adoptOrphans` fills — so N tabs
+arrive as one pane with N tabs. From a detached window the entry reads **Move pane to main window**,
+the same asymmetry the single-session block already has.
+
+**Nothing is silently left behind.** Only terminal tabs travel. A singleton view is the app's one
+element of its kind, and an instanced preview or diff belongs to the renderer that built it — a diff
+additionally holds an MCP `tools/call` only that renderer can answer. So a pane holding view tabs asks
+first, naming them, and they stay in the pane; a pane with no terminal tab at all has the entry
+disabled rather than doing nothing when clicked.
 
 ### 4.2 The session bar — `#terminal-header` stops being a singleton
 

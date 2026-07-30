@@ -1502,3 +1502,223 @@ test('a full render commits an open rename instead of discarding it (#358)', asy
     assert.equal(h.window.isSessionRenaming(), false, 'and the flag is clear for the next rename');
   } finally { h.destroy(); }
 });
+
+// --- #340: the pane menu's two subjects, and moving a whole pane -------------
+
+// Both halves of the move as the renderer sees them: `detachSession` makes the window and answers
+// with its id, `moveSessionToWindow` sends the rest after it. Recorded rather than performed — what
+// panes-view owes is the sequence, and the handover itself is detach-window.js's (and main's).
+function stubWindowMoves(h, { windowId = '7', detachOk = true, moveOk = true } = {}) {
+  const calls = { detached: [], moved: [] };
+  h.window.detachSession = async (sessionId) => {
+    calls.detached.push(sessionId);
+    return detachOk ? windowId : null;
+  };
+  h.window.moveSessionToWindow = async (sessionId, target) => {
+    calls.moved.push([sessionId, target]);
+    return moveOk;
+  };
+  return calls;
+}
+
+// The session block, as detach-window.js contributes it (#327). The harness does not load that file,
+// so without this the pane menu would be asserted against a renderer missing half of it.
+function stubWindowItems(h) {
+  h.window.appendWindowItems = (sessionId, addItem) => {
+    const anchor = addItem('Move to new window', () => {}, { disabled: !sessionId });
+    addItem('Move to “Notes”', () => {}, { before: anchor.nextSibling });
+  };
+}
+
+const menuGroups = (h) => [...h.document.querySelectorAll('.session-tab-menu-label')].map((el) => el.textContent);
+const menuItems = (h) => [...h.document.querySelectorAll('.session-tab-menu-item')].map((b) => b.textContent);
+const menuItem = (h, label) => [...h.document.querySelectorAll('.session-tab-menu-item')]
+  .find((b) => b.textContent === label);
+
+test('the pane menu says which subject each group acts on (#340)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a', { name: 'Auth refactor' });
+    stubWindowItems(h);
+    h.document.querySelector('.pane-more-btn').click();
+    await h.settle();
+
+    assert.deepEqual(menuGroups(h), ['Pane', 'Session · Auth refactor'],
+      'two headings, and the session one names the session it means');
+    // The order is what makes the headings mean anything: everything under "Pane" acts on the pane.
+    const items = menuItems(h);
+    assert.deepEqual(items.slice(0, 4),
+      ['Split right', 'Split down', 'Move pane to new window', 'Close pane']);
+    assert.ok(items.indexOf('Move to new window') > items.indexOf('Close pane'),
+      'the session block comes after the pane block, under its own heading');
+  } finally { h.destroy(); }
+});
+
+test('a pane with nothing that can travel offers no session group at all (#340)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.splitActivePane('right'); // the new pane starts empty
+    await h.settle();
+    stubWindowItems(h);
+    h.document.querySelector('.pane.pane-active .pane-more-btn').click();
+    await h.settle();
+
+    assert.deepEqual(menuGroups(h), ['Pane'], 'no session, so no session heading');
+    assert.equal(menuItem(h, 'Move pane to new window').disabled, true,
+      'and the pane move says so by being disabled rather than doing nothing');
+    assert.equal(menuItems(h).includes('Move to new window'), false);
+  } finally { h.destroy(); }
+});
+
+test('moving a pane takes every session in it — the first makes the window, the rest follow (#340)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    await h.open('b');
+    await h.open('c');
+    const calls = stubWindowMoves(h, { windowId: '7' });
+
+    h.document.querySelector('.pane-more-btn').click();
+    await h.settle();
+    menuItem(h, 'Move pane to new window').click();
+    await h.settle();
+
+    assert.deepEqual(calls.detached, ['a'], 'the first tab is what creates the window');
+    assert.deepEqual(calls.moved, [['b', '7'], ['c', '7']], 'and the rest go to the window it answered with');
+    assert.deepEqual(h.calls.dialogs, [], 'nothing was left behind, so nothing had to be asked');
+  } finally { h.destroy(); }
+});
+
+test('a pane holding a view tab says what stays before it moves anything (#340)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    await h.open('b');
+    h.panes.openViewTab('jsonl', { nearSessionId: 'a' });
+    await h.settle();
+    const calls = stubWindowMoves(h);
+
+    h.document.querySelector('.pane-more-btn').click();
+    await h.settle();
+    menuItem(h, 'Move pane to new window').click();
+    await h.settle();
+
+    assert.equal(h.calls.dialogs.length, 1, 'it asked');
+    assert.match(h.calls.dialogs[0].message, /Messages stays/, 'and named what cannot come along');
+    assert.deepEqual(calls.detached, ['a']);
+    assert.deepEqual(calls.moved, [['b', '7']]);
+    // The view tab is still where it was: a singleton belongs to this renderer, and moving it is not
+    // something the other window could take.
+    assert.ok(h.panes.hasViewTab('jsonl'), 'the view stayed in the pane it was in');
+  } finally { h.destroy(); }
+});
+
+test('cancelling that question moves nothing at all (#340)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.openViewTab('jsonl', { nearSessionId: 'a' });
+    await h.settle();
+    const calls = stubWindowMoves(h);
+    h.answers.confirm = false;
+
+    h.document.querySelector('.pane-more-btn').click();
+    await h.settle();
+    menuItem(h, 'Move pane to new window').click();
+    await h.settle();
+
+    assert.equal(h.calls.dialogs.length, 1);
+    assert.deepEqual(calls.detached, [], 'a cancel is a real cancel — the question comes before anything runs');
+    assert.deepEqual(calls.moved, []);
+  } finally { h.destroy(); }
+});
+
+test('a refused detach moves none of the sessions after it (#340)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    await h.open('b');
+    const calls = stubWindowMoves(h, { detachOk: false });
+
+    h.document.querySelector('.pane-more-btn').click();
+    await h.settle();
+    menuItem(h, 'Move pane to new window').click();
+    await h.settle();
+
+    assert.deepEqual(calls.detached, ['a']);
+    assert.deepEqual(calls.moved, [], 'there is no window to send them to');
+  } finally { h.destroy(); }
+});
+
+test('from a detached window the pane moves back to main, not into a third one (#340)', async () => {
+  const h = setupPanesDom({ detached: true, detachedSessionId: 'a' });
+  try {
+    h.enable();
+    await h.open('a');
+    await h.open('b');
+    const calls = stubWindowMoves(h);
+
+    h.document.querySelector('.pane-more-btn').click();
+    await h.settle();
+    assert.equal(menuItem(h, 'Move pane to new window'), undefined);
+    menuItem(h, 'Move pane to main window').click();
+    await h.settle();
+
+    // No detach: `detachSession` is the main window's half of the file, and main is already there.
+    assert.deepEqual(calls.detached, []);
+    assert.deepEqual(calls.moved, [['a', 'main'], ['b', 'main']]);
+  } finally { h.destroy(); }
+});
+
+test('a view tab on top does not hide the pane\'s sessions from the … menu (#340)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a', { name: 'Auth refactor' });
+    h.panes.openViewTab('jsonl'); // opening a view makes it the active tab
+    await h.settle();
+    stubWindowItems(h);
+
+    h.document.querySelector('.pane-more-btn').click();
+    await h.settle();
+    // The `…` button's menu belongs to the PANE, so the session block is about what the pane holds —
+    // not about whichever tab happens to be in front.
+    assert.deepEqual(menuGroups(h), ['Pane', 'Session · Auth refactor']);
+
+    // A right-click is the other case: it named a tab, and a view tab has no session to act on.
+    h.document.querySelector('.pane-strip .session-tab-view')
+      .dispatchEvent(new h.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    await h.settle();
+    assert.deepEqual(menuGroups(h), ['Pane'], 'the menu answers about the tab that was clicked');
+  } finally { h.destroy(); }
+});
+
+test('a view tab on top survives the pane losing every session it had (#340)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.openViewTab('jsonl');
+    await h.settle();
+    const clearsBefore = h.calls.clearActiveTerminalView;
+
+    // What a pane move leaves behind: the sessions are rendered by another window now, so their tabs
+    // are gone and nothing in this pane is live. The view tab the move promised to leave alone is on
+    // top, and `clearActiveTerminalView` would hide the viewer behind it — which the watcher answers
+    // by closing the tab. The pane would end up empty after a dialog said it would not.
+    h.unmount('a');
+    h.panes.dropSession('a');
+    h.panes.showActiveOrPlaceholder();
+    await h.settle();
+
+    assert.equal(h.calls.clearActiveTerminalView, clearsBefore, 'nothing cleared the view that is on screen');
+    assert.ok(h.panes.hasViewTab('jsonl'), 'and the tab is still there');
+  } finally { h.destroy(); }
+});

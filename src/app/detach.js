@@ -229,7 +229,7 @@ function registerIpc(ipc) {
     if (isDetached(sessionId)) {
       const win = detachedWindows.get(sessionId);
       win.focus();
-      return { ok: true, already: true };
+      return { ok: true, already: true, windowId: windowIdOf(win) };
     }
     // A session with no process may go too (#319). The refusal used to live here because the new
     // window mounts by calling openTerminal, and with nothing running that lands in the SPAWN branch
@@ -245,7 +245,11 @@ function registerIpc(ipc) {
     // The main renderer releases its terminal for this session; the PTY keeps running, and the new
     // window attaches to it. Two renderers on one PTY would double every keystroke's echo.
     sendToMain('session-detached', sessionId);
-    return { ok: true };
+    // The id of the window just made, so the caller can send more sessions after it (#340). Moving a
+    // whole pane is "detach the first tab, move the rest to where it went", and without this the
+    // renderer would have to identify that window by guessing at `listSessionWindows` — by the title
+    // it was given, which is a session name and need not be unique.
+    return { ok: true, windowId: windowIdOf(win) };
   });
 
   // `reattach-session` used to live here. It is `move-session-to-window(id, 'main')` with a window

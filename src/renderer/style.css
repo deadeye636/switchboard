@@ -7986,6 +7986,19 @@ body.display-mode-tabs.tabs-bottom #session-tabs {
   margin: 4px 6px;
   background: rgba(255, 255, 255, 0.1);
 }
+/* Names what the entries under it act on — the pane, or the session (#340). Not a control: it is
+   never focusable and never clickable, so it does not sit in the menu's Tab order. */
+.session-tab-menu-label {
+  padding: 4px 10px 2px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: #8a8a9a;
+  max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The session's name beside the heading. A name is not a heading — it keeps its own casing, or a
+   lowercase branch name would be shouted back at the user in capitals. */
+.session-tab-menu-label-name {
+  text-transform: none; letter-spacing: 0; font-weight: 500; color: #b0b0c0;
+}
 
 /* ========== DETACHED SESSION WINDOW (#2) ========== */
 /* Same index.html, one session, no app chrome: the sidebar, its resize handle and the status bar all

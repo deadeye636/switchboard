@@ -475,6 +475,11 @@ if (detachedSessionId) document.body.classList.add('detached-window');
 
   // Move a session into a window of its own. A session without a process may go as well (#319) — the
   // window identifies it and offers Launch rather than starting a CLI by opening.
+  //
+  // Answers with the new window's ID rather than a bare `true` (#340): moving a whole PANE is this
+  // call for its first tab and `moveSessionToWindow` for every one after it, and the id is the only
+  // way to name the window that was just made. Titles cannot serve — a window is named after a
+  // session, and two sessions can carry the same name.
   window.detachSession = async (sessionId) => {
     const session = sessionMap.get(sessionId);
     const title = (typeof cleanDisplayName === 'function'
@@ -482,9 +487,9 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     const res = await window.api.detachSession(sessionId, title);
     if (!res || !res.ok) {
       window.showControlToast?.({ message: 'Could not detach this session', timeoutMs: 3000 });
-      return false;
+      return null;
     }
-    return true;
+    return res.windowId || null;
   };
 
 })();

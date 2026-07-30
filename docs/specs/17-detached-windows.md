@@ -44,6 +44,7 @@ by **session**, so several keys pointing at one window was already legal.
 | detached → main | "Return to main window" in that window's tab/pane menu (#314) |
 | main ← detached | the sidebar row's own action; a detached row is marked `⧉` and cannot be opened in place (#315) |
 | any → any existing window | "Move to <window>" per window, appended to the same menus (#316) |
+| a whole PANE → a window of its own | "Move pane to new window" in the pane menu (#340) — detach the first tab, then move the rest to where it went |
 
 One handler serves all three (`move-session-to-window`), and the order inside it is the invariant of
 §3 in miniature: **release, re-register, adopt.** The giving window is told to let go first, *or* two
@@ -61,10 +62,13 @@ renderer's `activePtyIds` is a polled snapshot that backs off to 30 s in an idle
 adopting on its own answer could refuse a session that started seconds ago — or worse, accept one that
 has died and resume its CLI.
 
-Two consequences worth stating:
+Three consequences worth stating:
 
 - **A detached window that gives away its last session closes.** It has no sidebar to pick a new one
   with, so an empty one is a window the user cannot use and cannot interpret.
+- **`detach-session` answers with the id of the window it made** (#340). Moving several sessions to
+  one new window is "detach the first, move the rest to where it went", and the id is the only way to
+  name it: a window is titled after a session, and two sessions can carry the same name.
 - **Closing a window hands back everything it holds**, not the one session it was opened for. The
   explicit paths delete their entry *before* destroying, so `closed` never repeats a handover.
 

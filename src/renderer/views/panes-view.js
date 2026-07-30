@@ -1396,6 +1396,94 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     showActiveOrPlaceholder();
   }
 
+  // --- Moving a whole pane (#340) -------------------------------------------
+
+  /**
+   * Which of a pane's tabs can change window, and which cannot.
+   *
+   * Only terminal tabs travel, and the reason a view tab does not is not a gap waiting to be closed.
+   * A singleton kind IS the app's one element of that kind — there is nothing to hand over, only
+   * something to take away from this window. An instanced preview or diff (#311) is built by THIS
+   * window's file-panel.js, and a diff additionally holds an MCP `tools/call` that only this renderer
+   * can answer. So they stay where they are, and the action says so before it runs.
+   */
+  function splitPaneTabsForMove(leaf) {
+    const moving = [];
+    const staying = [];
+    for (const tab of leaf.tabs) {
+      const sessionId = sessionOfTab(tab);
+      if (sessionId) moving.push(sessionId);
+      else staying.push(tab);
+    }
+    return { moving, staying };
+  }
+
+  // Can this pane be moved at all? A pane with nothing but view tabs has nothing that could travel,
+  // and an entry that silently does nothing is the failure the requirement names.
+  function paneCanMove(leaf) {
+    return !!leaf && leaf.tabs.some((t) => !!sessionOfTab(t));
+  }
+
+  // Name what stays before the move runs, not after. Only reached when something would be left
+  // behind — a pane of pure terminal tabs moves whole, and asking about that would be noise.
+  function confirmMovePane(moving, staying, toMain) {
+    if (typeof showControlDialog !== 'function') return Promise.resolve(true);
+    const sessions = moving === 1 ? 'One session' : `${moving} sessions`;
+    const names = staying.map(viewTabLabel).join(', ');
+    const stays = staying.length === 1 ? `${names} stays` : `${names} stay`;
+    return showControlDialog({
+      title: 'Move pane',
+      message: `${sessions} ${moving === 1 ? 'moves' : 'move'} to ${toMain ? 'the main window' : 'a new window'}. `
+        + `${stays} in this pane — a view belongs to the window it was opened in.`,
+      confirmLabel: moving === 1 ? 'Move session' : 'Move sessions',
+      cancelLabel: 'Cancel',
+    });
+  }
+
+  /**
+   * Move every session in this pane into a window of its own — or back to the main window, which is
+   * the only direction that exists from a detached one (`detachSession` lives in the main window's
+   * half of detach-window.js, exactly as `appendWindowItems` offers "Return to main window" there).
+   *
+   * The first session is what CREATES the window; every one after it follows by window id, which is
+   * why `detach-session` answers with one. The target needs nothing else: `loadTree` gives a detached
+   * window a single pane and `adoptOrphans` puts each arrival into it, so a pane of N tabs arrives as
+   * a pane of N tabs. A move landing while that window is still booting is caught by its
+   * `adoptOwnedSessions` (#326, #331), and a dormant session travels like any other (#332).
+   */
+  async function movePaneToWindow(leafId) {
+    if (!enabled || !tree) return false;
+    const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
+    if (!leaf) return false;
+    // Snapshot before the first await. Each release takes its tab out of the tree, so the leaf read
+    // here is a stale copy the moment the first session lands elsewhere — the rule `closePane`
+    // follows, for the same reason.
+    const { moving, staying } = splitPaneTabsForMove(leaf);
+    if (!moving.length) return false;
+    const toMain = !!(window.isDetachedWindow && window.isDetachedWindow());
+    if (staying.length && !(await confirmMovePane(moving.length, staying, toMain))) return false;
+
+    let targetId = 'main';
+    if (!toMain) {
+      targetId = typeof window.detachSession === 'function' ? await window.detachSession(moving[0]) : null;
+      // `detachSession` has already put the reason on screen; nothing moved, so there is nothing to
+      // undo either.
+      if (!targetId) return false;
+    }
+    for (const sessionId of toMain ? moving : moving.slice(1)) {
+      // Stop at the first refusal rather than firing the rest at a window that just declined one.
+      // What has moved stays moved: the sessions still here are the ones the user can see, and a
+      // rollback would be a second round of moves with the same failure modes.
+      const ok = typeof window.moveSessionToWindow === 'function'
+        && await window.moveSessionToWindow(sessionId, targetId);
+      if (!ok) break;
+    }
+    // The pane's own sessions left through `releaseSession` → `dropSession`, which takes each tab out
+    // and collapses a pane left empty (#309 O10). What is left on screen still has to be settled.
+    showActiveOrPlaceholder();
+    return true;
+  }
+
   // Remove a tab from the layout without touching its session (a dormant tab).
   function dropTab(leafId, tabId) {
     tree = PaneTree.closeTab(tree, leafId, tabId);
@@ -1428,6 +1516,13 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // it closes the panel — and with it the very preview tab that is on top (#310).
     // Keep the session; only a pane with nothing live in it falls back to the
     // placeholder.
+    //
+    // Two questions, and asking only the second one was a hole (#340): "is a view on top" is about
+    // the TAB, and the check below is about the session that happens to be active. They agree while
+    // that session survives, and part company the moment it does not — moving a pane's sessions to
+    // another window leaves exactly that state, and the view tab the move promised to leave alone was
+    // taken down by `clearActiveTerminalView` → `hideAllViewers` → the watcher's close route.
+    if (isViewTab(onTop)) return;
     if (typeof activeSessionId !== 'undefined' && activeSessionId && openSessions.has(activeSessionId)) return;
     const fallback = tabs.map(sessionOfTab).find((id) => id && openSessions.has(id));
     if (fallback) showSession(fallback);
@@ -1615,6 +1710,24 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       s.className = 'session-tab-menu-sep';
       pop.appendChild(s);
     };
+    // What the entries below act on, said in words (#340). A separator alone leaves the reader to
+    // work out that "Split right" and "Move to new window" have different subjects; the session's
+    // group carries its NAME because which session it means is not otherwise on screen — a
+    // right-click means the tab that was clicked, the `…` button means the pane's active tab.
+    const groupLabel = (text, name) => {
+      const el = document.createElement('div');
+      el.className = 'session-tab-menu-label';
+      el.textContent = text;
+      if (name) {
+        const who = document.createElement('span');
+        who.className = 'session-tab-menu-label-name';
+        // The separator is part of the TEXT, not a CSS `::before`: this line is read out as one
+        // string, and "SessionAuth refactor" is what a decorative dot leaves behind.
+        who.textContent = ' · ' + name;
+        el.appendChild(who);
+      }
+      pop.appendChild(el);
+    };
 
     focusPane(leafId);
     const leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
@@ -1624,15 +1737,15 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const subject = tab || (leaf ? leaf.tabs.find((t) => t.id === leaf.activeTabId) : null);
     if (tab) { addTabItems(item, leafId, tab); separator(); }
 
+    groupLabel('Pane');
     item('Split right', () => splitActivePane('right'));
     item('Split down', () => splitActivePane('down'));
-    // Where this session renders (#2, #314, #316): a window of its own, or any window that already
-    // exists. The shared helper builds the block (#327) — including the window list, which lives in
-    // main and therefore arrives after the menu is on screen, inserted next to the entry it extends
-    // rather than after Close pane.
-    if (typeof window.appendWindowItems === 'function') {
-      window.appendWindowItems(sessionOfTab(subject), item, () => activeMenu === pop);
-    }
+    // The whole pane, with all of its tabs (#340) — a leaf has no split structure to lose, so what
+    // arrives on the other side is the same pane. From a detached window the only direction is back,
+    // the same asymmetry `appendWindowItems` draws for a single session.
+    const detachedHere = !!(window.isDetachedWindow && window.isDetachedWindow());
+    item(detachedHere ? 'Move pane to main window' : 'Move pane to new window',
+      () => movePaneToWindow(leafId), { disabled: !paneCanMove(leaf) });
     // Closing the PANE is not a tab action: a right-click on a tab is about that tab,
     // and with one tab in the pane the two would read as the same thing. It stays on
     // the pane's own menus — the `…` button, the strip, the session bar.
@@ -1641,6 +1754,28 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         danger: true,
         disabled: PaneTree.leaves(tree).length === 1,
       });
+    }
+
+    // Where this SESSION renders (#2, #314, #316): a window of its own, or any window that already
+    // exists. The shared helper builds the block (#327) — including the window list, which lives in
+    // main and therefore arrives after the menu is on screen, inserted next to the entry it extends
+    // rather than at the end of the menu. Its own group, because it is the only part of this menu
+    // that does not act on the pane; a pane with no session in it does not get one at all, rather
+    // than an entry disabled for a reason the heading would have to explain.
+    //
+    // Which session, though, is not simply "the subject": a view tab can be the one on top, and from
+    // the `…` BUTTON the menu belongs to the pane — so the pane's sessions must not disappear behind
+    // whatever it happens to be showing. The first terminal tab stands in, and the heading naming it
+    // is what makes standing in readable. A right-click is the other case and keeps the stricter
+    // rule: it named a tab, and answering with a different tab's session would act on something the
+    // user never aimed at.
+    const sessionSubject = sessionOfTab(subject) ? subject
+      : (tab ? null : (leaf ? leaf.tabs.find((t) => !!sessionOfTab(t)) : null));
+    const subjectId = sessionOfTab(sessionSubject);
+    if (subjectId && typeof window.appendWindowItems === 'function') {
+      separator();
+      groupLabel('Session', tabBaseName(sessionSubject));
+      window.appendWindowItems(subjectId, item, () => activeMenu === pop);
     }
 
     document.body.appendChild(pop);

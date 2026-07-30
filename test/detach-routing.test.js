@@ -94,7 +94,7 @@ test('a session with no window of its own renders in the main window', () => {
 test('detaching routes that session — and only that session — to its own window', () => {
   const { ipc, main, created } = setup({ sessions: ['s1', 's2'] });
   const res = ipc.call('detach-session', 's1', 'Session one');
-  assert.deepEqual(res, { ok: true });
+  assert.deepEqual(res, { ok: true, windowId: String(created[0].id) });
   assert.equal(created.length, 1);
   assert.equal(detach.windowForSession('s1'), created[0]);
   assert.equal(detach.windowForSession('s2'), main, 'a second session keeps rendering in the main window');
@@ -123,7 +123,7 @@ test('the main window is told to release the session it just handed over', () =>
 // window may open; what must not happen is a process appearing because of it.
 test('a session with no live process gets its window too, and nothing is started', () => {
   const { ipc, created, activeSessions } = setup({ sessions: [] });
-  assert.deepEqual(ipc.call('detach-session', 's1', 'Dormant one'), { ok: true });
+  assert.equal(ipc.call('detach-session', 's1', 'Dormant one').ok, true);
   assert.equal(created.length, 1);
   assert.equal(detach.windowForSession('s1'), created[0]);
   assert.equal(activeSessions.size, 0, 'detaching is a view operation — it never spawns');
@@ -153,9 +153,22 @@ test('detaching twice focuses the window instead of opening a second one', () =>
   const { ipc, created } = setup();
   ipc.call('detach-session', 's1');
   const res = ipc.call('detach-session', 's1');
-  assert.deepEqual(res, { ok: true, already: true });
+  assert.deepEqual(res, { ok: true, already: true, windowId: String(created[0].id) });
   assert.equal(created.length, 1);
   assert.equal(created[0].focused, 1);
+});
+
+// #340: moving a whole PANE is "detach the first tab, then move the rest to where it went", so the
+// caller needs the window it just made by name. Both answers carry it — a second detach of the same
+// session is the "it is already over there" case, and the pane's remaining tabs still have to follow
+// it rather than the call reading as a no-op.
+test('a detach answers with the id of the window it made, so more sessions can follow it (#340)', () => {
+  const { ipc, created } = setup({ sessions: ['s1', 's2'] });
+  const windowId = ipc.call('detach-session', 's1', 'Session one').windowId;
+  assert.equal(windowId, String(created[0].id));
+  // The id it answers with is the one `move-session-to-window` takes — that is the whole point of it.
+  assert.deepEqual(ipc.call('move-session-to-window', 's2', windowId), { ok: true });
+  assert.equal(detach.windowForSession('s2'), created[0], 'the second session went to the same window');
 });
 
 test('reattaching closes the window and routes the session home again', () => {
