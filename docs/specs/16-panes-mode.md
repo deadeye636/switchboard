@@ -1,7 +1,8 @@
 # 16 — Panes mode (VS-Code-style editor groups)
 
-**Status: built** (#309 the mode and the tree, #310 the typed views). One gap is open by decision:
-views are one instance per kind, not one per pane — #311. Written *before* the build, so its job is
+**Status: built** (#309 the mode and the tree, #310 the typed views, #311 per-pane preview and diff).
+The other view kinds are one instance per kind by decision, not by omission — see §4.3. Written *before*
+the build, so its job is
 different from specs 01–15: it is the **record of the layout options and why one was chosen**, and a
 later rework should read it before re-running the argument.
 
@@ -255,7 +256,7 @@ preview/diff panel beside it (width in `filePanelWidth`).
 
 | | | Trade-off |
 |---|---|---|
-| **P2** *(chosen)* | Preview and diff are tabs in the tree | **+** one layout system; a preview can sit beside the pane it belongs to; detach comes for free. **−** every view must become instantiable per pane and per window — the real cost driver, larger than the tree itself. Built in #310 as **one instance per kind** (the element moves to the pane you opened it from); per-pane instances for preview and diff are #311 |
+| **P2** *(chosen)* | Preview and diff are tabs in the tree | **+** one layout system; a preview can sit beside the pane it belongs to; detach comes for free. **−** every view must become instantiable per pane and per window — the real cost driver, larger than the tree itself. Built in #310 as one instance per kind (the element moves to the pane you opened it from); preview and diff became one instance per TAB in #311, the rest stay singletons |
 | P1 | The panel stays fixed beside the whole tree | **+** no rework, no risk to the diff viewer. **−** with four panes nothing says which pane the preview belongs to; two layout systems run side by side |
 | P3 | P1 first, P2 later | Only viable if the tree is typed from day one — otherwise the switch is a second rebuild. P2 makes it moot |
 

@@ -112,11 +112,24 @@ reflexive Escape closes a `showControlDialog` — fine for a question, wrong for
 something the user cannot get back (a handoff packet an agent spent tokens writing). Pass
 `dismissible: false`, or ask before discarding.
 
-## Panes mode hosts the app's own view elements (#310, #342)
+## Panes mode hosts the app's own view elements (#310, #342, #311)
 
-In `sessionDisplayMode: panes`, a tab whose kind is not `terminal` does not build a view — it **moves
-the app's single existing element** into the pane and hands it back to the exact slot it came from on
-close. `VIEW_KINDS` in `views/panes-view.js` is the list; read it there rather than from here.
+In `sessionDisplayMode: panes`, a tab whose kind is not `terminal` does not build a view. `VIEW_KINDS` in
+`views/panes-view.js` is the list; read it there rather than from here. **Two flavours, and mixing them up
+is how the app loses its only preview panel:**
+
+- **Singleton kinds** (`jsonl`, `plan`, `stats`, `memory`, `projects`, `variables`, …) — the tab **moves
+  the app's single existing element** into the pane and hands it back to the exact slot it came from on
+  close. Those MUST be parked at home before a rebuild, or `replaceChildren` destroys them.
+- **Instanced kinds** (`preview`, `diff`, since #311) — one instance per thing shown, built by
+  `file-panel.js` (`createPanelInstance`) and keyed `<kind>:<ref>` (file path / diff id). They have **no
+  home**: created with their tab, destroyed with it, so they must never go through `viewHomes` /
+  `releaseViewElement` / `hideViewElement`. Every path that destroys a diff instance has to ANSWER it
+  (`mcpDiffResponse(..., 'reject')`) unless the CLI already decided — otherwise its `tools/call` hangs for
+  ten minutes. `docs/specs/16-panes-mode.md` §4.3 has the full rule set.
+
+`test/helpers/file-panel-dom.js` is the harness for that file (it had none until #311); the diff/accept
+logic is testable without Electron.
 
 **It is EVERY main-area surface, not the session-shaped ones** (#342). `#terminal-area` is the last
 child of `#main` and these viewers are earlier siblings at `z-index: auto`. In tabs and grid mode they
