@@ -180,6 +180,104 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     persistTimer = setTimeout(writeTree, PERSIST_DEBOUNCE_MS);
   }
 
+  // --- Undo, and saved layouts (#352) ---------------------------------------
+  //
+  // The stack holds SERIALISED trees, not live ones: `PaneTree` operations return new objects but the
+  // leaves inside them are shared, so keeping a reference would be keeping a thing that later changes.
+  //
+  // Only ARRANGEMENT is undoable — a split, a pane closed, a resize, a tab moved between panes. Not a
+  // closed tab, and not a stopped session: those are the process's business, and an "undo" that
+  // relaunched a CLI would be a very different promise from the one this menu makes.
+  //
+  // Deliberately no keyboard shortcut. Ctrl+Z belongs to whatever is running in the terminal, and a
+  // layout undo that stole it would be the more surprising of the two.
+  const UNDO_DEPTH = 20;
+  const PRESETS_KEY = 'panePresets';
+  let undoStack = [];
+
+  // Snapshot BEFORE a change, from the caller that is about to make one. Passing the tree in rather
+  // than reading `tree` keeps this honest at the one call site that snapshots after a re-resolve.
+  function pushUndo(before = tree) {
+    if (!before) return;
+    undoStack.push(PaneTree.serialize(before));
+    if (undoStack.length > UNDO_DEPTH) undoStack.shift();
+  }
+
+  function undoLayout() {
+    if (!enabled || !undoStack.length) return false;
+    const restored = PaneTree.deserialize(undoStack.pop(), 'pane-1');
+    // Prune the same way a stored layout is pruned on load: a session that ended while the undone
+    // arrangement was on screen has no tab to come back to, and a tab naming it would be a chip that
+    // does nothing.
+    tree = PaneTree.pruneTabs(restored, (tab) => (isViewTab(tab)
+      ? PaneTree.leafOfTab(tree, tab.id) !== null
+      : !!sessionOfTab(tab) && (sessionMap.has(sessionOfTab(tab)) || openSessions.has(sessionOfTab(tab)))),
+    { keepEmptyPanes: true });
+    activeLeaf();
+    render();
+    persist();
+    showActiveOrPlaceholder();
+    announcePane('Layout restored');
+    return true;
+  }
+
+  function readPresets() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(PRESETS_KEY) || '[]');
+      return Array.isArray(raw) ? raw.filter((p) => p && typeof p.name === 'string' && p.tree) : [];
+    } catch { return []; }
+  }
+
+  function writePresets(list) {
+    // Same rule as the layout itself (#344): a detached window shares this origin's localStorage and
+    // owns no arrangement, so it must not write one here either.
+    if (window.isDetachedWindow && window.isDetachedWindow()) return;
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(list)); } catch { /* best effort */ }
+  }
+
+  async function saveLayoutPreset() {
+    if (!enabled || !tree || typeof showControlDialog !== 'function') return;
+    const existing = readPresets();
+    const name = await showControlDialog({
+      title: 'Save layout',
+      message: 'Saved layouts remember the panes and their sizes, and which sessions were in them.',
+      prompt: { placeholder: 'Layout name', maxLength: 40 },
+      confirmLabel: 'Save',
+    });
+    if (!name) return;
+    const at = existing.findIndex((p) => p.name === name);
+    const entry = { name, tree: PaneTree.serialize(tree) };
+    // Saving over a name replaces it. Two entries with one name would be two menu items the user
+    // cannot tell apart, and the second would be unreachable in every way that matters.
+    if (at >= 0) existing[at] = entry; else existing.push(entry);
+    writePresets(existing);
+    if (typeof showControlToast === 'function') showControlToast({ message: `Layout “${name}” saved` });
+  }
+
+  function applyLayoutPreset(name) {
+    const preset = readPresets().find((p) => p.name === name);
+    if (!preset || !enabled) return;
+    pushUndo();
+    // A preset is a layout, not a session list: it names sessions that may be gone, and the ones that
+    // are still here but not in it are adopted into the active pane by the normal path. Both halves
+    // are `loadTree`'s rules, and applying them anywhere else would be a second answer to one question.
+    const loaded = PaneTree.deserialize(preset.tree, 'pane-1');
+    const withoutViews = PaneTree.pruneTabs(loaded, (tab) => !isViewTab(tab));
+    tree = PaneTree.pruneTabs(withoutViews, (tab) => {
+      const sid = sessionOfTab(tab);
+      return !!sid && (sessionMap.has(sid) || openSessions.has(sid));
+    });
+    activeLeaf();
+    render();
+    persist();
+    showActiveOrPlaceholder();
+    announcePane(`Layout ${name} restored`);
+  }
+
+  function deleteLayoutPreset(name) {
+    writePresets(readPresets().filter((p) => p.name !== name));
+  }
+
   function loadTree() {
     // The detached window starts as one pane with one session (#2) — it reads the same localStorage
     // as the main window, so loading the stored tree would rebuild the whole arrangement over there,
@@ -357,6 +455,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
   function distributeAllPanes() {
     if (!enabled || !tree) return;
+    pushUndo();
     tree = PaneTree.distributeAllEvenly(tree);
     render();
     persist();
@@ -364,6 +463,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   }
 
   function resetBranchSizes(path, index) {
+    pushUndo();
     tree = PaneTree.distributeEvenly(tree, path);
     render();
     persist();
@@ -1442,6 +1542,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const leaf = activeLeaf();
     if (!leaf) return;
     const newLeafId = nextLeafId();
+    pushUndo();
     // A split while zoomed would put the new pane behind the zoomed one, where nothing points at it.
     zoomedLeafId = null;
     // The new pane starts EMPTY and takes focus: a terminal cannot be shown twice
@@ -1496,6 +1597,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // the pane is gone and there is nothing left to close.
     leaf = PaneTree.leaves(tree).find((l) => l.id === leafId);
     if (!leaf || PaneTree.leaves(tree).length === 1) return;
+    // Snapshot for undo BEFORE the tabs go. Each `destroySession` below calls back into
+    // `dropSession`, and the pane collapses the moment its last tab leaves — so a snapshot taken
+    // further down would already be missing the pane this is about to remove (#352).
+    pushUndo();
     // …and the answer about the processes has to come from the tree that is actually being closed.
     const keeping = leaf.tabs.map(sessionOfTab)
       .filter((id) => id && openSessions.has(id) && sessionIsLive(id) && !closeStopsProcess(id));
@@ -1839,7 +1944,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       b.type = 'button';
       b.textContent = label;
       if (opts.disabled) b.disabled = true;
-      else b.addEventListener('click', () => { closePaneMenu(); handler(); });
+      // The event goes through to the handler: one entry (a saved layout, #352) means a different
+      // thing with Shift held, and a second listener could not do it — listeners on the SAME element
+      // run in registration order regardless of phase, so this one would always have fired first.
+      else b.addEventListener('click', (e) => { closePaneMenu(); handler(e); });
       // `before` is for items that arrive late (the window list, #316) and still belong next to the
       // entry they extend, rather than after the destructive one at the bottom.
       if (opts.before && opts.before.parentElement === pop) pop.insertBefore(b, opts.before);
@@ -1901,6 +2009,32 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         danger: true,
         disabled: PaneTree.leaves(tree).length === 1,
       });
+    }
+
+    // The arrangement as a whole (#352) — its own group, because none of it is about THIS pane. Undo
+    // has no keyboard shortcut on purpose: Ctrl+Z belongs to whatever runs in the terminal, and a
+    // layout undo stealing it would be the more surprising of the two.
+    const presets = readPresets();
+    if (undoStack.length || presets.length || PaneTree.leaves(tree).length > 1) {
+      separator();
+      groupLabel('Layout');
+      item('Undo layout change', () => undoLayout(), { disabled: !undoStack.length });
+      item('Save layout…', () => saveLayoutPreset());
+      for (const preset of presets) {
+        // Shift-click deletes, so a saved layout needs neither a submenu nor an editing mode to be
+        // gone again. The tooltip says so, because nothing else on screen could.
+        const el = item(`Restore “${preset.name}”`, (e) => {
+          if (e && e.shiftKey) {
+            deleteLayoutPreset(preset.name);
+            if (typeof showControlToast === 'function') {
+              showControlToast({ message: `Layout “${preset.name}” deleted` });
+            }
+            return;
+          }
+          applyLayoutPreset(preset.name);
+        });
+        el.title = 'Shift-click to delete this layout';
+      }
     }
 
     // Where this SESSION renders (#2, #314, #316): a window of its own, or any window that already
@@ -2160,6 +2294,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   function clearDropFeedback() { clearDropHint(); clearTabCaret(); }
 
   function applyMove(from, toLeafId, index) {
+    pushUndo();
     const next = PaneTree.moveTab(tree, { fromLeafId: from.fromLeafId, toLeafId, tabId: from.tabId, index });
     drag = null;
     clearDropFeedback();
@@ -2172,6 +2307,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   }
 
   function applySplitMove(from, leafId, direction) {
+    pushUndo();
     const newLeafId = nextLeafId();
     let next = PaneTree.splitLeaf(tree, leafId, direction, { newLeafId });
     next = PaneTree.moveTab(next, { fromLeafId: from.fromLeafId, toLeafId: newLeafId, tabId: from.tabId });
@@ -2248,6 +2384,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       if (pending) {
         // Commit what was dragged rather than discarding it. When the ender is a rebuild, `render()`
         // calls this BEFORE it walks the tree, so the new sizes are the ones it draws.
+        pushUndo();
         tree = PaneTree.resizeSash(tree, path, index, pending);
         persist();
       }
@@ -2649,6 +2786,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     navigateTabInPane,
     toggleZoom,
     isZoomed: () => !!zoomedLeafId,
+    undoLayout,
   };
 
   // A window resize changes every pane's box; refit what is on screen.

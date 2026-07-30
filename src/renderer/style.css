@@ -196,6 +196,20 @@ input:focus-visible {
   font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
 }
 
+/* The one line a dialog asks FOR rather than about — naming a layout preset (#352). */
+.control-dialog-input {
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  background: rgba(0,0,0,0.25);
+  color: #e8e8f4;
+  font-size: 12px;
+  font-family: inherit;
+}
+.control-dialog-input:focus { outline: none; border-color: #8088ff; }
+
 /* The opt-in switch some confirms carry, for a decision the dialog leaves to the user rather than
    taking for them (archive-all: include the running sessions — issue #251). */
 .control-dialog-checkbox {

@@ -27,6 +27,17 @@
     return { label: String(checkbox.label), checked: !!checkbox.checked };
   }
 
+  // The text input, when a caller wants an answer rather than a yes. Refused alongside a checkbox:
+  // that one already owns the two-value result shape, and a dialog answering three questions is a form.
+  function normalizeControlDialogPrompt(prompt, checkbox) {
+    if (!prompt || checkbox) return null;
+    return {
+      value: String(prompt.value || ''),
+      placeholder: String(prompt.placeholder || ''),
+      maxLength: Number(prompt.maxLength) > 0 ? Math.floor(Number(prompt.maxLength)) : 60,
+    };
+  }
+
   function normalizeControlDialogOptions(options = {}) {
     return {
       title: String(options.title || ''),
@@ -42,6 +53,10 @@
         ? options.confirmDisabled
         : () => !!options.confirmDisabled,
       checkbox: normalizeControlDialogCheckbox(options.checkbox),
+      // A single line of text the dialog asks FOR rather than about (#352: naming a layout preset).
+      // Absent unless a caller asks, so every existing dialog is unchanged — and a dialog cannot have
+      // both this and a checkbox, because the two want to resolve with different shapes.
+      prompt: normalizeControlDialogPrompt(options.prompt, options.checkbox),
       cancelLabel: String(options.cancelLabel || 'Cancel'),
       secondaryLabel: String(options.secondaryLabel || ''),
       tertiaryLabel: String(options.tertiaryLabel || ''),
@@ -105,6 +120,9 @@
         <h3 id="control-dialog-title">${escapeHtml(normalized.title)}</h3>
         ${normalized.message ? `<p>${escapeHtml(normalized.message)}</p>` : ''}
         ${detailRows ? `<div class="control-dialog-details">${detailRows}</div>` : ''}
+        ${normalized.prompt ? `
+        <input type="text" class="control-dialog-input" maxlength="${normalized.prompt.maxLength}"
+               placeholder="${escapeHtml(normalized.prompt.placeholder)}" value="${escapeHtml(normalized.prompt.value)}">` : ''}
         ${normalized.checkbox ? `
         <label class="control-dialog-checkbox">
           <input type="checkbox"${checked ? ' checked' : ''}>
@@ -126,6 +144,7 @@
       const tertiaryBtn = dialog.querySelector('.control-dialog-tertiary');
       const confirmBtn = dialog.querySelector('.control-dialog-confirm');
       const checkboxInput = dialog.querySelector('.control-dialog-checkbox input');
+      const textInput = dialog.querySelector('.control-dialog-input');
 
       if (checkboxInput) {
         checkboxInput.addEventListener('change', () => {
@@ -138,6 +157,13 @@
       // A dialog with a checkbox answers TWO questions, so it resolves with both. Without one the result
       // stays the bare true/false/'secondary'/'tertiary' every existing caller reads.
       function close(result) {
+        // A prompt resolves with the TEXT, or null when it was dismissed — a caller that asked for a
+        // name has nothing to do with `true`. Everything else keeps the shape it always had.
+        if (normalized.prompt) {
+          const text = result === true && textInput ? textInput.value.trim() : '';
+          closeControlDialog(overlay, onKey, text || null, resolve);
+          return;
+        }
         closeControlDialog(overlay, onKey, normalized.checkbox ? { confirmed: result, checked } : result, resolve);
       }
 
@@ -149,7 +175,10 @@
         if (event.key === 'Escape' && normalized.dismissible) close(false);
         // Enter is the confirm button, so a disabled button disables Enter too — otherwise the keyboard
         // walks straight past the state the button is greyed out for.
-        if (event.key === 'Enter' && !event.target.matches('textarea,input') && !confirmBtn.disabled) close(true);
+        // …and Enter INSIDE the prompt confirms it, which is what a one-field dialog is for. The
+        // general rule still stands for every other input: Enter in a form field is not a submit.
+        if (event.key === 'Enter' && textInput && event.target === textInput && !confirmBtn.disabled) close(true);
+        else if (event.key === 'Enter' && !event.target.matches('textarea,input') && !confirmBtn.disabled) close(true);
       }
 
       if (cancelBtn) cancelBtn.addEventListener('click', () => close(false));
@@ -164,7 +193,10 @@
       document.addEventListener('keydown', onKey);
       // A disabled confirm cannot take focus, and the dialog must not open with focus nowhere. The
       // checkbox is what makes it pressable, so that is where the user is put.
-      if (confirmBtn.disabled && checkboxInput) checkboxInput.focus();
+      // A prompt opens with the cursor in the field — the dialog exists to be typed into, and putting
+      // focus on the confirm button would make Enter answer with an empty string.
+      if (textInput) { textInput.focus(); textInput.select(); }
+      else if (confirmBtn.disabled && checkboxInput) checkboxInput.focus();
       else confirmBtn.focus();
     });
   }

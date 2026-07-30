@@ -1566,7 +1566,8 @@ test('a pane with nothing that can travel offers no session group at all (#340)'
     h.document.querySelector('.pane.pane-active .pane-more-btn').click();
     await h.settle();
 
-    assert.deepEqual(menuGroups(h), ['Pane'], 'no session, so no session heading');
+    // "Layout" is there because a second pane exists — but no "Session", which is the point.
+    assert.deepEqual(menuGroups(h), ['Pane', 'Layout'], 'no session, so no session heading');
     assert.equal(menuItem(h, 'Move pane to new window').disabled, true,
       'and the pane move says so by being disabled rather than doing nothing');
     assert.equal(menuItems(h).includes('Move to new window'), false);
@@ -2040,5 +2041,122 @@ test('from a detached window the gesture means "back to main" (#352)', async () 
 
     dragEndAt(h, tab, { screenX: 1400, screenY: 400 });
     assert.deepEqual(moved, [['a', 'main']]);
+  } finally { h.destroy(); }
+});
+
+// --- #352: undo, and saved layouts -------------------------------------------
+
+const paneIds = (h) => [...h.document.querySelectorAll('.pane')].map((p) => p.dataset.paneId);
+
+test('undo puts back the arrangement a split changed (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    const before = paneIds(h);
+    h.panes.splitActivePane('right');
+    await h.settle();
+    assert.equal(paneIds(h).length, 2);
+
+    assert.equal(h.panes.undoLayout(), true);
+    await h.settle();
+    assert.deepEqual(paneIds(h), before);
+  } finally { h.destroy(); }
+});
+
+test('undo puts back a closed pane, and a resize, in order (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanes(h);
+    h.pointer(h.document.querySelector('.pane-sash'), 'pointerdown', { x: 500, y: 300 });
+    h.pointer(h.window, 'pointermove', { x: 300, y: 300 });
+    h.pointer(h.window, 'pointerup', { x: 300, y: 300 });
+    await h.settle();
+    const resized = paneShares(h);
+    assert.notEqual(resized[0], '0.5');
+
+    await h.panes.closePane(paneIds(h)[1]);
+    await h.settle();
+    assert.equal(paneIds(h).length, 1, 'the pane went');
+
+    h.panes.undoLayout();
+    await h.settle();
+    assert.equal(paneIds(h).length, 2, 'and came back');
+    assert.deepEqual(paneShares(h), resized, 'at the size it had');
+
+    h.panes.undoLayout();
+    await h.settle();
+    assert.deepEqual(paneShares(h), ['0.5', '0.5'], 'one more step undoes the resize');
+  } finally { h.destroy(); }
+});
+
+test('undo does nothing with an empty stack, and says so in the menu (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.splitActivePane('right');
+    await h.settle();
+    h.document.querySelector('.pane.pane-active .pane-more-btn').click();
+    await h.settle();
+    assert.equal(menuItem(h, 'Undo layout change').disabled, false);
+
+    assert.equal(h.panes.undoLayout(), true);
+    assert.equal(h.panes.undoLayout(), false, 'nothing left to undo');
+  } finally { h.destroy(); }
+});
+
+test('a saved layout comes back by name, and Shift-click deletes it (#352)', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanes(h);
+    h.answers.confirm = 'Two panes'; // the prompt resolves with the text, not a boolean
+
+    h.document.querySelector('.pane.pane-active .pane-more-btn').click();
+    await h.settle();
+    menuItem(h, 'Save layout…').click();
+    await h.settle();
+    assert.equal(h.calls.dialogs[0].prompt.placeholder, 'Layout name');
+
+    // Collapse to one pane, then restore the saved arrangement.
+    await h.panes.closePane(paneIds(h)[1]);
+    await h.settle();
+    assert.equal(paneIds(h).length, 1);
+
+    h.document.querySelector('.pane.pane-active .pane-more-btn').click();
+    await h.settle();
+    const restore = menuItem(h, 'Restore “Two panes”');
+    assert.ok(restore, 'the saved layout is in the menu');
+    restore.click();
+    await h.settle();
+    assert.equal(paneIds(h).length, 2, 'the arrangement is back');
+
+    // Shift-click is the delete. A second listener could not do this — listeners on one element run
+    // in registration order whatever their phase — so the entry's own handler reads the modifier.
+    h.document.querySelector('.pane.pane-active .pane-more-btn').click();
+    await h.settle();
+    menuItem(h, 'Restore “Two panes”')
+      .dispatchEvent(new h.window.MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }));
+    await h.settle();
+
+    h.document.querySelector('.pane.pane-active .pane-more-btn').click();
+    await h.settle();
+    assert.equal(menuItem(h, 'Restore “Two panes”'), undefined, 'gone from the menu');
+  } finally { h.destroy(); }
+});
+
+test('a detached window never writes a saved layout (#352, #344)', async () => {
+  const h = setupPanesDom({ detached: true, detachedSessionId: 'a' });
+  try {
+    h.enable();
+    await h.open('a');
+    h.answers.confirm = 'From a detached window';
+    h.document.querySelector('.pane-more-btn').click();
+    await h.settle();
+    menuItem(h, 'Save layout…')?.click();
+    await h.settle();
+    // It shares this origin's localStorage with the main window and owns no arrangement — the same
+    // rule the tree itself follows.
+    assert.equal(h.window.localStorage.getItem('panePresets'), null);
   } finally { h.destroy(); }
 });

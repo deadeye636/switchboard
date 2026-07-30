@@ -373,10 +373,25 @@
   // Drop every tab the caller no longer recognises (a session that vanished while
   // the app was closed, a file that moved). Panes emptied by the sweep disappear
   // like any other emptied pane.
-  function pruneTabs(tree, isValid) {
+  // `keepEmptyPanes` stops a pane that loses its last tab from disappearing with it (#352). An UNDO
+  // restores an arrangement, and a pane the sweep empties there is the same thing a fresh split
+  // produces — the user just said "put it back", so removing it would answer a different request.
+  // Every other caller wants the collapse, which is why it is the default.
+  function pruneTabs(tree, isValid, { keepEmptyPanes = false } = {}) {
     const keep = typeof isValid === 'function' ? isValid : () => true;
     let next = clone(tree);
     for (const leaf of leaves(clone(tree))) {
+      const survivors = leaf.tabs.filter(keep);
+      if (survivors.length === leaf.tabs.length) continue;
+      if (keepEmptyPanes && !survivors.length) {
+        const path = pathOfLeaf(next, leaf.id);
+        if (!path) continue;
+        const emptied = clone(nodeAt(next, path));
+        emptied.tabs = [];
+        emptied.activeTabId = null;
+        next = replaceAt(next, path, emptied);
+        continue;
+      }
       for (const tab of leaf.tabs) {
         if (!keep(tab)) next = closeTab(next, leaf.id, tab.id);
       }
