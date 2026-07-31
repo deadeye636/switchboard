@@ -385,7 +385,7 @@ test('a re-keyed session takes its panel state with it (a fork, an accepted plan
 
 // ── Panes mode: the same element becomes a pane tab (#310) ───────────
 
-test('in panes mode the panel asks for a pane tab instead of a side panel', async () => {
+test('in panes mode a review rides with its session rather than taking a tab', async () => {
   const h = setupFilePanelDom({ panes: true });
   try {
     h.init();
@@ -393,15 +393,33 @@ test('in panes mode the panel asks for a pane tab instead of a side panel', asyn
     h.ipc.openDiff('s1', 'diff-1', diffData());
     await h.settle();
 
-    // A diff is a kind of its own now (#311) - it used to render through the preview host, because
-    // both were the one #file-panel.
-    assert.deepEqual(h.calls.openViewTab.map((c) => [c[0], c[1].ref]), [['diff', 'diff-1']]);
+    // #398: a review is read on top and answered in the terminal underneath — the accept/reject
+    // buttons belong to the CLI — so a tab of its own promised a separate surface and delivered the
+    // same session with an attachment.
+    assert.deepEqual(h.calls.openViewTab, [], 'no tab is claimed for it');
+    assert.ok(h.calls.render > 0, 'the tree is asked to rebuild instead, which places it');
+    assert.equal(h.window.filePanelReviewHostFor('s1'), h.qa('.fp-content')[0],
+      'and the pane can find the review of that session');
+
     assert.equal(h.panel().style.width, '', 'no side-panel width');
     assert.equal(h.document.getElementById('file-panel-resize-handle').style.display, 'none');
 
     h.window.closeFilePanel();
-    assert.deepEqual(h.calls.closeViewTab.map((c) => [c[0], c[1] && c[1].ref]), [['diff', 'diff-1']]);
     assert.deepEqual(h.calls.diffResponses, [['s1', 'diff-1', 'reject', null]], 'closing answers it');
+  } finally { h.destroy(); }
+});
+
+test('a preview still gets a tab — several files side by side is the point of one', async () => {
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.files.set('/a.md', 'a');
+    await h.openFileInPanel('s1', '/a.md');
+    await h.settle();
+
+    assert.deepEqual(h.calls.openViewTab.map((c) => [c[0], c[1].ref]), [['preview', '/a.md']],
+      'only the review lost its tab; looking at a file is not answering one');
   } finally { h.destroy(); }
 });
 
@@ -486,5 +504,84 @@ test('an entry answers the bridge under the session id it was re-keyed to (#311)
 
     h.q('.file-panel-accept-btn').click();
     assert.deepEqual(h.calls.diffResponses, [['new', 'diff-1', 'accept', null]]);
+  } finally { h.destroy(); }
+});
+
+// ── #398: several reviews of one session share one surface ──────────
+
+test('one review shows no pager — there is nothing to page through', async () => {
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.ipc.openDiff('s1', 'diff-1', diffData());
+    await h.settle();
+
+    assert.equal(h.qa('.fp-review-pager')[0].style.display, 'none');
+  } finally { h.destroy(); }
+});
+
+test('a second review of the same session says it is waiting', async () => {
+  // This is what the tab used to say by existing. Without a count, a review behind the visible one is
+  // invisible — and it still blocks its CLI.
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.ipc.openDiff('s1', 'diff-1', diffData({ oldFilePath: '/a.js' }));
+    await h.settle();
+    h.ipc.openDiff('s1', 'diff-2', diffData({ oldFilePath: '/b.js', tabName: 'second' }));
+    await h.settle();
+
+    const counts = h.qa('.fp-review-count').map((el) => el.textContent);
+    assert.deepEqual(counts, ['1 of 2', '2 of 2']);
+    assert.deepEqual(h.calls.diffResponses, [], 'and neither was answered to make room for the other');
+  } finally { h.destroy(); }
+});
+
+test('paging moves which review is on screen and answers nothing', async () => {
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.ipc.openDiff('s1', 'diff-1', diffData({ oldFilePath: '/a.js' }));
+    await h.settle();
+    h.ipc.openDiff('s1', 'diff-2', diffData({ oldFilePath: '/b.js', tabName: 'second' }));
+    await h.settle();
+
+    const shown = () => h.state('s1').shownKey;
+    assert.match(shown(), /diff-2$/, 'the newest is on screen');
+
+    h.qa('.fp-review-pager')[1].querySelector('button').click();   // ‹ previous
+    assert.match(shown(), /diff-1$/);
+    assert.deepEqual(h.calls.diffResponses, [], 'paging is not deciding');
+
+    // It wraps: with two open, previous and next both reach the other one.
+    h.qa('.fp-review-pager')[0].querySelectorAll('button')[1].click(); // › next
+    assert.match(shown(), /diff-2$/);
+    assert.deepEqual(h.calls.diffResponses, []);
+  } finally { h.destroy(); }
+});
+
+test('closing the visible review puts the waiting one on screen', async () => {
+  // Without a tab to fall back to, the surface would otherwise go blank while a review is still open
+  // and still blocking its CLI. (Accepting does NOT close it — the review stays until the CLI takes it
+  // down, which is what close_tab does here.)
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.ipc.openDiff('s1', 'diff-1', diffData({ oldFilePath: '/a.js' }));
+    await h.settle();
+    h.ipc.openDiff('s1', 'diff-2', diffData({ oldFilePath: '/b.js', tabName: 'second' }));
+    await h.settle();
+
+    h.qa('.fp-content')[1].querySelector('.file-panel-accept-btn').click();
+    assert.deepEqual(h.calls.diffResponses, [['s1', 'diff-2', 'accept', null]]);
+    h.ipc.closeTab('s1', 'diff-2');   // the CLI takes its answered review down
+
+    assert.match(h.state('s1').shownKey, /diff-1$/, 'the one still waiting takes the surface');
+    assert.equal(h.qa('.fp-review-pager')[0].style.display, 'none',
+      'and with one left there is nothing to page through again');
   } finally { h.destroy(); }
 });

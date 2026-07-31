@@ -6525,6 +6525,23 @@ body.display-mode-panes #file-panel.open {
   background: rgba(120,130,255,0.12);
 }
 
+/* Paging between the reviews of one session (#398). Hidden entirely when there is one, so the common
+   case carries no chrome; the count is what tells you another is waiting. */
+.fp-review-pager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+
+.fp-review-count {
+  color: #9090a8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  min-width: 46px;
+  text-align: center;
+}
+
 .fp-icon-btn {
   display: inline-flex;
   align-items: center;

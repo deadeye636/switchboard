@@ -124,7 +124,9 @@ is how the app loses its only preview panel:**
 - **Instanced kinds** (`preview`, `diff`, since #311) — one instance per thing shown, built by
   `file-panel.js` (`createPanelInstance`) and keyed `<kind>:<ref>` (file path / diff id). They have **no
   home**: created with their tab, destroyed with it, so they must never go through `viewHomes` /
-  `releaseViewElement` / `hideViewElement`. Every path that destroys a diff instance has to ANSWER it
+  `releaseViewElement` / `hideViewElement`. **A `diff` has no tab at all since #398** — it rides with its
+  session's tab (`buildPane` asks `filePanelReviewHostFor`), because a review is read on top and answered
+  in the terminal underneath it. Several reviews of one session share that surface and are paged. Every path that destroys a diff instance has to ANSWER it
   (`mcpDiffResponse(..., 'reject')`) unless the CLI already decided — otherwise its `tools/call` hangs for
   ten minutes. `docs/specs/16-panes-mode.md` §4.3 has the full rule set.
 

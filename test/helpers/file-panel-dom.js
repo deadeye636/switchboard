@@ -68,9 +68,14 @@ function setupFilePanelDom(opts = {}) {
 
   // The IPC listeners file-panel registers. A test fires them the way main does when the bridge speaks.
   const ipc = {};
+  // Which sessions might be showing a review. The real pane tree knows from its own tabs; here the
+  // sessions a test has opened a diff for are exactly the ones worth asking about (#398).
+  const reviewSessions = new Set();
 
   window.api = new Proxy({
-    onMcpOpenDiff: (cb) => { ipc.openDiff = cb; },
+    onMcpOpenDiff: (cb) => {
+      ipc.openDiff = (sessionId, ...rest) => { reviewSessions.add(sessionId); return cb(sessionId, ...rest); };
+    },
     onMcpOpenFile: (cb) => { ipc.openFile = cb; },
     onMcpCloseAllDiffs: (cb) => { ipc.closeAllDiffs = cb; },
     onMcpCloseTab: (cb) => { ipc.closeTab = cb; },
@@ -129,6 +134,17 @@ function setupFilePanelDom(opts = {}) {
     },
     hasViewTab: (kind, ref) => paneTabs.has(kind + ':' + ref),
     refreshChrome: () => { calls.refreshChrome++; },
+    // A REVIEW has no tab of its own since #398: it rides with its session's tab, and the tree puts it
+    // on screen when it rebuilds. `render` is what file-panel calls instead of `openViewTab`, so this
+    // stub does here what buildPane does there — otherwise the roots stay detached and every "is it on
+    // screen" assertion answers about nothing.
+    render: () => {
+      calls.render = (calls.render || 0) + 1;
+      for (const sessionId of reviewSessions) {
+        const host = window.filePanelReviewHostFor?.(sessionId);
+        if (host && host.parentNode !== paneHost) paneHost.appendChild(host);
+      }
+    },
   };
 
   const stubs = {

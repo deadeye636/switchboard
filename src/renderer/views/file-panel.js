@@ -101,6 +101,28 @@ function createPanelInstance(parent, hooks = {}) {
   const controls = document.createElement('div');
   controls.className = 'viewer-toolbar-controls';
 
+  // Paging between the reviews of ONE session (#398). Several at once is a real case — the bridge
+  // dispatches tool calls without awaiting the previous one — and they share this one surface now, so
+  // without a counter a second one waiting would be invisible. Hidden entirely when there is one, which
+  // is the common case: nothing to page through, nothing to explain.
+  const pager = document.createElement('div');
+  pager.className = 'fp-review-pager';
+  pager.style.display = 'none';
+  const prevBtn = document.createElement('button');
+  prevBtn.className = 'fp-toolbar-btn fp-icon-btn';
+  prevBtn.textContent = '‹';
+  prevBtn.title = 'Previous review';
+  prevBtn.addEventListener('click', () => hooks.onPageReview?.(-1));
+  const pagerCount = document.createElement('span');
+  pagerCount.className = 'fp-review-count';
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'fp-toolbar-btn fp-icon-btn';
+  nextBtn.textContent = '›';
+  nextBtn.title = 'Next review';
+  nextBtn.addEventListener('click', () => hooks.onPageReview?.(1));
+  pager.append(prevBtn, pagerCount, nextBtn);
+  controls.appendChild(pager);
+
   const toggleBtn = document.createElement('button');
   toggleBtn.className = 'fp-toolbar-btn';
   toggleBtn.addEventListener('click', () => hooks.onToggleDiffMode?.());
@@ -199,6 +221,19 @@ function createPanelInstance(parent, hooks = {}) {
       }
     },
     showNothing,
+    /**
+     * Say where this review sits among the session's open ones (#398).
+     *
+     * Hidden for the ordinary case of exactly one — a pager with nothing to page through is noise. With
+     * more, the count is the part that matters: it is the only thing that says a second review is
+     * waiting, which a tab used to say by existing.
+     */
+    setPager(index, total) {
+      if (!total || total < 2) { pager.style.display = 'none'; return; }
+      pager.style.display = '';
+      pagerCount.textContent = `${index + 1} of ${total}`;
+      pagerCount.title = `${total} reviews waiting in this session`;
+    },
     hideDiffActions() { actionsEl.style.display = 'none'; },
     applyDiffModeLabel,
     // A tab's editor view lives in this body, so its search / goto-line bars are cached on it. Dropping
@@ -410,6 +445,7 @@ function upsertPanelTab(sessionId, kind, ref, tab) {
     onDiffSave: () => handleDiffSave(entry),
     onToggleDiffMode: handleDiffModeToggle,
     onDiffAction: (_sid, _tab, action) => handleDiffAction(entry, action),
+    onPageReview: (direction) => pageReview(entry, direction),
   });
   panelTabs.set(key, entry);
   return entry;
@@ -420,6 +456,57 @@ window.filePanelHostFor = (kind, ref) => {
   const entry = panelTabs.get(tabKey(kind, ref));
   return (entry && entry.instance.root) || null;
 };
+
+/**
+ * The review a session is showing right now, for the pane that renders that session (#398).
+ *
+ * A review does not get a tab of its own any more. It belongs to one session, it is read while the
+ * terminal underneath it is used to answer it — the accept/reject buttons are the CLI's, not ours — so
+ * a tab promising a separate surface delivered the same session with an attachment, and the session
+ * ended up occupying two tabs, one a subset of the other.
+ *
+ * Several reviews of one session are a real case: the bridge dispatches tool calls without awaiting the
+ * previous one, so a CLI can have two open at once. They share this one surface and are paged through,
+ * which is why the shown one is a property of the SESSION rather than of a tab.
+ */
+window.filePanelReviewHostFor = (sessionId) => {
+  const entry = shownEntryFor(sessionId);
+  if (!entry || entry.kind !== 'diff') return null;
+  return entry.instance.root || null;
+};
+
+/** Every open review of a session, oldest first — what the pager pages through. */
+function reviewsOf(sessionId) {
+  return entriesOf(sessionId).filter((e) => e.kind === 'diff');
+}
+
+/**
+ * Move to the review before or after this one, within its own session (#398).
+ *
+ * Paging answers NOTHING: it changes which review is on screen and nothing else. The one paged away
+ * from stays open and still blocks its CLI, which is the whole reason the counter has to be visible.
+ * It wraps, because with two reviews "next" and "previous" should both reach the other one.
+ */
+function pageReview(entry, direction) {
+  const reviews = reviewsOf(entry.sessionId);
+  if (reviews.length < 2) return;
+  const at = reviews.findIndex((e) => e.key === entry.key);
+  const next = reviews[(at + direction + reviews.length) % reviews.length];
+  if (!next || next.key === entry.key) return;
+
+  const state = getSessionState(entry.sessionId);
+  state.shownKey = next.key;
+  state.currentTab = next.tab;
+  if (panesActive()) window.panesView?.render?.();
+  next.instance.render(entry.sessionId, next.tab);
+  updateReviewPager(entry.sessionId);
+}
+
+/** Keep every review of a session honest about where it sits in the queue. */
+function updateReviewPager(sessionId) {
+  const reviews = reviewsOf(sessionId);
+  reviews.forEach((e, i) => e.instance.setPager?.(i, reviews.length));
+}
 
 /**
  * Which session this preview or diff was opened FROM (#388).
@@ -499,11 +586,18 @@ function closePanelTab(key, { keepPanel = false, answer = true } = {}) {
     state.shownKey = next ? next.key : null;
     state.currentTab = next ? next.tab : null;
     state.panelVisible = !!next;
-    if (!keepPanel && currentPanelSessionId === entry.sessionId) {
+    // In panes mode a review has no tab to fall back to (#398), so answering the visible one has to
+    // put the next one on screen here — otherwise the surface goes blank while a review is still open
+    // and still blocking its CLI, which is the failure the counter exists to make impossible.
+    if (panesActive()) {
+      window.panesView?.render?.();
+      if (next) next.instance.render(entry.sessionId, next.tab);
+    } else if (!keepPanel && currentPanelSessionId === entry.sessionId) {
       if (next) { showPanel(state); renderPanel(entry.sessionId); }
       else hidePanel();
     }
   }
+  updateReviewPager(entry.sessionId);
 }
 
 function openDiffTab(sessionId, diffId, data) {
@@ -541,9 +635,16 @@ function revealEntry(state, sessionId, entry) {
     // The shell still has to enter its panes state: `.open` is how a later mode switch learns something
     // is showing, and the width and the resize handle belong to a side panel that does not exist here.
     showPanel(state);
-    // The instance root goes wherever the tree puts it; rendering happens once it has a box.
-    window.panesView.openViewTab(entry.kind, { ref: entry.ref, nearSessionId: sessionId });
+    // A REVIEW rides along with its session's tab (#398) — it is read and answered together with the
+    // terminal underneath it, so it is not a surface of its own. Everything else still gets a tab: a
+    // preview is for looking at, and several files side by side is the point of one.
+    if (entry.kind === 'diff') {
+      window.panesView.render?.();
+    } else {
+      window.panesView.openViewTab(entry.kind, { ref: entry.ref, nearSessionId: sessionId });
+    }
     entry.instance.render(sessionId, entry.tab);
+    updateReviewPager(sessionId);
     window.panesView.refreshChrome?.();
     return;
   }

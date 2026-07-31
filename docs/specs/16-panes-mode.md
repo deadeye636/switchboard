@@ -506,6 +506,14 @@ is unique, so there could only ever be one of each, which IS the symptom. Step 2
   panes nothing closes.
 - **`diff` is its own kind now.** It used to render through the `preview` host because both were
   `#file-panel`.
+- **A review has NO tab of its own (#398).** It rides with its session's tab: `buildPane` asks
+  `filePanelReviewHostFor(sessionId)` and puts the review above that session's terminal. The reason is
+  what a review IS — it is read on top and answered underneath, because the accept/reject buttons belong
+  to the CLI, not to us. A tab therefore promised a separate surface and delivered the same session with
+  an attachment, so one session with one review occupied two tabs, one a subset of the other.
+  **A preview keeps its tab**: looking at several files side by side is the point of one, and nothing is
+  waiting on an answer. Several reviews of one session share the one surface and are paged through, with
+  a counter — the count is what a tab used to say by existing.
 - **Every path that drops a diff answers it**, except the two where the CLI already decided (`close_tab`,
   `closeAllDiffTabs`). Displacing one in the side panel, closing its pane, and leaving panes mode all
   reject it — otherwise the CLI's `tools/call` hangs until the bridge's ten-minute timeout. Leaving panes

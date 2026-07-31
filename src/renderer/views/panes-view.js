@@ -666,7 +666,20 @@ window.__sessionDragId = null;
         }
         continue;
       }
-      const entry = openSessions.get(sessionOfTab(tab));
+      const sessionId = sessionOfTab(tab);
+      // A review rides with its session's tab rather than taking one of its own (#398). It goes in
+      // FIRST, so it sits above the terminal it is answered in — reading on top, deciding underneath,
+      // which is the arrangement it always had; what it no longer has is a tab that promised a separate
+      // surface and showed the same session.
+      const review = typeof window.filePanelReviewHostFor === 'function'
+        ? window.filePanelReviewHostFor(sessionId)
+        : null;
+      if (review) {
+        review.classList.add('pane-hosted');
+        review.classList.toggle('pane-hosted-hidden', tab.id !== leaf.activeTabId);
+        body.appendChild(review);
+      }
+      const entry = openSessions.get(sessionId);
       if (entry) body.appendChild(entry.element); // moves the live container, xterm and all
     }
     // A tab whose session is not mounted is not an error: the saved layout
