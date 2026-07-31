@@ -56,7 +56,7 @@ Never hide the live terminal.
 ```
 
 ### Surface (renderer)
-- On focusing a session, compute the summary from the timeline store + files map + `lastViewedTime`. If `hasChanges` and the session changed *while unfocused* (i.e. it was in `responseReadySessions`/`attentionSessions`, or had activity after `lastViewedAt`), render a compact card.
+- On focusing a session, compute the summary from the timeline store + files map + `lastViewedTime`. If `hasChanges`, render a compact card. *(As built this reads the timeline alone — the two attention Sets named here are the RAISE state, and since #391 they are deliberately not what decides whether something was waiting.)*
 - Placement: a dismissible banner at the top of `#terminal-area` (or an overlay strip above the terminal), styled like `control-toast`/timeline rows. Must not cover or unmount the terminal. Include a "View full timeline" link that opens `#timeline-viewer` for that session.
 - Auto-dismiss on next user input to that terminal, or via an explicit ✕. Reset `filesTouchedSinceViewed` for the session on dismiss.
 - Respect `prefers-reduced-motion` for any entrance animation.
@@ -137,22 +137,42 @@ reached from the other side.
 
 Settings: `awaySummary` (on) turns the whole thing off; `awayIdleMinutes` (10) is the threshold.
 
-### Known gap: a window of its own sees no `WAITING_KINDS`
+### Known gap: a window of its own has almost nothing to recap (#395)
 
-`cli-busy-state` is sent to the **main window only**, deliberately — the sidebar, the attention inbox
-and the badges live there, and `sendToWindow` in `app/terminal/spawn.js` takes `getMainWindow()`. That
-signal is what drives `shell/attention-engine.js`, which is what records `response-ready` and
-`needs-attention`.
+Every source of "this session is working / this session wants you" addresses the **main window**, and
+there are **three**, not one — a fix that touches only the first leaves the recap silently
+backend-dependent:
 
-Those two are exactly the pair behind the "Waiting on you" badge. A session in a window of its own
-(#2, #370) therefore **cannot show them**: that window's `sessionTimelineStore` never receives them.
-What it can show is `started`, `exited`, `stopped`, `forked` and the files touched.
+| Source | Where |
+|---|---|
+| the title-spinner and progress heuristics → `cli-busy-state` | `app/terminal/spawn.js` (`sendToWindow` takes `getMainWindow()`) |
+| the store-derived busy state, for the backends that name their own sessions | `watch/adopt.js` |
+| the hook server's `attention-signal` | `app/hooks.js` |
 
-Not fixed here, and the reason is that the cheap fix is the wrong one: relaying `cli-busy-state` to
-the owning window as well would also hand that window's attention engine a badge, a sidebar update and
-a notification path, which is a second inbox by accident — the thing the presence decision above
-exists to avoid. Fixing it properly means separating "record the timeline" from "raise attention",
-which is its own change.
+Those feed `shell/attention-engine.js`, which is what records `response-ready` and `needs-attention` —
+exactly the pair behind the "Waiting on you" badge. A session in a window of its own (#2, #370) never
+gets them, so that window's `sessionTimelineStore` never learns a turn ended there.
+
+**The files touched are missing too.** `servers/mcp-bridge.js` addresses the same main window, so
+`recordFileTouched` never fires in a window of its own either — this section used to claim that window
+could still show the files, which was never true. Where those notices *should* go is its own open
+decision (#393); resolving the window per send rather than capturing it at spawn time is done (#392).
+
+What such a window is left with is the **lifecycle kinds** — `started`, `exited`, `stopped`, `forked` —
+which do reach it (`process-exited` is addressed to the owner as well as to main, and a re-key is
+recorded locally). So the recap is not dead there, but it renders only when one of those happened: a
+turn ending or a file being touched — the two things a user actually walks away from — produce nothing,
+and "Waiting on you" can never appear.
+
+The cheap fix stays rejected: relaying `cli-busy-state` to the owning window would hand that window's
+engine a badge, a sidebar update and a notification path — a second inbox by accident, the thing the
+presence decision above exists to avoid. The seam that makes the honest fix cheap now exists: since
+#391 the engine records a turn's end independently of focus and raises it only when the user is not
+looking, and since #390 announcing is gated to the main window. What is left for #395 is the transport.
+
+One more consequence of that split, worth stating plainly: the **main** window's recap used to be
+silent about the session that was in front when you left, because the record was written only for an
+unfocused session. That was the same defect reached from the ordinary path, and #391 fixed it.
 
 Three more things are per renderer and in memory, and a reload or a restart empties them:
 `lastViewedTime`, `filesTouchedSinceViewed`, `sessionTimelineStore`.

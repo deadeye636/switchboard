@@ -155,6 +155,22 @@ function sendError(entry, id, code, message) {
   }
 }
 
+/**
+ * The window a notice is addressed to, resolved PER SEND.
+ *
+ * It used to be captured when the session spawned — the captured-`let` shape the ctx rule exists to
+ * prevent (`.claude/rules/main-process.md`). A bridge outlives any window reopen, so after one it
+ * addressed a window that no longer existed: nothing appeared, nothing errored, and every diff sat
+ * out its full timeout.
+ *
+ * Where a notice SHOULD go for a session that lives in a window of its own is a separate and open
+ * question (#393) — this only makes the current answer resolve at the right moment.
+ */
+function targetWindow(entry) {
+  const win = typeof entry.getWindow === 'function' ? entry.getWindow() : null;
+  return win && !win.isDestroyed() ? win : null;
+}
+
 // ── Tool Call Dispatch ───────────────────────────────────────────────
 
 async function handleToolCall(entry, rpcId, params, log) {
@@ -205,8 +221,9 @@ async function handleOpenDiff(entry, rpcId, args, log) {
   });
 
   // Send to renderer
-  if (entry.mainWindow && !entry.mainWindow.isDestroyed()) {
-    entry.mainWindow.webContents.send('mcp-open-diff', entry.sessionId, diffId, {
+  const diffWindow = targetWindow(entry);
+  if (diffWindow) {
+    diffWindow.webContents.send('mcp-open-diff', entry.sessionId, diffId, {
       oldFilePath: old_file_path,
       oldContent,
       newContent: new_file_contents,
@@ -249,8 +266,9 @@ async function handleOpenFile(entry, rpcId, args, log) {
     log.debug(`[mcp] Could not read ${filePath}: ${err.message}`);
   }
 
-  if (entry.mainWindow && !entry.mainWindow.isDestroyed()) {
-    entry.mainWindow.webContents.send('mcp-open-file', entry.sessionId, {
+  const fileWindow = targetWindow(entry);
+  if (fileWindow) {
+    fileWindow.webContents.send('mcp-open-file', entry.sessionId, {
       filePath,
       content,
       preview: preview ?? false,
@@ -276,8 +294,9 @@ async function handleCloseTab(entry, rpcId, args, log) {
       pending.resolve({ action: 'accept' });
 
       // Notify renderer to close the tab
-      if (entry.mainWindow && !entry.mainWindow.isDestroyed()) {
-        entry.mainWindow.webContents.send('mcp-close-tab', entry.sessionId, diffId);
+      const closeWindow = targetWindow(entry);
+      if (closeWindow) {
+        closeWindow.webContents.send('mcp-close-tab', entry.sessionId, diffId);
       }
       break;
     }
@@ -297,8 +316,9 @@ async function handleCloseAllDiffTabs(entry, rpcId, log) {
   }
   entry.pendingDiffs.clear();
 
-  if (entry.mainWindow && !entry.mainWindow.isDestroyed()) {
-    entry.mainWindow.webContents.send('mcp-close-all-diffs', entry.sessionId);
+  const closeAllWindow = targetWindow(entry);
+  if (closeAllWindow) {
+    closeAllWindow.webContents.send('mcp-close-all-diffs', entry.sessionId);
   }
 
   sendResult(entry, rpcId, {
@@ -316,9 +336,10 @@ async function handleGetDiagnostics(entry, rpcId) {
 
 /**
  * Start an MCP WebSocket server for a session.
+ * @param getWindow a GETTER for the window its notices go to — never a window (see targetWindow).
  * @returns {{ port: number, authToken: string }}
  */
-async function startMcpServer(sessionId, workspaceFolders, mainWindow, log) {
+async function startMcpServer(sessionId, workspaceFolders, getWindow, log) {
   ensureIdeDir();
 
   const authToken = crypto.randomUUID();
@@ -369,7 +390,7 @@ async function startMcpServer(sessionId, workspaceFolders, mainWindow, log) {
     port,
     authToken,
     lockFilePath,
-    mainWindow,
+    getWindow,
     ws: null,
     pendingDiffs: new Map(),
   };
