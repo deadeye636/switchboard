@@ -23,20 +23,52 @@ const WebSocket = require('ws');
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-mcp-'));
 process.env.SWITCHBOARD_STORE_CLAUDE = path.join(tmpHome, 'projects');
 
-const { startMcpServer, shutdownMcpServer } = require('../src/servers/mcp-bridge');
+const { startMcpServer, shutdownMcpServer, rejectPendingDiffsForWindow } = require('../src/servers/mcp-bridge');
 
 const log = { info() {}, debug() {}, warn() {}, error() {} };
 
-/** A window that records what was sent to it, and can be told it is gone. */
+/**
+ * A window that records what was sent to it, can be told it is gone, and can be caught mid-load —
+ * Electron drops a send to a renderer that has not loaded yet, silently, which is a real path here
+ * (a window restored at launch registers its sessions before it finishes loading).
+ */
 function fakeWindow(name) {
   const sent = [];
-  return {
+  const loadListeners = [];
+  const win = {
     name,
     sent,
     destroyed: false,
-    isDestroyed() { return this.destroyed; },
-    webContents: { send: (channel, ...args) => sent.push({ channel, args }) },
+    loading: false,
+    isDestroyed() { return win.destroyed; },
+    finishLoad() {
+      win.loading = false;
+      loadListeners.splice(0).forEach((fn) => fn());
+    },
+    waitingForLoad: () => loadListeners.length,
+    webContents: {
+      send: (channel, ...args) => sent.push({ channel, args }),
+      isLoading: () => win.loading,
+      once: (event, fn) => { if (event === 'did-finish-load') loadListeners.push(fn); },
+    },
   };
+  return win;
+}
+
+/**
+ * Wait for something the bridge does asynchronously — the call travels over a real socket, so a single
+ * turn of the loop is not enough and a fixed sleep would be a race dressed up as a delay.
+ */
+function waitFor(predicate, what) {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + 2000;
+    const check = () => {
+      if (predicate()) return resolve();
+      if (Date.now() > deadline) return reject(new Error(`timed out waiting for ${what}`));
+      setTimeout(check, 5);
+    };
+    check();
+  });
 }
 
 /** Connect as the CLI does: the `mcp` subprotocol plus the auth header from the lock file. */
@@ -117,5 +149,143 @@ test('no window at all is not an error', async () => {
   } finally {
     ws.close();
     shutdownMcpServer('s3');
+  }
+});
+
+// --- #393: a diff opens where the session is, and a dying window answers for it -------------------
+//
+// While a diff could only live in the main window, nothing had to answer for it: that window's only
+// death was the app quitting, and quit resolves everything on its way out. Opening the review where
+// the user is looking breaks that accident — a window of its own is closed by hand, or auto-closed
+// when its last session leaves, while the CLI's tools/call is still open. Nobody else can answer it,
+// and the fallback is ten minutes of silence.
+
+/** Drive one openDiff and hand back the promise, so the test can act while the call is still open. */
+function openDiff(ws, id, filePath) {
+  const replies = [];
+  const onMessage = (raw) => replies.push(JSON.parse(raw.toString()));
+  ws.on('message', onMessage);
+  ws.send(JSON.stringify({
+    jsonrpc: '2.0', id, method: 'tools/call',
+    params: { name: 'openDiff', arguments: { old_file_path: filePath, new_file_contents: 'x', tab_name: 't' } },
+  }));
+  return {
+    replies,
+    /** Resolve once the bridge answers this call — the whole point is that it does. */
+    answered: () => new Promise((resolve) => {
+      const check = () => {
+        const hit = replies.find((m) => m.id === id);
+        if (hit) { ws.off('message', onMessage); resolve(hit); }
+        else setImmediate(check);
+      };
+      check();
+    }),
+  };
+}
+
+test('a diff is sent to the window that renders the session, not to the main one', async () => {
+  const main = fakeWindow('main');
+  const owner = fakeWindow('owner');
+  const server = await startMcpServer('d1', [tmpHome], () => owner, log);
+  const ws = await connect(server.port, server.authToken);
+  try {
+    const call = openDiff(ws, 1, __filename);
+    // The call stays open until someone answers it; only the SEND has to have happened by now.
+    await waitFor(() => owner.sent.length > 0, "the diff to reach the owning window");
+    assert.equal(owner.sent.length, 1);
+    assert.equal(owner.sent[0].channel, 'mcp-open-diff');
+    assert.equal(main.sent.length, 0, 'the review belongs where the user is looking');
+
+    rejectPendingDiffsForWindow(owner, log);
+    await call.answered();
+  } finally {
+    ws.close();
+    shutdownMcpServer('d1');
+  }
+});
+
+test('closing the window holding a diff answers the CLI instead of leaving it waiting', async () => {
+  const owner = fakeWindow('owner');
+  const server = await startMcpServer('d2', [tmpHome], () => owner, log);
+  const ws = await connect(server.port, server.authToken);
+  try {
+    const call = openDiff(ws, 1, __filename);
+    await waitFor(() => owner.sent.length > 0, "the diff to be sent");
+
+    owner.destroyed = true;                       // the user clicked the title-bar X
+    const answered = rejectPendingDiffsForWindow(owner, log);
+    assert.equal(answered, 1, 'the diff it was showing is answered, not orphaned');
+
+    const reply = await call.answered();
+    assert.match(JSON.stringify(reply.result), /DIFF_REJECTED|reject/i,
+      'and the CLI is told it was rejected rather than sitting out the timeout');
+  } finally {
+    ws.close();
+    shutdownMcpServer('d2');
+  }
+});
+
+test('a window that holds no diff answers nothing, and other windows keep theirs', async () => {
+  const winA = fakeWindow('A');
+  const winB = fakeWindow('B');
+  let current = winA;
+  const server = await startMcpServer('d3', [tmpHome], () => current, log);
+  const ws = await connect(server.port, server.authToken);
+  try {
+    const call = openDiff(ws, 1, __filename);
+    await waitFor(() => winA.sent.length > 0, "the diff to be sent");
+
+    assert.equal(rejectPendingDiffsForWindow(winB, log), 0, 'B was showing nothing');
+    assert.equal(rejectPendingDiffsForWindow(null, log), 0, 'and no window at all is not an error');
+
+    assert.equal(rejectPendingDiffsForWindow(winA, log), 1, 'A was');
+    await call.answered();
+  } finally {
+    ws.close();
+    shutdownMcpServer('d3');
+  }
+});
+
+test('a diff stays answerable in the window it opened in, even after the session moves', async () => {
+  // The view does not follow the session. Only the window actually showing it can answer for it, so
+  // "which window renders the session now" is the wrong question once the diff is on screen.
+  const opened = fakeWindow('opened');
+  const moved = fakeWindow('moved');
+  let current = opened;
+  const server = await startMcpServer('d4', [tmpHome], () => current, log);
+  const ws = await connect(server.port, server.authToken);
+  try {
+    const call = openDiff(ws, 1, __filename);
+    await waitFor(() => opened.sent.length > 0, "the diff to be sent");
+    current = moved;                              // move-session-to-window happened meanwhile
+
+    assert.equal(rejectPendingDiffsForWindow(moved, log), 0, 'the new window never showed it');
+    assert.equal(rejectPendingDiffsForWindow(opened, log), 1, 'the one that did still answers');
+    await call.answered();
+  } finally {
+    ws.close();
+    shutdownMcpServer('d4');
+  }
+});
+
+test('a window still loading gets the diff once it has loaded, rather than never', async () => {
+  const win = fakeWindow('loading');
+  win.loading = true;
+  const server = await startMcpServer('d5', [tmpHome], () => win, log);
+  const ws = await connect(server.port, server.authToken);
+  try {
+    const call = openDiff(ws, 1, __filename);
+    await waitFor(() => win.waitingForLoad() > 0, "the send to be deferred until the load");
+    assert.equal(win.sent.length, 0, 'a send to a renderer that does not exist yet is dropped silently');
+
+    win.finishLoad();
+    assert.equal(win.sent.length, 1, 'so it waits for the load instead');
+    assert.equal(win.sent[0].channel, 'mcp-open-diff');
+
+    rejectPendingDiffsForWindow(win, log);
+    await call.answered();
+  } finally {
+    ws.close();
+    shutdownMcpServer('d5');
   }
 });

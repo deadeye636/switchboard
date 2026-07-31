@@ -156,19 +156,40 @@ function sendError(entry, id, code, message) {
 }
 
 /**
- * The window a notice is addressed to, resolved PER SEND.
+ * The window a notice is addressed to: the one that RENDERS this session (#393), resolved PER SEND.
  *
- * It used to be captured when the session spawned — the captured-`let` shape the ctx rule exists to
- * prevent (`.claude/rules/main-process.md`). A bridge outlives any window reopen, so after one it
- * addressed a window that no longer existed: nothing appeared, nothing errored, and every diff sat
- * out its full timeout.
+ * Two decisions live in this one line. The window is resolved rather than captured — a bridge outlives
+ * any window reopen, and the captured one addressed a window that no longer existed: nothing appeared,
+ * nothing errored, and every diff sat out its full timeout (#392). And it is the session's own window
+ * rather than the main one, so a review opens where the user is looking and where the CLI that asked
+ * for it is running.
  *
- * Where a notice SHOULD go for a session that lives in a window of its own is a separate and open
- * question (#393) — this only makes the current answer resolve at the right moment.
+ * The second decision is what makes `rejectPendingDiffsForWindow` necessary: a diff can now live in a
+ * window whose ordinary lifecycle — closed by hand, auto-closed when its last session leaves — ends
+ * while the CLI's call is still open.
  */
 function targetWindow(entry) {
-  const win = typeof entry.getWindow === 'function' ? entry.getWindow() : null;
+  const win = typeof entry.getWindow === 'function' ? entry.getWindow(entry.sessionId) : null;
   return win && !win.isDestroyed() ? win : null;
+}
+
+/**
+ * Send once the window can actually receive it.
+ *
+ * A window made by the same gesture that triggered this is still loading, and Electron drops a `send`
+ * to a renderer that does not exist yet — silently. A restored window registers its sessions before it
+ * finishes loading, so a CLI reconnecting at launch can open a diff into nothing and then wait out the
+ * full timeout. Same fix as `open-view-in-window` in app/detach.js.
+ */
+function sendWhenReady(win, channel, ...args) {
+  const deliver = () => {
+    if (!win.isDestroyed()) win.webContents.send(channel, ...args);
+  };
+  if (win.webContents.isLoading && win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', deliver);
+  } else {
+    deliver();
+  }
 }
 
 // ── Tool Call Dispatch ───────────────────────────────────────────────
@@ -217,13 +238,19 @@ async function handleOpenDiff(entry, rpcId, args, log) {
       resolve({ action: 'reject', reason: 'timeout' });
     }, DIFF_TIMEOUT_MS);
     if (timer.unref) timer.unref();
-    entry.pendingDiffs.set(diffId, { resolve, rpcId, tabName: tab_name, timer });
+    // `win` is which window this diff's view was SENT to, and it is not the same question as
+    // "which window renders the session": the session can move afterwards, and the view does not
+    // follow it. Only the window actually showing the diff can answer for it, so that is the one
+    // whose death has to reject the call.
+    entry.pendingDiffs.set(diffId, { resolve, rpcId, tabName: tab_name, timer, win: null });
   });
 
   // Send to renderer
   const diffWindow = targetWindow(entry);
   if (diffWindow) {
-    diffWindow.webContents.send('mcp-open-diff', entry.sessionId, diffId, {
+    const pending = entry.pendingDiffs.get(diffId);
+    if (pending) pending.win = diffWindow;
+    sendWhenReady(diffWindow, 'mcp-open-diff', entry.sessionId, diffId, {
       oldFilePath: old_file_path,
       oldContent,
       newContent: new_file_contents,
@@ -268,7 +295,7 @@ async function handleOpenFile(entry, rpcId, args, log) {
 
   const fileWindow = targetWindow(entry);
   if (fileWindow) {
-    fileWindow.webContents.send('mcp-open-file', entry.sessionId, {
+    sendWhenReady(fileWindow, 'mcp-open-file', entry.sessionId, {
       filePath,
       content,
       preview: preview ?? false,
@@ -293,8 +320,9 @@ async function handleCloseTab(entry, rpcId, args, log) {
       if (pending.timer) clearTimeout(pending.timer);
       pending.resolve({ action: 'accept' });
 
-      // Notify renderer to close the tab
-      const closeWindow = targetWindow(entry);
+      // Notify the window that is actually SHOWING it, which is not necessarily the one that renders
+      // the session now — a session can move while its diff stays where it was opened.
+      const closeWindow = (pending.win && !pending.win.isDestroyed()) ? pending.win : targetWindow(entry);
       if (closeWindow) {
         closeWindow.webContents.send('mcp-close-tab', entry.sessionId, diffId);
       }
@@ -310,15 +338,23 @@ async function handleCloseTab(entry, rpcId, args, log) {
 async function handleCloseAllDiffTabs(entry, rpcId, log) {
   log.debug(`[mcp] session=${entry.sessionId} closeAllDiffTabs`);
 
-  // Resolve all pending diffs as TAB_CLOSED
-  for (const [diffId, pending] of entry.pendingDiffs) {
+  // Resolve all pending diffs as TAB_CLOSED, collecting the windows they were shown in — several
+  // diffs of one session can sit in different windows.
+  const showing = new Set();
+  for (const [, pending] of entry.pendingDiffs) {
+    if (pending.timer) clearTimeout(pending.timer);
+    if (pending.win && !pending.win.isDestroyed()) showing.add(pending.win);
     pending.resolve({ action: 'accept' });
   }
   entry.pendingDiffs.clear();
 
-  const closeAllWindow = targetWindow(entry);
-  if (closeAllWindow) {
-    closeAllWindow.webContents.send('mcp-close-all-diffs', entry.sessionId);
+  // The window rendering the session may hold none of them, and a window that held one may hold
+  // nothing else — so tell both kinds. The renderer's own close is keyed by session, so a window with
+  // nothing to close simply does nothing.
+  const current = targetWindow(entry);
+  if (current) showing.add(current);
+  for (const win of showing) {
+    win.webContents.send('mcp-close-all-diffs', entry.sessionId);
   }
 
   sendResult(entry, rpcId, {
@@ -491,6 +527,37 @@ function resolvePendingDiff(sessionId, diffId, action, editedContent) {
 }
 
 /**
+ * A window is going away — answer every diff it was showing (#393).
+ *
+ * This is the price of opening a review where the user is looking. While a diff could only live in the
+ * main window, nothing had to do this: that window's only death was the app quitting, and quit resolves
+ * everything on its way out. A window of its own dies for ordinary reasons — closed by hand, auto-closed
+ * when its last session leaves — and the CLI's `tools/call` is still open on the other side.
+ *
+ * Rejecting is the honest answer: the user closed the window rather than deciding, and the ten-minute
+ * timeout that would otherwise fire is not a decision either, just a long silence.
+ *
+ * Returns how many were answered, so the caller can log it rather than guess.
+ */
+function rejectPendingDiffsForWindow(win, log) {
+  if (!win) return 0;
+  let answered = 0;
+  for (const entry of servers.values()) {
+    for (const [diffId, pending] of entry.pendingDiffs) {
+      if (pending.win !== win) continue;
+      entry.pendingDiffs.delete(diffId);
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.resolve({ action: 'reject', reason: 'window closed' });
+      answered++;
+    }
+  }
+  if (answered && log) {
+    log.info(`[mcp] a window closed holding ${answered} unanswered diff(s) — rejected, so no CLI waits on it`);
+  }
+  return answered;
+}
+
+/**
  * Re-key a server entry when session ID changes (e.g. fork).
  */
 function rekeyMcpServer(oldId, newId) {
@@ -539,6 +606,7 @@ module.exports = {
   shutdownMcpServer,
   shutdownAll,
   resolvePendingDiff,
+  rejectPendingDiffsForWindow,
   rekeyMcpServer,
   cleanStaleLockFiles,
 };

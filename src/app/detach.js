@@ -661,6 +661,11 @@ function createDetachWindow({ sessionId = null, title = '', at = null, view = nu
   // detour and the user closed a VIEW, not a process. Skip on quit — everything is going away anyway.
   win.on('closed', () => {
     detachedWins.delete(win);
+    // A review this window was showing dies with it, and the CLI that asked for it is still waiting on
+    // an answer (#393). Rejecting is the honest one: the user closed the window instead of deciding,
+    // and the alternative is ten minutes of silence. FIRST, before anything else here — the handover
+    // below can take a while and the CLI is blocked meanwhile.
+    if (ctx.rejectPendingDiffsForWindow) ctx.rejectPendingDiffsForWindow(win);
     // Whatever views it claimed are no longer anywhere (#364). Dropped before the session handover so
     // a sidebar click landing in the same tick routes locally rather than at a window that is gone.
     dropViewHost(win);

@@ -28,6 +28,7 @@ detach-session (IPC)  →  new BrowserWindow: index.html?detached=<sessionId>
 | `process-exited` | the owning window **and** main (main writes the sidebar's state, the owner writes the banner into the terminal the user is looking at) |
 | `session-detached` / `session-reattached` | the window that must let go / take over — main by default, a specific detached window since #316 |
 | `timeline-signal` | the owning window, and **never** main (#395) — see below |
+| `mcp-open-diff`, `mcp-open-file`, `mcp-close-tab`, `mcp-close-all-diffs` | the owning window (#393) — a review opens where the user is looking. The close notices go to the window actually SHOWING the diff, which is not the same question once a session moves |
 | `cli-busy-state`, `terminal-notification`, `session-forked`, everything else | main only |
 
 The separation is the point. The sidebar, the attention inbox and the badges live in the main window,
@@ -58,6 +59,32 @@ hook server in `app/hooks.js`. Covering one leaves the recap silently backend-de
 
 One thing does NOT travel: "Ready for review". That is a statement that something is waiting for the
 user, so it stays where the inbox is. A window of its own shows *working* and records *the turn ended*.
+
+### The review, and the invariant it costs (#393)
+
+A diff opens in the window that renders its session. What made that a decision rather than a routing
+change is that it breaks an accident the design had been resting on: **while a diff could only live in
+the main window, nothing had to answer for it when a window died** — that window's only death was the
+app quitting, and quit resolves every pending call on its way out.
+
+A window of its own dies for ordinary reasons. So each pending diff now records **which window its view
+was sent to** — deliberately not "which window renders the session", because the view does not follow a
+session that moves — and `app/detach.js`'s `closed` handler calls `rejectPendingDiffsForWindow` **first**,
+before the session handover, because a CLI blocked on an unanswered call waits out the full ten-minute
+timeout while that handover happens.
+
+Rejecting is the honest answer: the user closed the window instead of deciding, and the timeout is not a
+decision either, just a longer silence.
+
+Two smaller consequences, both real paths rather than theory: a send to a window that is still loading
+is **dropped silently** by Electron, and a restored window registers its sessions before it finishes
+loading — so the bridge defers to `did-finish-load`, the same way `open-view-in-window` does. And a
+`closeAllDiffTabs` tells every window that was showing one, since several diffs of one session can sit
+in different windows.
+
+What is still **not** covered, and is the honest remaining hole: a window RELOAD destroys the view
+without a `closed` event, so that diff falls back to the timeout. It did before this change too, in the
+main window — the difference is that a reload of a second window is a likelier gesture.
 
 ## 2b · A window owns sessions, not a session (#314, #315, #316)
 

@@ -494,9 +494,12 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // (skip if user disabled IDE emulation in global settings)
       if (isClaudeBinary && sessionOptions?.mcpEmulation !== false) {
         try {
-          // The getter, not the window: the bridge outlives a window reopen, and a captured one it
-          // cannot notice has died (#392).
-          mcpServer = await ctx.startMcpServer(sessionId, [projectPath], ctx.getMainWindow, ctx.log);
+          // A getter, not a window: the bridge outlives a window reopen, and a captured one it cannot
+          // notice has died (#392). It resolves the window that RENDERS the session (#393), so a review
+          // opens on the monitor the user is watching rather than on the one the app started on.
+          mcpServer = await ctx.startMcpServer(
+            sessionId, [projectPath], (id) => ctx.windowForSession(id), ctx.log,
+          );
           claudeCmd += ' --ide';
         } catch (err) {
           ctx.log.error(`[mcp] Failed to start MCP server for ${sessionId}: ${err.message}`);

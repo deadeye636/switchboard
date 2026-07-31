@@ -7,7 +7,7 @@ const os = require('os');
 const log = require('electron-log');
 // getFolderIndexMtimeMs moved to session-cache.js
 const { shouldNoticeMissingRecord, missingRecordMessage } = require('./app/terminal/live-record-notice');
-const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rekeyMcpServer, cleanStaleLockFiles } = require('./servers/mcp-bridge');
+const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, rejectPendingDiffsForWindow, rekeyMcpServer, cleanStaleLockFiles } = require('./servers/mcp-bridge');
 const { withMainProcessUsageCache } = require('./backends/usage-cache');
 // Multi-LLM backend seam (Phase 1): the spawn/env/id-map paths ask a backend instead of
 // assuming Claude. `claude` is the default backend and behaves byte-identically through it.
@@ -287,6 +287,9 @@ detach.init({
   // the PTY (#395)? Read at CALL time — liveBusy is declared far below, and this module is wired long
   // before it exists.
   isSessionBusy: (sessionId) => liveBusy.get(sessionId) === true,
+  // A window dying takes any review it was showing with it, and the CLI is still waiting on the
+  // answer (#393). Nothing else can answer for it, so the window's own teardown does.
+  rejectPendingDiffsForWindow: (win) => rejectPendingDiffsForWindow(win, log),
 });
 detach.registerIpc(ipcMain);
 

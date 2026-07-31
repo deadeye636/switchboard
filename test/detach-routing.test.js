@@ -85,7 +85,7 @@ function makeIpc() {
 // One wired-up module per test: `detachedWindows` is module state, so every case starts from empty.
 // `screen` is optional (#362): without it placement falls back to the offset from the main window,
 // which is what a single-display machine and every pre-#362 test expect.
-function setup({ sessions = ['s1'], quitting = false, screen = undefined, loadingOnCreate = false, settings = null } = {}) {
+function setup({ sessions = ['s1'], quitting = false, screen = undefined, loadingOnCreate = false, settings = null, onRejectDiffs = null } = {}) {
   const created = [];
   const main = {
     destroyed: false,
@@ -106,6 +106,9 @@ function setup({ sessions = ['s1'], quitting = false, screen = undefined, loadin
     // the shape of a build where the settings store is not wired: nothing is saved and nothing breaks.
     getSetting: settings ? settings.getSetting : undefined,
     setSetting: settings ? settings.setSetting : undefined,
+    // A window dying answers for the review it was showing (#393). Absent in the older cases on
+    // purpose: a ctx without it must not break the close.
+    rejectPendingDiffsForWindow: onRejectDiffs || undefined,
   });
   const ipc = makeIpc();
   detach.registerIpc(ipc);
@@ -1554,4 +1557,28 @@ test('#395: a dormant session is never described as busy', () => {
   ipc.call('move-session-to-window', 's1', 'main');
   assert.deepEqual(main.sent.filter((s) => s[0] === 'session-reattached'),
     [['session-reattached', 's1', false, null, false]]);
+});
+
+// --- #393: a window that dies answers for the review it was showing ------------------------------
+
+test('#393: closing a window rejects the diffs it was showing', () => {
+  // Nothing else can answer for a view that died with its window, and the alternative is a CLI sitting
+  // out the full ten-minute timeout.
+  const rejected = [];
+  const { ipc, created } = setup({ onRejectDiffs: (win) => rejected.push(win) });
+
+  ipc.call('detach-session', 's1', 'One');
+  const win = created[0];
+  win.destroy();
+
+  assert.equal(rejected.length, 1, 'the window that is going answers for what it held');
+  assert.equal(rejected[0], win, 'and it answers for ITSELF, not for whatever renders the session now');
+});
+
+test('#393: a ctx without the hook does not break the close', () => {
+  // An older wiring, and the shape every other case in this file uses.
+  const { ipc, created } = setup({ sessions: ['s1'] });
+  ipc.call('detach-session', 's1', 'One');
+  assert.doesNotThrow(() => created[0].destroy());
+  assert.equal(detach.isDetached('s1'), false, 'and the session still comes home');
 });
