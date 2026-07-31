@@ -139,6 +139,9 @@ async function openPlan(plan) {
   planViewer.style.display = 'flex';
 
   planPanel.open(plan.title, currentPlanFilePath, currentPlanContent);
+  // The file this view shows is part of what main stores about this window (#371), and opening one
+  // is not a tab change — so nothing else would say it changed.
+  window.panesView?.reportViews?.();
 }
 
 function hideAllViewers() {
@@ -303,6 +306,7 @@ async function openMemory(file) {
   memoryViewer.style.display = 'flex';
 
   memoryPanel.open(file.filename, file.filePath, content);
+  window.panesView?.reportViews?.(); // #371 — see openPlan
 }
 
 // --- Work Files ---
@@ -457,4 +461,5 @@ async function openWorkFile(file) {
   workFilesViewer.style.display = 'flex';
 
   workFilesPanel.open(file.filename, file.filePath, content);
+  window.panesView?.reportViews?.(); // #371 — see openPlan
 }

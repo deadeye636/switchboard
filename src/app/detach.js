@@ -31,6 +31,16 @@ let ctx = null;
 // sessionId -> BrowserWindow. A session appears here for exactly as long as its window lives.
 const detachedWindows = new Map();
 
+// Every window this module made, whatever it holds (#370).
+//
+// The map above answers "where do this session's bytes go" and is keyed by SESSION — which made it
+// the list of windows too, for as long as every window had one. A window holding nothing but a view
+// has no key in it, and a window absent from the only list there is is invisible to the move menu,
+// to the drop hit-test and to the quit teardown: it cannot be moved to, cannot be dropped on, and
+// survives the app it belongs to. So the two questions are two collections now, and everything that
+// asks "which windows are there" reads THIS one.
+const detachedWins = new Set();
+
 /**
  * @param {object} context
  * @param {() => Electron.BrowserWindow|null} context.getMainWindow  a GETTER — see the ctx rule.
@@ -92,10 +102,20 @@ function toScreenPoint(win, point, box) {
 }
 
 function detachedWindowById(windowId) {
-  for (const win of detachedWindows.values()) {
+  for (const win of detachedWins) {
     if (!win.isDestroyed() && String(win.id) === String(windowId)) return win;
   }
   return null;
+}
+
+/** Every live detached window, in the order they were made. */
+function liveDetachedWindows() {
+  const out = [];
+  for (const win of detachedWins) {
+    if (win.isDestroyed()) detachedWins.delete(win);
+    else out.push(win);
+  }
+  return out;
 }
 
 /**
@@ -105,10 +125,16 @@ function detachedWindowById(windowId) {
  * With a `sessionId`, the window that currently holds it is marked `current` — the renderer cannot
  * work that out on its own. A detached window's own set is not in its renderer, and "not detached"
  * meaning "in main" is only true when asked from the main window.
+ *
+ * `asking` marks the window the question came FROM, as `isSelf`. A caller with a session in hand can
+ * read that off `current`, but a view has no session to ask about — and a window holding only a view
+ * (#370) has no session to identify itself by either, so without this it would offer itself as a
+ * place to move its own view to.
  */
-function listSessionWindows(sessionId) {
+function listSessionWindows(sessionId, asking) {
   const holder = sessionId ? detachedWindows.get(sessionId) : null;
   const holderLive = holder && !holder.isDestroyed() ? holder : null;
+  const main = ctx.getMainWindow();
   const out = [{
     id: MAIN_WINDOW_ID,
     title: 'Main window',
@@ -118,17 +144,16 @@ function listSessionWindows(sessionId) {
     // here"; an empty array would read as "holds nothing", which is the opposite of true.
     sessionIds: null,
     current: !!sessionId && !holderLive,
+    isSelf: !!asking && asking === main,
   }];
-  const seen = new Set();
-  for (const win of detachedWindows.values()) {
-    if (win.isDestroyed() || seen.has(win.id)) continue;
-    seen.add(win.id);
+  for (const win of liveDetachedWindows()) {
     out.push({
       id: windowIdOf(win),
       title: win.getTitle() || 'Session window',
       isMain: false,
       sessionIds: sessionsInWindow(win),
       current: win === holderLive,
+      isSelf: !!asking && win === asking,
     });
   }
   return out;
@@ -175,21 +200,42 @@ function sendAdopt(win, sessionId) {
 // bytes go" and is verified constantly by output the user can see. This one answers a rarer question
 // and its staleness is invisible, so every entry is dropped the moment the window says so, or the
 // window dies — never inferred, never repaired by guessing.
-const viewHosts = new Map(); // kind -> BrowserWindow
+// BrowserWindow -> the views that window last reported showing, in tab order:
+// `[{ kind, ref, file }]`. One registry, three readers — which window a sidebar click is routed to
+// (#364), whether a window has anything left to show once its last session leaves (#370), and what a
+// window has to be given back when it is restored (#371).
+//
+// A per-WINDOW snapshot rather than a kind->window map, because two of those three questions are
+// about a window rather than about a kind, and a second registry answering "what does this window
+// hold" would be a copy of this one that goes stale where nobody looks.
+const windowViews = new Map();
 
-/** The window showing this view, if one still says it does. */
+/** The views a window says it is showing. */
+function viewsInWindow(win) {
+  const views = windowViews.get(win);
+  return (win && !win.isDestroyed() && Array.isArray(views)) ? views : [];
+}
+
+/**
+ * The window a sidebar click for this kind belongs to, or null for "here".
+ *
+ * The MAIN window wins whenever it shows the kind itself: it has the sidebar, so a view there is
+ * steered locally and routing it away would send a click the user made in this window to another
+ * one. Otherwise the first other window that says it shows it.
+ */
 function viewHost(kind) {
-  const win = viewHosts.get(kind);
-  if (win && !win.isDestroyed()) return win;
-  viewHosts.delete(kind);
+  const main = ctx.getMainWindow();
+  if (main && viewsInWindow(main).some((v) => v.kind === kind)) return null;
+  for (const win of windowViews.keys()) {
+    if (win === main || win.isDestroyed()) continue;
+    if (viewsInWindow(win).some((v) => v.kind === kind)) return win;
+  }
   return null;
 }
 
 /** Forget every view a window claimed. Called when it goes, whichever way it goes. */
 function dropViewHost(win) {
-  for (const [kind, held] of [...viewHosts]) {
-    if (held === win) viewHosts.delete(kind);
-  }
+  windowViews.delete(win);
 }
 
 /**
@@ -247,23 +293,193 @@ function workAreaForPoint(point) {
   }
 }
 
-function createDetachWindow(sessionId, title, screenPoint) {
+/**
+ * Make a window of our own.
+ *
+ * `sessionId` names the session it opens on, and is **null for a window that holds only a view**
+ * (#370) — `view` names that kind instead. Everything below is the same either way: a window is a
+ * frame around `index.html`, and what it shows is decided by the query it is loaded with. The URL
+ * therefore carries a marker of its own (`win=detached`) rather than letting the session id be it —
+ * the renderer's "am I a detached window" is an identity question, and a window with no session
+ * still has to answer yes.
+ */
+// --- Bringing the windows back on the next launch (#371) ---
+//
+// A session in a window of its own used to come back NOWHERE. The main window saves the set it
+// renders and a detached session was released from it, so it was in no saved set at all — and the
+// windows themselves only ever existed in this process's memory. Quit with three windows on two
+// monitors, reopen to one.
+//
+// The state lives HERE rather than in the renderer's storage, and that is forced: every window loads
+// the same origin, so a detached window writing `localStorage` would replace the main window's whole
+// restorable set with its own (spec 17 §4). Bounds and the window set are this process's facts anyway.
+
+const RESTORE_DEBOUNCE_MS = 500;
+let persistTimer = null;
+// Set while `closeAll` is tearing the windows down. Their `closed` handlers run during it, and a
+// persist from one of those would write the emptied list over the very state the next launch needs.
+let closingAll = false;
+let restoreDone = false;
+// win -> what a restored window still has to be given, until it asks. PULLED by the renderer rather
+// than pushed at it: a push has to pick a moment, and every moment is wrong — `did-finish-load` can
+// beat the renderer's own boot, and a later one races the reconcile that mounts what main owns.
+const pendingRestore = new Map();
+
+/**
+ * Where a saved window goes when it comes back.
+ *
+ * Pure, and separate from `detachWindowBounds` because it answers a different question: not "where
+ * does a new window go" but "is where this one was still a place". `workAreas` are the attached
+ * displays' usable boxes and `primary` is the fallback, both in screen DIPs.
+ *
+ * **A display that is gone must not take the window with it.** The saved position is kept only when
+ * a display still covers it — the same ±100 tolerance the main window's restore uses, so a window
+ * nudged slightly off an edge still counts as being there. Otherwise it starts at the primary
+ * display's origin: the coordinates it had describe a screen that no longer exists, and honouring
+ * them puts the window where the user cannot reach it.
+ */
+function restoreWindowBounds(saved, workAreas, primary) {
+  const width = Math.max(320, Math.round(Number(saved && saved.width) || 0) || 900);
+  const height = Math.max(240, Math.round(Number(saved && saved.height) || 0) || 700);
+  const x = Math.round(Number(saved && saved.x));
+  const y = Math.round(Number(saved && saved.y));
+  const placed = Number.isFinite(x) && Number.isFinite(y);
+  const covers = (area) => placed
+    && x >= area.x - 100 && x < area.x + area.width
+    && y >= area.y - 100 && y < area.y + area.height;
+  const host = (workAreas || []).find(covers) || primary || null;
+  if (!host) return { x: placed ? x : 0, y: placed ? y : 0, width, height };
+  // Never bigger than the screen it lands on — a window saved on a 4K panel and restored onto a
+  // laptop one would otherwise open larger than the display.
+  const w = Math.min(width, host.width);
+  const h = Math.min(height, host.height);
+  const startX = covers(host) ? x : host.x;
+  const startY = covers(host) ? y : host.y;
+  const clamp = (v, lo, hi) => Math.round(Math.max(lo, Math.min(v, hi)));
+  return {
+    width: w,
+    height: h,
+    x: clamp(startX, host.x, host.x + host.width - w),
+    y: clamp(startY, host.y, host.y + host.height - h),
+  };
+}
+
+function placeRestored(saved) {
+  const screen = ctx && ctx.screen;
+  if (!saved) return null;
+  if (!screen) return { ...saved }; // no display module (node --test): take the box as saved
+  try {
+    const areas = screen.getAllDisplays().map((d) => d.workArea).filter(Boolean);
+    const primary = (screen.getPrimaryDisplay() || {}).workArea || null;
+    return restoreWindowBounds(saved, areas, primary);
+  } catch {
+    return { ...saved }; // an unusable screen module must not cost the user their windows
+  }
+}
+
+/** What each of our windows holds, in the shape the next launch takes. */
+function snapshotWindows() {
+  const out = [];
+  for (const win of liveDetachedWindows()) {
+    const sessions = sessionsInWindow(win);
+    const views = viewsInWindow(win);
+    // A window holding neither is one mid-handover — it is about to close, and saving it would
+    // reopen an empty frame next launch.
+    if (!sessions.length && !views.length) continue;
+    let bounds = null;
+    try { bounds = win.getBounds(); } catch { bounds = null; }
+    out.push({
+      bounds: bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : null,
+      sessions,
+      views,
+    });
+  }
+  return out;
+}
+
+function writeWindowState(list) {
+  if (!ctx || typeof ctx.getSetting !== 'function' || typeof ctx.setSetting !== 'function') return;
+  try {
+    const global = ctx.getSetting('global') || {};
+    global.detachedWindows = list;
+    ctx.setSetting('global', global);
+  } catch { /* a settings write that fails must not take a window with it */ }
+}
+
+/**
+ * Remember the windows as they are now. Debounced, because the events that change them arrive in
+ * bursts — a drag fires `move` per frame, and a pane move detaches one session and moves three more.
+ */
+function persistWindows() {
+  if (closingAll) return;
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    writeWindowState(snapshotWindows());
+  }, RESTORE_DEBOUNCE_MS);
+  if (typeof persistTimer.unref === 'function') persistTimer.unref();
+}
+
+/** Write the state NOW — the debounce cannot be trusted to fire while the app is going away. */
+function persistWindowsNow() {
+  if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
+  writeWindowState(snapshotWindows());
+}
+
+/**
+ * Open the windows the last run left behind. Answers how many it made.
+ *
+ * Once per process: `createWindow` runs again on macOS `activate`, and a second pass would open a
+ * duplicate of every window rather than reveal the ones already standing.
+ *
+ * The sessions are registered against their window BEFORE it loads, for the same reason a move
+ * re-registers before it adopts — `windowForSession` decides where the bytes go, and the window is
+ * about to ask for a terminal.
+ */
+function restoreWindows() {
+  if (restoreDone) return 0;
+  restoreDone = true;
+  if (!ctx || typeof ctx.getSetting !== 'function') return 0;
+  let global = null;
+  try { global = ctx.getSetting('global') || {}; } catch { return 0; }
+  // The user turned restore off. Then it is off for these windows too — reopening an empty frame on
+  // a second monitor is exactly the surprise the setting exists to prevent.
+  if (global.restoreSessionsOnLaunch === false) return 0;
+  const saved = Array.isArray(global.detachedWindows) ? global.detachedWindows : [];
+  let made = 0;
+  for (const entry of saved) {
+    const sessions = Array.isArray(entry && entry.sessions) ? entry.sessions.filter(Boolean) : [];
+    const views = Array.isArray(entry && entry.views) ? entry.views.filter((v) => v && v.kind) : [];
+    if (!sessions.length && !views.length) continue;
+    const win = createDetachWindow({ bounds: placeRestored(entry.bounds) });
+    for (const id of sessions) detachedWindows.set(id, win);
+    pendingRestore.set(win, { sessions, views });
+    made++;
+  }
+  if (made) ctx.log.info(`[detach] restoring ${made} window(s) from the last run`);
+  return made;
+}
+
+function createDetachWindow({ sessionId = null, title = '', at = null, view = null, bounds: given = null } = {}) {
+  const screenPoint = at;
   const main = ctx.getMainWindow();
   const source = main && !main.isDestroyed() ? main.getBounds() : { width: 1100, height: 700, x: 80, y: 80 };
-  const workArea = workAreaForPoint(screenPoint);
-  const bounds = workArea ? detachWindowBounds(workArea, source) : {
+  const workArea = given ? null : workAreaForPoint(screenPoint);
+  // A restored window brings its own box (#371) — where it was is the whole point, and deriving a
+  // fresh one from the main window would put every restored window in the same place instead.
+  const bounds = given || (workArea ? detachWindowBounds(workArea, source) : {
     width: Math.max(640, Math.round(source.width * 0.6)),
     height: Math.max(400, Math.round(source.height * 0.8)),
     // Offset from the main window so a detach never lands exactly on top of it.
     x: source.x + 60,
     y: source.y + 60,
-  };
+  });
   const win = new ctx.BrowserWindow({
     width: bounds.width,
     height: bounds.height,
     x: bounds.x,
     y: bounds.y,
-    title: title || 'Switchboard — Session',
+    title: title || (sessionId ? 'Switchboard — Session' : 'Switchboard'),
     icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
     show: false,
     backgroundColor: '#111118', // index.html's body background — no white first frame
@@ -277,16 +493,30 @@ function createDetachWindow(sessionId, title, screenPoint) {
     },
   });
   win.setMenu(null);
-  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { detached: sessionId } });
+  detachedWins.add(win);
+  // `win=detached` is the identity; `detached=<id>` and `view=<kind>` are what it opens ON, and a
+  // window can have neither yet (a restore fills it afterwards). Query values are strings, so an
+  // absent one is left out rather than sent as "null".
+  const query = { win: 'detached' };
+  if (sessionId) query.detached = sessionId;
+  if (view) query.view = view;
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query });
   win.once('ready-to-show', () => {
     if (win.isDestroyed()) return;
     win.show();
     win.focus();
   });
+  // Where it is, so it comes back there (#371). The same debounce the main window's own bounds use:
+  // a drag fires one of these per frame.
+  if (typeof win.on === 'function') {
+    win.on('move', persistWindows);
+    win.on('resize', persistWindows);
+  }
 
   // Closing the window hands the session back rather than ending it: the PTY ran through the whole
   // detour and the user closed a VIEW, not a process. Skip on quit — everything is going away anyway.
   win.on('closed', () => {
+    detachedWins.delete(win);
     // Whatever views it claimed are no longer anywhere (#364). Dropped before the session handover so
     // a sidebar click landing in the same tick routes locally rather than at a window that is gone.
     dropViewHost(win);
@@ -296,6 +526,10 @@ function createDetachWindow(sessionId, title, screenPoint) {
     // not in the list, so the main window never reopens anything twice.
     const owned = sessionsInWindow(win);
     for (const id of owned) detachedWindows.delete(id);
+    pendingRestore.delete(win);
+    // A window closed by hand does not come back next launch (#371). `closingAll` is what tells this
+    // apart from the app going away, where every window closes and all of them must come back.
+    persistWindows();
     if (!owned.length || ctx.getAppQuitting()) return;
     ctx.log.info(`[detach] window closed, ${owned.length} session(s) return to the main window`);
     for (const id of owned) sendAdopt(null, id);
@@ -321,20 +555,38 @@ function rekey(fromId, toId) {
     win.webContents.send('detached-session-rekeyed', fromId, toId);
   }
   sendToMain('session-detach-rekeyed', fromId, toId);
+  persistWindows(); // #371 — the window holds a different id now, and that is what comes back
 }
 
 /** Close every detached window — the main window is going, so its sessions have nowhere to be. */
 function closeAll() {
+  // Save what is standing BEFORE any of it goes (#371). This is the app going away, and everything
+  // it takes down has to come back on the next launch — so the write happens first and the flag is
+  // set before the first `closed` handler runs, or one of those would persist the half-emptied list
+  // over the answer.
+  persistWindowsNow();
+  closingAll = true;
   // Clear FIRST, then destroy: the `closed` handler decides by "am I still the registered window?",
   // and this path must not ask the main window to take anything back. It runs from the main window's
   // own close, where `appQuitting` is still false on the plain Alt+F4 path — so the quit check alone
   // would let a reattach fire into a renderer that is being torn down.
-  const windows = [...detachedWindows.values()];
+  //
+  // Over the SET, not the session map: a window holding only a view has no entry there and would
+  // otherwise outlive the app (#370).
+  const windows = [...detachedWins];
+  ctx.log.info(`[detach] the app is going: ${windows.length} window(s) close with it`);
   detachedWindows.clear();
-  viewHosts.clear(); // #364 — nothing hosts anything once the windows are going
+  detachedWins.clear();
+  windowViews.clear(); // #364 — nothing hosts anything once the windows are going
+  pendingRestore.clear();
   for (const win of windows) {
     if (win && !win.isDestroyed()) win.destroy();
   }
+  closingAll = false;
+  // Nothing is standing any more, so "already restored" has stopped being true. On macOS the app
+  // outlives its windows: reopening it comes back through `createWindow`, and the windows the user
+  // just had are what they expect to find.
+  restoreDone = false;
 }
 
 /**
@@ -369,8 +621,9 @@ function registerIpc(ipc) {
     const sender = event && event.sender;
     const asking = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
     const aimedAt = (at && at.point) ? toScreenPoint(asking, at.point, at.box) : null;
-    const win = createDetachWindow(sessionId, title, aimedAt);
+    const win = createDetachWindow({ sessionId, title, at: aimedAt });
     detachedWindows.set(sessionId, win);
+    persistWindows(); // #371 — this window has to come back on the next launch
     ctx.log.info(`[detach] session moved to its own window: ${sessionId}${running ? '' : ' (not running)'}`);
     // Whoever holds it now releases its terminal; the PTY keeps running, and the new window attaches
     // to it. Two renderers on one PTY would double every keystroke's echo. Addressed to the window
@@ -434,31 +687,68 @@ function registerIpc(ipc) {
     // A detached window that just gave away its last session has nothing left to show, and no chrome
     // to pick a new one with — the sidebar lives in the main window. So it goes. Its entries are
     // already out of the map, so `closed` hands nothing back.
-    if (sourceLive && !sessionsInWindow(sourceLive).length) sourceLive.destroy();
+    //
+    // Unless it still holds a VIEW (#370). "Nothing left to show" was the same statement as "no
+    // sessions left" only for as long as a window could hold nothing else; a window whose Memory tab
+    // is the reason it exists must survive a session passing through it.
+    if (sourceLive && !sessionsInWindow(sourceLive).length && !viewsInWindow(sourceLive).length) {
+      sourceLive.destroy();
+    }
+    persistWindows(); // #371 — both windows hold something different now
     ctx.log.info(`[detach] session moved to ${target ? 'window ' + target.id : 'the main window'}: ${sessionId}`);
     return { ok: true };
   });
 
-  ipc.handle('list-session-windows', (_event, sessionId) => listSessionWindows(sessionId));
+  ipc.handle('list-session-windows', (event, sessionId) => {
+    const sender = event && event.sender;
+    const asking = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
+    return listSessionWindows(sessionId, asking);
+  });
 
   /**
-   * A window reporting that it is (or is no longer) showing one of the app's own views (#364).
+   * A window reporting which of the app's own views it is showing (#364, #370, #371).
    *
    * Reported rather than inferred: only the renderer knows whether the tab is really up, and the
    * alternative — main guessing from what it last sent — is exactly the stale registry this is meant
-   * not to become. The MAIN window never claims a view: it has the sidebar, so a view there is
-   * steered locally and needs no routing at all.
+   * not to become. The whole list every time, not a per-kind delta: a delta is a thing that can be
+   * missed, and one missed message leaves a window claiming a view it closed for the rest of its life.
+   *
+   * The MAIN window reports too, which it did not have to when this only answered routing. It is how
+   * "the view is HERE" is stated — see `viewHost` — and stating it is cheaper than inferring it from
+   * the absence of a claim.
    */
-  ipc.handle('view-host-changed', (event, kind, hosting) => {
-    if (!kind) return { ok: false };
+  ipc.handle('window-views-changed', (event, views) => {
     const sender = event && event.sender;
     const win = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
     if (!win || win.isDestroyed()) return { ok: false };
-    const main = ctx.getMainWindow();
-    if (win === main) { if (viewHosts.get(kind) === win) viewHosts.delete(kind); return { ok: true, main: true }; }
-    if (hosting) viewHosts.set(kind, win);
-    else if (viewHosts.get(kind) === win) viewHosts.delete(kind);
+    const list = Array.isArray(views) ? views.filter((v) => v && v.kind) : [];
+    windowViews.set(win, list.map((v) => ({
+      kind: String(v.kind),
+      ref: v.ref == null ? null : v.ref,
+      file: v.file == null ? null : v.file,
+    })));
+    persistWindows(); // #371 — the views are half of what a restored window has to be given back
     return { ok: true };
+  });
+
+  /**
+   * "Was I restored, and with what?" (#371)
+   *
+   * Pulled by the renderer on boot rather than pushed at it. A push has to choose a moment and every
+   * moment is wrong: `did-finish-load` can land before the renderer's own boot has a session list to
+   * mount from, and anything later races the reconcile. Asking is the one order that cannot be got
+   * wrong — the window asks when it is ready to act on the answer.
+   *
+   * One-shot. A renderer RELOAD must not restore a second time: by then the sessions are running and
+   * `adoptOwnedSessions` is what puts them back, mounting rather than launching.
+   */
+  ipc.handle('my-window-restore', (event) => {
+    const sender = event && event.sender;
+    const win = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
+    if (!win || !pendingRestore.has(win)) return null;
+    const payload = pendingRestore.get(win);
+    pendingRestore.delete(win);
+    return payload;
   });
 
   /**
@@ -514,6 +804,34 @@ function registerIpc(ipc) {
   });
 
   /**
+   * Open one of the app's own views in a window of its OWN (#370).
+   *
+   * The same message `open-view-in-window` sends, addressed to a window made for it. What is new is
+   * that the window has no session: it is a frame around a view, and it stays open with nothing but
+   * that view in it. Until now a window was built around a session — the URL named one, the map was
+   * keyed by one, the title came from one, and closing handed one back — so "detach Memory on its
+   * own" had nowhere to go.
+   *
+   * `at` is the drop point, in the same `{ point, box }` pair every other placement takes, so a view
+   * dragged onto a second monitor opens there.
+   */
+  ipc.handle('open-view-in-new-window', (event, kind, ref, file, at) => {
+    if (!kind) return { ok: false, error: 'no kind' };
+    const sender = event && event.sender;
+    const asking = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
+    const aimedAt = (at && at.point) ? toScreenPoint(asking, at.point, at.box) : null;
+    const win = createDetachWindow({ view: kind, at: aimedAt });
+    // Always loading — the window was made one statement ago — but the check is kept rather than
+    // assumed: a `send` that lands before the renderer exists is dropped silently by Electron, and
+    // the caller has already let go of its own tab by the time it would notice.
+    const deliver = () => { if (!win.isDestroyed()) win.webContents.send('open-view', kind, ref, file); };
+    if (win.webContents.isLoading()) win.webContents.once('did-finish-load', deliver);
+    else deliver();
+    ctx.log.info(`[detach] view moved to a window of its own: ${kind}`);
+    return { ok: true, windowId: windowIdOf(win) };
+  });
+
+  /**
    * "Which of my windows is at this point on the screen?" (#360)
    *
    * Asked when a tab is dragged OUT of a window. HTML5 drag and drop ends at the window boundary —
@@ -540,12 +858,9 @@ function registerIpc(ipc) {
     const main = ctx.getMainWindow();
     const candidates = [];
     if (main && !main.isDestroyed()) candidates.push({ id: MAIN_WINDOW_ID, win: main });
-    const seen = new Set();
-    for (const win of detachedWindows.values()) {
-      if (win.isDestroyed() || seen.has(win.id)) continue;
-      seen.add(win.id);
-      candidates.push({ id: windowIdOf(win), win });
-    }
+    // Every window, not every window with a session in it: a view-only window is a drop target like
+    // any other (#370).
+    for (const win of liveDetachedWindows()) candidates.push({ id: windowIdOf(win), win });
     for (const candidate of candidates) {
       // The asking window is skipped by IDENTITY rather than geometry: it is the one window whose own
       // box the caller has already ruled out, and re-deciding that here from different numbers could
@@ -627,11 +942,14 @@ module.exports = {
   registerIpc,
   rekey,
   detachWindowBounds,
+  restoreWindowBounds,
+  restoreWindows,
   windowForSession,
   isDetached,
   detachedSessionIds,
   listSessionWindows,
   sessionsInWindow,
+  viewsInWindow,
   closeAll,
   detachedWindows,
 };

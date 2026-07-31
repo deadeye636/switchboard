@@ -260,6 +260,8 @@ windows.init({
   getAppQuitting: () => appQuitting,
   getSetting,
   setSetting,
+  log, // so a teardown that fails on the close path can say so, instead of looking like one that ran
+
   activeSessions,
   subagentWatchers,
   stopSubagentSweep: () => sessionTransitions.stopSubagentSweep(),
@@ -279,6 +281,8 @@ detach.init({
   log,
   BrowserWindow,
   screen, // which display a detach opens on (#362)
+  getSetting, // where its windows were, so they come back there (#371)
+  setSetting,
 });
 detach.registerIpc(ipcMain);
 

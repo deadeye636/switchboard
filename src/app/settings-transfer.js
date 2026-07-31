@@ -31,10 +31,12 @@ const APP_MARKER = 'switchboard';
 const PROJECT_KEYS = ['projectPath', 'registered', 'hidden'];
 
 // Dropped on export AND ignored on import. `windowBounds` are screen coordinates for a
-// monitor layout the target machine does not have. `db_version` is the schema marker and
-// lives in its own settings row — it has no business in the blob, but a hand-edited file
-// could put it there, and importing it would lie to the migration runner.
-const NON_PORTABLE_KEYS = ['windowBounds', 'db_version'];
+// monitor layout the target machine does not have, and `detachedWindows` (#371) is that
+// twice over — screen coordinates plus session ids from another machine's store, which
+// would restore windows onto sessions that do not exist there. `db_version` is the schema
+// marker and lives in its own settings row — it has no business in the blob, but a
+// hand-edited file could put it there, and importing it would lie to the migration runner.
+const NON_PORTABLE_KEYS = ['windowBounds', 'detachedWindows', 'db_version'];
 
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);

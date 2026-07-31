@@ -343,20 +343,35 @@ it through the same function the relay below uses.
 
 **Memory, Plans and Work files are steered from the sidebar, and a detached window has none** (§2 of
 spec 17 puts it in the main window on purpose). They travel anyway, and main relays the sidebar's pick
-to whichever window holds the view (`view-host-changed` to register, `route-view-file` to deliver). The
-registry is deliberately not `detachedWindows`: that one answers "where do this session's bytes go" and
-is verified constantly by output the user can see, while this answers a rare question whose staleness is
-invisible. So an entry is dropped the moment the window says so or the window dies — never inferred,
-never repaired by guessing. "The window says so" has to mean **every** path that takes a view down, not
-just the tab's own close: closing a whole pane and leaving panes mode both bypass `closeViewTab`, and
-both report for themselves. The second is the one that cannot self-heal — it tears down the observer
-that would otherwise notice. A pick that was delivered elsewhere says so in the window it was made in,
-because a click whose effect lands on another monitor and says nothing reads as a click that did nothing.
+to whichever window holds the view (`window-views-changed` to register, `route-view-file` to deliver).
+The registry is deliberately not `detachedWindows`: that one answers "where do this session's bytes go"
+and is verified constantly by output the user can see, while this answers a rare question whose
+staleness is invisible. So an entry is dropped the moment the window says so or the window dies — never
+inferred, never repaired by guessing. "The window says so" has to mean **every** path that takes a view
+down, not just the tab's own close: closing a whole pane and leaving panes mode both bypass
+`closeViewTab`, and both report for themselves. The second is the one that cannot self-heal — it tears
+down the observer that would otherwise notice. A pick that was delivered elsewhere says so in the window
+it was made in, because a click whose effect lands on another monitor and says nothing reads as a click
+that did nothing.
+
+**What is reported is the whole LIST, not a per-kind delta** (#370, #371). It began as
+`view-host-changed(kind, hosting)`, which is a delta — and a delta is a thing that can be missed, once,
+after which the window claims a view it closed for as long as it lives. Deriving the list from the tree
+means a path only has to report *after* it changed the tree, not remember which kinds it took. It also
+answers two questions a kind→window map cannot, both about the window rather than the kind: whether it
+still has something to show once its last session leaves (spec 17 §2b), and what it has to be given back
+when it is restored (spec 17 §5b). Instanced kinds are in the list for that reason, though they are
+still never routed — a window holding nothing but a preview holds something.
 
 The alternative was to make those three self-contained the way Projects and Activity are — list, filter
 and editor in one surface — which also fixes "two files side by side", which the relay does not. It was
 considered at length and not chosen: the file list stays where the user already looks for it. The cost
 is one relay and its edge cases instead of three rebuilt views.
+
+**A view can also be given a window of ITS OWN** (#370). "Move to new window" leads the block, and a
+view tab dropped on empty space means the same thing a session tab does there — a window on the display
+it was dropped on. That entry was absent until then, and the reason it was absent is spec 17 §2c: a
+window was built around a session, so one holding nothing but a view could not boot at all.
 
 ### 4.3 Preview and diff
 

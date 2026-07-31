@@ -11,7 +11,7 @@ const detach = require('../src/app/detach');
 
 // A stand-in for BrowserWindow: records what it was asked, and can be destroyed like the real one.
 let nextWindowId = 1;
-function makeWindowClass(created, main) {
+function makeWindowClass(created, main, { loadingOnCreate = false } = {}) {
   return class FakeWindow {
     // Electron's own static. `sessions-in-my-window` addresses a window by its ASKER, so the test has
     // to be able to answer "which window is this webContents?" the way the real class does — and that
@@ -33,7 +33,10 @@ function makeWindowClass(created, main) {
       this.sent = [];
       // `isLoading` / `once` are what `open-view-in-window` reads (#364): a message sent to a renderer
       // that has not loaded yet is dropped silently by Electron, so delivery waits for it.
-      this.loading = false;
+      // A window made a moment ago is ALWAYS loading, which is the case `open-view-in-new-window`
+      // (#370) has to survive — but most tests here act on windows that have long since loaded, so
+      // this is opt-in rather than the default.
+      this.loading = loadingOnCreate;
       this.loadListeners = [];
       this.webContents = {
         send: (...args) => this.sent.push(args),
@@ -77,7 +80,7 @@ function makeIpc() {
 // One wired-up module per test: `detachedWindows` is module state, so every case starts from empty.
 // `screen` is optional (#362): without it placement falls back to the offset from the main window,
 // which is what a single-display machine and every pre-#362 test expect.
-function setup({ sessions = ['s1'], quitting = false, screen = undefined } = {}) {
+function setup({ sessions = ['s1'], quitting = false, screen = undefined, loadingOnCreate = false, settings = null } = {}) {
   const created = [];
   const main = {
     destroyed: false,
@@ -92,8 +95,12 @@ function setup({ sessions = ['s1'], quitting = false, screen = undefined } = {})
     getAppQuitting: () => quitting,
     activeSessions,
     log: { info() {}, warn() {} },
-    BrowserWindow: makeWindowClass(created, main),
+    BrowserWindow: makeWindowClass(created, main, { loadingOnCreate }),
     screen,
+    // Where the windows are remembered (#371). Absent in every test that predates it, which is also
+    // the shape of a build where the settings store is not wired: nothing is saved and nothing breaks.
+    getSetting: settings ? settings.getSetting : undefined,
+    setSetting: settings ? settings.setSetting : undefined,
   });
   const ipc = makeIpc();
   detach.registerIpc(ipc);
@@ -122,7 +129,9 @@ test('the detach window loads index.html for its session, and is not a child of 
   ipc.call('detach-session', 's1', 'Session one');
   const win = created[0];
   assert.match(win.loaded.file, /index\.html$/);
-  assert.deepEqual(win.loaded.opts, { query: { detached: 's1' } });
+  // `win=detached` is the identity marker (#370): the renderer's "am I one of ours" cannot be the
+  // session id any more, because a window holding only a view has no session and must still say yes.
+  assert.deepEqual(win.loaded.opts, { query: { win: 'detached', detached: 's1' } });
   assert.equal(win.opts.parent, undefined, 'a child window is always on top — that defeats a second monitor');
   assert.equal(win.opts.webPreferences.backgroundThrottling, false, 'a background monitor must keep painting');
   assert.equal(win.opts.title, 'Session one');
@@ -778,7 +787,7 @@ test('#364: a file picked in the sidebar goes to the window holding the view', (
   const { ipc, created } = setup();
   ipc.call('detach-session', 's1', 'One');
   const holder = created[0];
-  assert.deepEqual(ipc.callFrom('view-host-changed', holder.webContents, 'memory', true), { ok: true });
+  assert.deepEqual(ipc.callFrom('window-views-changed', holder.webContents, [{ kind: 'memory' }]), { ok: true });
 
   const res = ipc.call('route-view-file', 'memory', { filePath: 'notes/CLAUDE.md' });
   assert.equal(res.routed, true);
@@ -795,8 +804,8 @@ test('#364: a window that gave the view up stops receiving picks', () => {
   const { ipc, created } = setup();
   ipc.call('detach-session', 's1', 'One');
   const holder = created[0];
-  ipc.callFrom('view-host-changed', holder.webContents, 'memory', true);
-  ipc.callFrom('view-host-changed', holder.webContents, 'memory', false);
+  ipc.callFrom('window-views-changed', holder.webContents, [{ kind: 'memory' }]);
+  ipc.callFrom('window-views-changed', holder.webContents, []);
   holder.sent.length = 0;
 
   assert.equal(ipc.call('route-view-file', 'memory', { filePath: 'x' }).routed, false);
@@ -807,7 +816,7 @@ test('#364: a closed window stops receiving picks', () => {
   const { ipc, created } = setup();
   ipc.call('detach-session', 's1', 'One');
   const holder = created[0];
-  ipc.callFrom('view-host-changed', holder.webContents, 'memory', true);
+  ipc.callFrom('window-views-changed', holder.webContents, [{ kind: 'memory' }]);
   holder.destroy();
 
   // A stale entry here is invisible until a click lands nowhere — which is the whole reason this
@@ -819,7 +828,7 @@ test('#364: the asking window is never routed to itself', () => {
   const { ipc, created } = setup();
   ipc.call('detach-session', 's1', 'One');
   const holder = created[0];
-  ipc.callFrom('view-host-changed', holder.webContents, 'memory', true);
+  ipc.callFrom('window-views-changed', holder.webContents, [{ kind: 'memory' }]);
   holder.sent.length = 0;
 
   // The pick came from the window that holds it — the local path already does the right thing, and
@@ -828,12 +837,15 @@ test('#364: the asking window is never routed to itself', () => {
   assert.deepEqual(holder.sent, []);
 });
 
-test('#364: the main window never claims a view — it has the sidebar', () => {
-  const { ipc, main } = setup();
-  const res = ipc.callFrom('view-host-changed', main.webContents, 'memory', true);
-  assert.equal(res.main, true);
+test('#364: a view the main window shows is steered locally, whoever else has one', () => {
+  const { ipc, main, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  ipc.callFrom('window-views-changed', created[0].webContents, [{ kind: 'memory' }]);
+  ipc.callFrom('window-views-changed', main.webContents, [{ kind: 'memory' }]);
+
   assert.equal(ipc.call('route-view-file', 'memory', { filePath: 'x' }).routed, false,
-    'a view in the main window is steered locally and needs no routing');
+    'the main window has the sidebar, so a view there needs no routing at all');
+  assert.deepEqual(created[0].sent, [], 'and the click does not also land in the other window');
 });
 
 // --- #364: opening one of the app's own views in another window ---
@@ -897,4 +909,239 @@ test('#364: a view can be sent to the main window too', () => {
 
   assert.deepEqual(ipc.call('open-view-in-window', 'main', 'projects', null, null), { ok: true });
   assert.deepEqual(main.sent, [['open-view', 'projects', null, null]]);
+});
+
+// --- #370: a window that holds only a view ---
+//
+// A window used to be built around a session: the URL named one, the map was keyed by one, the title
+// came from one, and closing handed one back. So "give Memory a window of its own" had nowhere to go.
+
+test('#370: a view gets a window of its own, with no session in its URL', () => {
+  const { ipc, created } = setup();
+  const res = ipc.call('open-view-in-new-window', 'memory', null, { filePath: 'x' }, null);
+  assert.equal(res.ok, true);
+  assert.equal(created.length, 1);
+  const win = created[0];
+  assert.equal(res.windowId, String(win.id));
+  // `win=detached` is the identity and `view=<kind>` is what it opens on. No `detached` key at all —
+  // a session id it does not have must not be sent as the string "null".
+  assert.deepEqual(win.loaded.opts, { query: { win: 'detached', view: 'memory' } });
+  assert.deepEqual(detach.sessionsInWindow(win), [], 'it holds no session, and that is the point');
+});
+
+test('#370: the view is delivered once the new window has loaded, never before', () => {
+  // Every window this handler makes is loading — it was made one statement earlier. A send to a
+  // renderer that does not exist yet is dropped silently by Electron, and the caller has already let
+  // go of its own tab, so the view would simply be gone.
+  const { ipc, created } = setup({ loadingOnCreate: true });
+  ipc.call('open-view-in-new-window', 'memory', null, { filePath: 'x' }, null);
+  const win = created[0];
+  assert.deepEqual(win.sent, []);
+  win.finishLoad();
+  assert.deepEqual(win.sent, [['open-view', 'memory', null, { filePath: 'x' }]]);
+});
+
+test('#370: a view-only window is a window like any other', () => {
+  const { ipc, created } = setup();
+  ipc.call('open-view-in-new-window', 'memory', null, null, null);
+  const win = created[0];
+  win.opts.title = 'Memory';
+
+  // In the move list, so a session can be sent to it…
+  const list = ipc.call('list-session-windows', 's1');
+  assert.deepEqual(list.map((w) => w.id), ['main', String(win.id)]);
+  assert.deepEqual(list[1].sessionIds, []);
+  // …and a drop target, so a tab dragged onto it lands there. Both used to read the session map,
+  // which has no entry for this window at all.
+  win.bounds = { x: 2000, y: 0, width: 800, height: 600 };
+  assert.equal(ipc.call('window-at-screen-point', { x: 2100, y: 100 }, null), String(win.id));
+});
+
+test('#370: the asking window is marked, so a view is never offered its own window', () => {
+  const { ipc, main, created } = setup();
+  ipc.call('open-view-in-new-window', 'memory', null, null, null);
+  const win = created[0];
+
+  const fromView = ipc.callFrom('list-session-windows', win.webContents, null);
+  assert.deepEqual(fromView.filter((w) => w.isSelf).map((w) => w.id), [String(win.id)]);
+  // A view has no session to identify its window by, which is how this was answered before (#364).
+  const fromMain = ipc.callFrom('list-session-windows', main.webContents, null);
+  assert.deepEqual(fromMain.filter((w) => w.isSelf).map((w) => w.id), ['main']);
+});
+
+test('#370: a window holding a view survives its last session leaving', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const win = created[0];
+  ipc.callFrom('window-views-changed', win.webContents, [{ kind: 'memory' }]);
+
+  ipc.call('move-session-to-window', 's1', 'main');
+  assert.equal(win.isDestroyed(), false, 'the view is the reason it exists — it must not close');
+});
+
+test('#370: a window holding nothing keeps closing when its last session leaves', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const win = created[0];
+  ipc.callFrom('window-views-changed', win.webContents, []);
+
+  ipc.call('move-session-to-window', 's1', 'main');
+  assert.equal(win.isDestroyed(), true, 'no sidebar, nothing to show, nothing to pick');
+});
+
+test('#370: quitting closes a view-only window too', () => {
+  const { ipc, created } = setup();
+  ipc.call('open-view-in-new-window', 'memory', null, null, null);
+  // It is in no session map, and the session map used to be the only list of windows there was — so
+  // this window outlived the app that made it.
+  detach.closeAll();
+  assert.equal(created[0].isDestroyed(), true);
+});
+
+test('#370: a view-only window is forgotten when it closes', () => {
+  const { ipc, created } = setup();
+  ipc.call('open-view-in-new-window', 'memory', null, null, null);
+  const win = created[0];
+  ipc.callFrom('window-views-changed', win.webContents, [{ kind: 'memory' }]);
+  win.destroy();
+
+  assert.deepEqual(ipc.call('list-session-windows', null).map((w) => w.id), ['main']);
+  assert.equal(ipc.call('route-view-file', 'memory', { filePath: 'x' }).routed, false,
+    'and it stops being routed to, which is invisible until a click lands nowhere');
+});
+
+// --- #371: the windows come back on the next launch ---
+//
+// A session in a window of its own came back nowhere: the main window saves the set IT renders, and
+// a detached session was released from it. The windows themselves lived only in this process.
+
+test('#371: a restored window keeps its place when the display is still there', () => {
+  const area = { x: 0, y: 0, width: 1920, height: 1040 };
+  assert.deepEqual(
+    detach.restoreWindowBounds({ x: 300, y: 200, width: 800, height: 600 }, [area], area),
+    { x: 300, y: 200, width: 800, height: 600 });
+});
+
+test('#371: a window whose display is gone opens on the primary one', () => {
+  const primary = { x: 0, y: 0, width: 1920, height: 1040 };
+  // Saved on a second monitor to the right that is no longer attached. Honouring those coordinates
+  // puts the window where the user cannot reach it — the failure this exists to prevent.
+  const out = detach.restoreWindowBounds({ x: 2600, y: 300, width: 800, height: 600 }, [primary], primary);
+  assert.deepEqual(out, { x: 0, y: 0, width: 800, height: 600 });
+});
+
+test('#371: a restored window is never larger than the screen it lands on', () => {
+  const small = { x: 0, y: 0, width: 1280, height: 720 };
+  // Saved on a 4K panel, restored onto a laptop one.
+  const out = detach.restoreWindowBounds({ x: 3000, y: 100, width: 2400, height: 1500 }, [small], small);
+  assert.deepEqual(out, { x: 0, y: 0, width: 1280, height: 720 });
+});
+
+test('#371: a window hanging off the edge is pulled back onto its display', () => {
+  const area = { x: 0, y: 0, width: 1920, height: 1040 };
+  const out = detach.restoreWindowBounds({ x: 1800, y: 1000, width: 800, height: 600 }, [area], area);
+  assert.deepEqual(out, { x: 1120, y: 440, width: 800, height: 600 });
+});
+
+test('#371: the second display is chosen when it is the one covering the window', () => {
+  const primary = { x: 0, y: 0, width: 1920, height: 1040 };
+  const second = { x: 1920, y: 0, width: 1920, height: 1040 };
+  const out = detach.restoreWindowBounds({ x: 2200, y: 100, width: 800, height: 600 }, [primary, second], primary);
+  assert.deepEqual(out, { x: 2200, y: 100, width: 800, height: 600 });
+});
+
+// A settings store that answers and records, so the save/restore round trip runs without Electron.
+function settingsStore(initial = {}) {
+  const rows = { global: { ...initial } };
+  return {
+    getSetting: (key) => rows[key],
+    setSetting: (key, value) => { rows[key] = value; },
+    read: () => rows.global,
+  };
+}
+
+function setupWithSettings(initial, opts = {}) {
+  const store = settingsStore();
+  const out = setup({ ...opts, settings: store });
+  // Seeded AFTER the wiring, because `setup` clears the module by calling `closeAll` — which is the
+  // quit path, and the quit path writes what is standing. A state seeded before it would be the
+  // empty list by the time the test asked.
+  Object.assign(store.read(), initial);
+  return { ...out, store };
+}
+
+test('#371: quitting records every window, with what it held and where it was', () => {
+  const { ipc, created, store } = setupWithSettings({}, { sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1', 'One');
+  ipc.call('move-session-to-window', 's2', String(created[0].id));
+  created[0].bounds = { x: 2000, y: 100, width: 900, height: 700 };
+  ipc.callFrom('window-views-changed', created[0].webContents, [{ kind: 'memory', ref: null, file: { filePath: 'a.md' } }]);
+
+  detach.closeAll();
+  assert.deepEqual(store.read().detachedWindows, [{
+    bounds: { x: 2000, y: 100, width: 900, height: 700 },
+    sessions: ['s1', 's2'],
+    views: [{ kind: 'memory', ref: null, file: { filePath: 'a.md' } }],
+  }]);
+});
+
+test('#371: a window closed by hand does not come back', () => {
+  const { ipc, created, store } = setupWithSettings({});
+  ipc.call('detach-session', 's1', 'One');
+  created[0].destroy();
+  detach.closeAll();
+  assert.deepEqual(store.read().detachedWindows, []);
+});
+
+test('#371: the saved windows are reopened, with their sessions routed to them', () => {
+  const { ipc, created, store } = setupWithSettings({
+    detachedWindows: [{ bounds: { x: 40, y: 60, width: 900, height: 700 }, sessions: ['s1'], views: [] }],
+  });
+  assert.equal(detach.restoreWindows(), 1);
+  const win = created[0];
+  assert.equal(win.opts.x, 40);
+  assert.equal(win.opts.width, 900);
+  // Registered BEFORE the window loads: `windowForSession` decides where the bytes go, and the
+  // window is about to ask for a terminal.
+  assert.equal(detach.windowForSession('s1'), win);
+  // And it is told what to put back, when it asks — a push would have to pick a moment, and the
+  // renderer is the only thing that knows when it can act on the answer.
+  assert.deepEqual(ipc.callFrom('my-window-restore', win.webContents), { sessions: ['s1'], views: [] });
+  assert.equal(ipc.callFrom('my-window-restore', win.webContents), null, 'and only once — a reload must not restore twice');
+  assert.equal(store.read().detachedWindows.length, 1);
+});
+
+test('#371: restoring runs once, however often the main window is created', () => {
+  const { created } = setupWithSettings({
+    detachedWindows: [{ bounds: null, sessions: ['s1'], views: [] }],
+  });
+  assert.equal(detach.restoreWindows(), 1);
+  assert.equal(detach.restoreWindows(), 0, 'the macOS activate path must not duplicate every window');
+  assert.equal(created.length, 1);
+});
+
+test('#371: with restore turned off, no window comes back either', () => {
+  const { created } = setupWithSettings({
+    restoreSessionsOnLaunch: false,
+    detachedWindows: [{ bounds: null, sessions: ['s1'], views: [] }],
+  });
+  assert.equal(detach.restoreWindows(), 0);
+  assert.deepEqual(created, [], 'an empty frame on a second monitor is what the setting exists to prevent');
+});
+
+test('#371: a window that held only a view comes back too', () => {
+  const { ipc, created } = setupWithSettings({
+    detachedWindows: [{ bounds: null, sessions: [], views: [{ kind: 'memory', ref: null, file: null }] }],
+  });
+  assert.equal(detach.restoreWindows(), 1);
+  assert.deepEqual(ipc.callFrom('my-window-restore', created[0].webContents),
+    { sessions: [], views: [{ kind: 'memory', ref: null, file: null }] });
+});
+
+test('#371: a saved entry holding nothing is not reopened', () => {
+  const { created } = setupWithSettings({
+    detachedWindows: [{ bounds: null, sessions: [], views: [] }],
+  });
+  assert.equal(detach.restoreWindows(), 0);
+  assert.deepEqual(created, []);
 });

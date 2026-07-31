@@ -197,6 +197,12 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
+  // Bring back the windows the last run left standing (#371). Alongside the main window rather than
+  // after it: each one is an independent renderer that reads the session index for itself, and they
+  // load in parallel instead of one after the main window has settled. Its own guard makes this a
+  // no-op the second time, which is what the macOS `activate` path needs.
+  try { require('./detach').restoreWindows(); } catch { /* module not wired in a test build */ }
+
   // Open external links in the system browser instead of a child BrowserWindow
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
@@ -319,7 +325,10 @@ function createWindow() {
     try { require('./vcs').destroyAllVcsWindows(); } catch { /* module not wired in a test build */ }
     // #2: same for detached session windows. They are deliberately not `parent`-ed to the main window
     // (a child is always on top, which defeats a second monitor), so nothing else takes them down.
-    try { require('./detach').closeAll(); } catch { /* module not wired in a test build */ }
+    // Said out loud when it fails. A silent catch here meant a teardown that threw looked exactly
+    // like a teardown that ran: the main window went, its detached windows stayed, and the app hung
+    // on with no window to reach them from and nothing written anywhere.
+    try { require('./detach').closeAll(); } catch (err) { ctx.log?.warn?.('[windows] detach teardown failed', err); }
     if (boundsTimer) clearTimeout(boundsTimer);
     if (!mainWindow.isMinimized()) {
       const b = mainWindow.getBounds();

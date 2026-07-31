@@ -95,11 +95,13 @@ contextBridge.exposeInMainWorld('api', {
   // Open one of the app's own views in another window (#364). Nothing moves — every window has its
   // own copy of the viewer elements — so the target opens its own and the caller closes its own.
   openViewInWindow: (windowId, kind, ref, file) => ipcRenderer.invoke('open-view-in-window', windowId, kind, ref, file),
+  // …or in a window of its own, holding nothing else (#370).
+  openViewInNewWindow: (kind, ref, file, at) => ipcRenderer.invoke('open-view-in-new-window', kind, ref, file, at),
   onOpenView: (cb) => ipcRenderer.on('open-view', (_e, kind, ref, file) => cb(kind, ref, file)),
-  // A window telling main whether it is showing one of the app's own views (#364), and the sidebar
-  // asking where a picked file should go. `routeViewFile` answers { routed: false } when the view is
-  // in this window, and the caller then does exactly what it always did.
-  viewHostChanged: (kind, hosting) => ipcRenderer.invoke('view-host-changed', kind, !!hosting),
+  // A window telling main which of the app's own views it is showing (#364, #370, #371), and the
+  // sidebar asking where a picked file should go. `routeViewFile` answers { routed: false } when the
+  // view is in this window, and the caller then does exactly what it always did.
+  windowViewsChanged: (views) => ipcRenderer.invoke('window-views-changed', views),
   routeViewFile: (kind, payload) => ipcRenderer.invoke('route-view-file', kind, payload),
   onOpenViewFile: (cb) => ipcRenderer.on('open-view-file', (_e, kind, payload) => cb(kind, payload)),
   // Move a session between windows (#316): 'main' or a detached window's id, from `listSessionWindows`.
@@ -111,6 +113,10 @@ contextBridge.exposeInMainWorld('api', {
   // What does THIS window hold? Asked by a detached window on boot — its URL names only the session it
   // was opened for, and main is the one that knows the rest (#326, #331).
   sessionsInMyWindow: () => ipcRenderer.invoke('sessions-in-my-window'),
+  // Was this window restored from the last run, and with what (#371)? Null for a window that was
+  // opened by the user. Asked rather than told: a push has to pick a moment, and the window itself
+  // is the only thing that knows when it can act on the answer.
+  myWindowRestore: () => ipcRenderer.invoke('my-window-restore'),
   // "I cannot render this one after all" — hands the claim back so main stops routing a session to a
   // window that shows it nowhere (#331).
   releaseSessionClaim: (sessionId) => ipcRenderer.invoke('release-session-claim', sessionId),

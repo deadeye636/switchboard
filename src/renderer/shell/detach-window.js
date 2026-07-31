@@ -15,15 +15,20 @@
 // Depends on renderer globals: openSessions, sessionMap, openSession, destroySession, showSession,
 // activeSessionId (app.js, terminal-manager.js) · cleanDisplayName (lib/utils.js) · window.api.
 
-// The session this window exists for, or null in the main window. Read from the URL: the window knows
-// what it is before any IPC round trip, so nothing has to wait for an answer.
-const detachedSessionId = (() => {
-  try {
-    return new URLSearchParams(window.location.search).get('detached') || null;
-  } catch {
-    return null;
-  }
+// What this window was opened as. Read from the URL: the window knows what it is before any IPC
+// round trip, so nothing has to wait for an answer.
+//
+// Three facts, and they used to be one. `detached=<id>` names the session it opens on and is null in
+// the main window — which made it the identity answer too, for as long as every window of ours had a
+// session. A window holding nothing but a view (#370) has none, so the identity is its own marker
+// (`win=detached`) and `view=<kind>` says what it opens on instead. The legacy `detached` alone still
+// counts as the marker, so nothing depends on both being present.
+const detachParams = (() => {
+  try { return new URLSearchParams(window.location.search); } catch { return new URLSearchParams(); }
 })();
+const detachedSessionId = detachParams.get('detached') || null;
+const detachedViewKind = detachParams.get('view') || null;
+const isOwnWindow = detachParams.get('win') === 'detached' || !!detachedSessionId;
 
 // Sessions currently living in a window of their own. Mirrors the main process's map; the main window
 // keeps it so its tabs and its sidebar can say so, and so a click sends focus there instead of mounting
@@ -36,10 +41,10 @@ const detachedSessions = new Set();
 // both track a session this window no longer has. `isDetachedWindow()` is the identity question and
 // must never be asked through this value — it is the URL's answer, and it never changes.
 window.__detachedSessionId = detachedSessionId;
-window.isDetachedWindow = () => !!detachedSessionId;
+window.isDetachedWindow = () => isOwnWindow;
 window.isSessionDetached = (sessionId) => detachedSessions.has(sessionId);
 
-if (detachedSessionId) document.body.classList.add('detached-window');
+if (isOwnWindow) document.body.classList.add('detached-window');
 
 (function () {
   if (typeof document === 'undefined') return;
@@ -157,7 +162,65 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     return sessionMap.get(sessionId) || null;
   }
 
+  /**
+   * Put back what this window held when the app last quit (#371).
+   *
+   * Answers whether it had anything to put back. The sessions are MOUNTED, which resumes their CLI —
+   * that is what restoring a session means, and it is what the main window has always done with its
+   * own set. It is deliberately not what an ADOPT does: a session moving between windows must never
+   * start a process the user stopped, because there the user asked to move a window, not to launch.
+   * Here they asked for their windows back.
+   */
+  async function restoreThisWindow() {
+    let payload = null;
+    try { payload = await window.api.myWindowRestore?.(); } catch { payload = null; }
+    if (!payload) return false;
+    const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+    const views = Array.isArray(payload.views) ? payload.views : [];
+
+    let first = null;
+    for (const id of sessions) {
+      // The same budget the boot path gives its own session: the index is being scanned while this
+      // window loads, and a record that has not arrived yet is not a record that is missing.
+      const session = await waitForSessionRecord(id, 200);
+      if (!session) {
+        // The session is gone from the index — deleted, or its store is not there any more. Main
+        // still has this window down as the one rendering it, so hand the claim back rather than
+        // leaving it routed at a window that shows it nowhere.
+        try { await window.api.releaseSessionClaim(id); } catch { /* nothing to hand back to */ }
+        continue;
+      }
+      await mountOnce(session, !first);
+      if (!first) first = id;
+    }
+
+    // Only what another window could have filled comes back. That is the same rule a view crossing
+    // windows obeys (#364): a kind with no loader would arrive blank, and an instanced preview or
+    // diff is built by the window that opened it and cannot be rebuilt from a kind and a ref alone.
+    for (const view of views) {
+      if (window.panesView?.viewCanLeaveWindow?.(view.kind) === false) continue;
+      acceptView(view.kind, view.ref == null ? null : view.ref, view.file || null);
+    }
+    refreshViews();
+    return !!(sessions.length || views.length);
+  }
+
   async function bootDetachedWindow() {
+    // A window opened on a VIEW has no session to wait for (#370). What fills it arrives as an
+    // `open-view` message a moment later, and `acceptView` waits for the pane tree on its own — so
+    // there is nothing to do here but title the frame after what it is going to show. Waiting for a
+    // session record we know is not coming would spend ten seconds and then title the window
+    // "session not found".
+    if (!detachedSessionId) {
+      const kindTitle = detachedViewKind && window.panesView?.viewKindTitle?.(detachedViewKind);
+      if (kindTitle) document.title = kindTitle;
+      // …or on nothing at all, because it is a window the last run left behind (#371). What it held
+      // is main's answer, not the URL's — the URL would have to carry a whole window's contents.
+      await restoreThisWindow();
+      await adoptOwnedSessions(); // a reload of a view window main has since given a session to
+      refreshViews();
+      return;
+    }
     const session = await waitForSessionRecord(detachedSessionId, 200);
     if (!session) {
       // The session vanished between detaching and this window booting. Say so rather than showing an
@@ -258,10 +321,20 @@ if (detachedSessionId) document.body.classList.add('detached-window');
    * tabs, so `openSessions` IS the set and stays the answer.
    */
   function updateDetachedWindowTitle() {
-    if (!detachedSessionId) return; // the main window titles itself
+    if (!isOwnWindow) return; // the main window titles itself
     const panes = (window.panesView && window.panesView.active()) ? window.panesView : null;
     const ids = panes ? panes.sessionIdsInLayout() : [...openSessions.keys()];
-    if (!ids.length) return; // mid-handover: keep the last name rather than flashing a generic one
+    if (!ids.length) {
+      // No session at all. Either this window holds only views (#370) — name it after them, the same
+      // shape a session set is named with — or it is mid-handover, and there the last name is a
+      // better answer than a generic one.
+      const labels = panes ? panes.viewTabLabels() : [];
+      if (!labels.length) return;
+      window.__detachedSessionId = null;
+      const shown = (panes.shownViewLabel && panes.shownViewLabel()) || labels[0];
+      document.title = labels.length > 1 ? `${shown} +${labels.length - 1}` : shown;
+      return;
+    }
     const shown = panes ? panes.shownSessionId() : null;
     // A view tab is selected (`shown` is null) or the layout has not caught up: fall back to the
     // focused session, then to the first tab. Never to a session this window does not hold.
@@ -285,7 +358,7 @@ if (detachedSessionId) document.body.classList.add('detached-window');
   // nothing to track: everything it holds, it renders.
 
   function releaseSession(sessionId) {
-    if (!detachedSessionId) detachedSessions.add(sessionId);
+    if (!isOwnWindow) detachedSessions.add(sessionId); // the main window is the one that tracks this
     // Also cancels a mount that has not finished yet — see `cancelledMounts`.
     cancelledMounts.add(sessionId);
     // Let go of the terminal WITHOUT touching the process: close-terminal only clears
@@ -337,7 +410,7 @@ if (detachedSessionId) document.body.classList.add('detached-window');
       // Nothing to mount, but this window can SHOW it (#332). The claim stays here on purpose: handing
       // it back would undo the move the user just made, and `release-session-claim` states "I cannot
       // render this one", which is the opposite of what just happened.
-    } else if (detachedSessionId && !cancelledMounts.has(sessionId)) {
+    } else if (isOwnWindow && !cancelledMounts.has(sessionId)) {
       // Nothing was mounted, and main still has this window down as the one rendering it. Give the
       // claim back rather than leaving a session routed to a window that draws it nowhere (#331) —
       // the main window's own adopt then decides whether there is a process left worth showing.
@@ -483,21 +556,21 @@ if (detachedSessionId) document.body.classList.add('detached-window');
    * one. A view has none of those states. What it shares is the shape: the window list arrives from
    * main after the menu is on screen, so each late entry is inserted next to the one before it.
    *
-   * No "new window" entry, and that is not an oversight: a window boots around a session, so one
-   * holding nothing but a view cannot exist yet.
+   * "Move to new window" leads, the way the session block leads with its own (#370). It used to be
+   * absent because a window boots around a session and one holding nothing but a view could not
+   * exist; now it can, and this is the only way to ask for one that does not involve dragging.
    */
   window.appendViewWindowItems = async (tab, moveTo, addItem, isOpen) => {
     if (typeof addItem !== 'function' || typeof moveTo !== 'function') return;
-    // Every window except this one. Which one THAT is takes a different answer per window: the main
-    // window is the `isMain` entry, while a detached one has no id of its own to compare — so it asks
-    // about a session it holds and lets main mark the holder, which is itself.
-    const here = !!window.isDetachedWindow?.();
     let windows = [];
-    try { windows = (await window.listSessionWindows(here ? window.__detachedSessionId : null)) || []; }
+    try { windows = (await window.listSessionWindows(null)) || []; }
     catch { return; }
-    const others = windows.filter((w) => (here ? !w.current : !w.isMain));
-    if (!others.length || (typeof isOpen === 'function' && !isOpen())) return;
-    let cursor = null;
+    // Every window except this one, which main marks: a window has no id of its own to compare with,
+    // and the answer it used to derive — "the window holding a session I hold" — is no answer at all
+    // in a window that holds none (#370).
+    const others = windows.filter((w) => !w.isSelf);
+    if (typeof isOpen === 'function' && !isOpen()) return;
+    let cursor = addItem('Move to new window', () => moveTo(null), {}) || null;
     for (const target of others) {
       const label = target.isMain ? 'Move to main window' : `Move to “${target.title}”`;
       const created = addItem(label, () => moveTo(target.id), cursor ? { before: cursor.nextSibling } : {});
@@ -544,7 +617,11 @@ if (detachedSessionId) document.body.classList.add('detached-window');
   }
   window.api.onOpenView((kind, ref, file) => acceptView(kind, ref, file));
 
-  if (detachedSessionId) {
+  // The identity, not the session (#370, #371). A window of ours can open on a view, or on nothing at
+  // all until main hands back what it held — and asking `detachedSessionId` here left exactly those
+  // two falling through to the MAIN window's wiring: no boot, and no `__suppressLaunchRestore`, so
+  // the launch restore would have reopened the main window's whole set in a second window.
+  if (isOwnWindow) {
     // A detached window opens on one session; since #316 it can be given more. The launch restore must
     // not reopen the whole set here — that would mount every session a second time, each one fighting
     // the main window for the same PTY.

@@ -169,6 +169,29 @@ longer had — latent, because every menu path passes an explicit id. **The iden
 `window.isDetachedWindow()`**, answered from the URL and immutable; asking it through
 `__detachedSessionId` is the bug that value now invites.
 
+## 2c · A window can hold no session at all (#370)
+
+A window was built around a session, in four places at once: the URL named one
+(`?detached=<sessionId>`), the map was keyed by one, the title came from one, and closing handed one
+back. So "give Memory a window of its own" had nowhere to go, and the view menu said as much by
+having no "new window" entry.
+
+A fifth place is the one that is easy to miss, and it is the one that actually bit: **the session map
+was also the only list of windows there was.** Every "which windows exist" question read it — the move
+menu, the drop hit-test, the quit teardown. A window absent from it cannot be moved to, cannot be
+dropped on, and *survives the app that made it*. So the two questions are now two collections:
+`detachedWindows` (session → window) still answers where a session's bytes go, and a plain set of every
+window answers which windows there are.
+
+What follows from that:
+
+| | |
+|---|---|
+| The URL | `win=detached` is the identity; `detached=<id>` and `view=<kind>` are what the window opens **on**, and it can have neither (a restore fills it afterwards, §5b). `isDetachedWindow()` reads the marker — asking it through the session id is what left a view window falling through to the MAIN window's wiring, launch restore included |
+| The title | A window with no session is named after its views, in the same `<name> +N` shape a session set is named with |
+| The close rule | "A window that gives away its last session closes" was the same statement as "it has nothing left to show" only while a window could hold nothing else. It now closes when it holds **neither** sessions nor views |
+| Which views may go | Unchanged from #364: a singleton that names a loader. A diff still never leaves, and an instanced preview cannot be rebuilt from a kind and a ref |
+
 ## 3 · The invariant: one session, one renderer
 
 Two xterms on one PTY echo every keystroke twice and fight over the size through `syncPtySize`. The
@@ -209,6 +232,45 @@ default with the main window. Three things had to be told not to write:
 | PTY exits while detached | The banner is written in the detached window; the sidebar keeps its own state from main |
 | Session re-keyed (fork, accepted plan) | `applyRekey` migrates the window: output is sent under the **new** id, so a window left on the old one falls silent mid-run |
 
+## 5b · The windows come back on the next launch (#371)
+
+They used to come back nowhere. The main window persists the set **it** renders, and a detached
+session was released from that set the moment it left — so it was in no saved blob at all, and the
+windows themselves existed only in this process's memory. Quit with three windows across two
+monitors, reopen to one window and fewer sessions than you left.
+
+**The state lives in the main process** (`detachedWindows` in the global settings), and that is forced
+rather than chosen: §4 is the reason. Every window shares one origin, so a detached window writing the
+renderer's restore key would replace the main window's whole restorable set with its own. Bounds and
+the window set are this process's facts anyway.
+
+- **Written on every change, not at quit.** A detach, a move, a view opening or closing, a window
+  moved or resized — each schedules a debounced write. A crash or a force-kill therefore still leaves
+  a usable state, and the quit path only has to flush what is already true.
+- **`closeAll` writes FIRST, then tears down.** Its own `closed` handlers run during the teardown, and
+  one of those persisting the half-emptied list would overwrite the answer. A window closed **by
+  hand** does drop out, which is the difference the flag exists to keep.
+- **The payload is PULLED by the restored window,** not pushed at it. A push has to pick a moment and
+  every moment is wrong: `did-finish-load` can beat the renderer's own boot, and anything later races
+  the reconcile. It asks once, when it is ready to act on the answer; a reload gets nothing, because by
+  then the sessions are running and the ordinary adopt is what puts them back.
+- **Restoring MOUNTS a session, which resumes its CLI.** That is deliberately the opposite of what an
+  adopt does (§2b): a session moving between windows must never start a process the user stopped,
+  because there they asked to move a window. Here they asked for their windows back, and it is exactly
+  what the main window has always done with its own set. With **Restore sessions on launch** off,
+  nothing comes back — windows included.
+- **A display that is gone must not take a window with it.** The saved position is kept only while a
+  display still covers it (the same ±100 tolerance the main window's restore uses); otherwise the
+  window opens at the primary display's origin, never larger than the work area it lands in. The
+  decision is a pure function (`restoreWindowBounds`) so `node --test` can exercise the multi-monitor
+  cases a single-screen machine can never show.
+- **Once per process.** `createWindow` runs again on the macOS `activate` path, and a second pass
+  would duplicate every window rather than reveal the ones already standing.
+
+What does **not** come back: the pane splits inside a detached window (§4 keeps it from persisting the
+tree at all — the sessions return as tabs), and an instanced preview or diff, which cannot be rebuilt
+from a kind and a ref.
+
 ## 6 · Why `index.html?detached=<id>` and not a smaller page
 
 A minimal `detached.html` would have to re-wire the terminal by hand and would drift from the real
@@ -234,11 +296,25 @@ the refusals that are left. Since #332 that includes the dormant moves in both d
 moving one spawns nothing; the renderer's half of that decision — which window can *show* a dormant
 session — is in `test/panes-view.test.js` (`openDormantTab`), because it is a pane-tree question.
 
+Since #370 it also pins the window that holds no session: the URL it is given, that it is listed and
+hit-tested and torn down like any other, that it survives its last session leaving while a view is
+still in it — and still closes when nothing is. Since #371, the save/restore round trip against a
+stand-in settings store, and `restoreWindowBounds` on its own: the display that is still there, the
+one that is gone, a window larger than the screen it lands on, and one hanging off an edge. Those four
+are the reason that decision is a pure function — they are exactly what a single-screen machine cannot
+show.
+
 What it cannot cover is the invariant in §3: that lives in the renderer, and it is where both real
 bugs were. `docs/ai/driving-the-app.md` has the two traps that made checking it harder than it should
 have been — a renderer reload does not reload the main process, and `--target` matches both windows.
 
 ## 8 · Not built
 
-Persisted bounds per detached window (the original plan's optional line), and a detached session is
-not part of the saved open-sessions set, so it is not restored on the next launch.
+- The pane **layout** inside a detached window. Its sessions come back as tabs (§5b), not as the
+  splits they were arranged in — §4 keeps a detached window from persisting the tree at all.
+- **Two files side by side** in the sidebar-driven views. That is what making them self-contained
+  would buy, and the relay deliberately does not (§2b, spec 16 §4.2).
+- The main window's own **close** path has not been exercised from the harness: `window.close()` in
+  the renderer closes the window without the teardown running, so whether a real Alt+F4 reaches
+  `closeAll` is unverified. It costs nothing today — the state is written on every change, not at
+  quit — but a window left standing after the main one goes would be the visible symptom.

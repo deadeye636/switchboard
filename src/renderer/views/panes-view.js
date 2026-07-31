@@ -1094,14 +1094,47 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // cloned into a second one. `nearSessionId` names the session it belongs to, so
   // the view lands beside the terminal that produced it.
   /**
-   * Tell main whether this window is showing a singleton view (#364), so a sidebar click can be
-   * routed here. Reported, never inferred — main guessing from what it last sent is exactly the
-   * stale registry this is meant not to become. Instanced kinds carry their own ref and steer
-   * themselves, so they are not routed and not reported.
+   * Every view tab this window holds, with the file each one is showing.
+   *
+   * Instanced kinds are in the list too, which they were not when this only answered routing (#364).
+   * They still steer themselves — a preview and a diff carry their own ref — but two of the three
+   * questions main asks the list are about the WINDOW rather than the kind: whether it still has
+   * something to show once its last session leaves (#370), and what it has to be given back when it
+   * is restored (#371). A window holding nothing but a preview holds something.
    */
-  function reportViewHost(kind, hosting) {
-    if (isInstancedKind(kind) || typeof window.api?.viewHostChanged !== 'function') return;
-    try { window.api.viewHostChanged(kind, hosting); } catch { /* older main process */ }
+  function collectWindowViews() {
+    const out = [];
+    if (!enabled || !tree) return out;
+    for (const leaf of PaneTree.leaves(tree)) {
+      for (const tab of leaf.tabs) {
+        if (!isViewTab(tab)) continue;
+        out.push({
+          kind: tab.kind,
+          ref: tab.ref == null ? null : tab.ref,
+          // The open file, for the kinds that have one. A singleton has no ref to carry it in, so
+          // without this a restored or relayed view arrives blank — which reads as half a move.
+          file: (typeof currentViewFilePayload === 'function') ? currentViewFilePayload(tab.kind) : null,
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Tell main which of the app's own views this window is showing (#364, #370, #371).
+   *
+   * Reported, never inferred — main guessing from what it last sent is exactly the stale registry
+   * this is meant not to become. The WHOLE list every time, rather than a per-kind delta: a delta is
+   * a thing that can be missed, and one missed message leaves a window claiming a view it closed for
+   * as long as it lives. Deriving the list from the tree also means no path can forget to report a
+   * tab it removed — it only has to report *after* it changed the tree.
+   *
+   * `views` overrides that derivation for the one caller whose tree outlives its mode: leaving panes
+   * mode takes every view tab with it while the tree is still standing.
+   */
+  function reportWindowViews(views) {
+    if (typeof window.api?.windowViewsChanged !== 'function') return;
+    try { window.api.windowViewsChanged(views || collectWindowViews()); } catch { /* older main */ }
   }
 
   function openViewTab(kind, { ref = null, nearSessionId = null, load = false } = {}) {
@@ -1132,7 +1165,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     }
     tree = PaneTree.addTab(tree, target.id, { id: tabId, kind, ref });
     activeLeafId = target.id;
-    reportViewHost(kind, true); // #364 — a sidebar click for this kind now belongs here
+    reportWindowViews(); // #364 — a sidebar click for this kind now belongs here
     render();
     persist();
     return true;
@@ -1153,7 +1186,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     if (closeTheView && isInstancedKind(kind)) window.filePanelCloseInstance?.(kind, ref);
     else if (closeTheView) hideViewElement(kind);
     tree = PaneTree.closeTab(tree, leaf.id, tabId);
-    reportViewHost(kind, false); // #364 — nothing here shows it any more
+    reportWindowViews(); // #364 — nothing here shows it any more
     activeLeaf();
     render();
     persist();
@@ -1745,10 +1778,6 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         // invisible instead of covering the workspace with nothing left to dismiss it.
         if (isInstancedKind(tab.kind)) window.filePanelCloseInstance?.(tab.kind, tab.ref);
         else hideViewElement(tab.kind);
-        // This path does not go through `closeViewTab`, so the report has to be made here (#364).
-        // A registry entry left behind sends a sidebar pick at a window that no longer shows the
-        // view, and nothing about that is visible until the click lands nowhere.
-        reportViewHost(tab.kind, false);
         continue;
       }
       const sessionId = sessionOfTab(tab);
@@ -1768,6 +1797,11 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // An empty pane is left behind when it had no tabs to begin with, or when the
     // last dropSession collapsed nothing because the pane was already the target.
     tree = PaneTree.removeLeaf(tree, leafId);
+    // This path does not go through `closeViewTab`, so the report is made here (#364) — after the
+    // pane is out of the tree, since the list is derived from it. A registry entry left behind sends
+    // a sidebar pick at a window that no longer shows the view, and nothing about that is visible
+    // until the click lands nowhere.
+    reportWindowViews();
     activeLeaf();
     render();
     persist();
@@ -2204,9 +2238,8 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       window.appendWindowItems(subjectId, item, () => activeMenu === pop);
     }
 
-    // A view named by a right-click can go to another window too (#364). Only to an EXISTING one:
-    // a window with nothing but a view in it cannot boot yet, which is why there is no "new window"
-    // entry here to match the session block's.
+    // A view named by a right-click can go to another window too (#364), or to one of its own
+    // (#370) — the entry for that leads the block, the way the session block leads with its own.
     if (tab && canLeaveWindow(subject) && typeof window.appendViewWindowItems === 'function') {
       separator();
       groupLabel('View', viewTabLabel(subject));
@@ -2329,9 +2362,9 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     if (onto === false) return; // could not be answered — see below
 
     // A view travels by being OPENED there and closed here (#364) — every window has its own copy of
-    // the viewer elements, so there is nothing to hand over. It needs a window to arrive in, though:
-    // a window with no session cannot boot yet, so a view dropped on empty space says so instead of
-    // vanishing.
+    // the viewer elements, so there is nothing to hand over. Dropped on empty space it gets a window
+    // of its own (#370), on the display it was dropped on: the same answer the gesture gives for a
+    // session, which is what makes it a gesture rather than two.
     if (isViewTab(tab)) {
       // `typeof`, not `?.` — these are bare globals from another classic script, and optional
       // chaining on an undeclared name is a ReferenceError, not undefined.
@@ -2346,13 +2379,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         }
         return;
       }
-      if (!onto) {
-        if (typeof showControlToast === 'function') {
-          showControlToast({ message: 'Drop a view on another window to move it there', timeoutMs: 3000 });
-        }
-        return;
-      }
-      moveViewToWindow(leafId, tab, onto);
+      moveViewToWindow(leafId, tab, onto || null, onto ? null : pointerAim(e));
       return;
     }
 
@@ -2389,7 +2416,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
    * anyway is a view the user has to find again, and the failure is silent — the far window either
    * went away between the drop and the message, or never existed.
    */
-  async function moveViewToWindow(leafId, tab, windowId) {
+  async function moveViewToWindow(leafId, tab, windowId, at = null) {
     if (typeof window.api?.openViewInWindow !== 'function') return;
     // The open FILE travels too (#364). A singleton kind has no ref to carry it in, so a moved Memory
     // or Plan would arrive showing an empty editor — the move would look half done, which is exactly
@@ -2397,7 +2424,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     const file = (typeof currentViewFilePayload === 'function') ? currentViewFilePayload(tab.kind) : null;
     let res = null;
     try {
-      res = await window.api.openViewInWindow(windowId, tab.kind, tab.ref, file);
+      // A null window is a window that does not exist yet (#370): the view gets one of its own,
+      // holding nothing else. `at` places it where it was dropped, exactly as a torn-off session's
+      // window is placed; a menu entry sends none and main falls back to the pointer's display.
+      res = windowId == null
+        ? await window.api.openViewInNewWindow?.(tab.kind, tab.ref, file, at)
+        : await window.api.openViewInWindow(windowId, tab.kind, tab.ref, file);
     } catch { res = null; }
     if (!res || !res.ok) {
       if (typeof showControlToast === 'function') {
@@ -2680,13 +2712,10 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     // window, so this is reachable while the user is still holding the mouse down.
     if (endSashDrag) endSashDrag();
     // Leaving panes mode takes every view tab with it, and this path never reaches `closeViewTab`
-    // (#364). Reported here, while the tree still exists to be read — and unlike `closePane` there is
-    // no observer left afterwards that could correct a stale entry.
-    if (tree) {
-      for (const leaf of PaneTree.leaves(tree)) {
-        for (const tab of leaf.tabs) if (isViewTab(tab)) reportViewHost(tab.kind, false);
-      }
-    }
+    // (#364). Stated as an explicit empty list, because the tree it would otherwise be derived from
+    // is still standing at this point — and unlike `closePane` there is no observer left afterwards
+    // that could correct a stale entry.
+    reportWindowViews([]);
     // Write the final state NOW rather than letting the debounce fire into a torn-down mode — but
     // through the one guarded writer, so a detached window still writes nothing (#344).
     clearTimeout(persistTimer);
@@ -3311,6 +3340,30 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   }
 
   /**
+   * The label of the view tab that is showing, or null when a session is.
+   *
+   * `shownSessionId`'s counterpart, and it exists for the same reason: a window has to be named
+   * after what it shows, and since #370 what it shows can be a view with no session anywhere near
+   * it. The tab's own label, so the window says exactly what its tab says.
+   */
+  function shownViewLabel() {
+    const leaf = activeLeaf();
+    if (!leaf) return null;
+    const tab = leaf.tabs.find((t) => t.id === leaf.activeTabId);
+    return tab && isViewTab(tab) ? viewTabLabel(tab) : null;
+  }
+
+  /** Every view tab's label, in tab order — the "+N" half of a view window's title (#370). */
+  function viewTabLabels() {
+    const out = [];
+    if (!enabled || !tree) return out;
+    for (const leaf of PaneTree.leaves(tree)) {
+      for (const tab of leaf.tabs) if (isViewTab(tab)) out.push(viewTabLabel(tab));
+    }
+    return out;
+  }
+
+  /**
    * Every session this window holds, in tab order. Dormant sessions included — a tab is a tab
    * whether or not it has a process, and a window that holds three must not call itself "+1".
    */
@@ -3330,6 +3383,14 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     active: () => enabled,
     shownSessionId,
     sessionIdsInLayout,
+    shownViewLabel,
+    viewTabLabels,
+    // What a kind is called, for a window that has to name itself before it holds any tab at all
+    // (#370). Answered from `VIEW_KINDS`, so a new view is named in one place.
+    viewKindTitle: (kind) => (VIEW_KINDS[kind] ? VIEW_KINDS[kind].title : null),
+    // The file a view shows is not a tab change, so nothing above would report it (#371). The
+    // openers say so themselves.
+    reportViews: () => reportWindowViews(),
     // Exposed for the suite: the rule for which views may leave is derived from what a receiving
     // window could fill, and a rule that is derived is one a test should be able to ask about.
     viewCanLeaveWindow: (kind) => canLeaveWindow({ id: 'x', kind }),
