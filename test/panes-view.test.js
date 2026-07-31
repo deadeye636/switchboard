@@ -2935,3 +2935,61 @@ test('#373: a session the window cannot name is refused rather than dropped blan
     assert.equal(h.document.querySelectorAll('.session-tab').length, 1);
   } finally { h.destroy(); }
 });
+
+// --- #376: the drop zones can be hit, and one of them addresses the whole area ---
+
+test('#376: a pane\'s edge zone has a floor in pixels, so a narrow pane is still splittable', () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    // A tenth of a narrow pane is a strip too thin to aim at, and missing it MOVES the tab instead of
+    // splitting — the wrong kind of wrong, because undoing it takes a second gesture.
+    assert.equal(h.panes.edgeDepth(200), 30, 'the floor wins on a narrow pane');
+    assert.equal(h.panes.edgeDepth(1200), 120, 'the ratio wins on a wide one');
+    // …and never so much that the middle disappears: "move it into this pane" is the commoner intent.
+    assert.equal(h.panes.edgeDepth(60), 60 * 0.32);
+  } finally { h.destroy(); }
+});
+
+test('#376: a session dropped on the outer band lands in a pane across the whole area', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    await h.open('live-2');
+    h.panes.splitActivePane('right');
+    await h.settle();
+    h.sessionMap.set('from-sidebar', { sessionId: 'from-sidebar', name: 'From sidebar', type: 'agent' });
+    h.activePtyIds.add('from-sidebar');
+
+    const panesBefore = h.document.querySelectorAll('#terminals .pane').length;
+    assert.equal(h.panes.dropSessionIntoRootSplit('from-sidebar', 'down'), true);
+    await h.settle();
+
+    assert.equal(h.document.querySelectorAll('#terminals .pane').length, panesBefore + 1);
+    // The point of the whole thing: the new pane is under BOTH, not under one column. The DOM says so
+    // — the outermost box is a column now, and the row that was there is inside it.
+    const layout = h.document.querySelector('#terminals').firstElementChild;
+    assert.equal(layout.classList.contains('pane-col'), true,
+      'the row was wrapped in a column, so the new pane spans it');
+    assert.equal(layout.querySelector('.pane-row') !== null, true, 'and the row itself is intact');
+  } finally { h.destroy(); }
+});
+
+test('#376: a session already open is MOVED into the new full-width pane, not mounted twice', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    await h.open('live-2');
+    h.calls.openSession.length = 0;
+
+    assert.equal(h.panes.dropSessionIntoRootSplit('live-1', 'down'), true);
+    await h.settle();
+
+    const strips = [...h.document.querySelectorAll('#terminals .pane')]
+      .map((p) => [...p.querySelectorAll('.session-tab-label')].map((el) => el.textContent));
+    assert.deepEqual(strips, [['live-2'], ['live-1']], 'it left the pane it was in and is alone below');
+    assert.deepEqual(h.calls.openSession, [], 'a move mounts nothing');
+  } finally { h.destroy(); }
+});

@@ -11,6 +11,7 @@ const {
   leaves,
   leafOfTab,
   splitLeaf,
+  splitRoot,
   tileTabs,
   addTab,
   setActiveTab,
@@ -518,4 +519,53 @@ test('tileTabs survives no tabs and a nonsense column count (#356)', () => {
   assert.equal(leaves(tileTabs([term('term:a', 'a'), term('term:b', 'b')], 99)).length, 2);
   assert.equal(leaves(tileTabs([term('term:a', 'a'), term('term:b', 'b')], 0)).length, 2);
   assert.equal(leaves(tileTabs([term('term:a', 'a'), term('term:b', 'b')], NaN)).length, 2);
+});
+
+// --- #376: adding a pane across the WHOLE area -------------------------------
+//
+// `splitLeaf` splits the pane it is given, so with two panes side by side there was no way to say
+// "put this one below both". The answer is a different target, not a bigger drop zone.
+
+test('#376: a pane added below a ROW spans it, rather than splitting one column', () => {
+  const row = splitLeaf(base(), 'p1', 'right', { newLeafId: 'p2' });
+  const out = splitRoot(row, 'down', { newLeafId: 'p3', tab: term('t9') });
+
+  assert.equal(out.orientation, 'col', 'the row is wrapped, so the new pane is under all of it');
+  assert.equal(out.children.length, 2);
+  assert.equal(out.children[0].orientation, 'row', 'and the row it wraps is unchanged');
+  assert.deepEqual(ids(out), ['p1', 'p2', 'p3']);
+  assert.deepEqual(sizes(out), [0.5, 0.5]);
+  assert.deepEqual(leaves(out).find((l) => l.id === 'p3').tabs.map((t) => t.id), ['t9']);
+});
+
+test('#376: on the axis the root already has, the new pane joins the row as a peer', () => {
+  const row = splitLeaf(base(), 'p1', 'right', { newLeafId: 'p2' });
+  const out = splitRoot(row, 'right', { newLeafId: 'p3' });
+
+  assert.equal(out.orientation, 'row', 'no new branch — it is a sibling');
+  assert.deepEqual(ids(out), ['p1', 'p2', 'p3']);
+  // A third of the row each. Halving the whole area for the newcomer would shrink both of the others
+  // to make room for one.
+  assert.deepEqual(sizes(out), [0.3333, 0.3333, 0.3333]);
+});
+
+test('#376: left and up put the new pane before everything', () => {
+  const row = splitLeaf(base(), 'p1', 'right', { newLeafId: 'p2' });
+  assert.deepEqual(ids(splitRoot(row, 'left', { newLeafId: 'p3' })), ['p3', 'p1', 'p2']);
+  const up = splitRoot(row, 'up', { newLeafId: 'p3' });
+  assert.equal(up.orientation, 'col');
+  assert.deepEqual(ids(up), ['p3', 'p1', 'p2'], 'the whole row moves below the new pane');
+});
+
+test('#376: on a single pane it is the same as splitting that pane', () => {
+  const viaRoot = splitRoot(base(), 'right', { newLeafId: 'p2' });
+  const viaLeaf = splitLeaf(base(), 'p1', 'right', { newLeafId: 'p2' });
+  assert.deepEqual(serialize(viaRoot), serialize(viaLeaf),
+    'a one-leaf tree has no orientation to match, so both wrap it the same way');
+});
+
+test('#376: a call it cannot honour changes nothing', () => {
+  const row = splitLeaf(base(), 'p1', 'right', { newLeafId: 'p2' });
+  assert.deepEqual(serialize(splitRoot(row, 'sideways', { newLeafId: 'p3' })), serialize(row));
+  assert.deepEqual(serialize(splitRoot(row, 'down', {})), serialize(row), 'no id, no pane');
 });

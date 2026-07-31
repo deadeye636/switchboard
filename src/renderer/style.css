@@ -8315,6 +8315,19 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   pointer-events: none;
   z-index: 6;
 }
+/* A drop that addresses the WHOLE area rather than one pane (#376): the same shape, drawn over
+   everything, and brighter — the two produce different layouts from the same pointer position, so a
+   hint that could be mistaken for the other one is worse than none. The right inset accounts for
+   #terminals reaching 20px past what the user can see (its negative right margin). */
+.pane-drop-outer {
+  background: rgba(128, 136, 255, 0.26);
+  border: 2px solid rgba(150, 158, 255, 0.9);
+  z-index: 6;
+}
+.pane-drop-outer.pane-drop-left { inset: 0 auto 0 0; width: 38%; }
+.pane-drop-outer.pane-drop-right { inset: 0 20px 0 auto; width: 38%; }
+.pane-drop-outer.pane-drop-up { inset: 0 20px auto 0; height: 38%; }
+.pane-drop-outer.pane-drop-down { inset: auto 20px 0 0; height: 38%; }
 .pane-drop-center { inset: 0; }
 .pane-drop-left { inset: 0 50% 0 0; }
 .pane-drop-right { inset: 0 0 0 50%; }

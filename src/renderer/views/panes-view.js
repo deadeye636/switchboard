@@ -2571,6 +2571,44 @@ window.__sessionDragId = null;
     return last ? last.offsetLeft + last.offsetWidth : 0;
   }
 
+  /**
+   * The outer band, wired once on the CONTAINER (#376).
+   *
+   * The band runs along the edge of the whole area, and parts of that edge are not a pane: a sash
+   * between two side-by-side panes crosses it, and a sash has no drop handling at all — so the bottom
+   * few pixels under it were a dead strip, which is the fiddliness this issue is about in miniature.
+   * Everything that is not claimed by a pane bubbles to here.
+   *
+   * `#terminals` survives every rebuild (`replaceChildren` swaps its child, not itself), so this is
+   * attached once rather than per render. The pane handlers stop propagation on their own drops, so
+   * this never runs twice for one gesture.
+   */
+  function wireOuterBand() {
+    if (!terminalsEl || terminalsEl.__outerBandWired) return;
+    terminalsEl.__outerBandWired = true;
+    terminalsEl.addEventListener('dragover', (e) => {
+      if (!enabled || !isOurDrag(e)) return;
+      const outer = outerZoneAt(e);
+      if (!outer) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      showOuterHint(outer);
+    });
+    terminalsEl.addEventListener('dragleave', (e) => {
+      if (!terminalsEl.contains(e.relatedTarget)) clearOuterHint();
+    });
+    terminalsEl.addEventListener('drop', (e) => {
+      if (!enabled || !isOurDrag(e)) return;
+      const outer = outerZoneAt(e);
+      if (!outer) return;
+      e.preventDefault();
+      const sessionId = isSessionDrag(e) ? window.__sessionDragId : null;
+      clearDropFeedback();
+      if (sessionId) dropSessionIntoRootSplit(sessionId, outer);
+      else applyRootSplitMove(drag, outer);
+    });
+  }
+
   function wireDropZones(pane, body, leafId) {
     // The strip's empty space takes a tab too — aiming at the tab row is the
     // obvious gesture, and without this it would land nowhere.
@@ -2581,17 +2619,27 @@ window.__sessionDragId = null;
         if (!isOurDrag(e)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
-        showTabCaret(list, endCaretEdge(list));
+        // A sliver of the outer band reaches into the strip (#376) so the TOP edge of the area is
+        // sayable at all — the strip covers it everywhere else. Only a sliver: the strip is a target
+        // in its own right and the tabs have to stay easier to hit than the band above them.
+        const outer = outerZoneAt(e, OUTER_BAND_STRIP_PX);
+        if (outer) showOuterHint(outer);
+        else { clearOuterHint(); showTabCaret(list, endCaretEdge(list)); }
       });
       strip.addEventListener('dragleave', (e) => {
-        if (!strip.contains(e.relatedTarget)) clearTabCaret();
+        if (!strip.contains(e.relatedTarget)) { clearTabCaret(); clearOuterHint(); }
       });
       strip.addEventListener('drop', (e) => {
         if (!isOurDrag(e)) return;
         e.preventDefault();
         const sessionId = isSessionDrag(e) ? window.__sessionDragId : null;
+        const outer = outerZoneAt(e, OUTER_BAND_STRIP_PX);
         clearDropFeedback();
-        if (sessionId) dropSessionInto(sessionId, leafId, -1);
+        e.stopPropagation(); // handled here — the container's outer-band listener must not repeat it
+        if (outer) {
+          if (sessionId) dropSessionIntoRootSplit(sessionId, outer);
+          else applyRootSplitMove(drag, outer);
+        } else if (sessionId) dropSessionInto(sessionId, leafId, -1);
         else applyMove(drag, leafId, -1);
       });
     }
@@ -2602,10 +2650,14 @@ window.__sessionDragId = null;
       // container inside deliberately does NOT do it for a tab drag (#309).
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      showDropHint(body, dropZone(body, e));
+      // The outer band wins over this pane's own edge (#376): the two overlap on an outermost pane,
+      // and the one that addresses the whole area is the one the user cannot express any other way.
+      const outer = outerZoneAt(e);
+      if (outer) showOuterHint(outer);
+      else { clearOuterHint(); showDropHint(body, dropZone(body, e)); }
     });
     body.addEventListener('dragleave', (e) => {
-      if (!body.contains(e.relatedTarget)) clearDropHint();
+      if (!body.contains(e.relatedTarget)) { clearDropHint(); clearOuterHint(); }
     });
     body.addEventListener('drop', (e) => {
       if (!isOurDrag(e)) return;
@@ -2613,25 +2665,83 @@ window.__sessionDragId = null;
       // Read the session BEFORE the feedback is cleared: `clearDropFeedback` is also what a dragend
       // runs, and the two can race on a fast drop.
       const sessionId = isSessionDrag(e) ? window.__sessionDragId : null;
-      const zone = dropZone(body, e);
+      const outer = outerZoneAt(e);
+      const zone = outer || dropZone(body, e);
       clearDropHint();
+      clearOuterHint();
+      e.stopPropagation(); // handled here — the container's outer-band listener must not repeat it
       if (sessionId) {
-        if (zone === 'center') dropSessionInto(sessionId, leafId, -1);
+        if (outer) dropSessionIntoRootSplit(sessionId, outer);
+        else if (zone === 'center') dropSessionInto(sessionId, leafId, -1);
         else dropSessionIntoSplit(sessionId, leafId, zone);
-      } else if (zone === 'center') applyMove(drag, leafId, -1);
+      } else if (outer) applyRootSplitMove(drag, outer);
+      else if (zone === 'center') applyMove(drag, leafId, -1);
       else applySplitMove(drag, leafId, zone);
     });
   }
 
+  /**
+   * How deep a pane's edge zone reaches (#376).
+   *
+   * A ratio alone is unhittable on a pane that is already narrow — a tenth of 200 px is 20 px, and
+   * missing it means the tab is MOVED into the pane instead of splitting it, which takes a second
+   * gesture to undo. So the ratio gets a floor in pixels. The cap is the other half of the same
+   * thought: on a small pane a floor with no ceiling would leave no middle at all, and "move it into
+   * this pane" is the more common intent of the two.
+   */
+  const EDGE_MIN_PX = 30;
+  const EDGE_MAX_RATIO = 0.32;
+  function edgeDepth(extent) {
+    return Math.min(Math.max(extent * EDGE_RATIO, EDGE_MIN_PX), extent * EDGE_MAX_RATIO);
+  }
+
   function dropZone(body, e) {
     const r = body.getBoundingClientRect();
-    const x = (e.clientX - r.left) / Math.max(1, r.width);
-    const y = (e.clientY - r.top) / Math.max(1, r.height);
-    if (x < EDGE_RATIO) return 'left';
-    if (x > 1 - EDGE_RATIO) return 'right';
-    if (y < EDGE_RATIO) return 'up';
-    if (y > 1 - EDGE_RATIO) return 'down';
+    const dx = e.clientX - r.left;
+    const dy = e.clientY - r.top;
+    const ex = edgeDepth(Math.max(1, r.width));
+    const ey = edgeDepth(Math.max(1, r.height));
+    if (dx < ex) return 'left';
+    if (dx > r.width - ex) return 'right';
+    if (dy < ey) return 'up';
+    if (dy > r.height - ey) return 'down';
     return 'center';
+  }
+
+  // --- The outer band: a drop that addresses the whole area (#376) --------------
+  //
+  // With two panes side by side, the bottom edge of one of them splits THAT pane and gives a pane
+  // under one column. "Put this one below both" had nowhere to be said: an edge zone belongs to the
+  // leaf it is drawn on. The outermost band of the whole pane area is that place — a drop there
+  // splits at the ROOT, so the new pane spans everything.
+  //
+  // Measured against the pane TREE's element rather than `#terminals`, which carries a -20px right
+  // margin and therefore reaches past what the user can see.
+  const OUTER_BAND_PX = 36;
+  // Where a tab strip overlaps the band, only a sliver of it counts. The strip is a real drop target
+  // with its own meaning ("append to this pane"), it is about 30 px tall, and a 20 px band would eat
+  // most of it — reintroducing at the top the fiddliness this issue is about.
+  const OUTER_BAND_STRIP_PX = 10;
+
+  function paneAreaRect() {
+    const root = terminalsEl && terminalsEl.firstElementChild;
+    return root ? root.getBoundingClientRect() : null;
+  }
+
+  /** Which outer edge this point is in, or null for "inside" — `depth` is the band to test against. */
+  function outerZoneAt(e, depth = OUTER_BAND_PX) {
+    const r = paneAreaRect();
+    if (!r || r.width <= 0 || r.height <= 0) return null;
+    const x = e.clientX;
+    const y = e.clientY;
+    if (x < r.left - depth || x > r.right + depth || y < r.top - depth || y > r.bottom + depth) return null;
+    // Left and right first: at a corner the horizontal reading is the one that keeps a full-height
+    // column, which is what the corner of a row of panes looks like it should give.
+    if (x <= r.left + depth) return 'left';
+    if (x >= r.right - depth) return 'right';
+    if (y <= r.top + depth) return 'up';
+    if (y >= r.bottom - depth) return 'down';
+    return null;
   }
 
   let dropHint = null;
@@ -2645,6 +2755,29 @@ window.__sessionDragId = null;
     dropHint.className = 'pane-drop-hint pane-drop-' + zone;
   }
   function clearDropHint() { if (dropHint) { dropHint.remove(); } }
+
+  /**
+   * The hint for an outer drop (#376): the same shape, drawn on the whole area rather than in a pane.
+   *
+   * It has to look different from an inner one, because the two produce different layouts from the
+   * same pointer position — a hint that says "half of this pane" where the drop means "across
+   * everything" is worse than none.
+   */
+  let outerHint = null;
+  function showOuterHint(zone) {
+    clearTabCaret();
+    clearDropHint();
+    const root = terminalsEl && terminalsEl.firstElementChild;
+    if (!root) return;
+    if (!outerHint) {
+      outerHint = document.createElement('div');
+    }
+    outerHint.className = 'pane-drop-hint pane-drop-outer pane-drop-' + zone;
+    // On #terminals, not on the tree: the tree is a flex box whose children are the panes, and a
+    // positioned child of it would be laid out as one of them.
+    if (outerHint.parentElement !== terminalsEl) terminalsEl.appendChild(outerHint);
+  }
+  function clearOuterHint() { if (outerHint) outerHint.remove(); }
 
   // The insertion caret in a tab strip (#313). It lives inside the scrolling tab
   // list, so it stays on its gap while the strip scrolls.
@@ -2660,7 +2793,7 @@ window.__sessionDragId = null;
     tabCaret.style.left = Math.max(0, edge - 1) + 'px';
   }
   function clearTabCaret() { if (tabCaret) { tabCaret.remove(); } }
-  function clearDropFeedback() { clearDropHint(); clearTabCaret(); }
+  function clearDropFeedback() { clearDropHint(); clearTabCaret(); clearOuterHint(); }
 
   function applyMove(from, toLeafId, index) {
     pushUndo();
@@ -2753,6 +2886,41 @@ window.__sessionDragId = null;
     if (!running) return; // the pane draws the Launch placeholder for it (#318)
     const session = sessionMap.get(sessionId);
     if (session && typeof openSession === 'function') openSession(session);
+  }
+
+  /** A dragged TAB dropped on the outer band: a pane across the whole area, and the tab in it (#376). */
+  function applyRootSplitMove(from, direction) {
+    if (!from) return;
+    pushUndo();
+    const newLeafId = nextLeafId();
+    let next = PaneTree.splitRoot(tree, direction, { newLeafId });
+    next = PaneTree.moveTab(next, { fromLeafId: from.fromLeafId, toLeafId: newLeafId, tabId: from.tabId });
+    drag = null;
+    tree = next;
+    activeLeafId = newLeafId;
+    clearDropFeedback();
+    render();
+    persist();
+    showActiveOrPlaceholder();
+  }
+
+  /** The same for a session dragged out of the sidebar (#373 + #376). */
+  function dropSessionIntoRootSplit(sessionId, direction) {
+    if (!enabled || !tree || !sessionId) return false;
+    const existing = PaneTree.leafOfTab(tree, tabIdFor(sessionId));
+    if (existing) {
+      applyRootSplitMove({ tabId: tabIdFor(sessionId), fromLeafId: existing.id }, direction);
+      return true;
+    }
+    if (!acceptsSessionDrop(sessionId)) return false;
+    pushUndo();
+    const newLeafId = nextLeafId();
+    tree = PaneTree.splitRoot(tree, direction, { newLeafId, tab: makeTerminalTab(sessionId) });
+    activeLeafId = newLeafId;
+    render();
+    persist();
+    mountDroppedSession(sessionId);
+    return true;
   }
 
   function applySplitMove(from, leafId, direction) {
@@ -2852,6 +3020,7 @@ window.__sessionDragId = null;
     if (enabled) return;
     enabled = true;
     document.body.classList.add('display-mode-panes');
+    wireOuterBand(); // once per document — see the function (#376)
     tree = loadTree();
     // Restore the focused pane, not just the tree (#352). A detached window has its own one-pane
     // tree and must not read the main window's choice.
@@ -3556,6 +3725,11 @@ window.__sessionDragId = null;
     // Exposed for the suite: the drop's two landings, without a DragEvent to synthesise.
     dropSessionInto,
     dropSessionIntoSplit,
+    dropSessionIntoRootSplit,
+    // The two questions a drop asks about a point, exposed so the suite can ask them without a
+    // DragEvent: how deep a pane's edge reaches, and whether a point is in the area's outer band.
+    edgeDepth,
+    outerZoneAt: (point, depth) => outerZoneAt(point, depth),
     // What a kind is called, for a window that has to name itself before it holds any tab at all
     // (#370). Answered from `VIEW_KINDS`, so a new view is named in one place.
     viewKindTitle: (kind) => (VIEW_KINDS[kind] ? VIEW_KINDS[kind].title : null),

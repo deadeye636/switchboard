@@ -199,6 +199,52 @@
   }
 
   /**
+   * Add a pane across the WHOLE area, in `direction` (#376).
+   *
+   * `splitLeaf` splits the pane it is given, so with two panes side by side there was no way to say
+   * "put this one below **both**" — the answer is not a bigger drop zone but a different target: the
+   * root of the tree instead of a leaf in it.
+   *
+   * The rule is `splitLeaf`'s, one level up. When the direction's axis already matches the ROOT's
+   * orientation the new pane is a sibling at that end — a full-height column beside a row of panes.
+   * Otherwise the whole tree is wrapped in a new perpendicular branch, which is the full-width pane
+   * under a row. A single-leaf tree has no orientation to match, so it always wraps, and the result is
+   * exactly what splitting that one pane would have given.
+   */
+  function splitRoot(tree, direction, { newLeafId, tab } = {}) {
+    const axis = SPLIT_AXIS[direction];
+    if (!axis || !newLeafId || !tree) return clone(tree);
+    const tabs = tab ? [tab] : [];
+    const root = clone(tree);
+
+    if (isBranch(root) && root.orientation === axis.orientation) {
+      // An equal share of the row it joins, rather than half of it: this pane is a peer of the ones
+      // already there, and halving the whole area for it would shrink four panes to make room for one.
+      //
+      // The existing panes make room BEFORE it is inserted, each giving up the same fraction, so they
+      // keep their proportions to one another. Leaving that to `normalizeSizes` would not do it: it
+      // scales whatever it is given back to 1, so two halves plus a third come out 0.375/0.375/0.25 —
+      // the newcomer short-changed by exactly the amount the others were oversized.
+      const share = 1 / (root.children.length + 1);
+      for (const child of root.children) child.size *= (1 - share);
+      const fresh = makeLeaf(newLeafId, tabs, tabs[0] ? tabs[0].id : null, share);
+      root.children.splice(axis.before ? 0 : root.children.length, 0, fresh);
+      normalizeSizes(root.children);
+      return root;
+    }
+
+    const fresh = makeLeaf(newLeafId, tabs, tabs[0] ? tabs[0].id : null, 0.5);
+    const branch = {
+      type: 'branch',
+      orientation: axis.orientation,
+      size: 1,
+      children: axis.before ? [fresh, { ...root, size: 0.5 }] : [{ ...root, size: 0.5 }, fresh],
+    };
+    normalizeSizes(branch.children);
+    return branch;
+  }
+
+  /**
    * Build a fresh tree that gives every tab a pane of its own, `columns` panes wide (#356).
    *
    * This is a COMMAND, not a mode: grid arranges continuously and panes are arranged by hand, so what
@@ -510,6 +556,7 @@
     leaves,
     leafOfTab,
     splitLeaf,
+    splitRoot,
     tileTabs,
     addTab,
     setActiveTab,

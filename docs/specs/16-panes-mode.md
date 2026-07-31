@@ -149,8 +149,28 @@ Taken from VS Code's `vs/base/browser/ui/grid/grid.ts` and `editorDropTarget.ts`
   otherwise wrap the leaf in a new perpendicular branch. That single rule produces every layout.
 - Serialised shape is the same tree — `{type: 'branch'|'leaf', size, …}` — so persistence is the model,
   not a second format.
-- Drag & drop: an editor-style drag uses a **10 % edge zone per axis**. Edge = split in that direction,
-  centre = move the tab into that pane.
+- Drag & drop: an editor-style drag uses a **10 % edge zone per axis, with a 30 px floor and a 32 %
+  ceiling** (#376). Edge = split in that direction, centre = move the tab into that pane. The ratio
+  alone was unhittable on a narrow pane — a tenth of 200 px is 20 px, and missing it *moved* the tab
+  instead of splitting, which takes a second gesture to undo. The ceiling is the other half of the same
+  thought: a floor with no cap leaves a small pane with no middle, and "move it into this pane" is the
+  commoner intent.
+- **The outer band addresses the whole area** (#376). An edge zone belongs to the leaf it is drawn on,
+  so with two panes side by side the bottom edge of one of them gave a pane under one column — "put
+  this one below **both**" had nowhere to be said. The outermost 36 px of the pane area is that place:
+  a drop there splits at the **root** (`PaneTree.splitRoot`), so the new pane spans everything. The
+  rule is `splitLeaf`'s one level up — an axis the root already has means a sibling at that end (a
+  full-height column beside a row), anything else wraps the whole tree.
+  - The band is wired **once on `#terminals`**, not per pane, because parts of the edge are not a pane:
+    a sash between two panes crosses it and has no drop handling at all, which left a dead strip
+    exactly where this gesture aims. The pane handlers stop propagation on their own drops, so the
+    container never repeats one.
+  - Where a **tab strip** overlaps the band only 10 px of it count. The strip is a target in its own
+    right ("append to this pane"), it is about 30 px tall, and the full band would eat most of it —
+    reintroducing at the top the fiddliness the rest of this fixes.
+  - The hint is drawn on the whole area and is deliberately brighter than the in-pane one: the two
+    produce different layouts from the same pointer position, so a hint that could be mistaken for the
+    other is worse than none.
 
 **A session dragged out of the SIDEBAR lands the same way** (#373). Clicking one opens it in the
 active pane, which decides for the user; the drag lets them say where. It is deliberately the same
