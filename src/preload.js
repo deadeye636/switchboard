@@ -101,7 +101,10 @@ contextBridge.exposeInMainWorld('api', {
   // A window telling main which of the app's own views it is showing (#364, #370, #371), and the
   // sidebar asking where a picked file should go. `routeViewFile` answers { routed: false } when the
   // view is in this window, and the caller then does exactly what it always did.
-  windowViewsChanged: (views) => ipcRenderer.invoke('window-views-changed', views),
+  // `layout` (#372) is the reporting window's pane arrangement, and only a detached window sends one:
+  // it keeps no layout in localStorage (it shares the key with the main window), so main is the only
+  // place its splits can be remembered for the next launch.
+  windowViewsChanged: (views, layout) => ipcRenderer.invoke('window-views-changed', views, layout || null),
   routeViewFile: (kind, payload) => ipcRenderer.invoke('route-view-file', kind, payload),
   onOpenViewFile: (cb) => ipcRenderer.on('open-view-file', (_e, kind, payload) => cb(kind, payload)),
   // Move a session between windows (#316): 'main' or a detached window's id, from `listSessionWindows`.

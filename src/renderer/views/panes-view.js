@@ -172,13 +172,16 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   // localStorage, like gridLayout/gridViewActive next door. Sizes are fractions,
   // so a layout saved on a 4K screen restores sanely on a laptop.
 
-  // The ONE writer of the layout key, guard included (#344). A detached window owns no layout (#2):
-  // it shares this origin's localStorage with the main window, so writing here would overwrite the
-  // user's arrangement with the single pane it happens to show. The guard belongs to the key, not to
-  // one of its writers — `disable()` used to write past it, and a display-mode change with a
-  // detached window open replaced a three-pane layout with one session, with no undo. Ask the URL,
-  // not `__detachedSessionId`: that one follows the window's session set since #325 and is empty
+  // The ONE writer of the layout key, guard included (#344). A detached window must not write THIS
+  // key (#2): it shares this origin's localStorage with the main window, so writing here would
+  // overwrite the user's arrangement with the single pane it happens to show. The guard belongs to
+  // the key, not to one of its writers — `disable()` used to write past it, and a display-mode change
+  // with a detached window open replaced a three-pane layout with one session, with no undo. Ask the
+  // URL, not `__detachedSessionId`: that one follows the window's session set since #325 and is empty
   // between a handover and the window closing — long enough to write.
+  //
+  // It does keep an arrangement since #372 — in the MAIN PROCESS, beside the rest of what that window
+  // holds (`reportWindowViews`), which is exactly the place this key is not.
   function writeTree() {
     if (window.isDetachedWindow && window.isDetachedWindow()) return;
     try {
@@ -195,7 +198,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
   function persist() {
     clearTimeout(persistTimer);
     // A sash drag fires dozens of updates per gesture; write once it settles.
-    persistTimer = setTimeout(writeTree, PERSIST_DEBOUNCE_MS);
+    persistTimer = setTimeout(() => {
+      writeTree();
+      // The one place every tree change funnels through, so it is where a detached window's
+      // arrangement is handed to main (#372) — the half `writeTree` refuses to keep for it.
+      reportWindowViews();
+    }, PERSIST_DEBOUNCE_MS);
   }
 
   // --- Undo, and saved layouts (#352) ---------------------------------------
@@ -1134,7 +1142,44 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
    */
   function reportWindowViews(views) {
     if (typeof window.api?.windowViewsChanged !== 'function') return;
-    try { window.api.windowViewsChanged(views || collectWindowViews()); } catch { /* older main */ }
+    // The ARRANGEMENT travels with it, from a detached window only (#372). That window owns no
+    // localStorage layout on purpose — it shares the key with the main window and would overwrite the
+    // user's own (#344) — so main is the only place its splits can be kept. The main window has its
+    // key and sends nothing here; a tree per persist through IPC is not free.
+    const detached = !!(window.isDetachedWindow && window.isDetachedWindow());
+    const layout = (detached && enabled && tree)
+      ? { tree: PaneTree.serialize(tree), activeLeafId: activeLeafId || null }
+      : null;
+    try { window.api.windowViewsChanged(views || collectWindowViews(), layout); } catch { /* older main */ }
+  }
+
+  /**
+   * Put back the arrangement a restored window had when the app quit (#372).
+   *
+   * Applied BEFORE its sessions and views are put back, so each one lands in the pane it was in:
+   * `openViewTab` and the mount both look for an existing tab first, and the layout is what puts
+   * those tabs there. The other order works too, but it draws the window twice — once piled into one
+   * pane, once rearranged — which reads as the restore correcting a mistake.
+   *
+   * Pruned on the way in, against the same two rules the rest of the restore obeys: a session that is
+   * no longer in the index cannot come back, and neither can a view this window could not fill. What
+   * is left can be empty, and then the layout is declined rather than applied — a window of empty
+   * panes is worse than the single pane it would have had.
+   */
+  function applyRestoredLayout(serialized, activeId) {
+    if (!enabled || !serialized) return false;
+    const loaded = PaneTree.pruneTabs(PaneTree.deserialize(serialized, 'pane-1'), (tab) => {
+      if (isViewTab(tab)) return canLeaveWindow(tab);
+      const sid = sessionOfTab(tab);
+      if (!sid) return false;
+      return typeof sessionMap === 'undefined' || sessionMap.has(sid) || openSessions.has(sid);
+    });
+    if (!PaneTree.leaves(loaded).some((leaf) => leaf.tabs.length)) return false;
+    tree = loaded;
+    if (activeId && PaneTree.leaves(tree).some((leaf) => leaf.id === activeId)) activeLeafId = activeId;
+    activeLeaf();
+    render();
+    return true;
   }
 
   function openViewTab(kind, { ref = null, nearSessionId = null, load = false } = {}) {
@@ -3385,6 +3430,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     sessionIdsInLayout,
     shownViewLabel,
     viewTabLabels,
+    applyRestoredLayout,
     // What a kind is called, for a window that has to name itself before it holds any tab at all
     // (#370). Answered from `VIEW_KINDS`, so a new view is named in one place.
     viewKindTitle: (kind) => (VIEW_KINDS[kind] ? VIEW_KINDS[kind].title : null),

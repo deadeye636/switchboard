@@ -213,7 +213,9 @@ The detached window is the same `index.html`, so it shares `localStorage` and ev
 default with the main window. Three things had to be told not to write:
 
 - **the pane tree** — it neither loads nor persists it, or popping a session out would replace the
-  user's arrangement with a single pane;
+  user's arrangement with a single pane. It does have one of its own since #372; it is kept in the
+  **main process**, beside the rest of what that window holds, precisely because this key is not its
+  to write;
 - **the open-sessions restore state** — the detached window's `beforeunload` would otherwise replace
   the whole restorable set with its one session, in a key kept deliberately durable across a crash;
 - **`gridViewActive`** — see §3.
@@ -267,9 +269,18 @@ the window set are this process's facts anyway.
 - **Once per process.** `createWindow` runs again on the macOS `activate` path, and a second pass
   would duplicate every window rather than reveal the ones already standing.
 
-What does **not** come back: the pane splits inside a detached window (§4 keeps it from persisting the
-tree at all — the sessions return as tabs), and an instanced preview or diff, which cannot be rebuilt
-from a kind and a ref.
+- **The arrangement comes back too** (#372). Four sessions in a two-by-two split returned as four
+  tabs in one pane, which is most of the reason to have a window on a second monitor undone at every
+  launch. The tree rides along in the same per-window record — §4 is why it cannot ride in
+  localStorage — and it is applied **before** the sessions and views are put back, because a mount
+  and an `openViewTab` both look for an existing tab first, and the layout is what puts those tabs
+  there. Applying it afterwards works too, but it draws the window twice: once piled into one pane,
+  once rearranged, which reads as the restore correcting itself. It is pruned on the way in by the
+  same two rules the rest of the restore obeys, and **declined** when nothing survives that — a
+  window of empty panes is worse than the single pane it would otherwise have had.
+
+What does **not** come back: an instanced preview or diff, which cannot be rebuilt from a kind and a
+ref alone.
 
 ## 6 · Why `index.html?detached=<id>` and not a smaller page
 
@@ -310,11 +321,12 @@ have been — a renderer reload does not reload the main process, and `--target`
 
 ## 8 · Not built
 
-- The pane **layout** inside a detached window. Its sessions come back as tabs (§5b), not as the
-  splits they were arranged in — §4 keeps a detached window from persisting the tree at all.
 - **Two files side by side** in the sidebar-driven views. That is what making them self-contained
   would buy, and the relay deliberately does not (§2b, spec 16 §4.2).
-- The main window's own **close** path has not been exercised from the harness: `window.close()` in
-  the renderer closes the window without the teardown running, so whether a real Alt+F4 reaches
-  `closeAll` is unverified. It costs nothing today — the state is written on every change, not at
-  quit — but a window left standing after the main one goes would be the visible symptom.
+- A restored **preview or diff**: an instanced view is built by the window that opened it, and a kind
+  plus a ref is not enough to rebuild one (§5b).
+(The main window's close path was in this list while it could not be exercised — `window.close()` from
+the renderer does not fire `BrowserWindow`'s `close` at all, so it looked like a teardown that never
+ran. Driven with a real `WM_CLOSE` it does everything it says: the guard holds the close, the answer
+lets it through, `closeAll` takes both windows down, and the next launch brings them back.
+`docs/ai/driving-the-app.md` has the trap.)

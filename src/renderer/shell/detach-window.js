@@ -178,6 +178,16 @@ if (isOwnWindow) document.body.classList.add('detached-window');
     const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
     const views = Array.isArray(payload.views) ? payload.views : [];
 
+    // The arrangement goes back FIRST (#372), so everything below lands in the pane it was in: a
+    // mount and an `openViewTab` both look for an existing tab before making one, and this is what
+    // puts those tabs there. It waits for panes mode the way an arriving view does — the window is
+    // still booting and the mode is applied a few frames in. A window that never turns panes on has
+    // no arrangement to restore, and its sessions simply come back as they always did.
+    if (payload.layout) {
+      await whenPanesActive();
+      window.panesView?.applyRestoredLayout?.(payload.layout.tree, payload.layout.activeLeafId);
+    }
+
     let first = null;
     for (const id of sessions) {
       // The same budget the boot path gives its own session: the index is being scanned while this
@@ -598,22 +608,31 @@ if (isOwnWindow) document.body.classList.add('detached-window');
   // outright, because the sender has already let go of its own. So it waits for the pane tree, on a
   // bounded budget — a window that never turns panes on cannot show a view tab at all, and retrying
   // for ever would leave a timer running in every grid-mode window.
+  //
+  // A restored arrangement waits on exactly the same thing (#372), so it is one wait, not two.
   const VIEW_ARRIVAL_TRIES = 40;      // ~4 s at the interval below, well past a cold window's boot
   const VIEW_ARRIVAL_INTERVAL_MS = 100;
-  function acceptView(kind, ref, file, tries = 0) {
-    if (window.panesView && window.panesView.active()) {
-      window.panesView.openViewTab(kind, { ref: ref == null ? null : ref, load: true });
-      // The file the view was showing when it left (#364). Opened after the tab exists, through the
-      // same opener the relay uses — a moved view that arrives blank reads as a move that half worked.
-      if (file) {
-        const name = VIEW_FILE_OPENERS[kind];
-        const open = name && window[name];
-        if (typeof open === 'function') { try { open(file); } catch { /* the tab is there either way */ } }
-      }
-      return;
+  function whenPanesActive(tries = VIEW_ARRIVAL_TRIES) {
+    return new Promise((resolve) => {
+      const tick = (left) => {
+        if (window.panesView && window.panesView.active()) return resolve(true);
+        if (left <= 0) return resolve(false); // grid mode, or a window that never came up
+        setTimeout(() => tick(left - 1), VIEW_ARRIVAL_INTERVAL_MS);
+      };
+      tick(tries);
+    });
+  }
+
+  async function acceptView(kind, ref, file) {
+    if (!(await whenPanesActive())) return;
+    window.panesView.openViewTab(kind, { ref: ref == null ? null : ref, load: true });
+    // The file the view was showing when it left (#364). Opened after the tab exists, through the
+    // same opener the relay uses — a moved view that arrives blank reads as a move that half worked.
+    if (file) {
+      const name = VIEW_FILE_OPENERS[kind];
+      const open = name && window[name];
+      if (typeof open === 'function') { try { open(file); } catch { /* the tab is there either way */ } }
     }
-    if (tries >= VIEW_ARRIVAL_TRIES) return; // grid mode, or a window that never came up
-    setTimeout(() => acceptView(kind, ref, file, tries + 1), VIEW_ARRIVAL_INTERVAL_MS);
   }
   window.api.onOpenView((kind, ref, file) => acceptView(kind, ref, file));
 

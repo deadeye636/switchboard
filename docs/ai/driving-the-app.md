@@ -53,6 +53,28 @@ page (`window.api.openChangesWindow(cwd, label)`), then `eval` in the changes wi
 row and read back the diff pane, then click *Open in window* and `eval` in the diff window to assert the
 CodeMirror merge view rendered. Three pages, one port, no clicking.
 
+## `window.close()` is NOT closing the window
+
+`drive-app.js eval "window.close()"` makes the main window disappear — and `BrowserWindow`'s `close`
+event never fires. Everything hanging off it is skipped: the running-sessions guard, the settings
+window teardown, `detach.closeAll()`, the final bounds write. What is left behind looks exactly like a
+broken teardown — the main window gone, its detached windows still standing, the app alive with no way
+back to them — and reading it that way cost most of an afternoon in #371.
+
+To close it the way a user does, send `WM_CLOSE` to the window itself
+(`.claude/scratchpad/close-main-window.ps1` in this checkout, if it is still there — the tree is
+gitignored). Two things it has to get right, and both matter:
+
+- **Enumerate top-level windows**, not `Process.MainWindowTitle`. Every Electron window belongs to one
+  process, and that property names exactly one of them, arbitrarily.
+- **Filter by process.** Two windows can be titled `Switchboard` — the demo instance and the user's
+  *installed* app. The installed build runs as `Switchboard.exe`, a dev run as `electron.exe` from the
+  checkout, so the command line tells them apart. Closing the wrong one throws away someone's work.
+
+Expect the close to be **held**, not performed, while a session is running: that is the quit guard, the
+answer comes from the renderer, and `window.api.confirmCloseResult(true)` is what a click on "Close and
+stop them" sends.
+
 ## A renderer reload does NOT reload `src/app/**`
 
 `location.reload()` (and `drive-app.js eval "location.reload()"`) re-parses the renderer only. Every

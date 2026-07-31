@@ -1082,6 +1082,7 @@ test('#371: quitting records every window, with what it held and where it was', 
     bounds: { x: 2000, y: 100, width: 900, height: 700 },
     sessions: ['s1', 's2'],
     views: [{ kind: 'memory', ref: null, file: { filePath: 'a.md' } }],
+    layout: null,
   }]);
 });
 
@@ -1106,7 +1107,7 @@ test('#371: the saved windows are reopened, with their sessions routed to them',
   assert.equal(detach.windowForSession('s1'), win);
   // And it is told what to put back, when it asks — a push would have to pick a moment, and the
   // renderer is the only thing that knows when it can act on the answer.
-  assert.deepEqual(ipc.callFrom('my-window-restore', win.webContents), { sessions: ['s1'], views: [] });
+  assert.deepEqual(ipc.callFrom('my-window-restore', win.webContents), { sessions: ['s1'], views: [], layout: null });
   assert.equal(ipc.callFrom('my-window-restore', win.webContents), null, 'and only once — a reload must not restore twice');
   assert.equal(store.read().detachedWindows.length, 1);
 });
@@ -1135,7 +1136,7 @@ test('#371: a window that held only a view comes back too', () => {
   });
   assert.equal(detach.restoreWindows(), 1);
   assert.deepEqual(ipc.callFrom('my-window-restore', created[0].webContents),
-    { sessions: [], views: [{ kind: 'memory', ref: null, file: null }] });
+    { sessions: [], views: [{ kind: 'memory', ref: null, file: null }], layout: null });
 });
 
 test('#371: a saved entry holding nothing is not reopened', () => {
@@ -1144,4 +1145,39 @@ test('#371: a saved entry holding nothing is not reopened', () => {
   });
   assert.equal(detach.restoreWindows(), 0);
   assert.deepEqual(created, []);
+});
+
+// --- #372: the arrangement comes back with the window ---
+//
+// A detached window keeps no layout of its own: it shares localStorage with the main window, so
+// writing one there would overwrite the user's arrangement (#344). Main is the only place it can go.
+
+test('#372: a window\'s arrangement is stored beside what it holds, and handed back', () => {
+  const tree = { type: 'leaf', id: 'pane-1', tabs: [{ id: 'session:s1', kind: 'terminal' }], activeTabId: 'session:s1' };
+  const { ipc, created, store } = setupWithSettings({});
+  ipc.call('detach-session', 's1', 'One');
+  ipc.callFrom('window-views-changed', created[0].webContents, [], { tree, activeLeafId: 'pane-1' });
+  detach.closeAll();
+
+  const saved = store.read().detachedWindows;
+  assert.deepEqual(saved[0].layout, { tree, activeLeafId: 'pane-1' },
+    'kept as sent — what a pane tree means belongs to the renderer that draws it');
+
+  // …and comes back to the window that is rebuilt from it.
+  Object.assign(store.read(), { detachedWindows: saved });
+  assert.equal(detach.restoreWindows(), 1);
+  const back = ipc.callFrom('my-window-restore', created[created.length - 1].webContents);
+  assert.deepEqual(back.layout, { tree, activeLeafId: 'pane-1' });
+});
+
+test('#372: a report with no arrangement clears the one before it', () => {
+  const tree = { type: 'leaf', id: 'pane-1', tabs: [], activeTabId: null };
+  const { ipc, created, store } = setupWithSettings({});
+  ipc.call('detach-session', 's1', 'One');
+  ipc.callFrom('window-views-changed', created[0].webContents, [], { tree, activeLeafId: 'pane-1' });
+  // The main window sends none, and so does a window that has left panes mode. A layout kept from
+  // the last report would restore an arrangement the window no longer has.
+  ipc.callFrom('window-views-changed', created[0].webContents, []);
+  detach.closeAll();
+  assert.equal(store.read().detachedWindows[0].layout, null);
 });

@@ -314,6 +314,11 @@ function createWindow() {
     // close would still have taken the settings window with it.
     if (!closeConfirmed && !ctx.getAppQuitting() && !confirmCloseWithRunningSessions()) {
       event.preventDefault();
+      // Said out loud: from the outside, a close held for an answer looks exactly like a close that
+      // did nothing — the window stays, and the dialog is in the renderer where a log reader is not.
+      // AFTER the cancel, not before: `test/quit-guard.test.js` reads this file and wants to see the
+      // two next to each other, because what it is really pinning is that a no cancels at all.
+      ctx.log?.info?.('[windows] close held: waiting for the answer about the running sessions');
       return;
     }
 

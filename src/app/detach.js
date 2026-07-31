@@ -200,20 +200,29 @@ function sendAdopt(win, sessionId) {
 // bytes go" and is verified constantly by output the user can see. This one answers a rarer question
 // and its staleness is invisible, so every entry is dropped the moment the window says so, or the
 // window dies — never inferred, never repaired by guessing.
-// BrowserWindow -> the views that window last reported showing, in tab order:
-// `[{ kind, ref, file }]`. One registry, three readers — which window a sidebar click is routed to
-// (#364), whether a window has anything left to show once its last session leaves (#370), and what a
-// window has to be given back when it is restored (#371).
+// BrowserWindow -> what that window last reported holding: `{ views, layout }`, where views is
+// `[{ kind, ref, file }]` in tab order and layout is the serialised pane tree (#372) — null from the
+// main window, which keeps its own in localStorage.
 //
-// A per-WINDOW snapshot rather than a kind->window map, because two of those three questions are
+// One registry, four readers — which window a sidebar click is routed to (#364), whether a window has
+// anything left to show once its last session leaves (#370), and what a window's views (#371) and
+// arrangement (#372) have to be when it is restored.
+//
+// A per-WINDOW snapshot rather than a kind->window map, because three of those four questions are
 // about a window rather than about a kind, and a second registry answering "what does this window
 // hold" would be a copy of this one that goes stale where nobody looks.
-const windowViews = new Map();
+const windowContent = new Map();
 
 /** The views a window says it is showing. */
 function viewsInWindow(win) {
-  const views = windowViews.get(win);
-  return (win && !win.isDestroyed() && Array.isArray(views)) ? views : [];
+  const held = windowContent.get(win);
+  return (win && !win.isDestroyed() && held && Array.isArray(held.views)) ? held.views : [];
+}
+
+/** The pane arrangement a window says it has, or null — only a detached window reports one. */
+function layoutInWindow(win) {
+  const held = windowContent.get(win);
+  return (win && !win.isDestroyed() && held && held.layout) ? held.layout : null;
 }
 
 /**
@@ -226,16 +235,16 @@ function viewsInWindow(win) {
 function viewHost(kind) {
   const main = ctx.getMainWindow();
   if (main && viewsInWindow(main).some((v) => v.kind === kind)) return null;
-  for (const win of windowViews.keys()) {
+  for (const win of windowContent.keys()) {
     if (win === main || win.isDestroyed()) continue;
     if (viewsInWindow(win).some((v) => v.kind === kind)) return win;
   }
   return null;
 }
 
-/** Forget every view a window claimed. Called when it goes, whichever way it goes. */
+/** Forget everything a window claimed. Called when it goes, whichever way it goes. */
 function dropViewHost(win) {
-  windowViews.delete(win);
+  windowContent.delete(win);
 }
 
 /**
@@ -392,6 +401,7 @@ function snapshotWindows() {
       bounds: bounds ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : null,
       sessions,
       views,
+      layout: layoutInWindow(win),
     });
   }
   return out;
@@ -453,7 +463,7 @@ function restoreWindows() {
     if (!sessions.length && !views.length) continue;
     const win = createDetachWindow({ bounds: placeRestored(entry.bounds) });
     for (const id of sessions) detachedWindows.set(id, win);
-    pendingRestore.set(win, { sessions, views });
+    pendingRestore.set(win, { sessions, views, layout: (entry.layout && entry.layout.tree) ? entry.layout : null });
     made++;
   }
   if (made) ctx.log.info(`[detach] restoring ${made} window(s) from the last run`);
@@ -577,7 +587,7 @@ function closeAll() {
   ctx.log.info(`[detach] the app is going: ${windows.length} window(s) close with it`);
   detachedWindows.clear();
   detachedWins.clear();
-  windowViews.clear(); // #364 — nothing hosts anything once the windows are going
+  windowContent.clear(); // #364 — nothing holds anything once the windows are going
   pendingRestore.clear();
   for (const win of windows) {
     if (win && !win.isDestroyed()) win.destroy();
@@ -717,16 +727,22 @@ function registerIpc(ipc) {
    * "the view is HERE" is stated — see `viewHost` — and stating it is cheaper than inferring it from
    * the absence of a claim.
    */
-  ipc.handle('window-views-changed', (event, views) => {
+  ipc.handle('window-views-changed', (event, views, layout) => {
     const sender = event && event.sender;
     const win = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
     if (!win || win.isDestroyed()) return { ok: false };
     const list = Array.isArray(views) ? views.filter((v) => v && v.kind) : [];
-    windowViews.set(win, list.map((v) => ({
-      kind: String(v.kind),
-      ref: v.ref == null ? null : v.ref,
-      file: v.file == null ? null : v.file,
-    })));
+    windowContent.set(win, {
+      views: list.map((v) => ({
+        kind: String(v.kind),
+        ref: v.ref == null ? null : v.ref,
+        file: v.file == null ? null : v.file,
+      })),
+      // Kept as sent (#372). What a pane tree means belongs to the renderer that draws it; main only
+      // has to give the same bytes back, and validating a shape it does not own would be a second
+      // definition of it to keep in step.
+      layout: (layout && layout.tree) ? { tree: layout.tree, activeLeafId: layout.activeLeafId || null } : null,
+    });
     persistWindows(); // #371 — the views are half of what a restored window has to be given back
     return { ok: true };
   });
