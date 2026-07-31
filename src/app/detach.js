@@ -184,10 +184,15 @@ function isRunning(sessionId) {
   return !!ctx.activeSessions.get(sessionId);
 }
 
-function sendAdopt(win, sessionId) {
+/**
+ * `placement` (#375) is where in the taking window the session goes — the pane and zone that window
+ * itself highlighted while the drag was over it. Absent for every other path, and the renderer then
+ * does what it always did: the active pane.
+ */
+function sendAdopt(win, sessionId, placement) {
   const running = isRunning(sessionId);
-  if (win) win.webContents.send('session-reattached', sessionId, running);
-  else sendToMain('session-reattached', sessionId, running);
+  if (win) win.webContents.send('session-reattached', sessionId, running, placement || null);
+  else sendToMain('session-reattached', sessionId, running, placement || null);
 }
 
 // --- Which window hosts one of the app's own views (#364) ---
@@ -333,6 +338,39 @@ let restoreDone = false;
 // than pushed at it: a push has to pick a moment, and every moment is wrong — `did-finish-load` can
 // beat the renderer's own boot, and a later one races the reconcile that mounts what main owns.
 const pendingRestore = new Map();
+
+// --- Asking a window a question and waiting for its answer (#375) ---
+//
+// `ipcMain.handle` is renderer→main. This is the other direction, which Electron gives no request/
+// response for: main sends with a ticket, the renderer answers on `drop-probe-answer` quoting it, and
+// the ticket resolves the promise. Bounded by a timeout, because a renderer that is busy or gone must
+// not leave a drag waiting on it — a probe that does not come back is "nowhere", which is the same
+// answer as a point over no window of ours, and the caller already refuses to guess from that.
+const PROBE_TIMEOUT_MS = 250;
+let nextProbeId = 1;
+const probes = new Map();
+
+function askForPlacement(win, at, bounds) {
+  if (!win || win.isDestroyed()) return Promise.resolve(null);
+  const id = nextProbeId++;
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value) => { if (!done) { done = true; probes.delete(id); resolve(value); } };
+    probes.set(id, finish);
+    // NOT unref'd. A quarter of a second is not a leak, and an unref'd timer does not keep the loop
+    // alive — so a probe nobody answers would never settle at all, which is a hung drag rather than a
+    // fast "nowhere".
+    setTimeout(() => finish(null), PROBE_TIMEOUT_MS);
+    try {
+      win.webContents.send('probe-drop-point', id, at, bounds);
+    } catch { finish(null); }
+  });
+}
+
+function clearRemoteHint(win) {
+  if (!win || win.isDestroyed()) return;
+  try { win.webContents.send('clear-drop-hint'); } catch { /* a window on its way out */ }
+}
 
 /**
  * Where a saved window goes when it comes back.
@@ -660,7 +698,7 @@ function registerIpc(ipc) {
    * terminal (the PTY runs on), then the taking window attaches. The order matters — release first,
    * or two renderers hold one PTY for the length of an IPC round trip and echo every keystroke twice.
    */
-  ipc.handle('move-session-to-window', (_event, sessionId, targetWindowId) => {
+  ipc.handle('move-session-to-window', (_event, sessionId, targetWindowId, placement) => {
     if (!sessionId) return { ok: false, error: 'no session' };
     // A session with no process moves too (#332). The refusal that stood here predated #319: back then
     // the taking window mounted whatever it was given, and mounting a session with no PTY spawns one —
@@ -688,11 +726,11 @@ function registerIpc(ipc) {
     else detachedWindows.delete(sessionId);
 
     if (target) {
-      sendAdopt(target, sessionId);
+      sendAdopt(target, sessionId, placement);
       if (target.isMinimized()) target.restore();
       target.focus();
     } else {
-      sendAdopt(null, sessionId);
+      sendAdopt(null, sessionId, placement);
     }
     // A detached window that just gave away its last session has nothing left to show, and no chrome
     // to pick a new one with — the sidebar lives in the main window. So it goes. Its entries are
@@ -845,6 +883,58 @@ function registerIpc(ipc) {
     else deliver();
     ctx.log.info(`[detach] view moved to a window of its own: ${kind}`);
     return { ok: true, windowId: windowIdOf(win) };
+  });
+
+  /**
+   * "Where would a drop at this point land, over there?" (#375)
+   *
+   * A drag never crosses a renderer process — the far window sees no `dragover` at all — so the near
+   * window asks, and main relays the question to whichever window is under the pointer. That window
+   * answers with a placement AND draws the hint for it, in one go: what it highlights and what a drop
+   * would do must be the same decision, or it shows one thing and does another.
+   *
+   * Its bounds travel with the question, because converting a screen point into that renderer's own
+   * coordinates needs the ratio between the box it measures for itself and the box the OS has for it —
+   * the same conversion `toScreenPoint` performs in the other direction, done at the far end because
+   * only that renderer knows its own zoom.
+   *
+   * Answers null for "nowhere of ours", which the caller must treat as "this drop places nothing"
+   * rather than as a fallback: a session put in a pane nobody highlighted is the guess #360 refuses.
+   */
+  ipc.handle('probe-drop-point', async (event, point, box) => {
+    const sender = event && event.sender;
+    const asking = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
+    const at = toScreenPoint(asking, point, box);
+    const main = ctx.getMainWindow();
+    const candidates = [];
+    if (main && !main.isDestroyed()) candidates.push({ id: MAIN_WINDOW_ID, win: main });
+    for (const win of liveDetachedWindows()) candidates.push({ id: windowIdOf(win), win });
+    for (const candidate of candidates) {
+      if (asking && candidate.win === asking) continue; // its own drag, its own handlers
+      const b = candidate.win.getBounds();
+      if (at.x < b.x || at.x > b.x + b.width || at.y < b.y || at.y > b.y + b.height) continue;
+      const placement = await askForPlacement(candidate.win, at, b);
+      // Every OTHER window drops whatever it was showing — the pointer is here now.
+      for (const other of candidates) if (other.win !== candidate.win) clearRemoteHint(other.win);
+      return placement ? { windowId: candidate.id, placement } : { windowId: candidate.id, placement: null };
+    }
+    for (const candidate of candidates) clearRemoteHint(candidate.win);
+    return null;
+  });
+
+  // The drag ended, wherever it ended: nothing should still be highlighting a drop that is not coming.
+  ipc.handle('clear-remote-drop-hints', () => {
+    const main = ctx.getMainWindow();
+    if (main && !main.isDestroyed()) clearRemoteHint(main);
+    for (const win of liveDetachedWindows()) clearRemoteHint(win);
+    return { ok: true };
+  });
+
+  ipc.on('drop-probe-answer', (event, id, placement) => {
+    const pending = probes.get(id);
+    if (!pending) return;
+    probes.delete(id);
+    pending(placement || null);
   });
 
   /**

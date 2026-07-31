@@ -2993,3 +2993,135 @@ test('#376: a session already open is MOVED into the new full-width pane, not mo
     assert.deepEqual(h.calls.openSession, [], 'a move mounts nothing');
   } finally { h.destroy(); }
 });
+
+// --- #375: what this window answers about a drag it is not part of -----------
+//
+// The far window is the only thing that knows where its panes are, so this is the whole of the
+// cross-window feature on the receiving side: the answer it gives IS what the drop will do.
+
+// jsdom lays nothing out — every rect is 0x0, so a point would hit every element at once. These
+// stubs are the geometry the answer is about: an area, a strip along its top, a body under it.
+function stubPaneGeometry(h, { x = 0, y = 0, width = 800, height = 600, stripHeight = 30 } = {}) {
+  const rect = (l, t, w, ht) => () => ({
+    left: l, top: t, width: w, height: ht, right: l + w, bottom: t + ht, x: l, y: t,
+  });
+  const area = h.document.querySelector('#terminals').firstElementChild;
+  area.getBoundingClientRect = rect(x, y, width, height);
+  for (const pane of h.document.querySelectorAll('#terminals .pane')) {
+    pane.getBoundingClientRect = rect(x, y, width, height);
+    const strip = pane.querySelector('.pane-strip');
+    if (strip) strip.getBoundingClientRect = rect(x, y, width, stripHeight);
+    const body = pane.querySelector('.pane-body');
+    if (body) body.getBoundingClientRect = rect(x, y + stripHeight, width, height - stripHeight);
+  }
+}
+
+test('#375: a point in the middle of a pane body answers "into this pane"', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    stubPaneGeometry(h);
+    // Spread first: the answer is built inside the jsdom context, so its prototype is that context's
+    // and `deepEqual` compares those too (#364's lesson, in the handoff notes).
+    assert.deepEqual({ ...h.panes.dropTargetAt(400, 300) }, { kind: 'tab', leafId: 'pane-1', index: -1 });
+  } finally { h.destroy(); }
+});
+
+test('#375: a point near a pane edge answers "split it there"', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    stubPaneGeometry(h);
+    // Inside the pane's own edge zone (800 * 0.1 = 80) but past the area's outer band (36).
+    assert.deepEqual({ ...h.panes.dropTargetAt(60, 300) }, { kind: 'split', leafId: 'pane-1', zone: 'left' });
+  } finally { h.destroy(); }
+});
+
+test('#375: a point in the outer band answers "across the whole area"', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    stubPaneGeometry(h);
+    assert.deepEqual({ ...h.panes.dropTargetAt(10, 300) }, { kind: 'root', zone: 'left' });
+  } finally { h.destroy(); }
+});
+
+test('#375: a point over nothing answers null, so the caller has no pane to invent', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    stubPaneGeometry(h);
+    // Past the area entirely: over the window chrome, or off the window. Null is what stops the
+    // caller placing a session in a pane nobody highlighted.
+    assert.equal(h.panes.dropTargetAt(-500, -500), null);
+  } finally { h.destroy(); }
+});
+
+test('#375: the placement a drop produces is the one that was answered', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('arriving', { sessionId: 'arriving', name: 'Arriving', type: 'agent' });
+
+    // `mount: false` is what the adopt passes: the tab is made here, the terminal attached by the
+    // caller. Two mounts for one arrival would be two xterms racing for one PTY.
+    assert.equal(h.panes.applyPlacement('arriving', { kind: 'split', leafId: 'pane-1', zone: 'right' },
+      { mount: false }), true);
+    await h.settle();
+
+    assert.equal(h.document.querySelectorAll('#terminals .pane').length, 2);
+    assert.deepEqual(h.calls.openSession, [], 'the adopt mounts it, not the placement');
+  } finally { h.destroy(); }
+});
+
+test('#375: a placement naming a pane that is gone reports FAILURE, not a silent nothing', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('arriving', { sessionId: 'arriving', name: 'Arriving', type: 'agent' });
+
+    // The layout can change between the answer and the drop — that is what an async round trip
+    // through a second renderer buys. `addTab` answers a leaf it cannot find by returning the tree
+    // unchanged, and a caller told "placed" about that would believe a session had arrived that is
+    // nowhere. The adopt reads this `false` and falls back to its own mount.
+    assert.equal(h.panes.applyPlacement('arriving', { kind: 'tab', leafId: 'pane-does-not-exist', index: -1 },
+      { mount: false }), false);
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.session-tab').length, 1, 'and nothing was added anywhere');
+  } finally { h.destroy(); }
+});
+
+test('#375: a strip placement draws the caret, not a generic pane highlight', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    await h.open('live-2');
+
+    h.panes.showPlacementHint({ kind: 'tab', leafId: 'pane-1', index: 1 });
+    assert.equal(h.document.querySelectorAll('.pane-tab-caret').length, 1,
+      'the far window shows the gap, the way a local drag does');
+    assert.equal(h.document.querySelectorAll('.pane-drop-hint').length, 0);
+
+    // …and a placement with no position is the pane highlight, which is the other statement.
+    h.panes.showPlacementHint({ kind: 'tab', leafId: 'pane-1', index: -1 });
+    assert.equal(h.document.querySelectorAll('.pane-drop-hint').length, 1);
+    assert.equal(h.document.querySelectorAll('.pane-tab-caret').length, 0);
+  } finally { h.destroy(); }
+});
+
+test('#375: a hint for a pane that is gone leaves nothing drawn', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.panes.showPlacementHint({ kind: 'split', leafId: 'pane-gone', zone: 'left' });
+    assert.equal(h.document.querySelectorAll('.pane-drop-hint').length, 0);
+  } finally { h.destroy(); }
+});

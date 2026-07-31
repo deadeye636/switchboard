@@ -110,7 +110,17 @@ contextBridge.exposeInMainWorld('api', {
   routeViewFile: (kind, payload) => ipcRenderer.invoke('route-view-file', kind, payload),
   onOpenViewFile: (cb) => ipcRenderer.on('open-view-file', (_e, kind, payload) => cb(kind, payload)),
   // Move a session between windows (#316): 'main' or a detached window's id, from `listSessionWindows`.
-  moveSessionToWindow: (sessionId, windowId) => ipcRenderer.invoke('move-session-to-window', sessionId, windowId),
+  // `placement` (#375) is where inside that window it goes — the answer `probeDropPoint` gave.
+  moveSessionToWindow: (sessionId, windowId, placement) =>
+    ipcRenderer.invoke('move-session-to-window', sessionId, windowId, placement),
+  // A drag held over ANOTHER window: ask what a drop there would mean, and have that window show it
+  // (#375). The far window never sees the drag, so this is the only way it can answer or highlight.
+  probeDropPoint: (point, box) => ipcRenderer.invoke('probe-drop-point', point, box),
+  clearRemoteDropHints: () => ipcRenderer.invoke('clear-remote-drop-hints'),
+  // …and the other end of the same question, in the window being asked.
+  onProbeDropPoint: (cb) => ipcRenderer.on('probe-drop-point', (_e, id, at, bounds) => cb(id, at, bounds)),
+  answerProbeDropPoint: (id, placement) => ipcRenderer.send('drop-probe-answer', id, placement),
+  onClearDropHint: (cb) => ipcRenderer.on('clear-drop-hint', () => cb()),
   listSessionWindows: (sessionId) => ipcRenderer.invoke('list-session-windows', sessionId),
   // Which Switchboard window sits at this screen point, if any (#360). A tab dragged out of a window
   // has to know whether it landed ON another one — the far window never sees the drag at all.
@@ -129,7 +139,10 @@ contextBridge.exposeInMainWorld('api', {
   onSessionDetached: (cb) => ipcRenderer.on('session-detached', (_e, sessionId) => cb(sessionId)),
   // `running` comes from main's own session map — the renderer's copy is polled and can be half a
   // minute stale in an idle window, and taking a dead session back would resume its CLI.
-  onSessionReattached: (cb) => ipcRenderer.on('session-reattached', (_e, sessionId, running) => cb(sessionId, running)),
+  // `placement` (#375) is where in this window the session goes, when it arrived by being dropped on
+  // it. Null on every other path, and the renderer then places it the way it always did.
+  onSessionReattached: (cb) => ipcRenderer.on('session-reattached',
+    (_e, sessionId, running, placement) => cb(sessionId, running, placement)),
   // A detached session moved onto a new id (fork, accepted plan). Both windows hear it: the detached
   // one re-points itself, the main one keeps its "this lives elsewhere" set honest.
   onDetachedSessionRekeyed: (cb) => ipcRenderer.on('detached-session-rekeyed', (_e, fromId, toId) => cb(fromId, toId)),

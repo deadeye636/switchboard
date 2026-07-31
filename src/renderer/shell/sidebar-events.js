@@ -83,6 +83,11 @@ function ensureSidebarDelegation() {
   sidebarContent.addEventListener('pointerdown', handleSidebarPointerdown);
   sidebarContent.addEventListener('dragstart', handleSessionDragStart);
   sidebarContent.addEventListener('dragend', handleSessionDragEnd);
+  // `drag` fires on the source for the whole gesture, including over ANOTHER window, where no
+  // `dragover` of ours ever runs. It is what lets the far window say where this would land (#375).
+  sidebarContent.addEventListener('drag', (e) => {
+    if (window.__sessionDragId) window.panesView?.probeRemote?.(e);
+  });
 }
 
 /**
@@ -117,12 +122,43 @@ function handleSessionDragStart(e) {
 }
 
 function handleSessionDragEnd(e) {
+  const sessionId = window.__sessionDragId;
   window.__sessionDragId = null;
   const item = e.target && e.target.closest ? e.target.closest('.session-item') : null;
   if (item) item.classList.remove('dragging');
   // A drop that landed nowhere leaves the pane feedback standing, because the pane never saw a drop.
   if (window.panesView && typeof window.panesView.clearDropFeedback === 'function') {
     window.panesView.clearDropFeedback();
+  }
+  window.panesView?.dropRemoteHints?.();
+  // Landed on ANOTHER window (#375). Only the source knows that: the far window saw no drag, and no
+  // drop handler of ours ran anywhere. `dropEffect === 'none'` plus a pointer outside our box is the
+  // same reading the tab tear-off uses, and the placement is the answer that window already gave.
+  if (sessionId) finishRemoteSessionDrag(sessionId, e);
+}
+
+async function finishRemoteSessionDrag(sessionId, e) {
+  if (!e || !e.dataTransfer || e.dataTransfer.dropEffect !== 'none') return;
+  if (typeof window.api?.windowAtScreenPoint !== 'function') return;
+  const point = { x: e.screenX, y: e.screenY };
+  const box = {
+    x: Number(window.screenX) || 0,
+    y: Number(window.screenY) || 0,
+    width: Number(window.outerWidth) || 0,
+    height: Number(window.outerHeight) || 0,
+  };
+  if (!box.width || !box.height) return;
+  const outside = point.x < box.x || point.x > box.x + box.width
+    || point.y < box.y || point.y > box.y + box.height;
+  if (!outside) return;
+  let windowId = null;
+  try { windowId = await window.api.windowAtScreenPoint(point, box); } catch { return; }
+  // No window of ours under the pointer: the desktop, or another application. A session dragged out
+  // of the sidebar has nothing to tear off — it is not open anywhere — so this simply does nothing.
+  if (!windowId) return;
+  const placement = window.panesView?.remoteAimFor?.(windowId) || null;
+  if (typeof window.moveSessionToWindow === 'function') {
+    window.moveSessionToWindow(sessionId, windowId, placement);
   }
 }
 

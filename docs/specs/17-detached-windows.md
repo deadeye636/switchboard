@@ -98,7 +98,7 @@ Four consequences worth stating:
 - **A window with no sidebar cannot steer a sidebar-driven view, so main relays the pick** (#364).
   Memory, Plans and Work files pick their file in the sidebar, which lives here by design — so once one
   of them sits in another window, `route-view-file` delivers the click to whichever window holds it, and
-  the clicking window says where it went. The register (`view-host-changed`) is reported by the window
+  the clicking window says where it went. The register (`window-views-changed`) is reported by the window
   that shows the view, never inferred: main guessing from what it last sent is how a routing table goes
   stale in a way nobody notices until a click lands nowhere.
 - **A drag cannot cross a window boundary, so main answers where it ended** (#360). HTML5 drag and
@@ -191,6 +191,53 @@ What follows from that:
 | The title | A window with no session is named after its views, in the same `<name> +N` shape a session set is named with |
 | The close rule | "A window that gives away its last session closes" was the same statement as "it has nothing left to show" only while a window could hold nothing else. It now closes when it holds **neither** sessions nor views |
 | Which views may go | Unchanged from #364: a singleton that names a loader. A diff still never leaves, and an instanced preview cannot be rebuilt from a kind and a ref |
+
+## 2d · A drop on another window lands where it was dropped (#375)
+
+A tab dragged onto another window used to land in that window's **active** pane. Inside one window
+the drop decides everything — an edge splits, the middle inserts, the strip places by caret — so the
+same gesture meant two different things depending on which window the pointer was over.
+
+**The obstacle was never the placement. It was the feedback.** HTML5 drag and drop is per renderer
+process: the far window sees no `dragover` at all, and the near one only knows the pointer left its
+box. Three pieces, and the order they are listed in is the order of difficulty:
+
+| Piece | Where |
+|---|---|
+| **Ask the far window.** It converts the screen point into its own coordinates and hit-tests its pane tree, answering `{kind: 'tab'\|'split'\|'root', …}` | `dropTargetAt` in `views/panes-view.js` |
+| **Have it draw that answer** while the pointer is still held — the same hint a local drag draws | `showPlacementHint`, same file |
+| **Carry the answer in the move**, so the taking window puts the session where it highlighted | `move-session-to-window`'s third argument → `session-reattached`'s fourth |
+
+Five things this rests on, each of which would be a defect on its own:
+
+- **The question is asked from the `drag` event, not `dragover`.** `dragover` only fires over our own
+  window; `drag` fires on the SOURCE for the whole gesture, including while the pointer is over
+  another window. It is the only hook that can reach across at all.
+- **The conversion happens in the FAR renderer**, because only it knows its own zoom. It is
+  `toScreenPoint`'s inverse: `outerWidth / bounds.width` is CSS pixels per DIP, and `screenX` is where
+  that viewport starts in the same screen coordinates the point is given in. Its bounds travel with
+  the question so it has both halves of the ratio.
+- **Main→renderer has no reply channel**, so one is built: main sends with a ticket, the renderer
+  answers on `drop-probe-answer` quoting it, and the ticket resolves the promise. Bounded by 250 ms —
+  a renderer that is busy or gone must not leave a drag waiting on it, and the timeout's answer is
+  "nowhere", which the caller already knows how to handle.
+- **One probe in flight at a time.** `drag` fires many times a second and each probe is a round trip
+  through a second renderer; a queue of them would arrive after the drop that was waiting for them.
+- **A window that cannot say WHERE still gets the session.** The issue asked for the opposite — "a
+  drop that cannot be resolved moves nothing" — and that was written by analogy with §2b, where an
+  unresolvable point moves nothing because no WINDOW could be identified. Here a window has been
+  identified: the user dropped on it, visibly. What is missing is only the pane, and the answer to
+  that is the one a drop on another window has always had — its active pane. Refusing the move
+  instead would make a busy renderer (the probe has a 250 ms deadline) or a pointer over that
+  window's own chrome swallow a gesture that worked before this feature existed, which is a
+  regression dressed as strictness.
+
+  §2b's rule is untouched and still means what it says: a point over **no window of ours** moves
+  nothing. The two are different questions — which window, and where inside it — and only the first
+  one has an answer that can be absent altogether.
+
+The hint is taken down on `dragend` while the ANSWER is kept: `tearOffTab` reads it one line later to
+place the tab, and clearing both together threw it away in front of its only reader.
 
 ## 3 · The invariant: one session, one renderer
 
@@ -296,7 +343,7 @@ has no tab there, and clicking its sidebar row raises its window.
 
 ## 7 · Tests
 
-`test/detach-routing.test.js` (36) covers the routing and the state machine without Electron —
+`test/detach-routing.test.js` (97) covers the routing and the state machine without Electron —
 `BrowserWindow` arrives through ctx for exactly that reason. It pins per-session routing, the window's
 shape (no `parent`: a child window is always on top, which defeats a second monitor; no background
 throttling), double detach, reattach, close-by-hand, quit, `closeAll` off the quit path, a window

@@ -383,7 +383,7 @@ if (isOwnWindow) document.body.classList.add('detached-window');
     refreshViews();
   }
 
-  async function adoptSession(sessionId, running) {
+  async function adoptSession(sessionId, running, placement) {
     detachedSessions.delete(sessionId);
     // An adopt is the opposite statement to a release, so it lifts the cancellation — otherwise a
     // session moved out and later moved back would never mount here again.
@@ -414,8 +414,21 @@ if (isOwnWindow) document.body.classList.add('detached-window');
       catch { /* keep what main sent */ }
     }
 
+    // Dropped ON this window, at a place it highlighted itself (#375). The tab is made FIRST, so the
+    // mount below finds it already home — `adoptOrphans` only places a session that has no tab, and
+    // the pane the user aimed at is exactly what that fallback would overwrite with "the active one".
+    // It also covers the dormant case on its own: the tab is drawn as the Launch placeholder, so the
+    // `showDormantTab` branch below has nothing left to do.
+    let placed = false;
+    if (placement && !cancelledMounts.has(sessionId) && window.panesView?.active?.()) {
+      try { placed = !!window.panesView.applyPlacement(sessionId, placement, { mount: false }); }
+      catch { placed = false; }
+    }
+
     if (session && stillRunning && typeof openSession === 'function') {
       await mountOnce(session, true);
+    } else if (placed) {
+      // Nothing to mount, and it is already where the drop said — see above.
     } else if (session && !cancelledMounts.has(sessionId) && showDormantTab(sessionId)) {
       // Nothing to mount, but this window can SHOW it (#332). The claim stays here on purpose: handing
       // it back would undo the move the user just made, and `release-session-claim` states "I cannot
@@ -441,7 +454,32 @@ if (isOwnWindow) document.body.classList.add('detached-window');
 
   // Both windows answer the same two channels — see the handover comment above.
   window.api.onSessionDetached((sessionId) => releaseSession(sessionId));
-  window.api.onSessionReattached((sessionId, running) => adoptSession(sessionId, running));
+  window.api.onSessionReattached((sessionId, running, placement) => adoptSession(sessionId, running, placement));
+
+  // --- Answering for a drag held over this window (#375) -----------------------
+  //
+  // Every window answers this, the main one included: a drag can be held over any of them, and the
+  // one under the pointer is the only thing that knows where its panes are.
+  //
+  // The conversion is the inverse of `toScreenPoint` in app/detach.js, done HERE because only this
+  // renderer knows its own zoom: `outerWidth / bounds.width` is CSS pixels per DIP, and `screenX` is
+  // where this viewport starts in the same screen coordinates the point is given in.
+  window.api.onProbeDropPoint?.((id, at, bounds) => {
+    let placement = null;
+    try {
+      const zx = (Number(window.outerWidth) || bounds.width) / Math.max(1, bounds.width);
+      const zy = (Number(window.outerHeight) || bounds.height) / Math.max(1, bounds.height);
+      const clientX = (at.x * zx) - (Number(window.screenX) || 0);
+      const clientY = (at.y * zy) - (Number(window.screenY) || 0);
+      placement = window.panesView?.dropTargetAt?.(clientX, clientY) || null;
+      window.panesView?.showPlacementHint?.(placement);
+    } catch { placement = null; }
+    try { window.api.answerProbeDropPoint(id, placement); } catch { /* main stopped waiting */ }
+  });
+
+  window.api.onClearDropHint?.(() => {
+    try { window.panesView?.showPlacementHint?.(null); } catch { /* nothing drawn */ }
+  });
 
   // …and both can move a session (#316), so these three are defined before the split below. A detached
   // window needs them as much as the main one does: detached → detached is a move like any other.
@@ -498,7 +536,7 @@ if (isOwnWindow) document.body.classList.add('detached-window');
     }
   };
 
-  window.moveSessionToWindow = async (sessionId, windowId) => {
+  window.moveSessionToWindow = async (sessionId, windowId, placement) => {
     // The one combination a move still cannot serve (#332): a session with no process into an EXISTING
     // detached window outside panes mode. There is no dormant tab in that strip and no sidebar beside
     // it, so the session would be held by a window that shows it nowhere — and the adopt would hand the
@@ -512,7 +550,8 @@ if (isOwnWindow) document.body.classList.add('detached-window');
       });
       return false;
     }
-    const res = await window.api.moveSessionToWindow(sessionId, windowId);
+    // `placement` (#375) is where inside that window it goes, when the drop said so.
+    const res = await window.api.moveSessionToWindow(sessionId, windowId, placement);
     if (!res || !res.ok) {
       window.showControlToast?.({ message: 'Could not move this session', timeoutMs: 3000 });
       return false;

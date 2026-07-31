@@ -2355,6 +2355,35 @@ window.__sessionDragId = null;
   /** Either of ours — the gate every drop target opens with. */
   const isOurDrag = (e) => isTabDrag(e) || isSessionDrag(e);
 
+  // --- Asking the window under the pointer, while the drag is still held (#375) ---
+  //
+  // The last answer another window gave, and the drop reads it. One probe in flight at a time: a
+  // `dragover` fires many times a second and each probe is an IPC round trip through a second
+  // renderer, so a queue of them would arrive after the drop that was waiting for them.
+  let remoteAim = null;
+  let probeInFlight = false;
+
+  function probeRemote(e) {
+    if (probeInFlight || typeof window.api?.probeDropPoint !== 'function') return;
+    const aim = pointerAim(e);
+    if (!aim) return;
+    // Inside our own window there is nothing to ask: our own handlers have already drawn the answer.
+    if (!pointerOutsideWindow(e)) {
+      if (remoteAim) { remoteAim = null; dropRemoteHints(); }
+      return;
+    }
+    probeInFlight = true;
+    window.api.probeDropPoint(aim.point, aim.box)
+      .then((res) => { remoteAim = res && res.placement ? res : null; })
+      .catch(() => { remoteAim = null; })
+      .finally(() => { probeInFlight = false; });
+  }
+
+  /** Take the highlight off every other window. The answer they gave outlives this — see `dragend`. */
+  function dropRemoteHints() {
+    try { window.api?.clearRemoteDropHints?.(); } catch { /* older main process */ }
+  }
+
   function wireTabDrag(el, leafId, tabId) {
     el.addEventListener('dragstart', (e) => {
       drag = { tabId, fromLeafId: leafId };
@@ -2364,14 +2393,23 @@ window.__sessionDragId = null;
       // terminal by any drop that reached it.
       try { e.dataTransfer.setData(PANE_TAB_MIME, tabId); } catch { /* type refused */ }
     });
+    // `drag` fires on the SOURCE for the whole gesture, including while the pointer is over another
+    // window — where `dragover` never reaches us at all. It is the only hook that can ask the far
+    // window what it would do (#375).
+    el.addEventListener('drag', probeRemote);
     el.addEventListener('dragend', (e) => {
       const dragged = drag;
       drag = null;
       el.classList.remove('dragging');
       clearDropFeedback();
+      // The hints go now; the ANSWER is still needed — `tearOffTab` below reads it to place the tab
+      // inside the window it landed on (#375), and clearing both together would throw it away one
+      // line before its only reader.
+      dropRemoteHints();
       // Dropped on the desktop: give this tab a window of its own (#352). VS Code and Windows
       // Terminal both do this, and #340 built the menu route it shares.
       if (dragged && droppedOutOfWindow(e)) tearOffTab(dragged.fromLeafId, dragged.tabId, e);
+      remoteAim = null;
     });
     el.addEventListener('dragover', (e) => {
       if (!isOurDrag(e)) return;
@@ -2409,8 +2447,19 @@ window.__sessionDragId = null;
    */
   function droppedOutOfWindow(e) {
     if (!e || !e.dataTransfer || e.dataTransfer.dropEffect !== 'none') return false;
-    const x = Number(e.screenX);
-    const y = Number(e.screenY);
+    return pointerOutsideWindow(e);
+  }
+
+  /**
+   * Is the pointer outside this window's box? The geometry half of the answer above, on its own so a
+   * drag still in flight can ask it (#375) — there `dropEffect` says nothing yet.
+   *
+   * Bails on a position it cannot trust, for the reason above: some platforms report 0/0, and treating
+   * that as "outside" would send every drag off to another window.
+   */
+  function pointerOutsideWindow(e) {
+    const x = Number(e && e.screenX);
+    const y = Number(e && e.screenY);
     if (!Number.isFinite(x) || !Number.isFinite(y) || (x === 0 && y === 0)) return false;
     const width = Number(window.outerWidth);
     const height = Number(window.outerHeight);
@@ -2462,7 +2511,13 @@ window.__sessionDragId = null;
     const sessionId = sessionOfTab(tab);
     if (!sessionId) return;
     if (onto) {
-      if (typeof window.moveSessionToWindow === 'function') window.moveSessionToWindow(sessionId, onto);
+      // Where inside that window (#375): the answer it gave while the pointer was over it, which is
+      // also what it highlighted. `null` is honest — the point resolved to no pane of theirs — and the
+      // move then lands the way it always did, in their active pane.
+      const placement = (remoteAim && remoteAim.windowId === onto) ? remoteAim.placement : null;
+      if (typeof window.moveSessionToWindow === 'function') {
+        window.moveSessionToWindow(sessionId, onto, placement);
+      }
       return;
     }
 
@@ -2607,6 +2662,89 @@ window.__sessionDragId = null;
       if (sessionId) dropSessionIntoRootSplit(sessionId, outer);
       else applyRootSplitMove(drag, outer);
     });
+  }
+
+  // --- Answering for a drag this window is not part of (#375) ------------------
+  //
+  // A drag never crosses a renderer process: the far window sees no `dragover` at all, and the near
+  // one only knows the pointer left its box. So the far window is ASKED — where would a drop at this
+  // point land, and show the user that answer while the pointer is still held.
+  //
+  // The two halves are deliberately one function: what the hint draws and what the drop does have to
+  // be the same decision, or the window highlights one thing and does another.
+
+  /** Where a drop at this point in THIS window would land, in the shape a placement travels in. */
+  function dropTargetAt(clientX, clientY) {
+    if (!enabled || !tree) return null;
+    const point = { clientX, clientY };
+    const outer = outerZoneAt(point);
+    if (outer) return { kind: 'root', zone: outer };
+    for (const pane of terminalsEl.querySelectorAll('.pane')) {
+      const leafId = pane.dataset.paneId;
+      if (!leafId) continue;
+      const strip = pane.querySelector('.pane-strip');
+      if (strip && hits(strip, clientX, clientY)) {
+        const stripOuter = outerZoneAt(point, OUTER_BAND_STRIP_PX);
+        if (stripOuter) return { kind: 'root', zone: stripOuter };
+        for (const el of strip.querySelectorAll('.session-tab')) {
+          if (!hits(el, clientX, clientY)) continue;
+          const tabId = el.dataset.tabId;
+          if (!tabId) break;
+          return { kind: 'tab', leafId, index: tabDropGap(el, leafId, tabId, point).index };
+        }
+        return { kind: 'tab', leafId, index: -1 };
+      }
+      const body = pane.querySelector('.pane-body');
+      if (!body || !hits(body, clientX, clientY)) continue;
+      const zone = dropZone(body, point);
+      return zone === 'center' ? { kind: 'tab', leafId, index: -1 } : { kind: 'split', leafId, zone };
+    }
+    return null;
+  }
+
+  function hits(el, x, y) {
+    const r = el.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }
+
+  /** Draw the hint for a placement this window was asked about, exactly as a local drag would. */
+  function showPlacementHint(placement) {
+    if (!enabled || !placement) { clearDropFeedback(); return; }
+    if (placement.kind === 'root') { showOuterHint(placement.zone); return; }
+    const pane = terminalsEl.querySelector('.pane[data-pane-id="' + placement.leafId + '"]');
+    const body = pane && pane.querySelector('.pane-body');
+    if (!body) { clearDropFeedback(); return; }
+    if (placement.kind === 'split') { clearOuterHint(); showDropHint(body, placement.zone); return; }
+    clearOuterHint();
+    // A placement with a POSITION is a caret, not a pane highlight. Drawing the generic one for both
+    // told the user "somewhere in this pane" where the drop meant "in this gap" — the far window
+    // showing less than a local drag does, for the same gesture.
+    const list = pane.querySelector('.pane-strip .session-tabs-list');
+    if (list && placement.index >= 0) {
+      const tabs = list.querySelectorAll('.session-tab');
+      const at = tabs[placement.index];
+      clearDropHint();
+      showTabCaret(list, at ? at.offsetLeft : endCaretEdge(list));
+      return;
+    }
+    showDropHint(body, 'center');
+  }
+
+  /**
+   * Put a session where a drop in ANOTHER window said it should go (#375).
+   *
+   * The same three landings a local drop has, chosen by the same answer — the placement is what the
+   * far window highlighted, so what arrives is what the user saw.
+   */
+  function applyPlacement(sessionId, placement, opts) {
+    if (!enabled || !sessionId) return false;
+    if (!placement) return false;
+    // `mount: false` from the adopt (#375): the tab is made here, the terminal is attached by the
+    // caller. Two mounts for one arrival is two xterms racing for one PTY — `mountOnce` cannot see a
+    // bare `openSession` started beside it, so the two paths must not both start one.
+    if (placement.kind === 'root') return dropSessionIntoRootSplit(sessionId, placement.zone, opts);
+    if (placement.kind === 'split') return dropSessionIntoSplit(sessionId, placement.leafId, placement.zone, opts);
+    return dropSessionInto(sessionId, placement.leafId, placement.index, opts);
   }
 
   function wireDropZones(pane, body, leafId) {
@@ -2825,7 +2963,7 @@ window.__sessionDragId = null;
    *    Launch" placeholder (#318) — the same thing a tab restored from a saved layout gets — and
    *    starting the CLI stays a button the user presses.
    */
-  function dropSessionInto(sessionId, toLeafId, index) {
+  function dropSessionInto(sessionId, toLeafId, index, { mount = true } = {}) {
     if (!enabled || !tree || !sessionId) return false;
     const existing = PaneTree.leafOfTab(tree, tabIdFor(sessionId));
     if (existing) {
@@ -2833,17 +2971,23 @@ window.__sessionDragId = null;
       return true;
     }
     if (!acceptsSessionDrop(sessionId)) return false;
+    // The pane may be GONE. `addTab` answers a leaf it cannot find by returning the tree unchanged,
+    // and reporting success for that would leave the caller believing a session it placed nowhere had
+    // arrived. #375 is what made this reachable: a placement crosses a process boundary and an async
+    // round trip, so the layout it names can change under it between the answer and the drop.
+    const next = PaneTree.addTab(tree, toLeafId, makeTerminalTab(sessionId), index);
+    if (!PaneTree.leafOfTab(next, tabIdFor(sessionId))) return false;
     pushUndo();
-    tree = PaneTree.addTab(tree, toLeafId, makeTerminalTab(sessionId), index);
+    tree = next;
     activeLeafId = toLeafId;
     render();
     persist();
-    mountDroppedSession(sessionId);
+    if (mount) mountDroppedSession(sessionId);
     return true;
   }
 
   /** The same, onto a pane EDGE: the pane splits and the session opens in the new one. */
-  function dropSessionIntoSplit(sessionId, leafId, direction) {
+  function dropSessionIntoSplit(sessionId, leafId, direction, { mount = true } = {}) {
     if (!enabled || !tree || !sessionId) return false;
     const existing = PaneTree.leafOfTab(tree, tabIdFor(sessionId));
     if (existing) {
@@ -2851,15 +2995,18 @@ window.__sessionDragId = null;
       return true;
     }
     if (!acceptsSessionDrop(sessionId)) return false;
-    pushUndo();
     const newLeafId = nextLeafId();
     // `splitLeaf` takes the tab for the new pane, so the split and the tab are one operation — a
     // split followed by an add would leave an empty pane on screen for a frame if the add refused.
-    tree = PaneTree.splitLeaf(tree, leafId, direction, { newLeafId, tab: makeTerminalTab(sessionId) });
+    // Same check as above: a pane that is gone leaves the tree untouched, and that is not a success.
+    const next = PaneTree.splitLeaf(tree, leafId, direction, { newLeafId, tab: makeTerminalTab(sessionId) });
+    if (!PaneTree.leafOfTab(next, tabIdFor(sessionId))) return false;
+    pushUndo();
+    tree = next;
     activeLeafId = newLeafId;
     render();
     persist();
-    mountDroppedSession(sessionId);
+    if (mount) mountDroppedSession(sessionId);
     return true;
   }
 
@@ -2905,7 +3052,7 @@ window.__sessionDragId = null;
   }
 
   /** The same for a session dragged out of the sidebar (#373 + #376). */
-  function dropSessionIntoRootSplit(sessionId, direction) {
+  function dropSessionIntoRootSplit(sessionId, direction, { mount = true } = {}) {
     if (!enabled || !tree || !sessionId) return false;
     const existing = PaneTree.leafOfTab(tree, tabIdFor(sessionId));
     if (existing) {
@@ -2913,13 +3060,17 @@ window.__sessionDragId = null;
       return true;
     }
     if (!acceptsSessionDrop(sessionId)) return false;
-    pushUndo();
     const newLeafId = nextLeafId();
-    tree = PaneTree.splitRoot(tree, direction, { newLeafId, tab: makeTerminalTab(sessionId) });
+    // Same as the other two: `splitRoot` answers a direction it does not know by returning the tree
+    // unchanged, and a caller told "placed" about a tree that did not move places nothing at all.
+    const next = PaneTree.splitRoot(tree, direction, { newLeafId, tab: makeTerminalTab(sessionId) });
+    if (!PaneTree.leafOfTab(next, tabIdFor(sessionId))) return false;
+    pushUndo();
+    tree = next;
     activeLeafId = newLeafId;
     render();
     persist();
-    mountDroppedSession(sessionId);
+    if (mount) mountDroppedSession(sessionId);
     return true;
   }
 
@@ -3730,6 +3881,15 @@ window.__sessionDragId = null;
     // DragEvent: how deep a pane's edge reaches, and whether a point is in the area's outer band.
     edgeDepth,
     outerZoneAt: (point, depth) => outerZoneAt(point, depth),
+    // What a drag in ANOTHER window asks of this one (#375).
+    dropTargetAt,
+    showPlacementHint,
+    applyPlacement,
+    // The sidebar's drag is a source like a tab is, so it asks the same question while it is held and
+    // reads the same answer when it lands (#373 + #375).
+    probeRemote: (e) => probeRemote(e),
+    remoteAimFor: (windowId) => ((remoteAim && remoteAim.windowId === windowId) ? remoteAim.placement : null),
+    dropRemoteHints,
     // What a kind is called, for a window that has to name itself before it holds any tab at all
     // (#370). Answered from `VIEW_KINDS`, so a new view is named in one place.
     viewKindTitle: (kind) => (VIEW_KINDS[kind] ? VIEW_KINDS[kind].title : null),

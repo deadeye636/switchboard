@@ -193,8 +193,11 @@ Four rules it inherits rather than restates:
   (`isPaneTabDrag` in terminal-manager.js) or a drop that reaches a terminal types the payload at the
   CLI prompt — and for the same reason the payload carries **no `text/plain`**.
 
-Dropped on another WINDOW it is still plain insertion: the far window never sees the drag, so choosing
-a pane over there is a different mechanism (#375).
+Dropped on another WINDOW it lands where it was dropped there too (#375). The far window never sees
+the drag, so it is ASKED — `dropTargetAt` answers with the same placement a local drop would produce
+and `showPlacementHint` draws it, which is why what arrives is what the user saw. Spec 17 §2d carries
+the mechanism; what matters here is that the three landings are one set of rules, used by a local
+drop, a sidebar drag and a drag from another window alike.
 
 **Where a restored session lands** (#357). The saved tree carries the tab-to-pane assignment, so
 `loadTree` puts a session back in the pane it was in, and `activeLeafId` is persisted too — "the

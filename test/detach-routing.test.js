@@ -68,12 +68,17 @@ function makeWindowClass(created, main, { loadingOnCreate = false } = {}) {
 // A minimal ipcMain: registerIpc hands it handlers, the test calls them.
 function makeIpc() {
   const handlers = new Map();
+  // `on` is the fire-and-forget half. It carries the ANSWER to a question main asked a renderer
+  // (#375), which `handle` cannot express — that direction has no reply channel of its own.
+  const listeners = new Map();
   return {
     handle: (channel, fn) => handlers.set(channel, fn),
+    on: (channel, fn) => listeners.set(channel, fn),
     call: (channel, ...args) => handlers.get(channel)(null, ...args),
     // For the handlers that answer the ASKER rather than an argument (`sessions-in-my-window`).
     callFrom: (channel, sender, ...args) => handlers.get(channel)({ sender }, ...args),
-    has: (channel) => handlers.has(channel),
+    emit: (channel, sender, ...args) => listeners.get(channel)({ sender }, ...args),
+    has: (channel) => handlers.has(channel) || listeners.has(channel),
   };
 }
 
@@ -164,7 +169,7 @@ test('a move no longer needs a process, and moving one starts nothing', () => {
   main.sent.length = 0;
 
   assert.deepEqual(ipc.call('move-session-to-window', 's1', 'main'), { ok: true });
-  assert.deepEqual(main.sent, [['session-reattached', 's1', false]]);
+  assert.deepEqual(main.sent, [['session-reattached', 's1', false, null]]);
   assert.equal(activeSessions.size, 0, 'a move is a view operation — it never spawns');
   assert.equal(created[0].destroyed, true, 'the window gave away its last session');
 });
@@ -205,7 +210,7 @@ test('reattaching closes the window and routes the session home again', () => {
   assert.deepEqual(res, { ok: true });
   assert.equal(created[0].isDestroyed(), true);
   assert.equal(detach.windowForSession('s1'), main);
-  assert.deepEqual(main.sent, [['session-reattached', 's1', true]], 'exactly one notification, not one per path');
+  assert.deepEqual(main.sent, [['session-reattached', 's1', true, null]], 'exactly one notification, not one per path');
 });
 
 test('reattaching a session that was never detached is a no-op', () => {
@@ -221,7 +226,7 @@ test('closing the window by hand hands the session back', () => {
   main.sent.length = 0;
   created[0].destroy(); // the user clicked the title-bar X
   assert.equal(detach.isDetached('s1'), false);
-  assert.deepEqual(main.sent, [['session-reattached', 's1', true]]);
+  assert.deepEqual(main.sent, [['session-reattached', 's1', true, null]]);
 });
 
 test('closeAll stays silent even when the app is NOT quitting', () => {
@@ -333,7 +338,7 @@ test('moving a session home releases the detached window and tells main to take 
 
   assert.deepEqual(ipc.call('move-session-to-window', 's1', 'main'), { ok: true });
   assert.deepEqual(win.sent[0], ['session-detached', 's1'], 'the window that had it lets go first');
-  assert.deepEqual(main.sent, [['session-reattached', 's1', true]]);
+  assert.deepEqual(main.sent, [['session-reattached', 's1', true, null]]);
   assert.equal(detach.isDetached('s1'), false);
   assert.equal(detach.windowForSession('s1'), main);
   assert.equal(win.destroyed, true, 'a window with nothing left to show closes');
@@ -357,7 +362,7 @@ test('a session moves from the main window into an existing detached window', ()
 
   assert.deepEqual(ipc.call('move-session-to-window', 's2', String(win.id)), { ok: true });
   assert.deepEqual(main.sent, [['session-detached', 's2']], 'main releases it');
-  assert.deepEqual(win.sent, [['session-reattached', 's2', true]], 'the window takes it');
+  assert.deepEqual(win.sent, [['session-reattached', 's2', true, null]], 'the window takes it');
   assert.equal(detach.windowForSession('s2'), win);
   assert.deepEqual(detach.sessionsInWindow(win).sort(), ['s1', 's2']);
   assert.equal(created.length, 1, 'no new window is opened for a move');
@@ -373,7 +378,7 @@ test('a session moves from one detached window to another, and the empty one clo
 
   assert.deepEqual(ipc.call('move-session-to-window', 's2', String(winA.id)), { ok: true });
   assert.deepEqual(winB.sent, [['session-detached', 's2']]);
-  assert.deepEqual(winA.sent, [['session-reattached', 's2', true]]);
+  assert.deepEqual(winA.sent, [['session-reattached', 's2', true, null]]);
   assert.deepEqual(detach.sessionsInWindow(winA).sort(), ['s1', 's2']);
   assert.equal(winB.destroyed, true, 'its last session left');
   assert.equal(detach.windowForSession('s2'), winA);
@@ -388,7 +393,7 @@ test('closing a window with several sessions hands every one of them back', () =
 
   win.destroy();
   assert.deepEqual([...main.sent].sort((a, b) => a[1].localeCompare(b[1])),
-    [['session-reattached', 's1', true], ['session-reattached', 's2', true]]);
+    [['session-reattached', 's1', true, null], ['session-reattached', 's2', true, null]]);
   assert.equal(detach.isDetached('s1'), false);
   assert.equal(detach.isDetached('s2'), false);
 });
@@ -431,7 +436,7 @@ test('a dormant session leaves the window it shares, and the live one stays wher
 
   assert.deepEqual(ipc.call('move-session-to-window', 's1', 'main'), { ok: true });
   assert.deepEqual(win.sent, [['session-detached', 's1']], 'the window it leaves lets go of it');
-  assert.deepEqual(main.sent, [['session-reattached', 's1', false]], 'and main is told nothing runs');
+  assert.deepEqual(main.sent, [['session-reattached', 's1', false, null]], 'and main is told nothing runs');
   assert.equal(detach.windowForSession('s1'), main);
   assert.equal(win.destroyed, false, 'the window stays — it still holds the live session');
   assert.deepEqual(detach.sessionsInWindow(win), ['s2']);
@@ -450,7 +455,7 @@ test('a dormant session moves into an existing detached window', () => {
 
   assert.deepEqual(ipc.call('move-session-to-window', 's2', String(win.id)), { ok: true });
   assert.deepEqual(main.sent, [['session-detached', 's2']]);
-  assert.deepEqual(win.sent, [['session-reattached', 's2', false]]);
+  assert.deepEqual(win.sent, [['session-reattached', 's2', false, null]]);
   assert.equal(detach.windowForSession('s2'), win);
   assert.equal(activeSessions.has('s2'), false, 'still nothing spawned');
 });
@@ -465,7 +470,7 @@ test('the adopt notification carries whether the process is still alive', () => 
   main.sent.length = 0;
 
   win.destroy(); // the user closes the window of a session that is no longer running
-  assert.deepEqual(main.sent, [['session-reattached', 's1', false]]);
+  assert.deepEqual(main.sent, [['session-reattached', 's1', false, null]]);
 });
 
 // --- What a window holds, asked by the window itself (#326, #331) ------------------------------
@@ -518,7 +523,7 @@ test('a window that cannot render a session hands the claim back to main', () =>
 
   assert.deepEqual(ipc.callFrom('release-session-claim', win.webContents, 's1'), { ok: true });
   assert.equal(detach.isDetached('s1'), false, 'main stops routing it there');
-  assert.deepEqual(main.sent, [['session-reattached', 's1', true]], 'and the main window is offered it');
+  assert.deepEqual(main.sent, [['session-reattached', 's1', true, null]], 'and the main window is offered it');
   assert.deepEqual(win.sent, [['session-detached', 's1']],
     'the giving window is told to let go first — anything it did mount must not survive the handover');
   assert.equal(win.isDestroyed(), false, 'the window stays — it may still hold others');
@@ -1180,4 +1185,104 @@ test('#372: a report with no arrangement clears the one before it', () => {
   ipc.callFrom('window-views-changed', created[0].webContents, []);
   detach.closeAll();
   assert.equal(store.read().detachedWindows[0].layout, null);
+});
+
+// --- #375: a drop on ANOTHER window lands where it was dropped ----------------
+//
+// A drag never crosses a renderer process, so the far window is asked — and the answer it gives is
+// both what it highlights and what the drop does.
+
+test('#375: the window under the pointer is asked, and its answer comes back with its id', async () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const win = created[0];
+  win.bounds = { x: 2000, y: 0, width: 800, height: 600 };
+  win.sent.length = 0;
+
+  const answer = ipc.call('probe-drop-point', { x: 2100, y: 100 }, null);
+  // The question went to that window, with its own bounds beside it: converting a screen point into a
+  // renderer's coordinates needs the ratio between the box it measures for itself and the OS's, and
+  // only that renderer knows its zoom.
+  const [channel, id, at, bounds] = win.sent[0];
+  assert.equal(channel, 'probe-drop-point');
+  assert.deepEqual(at, { x: 2100, y: 100 });
+  assert.deepEqual(bounds, win.bounds);
+
+  ipc.emit('drop-probe-answer', win.webContents, id, { kind: 'split', leafId: 'pane-2', zone: 'right' });
+  assert.deepEqual(await answer, {
+    windowId: String(win.id),
+    placement: { kind: 'split', leafId: 'pane-2', zone: 'right' },
+  });
+});
+
+test('#375: a window that does not answer places nothing, rather than guessing', async () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  created[0].bounds = { x: 2000, y: 0, width: 800, height: 600 };
+
+  // No `drop-probe-answer` — a renderer that is busy, or gone. The probe times out and says so; the
+  // caller then moves the session without a placement, which is what it did before #375. A pane
+  // nobody highlighted must not be invented (#360).
+  const res = await ipc.call('probe-drop-point', { x: 2100, y: 100 }, null);
+  assert.equal(res.windowId, String(created[0].id));
+  assert.equal(res.placement, null);
+});
+
+test('#375: a point over no window of ours answers null and takes every hint down', async () => {
+  const { ipc, main, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  created[0].bounds = { x: 2000, y: 0, width: 800, height: 600 };
+  main.sent.length = 0;
+  created[0].sent.length = 0;
+
+  assert.equal(await ipc.call('probe-drop-point', { x: 9000, y: 9000 }, null), null);
+  assert.deepEqual(main.sent, [['clear-drop-hint']]);
+  assert.deepEqual(created[0].sent, [['clear-drop-hint']],
+    'nothing may be left highlighting a drop that is not coming');
+});
+
+test('#375: the asking window is never asked about its own drag', async () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const win = created[0];
+  win.bounds = { x: 2000, y: 0, width: 800, height: 600 };
+  win.sent.length = 0;
+
+  // A point inside the asker: its own handlers have already drawn that answer, and asking it through
+  // main would race them.
+  assert.equal(await ipc.callFrom('probe-drop-point', win.webContents, { x: 2100, y: 100 }, null), null);
+  assert.deepEqual(win.sent.filter((s) => s[0] === 'probe-drop-point'), []);
+});
+
+test('#375: the placement travels with the move and reaches the taking window', () => {
+  const { ipc, created } = setup({ sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1', 'One');
+  const win = created[0];
+  win.sent.length = 0;
+
+  const placement = { kind: 'root', zone: 'down' };
+  ipc.call('move-session-to-window', 's2', String(win.id), placement);
+  assert.deepEqual(win.sent.filter((s) => s[0] === 'session-reattached'),
+    [['session-reattached', 's2', true, placement]],
+    'the window is told where the drop landed, not only that something arrived');
+});
+
+test('#375: a move with no placement still carries null, so the taking window has one shape to read', () => {
+  const { ipc, main } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  main.sent.length = 0;
+  ipc.call('move-session-to-window', 's1', 'main');
+  assert.deepEqual(main.sent.filter((s) => s[0] === 'session-reattached'),
+    [['session-reattached', 's1', true, null]]);
+});
+
+test('#375: ending a drag takes the highlight off every window', () => {
+  const { ipc, main, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  main.sent.length = 0;
+  created[0].sent.length = 0;
+
+  assert.deepEqual(ipc.call('clear-remote-drop-hints'), { ok: true });
+  assert.deepEqual(main.sent, [['clear-drop-hint']]);
+  assert.deepEqual(created[0].sent, [['clear-drop-hint']]);
 });
