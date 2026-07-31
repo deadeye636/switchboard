@@ -191,6 +191,7 @@ What follows from that:
 | The title | A window with no session is named after its views, in the same `<name> +N` shape a session set is named with |
 | The close rule | "A window that gives away its last session closes" was the same statement as "it has nothing left to show" only while a window could hold nothing else. It now closes when it holds **neither** sessions nor views |
 | Which views may go | Unchanged from #364: a singleton that names a loader. A diff still never leaves, and an instanced preview cannot be rebuilt from a kind and a ref |
+| The opening tab | **None** (#379). The pane tree is built around the session the window was opened for, and building that tab from a session id of `null` made a real one: nameless, about 49 px wide, nothing behind it, sitting beside the view — and written into the saved layout, so every restore made it again. An empty leaf is a shape the tree already has; the main window reaches it whenever pruning takes the last tab |
 
 ## 2d · A drop on another window lands where it was dropped (#375)
 
@@ -234,10 +235,45 @@ Five things this rests on, each of which would be a defect on its own:
 
   §2b's rule is untouched and still means what it says: a point over **no window of ours** moves
   nothing. The two are different questions — which window, and where inside it — and only the first
-  one has an answer that can be absent altogether.
+  one has an answer that can be absent altogether. What that landing is missing is not the placement
+  but the announcement, which is §2e.
 
 The hint is taken down on `dragend` while the ANSWER is kept: `tearOffTab` reads it one line later to
 place the tab, and clearing both together threw it away in front of its only reader.
+
+## 2e · A landing that cannot be named is still announced (#377)
+
+§2d's last bullet left one thing unsaid, and it was the thing the user could see: a window that could
+name no pane answered **nothing**, and the session then landed in its active pane anyway. The window
+had highlighted nothing while the pointer was over it, so the drop succeeded at a place that was
+never shown.
+
+Every application that moves a tab between windows makes the outcome visible before the pointer is
+released — Chrome and Firefox with a caret in the far tab strip, VS Code and IntelliJ with a drop
+frame or a "no drop" cursor. They differ on what an unresolvable point *does* (Chrome tears off a new
+window, the others cancel); none of them lands silently somewhere unannounced.
+
+So the probe answer gained a third shape. A window under the pointer now always answers something:
+
+| Answer | Meaning | Drawn as |
+|---|---|---|
+| `{kind: 'tab'\|'split'\|'root', …}` | a pane and a zone | the caret / pane hint / outer hint of §2d |
+| `{kind: 'window'}` | this window, but no pane of it | a frame around the whole window |
+| `null` beside a window id | the renderer did not reply inside `PROBE_TIMEOUT_MS` | nothing — see below |
+
+Three consequences worth keeping:
+
+- **`{kind: 'window'}` places nothing.** `applyPlacement` answers `false` for it, which is what hands
+  the session to the active-pane fallback the adopt already had. The placement rule of §2d is
+  unchanged; only the feedback is new.
+- **The frame is drawn by `shell/detach-window.js`, not by the panes view.** The same answer has to be
+  drawable by a window in **grid** mode, where that view is not running at all — and a grid window is
+  one of the two everyday ways to reach this case, the other being a pointer over the window's own
+  chrome.
+- **A renderer that never replies is unchanged.** It cannot draw, so it cannot announce; the session
+  lands in its active pane the way it did before any of this existed. Refusing the drop there would
+  put back exactly the swallowed gesture §2d argued against, and this time with a 250 ms deadline as
+  the trigger.
 
 ## 3 · The invariant: one session, one renderer
 
@@ -326,6 +362,19 @@ the window set are this process's facts anyway.
   same two rules the rest of the restore obeys, and **declined** when nothing survives that — a
   window of empty panes is worse than the single pane it would otherwise have had.
 
+- **A window this mode cannot show is held, not opened** (#378). The app's own views live in panes
+  mode, so a saved window holding nothing else has no target in **grid**: it came back as an empty
+  frame with no title and no explanation. Worse, the next state write drops a window that holds
+  neither sessions nor views — the rule that stops a window mid-handover being saved — so the entry
+  was gone for good and returning to panes did not bring it back.
+
+  It is now skipped at restore and carried through the write **unchanged**, so it reopens with its
+  views the next time the mode can fill it. A window holding sessions is unaffected: grid shows those,
+  and it is only the view half that has nowhere to go. Main reads the mode with its own copy of the
+  grid spellings — an explicit grid choice is grid, anything else is panes (#374) — and a test pins
+  that list to the renderer's `resolveSessionDisplayMode`, because two copies of one rule drifting
+  apart is how the empty frame would come back.
+
 What does **not** come back: an instanced preview or diff, which cannot be rebuilt from a kind and a
 ref alone.
 
@@ -343,7 +392,7 @@ has no tab there, and clicking its sidebar row raises its window.
 
 ## 7 · Tests
 
-`test/detach-routing.test.js` (97) covers the routing and the state machine without Electron —
+`test/detach-routing.test.js` (105) covers the routing and the state machine without Electron —
 `BrowserWindow` arrives through ctx for exactly that reason. It pins per-session routing, the window's
 shape (no `parent`: a child window is always on top, which defeats a second monitor; no background
 throttling), double detach, reattach, close-by-hand, quit, `closeAll` off the quit path, a window
@@ -360,7 +409,15 @@ still in it — and still closes when nothing is. Since #371, the save/restore r
 stand-in settings store, and `restoreWindowBounds` on its own: the display that is still there, the
 one that is gone, a window larger than the screen it lands on, and one hanging off an edge. Those four
 are the reason that decision is a pure function — they are exactly what a single-screen machine cannot
-show.
+show. Since #378, the held-back window: not opened in grid, still saved afterwards, reopened in panes,
+a window with sessions unaffected either way, both grid spellings, the double-append on the macOS
+`activate` path — and the guard that pins main's copy of those spellings to the renderer's.
+
+The two renderer halves of §2e are in `test/panes-view.test.js`: that `{kind: 'window'}` places
+nothing rather than addressing a leaf id of `undefined`, and that it clears a pane hint left over from
+the pointer's last position. The frame itself is `shell/detach-window.js` and was checked in a running
+instance — a real probe round trip into a second window in grid mode — because a hint nobody has seen
+drawn is a hint that has not been tested.
 
 What it cannot cover is the invariant in §3: that lives in the renderer, and it is where both real
 bugs were. `docs/ai/driving-the-app.md` has the two traps that made checking it harder than it should
