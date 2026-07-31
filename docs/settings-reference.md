@@ -85,7 +85,8 @@ stored preference survives — the setting stopped being about tabs when panes s
 | `tabAutoCloseDelaySec` | Auto-close delay (seconds) | 0–120 | `5` | global |
 | `liveRenderBackground` | Live-render background sessions — *Advanced*. Parses a background session's output as it arrives instead of replaying it on switch; it does **not** change what is painted (a covered terminal is never drawn). Applies in **tabs and panes**, where every open terminal stays mounted; a grid card scrolled out of view always buffers, because it is not laid out (#339) | bool | `true` | global |
 | `sidebarWidth` | (no UI — drag the divider) | px | `340` | **cascades** |
-| `tabOrder`, `windowBounds` | (no UI) | — | — | global; `windowBounds` is never exported |
+| ~~`tabOrder`~~ | *removed in #385* | — | — | *it held the retired tabs strip's order; the strip is gone (#367) and panes keeps its arrangement in its layout tree. A migration takes the stored value out of the global blob* |
+| `windowBounds` | (no UI) | — | — | global; never exported |
 | `detachedWindows` | (no UI) — what each window of its own held at quit: bounds, session ids, view tabs and its pane arrangement (#371, #372). Written on every change, read once at launch, and gated by `restoreSessionsOnLaunch` | — | `[]` | global; **never exported** — screen coordinates plus session ids from another machine's store |
 
 ## Projects & Sidebar

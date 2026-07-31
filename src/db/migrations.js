@@ -410,6 +410,24 @@ const migrations = [
       db.prepare("UPDATE settings SET value = ? WHERE key = 'global'").run(JSON.stringify(global));
     } catch { /* an unreadable blob is not worth failing a migration over */ }
   },
+
+  // Drop `tabOrder` from the global settings blob (#385). It held the order the retired tabs mode drew
+  // its strip in; the strip is gone (#367) and every reader went with it, while panes keeps its own
+  // arrangement in its layout tree. Third of the same family, after `settingsOpenMode` (#365) and
+  // `tabPosition` (#368), and for the same reason: a key nobody reads makes the next reader of this
+  // blob work out whether it still means something.
+  //
+  // Same shape as the two above — rewrite only when the key is there.
+  (db) => {
+    try {
+      const row = db.prepare("SELECT value FROM settings WHERE key = 'global'").get();
+      if (!row || !row.value) return;
+      const global = JSON.parse(row.value);
+      if (!global || typeof global !== 'object' || !('tabOrder' in global)) return;
+      delete global.tabOrder;
+      db.prepare("UPDATE settings SET value = ? WHERE key = 'global'").run(JSON.stringify(global));
+    } catch { /* an unreadable blob is not worth failing a migration over */ }
+  },
 ];
 
 /**
