@@ -8088,6 +8088,14 @@ body.display-mode-panes .terminal-container.visible { z-index: 1; pointer-events
 .pane-strip .session-tab.active { min-width: 96px; flex-shrink: 0; }
 .pane-strip .session-tab:not(.active) { flex-shrink: 4; }
 .pane-strip .session-tab:not(.active) .session-tab-label { min-width: 0; }
+/* The floor above makes the active tab wider than its contents whenever the label is short, and a
+   flex row with nothing growing collects that slack after the LAST child — which is the `×`, so it
+   sat 25px short of the tab's right edge (#380). The label takes the slack instead.
+   `flex-grow`, NOT `flex: 1`: the shorthand would set the basis to 0, the label would stop counting
+   towards the tab's natural width, and every active tab would collapse to the 96px floor — cutting
+   off long labels that are allowed 200px. Growth alone only distributes a surplus, and the floor is
+   the only thing that ever creates one. */
+.pane-strip .session-tab.active .session-tab-label { flex-grow: 1; }
 
 /* Selection (#356): a modified click marks tabs for a bulk action. Distinct from `.active`, which
    says "this is the tab on screen" — a tab can be both, and the two must not look the same. */
