@@ -65,6 +65,70 @@ test('a detached window does not write the pane layout when panes mode is torn d
   } finally { h.destroy(); }
 });
 
+// --- #369: a mode switch carries the open sessions across, in order ---
+//
+// Coming out of grid the tabs should read the way the cards did. `openSessions` is mount order, which
+// is a different list the moment anything was opened out of sidebar order — so the switch hands the
+// order in and the adoption uses it once.
+
+test('#369: arriving sessions become tabs in the order the switch names', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.mount('b');
+    h.mount('c');
+    h.panes.applySettings({ sessionDisplayMode: 'panes' }, { adoptOrder: ['c', 'a', 'b'] });
+    await h.settle();
+    const tabs = [...h.document.querySelectorAll('#terminals .session-tab')].map((t) => t.dataset.tabId);
+    assert.deepEqual(tabs, ['term:c', 'term:a', 'term:b']);
+    assert.equal(h.document.querySelectorAll('#terminals .pane').length, 1, 'and all in ONE pane');
+  } finally { h.destroy(); }
+});
+
+test('#369: a session the order does not name still arrives, at the end', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.mount('b');
+    // 'b' was mounted after the order was captured — dropping it would lose a live session.
+    h.panes.applySettings({ sessionDisplayMode: 'panes' }, { adoptOrder: ['a'] });
+    await h.settle();
+    const tabs = [...h.document.querySelectorAll('#terminals .session-tab')].map((t) => t.dataset.tabId);
+    assert.deepEqual(tabs, ['term:a', 'term:b']);
+  } finally { h.destroy(); }
+});
+
+test('#369: an order naming a session that is gone does not strand the rest', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.panes.applySettings({ sessionDisplayMode: 'panes' }, { adoptOrder: ['ghost', 'a'] });
+    await h.settle();
+    const tabs = [...h.document.querySelectorAll('#terminals .session-tab')].map((t) => t.dataset.tabId);
+    assert.deepEqual(tabs, ['term:a']);
+  } finally { h.destroy(); }
+});
+
+test('#369: the order is spent by one switch and does not reorder later adoptions', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.mount('b');
+    h.panes.applySettings({ sessionDisplayMode: 'panes' }, { adoptOrder: ['b', 'a'] });
+    await h.settle();
+    assert.deepEqual(
+      [...h.document.querySelectorAll('#terminals .session-tab')].map((t) => t.dataset.tabId),
+      ['term:b', 'term:a'],
+    );
+    // A session mounted afterwards lands where a mount always lands, not back through the old order.
+    await h.open('c');
+    await h.settle();
+    const tabs = [...h.document.querySelectorAll('#terminals .session-tab')].map((t) => t.dataset.tabId);
+    assert.equal(tabs.length, 3);
+    assert.equal(tabs[0], 'term:b', 'the switch order is not re-applied');
+  } finally { h.destroy(); }
+});
+
 test('#379: a window with no session of its own starts with no tab', async () => {
   // A window opened on a VIEW, or one the last run left behind, has no session (#370). Building the
   // opening tab from that `null` made a real tab — nameless, nothing behind it, and saved into the

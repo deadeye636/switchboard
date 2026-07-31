@@ -197,35 +197,39 @@ if (typeof module !== 'undefined' && module.exports) {
       const stored = g.liveRenderBackground !== undefined ? g.liveRenderBackground : g.tabsLiveRender;
       window._setLiveRenderBackground(stored !== false);
     }
+    // Leaving grid FOR panes: the order the cards were in on screen, captured before anything tears
+    // the mosaic down (#369). `unwrapGridCards` clears that map, so this is the last moment it can be
+    // read — and panes adopts in mount order otherwise, which is not what the user was looking at.
+    const leavingGrid = initialized && prevMode !== displayMode && displayMode === 'panes';
+    const adoptOrder = (leavingGrid && typeof gridCards !== 'undefined' && gridCards && gridCards.size)
+      ? [...gridCards.keys()]
+      : null;
+
     // Panes mode owns the terminal area itself (#309): it enables on 'panes' and
     // hands every container back to #terminals on any other mode. Run it before
     // the grid scoping below, so a switch out of panes restores the single view
     // into a #terminals that already holds the containers again.
-    if (window.panesView) window.panesView.applySettings(g);
+    if (window.panesView) window.panesView.applySettings(g, adoptOrder ? { adoptOrder } : undefined);
 
-    // Tabs mode is single-view only; the grid mosaic belongs to grid mode. On a real
-    // user mode switch, scope the grid per mode WITHOUT losing the grid-mode mosaic
-    // preference (saved separately so grid mode keeps its mosaic). Skip on the first
-    // apply (startup) — the persisted gridViewActive already matches the mode.
+    // A mode switch carries the open sessions across (#369). Skip on the first apply (startup) — the
+    // persisted `gridViewActive` already matches the mode, and forcing the mosaic there would override
+    // what the user last left on screen.
     if (initialized && prevMode !== displayMode) {
       if (displayMode === 'panes') {
-        try { localStorage.setItem('gridModePref', localStorage.getItem('gridViewActive') || '0'); } catch { /* ignore */ }
+        // The mosaic belongs to grid alone: `#terminals` is the pane tree's host here, and a mosaic
+        // switched on inside panes wrecks the layout for good (#343). The sessions are not lost by
+        // this — panes adopts every mounted session that has no tab yet, into one pane, which is what
+        // the arriving set should look like.
         if (typeof gridViewActive !== 'undefined' && gridViewActive && typeof toggleGridView === 'function') {
           toggleGridView(); // hide grid → single (persists gridViewActive=0)
         }
-      } else {
-        let pref = '0';
-        try { pref = localStorage.getItem('gridModePref') || '0'; } catch { /* ignore */ }
-        if (pref === '1' && typeof gridViewActive !== 'undefined' && !gridViewActive && typeof toggleGridView === 'function') {
-          toggleGridView(); // restore grid mode's mosaic
-        } else if (typeof returnToTerminal === 'function') {
-          // Grid-mode single view: re-establish the view explicitly. Tabs CSS paints
-          // all containers regardless of `.visible`, so tabs can sit in a
-          // zero-`.visible` state; grid-mode CSS shows only `.visible`, so without
-          // this the area goes blank. returnToTerminal shows the active session (or
-          // the placeholder).
-          returnToTerminal();
-        }
+      } else if (typeof showGridView === 'function') {
+        // …and coming back the other way, ALWAYS the mosaic. This used to restore grid's own last
+        // mosaic/single preference, so a switch out of panes could land in the single view — where
+        // there are no cards, and therefore nothing on screen to say that the other sessions are
+        // still open. That is what made a mode switch look like it had thrown them away (#369).
+        // Grid IS the overview; showing one session is not the reason anyone switches to it.
+        showGridView();
       }
     }
     initialized = true;

@@ -63,6 +63,8 @@ window.__sessionDragId = null;
   // the tab strip, with the session's name and id beside them; 'strip' folds them
   // into the tab strip to save the 33 px. Both show the same actions.
   let toolsPlacement = 'bar';
+  // Set by a mode switch, consumed by the next adoption (#369) — see `adoptOrphans`.
+  let pendingAdoptOrder = null;
   let closeBehavior = 'closeView';     // closeView | stopSession (agent sessions)
   let terminalCloseBehavior = 'kill';  // kill | keep (plain terminals)
   let middleClickCloses = true;
@@ -352,7 +354,18 @@ window.__sessionDragId = null;
   // active pane. This is the single place where a session enters the tree, so
   // the launch restore, a sidebar click and the attention inbox all agree.
   function adoptOrphans() {
-    for (const sessionId of openSessions.keys()) {
+    // `openSessions` is mount order, which is the right answer for everything except a mode switch:
+    // arriving out of grid, the tabs should read the way the cards did (#369). The switch hands that
+    // order in; anything it does not name keeps its place at the end, so a session mounted in the
+    // meantime is never dropped.
+    let order = [...openSessions.keys()];
+    if (pendingAdoptOrder) {
+      const named = pendingAdoptOrder.filter((id) => openSessions.has(id));
+      const seen = new Set(named);
+      order = [...named, ...order.filter((id) => !seen.has(id))];
+      pendingAdoptOrder = null; // one switch, one use
+    }
+    for (const sessionId of order) {
       if (!PaneTree.leafOfTab(tree, tabIdFor(sessionId))) {
         tree = PaneTree.addTab(tree, activeLeaf().id, makeTerminalTab(sessionId));
       }
@@ -3430,8 +3443,15 @@ window.__sessionDragId = null;
     updateStripChrome();
   }
 
-  function applySettings(g) {
+  function applySettings(g, opts) {
     g = g || {};
+    // The order arriving sessions should become tabs in (#369). Handed in by the mode switch, which is
+    // the only caller that knows one — coming out of grid, the tabs should follow the order the cards
+    // were in on screen rather than the order they happened to be mounted in. Read once, by the
+    // adoption below, and dropped: it describes THIS switch and nothing after it.
+    pendingAdoptOrder = (opts && Array.isArray(opts.adoptOrder) && opts.adoptOrder.length)
+      ? opts.adoptOrder.slice()
+      : null;
     const prevPlacement = toolsPlacement;
     toolsPlacement = g.paneToolsPlacement === 'strip' ? 'strip' : 'bar';
     closeBehavior = g.tabCloseBehavior === 'stopSession' ? 'stopSession' : 'closeView';
