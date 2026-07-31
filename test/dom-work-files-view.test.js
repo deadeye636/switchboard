@@ -27,7 +27,6 @@ const INDEX_HTML = `<!DOCTYPE html>
     <div id="memory-viewer"></div>
     <div id="work-files-viewer"></div>
     <div id="stats-viewer"></div>
-    <div id="settings-viewer"></div>
     <div id="jsonl-viewer"></div>
     <div id="timeline-viewer"></div>
     <div id="terminal-area"></div>
@@ -81,7 +80,6 @@ function setupWorkFilesDom() {
     memoryViewer:      window.document.getElementById('memory-viewer'),
     workFilesViewer:   window.document.getElementById('work-files-viewer'),
     statsViewer:       window.document.getElementById('stats-viewer'),
-    settingsViewer:    window.document.getElementById('settings-viewer'),
     jsonlViewer:       window.document.getElementById('jsonl-viewer'),
     timelineViewer:    window.document.getElementById('timeline-viewer'),
     terminalArea:      window.document.getElementById('terminal-area'),

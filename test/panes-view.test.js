@@ -400,7 +400,8 @@ const MAIN_AREA_SURFACES = [
   ['variables', 'variables-admin-content', 'Variables', 'admin'],
   ['stats', 'stats-viewer', 'Activity', 'admin'],
   ['workFiles', 'work-files-viewer', 'Work files', 'viewer'],
-  ['settings', 'settings-viewer', 'Settings', 'viewer'],
+  // Settings was in this list. It is not a main-area surface any more (#365): it opens in a window of
+  // its own, and this page carries neither the element nor the scripts that filled it.
   ['tasks', 'tasks-viewer', 'Tasks', 'viewer'],
   ['bookmarks', 'bookmarks-viewer', 'Bookmarks', 'viewer'],
   ['timeline', 'timeline-viewer', 'Timeline', 'viewer'],

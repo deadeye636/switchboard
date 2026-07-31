@@ -7873,14 +7873,9 @@ body.grid-dragging .grid-card-header {
 #stats-viewer-header .viewer-header-close { margin-left: auto; }
 
 /* --- Session tabs (Phase 1) --- */
-/* Settings pop-out button in the in-app settings header */
+/* The settings header still lays its title out; the pop-out button it made room for is gone with the
+   overlay (#365) — there is nowhere left to pop out TO. */
 #settings-viewer-header { display: flex; align-items: center; gap: 10px; }
-#settings-popout-btn {
-  margin-left: auto;
-  background: none; border: none; color: #9a9ab0; cursor: pointer;
-  font-size: 16px; padding: 2px 8px; border-radius: 4px;
-}
-#settings-popout-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
 
 #session-tabs { display: none; }
 .session-tabs-list {

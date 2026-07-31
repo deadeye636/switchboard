@@ -75,7 +75,7 @@ stored preference survives — the setting stopped being about tabs when panes s
 | `paneToolsPlacement` | Session tools (panes mode) | `bar` \| `strip` | `bar` | global |
 | `paneCloseEmpty` | Close a pane when it becomes empty | `true` \| `false` | `false` | global |
 | `paneBackgroundScrollback` | Scrollback of a background pane tab | `0` (keep all) \| `5000` \| `2000` \| `1000` | `0` | global |
-| `settingsOpenMode` | Open settings as | `overlay` \| `window` | `overlay` | global |
+| ~~`settingsOpenMode`~~ | *removed in #365* | — | — | *the overlay it chose between is gone — settings always open in a window of their own, and a migration takes the stored value out of the global blob* |
 | `sidebarCollapseDefault` | Sidebar on startup | `expanded` \| `collapsed` \| `remember` | `remember` | global |
 | `tabPosition` | Tab position | `top` \| `bottom` | `top` | global |
 | | | *(no effect since #357 — it moved the retired tabs-mode strip; panes draws its own strips per pane. Kept rather than removed, because it is the setting a per-pane version would reuse)* | | |

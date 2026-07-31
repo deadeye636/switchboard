@@ -250,7 +250,9 @@ function dispatchSidebarActivation(e) {
       }
       return;
     }
-    if (t.closest('.project-settings-btn')) { e.stopPropagation(); openSettingsViewer('project', project.projectPath); return; }
+    // A window of its own since #365 — the overlay this used to open is gone, and this window no
+    // longer carries the panel at all.
+    if (t.closest('.project-settings-btn')) { e.stopPropagation(); window.api.openSettingsWindow('project', project.projectPath); return; }
     if (t.closest('.project-favorite-btn')) { e.stopPropagation(); toggleProjectFavorite(project); return; }
     if (t.closest('.project-missing-icon')) { e.stopPropagation(); loadProjects(); return; }
     if (t.closest('.project-remap-btn')) { e.stopPropagation(); remapProject(project); return; }

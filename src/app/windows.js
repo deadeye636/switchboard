@@ -49,23 +49,43 @@ function init(context) {
 //    scratch — seconds, spent staring at that white frame. It is now hidden on close
 //    and kept warm.
 //
-// A hidden window is re-seeded by reloading it, and it has to be: it is a live
+// A hidden window is re-seeded by loading it again, and it has to be: it is a live
 // renderer holding the values it was seeded with, so without that it would reopen
 // showing settings as they were when it was last closed — and a Save from there
 // would write them back over anything changed in the meantime. The reload is also
 // what discards the unsaved edits the destroy used to take with it. It keeps the
 // process, the compiled scripts and the paint, so it costs a fraction of the cold
 // start — and it happens BEFORE the window is shown, never in front of the user.
-function openSettingsWindow() {
+//
+// `scope`/`projectPath` say WHICH settings (#365). They travel in the URL rather than as a message
+// because the re-seed is a load either way, and a load carries its query with it — a message would
+// have to be re-sent on every one of them, and a missed one would show the previous project's
+// settings under the new project's name. A window already showing the same thing is just focused.
+function settingsQuery(scope, projectPath) {
+  const query = { scope: scope === 'project' && projectPath ? 'project' : 'global' };
+  if (query.scope === 'project') query.path = projectPath;
+  return query;
+}
+
+function loadSettings(win, query) {
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'settings.html'), { query });
+}
+
+function openSettingsWindow(scope, projectPath) {
+  const query = settingsQuery(scope, projectPath);
   if (settingsWindow && !settingsWindow.isDestroyed()) {
-    if (settingsWindow.isVisible()) { settingsWindow.focus(); return; }
     const win = settingsWindow;
+    // Showing this already? Then there is nothing to re-seed and nothing to discard — raising it is
+    // the whole of the answer, and reloading would throw away edits in progress.
+    const sameThing = win.isVisible() && win.__settingsQuery === JSON.stringify(query);
+    if (sameThing) { win.focus(); return; }
+    win.__settingsQuery = JSON.stringify(query);
     win.webContents.once('did-finish-load', () => {
       if (win.isDestroyed()) return;
       win.show();
       win.focus();
     });
-    win.webContents.reload();
+    loadSettings(win, query);
     return;
   }
   const mainWindow = ctx.getMainWindow();
@@ -79,7 +99,8 @@ function openSettingsWindow() {
     webPreferences: { preload: path.join(__dirname, '..', 'preload.js'), nodeIntegration: false, contextIsolation: true },
   });
   settingsWindow.setMenu(null);
-  settingsWindow.loadFile(path.join(__dirname, '..', 'renderer', 'settings.html'));
+  settingsWindow.__settingsQuery = JSON.stringify(query);
+  loadSettings(settingsWindow, query);
   settingsWindow.once('ready-to-show', () => {
     if (!settingsWindow || settingsWindow.isDestroyed()) return;
     settingsWindow.show();
@@ -399,7 +420,7 @@ function applyMainZoom(level) {
 }
 
 function registerIpc(ipc = ipcMain) {
-  ipc.on('open-settings-window', () => openSettingsWindow());
+  ipc.on('open-settings-window', (_event, scope, projectPath) => openSettingsWindow(scope, projectPath));
 
   // Cancel/Save in the standalone settings window (#175). The renderer used to call
   // window.close(), which destroys the window without ever emitting 'close' — there is

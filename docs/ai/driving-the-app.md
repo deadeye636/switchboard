@@ -27,7 +27,7 @@ would do. Give the renderer a second after launch; a query fired too early answe
 ## `drive-app.js` talks to the FIRST page — unless you name one
 
 Every command attaches to the first target CDP lists, which is normally `index.html`. Open a standalone
-window — settings (`settingsOpenMode: 'window'`), a changes window, a diff window (#287) — and it may go
+window — settings (always its own window since #365), a changes window, a diff window (#287) — and it may go
 to the front of that list, so the next `eval` runs in **that** window and a selector from the main UI
 comes back empty. Nothing errors; you just get an answer about the wrong page.
 

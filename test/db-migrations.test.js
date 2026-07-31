@@ -45,6 +45,9 @@ const SHIPPED = [
   'a8bd71745eb6', // [12]
   'cc0dc7b32f2c', // [13]
   '39d49d2bf6f0', // [14]
+  '6ba2dd5bdb74', // [15] session_cache.lineageKind
+  'a07b8d654f86', // [16] idx_session_cache_projectPath (#224)
+  '58e4b4cfb89b', // [17] drops settingsOpenMode from the global blob (#365)
 ];
 
 function fingerprint(fn) {

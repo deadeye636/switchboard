@@ -35,7 +35,6 @@ const HTML = `<!DOCTYPE html><html><body>
     <div id="projects-viewer" style="display:none"></div>
     <div id="variables-admin-content" style="display:none"></div>
     <div id="work-files-viewer" style="display:none"></div>
-    <div id="settings-viewer" style="display:none"></div>
     <div id="tasks-viewer" style="display:none"></div>
     <div id="bookmarks-viewer" style="display:none"></div>
     <div id="timeline-viewer" style="display:none"></div>
@@ -177,7 +176,7 @@ function setupPanesDom(opts = {}) {
       // The real one hides every main-area surface at once and puts the terminal area back. Stubbing
       // it as a counter alone would hide the observer cascade a real teardown produces.
       for (const id of ['jsonl-viewer', 'plan-viewer', 'stats-viewer', 'memory-viewer', 'projects-viewer',
-        'work-files-viewer', 'settings-viewer', 'tasks-viewer', 'bookmarks-viewer', 'timeline-viewer']) {
+        'work-files-viewer', 'tasks-viewer', 'bookmarks-viewer', 'timeline-viewer']) {
         const el = window.document.getElementById(id);
         if (el) el.style.display = 'none';
       }

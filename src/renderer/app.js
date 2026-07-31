@@ -72,7 +72,8 @@ const workFilesPanel = new ViewerPanel(workFilesViewer, {
   },
 });
 const terminalArea = document.getElementById('terminal-area');
-const settingsViewer = document.getElementById('settings-viewer');
+// `settingsViewer` was here. The overlay is gone (#365) — this page has no `#settings-viewer`, so the
+// const would be null and every `.style.display` on it a TypeError.
 const globalSettingsBtn = document.getElementById('global-settings-btn');
 const addProjectBtn = document.getElementById('add-project-btn');
 const resortBtn = document.getElementById('resort-btn');
@@ -654,14 +655,10 @@ if (springCleaningBtn) {
 
 // --- Global settings gear button ---
 globalSettingsBtn.innerHTML = ICONS.gear(18);
-globalSettingsBtn.addEventListener('click', async () => {
-  // Default action respects the settingsOpenMode preference: in-app overlay or
-  // a standalone window.
-  let mode = 'overlay';
-  try { mode = (await window.api.getSetting('global'))?.settingsOpenMode || 'overlay'; } catch {}
-  if (mode === 'window') window.api.openSettingsWindow();
-  else openSettingsViewer('global');
-});
+// Always a window of its own (#365). It used to be a choice, and the overlay it chose between covered
+// the app while it was open — the wrong shape for a panel consulted while looking at a session, and a
+// second layout of the same screen to keep working as the settings grow.
+globalSettingsBtn.addEventListener('click', () => window.api.openSettingsWindow('global'));
 
 // --- Add project button ---
 addProjectBtn.addEventListener('click', () => {
@@ -1722,14 +1719,8 @@ async function reapplyGlobalSettings() {
     });
   }
 
-  // Settings pop-out: open the standalone settings window, close the in-app overlay.
-  const popoutBtn = document.getElementById('settings-popout-btn');
-  if (popoutBtn) {
-    popoutBtn.addEventListener('click', () => {
-      window.api.openSettingsWindow();
-      if (typeof window.closeSettingsViewer === 'function') window.closeSettingsViewer();
-    });
-  }
+  // The settings pop-out button was here. It moved the panel from the overlay into a window of its
+  // own, and with the overlay gone (#365) there is nothing to move: settings open in that window.
   if (window.api && typeof window.api.onSettingsChanged === 'function') {
     window.api.onSettingsChanged(reapplyGlobalSettings);
   }

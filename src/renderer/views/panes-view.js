@@ -105,7 +105,8 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     projects: { hostId: 'projects-viewer', title: 'Projects', watched: true, close: 'admin', load: 'loadProjectsAdmin' },
     variables: { hostId: 'variables-admin-content', title: 'Variables', watched: true, close: 'admin', load: 'loadVariablesAdmin' },
     workFiles: { hostId: 'work-files-viewer', title: 'Work files', watched: true, load: 'loadWorkFiles' },
-    settings: { hostId: 'settings-viewer', title: 'Settings', watched: true },
+    // `settings` was here. It hosted the overlay element, and the overlay is gone (#365): settings
+    // open in a window of their own, which is not a surface a pane can adopt.
     tasks: { hostId: 'tasks-viewer', title: 'Tasks', watched: true },
     bookmarks: { hostId: 'bookmarks-viewer', title: 'Bookmarks', watched: true },
     timeline: { hostId: 'timeline-viewer', title: 'Timeline', watched: true },

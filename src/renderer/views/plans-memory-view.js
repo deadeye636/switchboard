@@ -1,7 +1,7 @@
 // --- Plans & Memory viewers ---
 // Depends on globals: cachedPlans, plansContent, planPanel, planViewer,
 // memoryContent, memoryPanel, memoryViewer, placeholder, terminalArea,
-// statsViewer, settingsViewer, jsonlViewer, timelineViewer (app.js)
+// statsViewer, jsonlViewer, timelineViewer (app.js)
 // Depends on: formatDate (utils.js)
 
 let currentPlanContent = "";
@@ -152,7 +152,6 @@ function hideAllViewers() {
   if (typeof projectsViewer !== 'undefined' && projectsViewer) projectsViewer.style.display = 'none';
   if (typeof tasksViewer !== 'undefined' && tasksViewer) tasksViewer.style.display = 'none';
   if (typeof bookmarksViewer !== 'undefined' && bookmarksViewer) bookmarksViewer.style.display = 'none';
-  settingsViewer.style.display = 'none';
   jsonlViewer.style.display = 'none';
   timelineViewer.style.display = 'none';
   terminalArea.style.display = '';

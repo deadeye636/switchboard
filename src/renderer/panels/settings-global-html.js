@@ -56,7 +56,7 @@
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
-      secretRefSweepValue, settingsOpenModeValue, shellProfileValue, shellProfiles,
+      secretRefSweepValue, shellProfileValue, shellProfiles,
       stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
       orphanSubagentMaxAgeDaysValue,
       tabAutoCloseDelayValue, tabAutoCloseModeValue,
@@ -75,7 +75,7 @@
           <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">6</span></button>
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item settings-nav-sub" data-cat="tools">Terminal tools</button>
-          <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">12</span></button>
+          <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">11</span></button>
           <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">11</span></button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
           <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
@@ -469,18 +469,6 @@
                       <option value="5000" ${paneBackgroundScrollbackValue === '5000' ? 'selected' : ''}>5,000 lines</option>
                       <option value="2000" ${paneBackgroundScrollbackValue === '2000' ? 'selected' : ''}>2,000 lines</option>
                       <option value="1000" ${paneBackgroundScrollbackValue === '1000' ? 'selected' : ''}>1,000 lines</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Open settings as</span>
-                    <div class="settings-description">Overlay in the main window, or a separate window.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <select class="settings-select" id="sv-settings-open-mode">
-                      <option value="overlay" ${settingsOpenModeValue === 'overlay' ? 'selected' : ''}>Overlay</option>
-                      <option value="window" ${settingsOpenModeValue === 'window' ? 'selected' : ''}>Separate window</option>
                     </select>
                   </div>
                 </div>

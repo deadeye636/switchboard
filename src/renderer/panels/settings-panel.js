@@ -12,36 +12,20 @@
   let viewerGeneration = 0;
   // Owns the document-level listeners of the panel currently rendered (see openSettingsViewer).
   let viewerListeners = new AbortController();
-  const viewerIsOpen = () => (window.__SETTINGS_WINDOW__
-    ? !document.hidden                                   // the window is hidden, not closed (#175)
-    : settingsViewer.style.display !== 'none');
+  // The window is hidden, not closed (#175) — and since #365 this panel only ever runs in that
+  // window, so there is no second answer to give.
+  const viewerIsOpen = () => !document.hidden;
 
   function closeSettingsViewer() {
     viewerGeneration++;
     viewerListeners.abort();   // nothing of the closed panel keeps listening (see openSettingsViewer)
-    // Standalone settings window: there is no terminal area to restore — put the window
-    // away. Hiding rather than closing keeps the renderer warm for the next open (#175);
-    // window.close() would destroy it, and main cannot intercept that.
-    if (window.__SETTINGS_WINDOW__) {
-      if (typeof window.api.hideSettingsWindow === 'function') window.api.hideSettingsWindow();
-      else { try { window.close(); } catch {} }
-      return;
-    }
-    settingsViewer.style.display = 'none';
-    const terminalArea = document.getElementById('terminal-area');
-    const terminalHeader = document.getElementById('terminal-header');
-    const placeholder = document.getElementById('placeholder');
-    const gridViewActive = localStorage.getItem('gridViewActive') === '1';
-    const activeSessionId = sessionStorage.getItem('activeSessionId') || null;
-    // Check if there's an active session with an open terminal
-    if (activeSessionId && window._openSessions && window._openSessions.has(activeSessionId)) {
-      terminalArea.style.display = '';
-      terminalHeader.style.display = '';
-    } else if (gridViewActive) {
-      terminalArea.style.display = '';
-    } else {
-      placeholder.style.display = '';
-    }
+    // Put the window away. Hiding rather than closing keeps the renderer warm for the next open
+    // (#175); window.close() would destroy it, and main cannot intercept that.
+    //
+    // The branch that restored the main window's terminal area was here, for when this panel was an
+    // overlay inside it. That is gone with the overlay (#365): this page has nothing behind it.
+    if (typeof window.api.hideSettingsWindow === 'function') window.api.hideSettingsWindow();
+    else { try { window.close(); } catch {} }
   }
 
   async function openSettingsViewer(scope, projectPath) {
@@ -219,7 +203,6 @@
     // moment it is empty, and shrink the scrollback of a pane tab that is not on top.
     const paneCloseEmptyValue = fieldValue('paneCloseEmpty', false);
     const paneBackgroundScrollbackValue = String(fieldValue('paneBackgroundScrollback', 0) || 0);
-    const settingsOpenModeValue = fieldValue('settingsOpenMode', 'overlay');
     const collapseDefaultValue = fieldValue('sidebarCollapseDefault', 'remember');
     // #277 VCS chip (global): master switch, poll interval, untracked counting.
     const vcsChipEnabledValue = fieldValue('vcsChipEnabled', true);
@@ -436,7 +419,7 @@
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
-        secretRefSweepValue, settingsOpenModeValue, shellProfileValue, shellProfiles,
+        secretRefSweepValue, shellProfileValue, shellProfiles,
         stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
         orphanSubagentMaxAgeDaysValue,
         tabAutoCloseDelayValue, tabAutoCloseModeValue,
@@ -742,7 +725,9 @@
           if (conptyEl) settings.conptyBackend = conptyEl.value === 'system' ? 'system' : 'bundled';
         }
         settings.terminalCloseBehavior = settingsViewerBody.querySelector('#sv-terminal-close-behavior').value || 'kill';
-        settings.settingsOpenMode = settingsViewerBody.querySelector('#sv-settings-open-mode').value || 'overlay';
+        // `settingsOpenMode` was written here. Settings open in a window of their own and there is
+        // nothing left to choose (#365); a migration takes the stored value out of the blob, so a
+        // save from here does not put it back.
         settings.sidebarCollapseDefault = settingsViewerBody.querySelector('#sv-collapse-default').value || 'remember';
         // #277 VCS chip settings (global).
         settings.vcsChipEnabled = !!settingsViewerBody.querySelector('#sv-vcs-enabled')?.checked;

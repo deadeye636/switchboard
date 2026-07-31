@@ -73,7 +73,9 @@ contextBridge.exposeInMainWorld('api', {
   tagDefDelete: (kind, name) => ipcRenderer.invoke('tag-def-delete', kind, name),
   setLogLevel: (level) => ipcRenderer.invoke('set-log-level', level),
   // Settings pop-out window (Phase 2)
-  openSettingsWindow: () => ipcRenderer.send('open-settings-window'),
+  // Settings always open in a window of their own (#365). `scope` is 'global' or 'project'; a project
+  // scope carries the path whose settings to show.
+  openSettingsWindow: (scope, projectPath) => ipcRenderer.send('open-settings-window', scope, projectPath),
   // Closing the window kills every running session. Main cancels the close, asks here — in the app's own
   // dialog, not a Windows system box — and closes again if the answer is yes.
   onConfirmClose: (cb) => ipcRenderer.on('confirm-close', (_e, warning) => cb(warning)),

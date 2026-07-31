@@ -370,6 +370,25 @@ const migrations = [
   (db) => {
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_projectPath ON session_cache(projectPath)'); } catch {}
   },
+
+  // Drop `settingsOpenMode` from the global settings blob (#365). Settings used to open either as an
+  // overlay inside the main window or as a window of their own; only the window is left, so the key
+  // names a choice that no longer exists. Nothing reads it any more, which is exactly why it should
+  // not sit there: the next reader of that blob would have to work out whether it still means
+  // something, and the honest answer has to be in the data rather than in a comment.
+  //
+  // Rewrites the row only when the key is actually present — an untouched blob must not be re-encoded
+  // for nothing, and a database that never had the setting is left byte-identical.
+  (db) => {
+    try {
+      const row = db.prepare("SELECT value FROM settings WHERE key = 'global'").get();
+      if (!row || !row.value) return;
+      const global = JSON.parse(row.value);
+      if (!global || typeof global !== 'object' || !('settingsOpenMode' in global)) return;
+      delete global.settingsOpenMode;
+      db.prepare("UPDATE settings SET value = ? WHERE key = 'global'").run(JSON.stringify(global));
+    } catch { /* an unreadable blob is not worth failing a migration over */ }
+  },
 ];
 
 /**

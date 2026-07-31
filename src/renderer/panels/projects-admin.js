@@ -430,9 +430,9 @@
       } else if (action === 'favorite') {
         await window.api.toggleProjectFavorite(path);
       } else if (action === 'settings') {
-        // The same viewer the sidebar's project-settings button opens (#203) — one panel, one path, no
-        // new IPC. settings-panel.js exposes it globally and loads before this view.
-        if (typeof window.openSettingsViewer === 'function') window.openSettingsViewer('project', path);
+        // The same panel the sidebar's project-settings button opens (#203) — one path for both. It is
+        // a window of its own since #365; this renderer no longer carries the panel at all.
+        window.api.openSettingsWindow('project', path);
         return; // opening a panel changes no row — skip the table reload below
       } else if (action === 'allowlist') {
         // On the list, or not. This is what "add a project" finally means — a project with no sessions
