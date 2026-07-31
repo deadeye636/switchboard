@@ -507,7 +507,21 @@ function focusAttentionItem(item) {
 // Focus the next session needing attention (wrap-around handled by the helper).
 function focusNextAttention() {
   if (typeof getNextAttentionInboxItem !== 'function') return;
-  const next = getNextAttentionInboxItem(getAllKnownSessionsForStatus(), statusRuntime(), activeSessionId);
+  // Every session the app knows of — except in a window of its own, which can only show the ones it
+  // holds (#394). The shortcut would otherwise pick a session that lives in another window and focus
+  // nothing, and since #395 gave such a window real status to work with, that stopped being
+  // theoretical.
+  //
+  // The set comes from detach-window.js rather than from `openSessions` directly: that map holds
+  // MOUNTED terminals, so a dormant tab — a session this window shows with a Launch placeholder, and
+  // one that can still be flagged, since the flags outlive a pty exit (#259) — would be unreachable.
+  const detached = typeof window.isDetachedWindow === 'function' && window.isDetachedWindow();
+  let candidates = getAllKnownSessionsForStatus();
+  if (detached && typeof window.sessionIdsInThisWindow === 'function') {
+    const mine = new Set(window.sessionIdsInThisWindow());
+    candidates = candidates.filter((s) => mine.has(s.sessionId));
+  }
+  const next = getNextAttentionInboxItem(candidates, statusRuntime(), activeSessionId);
   focusAttentionItem(next);
 }
 

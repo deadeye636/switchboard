@@ -320,20 +320,31 @@ if (isOwnWindow) document.body.classList.add('detached-window');
   }
 
   /**
+   * Which sessions does THIS window hold? One answer, because it was derived twice and the second
+   * caller (#394) got it subtly wrong.
+   *
+   * In panes mode the layout is the authority and `openSessions` is not (#366). That map holds mounted
+   * terminals only, so a session that is not running is missing from it entirely — its tab is in the
+   * window, drawn with a Launch placeholder, and the user can select it. Naming the window from
+   * `openSessions` skipped straight past the selected tab to whichever running session happened to be
+   * first; scoping the next-attention shortcut with it made a dormant tab unreachable, although a
+   * stopped session can very much still be flagged (the flags outlive a pty exit, #259). Outside panes
+   * mode there are no dormant tabs, so `openSessions` IS the set and stays the answer.
+   */
+  function sessionIdsInThisWindow() {
+    const panes = (window.panesView && window.panesView.active()) ? window.panesView : null;
+    return panes ? panes.sessionIdsInLayout() : [...openSessions.keys()];
+  }
+  window.sessionIdsInThisWindow = sessionIdsInThisWindow;
+
+  /**
    * Name the window after what it holds: the session it is SHOWING, plus a count of the rest.
    * Doubles as the place `__detachedSessionId` follows the set, since both answer the same question.
-   *
-   * In panes mode the layout is the authority on both halves, and `openSessions` is not (#366). It
-   * holds mounted terminals only, so a session that is not running is missing from it entirely — its
-   * tab is in the window, drawn with a Launch placeholder, and the user can select it. Naming the
-   * window from `openSessions` therefore skipped straight past the selected tab to whichever running
-   * session happened to be first, and undercounted the rest. Outside panes mode there are no dormant
-   * tabs, so `openSessions` IS the set and stays the answer.
    */
   function updateDetachedWindowTitle() {
     if (!isOwnWindow) return; // the main window titles itself
     const panes = (window.panesView && window.panesView.active()) ? window.panesView : null;
-    const ids = panes ? panes.sessionIdsInLayout() : [...openSessions.keys()];
+    const ids = sessionIdsInThisWindow();
     if (!ids.length) {
       // No session at all. Either this window holds only views (#370) — name it after them, the same
       // shape a session set is named with — or it is mid-handover, and there the last name is a
