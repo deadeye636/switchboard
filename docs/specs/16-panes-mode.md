@@ -300,6 +300,64 @@ its pty-title span: `onTerminalNotification` writes the CLI's OSC-9 notification
 (`shell/session-ipc.js`), so removing it would drop a signal nobody asked to remove. The header loses
 the id and gains the project like the pane bar does.
 
+### 4.2b A view tab may leave its window (#364)
+
+A view tab drags like a session tab: onto another window it opens there, and dropping it on empty
+space says why it cannot yet — a window boots around a session, so one holding nothing but a view does
+not exist. Nothing is handed over. Every window loads the same `index.html`, so each already has its
+own `#jsonl-viewer`, `#projects-viewer` and the rest; the **singleton is per window, not per app**. The
+target opens its own element and the source closes its own, which is why this is a message
+(`open-view-in-window`) and not the release/re-register/adopt dance a session move needs.
+
+**Not every kind may go, and the rule is DERIVED rather than listed.** A view travels exactly when the
+window receiving it can put something in it: it must be a **singleton**, and it must **name a loader**.
+An instanced kind's host is looked up and never created (`filePanelHostFor` is a plain map read), so an
+arriving preview finds no host and renders nothing while the sender has already closed its own. A kind
+with no loader arrives blank, because the sidebar is what fills these surfaces locally and a delivered
+view has nobody to do it — Messages, Settings, Tasks, Bookmarks and Timeline are per-session or
+per-scope, so a zero-argument loader cannot express what they should show, and they stay until it can.
+The first cut of this listed exceptions instead and let five kinds through that arrived empty; deriving
+it from the capability is what stops the rule drifting from what the code can actually do.
+
+Two things had to be added for it to arrive at all, and both were found by clicking:
+
+- **The view arrives empty otherwise.** The sidebar fills these surfaces on the way in — that is what
+  "opening" one means there. A view arriving from elsewhere has nobody to do it, so a kind that travels
+  names its own loader (`load` in `VIEW_KINDS`) and the arrival calls it.
+- **`webContents.send` to a window that is still loading is dropped, silently, by Electron.** A window
+  made by the same gesture is exactly that window. Main waits for `did-finish-load` before delivering —
+  no amount of retrying in the target helps when nothing ever reaches it, and the sender has already let
+  go of its own tab.
+
+**A diff never leaves.** It holds an unresolved MCP `tools/call` that only the renderer showing it can
+answer (§4.3: every path that drops one must answer it, or the CLI hangs until the bridge times out ten
+minutes later). Handing it over would strand that obligation in a renderer that never took it on — so it
+stays, and "Move pane to new window" names it before anything moves, which is what that question is for.
+Everything else in the pane travels with the pane, views included; before #364 they were silently left
+behind, so moving "the whole pane" moved only part of it.
+
+**The open file travels with a singleton view.** An instanced kind carries its subject in the tab id
+(`<kind>:<ref>`), a singleton has nowhere to put it — so a moved Memory or Plan arrived showing an empty
+editor. The mover asks the view which file it has open and sends it along, and the receiving side opens
+it through the same function the relay below uses.
+
+**Memory, Plans and Work files are steered from the sidebar, and a detached window has none** (§2 of
+spec 17 puts it in the main window on purpose). They travel anyway, and main relays the sidebar's pick
+to whichever window holds the view (`view-host-changed` to register, `route-view-file` to deliver). The
+registry is deliberately not `detachedWindows`: that one answers "where do this session's bytes go" and
+is verified constantly by output the user can see, while this answers a rare question whose staleness is
+invisible. So an entry is dropped the moment the window says so or the window dies — never inferred,
+never repaired by guessing. "The window says so" has to mean **every** path that takes a view down, not
+just the tab's own close: closing a whole pane and leaving panes mode both bypass `closeViewTab`, and
+both report for themselves. The second is the one that cannot self-heal — it tears down the observer
+that would otherwise notice. A pick that was delivered elsewhere says so in the window it was made in,
+because a click whose effect lands on another monitor and says nothing reads as a click that did nothing.
+
+The alternative was to make those three self-contained the way Projects and Activity are — list, filter
+and editor in one surface — which also fixes "two files side by side", which the relay does not. It was
+considered at length and not chosen: the file list stays where the user already looks for it. The cost
+is one relay and its edge cases instead of three rebuilt views.
+
 ### 4.3 Preview and diff
 
 Today `file-panel.js` builds `#terminal-split` at startup, moves `#terminals` into it and puts the

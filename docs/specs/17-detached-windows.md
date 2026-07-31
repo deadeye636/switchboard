@@ -47,6 +47,7 @@ by **session**, so several keys pointing at one window was already legal.
 | a whole PANE → a window of its own | "Move pane to new window" in the pane menu (#340) — detach the first tab, then move the rest to where it went |
 | a tab DRAGGED onto another window | the tear-off gesture (#352) resolved against `window-at-screen-point` (#360) |
 | a tab DROPPED on empty space | a window of its own, on the display it was dropped on (#362, #363) |
+| one of the app's own VIEWS onto another window | it opens there and closes here (#364) — nothing is handed over, both windows have their own copy of the element |
 
 One handler serves all three (`move-session-to-window`), and the order inside it is the invariant of
 §3 in miniature: **release, re-register, adopt.** The giving window is told to let go first, *or* two
@@ -94,6 +95,12 @@ Four consequences worth stating:
   it. The session does already have a window of its own, so "give it one" is satisfied — but the drop
   point is discarded, and moving that window to where the user dropped it would be a different
   operation (moving a window, not detaching a session). Left as it is until someone asks for it.
+- **A window with no sidebar cannot steer a sidebar-driven view, so main relays the pick** (#364).
+  Memory, Plans and Work files pick their file in the sidebar, which lives here by design — so once one
+  of them sits in another window, `route-view-file` delivers the click to whichever window holds it, and
+  the clicking window says where it went. The register (`view-host-changed`) is reported by the window
+  that shows the view, never inferred: main guessing from what it last sent is how a routing table goes
+  stale in a way nobody notices until a click lands nowhere.
 - **A drag cannot cross a window boundary, so main answers where it ended** (#360). HTML5 drag and
   drop is per renderer process: the far window never sees a `drop`, and the near one only knows the
   pointer left its own box. `window-at-screen-point` turns that into a window id — the same id

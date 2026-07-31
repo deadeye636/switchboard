@@ -1594,32 +1594,39 @@ test('moving a pane takes every session in it — the first makes the window, th
   } finally { h.destroy(); }
 });
 
-test('a pane holding a view tab says what stays before it moves anything (#340)', async () => {
+test('a pane holding a view tab moves the view too, and asks nothing (#340, #364)', async () => {
   const h = setupPanesDom();
   try {
     h.enable();
     await h.open('a');
     await h.open('b');
-    h.panes.openViewTab('jsonl', { nearSessionId: 'a' });
+    // A kind that may travel: singleton and it names a loader. Messages does not — it is per-session,
+    // so a zero-argument loader cannot say what it should show.
+    h.panes.openViewTab('memory', { nearSessionId: 'a' });
     await h.settle();
     const calls = stubWindowMoves(h);
+    const views = [];
+    h.window.api.openViewInWindow = (...args) => { views.push(args); return Promise.resolve({ ok: true }); };
 
     h.document.querySelector('.pane-more-btn').click();
     await h.settle();
     menuItem(h, 'Move pane to new window').click();
     await h.settle();
+    await h.settle();
 
-    assert.equal(h.calls.dialogs.length, 1, 'it asked');
-    assert.match(h.calls.dialogs[0].message, /Messages stays/, 'and named what cannot come along');
+    // #364 made a view travel. Nothing is left behind any more, so there is nothing to warn about —
+    // the question existed only to name what could not come along.
+    assert.equal(h.calls.dialogs.length, 0, 'nothing stays, so nothing is asked');
     assert.deepEqual(calls.detached, ['a']);
     assert.deepEqual(calls.moved, [['b', '7']]);
-    // The view tab is still where it was: a singleton belongs to this renderer, and moving it is not
-    // something the other window could take.
-    assert.ok(h.panes.hasViewTab('jsonl'), 'the view stayed in the pane it was in');
+    assert.equal(views.length, 1, 'the view followed the sessions');
+    assert.equal(views[0][1], 'memory');
+    assert.equal(views[0][0], '7', 'into the window the first session made');
+    assert.equal(h.panes.hasViewTab('memory'), false, 'and this window let go of it');
   } finally { h.destroy(); }
 });
 
-test('cancelling that question moves nothing at all (#340)', async () => {
+test('a pane that would leave something behind still asks first (#340)', async () => {
   const h = setupPanesDom();
   try {
     h.enable();
@@ -1628,13 +1635,17 @@ test('cancelling that question moves nothing at all (#340)', async () => {
     await h.settle();
     const calls = stubWindowMoves(h);
     h.answers.confirm = false;
+    // A view travels since #364, so make one that must NOT: a diff owes the CLI an answer only this
+    // renderer can give (spec 16 §4.3), so it stays and is named before anything moves.
+    h.panes.openViewTab('diff', { ref: 'diff-1' });
+    await h.settle();
+    h.window.api.openViewInWindow = () => Promise.resolve({ ok: true });
 
     h.document.querySelector('.pane-more-btn').click();
     await h.settle();
     menuItem(h, 'Move pane to new window').click();
     await h.settle();
 
-    assert.equal(h.calls.dialogs.length, 1);
     assert.deepEqual(calls.detached, [], 'a cancel is a real cancel — the question comes before anything runs');
     assert.deepEqual(calls.moved, []);
   } finally { h.destroy(); }
@@ -2007,7 +2018,7 @@ test('a drop inside the window is not a tear-off (#352)', async () => {
   } finally { h.destroy(); }
 });
 
-test('a view tab dragged out says why instead of vanishing (#352)', async () => {
+test('a view that cannot be filled elsewhere says so instead of vanishing (#352, #364)', async () => {
   const h = setupPanesDom();
   try {
     h.enable();
@@ -2025,9 +2036,11 @@ test('a view tab dragged out says why instead of vanishing (#352)', async () => 
     dragEndAt(h, viewTab, { screenX: 1400, screenY: 400 });
     await h.settle();
 
-    assert.deepEqual(detached, [], 'the element belongs to this renderer');
+    assert.deepEqual(detached, [], 'a view is not a session and never detaches');
     assert.equal(h.calls.toasts.length, 1, 'and the drag ending nowhere is explained');
-    assert.match(h.calls.toasts[0].message, /stays in the window/);
+    // #364 let views travel — but only the ones a receiving window can fill. Messages is per-session,
+    // so no zero-argument loader can say what it should show, and it stays.
+    assert.match(h.calls.toasts[0].message, /cannot be filled in another window/);
     assert.ok(h.panes.hasViewTab('jsonl'), 'the tab is still there');
   } finally { h.destroy(); }
 });
@@ -2670,5 +2683,135 @@ test('a stored tabs mode turns panes on, in one pane (#357)', async () => {
     // One pane is what tabs mode rendered, so that is what the upgrade has to produce.
     assert.equal(h.document.querySelectorAll('.pane').length, 1);
     assert.deepEqual([...h.panes.sessionIdsInLayout()], ['live-1']);
+  } finally { h.destroy(); }
+});
+
+// --- #364: a view tab can move to another window ---
+
+test('a view dropped on another window opens there and closes here (#364)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.openViewTab('memory');
+    await h.settle();
+    windowBox(h);
+    const sent = [];
+    h.window.api.openViewInWindow = (windowId, kind, ref) => {
+      sent.push([windowId, kind, ref]);
+      return Promise.resolve({ ok: true });
+    };
+    h.window.api.windowAtScreenPoint = () => Promise.resolve('2'); // it landed on another window
+
+    const viewTab = h.document.querySelector('.pane-strip .session-tab-view');
+    const start = new h.window.MouseEvent('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(start, 'dataTransfer', { value: { setData() {}, types: [], effectAllowed: '' } });
+    viewTab.dispatchEvent(start);
+    dragEndAt(h, viewTab, { screenX: 1400, screenY: 400 });
+    await h.settle();
+    await h.settle();
+
+    assert.equal(sent.length, 1);
+    assert.deepEqual([...sent[0]], ['2', 'memory', null], 'the kind travels, not the element');
+    assert.equal(h.panes.hasViewTab('memory'), false, 'and this window lets go of its own');
+  } finally { h.destroy(); }
+});
+
+test('a view that failed to arrive is not closed here (#364)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.openViewTab('memory');
+    await h.settle();
+    windowBox(h);
+    h.window.api.openViewInWindow = () => Promise.resolve({ ok: false, error: 'no such window' });
+    h.window.api.windowAtScreenPoint = () => Promise.resolve('2');
+
+    const viewTab = h.document.querySelector('.pane-strip .session-tab-view');
+    const start = new h.window.MouseEvent('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(start, 'dataTransfer', { value: { setData() {}, types: [], effectAllowed: '' } });
+    viewTab.dispatchEvent(start);
+    dragEndAt(h, viewTab, { screenX: 1400, screenY: 400 });
+    await h.settle();
+    await h.settle();
+
+    // Closing it anyway would be a view the user has to go and find again, after a failure they
+    // never saw.
+    assert.ok(h.panes.hasViewTab('memory'), 'it stays where it is');
+    assert.equal(h.calls.toasts.length, 1);
+    assert.match(h.calls.toasts[0].message, /Could not move/);
+  } finally { h.destroy(); }
+});
+
+test('a view tab holds the same dot slot as a session tab, carrying no state (#364)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.openViewTab('jsonl');
+    await h.settle();
+
+    const viewTab = h.document.querySelector('.pane-strip .session-tab-view');
+    const dot = viewTab.querySelector('.session-tab-dot');
+    assert.ok(dot, 'the slot is there, so the labels line up with the session tabs beside it');
+    assert.equal(dot.classList.contains('session-tab-dot-none'), true);
+    assert.equal(/status-/.test(dot.className), false, 'a view has no process and must not claim a state');
+  } finally { h.destroy(); }
+});
+
+test('a sidebar-steered view may leave the window too (#364)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.openViewTab('memory');
+    await h.settle();
+    windowBox(h);
+    const sent = [];
+    h.window.api.openViewInWindow = (...args) => { sent.push(args); return Promise.resolve({ ok: true }); };
+    h.window.api.windowAtScreenPoint = () => Promise.resolve('2');
+
+    const viewTab = h.document.querySelector('.pane-strip .session-tab-view');
+    const start = new h.window.MouseEvent('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(start, 'dataTransfer', { value: { setData() {}, types: [], effectAllowed: '' } });
+    viewTab.dispatchEvent(start);
+    dragEndAt(h, viewTab, { screenX: 1400, screenY: 400 });
+    await h.settle();
+    await h.settle();
+
+    // It used to be refused: the file list is in the sidebar and a detached window has none, so the
+    // editor would arrive with nothing to steer it. Main relays the sidebar's pick to whichever
+    // window holds the view instead, so the restriction is gone.
+    assert.equal(sent.length, 1);
+    // windowId, kind, ref, and the open file — a singleton has no ref to carry its file in, so the
+    // file travels beside it or the view arrives blank.
+    assert.equal(sent[0][0], '2');
+    assert.equal(sent[0][1], 'memory');
+    assert.equal(sent[0][2], null);
+    assert.equal(h.panes.hasViewTab('memory'), false);
+  } finally { h.destroy(); }
+});
+
+test('only a view another window could fill may leave (#364)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    await h.settle();
+
+    // The rule is derived, not listed: a singleton that names a loader can be filled on arrival, so
+    // it travels. An instanced kind's host is looked up and never created, and a per-session view has
+    // no zero-argument loader that could say what to show — both would arrive blank or not at all.
+    for (const kind of ['memory', 'plan', 'workFiles', 'stats', 'projects', 'variables']) {
+      assert.equal(h.panes.viewCanLeaveWindow(kind), true, `${kind} names a loader, so it can travel`);
+    }
+    for (const kind of ['jsonl', 'settings', 'tasks', 'bookmarks', 'timeline']) {
+      assert.equal(h.panes.viewCanLeaveWindow(kind), false, `${kind} has no loader — it would arrive blank`);
+    }
+    // A diff owes the CLI an answer only this renderer can give; a preview has no host to be built
+    // from at the far end. Both are instanced, and that is the property the rule reads.
+    assert.equal(h.panes.viewCanLeaveWindow('diff'), false);
+    assert.equal(h.panes.viewCanLeaveWindow('preview'), false);
   } finally { h.destroy(); }
 });

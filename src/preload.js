@@ -92,6 +92,16 @@ contextBridge.exposeInMainWorld('api', {
   isSessionDetached: (sessionId) => ipcRenderer.invoke('is-session-detached', sessionId),
   detachedSessionIds: () => ipcRenderer.invoke('detached-session-ids'),
   focusDetachedWindow: (sessionId) => ipcRenderer.invoke('focus-detached-window', sessionId),
+  // Open one of the app's own views in another window (#364). Nothing moves — every window has its
+  // own copy of the viewer elements — so the target opens its own and the caller closes its own.
+  openViewInWindow: (windowId, kind, ref, file) => ipcRenderer.invoke('open-view-in-window', windowId, kind, ref, file),
+  onOpenView: (cb) => ipcRenderer.on('open-view', (_e, kind, ref, file) => cb(kind, ref, file)),
+  // A window telling main whether it is showing one of the app's own views (#364), and the sidebar
+  // asking where a picked file should go. `routeViewFile` answers { routed: false } when the view is
+  // in this window, and the caller then does exactly what it always did.
+  viewHostChanged: (kind, hosting) => ipcRenderer.invoke('view-host-changed', kind, !!hosting),
+  routeViewFile: (kind, payload) => ipcRenderer.invoke('route-view-file', kind, payload),
+  onOpenViewFile: (cb) => ipcRenderer.on('open-view-file', (_e, kind, payload) => cb(kind, payload)),
   // Move a session between windows (#316): 'main' or a detached window's id, from `listSessionWindows`.
   moveSessionToWindow: (sessionId, windowId) => ipcRenderer.invoke('move-session-to-window', sessionId, windowId),
   listSessionWindows: (sessionId) => ipcRenderer.invoke('list-session-windows', sessionId),

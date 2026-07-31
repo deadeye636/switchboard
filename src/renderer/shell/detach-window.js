@@ -475,6 +475,75 @@ if (detachedSessionId) document.body.classList.add('detached-window');
     return res.windowId || null;
   };
 
+  /**
+   * The "Move to <window>" block for one of the app's own VIEWS (#364).
+   *
+   * Deliberately not `appendWindowItems`: that one decides things a view has no answer to — whether
+   * the session is running, whether the target can take a dormant one, which direction is the useful
+   * one. A view has none of those states. What it shares is the shape: the window list arrives from
+   * main after the menu is on screen, so each late entry is inserted next to the one before it.
+   *
+   * No "new window" entry, and that is not an oversight: a window boots around a session, so one
+   * holding nothing but a view cannot exist yet.
+   */
+  window.appendViewWindowItems = async (tab, moveTo, addItem, isOpen) => {
+    if (typeof addItem !== 'function' || typeof moveTo !== 'function') return;
+    // Every window except this one. Which one THAT is takes a different answer per window: the main
+    // window is the `isMain` entry, while a detached one has no id of its own to compare — so it asks
+    // about a session it holds and lets main mark the holder, which is itself.
+    const here = !!window.isDetachedWindow?.();
+    let windows = [];
+    try { windows = (await window.listSessionWindows(here ? window.__detachedSessionId : null)) || []; }
+    catch { return; }
+    const others = windows.filter((w) => (here ? !w.current : !w.isMain));
+    if (!others.length || (typeof isOpen === 'function' && !isOpen())) return;
+    let cursor = null;
+    for (const target of others) {
+      const label = target.isMain ? 'Move to main window' : `Move to “${target.title}”`;
+      const created = addItem(label, () => moveTo(target.id), cursor ? { before: cursor.nextSibling } : {});
+      cursor = created || cursor;
+    }
+  };
+
+  // A file picked in the MAIN window's sidebar, for a view that lives here (#364). This window has no
+  // sidebar of its own — spec 17 puts it in the main window on purpose — so this is how these three
+  // views are steered at all once they have been moved. The opener is the same function the sidebar
+  // calls locally; nothing about showing the file differs, only who asked.
+  const VIEW_FILE_OPENERS = { memory: 'openMemory', plan: 'openPlan', workFiles: 'openWorkFile' };
+  window.api.onOpenViewFile((kind, payload) => {
+    const name = VIEW_FILE_OPENERS[kind];
+    const open = name && window[name];
+    if (typeof open !== 'function' || !payload) return;
+    try { open(payload); } catch { /* a file that will not open must not take the window with it */ }
+  });
+
+  // A view arriving from another window (#364). Nothing was handed over — the sender closed its own
+  // tab and this window opens its own element, which it has had all along.
+  //
+  // It can arrive before this window is ready for it. A window created by the same drag is still
+  // booting, and panes mode enables a few frames later; dropping the request there loses the view
+  // outright, because the sender has already let go of its own. So it waits for the pane tree, on a
+  // bounded budget — a window that never turns panes on cannot show a view tab at all, and retrying
+  // for ever would leave a timer running in every grid-mode window.
+  const VIEW_ARRIVAL_TRIES = 40;      // ~4 s at the interval below, well past a cold window's boot
+  const VIEW_ARRIVAL_INTERVAL_MS = 100;
+  function acceptView(kind, ref, file, tries = 0) {
+    if (window.panesView && window.panesView.active()) {
+      window.panesView.openViewTab(kind, { ref: ref == null ? null : ref, load: true });
+      // The file the view was showing when it left (#364). Opened after the tab exists, through the
+      // same opener the relay uses — a moved view that arrives blank reads as a move that half worked.
+      if (file) {
+        const name = VIEW_FILE_OPENERS[kind];
+        const open = name && window[name];
+        if (typeof open === 'function') { try { open(file); } catch { /* the tab is there either way */ } }
+      }
+      return;
+    }
+    if (tries >= VIEW_ARRIVAL_TRIES) return; // grid mode, or a window that never came up
+    setTimeout(() => acceptView(kind, ref, file, tries + 1), VIEW_ARRIVAL_INTERVAL_MS);
+  }
+  window.api.onOpenView((kind, ref, file) => acceptView(kind, ref, file));
+
   if (detachedSessionId) {
     // A detached window opens on one session; since #316 it can be given more. The launch restore must
     // not reopen the whole set here — that would mount every session a second time, each one fighting

@@ -11,11 +11,13 @@ const detach = require('../src/app/detach');
 
 // A stand-in for BrowserWindow: records what it was asked, and can be destroyed like the real one.
 let nextWindowId = 1;
-function makeWindowClass(created) {
+function makeWindowClass(created, main) {
   return class FakeWindow {
     // Electron's own static. `sessions-in-my-window` addresses a window by its ASKER, so the test has
-    // to be able to answer "which window is this webContents?" the way the real class does.
+    // to be able to answer "which window is this webContents?" the way the real class does — and that
+    // includes the MAIN window, which is not one of ours but is very much a window Electron knows.
     static fromWebContents(sender) {
+      if (main && sender === main.webContents) return main;
       return created.find((w) => w.webContents === sender) || null;
     }
 
@@ -29,7 +31,15 @@ function makeWindowClass(created) {
       this.listeners = new Map();
       this.loaded = null;
       this.sent = [];
-      this.webContents = { send: (...args) => this.sent.push(args) };
+      // `isLoading` / `once` are what `open-view-in-window` reads (#364): a message sent to a renderer
+      // that has not loaded yet is dropped silently by Electron, so delivery waits for it.
+      this.loading = false;
+      this.loadListeners = [];
+      this.webContents = {
+        send: (...args) => this.sent.push(args),
+        isLoading: () => this.loading,
+        once: (event, fn) => { if (event === 'did-finish-load') this.loadListeners.push(fn); },
+      };
       // Where this window sits on screen. A field rather than a constant, because `window-at-screen-point`
       // (#360) is decided by geometry and every window answering the same rectangle would test nothing.
       this.bounds = { x: 10, y: 20, width: 1200, height: 800 };
@@ -48,6 +58,7 @@ function makeWindowClass(created) {
     restore() { this.minimized = false; }
     getBounds() { return this.bounds; }
     getTitle() { return this.opts.title; }
+    finishLoad() { this.loading = false; const fns = this.loadListeners; this.loadListeners = []; fns.forEach((fn) => fn()); }
   };
 }
 
@@ -81,7 +92,7 @@ function setup({ sessions = ['s1'], quitting = false, screen = undefined } = {})
     getAppQuitting: () => quitting,
     activeSessions,
     log: { info() {}, warn() {} },
-    BrowserWindow: makeWindowClass(created),
+    BrowserWindow: makeWindowClass(created, main),
     screen,
   });
   const ipc = makeIpc();
@@ -756,4 +767,134 @@ test('#363: a session already alone in its window is still just focused', () => 
   assert.deepEqual(res, { ok: true, already: true, windowId: String(created[0].id) });
   assert.equal(created.length, 1, 'it already has a window of its own — nothing to do');
   assert.equal(created[0].focused, 1);
+});
+
+// --- #364: routing a sidebar pick to the window that holds the view ---
+//
+// Memory, Plans and Work files are steered from the sidebar, and a detached window has none. So a
+// view pushed to another window is driven from the main window, and main has to know where it went.
+
+test('#364: a file picked in the sidebar goes to the window holding the view', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const holder = created[0];
+  assert.deepEqual(ipc.callFrom('view-host-changed', holder.webContents, 'memory', true), { ok: true });
+
+  const res = ipc.call('route-view-file', 'memory', { filePath: 'notes/CLAUDE.md' });
+  assert.equal(res.routed, true);
+  assert.equal(res.windowTitle, 'One', 'the answer names the window, so the click can say where it went');
+  assert.deepEqual(holder.sent, [['open-view-file', 'memory', { filePath: 'notes/CLAUDE.md' }]]);
+});
+
+test('#364: a view nobody claims is opened locally, not routed', () => {
+  const { ipc } = setup();
+  assert.deepEqual(ipc.call('route-view-file', 'memory', { filePath: 'x' }), { routed: false });
+});
+
+test('#364: a window that gave the view up stops receiving picks', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const holder = created[0];
+  ipc.callFrom('view-host-changed', holder.webContents, 'memory', true);
+  ipc.callFrom('view-host-changed', holder.webContents, 'memory', false);
+  holder.sent.length = 0;
+
+  assert.equal(ipc.call('route-view-file', 'memory', { filePath: 'x' }).routed, false);
+  assert.deepEqual(holder.sent, [], 'and nothing is sent at a view it no longer shows');
+});
+
+test('#364: a closed window stops receiving picks', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const holder = created[0];
+  ipc.callFrom('view-host-changed', holder.webContents, 'memory', true);
+  holder.destroy();
+
+  // A stale entry here is invisible until a click lands nowhere — which is the whole reason this
+  // registry drops entries rather than repairing them.
+  assert.equal(ipc.call('route-view-file', 'memory', { filePath: 'x' }).routed, false);
+});
+
+test('#364: the asking window is never routed to itself', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const holder = created[0];
+  ipc.callFrom('view-host-changed', holder.webContents, 'memory', true);
+  holder.sent.length = 0;
+
+  // The pick came from the window that holds it — the local path already does the right thing, and
+  // delivering it back would open the file twice.
+  assert.equal(ipc.callFrom('route-view-file', holder.webContents, 'memory', { filePath: 'x' }).routed, false);
+  assert.deepEqual(holder.sent, []);
+});
+
+test('#364: the main window never claims a view — it has the sidebar', () => {
+  const { ipc, main } = setup();
+  const res = ipc.callFrom('view-host-changed', main.webContents, 'memory', true);
+  assert.equal(res.main, true);
+  assert.equal(ipc.call('route-view-file', 'memory', { filePath: 'x' }).routed, false,
+    'a view in the main window is steered locally and needs no routing');
+});
+
+// --- #364: opening one of the app's own views in another window ---
+
+test('#364: a view is opened in the window it was sent to, with its file', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const target = created[0];
+  target.sent.length = 0;
+
+  const res = ipc.call('open-view-in-window', String(target.id), 'memory', null, { filePath: 'notes/CLAUDE.md' });
+  assert.deepEqual(res, { ok: true });
+  // A singleton has no ref to carry its open file in, so the file travels beside the kind — without
+  // it the view arrives showing an empty editor and the move looks half done.
+  assert.deepEqual(target.sent, [['open-view', 'memory', null, { filePath: 'notes/CLAUDE.md' }]]);
+  assert.equal(target.focused, 1, 'and it comes forward, or the move looks like nothing happened');
+});
+
+test('#364: a window that is still loading is not sent to until it has loaded', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const target = created[0];
+  target.sent.length = 0;
+  target.loading = true;
+
+  assert.deepEqual(ipc.call('open-view-in-window', String(target.id), 'memory', null, null), { ok: true });
+  // Electron DROPS a send to a renderer that does not exist yet, silently — and the sender has
+  // already closed its own tab by then, so the view would simply be gone. This is the whole reason
+  // delivery waits.
+  assert.deepEqual(target.sent, [], 'nothing was sent while it was loading');
+
+  target.finishLoad();
+  assert.deepEqual(target.sent, [['open-view', 'memory', null, null]]);
+});
+
+test('#364: a window that died while loading is not sent to at all', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const target = created[0];
+  target.loading = true;
+  ipc.call('open-view-in-window', String(target.id), 'memory', null, null);
+  target.destroyed = true;
+  target.sent.length = 0;
+
+  target.finishLoad();
+  assert.deepEqual(target.sent, [], 'a destroyed window is not written to');
+});
+
+test('#364: a view sent to a window that is gone is refused, not dropped', () => {
+  const { ipc } = setup();
+  assert.deepEqual(ipc.call('open-view-in-window', '999', 'memory', null, null),
+    { ok: false, error: 'no such window' });
+  // The caller closes its own tab only on ok — a refusal is what keeps the view where it is.
+});
+
+test('#364: a view can be sent to the main window too', () => {
+  const { ipc, main } = setup();
+  main.webContents.isLoading = () => false;
+  main.focus = () => { main.focused = (main.focused || 0) + 1; };
+  main.sent.length = 0;
+
+  assert.deepEqual(ipc.call('open-view-in-window', 'main', 'projects', null, null), { ok: true });
+  assert.deepEqual(main.sent, [['open-view', 'projects', null, null]]);
 });

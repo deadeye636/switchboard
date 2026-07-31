@@ -69,8 +69,54 @@ function buildPlanItem(plan) {
   row.appendChild(info);
   item.appendChild(row);
 
-  item.addEventListener('click', () => openPlan(plan));
+  item.addEventListener('click', async () => {
+    if (await routeFileToViewWindow('plan', plan, plan.title || plan.filename || 'Plan')) return;
+    openPlan(plan);
+  });
   return item;
+}
+
+/**
+ * Which file one of these views is currently showing (#364), as the payload its opener takes.
+ *
+ * A view moved to another window arrives empty otherwise: the move carries the KIND, and a singleton
+ * kind has no ref to carry the file in. So the mover asks here and the file travels with it — the
+ * same shape `route-view-file` delivers, so the receiving side has one path, not two.
+ *
+ * Null when nothing is open, which is a real state: a view can be moved before a file was ever picked.
+ */
+function currentViewFilePayload(kind) {
+  if (kind === 'memory') return currentMemoryFilePath ? { filePath: currentMemoryFilePath } : null;
+  if (kind === 'workFiles') return currentWorkFilePath ? { filePath: currentWorkFilePath } : null;
+  if (kind === 'plan') {
+    return currentPlanFilePath
+      ? { filePath: currentPlanFilePath, filename: currentPlanFilename, title: currentPlanFilename }
+      : null;
+  }
+  return null;
+}
+
+/**
+ * Where does a file picked in the sidebar go (#364)?
+ *
+ * These three views are steered from the sidebar and a detached window has none, so a view pushed to
+ * another window is driven from here. Main answers whether it lives elsewhere; if it does, the file
+ * is delivered there and this window says so — a click whose effect happens on another monitor and
+ * says nothing reads as a click that did nothing.
+ *
+ * Answers false when the caller should just do what it always did, which is every case except a view
+ * that has actually been moved away. An older main process, a missing binding or a thrown call all
+ * land there too: the local path is the one that always works.
+ */
+async function routeFileToViewWindow(kind, payload, label) {
+  if (typeof window.api?.routeViewFile !== 'function') return false;
+  let res = null;
+  try { res = await window.api.routeViewFile(kind, payload); } catch { return false; }
+  if (!res || !res.routed) return false;
+  if (typeof showControlToast === 'function') {
+    showControlToast({ message: `${label} opened in “${res.windowTitle}”`, timeoutMs: 2500 });
+  }
+  return true;
 }
 
 async function openPlan(plan) {
@@ -233,7 +279,10 @@ function buildMemoryItem(file) {
 
   item.appendChild(row);
 
-  item.addEventListener('click', () => openMemory(file));
+  item.addEventListener('click', async () => {
+    if (await routeFileToViewWindow('memory', file, file.filename || 'File')) return;
+    openMemory(file);
+  });
   return item;
 }
 
@@ -385,7 +434,10 @@ function buildWorkFileItem(file) {
   row.appendChild(info);
   item.appendChild(row);
 
-  item.addEventListener('click', () => openWorkFile(file));
+  item.addEventListener('click', async () => {
+    if (await routeFileToViewWindow('workFiles', file, file.filename || 'File')) return;
+    openWorkFile(file);
+  });
   return item;
 }
 

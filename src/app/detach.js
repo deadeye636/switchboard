@@ -165,6 +165,33 @@ function sendAdopt(win, sessionId) {
   else sendToMain('session-reattached', sessionId, running);
 }
 
+// --- Which window hosts one of the app's own views (#364) ---
+//
+// Memory, Plans and Work files are steered from the SIDEBAR, and a detached window has none — spec 17
+// §2 puts the sidebar in the main window on purpose. So when one of those views sits in another
+// window, the click that picks a file happens here and the effect has to be delivered there.
+//
+// Deliberately NOT the same thing as `detachedWindows`. That map answers "where do this session's
+// bytes go" and is verified constantly by output the user can see. This one answers a rarer question
+// and its staleness is invisible, so every entry is dropped the moment the window says so, or the
+// window dies — never inferred, never repaired by guessing.
+const viewHosts = new Map(); // kind -> BrowserWindow
+
+/** The window showing this view, if one still says it does. */
+function viewHost(kind) {
+  const win = viewHosts.get(kind);
+  if (win && !win.isDestroyed()) return win;
+  viewHosts.delete(kind);
+  return null;
+}
+
+/** Forget every view a window claimed. Called when it goes, whichever way it goes. */
+function dropViewHost(win) {
+  for (const [kind, held] of [...viewHosts]) {
+    if (held === win) viewHosts.delete(kind);
+  }
+}
+
 /**
  * Where a detached window goes on a given display (#362).
  *
@@ -260,6 +287,9 @@ function createDetachWindow(sessionId, title, screenPoint) {
   // Closing the window hands the session back rather than ending it: the PTY ran through the whole
   // detour and the user closed a VIEW, not a process. Skip on quit — everything is going away anyway.
   win.on('closed', () => {
+    // Whatever views it claimed are no longer anywhere (#364). Dropped before the session handover so
+    // a sidebar click landing in the same tick routes locally rather than at a window that is gone.
+    dropViewHost(win);
     // Every session this window still owns comes back — since #316 that can be more than the one it
     // was opened for. A session whose entry was already removed (the explicit reattach and the move
     // path both delete BEFORE destroying, precisely so this does not fire a second notification) is
@@ -301,6 +331,7 @@ function closeAll() {
   // would let a reattach fire into a renderer that is being torn down.
   const windows = [...detachedWindows.values()];
   detachedWindows.clear();
+  viewHosts.clear(); // #364 — nothing hosts anything once the windows are going
   for (const win of windows) {
     if (win && !win.isDestroyed()) win.destroy();
   }
@@ -409,6 +440,78 @@ function registerIpc(ipc) {
   });
 
   ipc.handle('list-session-windows', (_event, sessionId) => listSessionWindows(sessionId));
+
+  /**
+   * A window reporting that it is (or is no longer) showing one of the app's own views (#364).
+   *
+   * Reported rather than inferred: only the renderer knows whether the tab is really up, and the
+   * alternative — main guessing from what it last sent — is exactly the stale registry this is meant
+   * not to become. The MAIN window never claims a view: it has the sidebar, so a view there is
+   * steered locally and needs no routing at all.
+   */
+  ipc.handle('view-host-changed', (event, kind, hosting) => {
+    if (!kind) return { ok: false };
+    const sender = event && event.sender;
+    const win = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
+    if (!win || win.isDestroyed()) return { ok: false };
+    const main = ctx.getMainWindow();
+    if (win === main) { if (viewHosts.get(kind) === win) viewHosts.delete(kind); return { ok: true, main: true }; }
+    if (hosting) viewHosts.set(kind, win);
+    else if (viewHosts.get(kind) === win) viewHosts.delete(kind);
+    return { ok: true };
+  });
+
+  /**
+   * "I clicked a file in the sidebar — who should show it?" (#364)
+   *
+   * Answers `{ routed: false }` when the view is here, and the caller then does exactly what it did
+   * before. Only a view that has been pushed to another window is delivered, and the answer carries
+   * that window's title so the click can say where it went — a click whose effect lands on another
+   * monitor and says nothing reads as a click that did nothing.
+   */
+  ipc.handle('route-view-file', (event, kind, payload) => {
+    const host = viewHost(kind);
+    if (!host) return { routed: false };
+    const sender = event && event.sender;
+    const asking = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
+    if (asking && asking === host) return { routed: false }; // it is already where the click happened
+    host.webContents.send('open-view-file', kind, payload);
+    host.focus();
+    return { routed: true, windowTitle: host.getTitle() || 'the other window' };
+  });
+
+  /**
+   * Open one of the app's own views in ANOTHER window (#364).
+   *
+   * Nothing is moved. Every window loads the same `index.html`, so each one already has its own
+   * `#jsonl-viewer`, `#projects-viewer` and the rest — the "singleton" is per window, not per app.
+   * What travels is the fact that the view is open: the target opens its own, the asker closes its
+   * own. That is why this is a message and not a handover, and why it needs none of the
+   * release/re-register/adopt ordering a session move does.
+   *
+   * `ref` is the instanced kinds' key (#311) — a file path for a preview, a diff id for a diff — and
+   * is undefined for the singletons. `file` is what a SINGLETON needs instead: the sidebar-driven views
+   * have no ref to carry their open file in, so it travels beside the kind or the view arrives empty.
+   * Both are passed through untouched — what they mean belongs to the renderer that opens them.
+   */
+  ipc.handle('open-view-in-window', (_event, windowId, kind, ref, file) => {
+    if (!kind) return { ok: false, error: 'no kind' };
+    const win = String(windowId) === MAIN_WINDOW_ID ? ctx.getMainWindow() : detachedWindowById(windowId);
+    if (!win || win.isDestroyed()) return { ok: false, error: 'no such window' };
+    // A window made by the same gesture is still loading, and `send` to a renderer that does not
+    // exist yet is DROPPED — silently, by Electron. The caller has already let go of its own tab by
+    // then, so the view would simply be gone. Waiting for the load is the only place this can be
+    // fixed: no amount of retrying in the target renderer helps when nothing ever reaches it.
+    const deliver = () => {
+      if (win.isDestroyed()) return;
+      win.webContents.send('open-view', kind, ref, file);
+      // The move answers a drag; a window that does not come forward looks like nothing happened.
+      win.focus();
+    };
+    if (win.webContents.isLoading()) win.webContents.once('did-finish-load', deliver);
+    else deliver();
+    return { ok: true };
+  });
 
   /**
    * "Which of my windows is at this point on the screen?" (#360)

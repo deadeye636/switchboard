@@ -7915,6 +7915,9 @@ body.grid-dragging .grid-card-header {
    `.status-dot.status-*` rules, so it reads identically to the sidebar (#269). Base grey = a tab with no
    status class reads as idle rather than a seventh off-palette colour (#257). */
 .session-tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--status-idle-dot); flex-shrink: 0; }
+/* A view tab holds the same slot so its label lines up with the session tabs beside it (#364),
+   but a view has no process and must not claim a state. Invisible, not absent. */
+.session-tab-dot-none { background: transparent; }
 
 /* The one tab-specific tweak: the strip is short and clips vertically (overflow-x:auto forces
    overflow-y), so the needs-attention ripple is scaled down to stay inside the tab instead of the
