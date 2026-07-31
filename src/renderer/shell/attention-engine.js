@@ -5,6 +5,9 @@
 // announceAttentionSummary (the screen-reader live region), and the synthesized attention chime
 // (playAttentionSound / maybePlayAttentionSound). Came out of app.js.
 //
+// It also owns `raisesAttention` — the one answer to "may THIS window announce", read by the chime here
+// and by native-notifications.js for the badge, the tray and the notification (#390).
+//
 // It is FEATURE code, not the wiring app.js keeps. What stays in app.js is the STATE it works on and the
 // wiring it drives — because half the renderer reads those, not because they belong together:
 //   attentionSessions / responseReadySessions   Sets, 15 external readers each (session-status,
@@ -82,7 +85,18 @@ function playAttentionSound() {
   }
 }
 
+// Announcing is the MAIN window's job and only its own (#390). Every window that loads the shell runs
+// this engine, so a window of its own reaches the badge, the tray and the chime exactly as readily —
+// and `set-badge` / `set-tray-summary` ignore which window sent them, so the last writer wins. Its
+// attention sets are always empty today, so all it does is silently reset what main just set; the
+// moment such a window learns about a waiting session (#395) it would announce it a second time.
+//
+// A function, not a value: `window.isDetachedWindow` comes from detach-window.js, which loads AFTER
+// this file, so the answer has to be read at call time.
+const raisesAttention = () => !(typeof window.isDetachedWindow === 'function' && window.isDetachedWindow());
+
 function maybePlayAttentionSound(prevAttention, nextAttention) {
+  if (!raisesAttention()) return;
   if (typeof shouldPlayAttentionSound !== 'function') return;
   const settings = {
     sound: !!(appGlobalSettings.notifications && appGlobalSettings.notifications.sound),

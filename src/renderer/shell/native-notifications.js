@@ -27,6 +27,7 @@
 //   app.js                          sessionMap, attentionSessions, responseReadySessions, openSession,
 //                                   clearNotifications, getAllKnownSessionsForStatus
 //   shell/notification-policy.js    decideNotifications (UMD → window property)
+//   shell/attention-engine.js       raisesAttention — may THIS window announce at all (#390)
 
 // --- Native notification + dock badge + tray funnel (Spec 01) ---
 // Every attention/ready transition reaches refreshSessionStatusViews(), which
@@ -58,6 +59,11 @@ function buildTraySummary() {
 }
 
 function syncNativeNotifications() {
+  // One inbox, one badge, one tray tooltip — the main window's (#390). A window of its own runs this
+  // file too, with attention sets that are always empty, and `set-badge` / `set-tray-summary` do not
+  // look at the sender: without this line it clears the count main just set. `raisesAttention` lives in
+  // attention-engine.js, which loads well before this file.
+  if (typeof raisesAttention === 'function' && !raisesAttention()) return;
   if (typeof decideNotifications !== 'function' || !window.api) return;
   const next = {
     attention: new Set(attentionSessions),
