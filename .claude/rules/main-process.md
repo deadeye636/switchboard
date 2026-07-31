@@ -24,14 +24,36 @@ machine — #386; one global fact, because every renderer has its own `windowFoc
 the others) and `terminal/` (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow
 control, plus the PTY pure-logic).
 
-## One channel routes per session: `terminal-data` (#2)
+## What routes per session, and what stays in main (#2, #393, #395)
 
 A session can live in a window of its own. `app/detach.js` owns the map and answers
-`windowForSession(id)`; `spawn.js` asks it through ctx and uses the answer for **`terminal-data`
-only**. Everything else — `cli-busy-state`, `terminal-notification`, `session-forked`,
-`process-exited` for the sidebar's copy — goes to the main window, because that is where the sidebar,
-the attention inbox and the badges live. Route those too and the badges stop appearing for exactly
-the session the user pushed onto the other monitor.
+`windowForSession(id)`. What follows the session:
+
+| Routed to the window that renders the session | Why |
+|---|---|
+| `terminal-data` | the bytes belong to the terminal showing them |
+| `mcp-open-diff` / `mcp-open-file` / `mcp-close-tab` / `mcp-close-all-diffs` (#393) | a review opens where the user is looking and is answered in the terminal underneath it |
+| `timeline-signal` (#395) | that window's own timeline and status — **record-only by contract** |
+
+Everything else — `cli-busy-state`, `terminal-notification`, `attention-signal`, `session-forked`,
+`process-exited` for the sidebar's copy — goes to the **main window**, because that is where the
+sidebar, the attention inbox and the badges live. Route those too and the badges stop appearing for
+exactly the session the user pushed onto the other monitor.
+
+**The one-inbox rule has three layers, and only two are structural.** `timeline-signal`'s handler
+(`recordAttentionSignal`) has no path to the attention sets, the chime or the notification, so what
+arrives there *cannot* raise — that holds whoever calls it. `raisesAttention` (#390) gates the four
+OS-facing surfaces on top. What is **convention** is the third: that the raising channels above are
+addressed to `getMainWindow()` at their producers. Nothing enforces it. Parameterising one of those
+sends is a change to this rule, not a refactor.
+
+**Routing a review costs an obligation (#393).** A diff can now live in a window whose ordinary
+lifecycle ends while the CLI's `tools/call` is still open, so each pending diff records the window its
+view was **sent** to — deliberately not "the window that renders the session", because the view does not
+follow a session that moves. `detach.js`'s `closed` handler calls `rejectPendingDiffsForWindow` **first**,
+before the session handover the CLI would otherwise wait through; `did-start-navigation` does the same
+for a reload; and `hasPendingDiffsForWindow` stops the auto-close from taking a window down under an
+open review (grid mode reports no views, so nothing else would notice one).
 
 The corollary bites in the renderer: **nothing may mount a session that is detached**, and there are
 more mount paths than `openSession` (`attachRunningSession`, the grid's auto-open). Two xterms on one
@@ -48,6 +70,11 @@ detached → detached. Four things follow, and `docs/specs/17-detached-windows.m
 - `session-reattached` carries a `running` flag from `activeSessions`. The renderer must not answer
   that question itself — its `activePtyIds` is a poll that backs off to 30 s in an idle window, and
   adopting a dead session resumes its CLI.
+- …and a `busy` flag beside it (#395). A session that is busy and *stays* busy sends no new edge, so a
+  window taking one mid-turn would draw a visibly working session as idle until the turn happened to
+  end. The renderer applies it through `setActivity`, never the record half: that file runs in the main
+  window too, and the carried flag comes from the title-spinner latch the ready-guard exists to
+  disbelieve (#252).
 - **`reattach-session` no longer exists.** It was `move-session-to-window(id, 'main')` with a window
   destroy hard-coded, which is wrong for a window holding more than one session.
 - **A move does NOT require a live process, and do not put that guard back (#332).** It was there, it

@@ -157,10 +157,11 @@ with the **lifecycle kinds** — `started`, `exited`, `stopped`, `forked` — wh
 its recap was not dead, but it rendered only when one of those happened, and could never say that
 something was waiting.
 
-**The files touched are still missing, and that half is NOT fixed.** `servers/mcp-bridge.js` addresses
-the main window, so `recordFileTouched` never fires in a window of its own — this section used to claim
-that window could show the files, which was never true. Where those notices *should* go is its own open
-decision (#393); resolving the window per send rather than capturing it at spawn time is done (#392).
+**The files touched were missing too, and that half is fixed as a side effect.** `servers/mcp-bridge.js`
+addressed the main window, so `recordFileTouched` never fired in a window of its own — this section once
+claimed that window could show the files, which was never true. #392 made the bridge resolve its window
+per send instead of capturing one, and #393 made that window the one that RENDERS the session. Since the
+handlers in `shell/session-ipc.js` run in every window, the touched files now land where the session is.
 
 **The fix, and why not the cheap one.** Relaying `cli-busy-state` itself was rejected and stays
 rejected: it hands that window's engine a badge, a sidebar update and a notification path — a second

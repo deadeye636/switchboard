@@ -137,7 +137,7 @@ view with syntax highlighting.
 
 ![IDE emulation](docs/images/ide-diff.png)
 
-Switchboard registers itself as an IDE for the Claude CLI, so a proposed edit lands in a side panel
+Switchboard registers itself as an IDE for the Claude CLI, so a proposed edit lands above the terminal of the session that asked for it — in whichever window that session lives in
 next to the terminal instead of being sent to an external editor. Review it inline or side by side,
 accept or reject whole files or individual chunks, or edit the result before it is applied. Switch it
 off in the settings and the CLI goes back to discovering your real editor.

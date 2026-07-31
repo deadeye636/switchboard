@@ -64,12 +64,12 @@ event when more than three tags arrive at once. Always `git push origin refs/tag
 pattern for a published release is dotted, `Switchboard.Setup.<version>.exe`). The win target is
 **x64-only** (arm64 toolchain not available on this machine). Full procedure + the VS 2026 gotchas: `docs/build-windows.md`.
 
-One workaround is per-shell and not patchable — winpty's gyp step fails without it:
+One workaround is per-shell and not patchable — node-pty's build step fails without it:
 
 ```
 unset NoDefaultCurrentDirectoryInExePath && npm run build:win
 ```
 
 The other two are durable in-repo: `"overrides": { "node-gyp": "13.0.0" }` in `package.json`, and
-`patches/node-pty+1.1.0.patch` (Spectre mitigation off) re-applied by the `postinstall` hook. Don't
+`patches/node-pty+1.2.0-beta.14.patch` (Spectre mitigation off) re-applied by the `postinstall` hook. Don't
 remove either.

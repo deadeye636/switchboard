@@ -109,6 +109,20 @@ Its Claude-home reader **and writer** was one of the four modules that composed 
 call from `SWITCHBOARD_STORE_CLAUDE`, never from `os.homedir()` (#241), or an isolated instance drops
 its locks where the user's real CLI finds them.
 
+Three things about the bridge that cost something to learn:
+
+- **`startMcpServer` takes a GETTER, never a window** (#392). The ctx rule that says so is written for
+  `src/app/**` and `src/watch/**`, so it never covered this directory — which is exactly where it was
+  violated. A bridge outlives a window reopen, and the captured one addressed a window that no longer
+  existed: nothing appeared, nothing errored, and every diff sat out its full ten-minute timeout.
+- **A pending diff records `pending.win`** — the window its view was **sent** to, deliberately not the
+  one that renders the session, because the view does not follow a session that moves. Whatever destroys
+  that window must answer for it: `rejectPendingDiffsForWindow`, and `hasPendingDiffsForWindow` so the
+  app does not take a window down under a review the user is deciding on (#393).
+- **`handleMessage` dispatches `tools/call` WITHOUT awaiting**, so one session can have several diffs
+  open at once. That is why the renderer pages between reviews instead of showing one (#398) — a
+  "concurrency fix" here would quietly break that.
+
 Anything moved here takes `ctx`, not a top-level `require('electron')`, or it cannot be tested — see
 `.claude/rules/main-process.md`. The scheduler used to live here and was removed in #246; spec 14
 records how it worked, and `docs/ai/lessons.md` records what it cost.

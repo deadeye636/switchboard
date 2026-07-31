@@ -342,10 +342,13 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   way: **Return to main window** in that window's menu, or the sidebar row's own button — a detached
   session is marked `⧉` there and its row raises the window instead of opening it twice. A session can
   also move **into any window that is already open**, so a second monitor can carry several of them;
-  a window that gives away its last session closes, and closing one by hand hands everything it holds
-  back. The PTY never moves: only the window that receives its output changes, so the session runs
-  through the whole detour. Its status, attention badge and sidebar row stay in the main window, where
-  they belong.
+  a window that gives away its last session closes — unless it still holds a view or a review nobody
+  has answered (#393) — and closing one by hand hands everything it holds back, answering any open
+  review first. The PTY never moves: only the window that receives its output changes, so the session
+  runs through the whole detour. Its **attention inbox, badge and sidebar row** stay in the main window,
+  and so does "Ready for review", which says something is waiting for *you*. Its own **status** does
+  not: since #395 a window of its own learns what its sessions are doing, so its tabs show "Working"
+  and its away recap has something to report (#390 keeps it from announcing any of it).
 - **Panes** (#309, #312, #313, #318, #321) — a third display mode that splits the terminal area into a
   VS-Code-style tree of panes, each with its own tab strip. Drag a tab onto a pane's edge to split,
   onto its middle to move it there — a caret marks the gap it will land in — and sashes resize; the

@@ -82,9 +82,11 @@ loading — so the bridge defers to `did-finish-load`, the same way `open-view-i
 `closeAllDiffTabs` tells every window that was showing one, since several diffs of one session can sit
 in different windows.
 
-What is still **not** covered, and is the honest remaining hole: a window RELOAD destroys the view
-without a `closed` event, so that diff falls back to the timeout. It did before this change too, in the
-main window — the difference is that a reload of a second window is a likelier gesture.
+A window RELOAD was the remaining hole and is closed too (#393 follow-up): it destroys the view without
+a `closed` event, and an instanced view cannot be rebuilt from restored state, so the diff would have
+waited out the full timeout for something already gone. `did-start-navigation` answers it instead; an
+in-place navigation is not a teardown. Reloading a second window is a likelier gesture than reloading
+main, which is why this was worth closing rather than documenting.
 
 ## 2b · A window owns sessions, not a session (#314, #315, #316)
 
@@ -445,7 +447,7 @@ has no tab there, and clicking its sidebar row raises its window.
 
 ## 7 · Tests
 
-`test/detach-routing.test.js` (105) covers the routing and the state machine without Electron —
+`test/detach-routing.test.js` (123) covers the routing and the state machine without Electron —
 `BrowserWindow` arrives through ctx for exactly that reason. It pins per-session routing, the window's
 shape (no `parent`: a child window is always on top, which defeats a second monitor; no background
 throttling), double detach, reattach, close-by-hand, quit, `closeAll` off the quit path, a window

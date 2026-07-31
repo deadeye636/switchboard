@@ -100,6 +100,28 @@ renderer to look finished, and one whose author forgot rendered a blank line. De
 descriptor and project it through `backends-list`. Same for artwork (`icon`), the Endpoint fields
 (`endpointEnv`) and backend-owned extras (`integrations`).
 
+## Only the main window announces (#390)
+
+Every window loads the same shell, so every window runs the attention engine and the notification
+funnel — and `set-badge` / `set-tray-summary` do not look at which window sent them. A window of its own
+therefore sent "0 waiting" and cleared what main had just set.
+
+`raisesAttention` in `shell/attention-engine.js` is the one answer to "may THIS window announce". It
+gates exactly four surfaces: the badge, the tray summary, the native notification and the attention
+chime. **A new OS-facing surface has to consult it**, or it fires from every window. It deliberately
+fails open — a missing identity answer announces — because a silenced main window is the worse failure.
+
+Recording is not gated: a window of its own still learns and records everything about its own sessions.
+What it must not do is announce.
+
+## `openSessions` is NOT "the sessions this window holds" (#394)
+
+It holds **mounted terminals**. In panes mode a dormant session is in the window — drawn with a Launch
+placeholder, selectable, and still flaggable, because the flags outlive a pty exit (#259) — and it is
+not in that map. `window.sessionIdsInThisWindow()` (`shell/detach-window.js`) is the answer: the panes
+layout when panes mode is on, `openSessions` otherwise. It was derived twice before it was named, and
+the second derivation got it wrong.
+
 ## A new control inherits NO styling
 
 A button with only a behaviour class renders as the browser's native control — a white box with
@@ -124,9 +146,13 @@ is how the app loses its only preview panel:**
 - **Instanced kinds** (`preview`, `diff`, since #311) — one instance per thing shown, built by
   `file-panel.js` (`createPanelInstance`) and keyed `<kind>:<ref>` (file path / diff id). They have **no
   home**: created with their tab, destroyed with it, so they must never go through `viewHomes` /
-  `releaseViewElement` / `hideViewElement`. **A `diff` has no tab at all since #398** — it rides with its
-  session's tab (`buildPane` asks `filePanelReviewHostFor`), because a review is read on top and answered
-  in the terminal underneath it. Several reviews of one session share that surface and are paged. Every path that destroys a diff instance has to ANSWER it
+  `releaseViewElement` / `hideViewElement`.
+- **A `diff` has no tab at all since #398.** It rides with its session's tab (`buildPane` asks
+  `filePanelReviewHostFor`), because a review is read on top and answered in the terminal underneath it —
+  the accept/reject buttons are the CLI's. Several reviews of one session share that surface and are
+  paged, with a counter, because the bridge dispatches tool calls without awaiting the previous one. The
+  obligation that comes with having no tab: **whatever takes the surface away must answer the review** —
+  the session's tab close, the pane close, an answered review freeing its own surface. Every path that destroys a diff instance has to ANSWER it
   (`mcpDiffResponse(..., 'reject')`) unless the CLI already decided — otherwise its `tools/call` hangs for
   ten minutes. `docs/specs/16-panes-mode.md` §4.3 has the full rule set.
 
