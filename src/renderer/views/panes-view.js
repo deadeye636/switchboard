@@ -1883,6 +1883,9 @@ window.__sessionDragId = null;
       }
       const sessionId = sessionOfTab(tab);
       if (!sessionId) continue;
+      // The pane going takes each session's review surface with it (#398) — same rule as closing one
+      // tab, and unanswered here means a CLI blocked on a question nothing can show any more.
+      window.filePanelCloseSessionReviews?.(sessionId);
       if (closeStopsProcess(sessionId)) { try { window.api.stopSession(sessionId); } catch { /* already gone */ } }
       if (typeof destroySession === 'function') destroySession(sessionId);
     }
@@ -2019,6 +2022,10 @@ window.__sessionDragId = null;
   // Close one session's tab. Mirrors tabs mode: the view goes, the PTY survives —
   // unless the close behaviour says otherwise for this kind of session.
   function closeSessionTab(sessionId) {
+    // A review rides with this tab (#398), so closing the tab takes its surface away. Nothing else can
+    // reach it afterwards — answer it here, or its CLI waits out the full timeout for a question the
+    // user can no longer see. Before the teardown, because the CLI is blocked while it happens.
+    window.filePanelCloseSessionReviews?.(sessionId);
     if (closeStopsProcess(sessionId)) { try { window.api.stopSession(sessionId); } catch { /* ignore */ } }
     if (typeof destroySession === 'function') destroySession(sessionId); // → dropSession()
     showActiveOrPlaceholder();

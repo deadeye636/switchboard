@@ -78,12 +78,13 @@ test('Accept answers the bridge, and only once', async () => {
     h.q('.file-panel-accept-btn').click();
     // The merge viewer hands back exactly `newContent`, so this is an unedited accept.
     assert.deepEqual(h.calls.diffResponses, [['s1', 'diff-1', 'accept', null]]);
-    assert.equal(h.q('.fp-actions').style.display, 'none', 'the row goes — the question is answered');
 
-    // A second press must not answer twice: the CLI's tools/call is already resolved, and the bridge
-    // would drop it — but the panel is what has to know that.
-    h.q('.file-panel-accept-btn')?.click();
-    assert.equal(h.calls.diffResponses.length, 1);
+    // An answered review gives the surface back (#398) — it used to sit there until the CLI took it
+    // down, which left half a terminal covered by a settled question. Closing it must not answer a
+    // second time.
+    assert.equal(h.qa('.fp-content').length, 0, 'the review is gone');
+    assert.equal(h.calls.diffResponses.length, 1, 'and closing it said nothing more');
+    assert.equal(h.state('s1').currentTab, null);
   } finally { h.destroy(); }
 });
 
@@ -583,5 +584,60 @@ test('closing the visible review puts the waiting one on screen', async () => {
     assert.match(h.state('s1').shownKey, /diff-1$/, 'the one still waiting takes the surface');
     assert.equal(h.qa('.fp-review-pager')[0].style.display, 'none',
       'and with one left there is nothing to page through again');
+  } finally { h.destroy(); }
+});
+
+test('closing a session tab answers every review it still holds (#398)', async () => {
+  // A review has no tab of its own any more, so once its session's tab is gone nothing can reach it —
+  // invisible AND unanswered is the one state that blocks a CLI for the full timeout.
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.ipc.openDiff('s1', 'diff-1', diffData({ oldFilePath: '/a.js' }));
+    await h.settle();
+    h.ipc.openDiff('s1', 'diff-2', diffData({ oldFilePath: '/b.js', tabName: 'second' }));
+    await h.settle();
+
+    h.window.filePanelCloseSessionReviews('s1');
+
+    assert.deepEqual(h.calls.diffResponses, [
+      ['s1', 'diff-1', 'reject', null],
+      ['s1', 'diff-2', 'reject', null],
+    ], 'both are answered, not just the one that was on screen');
+    assert.equal(h.qa('.fp-content').length, 0);
+  } finally { h.destroy(); }
+});
+
+test('switching into panes mode does not give a review a tab after all (#398)', async () => {
+  // The same defect from the other side: open a review in tabs mode, switch to panes, and the session
+  // had two tabs again — its own and one holding a copy of itself with the diff on top.
+  const h = setupFilePanelDom();
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.ipc.openDiff('s1', 'diff-1', diffData());
+    await h.settle();
+
+    h.window.filePanelReopenInPanes();
+    assert.deepEqual(h.calls.openViewTab, [], 'no tab is claimed for the review');
+  } finally { h.destroy(); }
+});
+
+test('a preview opened over a review does not hide it (#398)', async () => {
+  // The preview takes `shownKey` — it has a tab of its own and does not displace the review, which is
+  // still unanswered and still blocking its CLI.
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.ipc.openDiff('s1', 'diff-1', diffData());
+    await h.settle();
+    h.files.set('/notes.md', 'hi');
+    await h.openFileInPanel('s1', '/notes.md');
+    await h.settle();
+
+    assert.ok(h.window.filePanelReviewHostFor('s1'), 'the review is still reachable by the pane');
+    assert.deepEqual(h.calls.diffResponses, [], 'and it was not answered to make room');
   } finally { h.destroy(); }
 });

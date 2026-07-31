@@ -470,15 +470,34 @@ window.filePanelHostFor = (kind, ref) => {
  * which is why the shown one is a property of the SESSION rather than of a tab.
  */
 window.filePanelReviewHostFor = (sessionId) => {
-  const entry = shownEntryFor(sessionId);
-  if (!entry || entry.kind !== 'diff') return null;
-  return entry.instance.root || null;
+  const shown = shownEntryFor(sessionId);
+  if (shown && shown.kind === 'diff') return shown.instance.root || null;
+  // A preview opened afterwards takes `shownKey` — it has a tab of its own and does not displace the
+  // review. Falling back to the newest open review keeps it on screen: a review that is invisible is
+  // still blocking its CLI, which is the one state this surface must never be in.
+  const reviews = reviewsOf(sessionId);
+  const fallback = reviews[reviews.length - 1];
+  return (fallback && fallback.instance.root) || null;
 };
 
 /** Every open review of a session, oldest first — what the pager pages through. */
 function reviewsOf(sessionId) {
   return entriesOf(sessionId).filter((e) => e.kind === 'diff');
 }
+
+/**
+ * The session's tab is going — answer every review it still holds (#398).
+ *
+ * A review has no tab of its own any more, so nothing else is left to reach it: once its session's tab
+ * is gone it is invisible AND unanswered, and its CLI waits out the full ten-minute timeout. That is the
+ * same shape as a window dying with a review in it (#393), one level down — the surface a review lives
+ * on can disappear without the review being decided, and whoever removes the surface has to answer.
+ *
+ * Rejecting is the honest answer: the user closed the tab instead of deciding.
+ */
+window.filePanelCloseSessionReviews = (sessionId) => {
+  for (const entry of reviewsOf(sessionId)) closePanelTab(entry.key, { keepPanel: true });
+};
 
 /**
  * Move to the review before or after this one, within its own session (#398).
@@ -541,8 +560,14 @@ window.filePanelCloseInstance = (kind, ref) => {
  */
 window.filePanelReopenInPanes = () => {
   for (const entry of panelTabs.values()) {
+    // A review never takes a tab (#398), not even on the way in. Claiming one here was the same defect
+    // reached from the other side: open a review in tabs mode, switch to panes, and the session had two
+    // tabs again — its own and one holding a copy of itself with the diff on top.
+    if (entry.kind === 'diff') continue;
     window.panesView?.openViewTab(entry.kind, { ref: entry.ref, nearSessionId: entry.sessionId });
   }
+  // The reviews come back with the tree instead, placed against their sessions' tabs.
+  window.panesView?.render?.();
 };
 
 /** Tear down what an entry RENDERS, leaving the entry itself in place (a re-target, a mode toggle). */
@@ -803,6 +828,13 @@ function handleDiffAction(entry, action) {
   }
 
   entry.instance.hideDiffActions();
+
+  // An answered review is a settled question, so it gives the surface back (#398). It used to stay put
+  // until the CLI took it down, which was tolerable while it was a tab of its own — one click to
+  // dismiss. Riding with its session it holds half of the terminal instead, and the CLI does not always
+  // send a `close_tab`. Answering with `answer: false` is the point: the decision has just been sent,
+  // and closing must not send a second one. A later `close_tab` for it finds nothing and does nothing.
+  closePanelTab(entry.key, { answer: false });
 }
 
 // ── IDE Emulation Indicator ─────────────────────────────────────────
