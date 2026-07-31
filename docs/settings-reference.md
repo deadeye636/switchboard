@@ -141,6 +141,7 @@ shows the override, or it becomes invisible state.
 | `notifications.sound` | Alert sound | bool | `false` | global |
 | `stickyAttentionInbox` | Keep the attention inbox pinned | bool | `true` | global |
 | `awaySummary` | Show "While you were away" | bool | `true` | global |
+| `awayIdleMinutes` | Count as away after | 1–240 minutes | `10` | global |
 | `runningInbox.mode` | Idle running sessions in the inbox | `until-read` \| `after-finish` \| `timed` \| `always` \| `never` | **see conflicts** | global |
 | `runningInbox.minutes` | Keep finished sessions for (minutes) | 1–120 | `5` | global |
 

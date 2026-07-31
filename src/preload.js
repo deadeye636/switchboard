@@ -183,6 +183,12 @@ contextBridge.exposeInMainWorld('api', {
   // The set moved in ANOTHER window (#382). Never sent to the window that made the change — it has the
   // answer in its own reply, and reloading there would race its own update.
   onSavedVariablesChanged: (cb) => ipcRenderer.on('variables-changed', () => cb()),
+  // Presence (#386). Every window reports focus and input; main is the only place that can tell
+  // whether the USER was away, because each renderer only knows about itself. `send`, not `invoke`:
+  // this is the hot path and nothing waits for an answer. `onPresenceReturned` carries the absence
+  // that just ended — `{ awaySince, awayMs }` — which is what the away recap lists events from.
+  reportPresenceActivity: () => ipcRenderer.send('presence-activity'),
+  onPresenceReturned: (cb) => ipcRenderer.on('presence-returned', (_e, absence) => cb(absence)),
   resolveVariableInsert: (id, sessionId) => ipcRenderer.invoke('resolve-variable-insert', id, sessionId),
 
   browseFolder: () => ipcRenderer.invoke('browse-folder'),

@@ -64,6 +64,44 @@ function awaySummaryEnabled() {
   return !(typeof appGlobalSettings !== 'undefined' && appGlobalSettings.awaySummary === false);
 }
 
+// --- Presence (#386) ---------------------------------------------------------
+//
+// The recap answers "what happened while I was GONE", and it used to be triggered by a focus change on
+// one session — so it fired while you sat there switching sessions, and stayed silent when you walked
+// away from a window that stayed in front. Whether you were away is a fact about the machine, not
+// about a window, so main owns it (`app/presence.js`) and tells every window when an absence ended.
+//
+// `awaySince` is the point events are listed from: everything before it happened while you were here,
+// and the attention inbox is the surface for that. Sessions already shown for THIS absence are
+// remembered, so returning and opening four sessions gives four recaps, and opening one of them again
+// an hour later gives none.
+let currentAbsence = null;
+const absenceShownFor = new Set();
+
+// Every sign of life, throttled — this fires on every keystroke and every pointer move, and the answer
+// only ever changes by minutes. `send`, so nothing waits on it.
+const PRESENCE_REPORT_MS = 15_000;
+let lastPresenceReport = 0;
+function reportPresence() {
+  const now = Date.now();
+  if (now - lastPresenceReport < PRESENCE_REPORT_MS) return;
+  lastPresenceReport = now;
+  try { window.api.reportPresenceActivity?.(); } catch { /* older main process */ }
+}
+// `keydown` and `pointerdown` are the user; `focus` is the window coming back. `mousemove` is
+// deliberately NOT in the list: it fires while a hand rests on a desk that gets nudged, which is
+// exactly the presence this must not infer.
+for (const evt of ['keydown', 'pointerdown', 'wheel']) {
+  window.addEventListener(evt, reportPresence, { capture: true, passive: true });
+}
+window.addEventListener('focus', () => { lastPresenceReport = 0; reportPresence(); });
+
+window.api.onPresenceReturned?.((absence) => {
+  if (!absence || !Number.isFinite(absence.awaySince)) return;
+  currentAbsence = absence;
+  absenceShownFor.clear(); // a new absence — every session may say what it missed
+});
+
 function handleSessionViewed(sessionId) {
   if (!sessionId) return;
   // Still STAMPED when the recap is off, so switching it back on does not report an "away" that
@@ -73,13 +111,20 @@ function handleSessionViewed(sessionId) {
     if (awaySummarySessionId) hideAwaySummary();
     return;
   }
+  // An ABSENCE is the trigger, not a focus change (#386) — and each session says what it missed once
+  // per absence. `lastViewedTime` still gates the very first look at a session: nothing was missed
+  // before you had ever seen it.
   const previous = lastViewedTime.get(sessionId);
+  const away = (currentAbsence && previous && !absenceShownFor.has(sessionId)) ? currentAbsence : null;
   let summary = null;
-  if (previous && !gridViewActive && typeof buildAwaySummary === 'function') {
+  if (away && !gridViewActive && typeof buildAwaySummary === 'function') {
+    absenceShownFor.add(sessionId);
     summary = buildAwaySummary({
       events: getTimelineEvents(sessionTimelineStore, sessionId),
       filesTouched: awaySummaryFilesFor(sessionId),
-      lastViewedAt: previous,
+      // Where the absence started, not where you last looked: everything in between happened while
+      // you were here, and the inbox carried it.
+      lastViewedAt: away.awaySince,
       now: new Date(),
     });
   }

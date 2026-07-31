@@ -275,6 +275,7 @@
 
     // Sticky attention inbox (global only): pin the inbox to the top of the sidebar.
     const awaySummaryValue = !isProject ? current.awaySummary !== false : true;
+    const awayIdleMinutesValue = fieldValue('awayIdleMinutes', 10);
     const stickyAttentionInboxValue = !isProject ? current.stickyAttentionInbox !== false : true;
 
     // Running-in-inbox (global only): how live-but-idle sessions appear in the attention inbox.
@@ -426,6 +427,7 @@
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
         awaySummaryValue,
+        awayIdleMinutesValue,
         stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
         orphanSubagentMaxAgeDaysValue,
         tabAutoCloseDelayValue, tabAutoCloseModeValue,
@@ -762,6 +764,7 @@
         }
         settings.stickyAttentionInbox = !!settingsViewerBody.querySelector('#sv-sticky-attention-inbox')?.checked;
         settings.awaySummary = !!settingsViewerBody.querySelector('#sv-away-summary')?.checked;
+        settings.awayIdleMinutes = Math.max(1, Math.min(240, parseInt(settingsViewerBody.querySelector('#sv-away-idle-minutes')?.value, 10) || 10));
         {
           // The two handoff prompts. Empty, or unchanged from the built-in default ⇒ store '' so the
           // runtime default is used (never freeze a copy of it into the user's settings).

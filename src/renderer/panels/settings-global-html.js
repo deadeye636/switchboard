@@ -58,6 +58,7 @@
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
       awaySummaryValue,
+      awayIdleMinutesValue,
       stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
       orphanSubagentMaxAgeDaysValue,
       tabAutoCloseDelayValue, tabAutoCloseModeValue,
@@ -79,7 +80,7 @@
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">12</span></button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
-          <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">8</span></button>
+          <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">9</span></button>
           <button class="settings-nav-item" data-cat="backends">Backends</button>
           <div class="settings-nav-sep"></div>
           <button class="settings-nav-item" data-cat="shortcuts">Keyboard Shortcuts <span class="settings-nav-count">${SHORTCUT_DEFS.length}</span></button>
@@ -856,6 +857,15 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-away-summary" ${awaySummaryValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Count as away after</span>
+                    <div class="settings-description">How long with no focus and no input anywhere in Switchboard counts as having left the machine.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-away-idle-minutes" min="1" max="240" value="${awayIdleMinutesValue}">
                   </div>
                 </div>
                 <div class="settings-field">

@@ -286,6 +286,18 @@ detach.init({
 });
 detach.registerIpc(ipcMain);
 
+// --- Is the user at the machine (#386) -> app/presence.js ---
+// One global fact, so it cannot live in a renderer: each window knows only about itself. Every window
+// reports focus and input here, and this is what tells them all when an ABSENCE ended.
+const presence = require('./app/presence');
+presence.init({
+  getMainWindow: () => mainWindow,
+  getDetachedWindows: () => [...detach.detachedWindows.values()],
+  getSetting,
+  log,
+});
+presence.registerIpc(ipcMain);
+
 // --- Native notifications, dock/taskbar badge, and tray (Spec 01) -> app/notifications.js ---
 const notifications = require('./app/notifications');
 notifications.init({ getMainWindow: () => mainWindow, log });
