@@ -186,10 +186,16 @@ if (typeof module !== 'undefined' && module.exports) {
     // Leaving grid FOR panes: the order the cards were in on screen, captured before anything tears
     // the mosaic down (#369). `unwrapGridCards` clears that map, so this is the last moment it can be
     // read — and panes adopts in mount order otherwise, which is not what the user was looking at.
-    const leavingGrid = initialized && prevMode !== displayMode && displayMode === 'panes';
+    const switching = initialized && prevMode !== displayMode;
+    const leavingGrid = switching && displayMode === 'panes';
     const adoptOrder = (leavingGrid && typeof gridCards !== 'undefined' && gridCards && gridCards.size)
       ? [...gridCards.keys()]
       : null;
+    // …and the mirror of it, for the other direction. Captured HERE for the same reason: the apply
+    // below switches panes off, and a mode that is off is not a mode that can be asked what its tabs
+    // were in.
+    const leavingPanes = switching && displayMode !== 'panes';
+    const cardOrder = leavingPanes ? (window.panesView?.sessionIdsInLayout?.() || null) : null;
 
     // Panes mode owns the terminal area itself (#309): it enables on 'panes' and
     // hands every container back to #terminals on any other mode. Run it before
@@ -215,7 +221,9 @@ if (typeof module !== 'undefined' && module.exports) {
         // there are no cards, and therefore nothing on screen to say that the other sessions are
         // still open. That is what made a mode switch look like it had thrown them away (#369).
         // Grid IS the overview; showing one session is not the reason anyone switches to it.
-        showGridView();
+        //
+        // The tab order travels with it, so the cards read the way the tabs did.
+        showGridView(cardOrder && cardOrder.length ? { preferredOrder: cardOrder } : undefined);
       }
     }
     initialized = true;

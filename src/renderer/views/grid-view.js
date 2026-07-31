@@ -537,13 +537,21 @@ async function ensureGridActiveSessionsMounted() {
   return mounted > 0;
 }
 
-function showGridView() {
+// `opts.preferredOrder` (#369): the order a mode switch wants the cards in — see the collection below.
+// Every other caller passes nothing and gets the sidebar order it always got.
+function showGridView(opts) {
   // The mosaic belongs to grid mode alone, and THIS is the funnel every entry path runs through —
   // the toggle chord, the boot restore, the launch restore, `showSession`'s grid branch and the
   // auto-mount rebuild (#343). Gating the chord alone left the other four open, and this function
   // also WRITES `gridViewActive` and its localStorage flag: an ungated call is exactly what made the
   // broken state survive the restart.
   if (!gridAllowedInDom(document.body)) return;
+  // A detached window shows the sessions it was given (#2, #316), never the whole set — the mosaic
+  // would auto-mount every running session there, a second xterm on each live PTY. `toggleGridView`
+  // has always refused; this is the funnel, so the refusal belongs here, where every entry path meets
+  // it. A mode switch reaches this one directly (#369), and spec 17 §3 records that both grid paths
+  // were found by review rather than by testing.
+  if (typeof window.isDetachedWindow === 'function' && window.isDetachedWindow()) return;
   // Also reached WITHOUT user input — a rebuild after an auto-mounted session reflows every card
   // (#207). The palette anchors to one terminal's rectangle, so it would end up hanging over a
   // different session's card while still inserting into the one it captured.
@@ -581,13 +589,15 @@ function showGridView() {
 
   // Hide all terminals first, then collect allowed session ids in sidebar order.
   document.querySelectorAll('.terminal-container').forEach(el => el.classList.remove('visible'));
-  const orderedSids = [];
-  const sidebarItems = sidebarContent.querySelectorAll('.session-item[data-session-id]');
-  for (const item of sidebarItems) {
-    const sid = item.dataset.sessionId;
-    if (!openSet.has(sid) || !allowedSet.has(sid)) continue;
-    orderedSids.push(sid);
-  }
+  // Sidebar order, unless a mode switch handed one in (#369) — the rule is `resolveGridCardOrder`,
+  // kept pure in grid-layout.js so it can be tested rather than clicked at.
+  const sidebarOrder = [...sidebarContent.querySelectorAll('.session-item[data-session-id]')]
+    .map((item) => item.dataset.sessionId);
+  const orderedSids = resolveGridCardOrder({
+    preferred: (opts && opts.preferredOrder) || [],
+    sidebarOrder,
+    isEligible: (sid) => openSet.has(sid) && allowedSet.has(sid),
+  });
 
   // Apply persisted order + spans (spec 08).
   const gridWidth = terminalsEl.clientWidth;

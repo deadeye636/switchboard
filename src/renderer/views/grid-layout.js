@@ -72,6 +72,34 @@
     };
   }
 
+  /**
+   * Which cards the mosaic draws, and in what order (#369).
+   *
+   * `sidebarOrder` is what the grid has always used. `preferred` is what a MODE SWITCH hands in — the
+   * order the pane tabs were in — so that arriving out of panes the cards read the way the tabs did
+   * rather than jumping back to sidebar order. Named ids lead, in the order given; everything else
+   * follows in sidebar order, so a session the caller did not know about is never dropped.
+   *
+   * `isEligible` is the open-and-not-filtered test, applied to BOTH lists: a preferred id for a
+   * session that has since closed must not resurrect it.
+   *
+   * This does not override a saved arrangement — `applyLayout` below sorts by the persisted `order`
+   * first, and spec 08's arrangement is the user's. What this decides is the order for everything
+   * that has no saved place, which is every session until the user drags one.
+   */
+  function resolveGridCardOrder({ preferred = [], sidebarOrder = [], isEligible = () => true } = {}) {
+    const out = [];
+    const taken = new Set();
+    for (const list of [preferred, sidebarOrder]) {
+      for (const sessionId of Array.isArray(list) ? list : []) {
+        if (!sessionId || taken.has(sessionId) || !isEligible(sessionId)) continue;
+        taken.add(sessionId);
+        out.push(sessionId);
+      }
+    }
+    return out;
+  }
+
   // Resolve a persisted layout map against the current ordered session ids and
   // available column count. Returns entries sorted by persisted order (stable on
   // the input order for ties), with spans clamped to what currently fits and a
@@ -317,6 +345,7 @@
     calculateGridColumnCount,
     calculateTileColumnCount,
     normalizeSpan,
+    resolveGridCardOrder,
     applyLayout,
     reorder,
     cursorInsertionIndex,

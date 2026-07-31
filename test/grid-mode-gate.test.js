@@ -140,3 +140,31 @@ test('the gate helpers reach grid-view.js as bare globals (#343)', () => {
     assert.equal(typeof g.window.gridAllowedForMode, 'function');
   } finally { g.dom.window.close(); }
 });
+
+// --- #369: the detached-window refusal belongs in the funnel too ---
+//
+// `toggleGridView` has always refused in a window of its own: the mosaic would auto-mount every
+// running session there, a second xterm on each live PTY, and its `gridViewActive` flag lands in the
+// localStorage both windows share. A mode switch reaches `showGridView` directly, past the toggle, so
+// the refusal has to hold at the funnel — spec 17 §3 records that both grid paths were found by
+// review rather than by testing, which is exactly the shape this guards against.
+
+test('#369: showGridView refuses in a window of its own', () => {
+  const g = loadGridView('');
+  try {
+    Object.defineProperty(g.window, 'isDetachedWindow', { value: () => true, writable: true, configurable: true });
+    g.call();
+    assert.equal(g.seen.paletteClosed, 0, 'the gate returned before the body of the function');
+    assert.equal(g.window.gridViewActive, false);
+    assert.equal(g.window.localStorage.getItem('gridViewActive'), null, 'and wrote no flag into the shared origin');
+  } finally { g.dom.window.close(); }
+});
+
+test('#369: the main window is unaffected by that refusal', () => {
+  const g = loadGridView('');
+  try {
+    Object.defineProperty(g.window, 'isDetachedWindow', { value: () => false, writable: true, configurable: true });
+    g.call();
+    assert.equal(g.seen.paletteClosed, 1);
+  } finally { g.dom.window.close(); }
+});
