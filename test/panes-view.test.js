@@ -65,6 +65,41 @@ test('a detached window does not write the pane layout when panes mode is torn d
   } finally { h.destroy(); }
 });
 
+test('#379: a window with no session of its own starts with no tab', async () => {
+  // A window opened on a VIEW, or one the last run left behind, has no session (#370). Building the
+  // opening tab from that `null` made a real tab — nameless, nothing behind it, and saved into the
+  // layout so a restore made it again.
+  const h = setupPanesDom({ detached: true });
+  try {
+    h.enable();
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('#terminals .session-tab').length, 0);
+  } finally { h.destroy(); }
+});
+
+test('#379: a view opened in such a window is its only tab', async () => {
+  const h = setupPanesDom({ detached: true });
+  try {
+    h.enable();
+    await h.settle();
+    h.panes.openViewTab('stats', { ref: null, load: false });
+    await h.settle();
+    const tabs = [...h.document.querySelectorAll('#terminals .session-tab')].map((t) => t.dataset.tabId);
+    assert.deepEqual(tabs, ['view:stats']);
+  } finally { h.destroy(); }
+});
+
+test('#379: a window detached WITH a session still opens on its tab', async () => {
+  const h = setupPanesDom({ detached: true, detachedSessionId: 's1' });
+  try {
+    h.mount('s1');
+    h.enable();
+    await h.settle();
+    const tabs = [...h.document.querySelectorAll('#terminals .session-tab')].map((t) => t.dataset.tabId);
+    assert.deepEqual(tabs, ['term:s1']);
+  } finally { h.destroy(); }
+});
+
 test('the main window still persists its layout on teardown (#344)', async () => {
   const h = setupPanesDom();
   try {

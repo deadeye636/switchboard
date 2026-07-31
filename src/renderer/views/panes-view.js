@@ -322,7 +322,13 @@ window.__sessionDragId = null;
     // as the main window, so loading the stored tree would rebuild the whole arrangement over there,
     // panes and foreign tabs and all. Anything else it holds arrives through `adoptOrphans`.
     if (window.isDetachedWindow && window.isDetachedWindow()) {
-      return PaneTree.createTree('pane-1', [makeTerminalTab(window.__detachedSessionId)]);
+      // …with the session it was opened for. A window opened on a VIEW, or one the last run left
+      // behind, has none (#370) — and a tab built from that `null` was a real tab: nameless, 49 px
+      // wide, nothing behind it, sitting beside the view and written into the saved layout so every
+      // restore made it again (#379). An empty leaf is a shape the tree already has; the main
+      // window reaches it whenever pruning takes the last tab.
+      const own = window.__detachedSessionId;
+      return PaneTree.createTree('pane-1', own ? [makeTerminalTab(own)] : []);
     }
     let stored = null;
     try { stored = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch { stored = null; }
