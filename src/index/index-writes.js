@@ -19,7 +19,7 @@ const sessionBackends = require('../session/session-backends');
 // descriptor here; NOT a `|| 'claude'` rescue of a live value (see CLAUDE.md).
 const LEGACY_SESSION_BACKEND = 'claude';
 
-let getMainWindow, log;
+let getMainWindow, log, notifyViewWindows;
 let upsertCachedSessions, deleteCachedSession, replaceSessionMetrics;
 let deleteSearchFolder, deleteSearchSession, upsertSearchEntries, deleteCachedFolder, getFolderLineage;
 let getMeta, setName, getProjectMeta;
@@ -27,6 +27,9 @@ let getMeta, setName, getProjectMeta;
 function init(ctx) {
   getMainWindow = ctx.getMainWindow;
   log = ctx.log;
+  // #382 — optional: absent in every test that wires this module, and in any build with no detached
+  // windows the answer is the empty list either way.
+  notifyViewWindows = ctx.notifyViewWindows;
   upsertCachedSessions = ctx.db.upsertCachedSessions;
   deleteCachedSession = ctx.db.deleteCachedSession;
   replaceSessionMetrics = ctx.db.replaceSessionMetrics;
@@ -248,11 +251,18 @@ function applyIndexResults({ sessions = [], wipeFolders = [], deleteIds = [], me
   }
 }
 
+// A window showing the Projects view has to hear this too (#382). It used to go to the main window
+// alone, which was right while that was the only place a project list could be — a detached Projects
+// window then kept the list it loaded when it opened, for as long as it stayed open. Optional in the
+// ctx on purpose: every test that wires this module predates it, and a build without detached windows
+// is simply the empty list.
 function notifyRendererProjectsChanged() {
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('projects-changed');
   }
+  if (typeof notifyViewWindows !== 'function') return;
+  try { notifyViewWindows('projects', 'projects-changed'); } catch { /* never worth a scan */ }
 }
 
 function sendStatus(text, type) {

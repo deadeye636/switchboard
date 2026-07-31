@@ -1987,9 +1987,27 @@ loadProjects().then(async () => {
 // Live-reload sidebar when filesystem changes are detected
 let projectsChangedTimer = null;
 let projectsChangedWhileAway = false;
+/**
+ * Is one of the app's own surfaces actually on screen in THIS window?
+ *
+ * One test for both layouts. In panes mode the element is adopted into a pane and its inline
+ * `display` stops meaning anything — `.pane-hosted` forces `flex !important` and
+ * `.pane-hosted-hidden` forces `none !important`, so an adopted-and-visible element can read
+ * `display: none` inline while filling the pane. The computed value is right in every mode.
+ */
+function viewSurfaceOnScreen(id) {
+  const el = document.getElementById(id);
+  return !!el && getComputedStyle(el).display !== 'none';
+}
+
 window.api.onProjectsChanged(() => {
   // Debounce to avoid rapid re-renders during bulk changes
   if (projectsChangedTimer) clearTimeout(projectsChangedTimer);
+  // The ADMIN table is a second surface onto the same data, and it reloaded on nothing (#382): a
+  // project added while you were looking at it simply did not appear. In a detached window it is the
+  // only thing on screen, so there it was the whole of the staleness — but the main window was stale
+  // too, for as long as the table was the tab you were on.
+  if (viewSurfaceOnScreen('projects-viewer') && typeof loadProjectsAdmin === 'function') loadProjectsAdmin();
   if (activeTab !== 'sessions') {
     projectsChangedWhileAway = true;
     return;
@@ -1998,6 +2016,12 @@ window.api.onProjectsChanged(() => {
     projectsChangedTimer = null;
     loadProjects();
   }, 300);
+});
+
+// The saved-variable set moved in another window (#382). Only that window is told, so this never
+// races the local optimistic update — and only a surface on screen is worth reloading.
+window.api.onSavedVariablesChanged?.(() => {
+  if (viewSurfaceOnScreen('variables-admin-content') && typeof loadVariablesAdmin === 'function') loadVariablesAdmin();
 });
 
 // Status bar

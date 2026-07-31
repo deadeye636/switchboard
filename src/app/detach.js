@@ -247,6 +247,34 @@ function viewHost(kind) {
   return null;
 }
 
+/**
+ * Every DETACHED window showing this kind — who else has to hear that the data changed (#382).
+ *
+ * Deliberately not `viewHost`: that answers "which ONE window steers this kind" and gives the main
+ * window precedence, which is the right question for a click and the wrong one for a notification.
+ * A change is interesting to everything showing the view, and the main window is told by its own
+ * sender either way — it has the sidebar, so it is never absent from that list.
+ *
+ * The main window is excluded here rather than at the call sites, so nothing can double-send to it.
+ */
+function detachedWindowsShowingView(kind) {
+  if (!kind) return [];
+  const main = ctx && typeof ctx.getMainWindow === 'function' ? ctx.getMainWindow() : null;
+  const out = [];
+  for (const win of windowContent.keys()) {
+    if (win === main || win.isDestroyed()) continue;
+    if (viewsInWindow(win).some((v) => v.kind === kind)) out.push(win);
+  }
+  return out;
+}
+
+/** Send one message to every detached window showing `kind`. A window on its way out is skipped. */
+function notifyViewWindows(kind, channel, ...args) {
+  for (const win of detachedWindowsShowingView(kind)) {
+    try { win.webContents.send(channel, ...args); } catch { /* a window on its way out */ }
+  }
+}
+
 /** Forget everything a window claimed. Called when it goes, whichever way it goes. */
 function dropViewHost(win) {
   windowContent.delete(win);
@@ -1122,6 +1150,8 @@ module.exports = {
   listSessionWindows,
   sessionsInWindow,
   viewsInWindow,
+  detachedWindowsShowingView,
+  notifyViewWindows,
   closeAll,
   detachedWindows,
 };

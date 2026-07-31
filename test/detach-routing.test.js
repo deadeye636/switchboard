@@ -878,6 +878,52 @@ test('#381: the window that already holds the view is never sent to itself', () 
   assert.equal(holder.focused, 0);
 });
 
+// --- #382: everything showing the view hears that the data changed ---
+
+test('#382: every detached window showing the kind is named, and only those', () => {
+  const { ipc, created } = setup({ sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1', 'One');
+  ipc.call('detach-session', 's2', 'Two');
+  ipc.callFrom('window-views-changed', created[0].webContents, [{ kind: 'projects' }]);
+  ipc.callFrom('window-views-changed', created[1].webContents, [{ kind: 'memory' }]);
+
+  assert.deepEqual(detach.detachedWindowsShowingView('projects'), [created[0]]);
+  assert.deepEqual(detach.detachedWindowsShowingView('memory'), [created[1]]);
+  assert.deepEqual(detach.detachedWindowsShowingView('variables'), []);
+  assert.deepEqual(detach.detachedWindowsShowingView(null), []);
+});
+
+test('#382: the notification reaches those windows and no others', () => {
+  const { ipc, created, main } = setup({ sessions: ['s1', 's2'] });
+  ipc.call('detach-session', 's1', 'One');
+  ipc.call('detach-session', 's2', 'Two');
+  ipc.callFrom('window-views-changed', created[0].webContents, [{ kind: 'projects' }]);
+  ipc.callFrom('window-views-changed', created[1].webContents, [{ kind: 'memory' }]);
+  created[0].sent.length = 0;
+  created[1].sent.length = 0;
+  main.sent.length = 0;
+
+  detach.notifyViewWindows('projects', 'projects-changed');
+  assert.deepEqual(created[0].sent, [['projects-changed']]);
+  assert.deepEqual(created[1].sent, [], 'a window showing something else is not woken up');
+  assert.deepEqual(main.sent, [], 'main is told by its own sender — this must not double-send to it');
+});
+
+test('#382: a window that gave the view up, or went away, is not notified', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const holder = created[0];
+  ipc.callFrom('window-views-changed', holder.webContents, [{ kind: 'projects' }]);
+  ipc.callFrom('window-views-changed', holder.webContents, []);
+  holder.sent.length = 0;
+  detach.notifyViewWindows('projects', 'projects-changed');
+  assert.deepEqual(holder.sent, []);
+
+  ipc.callFrom('window-views-changed', holder.webContents, [{ kind: 'projects' }]);
+  holder.destroy();
+  detach.notifyViewWindows('projects', 'projects-changed'); // must not throw at a destroyed window
+  assert.deepEqual(detach.detachedWindowsShowingView('projects'), []);
+});
 
 test('#364: the asking window is never routed to itself', () => {
   const { ipc, created } = setup();

@@ -367,7 +367,34 @@ function registerIpc(ipc) {
     }
   });
 
-  ipc.handle('save-saved-variable', (_event, input = {}) => {
+  /**
+   * Tell every OTHER window showing Variables that the set moved (#382).
+   *
+   * There was no notification at all, which was invisible while one window could show the admin. Two
+   * of them each held the set they loaded: delete an entry in one, save that same stale entry from
+   * the other, and it is back. Writes are per record, so this is the whole of the exposure — but it is
+   * the user's credential list, and a list that quietly disagrees with itself is not one to leave.
+   *
+   * The window that made the change is skipped: it already has the answer in its own reply, and
+   * telling it to reload would race its own optimistic update.
+   */
+  function announceVariablesChanged(event) {
+    const sender = event && event.sender;
+    const asking = sender && ctx.BrowserWindow ? ctx.BrowserWindow.fromWebContents(sender) : null;
+    const main = typeof ctx.getMainWindow === 'function' ? ctx.getMainWindow() : null;
+    if (main && !main.isDestroyed() && main !== asking) {
+      try { main.webContents.send('variables-changed'); } catch { /* going away */ }
+    }
+    if (typeof ctx.detachedWindowsShowingView !== 'function') return;
+    try {
+      for (const win of ctx.detachedWindowsShowingView('variables')) {
+        if (win === asking || win.isDestroyed()) continue;
+        win.webContents.send('variables-changed');
+      }
+    } catch { /* a notification is never worth taking a save down with it */ }
+  }
+
+  ipc.handle('save-saved-variable', (event, input = {}) => {
     try {
       const name = String(input.name || '').trim().slice(0, 120);
       if (!name) return { ok: false, error: 'Name is required' };
@@ -403,15 +430,17 @@ function registerIpc(ipc) {
         insertTemplate: String(input.insertTemplate || '').slice(0, 2000),
       });
 
+      announceVariablesChanged(event);
       return { ok: true, variable: serializeSavedVariable(row) };
     } catch (err) {
       return { ok: false, error: err.message };
     }
   });
 
-  ipc.handle('delete-saved-variable', (_event, id) => {
+  ipc.handle('delete-saved-variable', (event, id) => {
     try {
       ctx.db.deleteSavedVariable(id);
+      announceVariablesChanged(event);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };

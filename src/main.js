@@ -303,6 +303,10 @@ sessionCache.init({
   activeSessions,
   getMainWindow: () => mainWindow,
   log,
+  // Who else is showing the Projects view (#382). Through ctx rather than a require, for the same
+  // reason everything else here is: session-cache is loaded in `node --test`, and detach.js needs
+  // Electron's BrowserWindow before it can answer.
+  notifyViewWindows: (kind, channel, ...args) => detach.notifyViewWindows(kind, channel, ...args),
   // NOTE: this db object is an explicit allow-list — a function session-cache.js reads via ctx.db.*
   // but that is missing here is `undefined` at runtime (see test/main-ctx-db-wiring.test.js).
   db: {
@@ -1128,6 +1132,11 @@ variables.init({
   safeStorage,
   db: { listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable },
   log,
+  // Who else has the Variables admin on screen (#382), and the window class needed to tell the asker
+  // apart from them. Both through ctx so the module stays loadable in `node --test`.
+  BrowserWindow,
+  getMainWindow: () => mainWindow,
+  detachedWindowsShowingView: (kind) => detach.detachedWindowsShowingView(kind),
 });
 variables.registerIpc(ipcMain);
 const { cleanupSecretRefsForSession, cleanupSecretRefs } = variables;
