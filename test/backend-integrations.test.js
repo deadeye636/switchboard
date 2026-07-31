@@ -157,6 +157,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/shell/session-ipc.js': [],
   'src/renderer/shell/away-summary-banner.js': [],
   'src/renderer/shell/terminal-pressure.js': [],
+  'src/renderer/shell/pixel-icon.js': [],
   // #225 — the eight files #212's acceptance did not scope. Every one of them is now either a documented
   // migration or a resolution to the first launchable backend, so seven of the eight bind nothing at all.
   'src/renderer/backends/backend-registry.js': [

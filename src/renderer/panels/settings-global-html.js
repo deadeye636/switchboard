@@ -54,7 +54,7 @@
       externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
-      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
+      pixelSessionIconValue, projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
       stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
@@ -76,7 +76,7 @@
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item settings-nav-sub" data-cat="tools">Terminal tools</button>
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
-          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">11</span></button>
+          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">12</span></button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
           <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
           <button class="settings-nav-item" data-cat="backends">Backends</button>
@@ -604,6 +604,20 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-project-auto-add" ${projectAutoAddValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-subhead">Sidebar</div>
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Pixel session icon</span>${help}</div>
+                    <div class="settings-description">Replace the Sessions tab icon with a pixel figure that types while a session is working.</div>
+                    <div class="settings-more">Off keeps the current mark. On, the figure stands still while nothing is working and types on a laptop as soon as at least one session is working — every session this window knows counts, not only the ones open in a tab. The typing loop keeps running when the system asks for reduced motion; turn the setting off if that is unwelcome.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-pixel-session-icon" ${pixelSessionIconValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
               </div>

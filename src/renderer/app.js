@@ -297,6 +297,12 @@ window._applyNotificationSettings = (settings) => {
   if (sidebarContentEl) {
     sidebarContentEl.classList.toggle('sticky-inbox', appGlobalSettings.stickyAttentionInbox !== false);
   }
+  // #383: the pixel Sessions icon. Default off — the classic mark stays until it is turned on, so
+  // this reads `=== true` rather than `!== false`.
+  if (typeof applyPixelSessionIcon === 'function') {
+    applyPixelSessionIcon(appGlobalSettings.pixelSessionIcon === true);
+    updateSessionsTabWorking();
+  }
   // #112: apply the subagent live-status toggle to the overlay right away.
   if (appGlobalSettings.subagentLiveStatus === false) {
     if (subagentActiveSessions.size) { subagentActiveSessions.clear(); refreshSessionStatusViews(); }
@@ -373,7 +379,23 @@ function getAllKnownSessionsForStatus() {
 }
 
 
+// #383: "is at least one session working?" for the Sessions tab icon. WORKING, not merely running —
+// a live terminal sitting at a prompt is not work, and `busy` is the state session-status.js labels
+// "Working". sessionBusyState carries every session this window has seen a busy edge for, hook-driven
+// as well as terminal-driven, so it is not limited to the sessions that happen to be open in a tab.
+function updateSessionsTabWorking() {
+  if (typeof setPixelSessionIconWorking !== 'function') return;
+  let working = false;
+  for (const active of sessionBusyState.values()) {
+    if (active) { working = true; break; }
+  }
+  setPixelSessionIconWorking(working);
+}
+
 function refreshSessionStatusViews() {
+  // Ahead of the restore guard below: the icon is one class toggle, and a restore that opens a
+  // busy session must not leave it standing there until the next unrelated edge.
+  updateSessionsTabWorking();
   // During the launch restore the whole view settles once at the end; skip the
   // per-session churn that pollActiveSessions would otherwise trigger N times.
   if (typeof window !== 'undefined' && window.__restoringOpenSessions) return;

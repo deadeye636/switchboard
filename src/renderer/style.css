@@ -772,6 +772,51 @@ input:focus-visible {
   border-bottom-color: #8088ff;
 }
 
+/* ---- Pixel session icon (#383) ----
+   An optional replacement for the Sessions tab's mark that shows whether anything is working. Off by
+   default: without the body class the classic mark is the only one rendered, and the pixel element is
+   not even built. 20px because the art is a 20x20 grid and pixel art needs an integer scale — the other
+   tab icons are vector glyphs and stay at 18. */
+.tab-icon-pixel { display: none; }
+body.pixel-session-icon .sidebar-tab .tab-icon-classic { display: none; }
+/* The colour is the mark's, not the tab row's: the classic icon is orange in every tab state, and an
+   octopus that greys out with the tab reads as disabled rather than idle. The negative margin gives the
+   two extra pixels back — the tabs sit in a centered flex row, so a taller Sessions button grows the row
+   and every other tab's active underline stops lining up with it. */
+body.pixel-session-icon .sidebar-tab .tab-icon-pixel {
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: -1px 0;
+  color: #d97757;
+}
+
+/* Four groups, exactly one on screen: the two states and the two steps of the walk between them.
+   pixel-icon.js owns which — it walks the phase class along and back, so the transition is real frames
+   rather than a cross-fade, which on pixel art would just be two sprites ghosting through each other. */
+body.pixel-session-icon .sidebar-tab .pi-idle,
+body.pixel-session-icon .sidebar-tab .pi-walk1,
+body.pixel-session-icon .sidebar-tab .pi-walk2,
+body.pixel-session-icon .sidebar-tab .pi-work { display: none; }
+body.pixel-session-icon .sidebar-tab.pi-phase-idle .pi-idle,
+body.pixel-session-icon .sidebar-tab.pi-phase-walk1 .pi-walk1,
+body.pixel-session-icon .sidebar-tab.pi-phase-walk2 .pi-walk2,
+body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work { display: block; }
+
+/* Idle blinks once every 4s and holds a still frame in between — a permanent loop on a sidebar icon is
+   a permanent repaint. Working alternates two frames at 200ms. steps(1, end) holds each frame instead
+   of cross-fading, which is what keeps the pixels hard-edged. The walk frames are single stills and
+   animate nothing. */
+body.pixel-session-icon .sidebar-tab.pi-phase-idle .pi-idle .pi-frame-a { animation: pi-blink-open 4s steps(1, end) infinite; }
+body.pixel-session-icon .sidebar-tab.pi-phase-idle .pi-idle .pi-frame-b { animation: pi-blink-shut 4s steps(1, end) infinite; }
+body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-a { animation: pi-type-a 0.4s steps(1, end) infinite; }
+body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animation: pi-type-b 0.4s steps(1, end) infinite; }
+
+@keyframes pi-blink-open { 0% { opacity: 1; } 96% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes pi-blink-shut { 0% { opacity: 0; } 96% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes pi-type-a { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes pi-type-b { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
+
 #session-filters {
   display: flex;
   gap: 6px;

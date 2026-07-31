@@ -232,6 +232,9 @@
     // #17 project list (global only): sort mode + favorites presentation.
     const projectSortValue = !isProject ? (current.projectSortMode || 'activity') : 'activity';
     const favoritesOwnListValue = !isProject ? !!current.favoritesOwnList : false;
+    // #383 pixel Sessions icon (global only). Default OFF, so an unset key must read false — hence
+    // `=== true` rather than the `!== false` the default-on toggles above use.
+    const pixelSessionIconValue = !isProject ? current.pixelSessionIcon === true : false;
     const subagentLiveStatusValue = !isProject ? current.subagentLiveStatus !== false : true;
     // Subagent sidebar (#231), gated on the capability (#230): the section is hidden entirely when no
     // launchable backend has subagents, so a Codex-only user sees no subagent controls at all.
@@ -418,7 +421,7 @@
         externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
-        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
+        pixelSessionIconValue, projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
         stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
@@ -741,6 +744,7 @@
         { const n = parseInt(settingsViewerBody.querySelector('#sv-pane-bg-scrollback')?.value, 10); settings.paneBackgroundScrollback = Number.isFinite(n) && n > 0 ? n : 0; }
         settings.projectSortMode = settingsViewerBody.querySelector('#sv-project-sort')?.value || 'activity';
         settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
+        settings.pixelSessionIcon = !!settingsViewerBody.querySelector('#sv-pixel-session-icon')?.checked;
         // The subagent controls are absent when the capability gate hid the section (#230/#231). set-setting
         // REPLACES the blob (no merge), so an omitted key is an ERASED key — a bare `if (el)` would reset a
         // stored preference to its default on the next unrelated Save. Write the remembered value when the

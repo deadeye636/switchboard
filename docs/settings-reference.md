@@ -99,6 +99,7 @@ stored preference survives — the setting stopped being about tabs when panes s
 | `vcsPollSeconds` | Version-control poll interval (s) — *Version control* | integer, min 5 | `20` | global |
 | `vcsCountUntracked` | Count untracked files — *Version control* | `true` \| `false` | `true` | global |
 | `projectAutoAdd` | Add projects automatically | bool | `true` | global (own IPC, not the blob) |
+| `pixelSessionIcon` | Pixel session icon — *Sidebar* | bool | `false` | global |
 | `showSubagents` | Show subagents | bool | `true` | global — hidden unless a backend declares `supportsSubagents` |
 | `subagentLiveStatus` | Subagent live status | bool | `true` | global |
 | `subagentLayout` | Subagent row layout | `a` \| `b` \| `c` | `a` | global |
@@ -109,6 +110,12 @@ stored preference survives — the setting stopped being about tabs when panes s
 
 `visibleSessionCount` limits how many sessions a project lists directly; the rest fold into "older".
 Running and pinned sessions are always shown regardless of it.
+
+`pixelSessionIcon` swaps the Sessions tab's mark for a pixel figure that stands still while nothing is
+working and types on a laptop while at least one session is. "Working" is the `busy` status — a live
+terminal sitting at a prompt does not count — over every session the window knows, not only the ones
+open in a tab. It deliberately keeps animating under `prefers-reduced-motion`; the setting is the way
+out. Off by default, and while it is off the pixel element is never built.
 
 `orphanSubagentMaxAgeDays` applies to the "Orphan subagents" group only — a subagent whose parent
 session is gone from the project. Subagents nested under a parent that is merely filtered out are not

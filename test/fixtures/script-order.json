@@ -23,6 +23,7 @@
     "utils.js",
     "a11y-utils.js",
     "session-status.js",
+    "pixel-icon.js",
     "project-name.js",
     "project-sort.js",
     "session-tags-filter.js",
