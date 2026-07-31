@@ -421,6 +421,21 @@ window.filePanelHostFor = (kind, ref) => {
   return (entry && entry.instance.root) || null;
 };
 
+/**
+ * Which session this preview or diff was opened FROM (#388).
+ *
+ * A file panel is always reached from a session — a terminal's file link, its context menu, or the
+ * MCP bridge — so that session is what closing it should go back to. The pane tree cannot know: its
+ * close rule picks the neighbouring tab by position, which is right for a terminal tab and lands
+ * somewhere unrelated for a file.
+ *
+ * Answers null when nothing holds that ref, and the caller then does what it always did.
+ */
+window.filePanelSessionFor = (kind, ref) => {
+  const entry = panelTabs.get(tabKey(kind, ref));
+  return (entry && entry.sessionId) || null;
+};
+
 /** What a pane tab for this entry is called — the file or the diff it shows. */
 window.filePanelTabLabel = (kind, ref) => {
   const entry = panelTabs.get(tabKey(kind, ref));

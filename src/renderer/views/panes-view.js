@@ -1259,10 +1259,21 @@ window.__sessionDragId = null;
     const leaf = PaneTree.leafOfTab(tree, tabId);
     if (!leaf) return;
     releaseViewElement(kind, ref);
+    // Where to go back to (#388). A preview or a diff is always opened FROM a session, so that
+    // session's tab is what closing it should reveal. `PaneTree.closeTab` picks the neighbour by
+    // position — right for a terminal tab, and for a file it lands on whatever happened to sit next to
+    // it. Asked BEFORE the instance is destroyed, because that is what forgets the answer.
+    const cameFrom = isInstancedKind(kind) ? (window.filePanelSessionFor?.(kind, ref) || null) : null;
     // An instanced view is destroyed, not hidden — its owner answers an unresolved diff on the way out.
     if (closeTheView && isInstancedKind(kind)) window.filePanelCloseInstance?.(kind, ref);
     else if (closeTheView) hideViewElement(kind);
     tree = PaneTree.closeTab(tree, leaf.id, tabId);
+    // …and only if that session is still a tab in the SAME pane. Reaching into another pane would move
+    // the user's focus somewhere they were not looking, which is the complaint one step on.
+    if (cameFrom) {
+      const back = PaneTree.leafOfTab(tree, tabIdFor(cameFrom));
+      if (back && back.id === leaf.id) tree = PaneTree.setActiveTab(tree, back.id, tabIdFor(cameFrom));
+    }
     reportWindowViews(); // #364 — nothing here shows it any more
     activeLeaf();
     render();

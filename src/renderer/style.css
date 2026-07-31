@@ -3889,7 +3889,14 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 /* memory-viewer-editor uses .viewer-panel-editor */
 
 /* ========== MARKDOWN PREVIEW ========== */
+/* Opaque, and that is not decoration (#388): nothing else in the chain paints one — `.fp-viewer`,
+   `.fp-content` and `.pane-body` are all transparent — so the rendered markdown was drawn straight
+   over whatever the pane had behind it, terminal and all, both legible at once. It showed only in
+   preview because the editor beside it is CodeMirror, which brings a background with its theme. A
+   surface that renders a document has to hide what is under it wherever it is used, and this class is
+   used in four places. */
 .markdown-preview {
+  background: #111118;
   flex: 1;
   overflow-y: auto;
   padding: 24px 32px;
@@ -6481,6 +6488,16 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
 #file-panel.open {
   min-width: 280px;
   border-left: 1px solid rgba(255,255,255,0.06);
+}
+
+/* …but the strip is GRID's, and since #311 panes puts each file in a tab of the pane that produced it
+   (`revealEntry` in file-panel.js). The `.open` class still has to go on — a later mode switch reads it
+   to learn something is showing — and `showPanel` clears the inline width for that reason. Clearing a
+   width does not beat a `min-width`, so the empty strip kept reserving 280px beside the pane tree:
+   `#terminals` measured 1296 instead of 1576 the moment a preview opened (#388). */
+body.display-mode-panes #file-panel.open {
+  min-width: 0;
+  border-left: 0;
 }
 
 .fp-toolbar-btn {

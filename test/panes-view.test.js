@@ -3262,3 +3262,67 @@ test('#377: a whole-window placement draws no pane hint, and clears the one befo
     assert.equal(h.document.querySelectorAll('.pane-tab-caret').length, 0);
   } finally { h.destroy(); }
 });
+
+// --- #388: closing a file goes back to the session it was opened from ---
+//
+// `PaneTree.closeTab` picks the neighbour by position, which is right for a terminal tab and lands on
+// whatever happened to sit next to a file. A preview is always opened FROM a session.
+
+test('#388: closing a preview reveals the session it came from, not the neighbour', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.mount('b');
+    h.enable();
+    await h.settle();
+    h.window.filePanelSessionFor = () => 'a';
+    h.window.filePanelCloseInstance = () => {};
+    h.panes.openViewTab('preview', { ref: '/x/notes.md' });
+    await h.settle();
+
+    h.panes.closeViewTab('preview', { ref: '/x/notes.md', closeTheView: true });
+    await h.settle();
+
+    const active = h.document.querySelector('#terminals .session-tab.active');
+    assert.equal(active && active.dataset.tabId, 'term:a', 'back to the session, not to b');
+  } finally { h.destroy(); }
+});
+
+test('#388: a session that is no longer in that pane leaves the old behaviour alone', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('b');
+    h.enable();
+    await h.settle();
+    // The origin session is not a tab here at all — reaching into another pane would move focus
+    // somewhere the user was not looking.
+    h.window.filePanelSessionFor = () => 'gone';
+    h.window.filePanelCloseInstance = () => {};
+    h.panes.openViewTab('preview', { ref: '/x/notes.md' });
+    await h.settle();
+
+    h.panes.closeViewTab('preview', { ref: '/x/notes.md', closeTheView: true });
+    await h.settle();
+
+    const active = h.document.querySelector('#terminals .session-tab.active');
+    assert.equal(active && active.dataset.tabId, 'term:b');
+  } finally { h.destroy(); }
+});
+
+test('#388: a singleton view is unaffected — it has no session to go back to', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.mount('b');
+    h.enable();
+    await h.settle();
+    let asked = 0;
+    h.window.filePanelSessionFor = () => { asked++; return 'a'; };
+    h.panes.openViewTab('jsonl', {});
+    await h.settle();
+
+    h.panes.closeViewTab('jsonl', { closeTheView: true });
+    await h.settle();
+    assert.equal(asked, 0, 'the file panel is not asked about a view it does not own');
+  } finally { h.destroy(); }
+});
