@@ -131,6 +131,22 @@ and since #357 it has **absorbed** tabs mode, which a single-leaf tree renders e
 same session bar, same tools. Two modes drawing the same thing meant every tab feature had to be
 built twice, and the audit (#343–#355) kept finding the second one lagging.
 
+**Tabs mode is gone, in three steps, and this section is its record** — there is no spec of its own to
+deprecate, because a single-leaf pane tree IS that mode now:
+
+| Step | What went |
+|---|---|
+| #357 | The MODE. No setting selects it any more; a stored `tabs` resolves to `panes` (`resolveSessionDisplayMode` in `views/grid-layout.js`, and `legacy` is grid's old spelling on the same rule) |
+| #367 | The STRIP it drew. `refreshSessionTabs` had emptied it and returned ever since, so the tab builders, the drag-reorder, the overflow dropdown, the context menu and the `#session-tabs` element were unreachable — `session/session-tabs.js` went from 666 lines to 290 |
+| #368 | Its one remaining SETTING. `tabPosition` put that strip at the top or the bottom and had driven nothing since; migration [18] takes the stored value out of the global blob |
+
+What `session/session-tabs.js` still holds is shared code, not tabs-mode code: `buildTabModel`, the tab
+and session-bar tooltips, the project-path splitter (#334), the auto-close rules, `closeTabNow` and the
+display-mode settings apply. **The CSS is the trap in that removal**: `.session-tabs-*` and
+`.session-tab-*` read like leftovers and are the PANE strip's — this view builds its tab list, its
+controls, its overflow popover and its context menu from exactly those classes. Only the two
+`#session-tabs` rules were dead.
+
 **It is the DEFAULT since #374.** Having absorbed tabs it is now the ordinary single-session view as
 well as the split one, and everything the app has grown since is built on it — the strips, the session
 bar, the tools, the view tabs (§4.2), a window of its own (spec 17). Grid is the mosaic, which is a

@@ -28,15 +28,15 @@ directory, are searchable together, and each carries a provider badge. Resume ke
 own binary. A backend you do not use can be switched off entirely — a Codex-only setup is a
 first-class setup.
 
-**Sessions as tabs.** The primary layout is tabbed: open sessions sit in a tab strip with a
-right-click menu (close, stop, relaunch), and the terminal is live — connect to a running session or
-start a new one without leaving the app. Seven terminal themes, configurable font and zoom,
-clipboard image paste, drag-and-drop that inserts files and images the same way, GPU rendering with
-automatic fallback. Or split the area into **panes** the way VS Code splits editor groups: each pane
-keeps its own tabs, drag a tab onto a pane edge to split, and the layout is still there after a
-restart. A session can also move into a **window of its own** for a second monitor, and back again, or
-across into any other window that is already open — it keeps running throughout, and a window can hold
-as many sessions as you move into it.
+**Sessions in panes.** The default layout splits the area the way VS Code splits editor groups: each
+pane keeps its own tabs with a right-click menu (close, stop, relaunch), you drag a tab onto a pane
+edge to split, and the arrangement is still there after a restart. The terminal is live — connect to
+a running session or start a new one without leaving the app. Seven terminal themes, configurable
+font and zoom, clipboard image paste, drag-and-drop that inserts files and images the same way, GPU
+rendering with automatic fallback. A session can also move into a **window of its own** for a second
+monitor, and back again, or across into any other window that is already open — it keeps running
+throughout, and a window can hold as many sessions as you move into it. The other layout is the
+**grid** below: every session as a card at once, rather than one at a time.
 
 **It tells you when an agent needs you.** A prioritized attention inbox, OS notifications, a taskbar
 badge and a tray icon — even when the window is in the background. Detection runs off CLI hooks, so
@@ -261,7 +261,7 @@ its authors — this fork exists because they built the thing worth forking.
 
 Much of what the app does today — the attention inbox, handoff, the grid overview, usage monitoring —
 started upstream and was extended here rather than replaced. What is new in this fork (multi-LLM
-backends, the tabbed layout, projects as a managed list, tags, tasks, version control, the generated
+backends, the pane layout, projects as a managed list, tags, tasks, version control, the generated
 settings surface) is listed per module in [`docs/fork-features.md`](docs/fork-features.md).
 
 Licensed under the **MIT License** — see [`LICENSE`](LICENSE). MIT includes an explicit
