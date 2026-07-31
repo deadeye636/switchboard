@@ -1676,9 +1676,15 @@ function focusSessionForInsert(sessionId, terminal) {
 // panes mode has to see it on the pane body underneath. Without this the container
 // claims every drop (it preventDefaults and inserts), so dragging a tab onto a pane
 // pasted the tab id into the terminal instead of moving the tab (#309).
+//
+// A session dragged out of the sidebar (#373) is the same kind of drag and needs the
+// same exemption — it is aimed at the pane under the terminal, and a drop the
+// container claimed would type the session id at the CLI prompt.
 function isPaneTabDrag(e) {
   const types = e.dataTransfer && e.dataTransfer.types;
-  return !!types && Array.prototype.includes.call(types, PANE_TAB_MIME);
+  if (!types) return false;
+  return Array.prototype.includes.call(types, PANE_TAB_MIME)
+    || Array.prototype.includes.call(types, SESSION_DRAG_MIME);
 }
 
 function setupDragAndDrop(container, terminal, getSessionId) {

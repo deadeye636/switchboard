@@ -152,6 +152,30 @@ Taken from VS Code's `vs/base/browser/ui/grid/grid.ts` and `editorDropTarget.ts`
 - Drag & drop: an editor-style drag uses a **10 % edge zone per axis**. Edge = split in that direction,
   centre = move the tab into that pane.
 
+**A session dragged out of the SIDEBAR lands the same way** (#373). Clicking one opens it in the
+active pane, which decides for the user; the drag lets them say where. It is deliberately the same
+gesture rather than a second one — the drop targets, the hint and the caret are the tab drag's, and
+the model call is its mirror: `moveTab` for a tab that exists, `addTab`/`splitLeaf` for one that does
+not. Both have taken a position all along (`addTab(tree, leafId, tab, index)`,
+`splitLeaf(…, { tab })`), which is why "make it feel like a tab move" cost a branch rather than a
+mechanism.
+
+Four rules it inherits rather than restates:
+
+- a session **already in this tree** is not a new tab, it is a tab move, and takes that path;
+- a session rendered in **another window** is refused by name — mounting it here is the second
+  renderer on one PTY that spec 17 §3 exists to prevent;
+- a session with **no process** is not started by the drop. It arrives as the dormant tab with its
+  Launch button (#318), because a drag is not a launch;
+- the drag is a **second MIME beside the tab's**, never a second meaning for it. `isTabDrag` requires
+  the pane-tab type *and* the module's own drag state, which is what keeps a foreign drag from
+  splitting a pane; the session predicate goes beside it. The terminal container has to ignore both
+  (`isPaneTabDrag` in terminal-manager.js) or a drop that reaches a terminal types the payload at the
+  CLI prompt — and for the same reason the payload carries **no `text/plain`**.
+
+Dropped on another WINDOW it is still plain insertion: the far window never sees the drag, so choosing
+a pane over there is a different mechanism (#375).
+
 **Where a restored session lands** (#357). The saved tree carries the tab-to-pane assignment, so
 `loadTree` puts a session back in the pane it was in, and `activeLeafId` is persisted too — "the
 active pane" after a launch is the one the user left active, not `leaves(tree)[0]`. What is left to

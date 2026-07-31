@@ -48,6 +48,10 @@ function buildSessionItem(session, opts = {}) {
   // Subagent-activity overlay (#112): two-color dot while a subagent works here.
   if (subagentActiveSessions.has(session.sessionId)) item.classList.add('subagent-active');
   item.dataset.sessionId = session.sessionId;
+  // Draggable onto a pane (#373). An ATTRIBUTE rather than a listener, because morphdom rebuilds
+  // these rows on every render and a per-row listener would be lost with the node it was bound to —
+  // the `dragstart` is delegated on `sidebarContent` beside the click, for the same reason (#218 opt6).
+  item.draggable = true;
 
   const modified = lastActivityTime.get(session.sessionId) || new Date(session.modified);
   const timeStr = formatDate(modified);

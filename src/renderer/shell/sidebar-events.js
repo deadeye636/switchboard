@@ -81,6 +81,49 @@ function ensureSidebarDelegation() {
   sidebarContent.addEventListener('keydown', handleSidebarKeyboard);
   sidebarContent.addEventListener('keyup', handleSidebarKeyboard);
   sidebarContent.addEventListener('pointerdown', handleSidebarPointerdown);
+  sidebarContent.addEventListener('dragstart', handleSessionDragStart);
+  sidebarContent.addEventListener('dragend', handleSessionDragEnd);
+}
+
+/**
+ * A session dragged out of the sidebar, to be dropped on a pane (#373).
+ *
+ * Delegated like every other row gesture: morphdom rebuilds the rows, so a listener bound to one is
+ * bound to a node that will not be there. Only the payload is set here — where it may land, and what
+ * landing means, belongs to the pane tree that receives it.
+ *
+ * The MIME is custom and there is deliberately NO `text/plain` beside it: any drop that reaches a
+ * terminal inserts a text payload, so a plain-text copy would type the session id at the CLI prompt
+ * the first time a drag missed a pane.
+ */
+function handleSessionDragStart(e) {
+  const item = e.target && e.target.closest ? e.target.closest('.session-item[data-session-id]') : null;
+  if (!item) return;
+  // Renaming in place puts a text input in this row, and a draggable ancestor makes selecting inside
+  // it a drag. The rename wins — it is the gesture already in progress.
+  if (item.querySelector('.session-rename-input')) { e.preventDefault(); return; }
+  // Panes mode is the only place a session can be dropped ON something. Elsewhere the drag would
+  // follow the pointer with nothing able to accept it, which reads as a broken gesture rather than as
+  // one that does not exist here.
+  if (!window.panesView || !window.panesView.active()) { e.preventDefault(); return; }
+  const sessionId = item.dataset.sessionId;
+  if (!sessionId) { e.preventDefault(); return; }
+  window.__sessionDragId = sessionId;
+  item.classList.add('dragging');
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData(SESSION_DRAG_MIME, sessionId); } catch { /* type refused */ }
+  }
+}
+
+function handleSessionDragEnd(e) {
+  window.__sessionDragId = null;
+  const item = e.target && e.target.closest ? e.target.closest('.session-item') : null;
+  if (item) item.classList.remove('dragging');
+  // A drop that landed nowhere leaves the pane feedback standing, because the pane never saw a drop.
+  if (window.panesView && typeof window.panesView.clearDropFeedback === 'function') {
+    window.panesView.clearDropFeedback();
+  }
 }
 
 // Resolve the project (or worktree) object an element sits in. The worktree group is nested inside its

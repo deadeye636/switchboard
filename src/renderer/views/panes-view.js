@@ -34,6 +34,18 @@
 // drop and paste the payload into the shell.
 const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
 
+// The same, for a SESSION dragged out of the sidebar (#373). A second type rather than a second
+// meaning for the first: the two are told apart by a `types` check that runs on every dragover, and a
+// shared type would make "is this a tab already in my tree?" a question asked at drop time, when the
+// answer decides whether a pane splits. `isPaneTabDrag` in terminal-manager.js ignores both, for the
+// reason spelled out there — a drop that reaches a terminal types its payload at the CLI prompt.
+const SESSION_DRAG_MIME = 'application/x-switchboard-session';
+
+// The session being dragged, or null. The MIME says "this is ours"; `dataTransfer.getData` is empty
+// until the drop in Chromium, so the id has to live somewhere the dragover can read it — and the drag
+// starts in another file, so that somewhere is here rather than in a module's private state.
+window.__sessionDragId = null;
+
 (function () {
   if (typeof document === 'undefined') return; // node test context
 
@@ -2328,6 +2340,21 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     && !!e.dataTransfer
     && Array.prototype.includes.call(e.dataTransfer.types || [], PANE_TAB_MIME);
 
+  /**
+   * Is this a session dragged out of the sidebar (#373)?
+   *
+   * Beside `isTabDrag`, never inside it. That predicate is what keeps a foreign drag from splitting a
+   * pane, and the two answers lead to different code — one moves a tab that exists, the other makes
+   * one. Same shape though: the MIME is the authority, and the id comes from state, because
+   * `dataTransfer.getData` is empty until the drop.
+   */
+  const isSessionDrag = (e) => !!window.__sessionDragId
+    && !!e.dataTransfer
+    && Array.prototype.includes.call(e.dataTransfer.types || [], SESSION_DRAG_MIME);
+
+  /** Either of ours — the gate every drop target opens with. */
+  const isOurDrag = (e) => isTabDrag(e) || isSessionDrag(e);
+
   function wireTabDrag(el, leafId, tabId) {
     el.addEventListener('dragstart', (e) => {
       drag = { tabId, fromLeafId: leafId };
@@ -2347,7 +2374,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       if (dragged && droppedOutOfWindow(e)) tearOffTab(dragged.fromLeafId, dragged.tabId, e);
     });
     el.addEventListener('dragover', (e) => {
-      if (!isTabDrag(e)) return;
+      if (!isOurDrag(e)) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       e.stopPropagation();
@@ -2355,10 +2382,13 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       showTabCaret(el.parentElement, gap.edge);
     });
     el.addEventListener('drop', (e) => {
-      if (!isTabDrag(e)) return;
+      if (!isOurDrag(e)) return;
       e.preventDefault();
       e.stopPropagation();
-      applyMove(drag, leafId, tabDropGap(el, leafId, tabId, e).index);
+      const sessionId = isSessionDrag(e) ? window.__sessionDragId : null;
+      const index = tabDropGap(el, leafId, tabId, e).index;
+      if (sessionId) dropSessionInto(sessionId, leafId, index);
+      else applyMove(drag, leafId, index);
     });
   }
 
@@ -2548,7 +2578,7 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     if (strip) {
       const list = strip.querySelector('.session-tabs-list');
       strip.addEventListener('dragover', (e) => {
-        if (!isTabDrag(e)) return;
+        if (!isOurDrag(e)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         showTabCaret(list, endCaretEdge(list));
@@ -2557,15 +2587,17 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
         if (!strip.contains(e.relatedTarget)) clearTabCaret();
       });
       strip.addEventListener('drop', (e) => {
-        if (!isTabDrag(e)) return;
+        if (!isOurDrag(e)) return;
         e.preventDefault();
+        const sessionId = isSessionDrag(e) ? window.__sessionDragId : null;
         clearDropFeedback();
-        applyMove(drag, leafId, -1);
+        if (sessionId) dropSessionInto(sessionId, leafId, -1);
+        else applyMove(drag, leafId, -1);
       });
     }
 
     body.addEventListener('dragover', (e) => {
-      if (!isTabDrag(e)) return;
+      if (!isOurDrag(e)) return;
       // preventDefault is what makes this a drop target at all — the terminal
       // container inside deliberately does NOT do it for a tab drag (#309).
       e.preventDefault();
@@ -2576,11 +2608,17 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
       if (!body.contains(e.relatedTarget)) clearDropHint();
     });
     body.addEventListener('drop', (e) => {
-      if (!isTabDrag(e)) return;
+      if (!isOurDrag(e)) return;
       e.preventDefault();
+      // Read the session BEFORE the feedback is cleared: `clearDropFeedback` is also what a dragend
+      // runs, and the two can race on a fast drop.
+      const sessionId = isSessionDrag(e) ? window.__sessionDragId : null;
       const zone = dropZone(body, e);
       clearDropHint();
-      if (zone === 'center') applyMove(drag, leafId, -1);
+      if (sessionId) {
+        if (zone === 'center') dropSessionInto(sessionId, leafId, -1);
+        else dropSessionIntoSplit(sessionId, leafId, zone);
+      } else if (zone === 'center') applyMove(drag, leafId, -1);
       else applySplitMove(drag, leafId, zone);
     });
   }
@@ -2635,6 +2673,86 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     render();
     persist();
     showActiveOrPlaceholder();
+  }
+
+  /**
+   * A session dragged out of the sidebar, landing in a pane (#373).
+   *
+   * The mirror of `applyMove`: that one moves a tab that exists, this one makes one that does not.
+   * Same model, one call each — `PaneTree.addTab` has taken an index all along, which is why "it
+   * should feel like a tab move" costs a branch rather than a mechanism.
+   *
+   * Three answers before it lands, and each one is a rule that already exists:
+   *
+   *  - a session ALREADY in this tree is not a new tab at all, it is a tab move (the drop is then the
+   *    gesture the user would have used anyway, so it takes the same path);
+   *  - a session rendered in ANOTHER window is refused by name. Mounting it here would be the second
+   *    renderer on one PTY that spec 17 §3 exists to prevent, and the tab would be a phantom;
+   *  - a session with no process is NOT started by the drop. Its tab is drawn as the "not running /
+   *    Launch" placeholder (#318) — the same thing a tab restored from a saved layout gets — and
+   *    starting the CLI stays a button the user presses.
+   */
+  function dropSessionInto(sessionId, toLeafId, index) {
+    if (!enabled || !tree || !sessionId) return false;
+    const existing = PaneTree.leafOfTab(tree, tabIdFor(sessionId));
+    if (existing) {
+      applyMove({ tabId: tabIdFor(sessionId), fromLeafId: existing.id }, toLeafId, index);
+      return true;
+    }
+    if (!acceptsSessionDrop(sessionId)) return false;
+    pushUndo();
+    tree = PaneTree.addTab(tree, toLeafId, makeTerminalTab(sessionId), index);
+    activeLeafId = toLeafId;
+    render();
+    persist();
+    mountDroppedSession(sessionId);
+    return true;
+  }
+
+  /** The same, onto a pane EDGE: the pane splits and the session opens in the new one. */
+  function dropSessionIntoSplit(sessionId, leafId, direction) {
+    if (!enabled || !tree || !sessionId) return false;
+    const existing = PaneTree.leafOfTab(tree, tabIdFor(sessionId));
+    if (existing) {
+      applySplitMove({ tabId: tabIdFor(sessionId), fromLeafId: existing.id }, leafId, direction);
+      return true;
+    }
+    if (!acceptsSessionDrop(sessionId)) return false;
+    pushUndo();
+    const newLeafId = nextLeafId();
+    // `splitLeaf` takes the tab for the new pane, so the split and the tab are one operation — a
+    // split followed by an add would leave an empty pane on screen for a frame if the add refused.
+    tree = PaneTree.splitLeaf(tree, leafId, direction, { newLeafId, tab: makeTerminalTab(sessionId) });
+    activeLeafId = newLeafId;
+    render();
+    persist();
+    mountDroppedSession(sessionId);
+    return true;
+  }
+
+  /** Can this session land here at all? Says why when it cannot, rather than doing nothing. */
+  function acceptsSessionDrop(sessionId) {
+    if (typeof sessionMap === 'undefined' || !sessionMap.has(sessionId)) return false;
+    if (typeof window.isSessionDetached === 'function' && window.isSessionDetached(sessionId)) {
+      if (typeof showControlToast === 'function') {
+        showControlToast({ message: 'That session is open in another window', timeoutMs: 3000 });
+      }
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Attach to the dropped session if it has a process; leave it dormant if it has not.
+   *
+   * Called AFTER the tab is in the tree, which is what keeps the session in the pane it was dropped
+   * on: `adoptOrphans` only places a session that has no tab yet, so it finds this one already home.
+   */
+  function mountDroppedSession(sessionId) {
+    const running = typeof activePtyIds !== 'undefined' && activePtyIds.has(sessionId);
+    if (!running) return; // the pane draws the Launch placeholder for it (#318)
+    const session = sessionMap.get(sessionId);
+    if (session && typeof openSession === 'function') openSession(session);
   }
 
   function applySplitMove(from, leafId, direction) {
@@ -3432,6 +3550,12 @@ const PANE_TAB_MIME = 'application/x-switchboard-pane-tab';
     shownViewLabel,
     viewTabLabels,
     applyRestoredLayout,
+    // A sidebar drag that ends nowhere leaves the hint standing — the pane never saw a drop, so it
+    // never cleared it (#373). The sidebar's `dragend` is the only thing that knows.
+    clearDropFeedback: () => clearDropFeedback(),
+    // Exposed for the suite: the drop's two landings, without a DragEvent to synthesise.
+    dropSessionInto,
+    dropSessionIntoSplit,
     // What a kind is called, for a window that has to name itself before it holds any tab at all
     // (#370). Answered from `VIEW_KINDS`, so a new view is named in one place.
     viewKindTitle: (kind) => (VIEW_KINDS[kind] ? VIEW_KINDS[kind].title : null),

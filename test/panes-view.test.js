@@ -2816,3 +2816,122 @@ test('only a view another window could fill may leave (#364)', async () => {
     assert.equal(h.panes.viewCanLeaveWindow('preview'), false);
   } finally { h.destroy(); }
 });
+
+// --- #373: a session dragged out of the sidebar lands where it was dropped ------
+//
+// The drop is a tab move that happens to start outside the tree, so it has to land the way a tab
+// move does — at a position, or by splitting a pane — rather than always in the active one.
+
+test('#373: a running session dropped on a pane lands there and is attached to', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    // What a sidebar row is from the tree's side: a record, a live process, and no tab.
+    h.sessionMap.set('from-sidebar', { sessionId: 'from-sidebar', name: 'From sidebar', type: 'agent' });
+    h.activePtyIds.add('from-sidebar');
+
+    assert.equal(h.panes.dropSessionInto('from-sidebar', 'pane-1', -1), true);
+    await h.settle();
+
+    assert.deepEqual([...h.document.querySelectorAll('.session-tab-label')].map((el) => el.textContent),
+      ['live-1', 'From sidebar']);
+    // Attached, not spawned: the session has a process and this is the ordinary open path.
+    assert.deepEqual(h.calls.openSession.map((c) => c[0]), ['from-sidebar']);
+  } finally { h.destroy(); }
+});
+
+test('#373: the drop position is the one the caret showed', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    await h.open('live-2');
+    h.sessionMap.set('from-sidebar', { sessionId: 'from-sidebar', name: 'From sidebar', type: 'agent' });
+    h.activePtyIds.add('from-sidebar');
+
+    // Index 1: between the two, which is what a caret on the gap means.
+    h.panes.dropSessionInto('from-sidebar', 'pane-1', 1);
+    await h.settle();
+    assert.deepEqual([...h.document.querySelectorAll('.session-tab-label')].map((el) => el.textContent),
+      ['live-1', 'From sidebar', 'live-2'],
+      'inserted at the index, not appended — a tab move places, and so does this');
+  } finally { h.destroy(); }
+});
+
+test('#373: dropped on a pane edge, the pane splits and the session opens in the new one', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('from-sidebar', { sessionId: 'from-sidebar', name: 'From sidebar', type: 'agent' });
+    h.activePtyIds.add('from-sidebar');
+
+    assert.equal(h.panes.dropSessionIntoSplit('from-sidebar', 'pane-1', 'right'), true);
+    await h.settle();
+
+    assert.equal(h.document.querySelectorAll('#terminals .pane').length, 2, 'the pane split');
+    const strips = [...h.document.querySelectorAll('#terminals .pane')]
+      .map((p) => [...p.querySelectorAll('.session-tab-label')].map((el) => el.textContent));
+    assert.deepEqual(strips, [['live-1'], ['From sidebar']],
+      'the dropped session is alone in the new pane, and the old one keeps what it had');
+  } finally { h.destroy(); }
+});
+
+test('#373: a session with no process arrives dormant, and the drop starts nothing', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    // A record and no process — the sidebar lists these exactly like the running ones.
+    h.sessionMap.set('dorm-1', { sessionId: 'dorm-1', name: 'Dormant one', type: 'agent' });
+
+    assert.equal(h.panes.dropSessionInto('dorm-1', 'pane-1', -1), true);
+    await h.settle();
+
+    const tab = [...h.document.querySelectorAll('.session-tab')]
+      .find((el) => el.querySelector('.session-tab-label').textContent === 'Dormant one');
+    assert.equal(tab.classList.contains('session-tab-dormant'), true);
+    // The whole point: a drag is not a launch. The placeholder's button is where a CLI begins (#318).
+    assert.deepEqual(h.calls.openSession, [], 'nothing was opened, so nothing was spawned');
+    assert.equal(h.document.querySelectorAll('.pane-empty-launch').length, 1);
+  } finally { h.destroy(); }
+});
+
+test('#373: a session already in the tree is MOVED, never mounted twice', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    await h.open('live-2');
+    h.panes.splitActivePane('right');
+    await h.settle();
+    // From the DOM, not from storage: the layout write is debounced, so a stored read here still
+    // describes the tree before the split.
+    const panes = [...h.document.querySelectorAll('#terminals .pane')];
+    const target = panes[panes.length - 1].dataset.paneId;
+    h.calls.openSession.length = 0;
+
+    h.panes.dropSessionInto('live-1', target, -1);
+    await h.settle();
+
+    // One tab for it, in the pane it was dropped on. Two would be two xterms on one PTY.
+    const all = [...h.document.querySelectorAll('.session-tab-label')].map((el) => el.textContent);
+    assert.equal(all.filter((t) => t === 'live-1').length, 1);
+    const strips = [...h.document.querySelectorAll('#terminals .pane')]
+      .map((p) => [...p.querySelectorAll('.session-tab-label')].map((el) => el.textContent));
+    assert.deepEqual(strips[strips.length - 1], ['live-1'], 'it moved into the target pane');
+    assert.deepEqual(h.calls.openSession, [], 'a move mounts nothing — it is already mounted');
+  } finally { h.destroy(); }
+});
+
+test('#373: a session the window cannot name is refused rather than dropped blank', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    assert.equal(h.panes.dropSessionInto('ghost', 'pane-1', -1), false);
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.session-tab').length, 1);
+  } finally { h.destroy(); }
+});
