@@ -855,6 +855,37 @@ function registerIpc(ipc) {
   });
 
   /**
+   * "Is this view already somewhere else, and if so, go there" (#381).
+   *
+   * The file-driven views ask `route-view-file` on every pick, so a Plan or a Memory opened from the
+   * sidebar lands in the window that holds the viewer. Projects, Variables and Activity are opened by
+   * a sidebar TAB with no file to route, so nothing asked — and the main window built a second copy
+   * of a view it could see was elsewhere. Every window has its own `#projects-viewer` (see below), so
+   * the duplicate is not an error state; it is just two surfaces onto one set of data, which is what
+   * the user then has to keep straight.
+   *
+   * Same authority as the routing, deliberately: `viewHost` gives the main window precedence when it
+   * shows the kind ITSELF, so this can never send a click away from the window it was made in.
+   */
+  ipc.handle('focus-view-window', (event, kind) => {
+    if (!kind) return { focused: false };
+    const host = viewHost(kind);
+    if (!host) return { focused: false };
+    const sender = event && event.sender;
+    const asking = sender ? ctx.BrowserWindow.fromWebContents(sender) : null;
+    if (asking && asking === host) return { focused: false }; // already the window that has it
+    // Raising the WINDOW is only half of it: that window has tabs of its own, and the view may not be
+    // the one in front. Then the click raises a window showing something else, which is the same "it
+    // did nothing" one step on. `open-view` is the message that already knows how to answer this —
+    // `openViewTab` finds the existing tab and makes it active rather than adding a second one.
+    try { host.webContents.send('open-view', kind, null, null); } catch { /* a window on its way out */ }
+    // And a window on another monitor may well be minimized, where focus raises nothing at all.
+    if (host.isMinimized()) host.restore();
+    host.focus();
+    return { focused: true, windowTitle: host.getTitle() || 'the other window' };
+  });
+
+  /**
    * Open one of the app's own views in ANOTHER window (#364).
    *
    * Nothing is moved. Every window loads the same `index.html`, so each one already has its own

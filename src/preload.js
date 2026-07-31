@@ -109,6 +109,10 @@ contextBridge.exposeInMainWorld('api', {
   windowViewsChanged: (views, layout) => ipcRenderer.invoke('window-views-changed', views, layout || null),
   routeViewFile: (kind, payload) => ipcRenderer.invoke('route-view-file', kind, payload),
   onOpenViewFile: (cb) => ipcRenderer.on('open-view-file', (_e, kind, payload) => cb(kind, payload)),
+  // The same question for a view a sidebar TAB opens, which has no file to route (#381). Answers
+  // { focused: false } when the view is in this window or nowhere else, and the caller then opens it
+  // locally exactly as before.
+  focusViewWindow: (kind) => ipcRenderer.invoke('focus-view-window', kind),
   // Move a session between windows (#316): 'main' or a detached window's id, from `listSessionWindows`.
   // `placement` (#375) is where inside that window it goes — the answer `probeDropPoint` gave.
   moveSessionToWindow: (sessionId, windowId, placement) =>

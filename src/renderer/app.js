@@ -1427,11 +1427,45 @@ window.addEventListener('resize', () => {
   }
 });
 
+/**
+ * Is this admin view already open in another window (#381)?
+ *
+ * The file-driven views ask the same question on every pick (`routeFileToViewWindow`), so a Plan
+ * opened from the sidebar lands in the window that holds the viewer. These three are opened by the
+ * TAB and have no file to route, so nothing asked — and this window built a second copy of a view it
+ * could see was elsewhere.
+ *
+ * Answers false for everything except "it is genuinely somewhere else", which is what keeps the local
+ * path the one that always works: an older main process, a missing binding or a thrown call all land
+ * there. The tab name IS the view kind for all three — `test/admin-tab-kinds.test.js` pins that,
+ * because the day it stops being true this silently asks about a kind that does not exist.
+ */
+async function adminViewOpenedElsewhere(tabName) {
+  if (typeof window.api?.focusViewWindow !== 'function') return false;
+  let res = null;
+  try { res = await window.api.focusViewWindow(tabName); } catch { return false; }
+  if (!res || !res.focused) return false;
+  if (typeof showControlToast === 'function') {
+    // Named after the VIEW, not the window. A window is titled after the view it currently shows, and
+    // raising it brings ours to the front — so the title main answered with is the one it had a moment
+    // ago: asking for Projects announced “Already open in Activity +1”, naming the tab that just
+    // stopped being in front.
+    const label = window.panesView?.viewKindTitle?.(tabName) || tabName;
+    showControlToast({ message: `${label} is already open in another window`, timeoutMs: 2500 });
+  }
+  return true;
+}
+
 // --- Tab switching ---
 document.querySelectorAll('.sidebar-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
+  tab.addEventListener('click', async () => {
     const tabName = tab.dataset.tab;
     if (tabName === activeTab) return;
+    // Before ANY of the state below moves: a tab that raises another window must leave this one
+    // exactly as it was, or the sidebar ends up marking a view that is not on screen here — the same
+    // mismatch `closeAdminView` exists to prevent (#342). Only the three admin tabs ask; every other
+    // tab keeps the synchronous path it has always had.
+    if (ADMIN_TABS.includes(tabName) && await adminViewOpenedElsewhere(tabName)) return;
     // Remember where to return when an admin view is closed (#300). Only non-admin views are recorded, so the
     // close × always reaches a working view rather than bouncing between two admin overlays.
     if (!ADMIN_TABS.includes(activeTab)) previousTab = activeTab;

@@ -829,6 +829,56 @@ test('#364: a closed window stops receiving picks', () => {
   assert.equal(ipc.call('route-view-file', 'memory', { filePath: 'x' }).routed, false);
 });
 
+// --- #381: a sidebar TAB asks the same question a picked file does ---
+//
+// Projects, Variables and Activity carry no file to route, so nothing asked and the main window built
+// a second copy of a view it could see was elsewhere.
+
+test('#381: a view held by another window is focused, not opened again', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const holder = created[0];
+  ipc.callFrom('window-views-changed', holder.webContents, [{ kind: 'projects' }]);
+
+  holder.sent.length = 0;
+  const res = ipc.call('focus-view-window', 'projects');
+  assert.equal(res.focused, true);
+  assert.equal(res.windowTitle, 'One', 'so the click can say where it went');
+  assert.equal(holder.focused, 1);
+  // Raising the window is only half: the view may not be the tab in front over there, and a window
+  // raised on something else is the same "it did nothing" one step on.
+  assert.deepEqual(holder.sent, [['open-view', 'projects', null, null]]);
+});
+
+test('#381: a minimized holder is restored, not just focused', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const holder = created[0];
+  ipc.callFrom('window-views-changed', holder.webContents, [{ kind: 'projects' }]);
+  holder.minimized = true;
+
+  assert.equal(ipc.call('focus-view-window', 'projects').focused, true);
+  assert.equal(holder.minimized, false, 'focusing a minimized window raises nothing');
+});
+
+test('#381: a view nobody else holds is opened locally', () => {
+  const { ipc } = setup();
+  assert.deepEqual(ipc.call('focus-view-window', 'projects'), { focused: false });
+  assert.deepEqual(ipc.call('focus-view-window', null), { focused: false });
+});
+
+test('#381: the window that already holds the view is never sent to itself', () => {
+  const { ipc, created } = setup();
+  ipc.call('detach-session', 's1', 'One');
+  const holder = created[0];
+  ipc.callFrom('window-views-changed', holder.webContents, [{ kind: 'projects' }]);
+  holder.focused = 0;
+
+  assert.deepEqual(ipc.callFrom('focus-view-window', holder.webContents, 'projects'), { focused: false });
+  assert.equal(holder.focused, 0);
+});
+
+
 test('#364: the asking window is never routed to itself', () => {
   const { ipc, created } = setup();
   ipc.call('detach-session', 's1', 'One');
