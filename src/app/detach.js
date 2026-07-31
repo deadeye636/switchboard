@@ -657,6 +657,17 @@ function createDetachWindow({ sessionId = null, title = '', at = null, view = nu
     win.on('resize', persistWindows);
   }
 
+  // A RELOAD takes the review down without a `closed` event (#393). The instanced diff view cannot be
+  // rebuilt from the restored state, so the CLI would wait out the full ten-minute timeout for a view
+  // that is already gone. Answering on the navigation makes a reload cost a rejected diff instead of
+  // ten minutes of silence — and reloading a second window is a likelier gesture than reloading main.
+  if (win.webContents && typeof win.webContents.on === 'function') {
+    win.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+      if (isInPlace || isMainFrame === false) return; // an anchor or a sub-frame is not a teardown
+      if (ctx.rejectPendingDiffsForWindow) ctx.rejectPendingDiffsForWindow(win);
+    });
+  }
+
   // Closing the window hands the session back rather than ending it: the PTY ran through the whole
   // detour and the user closed a VIEW, not a process. Skip on quit — everything is going away anyway.
   win.on('closed', () => {
@@ -843,7 +854,15 @@ function registerIpc(ipc) {
     // Unless it still holds a VIEW (#370). "Nothing left to show" was the same statement as "no
     // sessions left" only for as long as a window could hold nothing else; a window whose Memory tab
     // is the reason it exists must survive a session passing through it.
-    if (sourceLive && !sessionsInWindow(sourceLive).length && !viewsInWindow(sourceLive).length) {
+    //
+    // And unless it still holds an unanswered REVIEW (#393). `viewsInWindow` does not see one: it is
+    // fed by the panes layout, and a window in grid mode reports no views at all — so without this the
+    // window would be destroyed out from under a diff the user is in the middle of, in grid mode only.
+    // Its `closed` handler would still answer the CLI, but a review vanishing mid-decision is the thing
+    // to avoid, not the thing to recover from.
+    const holdsReview = !!(ctx.hasPendingDiffsForWindow && ctx.hasPendingDiffsForWindow(sourceLive));
+    if (sourceLive && !sessionsInWindow(sourceLive).length && !viewsInWindow(sourceLive).length
+        && !holdsReview) {
       sourceLive.destroy();
     }
     persistWindows(); // #371 — both windows hold something different now

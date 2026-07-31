@@ -38,10 +38,14 @@ function makeWindowClass(created, main, { loadingOnCreate = false } = {}) {
       // this is opt-in rather than the default.
       this.loading = loadingOnCreate;
       this.loadListeners = [];
+      this.wcListeners = new Map();
       this.webContents = {
         send: (...args) => this.sent.push(args),
         isLoading: () => this.loading,
         once: (event, fn) => { if (event === 'did-finish-load') this.loadListeners.push(fn); },
+        // A reload is a teardown the 'closed' event never reports (#393).
+        on: (event, fn) => this.wcListeners.set(event, fn),
+        emit: (event, ...args) => { const fn = this.wcListeners.get(event); if (fn) fn(...args); },
       };
       // Where this window sits on screen. A field rather than a constant, because `window-at-screen-point`
       // (#360) is decided by geometry and every window answering the same rectangle would test nothing.
@@ -85,7 +89,7 @@ function makeIpc() {
 // One wired-up module per test: `detachedWindows` is module state, so every case starts from empty.
 // `screen` is optional (#362): without it placement falls back to the offset from the main window,
 // which is what a single-display machine and every pre-#362 test expect.
-function setup({ sessions = ['s1'], quitting = false, screen = undefined, loadingOnCreate = false, settings = null, onRejectDiffs = null } = {}) {
+function setup({ sessions = ['s1'], quitting = false, screen = undefined, loadingOnCreate = false, settings = null, onRejectDiffs = null, onHasPendingDiffs = null } = {}) {
   const created = [];
   const main = {
     destroyed: false,
@@ -109,6 +113,7 @@ function setup({ sessions = ['s1'], quitting = false, screen = undefined, loadin
     // A window dying answers for the review it was showing (#393). Absent in the older cases on
     // purpose: a ctx without it must not break the close.
     rejectPendingDiffsForWindow: onRejectDiffs || undefined,
+    hasPendingDiffsForWindow: onHasPendingDiffs || undefined,
   });
   const ipc = makeIpc();
   detach.registerIpc(ipc);
@@ -1581,4 +1586,45 @@ test('#393: a ctx without the hook does not break the close', () => {
   ipc.call('detach-session', 's1', 'One');
   assert.doesNotThrow(() => created[0].destroy());
   assert.equal(detach.isDetached('s1'), false, 'and the session still comes home');
+});
+
+test('#393: a window holding an unanswered review is not auto-closed under it', () => {
+  // Its last session leaves, so by the old rule it would go. In grid mode the review is invisible to
+  // `viewsInWindow`, which is exactly why the bridge has to be asked instead.
+  let holding = true;
+  const { ipc, created } = setup({
+    sessions: ['s1'],
+    onHasPendingDiffs: () => holding,
+  });
+  ipc.call('detach-session', 's1', 'One');
+  const win = created[0];
+
+  ipc.call('move-session-to-window', 's1', 'main');
+  assert.equal(win.destroyed, false, 'the review is still open in it');
+
+  holding = false;
+  ipc.call('detach-session', 's1', 'One');
+  const second = created[created.length - 1];
+  ipc.call('move-session-to-window', 's1', 'main');
+  assert.equal(second.destroyed, true, 'and with nothing held it goes as before');
+});
+
+test('#393: reloading a window answers the review it was showing', () => {
+  // A reload takes the view down without a `closed` event, and an instanced view cannot be rebuilt.
+  const rejected = [];
+  const { ipc, created } = setup({ onRejectDiffs: (win) => rejected.push(win) });
+  ipc.call('detach-session', 's1', 'One');
+  const win = created[0];
+  // setup() sweeps whatever a previous case left standing, and those closes answer through the same
+  // hook — so start counting from here.
+  rejected.length = 0;
+
+  win.webContents.emit('did-start-navigation', null, 'file:///index.html', false, true);
+  assert.equal(rejected.length, 1, 'the reload answers exactly once');
+  assert.equal(rejected[0], win, 'and for the window that was showing it');
+
+  // An in-place navigation is an anchor, not a teardown.
+  rejected.length = 0;
+  win.webContents.emit('did-start-navigation', null, 'file:///index.html#x', true, true);
+  assert.equal(rejected.length, 0, 'an anchor is not a reload');
 });

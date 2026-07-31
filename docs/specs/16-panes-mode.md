@@ -511,6 +511,13 @@ is unique, so there could only ever be one of each, which IS the symptom. Step 2
   reject it — otherwise the CLI's `tools/call` hangs until the bridge's ten-minute timeout. Leaving panes
   mode is the one a review caught: the pane teardown had already taken the DOM, so an entry left behind
   was unreachable *and* unanswered.
+- **The WINDOW is a way of dropping a diff too, since #393 sent reviews to the window that renders the
+  session.** A renderer path is not the only way a view can die any more: the window holding it is closed
+  by hand, auto-closed when its last session leaves, or reloaded. The first two are answered by the
+  window's own teardown (`app/detach.js`'s `closed` handler, first thing it does); the third is answered
+  on the navigation, because a reloaded window cannot rebuild an instanced view and would otherwise leave
+  the CLI waiting for one that no longer exists. The auto-close is also *prevented* while a review is
+  unanswered — grid mode reports no views at all, so nothing else would have noticed one standing there.
 - **An entry carries its own `sessionId`**, because that is what answers the bridge — so a re-key (`/clear`,
   an accepted plan) has to move the entries too, or a `close_tab` under the new id matches nothing.
 - **Instanced elements never go through `viewHomes`.** They have no home: they are created with their tab

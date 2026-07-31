@@ -539,6 +539,24 @@ function resolvePendingDiff(sessionId, diffId, action, editedContent) {
  *
  * Returns how many were answered, so the caller can log it rather than guess.
  */
+/**
+ * Is this window showing a review nobody has answered yet?
+ *
+ * Asked before a window is taken down on the app's own initiative — a window whose last session moved
+ * away is auto-closed, and in grid mode it reports no views at all, so nothing else would notice the
+ * diff standing in it. Answering the call afterwards is the safety net; not destroying the window out
+ * from under an open review is the actual behaviour.
+ */
+function hasPendingDiffsForWindow(win) {
+  if (!win) return false;
+  for (const entry of servers.values()) {
+    for (const pending of entry.pendingDiffs.values()) {
+      if (pending.win === win) return true;
+    }
+  }
+  return false;
+}
+
 function rejectPendingDiffsForWindow(win, log) {
   if (!win) return 0;
   let answered = 0;
@@ -606,6 +624,7 @@ module.exports = {
   shutdownMcpServer,
   shutdownAll,
   resolvePendingDiff,
+  hasPendingDiffsForWindow,
   rejectPendingDiffsForWindow,
   rekeyMcpServer,
   cleanStaleLockFiles,

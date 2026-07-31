@@ -23,7 +23,7 @@ const WebSocket = require('ws');
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-mcp-'));
 process.env.SWITCHBOARD_STORE_CLAUDE = path.join(tmpHome, 'projects');
 
-const { startMcpServer, shutdownMcpServer, rejectPendingDiffsForWindow } = require('../src/servers/mcp-bridge');
+const { startMcpServer, shutdownMcpServer, hasPendingDiffsForWindow, rejectPendingDiffsForWindow } = require('../src/servers/mcp-bridge');
 
 const log = { info() {}, debug() {}, warn() {}, error() {} };
 
@@ -287,5 +287,31 @@ test('a window still loading gets the diff once it has loaded, rather than never
   } finally {
     ws.close();
     shutdownMcpServer('d5');
+  }
+});
+
+test('a window showing an unanswered review says so, so it is not taken down under one', async () => {
+  // Answering afterwards is the safety net. Not destroying the window mid-decision is the behaviour —
+  // and in grid mode nothing else knows the diff is there, because that mode reports no views at all.
+  const win = fakeWindow('holder');
+  const other = fakeWindow('other');
+  const server = await startMcpServer('d6', [tmpHome], () => win, log);
+  const ws = await connect(server.port, server.authToken);
+  try {
+    assert.equal(hasPendingDiffsForWindow(win), false, 'nothing open yet');
+
+    const call = openDiff(ws, 1, __filename);
+    await waitFor(() => win.sent.length > 0, 'the diff to be sent');
+
+    assert.equal(hasPendingDiffsForWindow(win), true);
+    assert.equal(hasPendingDiffsForWindow(other), false, 'and only the window actually showing it');
+    assert.equal(hasPendingDiffsForWindow(null), false);
+
+    rejectPendingDiffsForWindow(win, log);
+    assert.equal(hasPendingDiffsForWindow(win), false, 'answered means no longer held');
+    await call.answered();
+  } finally {
+    ws.close();
+    shutdownMcpServer('d6');
   }
 });
