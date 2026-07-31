@@ -241,7 +241,7 @@ and because a second window can corrupt them.
 | Key | Holds |
 |---|---|
 | `paneTree` | the panes-mode split layout: the tree, with sizes as fractions (#309) |
-| `gridViewActive`, `gridModePref` | is the grid mosaic on; the grid mode's remembered preference across a mode switch |
+| `gridViewActive` | is the grid mosaic on. `gridModePref` sat beside it until #369 — grid remembered whether it had been showing the mosaic or a single session, and restored that on a mode switch. A switch into grid is always the mosaic now, so nothing read it |
 | `gridLayout`, `gridStatusFilter` | per-session `{order, colSpan, rowSpan}`; the grid's status filter |
 | `persistedOpenSessions` | the set to reopen on the next launch — deliberately durable, so it survives a crash |
 | `filePanelWidth`, `filePanelDiffMode` | the side panel's width; side-by-side vs inline diff |

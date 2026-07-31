@@ -19,7 +19,9 @@ the **small IPC handlers** that stayed on purpose (thin, no shared state; moving
 `notifications.js`, `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`,
 `settings-transfer.js`, `plans-memory.js` (Plans/Memory/Work-Files tabs — #227),
 `vcs.js` (the VCS poller + its standalone windows — #277), `detach.js` (detached session
-windows — #2, and since #316 which window renders which session) and `terminal/` (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow
+windows — #2, and since #316 which window renders which session), `presence.js` (is the USER at the
+machine — #386; one global fact, because every renderer has its own `windowFocused` and none can see
+the others) and `terminal/` (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow
 control, plus the PTY pure-logic).
 
 ## One channel routes per session: `terminal-data` (#2)
@@ -72,6 +74,7 @@ detached → detached. Four things follow, and `docs/specs/17-detached-windows.m
 | The Plans, Memory and Work-Files tabs | `src/app/plans-memory.js` |
 | Version-control status, the changes/diff windows | `src/app/vcs.js` (the seam it drives is `src/vcs/`) |
 | Detached session windows, which window a session renders in, moving one between windows | `src/app/detach.js` |
+| Whether the user is at the machine (focus + input, across every window) | `src/app/presence.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;

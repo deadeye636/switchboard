@@ -195,10 +195,18 @@ context switch. Each feature has a full design doc under `docs/specs/`.
 ### 03 — "While you were away" summary
 `src/renderer/shell/away-summary.js`
 
-- Tracks a per-session **last-viewed** marker and **files touched** while away.
-- On returning to a session that changed while unfocused, shows a compact,
-  dismissible summary: key timeline events since last view, files touched, and
-  whether it's waiting on you. Never hides the live terminal.
+- Tracks whether **you** were away — not whether a window lost focus (#386).
+  `src/app/presence.js` owns it: every window reports focus and input, and main
+  is the only place that can see all of them. Switching windows and sessions
+  while you work shows nothing; the attention inbox is the surface for that.
+- On coming back after a real absence, shows a compact, dismissible summary on
+  the session you open: the timeline events from that absence, the files touched,
+  and whether it's waiting on you. Never hides the live terminal. Once per
+  session per absence.
+- Only a keystroke dismisses it (#384). It used to dismiss on anything the
+  terminal sent, including the focus report that revealing a session produces —
+  so it tore itself down before it could be read.
+- Two settings: show it at all, and how long counts as away.
 
 ### 04 — One-click handoff
 `public/handoff-flow.js`, `src/renderer/dialogs/dialogs.js`

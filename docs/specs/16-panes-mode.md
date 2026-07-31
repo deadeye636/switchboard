@@ -131,7 +131,7 @@ and since #357 it has **absorbed** tabs mode, which a single-leaf tree renders e
 same session bar, same tools. Two modes drawing the same thing meant every tab feature had to be
 built twice, and the audit (#343–#355) kept finding the second one lagging.
 
-**Tabs mode is gone, in three steps, and this section is its record** — there is no spec of its own to
+**Tabs mode is gone, in five steps, and this section is its record** — there is no spec of its own to
 deprecate, because a single-leaf pane tree IS that mode now:
 
 | Step | What went |
@@ -139,8 +139,10 @@ deprecate, because a single-leaf pane tree IS that mode now:
 | #357 | The MODE. No setting selects it any more; a stored `tabs` resolves to `panes` (`resolveSessionDisplayMode` in `views/grid-layout.js`, and `legacy` is grid's old spelling on the same rule) |
 | #367 | The STRIP it drew. `refreshSessionTabs` had emptied it and returned ever since, so the tab builders, the drag-reorder, the overflow dropdown, the context menu and the `#session-tabs` element were unreachable — `session/session-tabs.js` went from 666 lines to 290 |
 | #368 | Its one remaining SETTING. `tabPosition` put that strip at the top or the bottom and had driven nothing since; migration [18] takes the stored value out of the global blob |
+| #385 | Its stored ORDER. `tabOrder` held the order that strip drew in; migration [19] takes it out of the blob |
+| #387 | The function that READ that order. `buildTabModel` sorted sessions against `tabOrder`, and by then had no caller at all — panes orders its tabs from its own layout tree, which is the thing that knows where a tab was put |
 
-What `session/session-tabs.js` still holds is shared code, not tabs-mode code: `buildTabModel`, the tab
+What `session/session-tabs.js` still holds is shared code, not tabs-mode code: the tab
 and session-bar tooltips, the project-path splitter (#334), the auto-close rules, `closeTabNow` and the
 display-mode settings apply. **The CSS is the trap in that removal**: `.session-tabs-*` and
 `.session-tab-*` read like leftovers and are the PANE strip's — this view builds its tab list, its
@@ -154,6 +156,43 @@ thing you switch *to*. The rule is stated once, in `resolveSessionDisplayMode`: 
 choice is grid, everything else — an unknown value, and above all a missing one — is panes. Nothing is
 rewritten in the database, so an install that never opened settings is served by the same rule as one
 that did; an install that HAS saved settings carries its own answer and keeps it.
+
+### 1b · A mode switch carries the sessions across (#369)
+
+Switching mode used to lose them, in a way that looked like data loss and was not: the sessions stayed
+mounted and simply had nothing on screen to say so. Grid restored **its own** last mosaic/single
+preference, so a switch out of panes could land in the single view — which has no cards at all.
+
+Three rules, and the third is the one that constrains the other two:
+
+| Direction | What happens |
+|---|---|
+| **panes → grid** | always the mosaic, never the single view. Grid IS the overview; showing one session is not the reason anyone switches to it. The pane tab order travels with it |
+| **grid → panes** | every mounted session with no tab is adopted into one pane, in the order the cards were in on screen |
+| **either way** | panes keeps its own arrangement. A session that already has a tab stays exactly where it was put — only orphans are placed |
+
+Two things make this work, and both are about *when* rather than *what*: the order is captured
+**before** `panesView.applySettings` runs, because that call switches the losing mode off, and a mode
+that is off cannot be asked what it was showing. Grid's `unwrapGridCards` clears `gridCards` on the way
+out, so that map has one last readable moment; panes' `sessionIdsInLayout()` has the mirror problem.
+
+The order is a *preference*, not an override. `resolveGridCardOrder` (pure, in `views/grid-layout.js`)
+puts the named ids first and everything else in sidebar order behind them — but `applyLayout` then
+sorts by the **persisted** `order` from spec 08, so a card the user has dragged into place keeps that
+place. A mode switch does not get to rearrange an arrangement the user made.
+
+**What does NOT cross: a dormant tab.** A session in the pane tree with no process (#318 — restored
+from a saved layout, or left by `terminalCloseBehavior: 'keep'`) has no entry in `openSessions`, and
+grid builds its cards from mounted sessions alone. It is still in the layout and comes back on the way
+to panes; it simply has no card while you are in grid. Giving grid a dormant card with a Launch
+placeholder is a grid feature nobody has asked for yet.
+
+`showGridView` is the funnel every entry into the mosaic runs through, and since #369 a mode switch is
+one of them — so the **detached-window refusal moved into it** from `toggleGridView`. A window of its
+own shows the sessions it was given, never the whole set; the mosaic there would auto-mount every
+running session, a second xterm on each live PTY, and write `gridViewActive` into the localStorage both
+windows share. Spec 17 §3 records that both grid paths were found by review rather than by testing,
+which is exactly why the refusal belongs at the funnel and not at each caller.
 
 ## 2 · The model
 
