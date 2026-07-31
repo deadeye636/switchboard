@@ -39,7 +39,7 @@
     "electron-log": "^5.4.4",
     "marked": "^17.0.4",
     "morphdom": "^2.7.8",
-    "node-pty": "^1.1.0",
+    "node-pty": "^1.2.0-beta.14",
     "ws": "^8.21.1"
   },
   "devDependencies": {

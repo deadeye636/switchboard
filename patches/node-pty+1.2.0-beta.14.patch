@@ -1,0 +1,13 @@
+diff --git a/node_modules/node-pty/binding.gyp b/node_modules/node-pty/binding.gyp
+index 9e8780e..e54c3d9 100644
+--- a/node_modules/node-pty/binding.gyp
++++ b/node_modules/node-pty/binding.gyp
+@@ -6,7 +6,7 @@
+     'conditions': [
+       ['OS=="win"', {
+         'msvs_configuration_attributes': {
+-          'SpectreMitigation': 'Spectre'
++          'SpectreMitigation': 'false'
+         },
+         'msvs_settings': {
+           'VCCLCompilerTool': {
