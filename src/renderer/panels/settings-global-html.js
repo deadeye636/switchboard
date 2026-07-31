@@ -60,7 +60,7 @@
       stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
       orphanSubagentMaxAgeDaysValue,
       tabAutoCloseDelayValue, tabAutoCloseModeValue,
-      tabCloseValue, tabDragValue, tabMiddleClickValue, tabPositionValue, liveRenderBackgroundValue,
+      tabCloseValue, tabDragValue, tabMiddleClickValue, liveRenderBackgroundValue,
       terminalCloseValue, terminalFontCustomValue, terminalFontSelectValue, terminalFontSizeValue,
       terminalShellProfileValue, themeValue, usage5hCritValue, usage5hWarnValue, usage7dCritValue,
       usage7dWarnValue, usageBackendRowsHtml, visCountValue,
@@ -75,7 +75,7 @@
           <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">6</span></button>
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item settings-nav-sub" data-cat="tools">Terminal tools</button>
-          <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">11</span></button>
+          <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">11</span></button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
           <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
@@ -493,18 +493,6 @@
 
               <div class="settings-subhead">Tabs</div>
               <div class="settings-section">
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Tab position</span>
-                    <div class="settings-description">Tab bar above or below the terminal (tabs mode only).</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <select class="settings-select" id="sv-tab-position">
-                      <option value="top" ${tabPositionValue === 'top' ? 'selected' : ''}>Top</option>
-                      <option value="bottom" ${tabPositionValue === 'bottom' ? 'selected' : ''}>Bottom</option>
-                    </select>
-                  </div>
-                </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Closing a tab (×)</span>${help}</div>

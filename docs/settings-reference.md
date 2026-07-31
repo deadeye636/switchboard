@@ -77,8 +77,7 @@ stored preference survives — the setting stopped being about tabs when panes s
 | `paneBackgroundScrollback` | Scrollback of a background pane tab | `0` (keep all) \| `5000` \| `2000` \| `1000` | `0` | global |
 | ~~`settingsOpenMode`~~ | *removed in #365* | — | — | *the overlay it chose between is gone — settings always open in a window of their own, and a migration takes the stored value out of the global blob* |
 | `sidebarCollapseDefault` | Sidebar on startup | `expanded` \| `collapsed` \| `remember` | `remember` | global |
-| `tabPosition` | Tab position | `top` \| `bottom` | `top` | global |
-| | | *(no effect since #357 — it moved the retired tabs-mode strip; panes draws its own strips per pane. Kept rather than removed, because it is the setting a per-pane version would reuse)* | | |
+| ~~`tabPosition`~~ | *removed in #368* | — | — | *it moved the retired tabs-mode strip, and that strip is gone (#367). Kept for a while because a per-pane version would have reused the key; that version is not being built, and a migration takes the stored value out of the global blob* |
 | `tabCloseBehavior` | Closing a tab (×) | `closeView` \| `stopSession` | `closeView` | global |
 | `tabMiddleClickCloses` | Middle-click closes a tab | bool | `true` | global |
 | `tabDragReorder` | Reorder tabs by dragging | bool | `true` | global |

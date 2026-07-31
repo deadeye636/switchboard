@@ -389,6 +389,27 @@ const migrations = [
       db.prepare("UPDATE settings SET value = ? WHERE key = 'global'").run(JSON.stringify(global));
     } catch { /* an unreadable blob is not worth failing a migration over */ }
   },
+
+  // Drop `tabPosition` from the global settings blob (#368). It put the tab strip of the display mode
+  // retired in #357 at the top or the bottom; the strip is gone (#367) and the one CSS rule it drove
+  // went with it, so the setting was still offered, still saved, and changed nothing on screen.
+  //
+  // It was kept at the time because a per-pane version would reuse exactly this key. That version is
+  // not being built — a setting that silently does nothing is worse than either answer, and the key
+  // can be reintroduced with a meaning if it ever is.
+  //
+  // Same shape as the one above: rewrite only when the key is actually present, so a database that
+  // never had it is left byte-identical.
+  (db) => {
+    try {
+      const row = db.prepare("SELECT value FROM settings WHERE key = 'global'").get();
+      if (!row || !row.value) return;
+      const global = JSON.parse(row.value);
+      if (!global || typeof global !== 'object' || !('tabPosition' in global)) return;
+      delete global.tabPosition;
+      db.prepare("UPDATE settings SET value = ? WHERE key = 'global'").run(JSON.stringify(global));
+    } catch { /* an unreadable blob is not worth failing a migration over */ }
+  },
 ];
 
 /**

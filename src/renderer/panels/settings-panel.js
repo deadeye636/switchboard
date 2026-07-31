@@ -211,7 +211,6 @@
     const vcsShowBadgeValue = fieldValue('vcsShowBadge', false);
     const vcsPollSecondsValue = fieldValue('vcsPollSeconds', 20);
     const vcsCountUntrackedValue = fieldValue('vcsCountUntracked', true);
-    const tabPositionValue = fieldValue('tabPosition', 'top');
     const tabCloseValue = fieldValue('tabCloseBehavior', 'closeView');
     const tabMiddleClickValue = fieldValue('tabMiddleClickCloses', true);
     const tabDragValue = fieldValue('tabDragReorder', true);
@@ -425,7 +424,7 @@
         stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
         orphanSubagentMaxAgeDaysValue,
         tabAutoCloseDelayValue, tabAutoCloseModeValue,
-        tabCloseValue, tabDragValue, tabMiddleClickValue, tabPositionValue, liveRenderBackgroundValue,
+        tabCloseValue, tabDragValue, tabMiddleClickValue, liveRenderBackgroundValue,
         terminalCloseValue, terminalFontCustomValue, terminalFontSelectValue, terminalFontSizeValue,
         terminalShellProfileValue, themeValue, usage5hCritValue, usage5hWarnValue, usage7dCritValue,
         usage7dWarnValue, usageBackendRowsHtml, visCountValue,
@@ -764,7 +763,6 @@
           const rp = settingsViewerBody.querySelector('#sv-handoff-read-prompt')?.value || '';
           settings.handoffReadPrompt = (rp.trim() && rp.trim() !== defaultHandoffReadPrompt.trim()) ? rp : '';
         }
-        settings.tabPosition = settingsViewerBody.querySelector('#sv-tab-position').value || 'top';
         settings.tabCloseBehavior = settingsViewerBody.querySelector('#sv-tab-close').value || 'closeView';
         settings.tabMiddleClickCloses = settingsViewerBody.querySelector('#sv-tab-middle-click').checked;
         settings.tabDragReorder = settingsViewerBody.querySelector('#sv-tab-drag').checked;

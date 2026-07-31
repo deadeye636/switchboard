@@ -137,7 +137,6 @@ if (typeof module !== 'undefined' && module.exports) {
   if (typeof document === 'undefined') return; // node test context
 
   let displayMode = 'grid';        // grid | panes (#309, rendered by views/panes-view.js)
-  let tabPosition = 'top';         // top | bottom
   let autoCloseMode = 'always';    // never | onSuccess | always
   let autoCloseDelaySec = 5;       // seconds; 0 = close immediately
   let initialized = false;         // first applySessionDisplaySettings = startup
@@ -181,10 +180,6 @@ if (typeof module !== 'undefined' && module.exports) {
 
   // --- Settings apply ---
 
-  function applyMode() {
-    document.body.classList.toggle('tabs-bottom', tabPosition === 'bottom');
-  }
-
   function applySessionDisplaySettings(g) {
     g = g || {};
     const prevMode = displayMode;
@@ -193,7 +188,6 @@ if (typeof module !== 'undefined' && module.exports) {
     // this mode switch, but nothing else in this file.
     // A stored 'tabs' resolves to 'panes' (#357) — one place decides that, in grid-layout.js.
     displayMode = resolveSessionDisplayMode(g.sessionDisplayMode);
-    tabPosition = g.tabPosition === 'bottom' ? 'bottom' : 'top';
     autoCloseMode = resolveAutoCloseMode(g);
     autoCloseDelaySec = resolveAutoCloseDelaySec(g);
     // `tabsLiveRender` is the retired name (#339): the setting stopped being about tabs when panes
@@ -203,7 +197,6 @@ if (typeof module !== 'undefined' && module.exports) {
       const stored = g.liveRenderBackground !== undefined ? g.liveRenderBackground : g.tabsLiveRender;
       window._setLiveRenderBackground(stored !== false);
     }
-    applyMode();
     // Panes mode owns the terminal area itself (#309): it enables on 'panes' and
     // hands every container back to #terminals on any other mode. Run it before
     // the grid scoping below, so a switch out of panes restores the single view
