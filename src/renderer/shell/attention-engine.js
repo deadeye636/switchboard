@@ -142,12 +142,18 @@ function setActivity(sessionId, active) {
   }
 
   if (wasActive && !active) {
-    // Activity ended → response-ready if user isn't looking at this session
+    // RECORDING that the turn ended is a fact about the session, and it does not depend on where the
+    // user was looking (#391). The away recap reads exactly this event to answer "was anything waiting
+    // for me", so tying the record to focus meant the commonest case of all — walk away from the
+    // session you are working in, come back — produced a recap that said nothing was.
+    recordTimelineEvent(sessionId, 'response-ready', 'Ready for review', 'Agent stopped producing output.');
+
+    // RAISING it stays exactly as focus-dependent as it was: a session the user is looking at needs
+    // no inbox flag, no ready class and no badge.
     if (sessionId !== activeSessionId) {
       // Through the same door as every other caller. sessionBusyState was set to false above, so this
       // always takes — the point is that there is one place where "ready" can be set.
       markResponseReady(sessionId);
-      recordTimelineEvent(sessionId, 'response-ready', 'Ready for review', 'Agent stopped producing output while this session was not focused.');
       for (const item of sessionRowEls(sessionId)) {
         item.classList.remove('cli-busy');
         item.classList.add('response-ready');
@@ -173,14 +179,18 @@ function applyAttention(sessionId, signal) {
   const { kind, reason, source } = signal;
 
   if (kind === 'needs-attention') {
-    // Focused session needs no inbox flag — the user is already looking at it.
-    if (sessionId === activeSessionId) return;
     const winner = reduceAttention(attentionReason.get(sessionId) || null, { reason, source });
+    // Recorded whether or not the user is looking (#391) — "the agent asked me something" is part of
+    // what happened while they were away even when the session was the one in front. Reducing without
+    // storing keeps the focused case free of side effects: no reason kept, no set written.
+    recordTimelineEvent(sessionId, 'needs-attention', 'Needs human attention', winner.reason);
+
+    // A focused session needs no inbox flag — the user is already looking at it.
+    if (sessionId === activeSessionId) return;
     attentionReason.set(sessionId, winner);
     const wasAttention = attentionSessions.has(sessionId);
     const prevAttention = new Set(attentionSessions);
     attentionSessions.add(sessionId);
-    recordTimelineEvent(sessionId, 'needs-attention', 'Needs human attention', winner.reason);
     for (const item of sessionRowEls(sessionId)) item.classList.add('needs-attention');
     if (!wasAttention) {
       refreshSessionStatusViews();
