@@ -446,7 +446,6 @@ if (isOwnWindow) document.body.classList.add('detached-window');
   function refreshViews() {
     updateDetachedWindowTitle(); // the set just changed — a release or an adopt got us here
     if (typeof refreshSidebar === 'function') refreshSidebar();
-    if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
     if (window.panesView && window.panesView.active()) window.panesView.render();
   }
 

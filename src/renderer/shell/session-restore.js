@@ -142,8 +142,7 @@ async function restoreOpenSessionsOnLaunch() {
 
   const focusId = resolveRestoreFocusId(state, uniqueSessions, (id) => openSessions.has(id));
   if (focusId) showSession(focusId);
-  else if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
-  // Statuses were gated for the whole restore — bring the sidebar, tabs and grid
+  // Statuses were gated for the whole restore — bring the sidebar, panes and grid
   // up to date once now that the full set is open.
   refreshSessionStatusViews();
   return uniqueSessions.length > 0;

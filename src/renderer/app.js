@@ -384,12 +384,8 @@ function refreshSessionStatusViews() {
     if (typeof patchSidebarStatuses !== 'function' || !patchSidebarStatuses()) refreshSidebar();
   }
   if (gridViewActive) refreshGridView();
-  // Tabs read their status at render time, and were only repainted when something
-  // else happened to call loadProjects(). Patch them on the edge itself (#124).
-  if (typeof window.patchTabStatuses === 'function' && !window.patchTabStatuses()) {
-    if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
-  }
-  // Panes mode (#309): same trade-off, one strip per pane. The chrome rebuild is
+  // Panes mode (#309): the same trade-off #124 made for the retired strip — patch the dots in place
+  // rather than rebuilding, because a rebuild on every busy edge churns the DOM. The chrome rebuild is
   // separate because a stop button appears/disappears with the running state,
   // which the dot patcher does not touch.
   if (window.panesView && window.panesView.active()) {
@@ -948,11 +944,9 @@ async function loadProjects({ resort = false } = {}) {
   // and membership changes; keep the grid view in sync too — otherwise grid cards
   // stay stale until the layout is reset or the grid is toggled off and on.
   if (gridViewActive) refreshGridView();
-  // Open tabs and the active session header read the in-memory session object, which
-  // dedup() just refreshed with any newly generated AI title. Re-render them so the
-  // tab label and header primary name don't stay stuck on "New session" while the
-  // sidebar already shows the title (issue #73).
-  if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
+  // The active session header reads the in-memory session object, which dedup() just refreshed with
+  // any newly generated AI title. Re-render it so the primary name does not stay stuck on
+  // "New session" while the sidebar already shows the title (issue #73).
   if (activeSessionId && typeof cleanDisplayName === 'function') {
     const active = sessionMap.get(activeSessionId);
     const name = active && cleanDisplayName(active.name || active.aiTitle || active.summary);
@@ -1179,10 +1173,9 @@ function startSessionRename(el, sessionId) {
       session.name = nameToSave;
       el.textContent = nameToSave || fallback || session.sessionId;
       if (typeof refreshSidebar === 'function') refreshSidebar();
-      // The name is on screen in up to four places at once — the sidebar row, the tab, the header and
-      // every pane's action row (#358). Repaint them from the record we just changed, or the one the
-      // user did NOT rename from keeps yesterday's name until something else redraws it.
-      if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
+      // The name is on screen in three places at once — the sidebar row, the header and every pane's
+      // action row (#358). Repaint them from the record we just changed, or the one the user did NOT
+      // rename from keeps yesterday's name until something else redraws it.
       if (window.panesView && window.panesView.active()) window.panesView.render();
       refreshSessionHeaderChrome();
     } else {

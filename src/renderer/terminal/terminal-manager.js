@@ -1552,7 +1552,6 @@ function destroySession(sessionId) {
     // showGridView/showSession flows (e.g. LRU eviction of a closed session).
     gridViewerCount.textContent = gridCards.size + ' session' + (gridCards.size !== 1 ? 's' : '');
   }
-  if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
   // The status bar counts live terminals from the threshold up (#352), and this is the one place
   // every removal funnels through — the same reason the title update below sits here.
   if (typeof renderDefaultStatus === 'function') renderDefaultStatus();
@@ -1658,7 +1657,6 @@ function showSession(sessionId) {
       fitAndScroll(entry);
     }
   }
-  if (typeof window.refreshSessionTabs === 'function') window.refreshSessionTabs();
 }
 
 // A drop lands in the session it was dropped ON, so the caret has to follow it. Dropping on a grid

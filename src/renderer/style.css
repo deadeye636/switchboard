@@ -7880,7 +7880,9 @@ body.grid-dragging .grid-card-header {
    overlay (#365) — there is nowhere left to pop out TO. */
 #settings-viewer-header { display: flex; align-items: center; gap: 10px; }
 
-#session-tabs { display: none; }
+/* Everything below is the PANE strip's, not the retired tabs strip's (#367): panes-view.js builds its
+   tab list, its controls, its overflow popover and its context menu from exactly these classes. The
+   names read like tabs-mode leftovers and are not — deleting by prefix takes the pane strips with it. */
 .session-tabs-list {
   display: flex;
   align-items: center;
@@ -8016,7 +8018,6 @@ body.detached-window #main { inset: 0; }
 /* #terminals hosts a split tree; every leaf is a .pane with its own strip. The
    strip carries the session tools too (O13/H2), so the singleton #terminal-header
    is hidden while this mode is on (panes-view.js does that in JS). */
-body.display-mode-panes #session-tabs { display: none; }
 body.display-mode-panes #grid-toggle-btn { display: none; }
 body.display-mode-panes #terminals {
   display: flex;

@@ -175,8 +175,8 @@ window.api.onSessionForked((oldId, newId) => {
 });
 
 // Clear the main terminal area to the idle placeholder (no active session).
-// Exposed for the session-tabs close fallback: when the closed tab was the active
-// one and no other tab remains, the strip has nothing to switch to.
+// Exposed for the panes close fallback: when the closed tab was the active one and
+// no other remains, there is nothing left to switch to.
 window.clearActiveTerminalView = function () {
   setActiveSession(null);
   terminalHeader.style.display = 'none';
@@ -267,11 +267,11 @@ window.api.onProcessExited((sessionId, exitCode) => {
 
   if (userStopped) {
     // Deliberate stop/archive: close the tab now (no timed auto-close, no banner).
-    // closeTabNow switches to a neighbour tab or the placeholder in tabs mode; a
-    // no-op in grid/legacy where the stop/archive handlers manage the view.
+    // closeTabNow shows what the active pane holds next; a no-op in grid, where the
+    // stop/archive handlers manage the view themselves.
     if (typeof window.closeTabNow === 'function') window.closeTabNow(sessionId);
   } else if (typeof window.scheduleTabAutoClose === 'function') {
-    // Tabs mode: optionally auto-close the tab after the exit (setting-driven; the
+    // Panes mode: optionally auto-close the tab after the exit (setting-driven; the
     // scheduler no-ops in grid mode and honours the mode/delay from settings).
     window.scheduleTabAutoClose(sessionId, exitCode);
   }
