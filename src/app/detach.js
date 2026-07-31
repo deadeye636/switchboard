@@ -339,6 +339,23 @@ let restoreDone = false;
 // beat the renderer's own boot, and a later one races the reconcile that mounts what main owns.
 const pendingRestore = new Map();
 
+// Saved windows this launch cannot show, kept whole until one can (#378).
+//
+// The app's own views live in panes mode. A saved window holding nothing but views has no target in
+// grid: it came up as an empty frame with no title and no explanation, and — worse — the next state
+// write drops a window that holds neither sessions nor views, so the entry was gone for good and
+// going back to panes did not bring it back. Held here instead: not opened, not forgotten, written
+// back unchanged, and restored the next time the mode can fill it.
+const deferredWindows = [];
+
+// Which stored values mean grid. The renderer resolves this in `views/grid-layout.js`
+// (`resolveSessionDisplayMode`) and that is the source of truth — since #374 only an EXPLICIT grid
+// choice is grid, so anything unrecognised, and above all nothing stored at all, is panes.
+// `test/detach-routing.test.js` pins this list to that one, because a spelling added there and not
+// here would silently start opening empty frames again.
+const GRID_SPELLINGS = ['grid', 'legacy'];
+const storedModeIsGrid = (stored) => GRID_SPELLINGS.includes(stored);
+
 // --- Asking a window a question and waiting for its answer (#375) ---
 //
 // `ipcMain.handle` is renderer→main. This is the other direction, which Electron gives no request/
@@ -442,6 +459,9 @@ function snapshotWindows() {
       layout: layoutInWindow(win),
     });
   }
+  // The windows this launch held back (#378). They were never opened, so nothing above can see them —
+  // and the loop's own "holds neither" rule is exactly what would erase them. Written back unchanged.
+  out.push(...deferredWindows);
   return out;
 }
 
@@ -494,17 +514,24 @@ function restoreWindows() {
   // a second monitor is exactly the surprise the setting exists to prevent.
   if (global.restoreSessionsOnLaunch === false) return 0;
   const saved = Array.isArray(global.detachedWindows) ? global.detachedWindows : [];
+  const gridMode = storedModeIsGrid(global.sessionDisplayMode);
   let made = 0;
   for (const entry of saved) {
     const sessions = Array.isArray(entry && entry.sessions) ? entry.sessions.filter(Boolean) : [];
     const views = Array.isArray(entry && entry.views) ? entry.views.filter((v) => v && v.kind) : [];
     if (!sessions.length && !views.length) continue;
+    // Views only, and no panes to put them in (#378). A window with sessions is unaffected: grid
+    // shows those, and it is only the view half that has nowhere to go.
+    if (!sessions.length && gridMode) { deferredWindows.push(entry); continue; }
     const win = createDetachWindow({ bounds: placeRestored(entry.bounds) });
     for (const id of sessions) detachedWindows.set(id, win);
     pendingRestore.set(win, { sessions, views, layout: (entry.layout && entry.layout.tree) ? entry.layout : null });
     made++;
   }
   if (made) ctx.log.info(`[detach] restoring ${made} window(s) from the last run`);
+  if (deferredWindows.length) {
+    ctx.log.info(`[detach] ${deferredWindows.length} saved window(s) hold only views and stay closed in grid mode`);
+  }
   return made;
 }
 
@@ -635,6 +662,9 @@ function closeAll() {
   // outlives its windows: reopening it comes back through `createWindow`, and the windows the user
   // just had are what they expect to find.
   restoreDone = false;
+  // The held-back set is rebuilt from the settings the write above just made (#378). Keeping it would
+  // append a second copy of every deferred window on that second pass.
+  deferredWindows.length = 0;
 }
 
 /**

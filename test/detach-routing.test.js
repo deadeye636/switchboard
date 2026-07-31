@@ -1152,6 +1152,97 @@ test('#371: a saved entry holding nothing is not reopened', () => {
   assert.deepEqual(created, []);
 });
 
+// --- #378: a window this mode cannot show is held, not lost ---
+//
+// Views live in panes mode. In grid a restored view-only window came up as an empty frame, and the
+// next state write then dropped it for holding nothing — so it did not come back when the mode
+// could show it again. Now it is never opened and never forgotten.
+
+const VIEW_ONLY_WINDOW = { bounds: null, sessions: [], views: [{ kind: 'memory', ref: null, file: null }] };
+
+test('#378: in grid mode a saved window holding only views is not opened', () => {
+  const { created } = setupWithSettings({
+    sessionDisplayMode: 'grid',
+    detachedWindows: [{ ...VIEW_ONLY_WINDOW }],
+  });
+  assert.equal(detach.restoreWindows(), 0);
+  assert.deepEqual(created, [], 'an empty frame with no title and no explanation is the defect');
+});
+
+test('#378: the window it held back is still saved afterwards', () => {
+  const { store } = setupWithSettings({
+    sessionDisplayMode: 'grid',
+    detachedWindows: [{ ...VIEW_ONLY_WINDOW }],
+  });
+  detach.restoreWindows();
+  detach.closeAll();
+  assert.deepEqual(store.read().detachedWindows, [VIEW_ONLY_WINDOW],
+    'dropping it here is what made the window unrecoverable');
+});
+
+test('#378: back in panes mode the same entry opens again', () => {
+  const { ipc, created } = setupWithSettings({
+    detachedWindows: [{ ...VIEW_ONLY_WINDOW }],
+  });
+  assert.equal(detach.restoreWindows(), 1);
+  assert.deepEqual(ipc.callFrom('my-window-restore', created[0].webContents),
+    { sessions: [], views: [{ kind: 'memory', ref: null, file: null }], layout: null });
+});
+
+test('#378: a saved window holding sessions comes back in grid mode too', () => {
+  const { created } = setupWithSettings({
+    sessionDisplayMode: 'grid',
+    detachedWindows: [{ bounds: null, sessions: ['s1'], views: [] }],
+  });
+  assert.equal(detach.restoreWindows(), 1);
+  assert.equal(detach.windowForSession('s1'), created[0], 'grid shows sessions — only the views have nowhere to go');
+});
+
+test('#378: "legacy" is grid\'s old spelling and holds the window back as well', () => {
+  const { created } = setupWithSettings({
+    sessionDisplayMode: 'legacy',
+    detachedWindows: [{ ...VIEW_ONLY_WINDOW }],
+  });
+  assert.equal(detach.restoreWindows(), 0);
+  assert.deepEqual(created, []);
+});
+
+test('#378: a mode nobody recognises is panes, so the window comes back', () => {
+  const { created } = setupWithSettings({
+    sessionDisplayMode: 'tabs',
+    detachedWindows: [{ ...VIEW_ONLY_WINDOW }],
+  });
+  assert.equal(detach.restoreWindows(), 1, 'only an EXPLICIT grid choice is grid (#374)');
+  assert.equal(created.length, 1);
+});
+
+test('#378: the held-back set is not appended twice when restore runs again', () => {
+  const { store } = setupWithSettings({
+    sessionDisplayMode: 'grid',
+    detachedWindows: [{ ...VIEW_ONLY_WINDOW }],
+  });
+  detach.restoreWindows();
+  detach.closeAll();          // writes what is standing, then forgets the held-back set
+  detach.restoreWindows();    // the macOS activate path, reading the state that write just made
+  detach.closeAll();
+  assert.deepEqual(store.read().detachedWindows, [VIEW_ONLY_WINDOW]);
+});
+
+test('#378: main and the renderer agree on which stored values mean grid', () => {
+  // Two copies of one rule. The renderer resolves the setting on read (`resolveSessionDisplayMode`
+  // in views/grid-layout.js) and main needs the same answer to decide whether to open a view window
+  // at all — a spelling added there and not in detach.js starts opening empty frames again.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const spellings = (file) => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
+    const m = src.match(/GRID_SPELLINGS\s*=\s*\[([^\]]*)\]/);
+    assert.ok(m, `no GRID_SPELLINGS in ${file}`);
+    return m[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+  };
+  assert.deepEqual(spellings('app/detach.js'), spellings('renderer/views/grid-layout.js'));
+});
+
 // --- #372: the arrangement comes back with the window ---
 //
 // A detached window keeps no layout of its own: it shares localStorage with the main window, so
