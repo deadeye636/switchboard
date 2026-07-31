@@ -5,33 +5,19 @@
 // builders, the drag-reorder, the overflow dropdown, the context menu and the `#session-tabs`
 // element they rendered into.
 //
-// What is left is shared with panes mode: the pure `buildTabModel`, the tab and session-bar tooltips
-// and the project-path splitter (#334), the auto-close rules, `closeTabNow`, and the display-mode
-// settings apply. Panes calls them; nothing here renders panes' tabs.
+// What is left is shared with panes mode: the tab and session-bar tooltips and the project-path
+// splitter (#334), the auto-close rules, `closeTabNow`, and the display-mode settings apply. Panes
+// calls them; nothing here renders panes' tabs.
 //
-// Loaded as a classic <script> (exposes window.* hooks) AND require()-d by node
-// tests for the pure buildTabModel(). Keep buildTabModel free of DOM/globals.
+// `buildTabModel` went with `tabOrder` (#385). It ordered a strip that no longer exists against a
+// stored key that no longer exists, and by then had no caller at all — panes orders its tabs from its
+// own layout tree, which is the thing that actually knows where a tab was put.
+//
+// Loaded as a classic <script> (exposes window.* hooks) AND require()-d by node tests for the pure
+// helpers below. Keep those free of DOM and globals.
 //
 // Depends on renderer globals: openSessions, activeSessionId, destroySession
 // (terminal-manager.js), cleanDisplayName (utils.js), window.panesView, window.getBackend.
-
-// Pure: order the open sessions into a tab list. `sessions` is a plain array of
-// { sessionId, name, closed }; `order` is the persisted sessionId order (unknown
-// ids keep their insertion order at the end). Returns [{ sessionId, name, active }].
-function buildTabModel(sessions, activeId, order) {
-  const pos = new Map((order || []).map((id, i) => [id, i]));
-  return (sessions || [])
-    // A closed (exited) session keeps its tab — the tab exists for as long as the session is mounted,
-    // and leaves only via destroySession (the user closing it, or auto-close firing). Filtering closed
-    // here made an exited tab vanish on the next unrelated rebuild, even with auto-close off (#256).
-    .filter(s => s && s.sessionId)
-    .map(s => ({ sessionId: s.sessionId, name: s.name || '', active: s.sessionId === activeId, closed: !!s.closed }))
-    .sort((a, b) => {
-      const ai = pos.has(a.sessionId) ? pos.get(a.sessionId) : Infinity;
-      const bi = pos.has(b.sessionId) ? pos.get(b.sessionId) : Infinity;
-      return ai - bi;
-    });
-}
 
 // Pure: resolve the auto-close-on-exit mode from persisted settings.
 // 'never' | 'onSuccess' | 'always'. Default 'always'.
@@ -128,7 +114,7 @@ function projectTailOf(projectPath) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    buildTabModel, resolveAutoCloseMode, resolveAutoCloseDelaySec, shouldAutoClose,
+    resolveAutoCloseMode, resolveAutoCloseDelaySec, shouldAutoClose,
     buildTabTooltip, buildSessionBarTooltip, resolveRenameTarget, projectTailOf,
   };
 }
