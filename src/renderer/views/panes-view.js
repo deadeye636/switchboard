@@ -2512,8 +2512,9 @@ window.__sessionDragId = null;
     if (!sessionId) return;
     if (onto) {
       // Where inside that window (#375): the answer it gave while the pointer was over it, which is
-      // also what it highlighted. `null` is honest — the point resolved to no pane of theirs — and the
-      // move then lands the way it always did, in their active pane.
+      // also what it highlighted. A window with no pane to offer answers `{ kind: 'window' }` and
+      // frames itself (#377), so that landing is announced too; `null` is left for a window that
+      // never replied, and the move then lands the way it always did, in their active pane.
       const placement = (remoteAim && remoteAim.windowId === onto) ? remoteAim.placement : null;
       if (typeof window.moveSessionToWindow === 'function') {
         window.moveSessionToWindow(sessionId, onto, placement);
@@ -2710,6 +2711,9 @@ window.__sessionDragId = null;
   /** Draw the hint for a placement this window was asked about, exactly as a local drag would. */
   function showPlacementHint(placement) {
     if (!enabled || !placement) { clearDropFeedback(); return; }
+    // The whole-window landing is not a pane hint and is not drawn here (#377): it has to be drawable
+    // in grid mode too, where this view is not even running. `detach-window.js` owns that one.
+    if (placement.kind === 'window') { clearDropFeedback(); return; }
     if (placement.kind === 'root') { showOuterHint(placement.zone); return; }
     const pane = terminalsEl.querySelector('.pane[data-pane-id="' + placement.leafId + '"]');
     const body = pane && pane.querySelector('.pane-body');
@@ -2739,6 +2743,11 @@ window.__sessionDragId = null;
   function applyPlacement(sessionId, placement, opts) {
     if (!enabled || !sessionId) return false;
     if (!placement) return false;
+    // "This window, but no pane of it" (#377). The far window says so rather than staying silent, so
+    // that it can DRAW the landing it is about to perform; placing it is still not this function's
+    // job, and answering false hands the session to the same active-pane fallback a silent probe
+    // used to reach. Without this the three lines below would address a leaf id of `undefined`.
+    if (placement.kind === 'window') return false;
     // `mount: false` from the adopt (#375): the tab is made here, the terminal is attached by the
     // caller. Two mounts for one arrival is two xterms racing for one PTY — `mountOnce` cannot see a
     // bare `openSession` started beside it, so the two paths must not both start one.

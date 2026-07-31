@@ -464,6 +464,26 @@ if (isOwnWindow) document.body.classList.add('detached-window');
   // The conversion is the inverse of `toScreenPoint` in app/detach.js, done HERE because only this
   // renderer knows its own zoom: `outerWidth / bounds.width` is CSS pixels per DIP, and `screenX` is
   // where this viewport starts in the same screen coordinates the point is given in.
+  //
+  // A point main asks us about is a point inside our bounds, so "no pane of mine" is never "not
+  // here" — it is this window taking the drop into its active pane (#377). Answering null let that
+  // landing happen with nothing drawn: the session appeared in a window that had highlighted
+  // nothing, which is the one thing no other application that moves tabs between windows does. So
+  // the answer names the window instead, and the hint below is what that answer looks like.
+  const WINDOW_PLACEMENT = { kind: 'window' };
+
+  // Drawn HERE rather than in panes-view: this is the hint for a window that has no pane to offer,
+  // which includes a window in grid mode, where that view is not running at all.
+  let windowDropHint = null;
+  function showWindowDropHint() {
+    if (!windowDropHint) {
+      windowDropHint = document.createElement('div');
+      windowDropHint.className = 'window-drop-hint';
+    }
+    if (windowDropHint.parentElement !== document.body) document.body.appendChild(windowDropHint);
+  }
+  function clearWindowDropHint() { if (windowDropHint) windowDropHint.remove(); }
+
   window.api.onProbeDropPoint?.((id, at, bounds) => {
     let placement = null;
     try {
@@ -474,10 +494,13 @@ if (isOwnWindow) document.body.classList.add('detached-window');
       placement = window.panesView?.dropTargetAt?.(clientX, clientY) || null;
       window.panesView?.showPlacementHint?.(placement);
     } catch { placement = null; }
+    if (placement) clearWindowDropHint();
+    else { placement = WINDOW_PLACEMENT; showWindowDropHint(); }
     try { window.api.answerProbeDropPoint(id, placement); } catch { /* main stopped waiting */ }
   });
 
   window.api.onClearDropHint?.(() => {
+    clearWindowDropHint();
     try { window.panesView?.showPlacementHint?.(null); } catch { /* nothing drawn */ }
   });
 

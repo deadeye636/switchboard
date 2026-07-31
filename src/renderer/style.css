@@ -8330,6 +8330,20 @@ body.pane-sashing .terminal-container { pointer-events: none; }
 .pane-drop-outer.pane-drop-right { inset: 0 0 0 auto; width: 38%; }
 .pane-drop-outer.pane-drop-up { inset: 0 0 auto 0; height: 38%; }
 .pane-drop-outer.pane-drop-down { inset: auto 0 0 0; height: 38%; }
+/* A drop that lands in this window but in no pane of it (#377): the pointer is over the chrome rather
+   than the pane tree, or the window is in grid mode and has no panes to offer. The session goes to
+   the active pane, and this says which window that is before the pointer is released.
+   A frame rather than a fill: it covers the whole viewport, and a tinted sheet that size reads as a
+   modal rather than as a target. `position: fixed` for the same reason — it is about the window, not
+   about anything laid out inside it. */
+.window-drop-hint {
+  position: fixed;
+  inset: 0;
+  border: 3px solid rgba(150, 158, 255, 0.9);
+  background: rgba(128, 136, 255, 0.08);
+  pointer-events: none;
+  z-index: 2000;
+}
 .pane-drop-center { inset: 0; }
 .pane-drop-left { inset: 0 50% 0 0; }
 .pane-drop-right { inset: 0 0 0 50%; }

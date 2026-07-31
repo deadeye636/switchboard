@@ -928,8 +928,13 @@ function registerIpc(ipc) {
    * the same conversion `toScreenPoint` performs in the other direction, done at the far end because
    * only that renderer knows its own zoom.
    *
-   * Answers null for "nowhere of ours", which the caller must treat as "this drop places nothing"
-   * rather than as a fallback: a session put in a pane nobody highlighted is the guess #360 refuses.
+   * Answers null for "nowhere of ours" — the point is over the desktop or another application.
+   *
+   * A window that IS under the pointer always answers something (#377): a pane and zone when it has
+   * one to offer, otherwise `{ kind: 'window' }`, which it draws as a frame around itself. The only
+   * remaining `placement: null` beside a window id is a renderer that did not reply inside
+   * `PROBE_TIMEOUT_MS` — a window that cannot draw cannot announce, and the drop then lands in its
+   * active pane the way it did before any of this existed.
    */
   ipc.handle('probe-drop-point', async (event, point, box) => {
     const sender = event && event.sender;

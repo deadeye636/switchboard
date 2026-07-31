@@ -3125,3 +3125,41 @@ test('#375: a hint for a pane that is gone leaves nothing drawn', async () => {
     assert.equal(h.document.querySelectorAll('.pane-drop-hint').length, 0);
   } finally { h.destroy(); }
 });
+
+// --- #377: the landing this view cannot name is still a landing ---------------
+//
+// `{ kind: 'window' }` is the far window saying "me, but no pane of mine". It is drawn as a frame
+// around the whole window by detach-window.js — which is where it has to live, because the same
+// answer has to be drawable in grid mode, where this view is not running. What this file owns is
+// the other half: the placement must not be MISTAKEN for a pane here.
+
+test('#377: a whole-window placement places nothing, so the adopt falls back to the active pane', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('arriving', { sessionId: 'arriving', name: 'Arriving', type: 'agent' });
+
+    assert.equal(h.panes.applyPlacement('arriving', { kind: 'window' }, { mount: false }), false,
+      'false is what hands it to the fallback the adopt already has');
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.session-tab').length, 1,
+      'and nothing was added to a leaf id of undefined');
+  } finally { h.destroy(); }
+});
+
+test('#377: a whole-window placement draws no pane hint, and clears the one before it', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.panes.showPlacementHint({ kind: 'tab', leafId: 'pane-1', index: -1 });
+    assert.equal(h.document.querySelectorAll('.pane-drop-hint').length, 1);
+
+    // The pointer left the pane tree for the window's chrome. Leaving the pane highlighted would say
+    // the drop still lands there, which is the mismatch this issue is about.
+    h.panes.showPlacementHint({ kind: 'window' });
+    assert.equal(h.document.querySelectorAll('.pane-drop-hint').length, 0);
+    assert.equal(h.document.querySelectorAll('.pane-tab-caret').length, 0);
+  } finally { h.destroy(); }
+});
