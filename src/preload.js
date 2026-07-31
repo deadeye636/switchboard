@@ -145,8 +145,11 @@ contextBridge.exposeInMainWorld('api', {
   // minute stale in an idle window, and taking a dead session back would resume its CLI.
   // `placement` (#375) is where in this window the session goes, when it arrived by being dropped on
   // it. Null on every other path, and the renderer then places it the way it always did.
+  // `busy` (#395) is whether the agent is working AT THIS MOMENT. A session that is busy and stays busy
+  // sends no new edge, so a window taking one mid-turn would otherwise draw it as idle until the turn
+  // happened to end.
   onSessionReattached: (cb) => ipcRenderer.on('session-reattached',
-    (_e, sessionId, running, placement) => cb(sessionId, running, placement)),
+    (_e, sessionId, running, placement, busy) => cb(sessionId, running, placement, busy)),
   // A detached session moved onto a new id (fork, accepted plan). Both windows hear it: the detached
   // one re-points itself, the main one keeps its "this lives elsewhere" set honest.
   onDetachedSessionRekeyed: (cb) => ipcRenderer.on('detached-session-rekeyed', (_e, fromId, toId) => cb(fromId, toId)),
@@ -273,6 +276,13 @@ contextBridge.exposeInMainWorld('api', {
   },
   onCliBusyState: (callback) => {
     ipcRenderer.on('cli-busy-state', (_event, sessionId, busy) => callback(sessionId, busy));
+  },
+  // The same facts, addressed to the window that RENDERS a session rather than to the main one (#395),
+  // and RECORD-ONLY by contract: its handler writes this window's timeline and its own status, and
+  // nothing else. The attention inbox, the badge, the tray and the chime stay singular, in main. This
+  // channel is never sent to the main window — it hears everything on the channels above.
+  onTimelineSignal: (callback) => {
+    ipcRenderer.on('timeline-signal', (_event, sessionId, signal) => callback(sessionId, signal));
   },
   // A statement about the session itself, not from the CLI's output — today: "this backend has no record
   // of this session, so there is no busy/idle to show" (#151). NOT an attention signal: nothing is

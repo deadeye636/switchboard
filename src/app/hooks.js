@@ -213,6 +213,11 @@ function handleHookRequest(req, res, token = attentionHookToken) {
         const agentSuffix = signal.agentId ? ` agentId=${signal.agentId}` : '';
         ctx.log.info(`[attention-hook] session=${sessionId} kind=${signal.kind}${agentSuffix} reason="${signal.reason}"`);
       }
+      // …and the window that RENDERS the session records it too, when that is not the main one (#395).
+      // Deliberately outside the guard above: this must not depend on the main window being alive.
+      if (sessionId && signal && ctx.sendTimelineSignal) {
+        ctx.sendTimelineSignal(sessionId, { kind: signal.kind, reason: signal.reason, source: 'hook' });
+      }
     } catch (err) {
       ctx.log.warn(`[attention-hook] bad payload: ${err.message}`);
     }

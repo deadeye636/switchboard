@@ -283,6 +283,10 @@ detach.init({
   screen, // which display a detach opens on (#362)
   getSetting, // where its windows were, so they come back there (#371)
   setSetting,
+  // Is the agent working right now, for the backends that derive it from their store rather than from
+  // the PTY (#395)? Read at CALL time — liveBusy is declared far below, and this module is wired long
+  // before it exists.
+  isSessionBusy: (sessionId) => liveBusy.get(sessionId) === true,
 });
 detach.registerIpc(ipcMain);
 
@@ -1222,6 +1226,8 @@ hooks.init({
   // #303: a terminal reporting which session it is running now. Lazy on purpose — sessionTransitions is
   // required further down, and this is only ever called once a POST arrives.
   adoptSessionId: (tag, id) => sessionTransitions.adoptSessionId(tag, id),
+  // The same signal, recorded by the window that renders the session (#395). Raising it stays here.
+  sendTimelineSignal: (sessionId, signal) => detach.sendTimelineSignal(sessionId, signal),
 });
 hooks.registerIpc(ipcMain);
 const { startAttentionHookServer, removeClaudeAttentionHook, attentionHooksEnabled } = hooks;
@@ -1834,6 +1840,9 @@ const watchStores = require('./watch/stores');
 watchAdopt.init({
   activeSessions,
   getMainWindow: () => mainWindow,
+  // A store-derived busy edge is the ONLY source for the backends that name their own sessions, so a
+  // window of its own hears nothing about them without this (#395).
+  sendTimelineSignal: (sessionId, signal) => detach.sendTimelineSignal(sessionId, signal),
   backends,
   sessionBackends,
   log,
@@ -1871,6 +1880,9 @@ spawn.init({
   // Which window renders a given session (#2). Only `terminal-data` uses it; status and lifecycle
   // events keep going to the main window, where the sidebar and the attention inbox live.
   windowForSession: (sessionId) => detach.windowForSession(sessionId),
+  // …and the record-only echo for the window that renders it (#395). Sends nothing when that window
+  // IS the main one, so status still reaches main exactly once, through the channels above.
+  sendTimelineSignal: (sessionId, signal) => detach.sendTimelineSignal(sessionId, signal),
   getAppQuitting: () => appQuitting,
   activeSessions,
   liveStoreRef,

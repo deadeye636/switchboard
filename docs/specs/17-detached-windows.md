@@ -27,11 +27,37 @@ detach-session (IPC)  →  new BrowserWindow: index.html?detached=<sessionId>
 | `terminal-data` | the **owning** window — `app/detach.js` `windowForSession(id)`, asked by `spawn.js` through ctx |
 | `process-exited` | the owning window **and** main (main writes the sidebar's state, the owner writes the banner into the terminal the user is looking at) |
 | `session-detached` / `session-reattached` | the window that must let go / take over — main by default, a specific detached window since #316 |
+| `timeline-signal` | the owning window, and **never** main (#395) — see below |
 | `cli-busy-state`, `terminal-notification`, `session-forked`, everything else | main only |
 
 The separation is the point. The sidebar, the attention inbox and the badges live in the main window,
 and they must keep updating for a detached session — otherwise the one session the user pushed onto
 the second monitor is the one that stops telling them it needs attention.
+
+**`timeline-signal` is the exception that proves it (#395).** A window of its own still needs to KNOW
+what its session is doing — to draw it as working, and to have a recap worth showing — while the
+inbox stays singular. So the fact travels twice, on two channels with two contracts:
+
+- `cli-busy-state` / `terminal-notification` / `attention-signal` → main, which records **and** raises.
+- `timeline-signal` → the owning window, which only records: `sendTimelineSignal` in `app/detach.js`
+  sends nothing when the owner is main (main would double-record), and the renderer handler is
+  `recordAttentionSignal`, which writes that window's timeline and status map and touches no attention
+  set.
+
+Two of the three layers are structural, and it is worth being precise about which: what arrives on
+`timeline-signal` **cannot** raise anything, because its handler has no path to the attention sets, the
+chime or the notification — that holds no matter who calls it. #390's gate on the badge, the tray, the
+notification and the chime is the second layer. What is **convention** rather than structure is the
+first: that the three raising channels are addressed to `getMainWindow()` at their producers. Nothing
+enforces that against a future change which parameterises those sends, so a change there is a change to
+this rule and belongs in this table.
+
+All three producers echo, not just the first: the terminal heuristics in `spawn.js`, the store-derived
+busy edge in `watch/adopt.js` (the only source for the backends that name their own sessions) and the
+hook server in `app/hooks.js`. Covering one leaves the recap silently backend-dependent.
+
+One thing does NOT travel: "Ready for review". That is a statement that something is waiting for the
+user, so it stays where the inbox is. A window of its own shows *working* and records *the turn ended*.
 
 ## 2b · A window owns sessions, not a session (#314, #315, #316)
 

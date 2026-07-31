@@ -324,3 +324,38 @@ test('end to end: the server writes its own URL, and only that URL is accepted',
     hooks: { Stop: [{ matcher: '', hooks: [{ type: 'command', command: 'the-user-own-hook' }] }] },
   }, 'byte for byte what was there before it was ever enabled');
 });
+
+// --- #395: the same signal, recorded by the window that renders the session -----------------------
+
+test('the hook signal is also echoed to the window that renders the session', async () => {
+  const echoed = [];
+  const ctx = makeCtx({ sendTimelineSignal: (sessionId, signal) => echoed.push({ sessionId, signal }) });
+  await post(`/switchboard-attention-hook?t=${TOKEN}`, stopHook, TOKEN);
+
+  assert.equal(ctx.sent.length, 1, 'main still hears it exactly once');
+  assert.deepEqual(echoed, [{
+    sessionId: 'sess-1',
+    signal: { kind: 'needs-attention', reason: ctx.sent[0].payload.reason, source: 'hook' },
+  }]);
+});
+
+test('the echo does not depend on the main window being alive', async () => {
+  // A window of its own outlives a closed main window on macOS, and its recap should not have a hole
+  // shaped like that.
+  const echoed = [];
+  makeCtx({
+    getMainWindow: () => null,
+    sendTimelineSignal: (sessionId, signal) => echoed.push({ sessionId, signal }),
+  });
+  await post(`/switchboard-attention-hook?t=${TOKEN}`, stopHook, TOKEN);
+
+  assert.equal(echoed.length, 1);
+});
+
+test('a ctx without the echo is not an error', async () => {
+  // An older wiring, and the shape every existing test in this file uses.
+  const ctx = makeCtx();
+  const res = await post(`/switchboard-attention-hook?t=${TOKEN}`, stopHook, TOKEN);
+  assert.equal(res.statusCode, 200);
+  assert.equal(ctx.sent.length, 1);
+});

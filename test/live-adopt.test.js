@@ -26,7 +26,7 @@ function fakeBackend(over = {}) {
   };
 }
 
-function setup({ sessions = [], backend = fakeBackend() } = {}) {
+function setup({ sessions = [], backend = fakeBackend(), echo = null } = {}) {
   const sent = [];
   const activeSessions = new Map(sessions);
   const rekeyed = [];
@@ -41,6 +41,9 @@ function setup({ sessions = [], backend = fakeBackend() } = {}) {
       rekeySession: (from, to) => rekeyed.push([from, to]),
     },
     log: { info() {}, warn() {}, error() {} },
+    // The record-only echo to a window of its own (#395). Absent in the older cases on purpose: a ctx
+    // without it must not throw.
+    sendTimelineSignal: echo ? (id, signal) => echo.push([id, signal]) : undefined,
   });
   return { activeSessions, sent, rekeyed, backend };
 }
@@ -246,4 +249,42 @@ test('hasUnclaimedStoreSession stops counting a session it has already spoken up
   adopt.updateBackendLiveStates();          // notices it
   assert.equal(adopt.hasUnclaimedStoreSession(), false,
     'a session that can never pair would otherwise drive a full store walk every 30s, forever');
+});
+
+// --- #395: these backends' busy state has no other source ----------------------------------------
+//
+// Claude reports through its terminal, so the spawn path echoes there. For a backend that names its own
+// sessions this watcher IS the only producer — miss it and the recap in a window of its own works for
+// one backend and silently not for the others, which is worse than not working at all.
+
+test('#395: a store-derived busy edge is echoed to the window that renders the session', () => {
+  const echo = [];
+  const { sent } = setup({
+    sessions: [['s1', live({ realSessionId: 's1' })]],
+    backend: fakeBackend({ liveRefFor: () => '/store/rec.jsonl', liveState: () => 'busy' }),
+    echo,
+  });
+  adopt.liveStoreRef.set('s1', '/store/rec.jsonl');
+
+  adopt.updateBackendLiveStates();
+
+  assert.deepEqual(sent.filter(([c]) => c === 'cli-busy-state'), [['cli-busy-state', 's1', true]],
+    'main still hears it exactly as before');
+  assert.deepEqual(echo, [['s1', { kind: 'busy', source: 'store', reason: '' }]]);
+});
+
+test('#395: the echo carries no backend id', () => {
+  const echo = [];
+  setup({
+    sessions: [['s1', live({ realSessionId: 's1' })]],
+    backend: fakeBackend({ id: 'hermes', liveRefFor: () => '/store/rec.jsonl', liveState: () => 'idle' }),
+    echo,
+  });
+  adopt.liveStoreRef.set('s1', '/store/rec.jsonl');
+  adopt.liveBusy.set('s1', true);
+
+  adopt.updateBackendLiveStates();
+
+  assert.deepEqual(echo, [['s1', { kind: 'idle', source: 'store', reason: '' }]],
+    'source names the KIND of producer, never which backend — that must not cross into the renderer');
 });

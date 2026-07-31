@@ -166,6 +166,12 @@ function updateBackendLiveStates() {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('cli-busy-state', liveId, busy);
     }
+    // For these backends this watcher is the ONLY source of the fact, so without this the recap in a
+    // window of its own would work for one backend and silently not for the others (#395). `source` is
+    // deliberately not the backend's id — none of those may cross into renderer-visible data.
+    if (ctx.sendTimelineSignal) {
+      ctx.sendTimelineSignal(liveId, { kind: busy ? 'busy' : 'idle', source: 'store', reason: '' });
+    }
   }
 }
 

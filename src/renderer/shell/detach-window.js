@@ -383,8 +383,17 @@ if (isOwnWindow) document.body.classList.add('detached-window');
     refreshViews();
   }
 
-  async function adoptSession(sessionId, running, placement) {
+  async function adoptSession(sessionId, running, placement, busy) {
     detachedSessions.delete(sessionId);
+    // A session that is busy and STAYS busy sends no new edge, so without this the window taking one
+    // mid-turn would draw a visibly working session as idle until the turn happened to end (#395).
+    //
+    // Through `setActivity`, NOT the record half directly: this file runs in EVERY window, main
+    // included, and main is the one that marks sessions ready. The busy carried here comes from the
+    // title-spinner latch, which is exactly what the ready-guard exists to disbelieve — writing past it
+    // would recreate the busy-AND-ready state that nothing short of the PTY dying could clear (#252).
+    // On a busy edge `setActivity` raises nothing anyway; it only refuses when the session is ready.
+    if (busy === true) setActivity(sessionId, true);
     // An adopt is the opposite statement to a release, so it lifts the cancellation — otherwise a
     // session moved out and later moved back would never mount here again.
     cancelledMounts.delete(sessionId);
@@ -453,7 +462,7 @@ if (isOwnWindow) document.body.classList.add('detached-window');
 
   // Both windows answer the same two channels — see the handover comment above.
   window.api.onSessionDetached((sessionId) => releaseSession(sessionId));
-  window.api.onSessionReattached((sessionId, running, placement) => adoptSession(sessionId, running, placement));
+  window.api.onSessionReattached((sessionId, running, placement, busy) => adoptSession(sessionId, running, placement, busy));
 
   // --- Answering for a drag held over this window (#375) -----------------------
   //

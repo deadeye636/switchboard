@@ -2,8 +2,8 @@
 //
 // The renderer's half of the main->renderer session protocol: terminal data, the MCP open-diff/open-file
 // bridge, session detection and forking, process exit, terminal/session notices, structured attention
-// signals, and the CLI busy-state spinner. Ten window.api.on* listeners that translate a main event into
-// renderer state. Came out of app.js.
+// signals, and the CLI busy-state spinner. Eleven window.api.on* listeners that translate a main event
+// into renderer state. Came out of app.js.
 //
 // THE COUPLING IS ONE-WAY, and that is why this is a clean cut despite its size: the listeners CONSUME
 // app.js — they read its state and call its functions — but app.js never calls back into this file (the
@@ -12,8 +12,9 @@
 // here. It writes no app.js `let` either — it mutates the session Maps/Sets in place and calls functions.
 //
 // A PLAIN CLASSIC SCRIPT that LOADS AFTER app.js, and after the other after-app.js shell modules, because
-// its handlers call into several of them at event time: attention-engine.js (setActivity, applyAttention —
-// loaded before app.js) and away-summary-banner.js (recordFileTouched — loaded after). All of those are
+// its handlers call into several of them at event time: attention-engine.js (setActivity, applyAttention,
+// recordAttentionSignal — loaded before app.js) and away-summary-banner.js (recordFileTouched — loaded
+// after). All of those are
 // call-time, inside the handler bodies, so load order only has to guarantee they exist by the first event,
 // which "after app.js, events fire after boot" does. Registered before app.js the handlers would run into
 // app.js state still in its TDZ; registered after, the state is bound.
@@ -320,4 +321,13 @@ window.api.onAttentionSignal((signal) => {
 // --- CLI busy state (OSC 0 title spinner detection) ---
 window.api.onCliBusyState((sessionId, busy) => {
   setActivity(sessionId, busy);
+});
+
+// --- The same facts, for a window that RENDERS a session without owning the inbox (#395) ---
+//
+// Only a window of its own ever receives this: main hears everything on the channels above and records
+// there, so routing this one to it as well would double-record. The handler is record-only BY CONTRACT
+// — that is what keeps the attention inbox singular, rather than a rule someone has to remember.
+window.api.onTimelineSignal?.((sessionId, signal) => {
+  recordAttentionSignal(sessionId, signal);
 });

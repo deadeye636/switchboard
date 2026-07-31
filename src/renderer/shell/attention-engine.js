@@ -5,8 +5,13 @@
 // announceAttentionSummary (the screen-reader live region), and the synthesized attention chime
 // (playAttentionSound / maybePlayAttentionSound). Came out of app.js.
 //
-// It also owns `raisesAttention` — the one answer to "may THIS window announce", read by the chime here
-// and by native-notifications.js for the badge, the tray and the notification (#390).
+// Recording and raising are separate here, and the split carries the two window rules:
+//   recordActivityEdge      the status map + the timeline for a busy/idle edge. Raises nothing.
+//   recordAttentionSignal   the record-only twin of applyAttention, for a window that RENDERS a session
+//                           without owning the inbox (#395). session-ipc.js calls it from
+//                           onTimelineSignal, a channel the main window never receives.
+//   raisesAttention         the one answer to "may THIS window announce" — read by the chime here and by
+//                           native-notifications.js for the badge, the tray and the notification (#390).
 //
 // It is FEATURE code, not the wiring app.js keeps. What stays in app.js is the STATE it works on and the
 // wiring it drives — because half the renderer reads those, not because they belong together:
@@ -23,7 +28,9 @@
 // buys the thing those two had to guard for. app.js reaches in only for announceAttentionSummary (via
 // refreshSessionStatusViews). The callers of applyAttention / setActivity are elsewhere: the IPC
 // callbacks in shell/session-ipc.js (onTerminalNotification, onAttentionSignal, onCliBusyState) drive
-// both, and views/grid-bulk-actions.js restores a previous ready set through markResponseReady rather
+// both, onTimelineSignal drives recordAttentionSignal, shell/detach-window.js calls setActivity when a
+// window takes a session that is busy mid-turn (#395), and views/grid-bulk-actions.js restores a
+// previous ready set through markResponseReady rather
 // than writing the Set itself — that guard is the whole point of the function (#252). All are call-time.
 // Loaded BEFORE app.js, every one of those names is already declared when app.js parses, so none of
 // them needs the `typeof` / `?.` guard native-notifications.js forced. The two `let`s it owns (lastAnnouncedAttentionSummary,
@@ -116,6 +123,42 @@ function markResponseReady(sessionId) {
   return true;
 }
 
+/**
+ * The RECORD half of a busy/idle edge: this window's own status map and its own timeline, and nothing
+ * that announces anything to anyone.
+ *
+ * It is its own function because a window that merely RENDERS a session runs exactly this and no more
+ * (#395). Such a window needs the status to draw its tabs — a session visibly producing output must not
+ * be drawn as idle — and it needs the events for its recap. What it must not gain is an inbox.
+ *
+ * Returns the edge, so the caller does not recompute it.
+ */
+function recordActivityEdge(sessionId, active) {
+  const wasActive = sessionBusyState.get(sessionId) || false;
+  sessionBusyState.set(sessionId, active);
+
+  if (active && !wasActive) {
+    // New work started → any earlier "finished" stamp is stale.
+    finishedAt.delete(sessionId);
+  } else if (wasActive && !active) {
+    // busy→idle edge: stamp the finish time. Unfocused sessions become response-ready in the caller;
+    // for the focused-then-left case this stamp is what lets the configurable running-inbox
+    // (after-finish / until-read) surface it.
+    finishedAt.set(sessionId, Date.now());
+
+    // RECORDING that the turn ended is a fact about the session, and it does not depend on where the
+    // user was looking (#391). The away recap reads exactly this event to answer "was anything waiting
+    // for me", so tying the record to focus meant the commonest case of all — walk away from the
+    // session you are working in, come back — produced a recap that said nothing was.
+    recordTimelineEvent(sessionId, 'response-ready', 'Ready for review', 'Agent stopped producing output.');
+  }
+
+  if (wasActive !== active) {
+    recordTimelineEvent(sessionId, active ? 'busy' : 'idle', active ? 'Agent working' : 'Agent idle', active ? 'Claude activity started.' : 'Claude activity stopped.');
+  }
+  return { changed: wasActive !== active, wasActive };
+}
+
 function setActivity(sessionId, active) {
   // A ready session ignores an OSC "busy" guess: the heuristic fires on spinner frames, and a session
   // waiting to be read should not flicker back to Working because of one. A hook `busy` signal is
@@ -128,48 +171,56 @@ function setActivity(sessionId, active) {
     return;
   }
 
-  const wasActive = sessionBusyState.get(sessionId) || false;
-  sessionBusyState.set(sessionId, active);
+  const { changed, wasActive } = recordActivityEdge(sessionId, active);
 
-  if (active && !wasActive) {
-    // New work started → any earlier "finished" stamp is stale.
-    finishedAt.delete(sessionId);
-  } else if (wasActive && !active) {
-    // busy→idle edge: stamp the finish time. Unfocused sessions become
-    // response-ready below; for the focused-then-left case this stamp is what
-    // lets the configurable running-inbox (after-finish / until-read) surface it.
-    finishedAt.set(sessionId, Date.now());
-  }
-
-  if (wasActive && !active) {
-    // RECORDING that the turn ended is a fact about the session, and it does not depend on where the
-    // user was looking (#391). The away recap reads exactly this event to answer "was anything waiting
-    // for me", so tying the record to focus meant the commonest case of all — walk away from the
-    // session you are working in, come back — produced a recap that said nothing was.
-    recordTimelineEvent(sessionId, 'response-ready', 'Ready for review', 'Agent stopped producing output.');
-
-    // RAISING it stays exactly as focus-dependent as it was: a session the user is looking at needs
-    // no inbox flag, no ready class and no badge.
-    if (sessionId !== activeSessionId) {
-      // Through the same door as every other caller. sessionBusyState was set to false above, so this
-      // always takes — the point is that there is one place where "ready" can be set.
-      markResponseReady(sessionId);
-      for (const item of sessionRowEls(sessionId)) {
-        item.classList.remove('cli-busy');
-        item.classList.add('response-ready');
-      }
-      refreshSessionStatusViews();
+  // RAISING the end of a turn stays exactly as focus-dependent as it was: a session the user is looking
+  // at needs no inbox flag, no ready class and no badge.
+  if (wasActive && !active && sessionId !== activeSessionId) {
+    // Through the same door as every other caller. sessionBusyState was set to false above, so this
+    // always takes — the point is that there is one place where "ready" can be set.
+    markResponseReady(sessionId);
+    for (const item of sessionRowEls(sessionId)) {
+      item.classList.remove('cli-busy');
+      item.classList.add('response-ready');
     }
+    refreshSessionStatusViews();
   }
 
   // Sync cli-busy class (only if not response-ready)
   if (!responseReadySessions.has(sessionId)) {
     for (const item of sessionRowEls(sessionId)) item.classList.toggle('cli-busy', active);
   }
-  if (wasActive !== active) {
-    recordTimelineEvent(sessionId, active ? 'busy' : 'idle', active ? 'Agent working' : 'Agent idle', active ? 'Claude activity started.' : 'Claude activity stopped.');
+  if (changed) refreshSessionStatusViews();
+}
+
+/**
+ * The record-only twin of applyAttention, for a window that RENDERS a session without owning the inbox
+ * (#395). Same normalized vocabulary, arriving on a channel the main window never receives.
+ *
+ * What it deliberately does NOT do: touch `attentionSessions` / `responseReadySessions`, keep a reason,
+ * paint an attention or ready class, or reach the chime. So "Ready for review" — a statement that
+ * something is waiting for the user — stays a main-window statement, while "Working" appears wherever
+ * the session is drawn.
+ */
+function recordAttentionSignal(sessionId, signal) {
+  if (!sessionId || !signal) return;
+  const { kind, reason } = signal;
+
+  if (kind === 'needs-attention') {
+    recordTimelineEvent(sessionId, 'needs-attention', 'Needs human attention', reason || '');
+  } else if (kind === 'ready' || kind === 'idle') {
+    recordActivityEdge(sessionId, false);
+  } else if (kind === 'busy') {
+    recordActivityEdge(sessionId, true);
+  } else {
+    // Subagent lifecycle and anything else this window has no surface for.
+    return;
   }
-  if (wasActive !== active) refreshSessionStatusViews();
+
+  // This window's own tabs read the status map, so they have to be repainted. It reaches the announce
+  // funnel like every other refresh does, and finds nothing to announce: the sets above stayed empty,
+  // and #390 gates the four OS-facing surfaces on top of that.
+  refreshSessionStatusViews();
 }
 
 // Single funnel for both attention sources (OSC-9 heuristic + Claude Code hooks).

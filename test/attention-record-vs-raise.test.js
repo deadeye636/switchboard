@@ -155,3 +155,116 @@ test('the recap reports the session that finished while it was in front', () => 
     assert.equal(summary.hasChanges, true);
   } finally { t.destroy(); }
 });
+
+// --- #395: the record-only twin, for a window that renders a session without owning the inbox -----
+//
+// The same vocabulary arrives on a channel the main window never receives. Everything it does must be
+// visible only inside that window: its timeline, its own status map, its own tabs. Nothing may reach
+// the sets the inbox, the badge and the chime are computed from — that is what keeps one inbox one.
+
+test('a relayed busy signal makes the session working here', () => {
+  const t = setup();
+  try {
+    t.call('recordAttentionSignal')('s1', { kind: 'busy', source: 'osc0' });
+    assert.equal(t.window.sessionBusyState.get('s1'), true,
+      'this is what the tabs read — without it a working session is drawn as idle');
+    assert.deepEqual(t.kinds('s1'), ['busy']);
+  } finally { t.destroy(); }
+});
+
+test('a relayed end-of-turn records what the recap needs and flags nothing', () => {
+  const t = setup();
+  try {
+    t.call('recordAttentionSignal')('s1', { kind: 'busy', source: 'osc0' });
+    t.call('recordAttentionSignal')('s1', { kind: 'ready', source: 'osc9' });
+
+    assert.ok(t.kinds('s1').includes('response-ready'));
+    assert.equal(t.window.sessionBusyState.get('s1'), false);
+    assert.equal(t.ready('s1'), false,
+      '"waiting for you" is an inbox statement, and the inbox is the main window\'s');
+  } finally { t.destroy(); }
+});
+
+test('a relayed needs-attention records without an inbox flag, a reason or a chime', () => {
+  const t = setup();
+  try {
+    t.call('recordAttentionSignal')('s1', { kind: 'needs-attention', reason: 'waiting', source: 'hook' });
+    assert.deepEqual(t.kinds('s1'), ['needs-attention']);
+    assert.equal(t.attention('s1'), false);
+    assert.equal(t.window.attentionReason.has('s1'), false);
+    assert.deepEqual(t.sounds, []);
+  } finally { t.destroy(); }
+});
+
+test('a relayed signal this window has no surface for is ignored', () => {
+  const t = setup();
+  try {
+    t.call('recordAttentionSignal')('s1', { kind: 'subagent-live-start', source: 'hook' });
+    assert.deepEqual(t.kinds('s1'), [], 'the subagent strip lives in the sidebar, which is not here');
+  } finally { t.destroy(); }
+});
+
+test('nothing is recorded for an empty signal', () => {
+  const t = setup();
+  try {
+    t.call('recordAttentionSignal')('s1', null);
+    t.call('recordAttentionSignal')(null, { kind: 'busy' });
+    assert.deepEqual(t.timeline, []);
+  } finally { t.destroy(); }
+});
+
+test('the recap in such a window can finally say something is waiting', () => {
+  const t = setup();
+  try {
+    const leftAt = new Date(Date.now() - 60_000);
+    t.call('recordAttentionSignal')('s1', { kind: 'busy', source: 'osc0' });
+    t.call('recordAttentionSignal')('s1', { kind: 'idle', source: 'osc0' });
+
+    const summary = buildAwaySummary({
+      events: t.timeline.filter(e => e.sessionId === 's1'),
+      lastViewedAt: leftAt,
+      now: new Date(),
+    });
+    assert.equal(summary.waitingOnYou, true, 'the whole point of #395');
+  } finally { t.destroy(); }
+});
+
+// --- The ready-guard, and why the busy carry must not go round it (#395, #252) --------------------
+
+test('the record half deliberately has no ready-guard', () => {
+  // It is the half that writes what happened, so it takes what it is given. That is exactly why its
+  // callers matter: everything that could contradict the ready state has to come through setActivity.
+  const t = setup({ activeSessionId: 'other' });
+  try {
+    t.call('setActivity')('s1', true);
+    t.call('setActivity')('s1', false);
+    assert.equal(t.ready('s1'), true);
+
+    t.call('recordActivityEdge')('s1', true);
+    assert.equal(t.window.sessionBusyState.get('s1'), true, 'no guard here — by design');
+  } finally { t.destroy(); }
+});
+
+test('a window taking a busy session cannot contradict a ready flag', () => {
+  // The busy carried with a handover comes from the title-spinner latch, which is the guess the guard
+  // exists to disbelieve. This file runs in EVERY window, main included, and main is the one that marks
+  // sessions ready — so going round the guard here recreates the state of #252, which nothing short of
+  // the PTY dying could clear.
+  const t = setup({ activeSessionId: 'other' });
+  try {
+    t.call('setActivity')('s1', true);
+    t.call('setActivity')('s1', false);
+    assert.equal(t.ready('s1'), true);
+
+    t.call('setActivity')('s1', true);   // what adoptSession does when the handover says "busy"
+    assert.equal(t.ready('s1'), true, 'still ready');
+    assert.equal(t.window.sessionBusyState.get('s1'), false, 'and not working at the same time');
+  } finally { t.destroy(); }
+});
+
+test('the handover in detach-window.js goes through the guarded door', () => {
+  // A source check, because that file has no harness: the failure it pins is a call that LOOKS right.
+  const src = fs.readFileSync(path.join(REN, 'shell', 'detach-window.js'), 'utf8');
+  assert.doesNotMatch(src, /recordActivityEdge\s*\(/,
+    'the busy carry must call setActivity — the record half skips the ready-guard');
+});

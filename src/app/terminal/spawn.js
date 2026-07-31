@@ -29,6 +29,7 @@ const crypto = require('crypto');
 const pty = require('node-pty');
 const { resolveShell, isWindows, isWslShell, windowsToWslPath, ptyShellArgs, quoteArgvForShell } = require('./shell-profiles');
 const { normalizeLauncher } = require('../../shared/custom-launchers');
+const { classifyAttentionSignal } = require('../../shared/attention-source');
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
 const { decideOsc94 } = require('./osc-busy');
 const { afkTimeoutToEnvMs, resolveAfkTimeoutSec } = require('./afk-timeout');
@@ -58,6 +59,14 @@ const windowLive = () => {
 const sendToWindow = (channel, ...args) => {
   const w = ctx.getMainWindow();
   if (w && !w.isDestroyed()) w.webContents.send(channel, ...args);
+};
+
+// The same status fact, for the window that RENDERS the session to RECORD (#395). A no-op when that is
+// the main window, which already heard it on the channel above — so this can never double-record, and
+// it can never raise anything: its receiver only writes that window's own timeline. app/detach.js owns
+// the owner-versus-main rule, so it lives in one place rather than in each of the three producers.
+const echoTimeline = (sessionId, kind, source, reason) => {
+  if (ctx.sendTimelineSignal) ctx.sendTimelineSignal(sessionId, { kind, source, reason: reason || '' });
 };
 
 // The byte stream goes to the window that RENDERS this session — its own, once it was detached (#2),
@@ -694,6 +703,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             if (windowLive()) {
               sendToWindow('cli-busy-state', currentId, true);
             }
+            echoTimeline(currentId, 'busy', 'osc0');
           } else if (isIdle && session._cliBusy) {
             session._cliBusy = false;
             session._oscIdle = true;
@@ -702,6 +712,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             if (windowLive()) {
               sendToWindow('cli-busy-state', currentId, false);
             }
+            echoTimeline(currentId, 'idle', 'osc0');
           }
         }
       }
@@ -727,6 +738,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             if (windowLive()) {
               sendToWindow('cli-busy-state', currentId, true);
             }
+            echoTimeline(currentId, 'busy', 'osc94');
           } else if (decision === 'clear') {
             // Release the latch this path set — otherwise a TUI dialog leaves the
             // session on "Working" forever (#120).
@@ -737,12 +749,19 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             if (windowLive()) {
               sendToWindow('cli-busy-state', currentId, false);
             }
+            echoTimeline(currentId, 'idle', 'osc94');
           }
         } else {
           // Regular notification (attention, permission, etc.)
           ctx.log.info(`[OSC 9] session=${currentId} message="${payload}"`);
           if (windowLive()) {
             sendToWindow('terminal-notification', currentId, payload);
+          }
+          // Classified HERE rather than relayed raw, with the same module the renderer uses, so both
+          // processes read one message the same way (#395).
+          const osc9Signal = classifyAttentionSignal({ source: 'osc9', payload });
+          if (osc9Signal) {
+            echoTimeline(currentId, osc9Signal.kind, 'osc9', osc9Signal.reason);
           }
         }
       }

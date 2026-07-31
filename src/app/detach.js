@@ -176,6 +176,31 @@ function sendToMain(channel, ...args) {
 }
 
 /**
+ * Tell the window that RENDERS a session what that session is doing, so its own timeline knows — and
+ * nothing more (#395).
+ *
+ * The main window already hears every one of these on its own channels (`cli-busy-state`,
+ * `terminal-notification`, `attention-signal`) and records them there, so this deliberately sends
+ * NOTHING when the owner is main: it would double-record, and main is not what was missing.
+ *
+ * The channel is the guarantee. Its receiver calls a record-only entry point, so a window of its own
+ * cannot grow an inbox out of this — the announcing surfaces are gated separately (#390), but a gate is
+ * a behaviour and this is a structure. Everything that raises stays addressed to main.
+ *
+ * A signal sent to a window that is still loading is dropped, and that is fine here: what the taking
+ * window needs is the STATE, and that travels with `session-reattached` instead. Deferring a stale edge
+ * onto a window that has since been told the truth would be worse than losing it.
+ */
+function sendTimelineSignal(sessionId, signal) {
+  if (!sessionId || !signal) return false;
+  const main = ctx.getMainWindow();
+  const owner = detachedWindows.get(sessionId);
+  if (!owner || owner === main || owner.isDestroyed()) return false;
+  try { owner.webContents.send('timeline-signal', sessionId, signal); } catch { return false; }
+  return true;
+}
+
+/**
  * Does this session still have a process? Sent along with every `session-reattached`, because the
  * window taking it must not resume a CLI the user stopped — and the renderer's own answer is a
  * POLLED snapshot, up to 30 s stale in an idle window. Here it is the authoritative map.
@@ -185,14 +210,30 @@ function isRunning(sessionId) {
 }
 
 /**
+ * Is the agent working right NOW? Carried alongside `running` for the same reason (#395): a session
+ * that is busy and STAYS busy sends no new edge, so a window taking one mid-turn would have nothing to
+ * learn from and would draw a visibly working session as idle until the turn happened to end.
+ *
+ * Two sources, because busy has two: the PTY heuristics latch it on the session record, and the
+ * backends that name their own sessions have it derived from their store instead (`watch/adopt.js`
+ * owns that map). ctx supplies the second one; absent, the first still answers.
+ */
+function isBusy(sessionId) {
+  const session = ctx.activeSessions.get(sessionId);
+  if (session && session._cliBusy) return true;
+  return !!(ctx.isSessionBusy && ctx.isSessionBusy(sessionId));
+}
+
+/**
  * `placement` (#375) is where in the taking window the session goes — the pane and zone that window
  * itself highlighted while the drag was over it. Absent for every other path, and the renderer then
  * does what it always did: the active pane.
  */
 function sendAdopt(win, sessionId, placement) {
   const running = isRunning(sessionId);
-  if (win) win.webContents.send('session-reattached', sessionId, running, placement || null);
-  else sendToMain('session-reattached', sessionId, running, placement || null);
+  const busy = running && isBusy(sessionId);
+  if (win) win.webContents.send('session-reattached', sessionId, running, placement || null, busy);
+  else sendToMain('session-reattached', sessionId, running, placement || null, busy);
 }
 
 // --- Which window hosts one of the app's own views (#364) ---
@@ -1145,6 +1186,7 @@ module.exports = {
   restoreWindowBounds,
   restoreWindows,
   windowForSession,
+  sendTimelineSignal,
   isDetached,
   detachedSessionIds,
   listSessionWindows,
