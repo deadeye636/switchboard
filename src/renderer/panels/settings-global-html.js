@@ -427,10 +427,14 @@
                     <select class="settings-select" id="sv-display-mode">
                       <!-- A stored 'tabs' shows as Panes (#357). The retired mode has no option left, and
                            without this the select would fall through to Grid and rewrite the user's mode on
-                           the next Save. This page does not load grid-layout.js, so the mapping is spelled
-                           out here rather than reaching for its resolver. -->
-                      <option value="grid" ${displayModeValue !== 'panes' && displayModeValue !== 'tabs' ? 'selected' : ''}>Grid</option>
-                      <option value="panes" ${displayModeValue === 'panes' || displayModeValue === 'tabs' ? 'selected' : ''}>Panes</option>
+                           the next Save. Since #374 the fall-through goes the other way — an explicit grid
+                           choice is Grid, anything else is Panes — which is the same rule
+                           resolveSessionDisplayMode applies. This page does not load grid-layout.js, so
+                           the mapping is spelled out here rather than reaching for its resolver; keep the
+                           two in step. NO BACKTICKS IN HERE: this comment lives inside a template
+                           literal, and one ends it. -->
+                      <option value="grid" ${displayModeValue === 'grid' || displayModeValue === 'legacy' ? 'selected' : ''}>Grid</option>
+                      <option value="panes" ${displayModeValue !== 'grid' && displayModeValue !== 'legacy' ? 'selected' : ''}>Panes</option>
                     </select>
                   </div>
                 </div>

@@ -22,13 +22,22 @@ test('a stored tabs mode resolves to panes, which is what it rendered', () => {
   assert.equal(resolveSessionDisplayMode('panes'), 'panes');
 });
 
-test('every other stored value is grid, including the ones that were never written', () => {
+test('only an explicit grid choice is grid (#374)', () => {
   assert.equal(resolveSessionDisplayMode('grid'), 'grid');
   assert.equal(resolveSessionDisplayMode('legacy'), 'grid', 'the legacy spelling of grid mode');
-  assert.equal(resolveSessionDisplayMode(undefined), 'grid');
-  assert.equal(resolveSessionDisplayMode(null), 'grid');
-  assert.equal(resolveSessionDisplayMode(''), 'grid');
-  assert.equal(resolveSessionDisplayMode('Tabs'), 'grid', 'the stored value is lower case; this is not it');
+});
+
+test('panes is what a stored nothing means, and what an unknown value falls to (#374)', () => {
+  // The default moved from grid to panes, and this function IS the default: nothing rewrites the
+  // database, so an install that never saved settings has to land on panes the first time the setting
+  // is read. One that has saved carries its own answer either way.
+  assert.equal(resolveSessionDisplayMode(undefined), 'panes');
+  assert.equal(resolveSessionDisplayMode(null), 'panes');
+  assert.equal(resolveSessionDisplayMode(''), 'panes');
+  // A value nobody recognises falls to the DEFAULT rather than to grid — which is the whole of the
+  // change. 'Tabs' is the wrong case and so is not the retired mode's stored spelling; it is simply
+  // unknown, and unknown now means panes.
+  assert.equal(resolveSessionDisplayMode('Tabs'), 'panes');
 });
 
 test('the mosaic is refused in panes mode, and for the retired mode that resolves to it', () => {
@@ -38,12 +47,13 @@ test('the mosaic is refused in panes mode, and for the retired mode that resolve
   assert.equal(gridAllowedForMode('tabs'), false);
 });
 
-test('grid mode allows it, and so does every spelling that means grid mode', () => {
+test('grid mode allows it, and only a stored grid mode does (#374)', () => {
   assert.equal(gridAllowedForMode('grid'), true);
-  // 'legacy' is the stored spelling of the same mode, and a missing value falls back to it.
-  assert.equal(gridAllowedForMode('legacy'), true);
-  assert.equal(gridAllowedForMode(undefined), true);
-  assert.equal(gridAllowedForMode(null), true);
+  assert.equal(gridAllowedForMode('legacy'), true, 'the stored spelling of the same mode');
+  // A missing value used to fall back to grid and allow the mosaic. It falls back to panes now, and
+  // the mosaic is refused there for the reason the blocked list exists.
+  assert.equal(gridAllowedForMode(undefined), false);
+  assert.equal(gridAllowedForMode(null), false);
 });
 
 test('the DOM gate reads the body classes the mode chain sets', () => {

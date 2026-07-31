@@ -253,19 +253,31 @@
     return best;
   }
 
-  // --- What the stored display mode means (#357) ---
+  // --- What the stored display mode means (#357, #374) ---
   // Tabs mode is retired: a pane tree with a single leaf IS what it rendered — same strip, same
   // session bar, same tools — and keeping both meant every tab feature had to be built twice, which
   // the panes audit kept catching (tooltips, overflow arrows, roles, close chords). So a stored
   // 'tabs' resolves to 'panes', and the single-pane tree it lands in is the mode the user had.
   //
-  // Resolved on READ rather than rewritten in the database, the way the `tabsLiveRender` rename was
-  // (#339): nothing has to run before the setting is first used, and an install that never opens
-  // settings is migrated just as well as one that does.
+  // PANES IS THE DEFAULT (#374). It was grid, and the reason it changed is the reason tabs was
+  // retired into panes rather than the other way round: a pane tree with a single leaf is the
+  // ordinary single-session view, and everything the app has grown since — the strips, the session
+  // bar, the tools, the view tabs, a window of its own — is built on it. Grid is the mosaic, which is
+  // a thing you switch to.
   //
-  // Every other value is grid, including a missing one and the legacy 'legacy' spelling.
+  // So the rule inverts: an explicit GRID choice is grid, and everything else — including a value
+  // nobody recognises and, most of all, nothing stored at all — is panes.
+  //
+  // Who this moves: an install that never saved settings. Saving writes the key, so anyone who has
+  // opened the panel once already carries their own answer and keeps it. `legacy` is grid's old
+  // spelling and is still a choice of grid.
+  //
+  // Resolved on READ rather than rewritten in the database, the way the `tabsLiveRender` rename was
+  // (#339) and the tabs retirement above: nothing has to run before the setting is first used, and an
+  // install that never opens settings is served just as well as one that does.
+  const GRID_SPELLINGS = ['grid', 'legacy'];
   function resolveSessionDisplayMode(stored) {
-    return (stored === 'panes' || stored === 'tabs') ? 'panes' : 'grid';
+    return GRID_SPELLINGS.includes(stored) ? 'grid' : 'panes';
   }
 
   // --- Which display mode may run the mosaic (#343) ---

@@ -131,6 +131,14 @@ and since #357 it has **absorbed** tabs mode, which a single-leaf tree renders e
 same session bar, same tools. Two modes drawing the same thing meant every tab feature had to be
 built twice, and the audit (#343–#355) kept finding the second one lagging.
 
+**It is the DEFAULT since #374.** Having absorbed tabs it is now the ordinary single-session view as
+well as the split one, and everything the app has grown since is built on it — the strips, the session
+bar, the tools, the view tabs (§4.2), a window of its own (spec 17). Grid is the mosaic, which is a
+thing you switch *to*. The rule is stated once, in `resolveSessionDisplayMode`: an explicit `grid`
+choice is grid, everything else — an unknown value, and above all a missing one — is panes. Nothing is
+rewritten in the database, so an install that never opened settings is served by the same rule as one
+that did; an install that HAS saved settings carries its own answer and keeps it.
+
 ## 2 · The model
 
 Taken from VS Code's `vs/base/browser/ui/grid/grid.ts` and `editorDropTarget.ts`:

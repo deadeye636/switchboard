@@ -70,8 +70,8 @@ stored preference survives — the setting stopped being about tabs when panes s
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
-| `sessionDisplayMode` | Display mode | `grid` \| `panes` | `grid` | global |
-| | | *(a stored `tabs` resolves to `panes` — the mode was retired in #357 and a single pane is what it rendered)* | | |
+| `sessionDisplayMode` | Display mode | `grid` \| `panes` | **`panes`** | global |
+| | | *(the default moved from `grid` in #374: only an explicit `grid` — or its legacy spelling — is grid, and everything else, a missing value included, is panes. An install that has ever saved settings carries its own answer and keeps it. A stored `tabs` resolves to `panes` — the mode was retired in #357 and a single pane is what it rendered)* | | |
 | `paneToolsPlacement` | Session tools (panes mode) | `bar` \| `strip` | `bar` | global |
 | `paneCloseEmpty` | Close a pane when it becomes empty | `true` \| `false` | `false` | global |
 | `paneBackgroundScrollback` | Scrollback of a background pane tab | `0` (keep all) \| `5000` \| `2000` \| `1000` | `0` | global |

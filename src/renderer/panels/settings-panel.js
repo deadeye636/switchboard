@@ -196,7 +196,9 @@
       ? gpuAccelRaw
       : (fieldValue('terminalWebgl', true) === false ? 'off' : 'auto');
     const terminalCloseValue = fieldValue('terminalCloseBehavior', 'kill');
-    const displayModeValue = fieldValue('sessionDisplayMode', 'grid');
+    // Panes is the default (#374) — the same answer `resolveSessionDisplayMode` gives a stored
+    // nothing, so the select shows what the app is actually doing.
+    const displayModeValue = fieldValue('sessionDisplayMode', 'panes');
     // #310 where a pane's session tools sit: their own bar, or inside the tab strip.
     const paneToolsPlacementValue = fieldValue('paneToolsPlacement', 'bar');
     // #352 the two panes-mode behaviours that are opinions rather than defaults: close a pane the
@@ -734,7 +736,7 @@
         settings.vcsShowBadge = !!settingsViewerBody.querySelector('#sv-vcs-badge')?.checked;
         { const n = parseInt(settingsViewerBody.querySelector('#sv-vcs-poll')?.value, 10); settings.vcsPollSeconds = Number.isFinite(n) && n > 0 ? n : 20; }
         settings.vcsCountUntracked = !!settingsViewerBody.querySelector('#sv-vcs-count-untracked')?.checked;
-        settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'grid';
+        settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'panes';
         settings.paneToolsPlacement = settingsViewerBody.querySelector('#sv-pane-tools')?.value || 'bar';
         settings.paneCloseEmpty = !!settingsViewerBody.querySelector('#sv-pane-close-empty')?.checked;
         { const n = parseInt(settingsViewerBody.querySelector('#sv-pane-bg-scrollback')?.value, 10); settings.paneBackgroundScrollback = Number.isFinite(n) && n > 0 ? n : 0; }
