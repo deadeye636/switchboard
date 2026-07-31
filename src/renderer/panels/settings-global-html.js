@@ -57,6 +57,7 @@
       pixelSessionIconValue, projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
+      awaySummaryValue,
       stickyAttentionInboxValue, subagentLiveStatusValue, showSubagentsValue, subagentLayoutValue, hasSubagentsValue,
       orphanSubagentMaxAgeDaysValue,
       tabAutoCloseDelayValue, tabAutoCloseModeValue,
@@ -78,7 +79,7 @@
           <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
           <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">12</span></button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
-          <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">7</span></button>
+          <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">8</span></button>
           <button class="settings-nav-item" data-cat="backends">Backends</button>
           <div class="settings-nav-sep"></div>
           <button class="settings-nav-item" data-cat="shortcuts">Keyboard Shortcuts <span class="settings-nav-count">${SHORTCUT_DEFS.length}</span></button>
@@ -846,6 +847,15 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-sticky-attention-inbox" ${stickyAttentionInboxValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Show "While you were away"</span>
+                    <div class="settings-description">When you return to a session that changed while you were elsewhere, show a recap of what happened above its terminal.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-away-summary" ${awaySummaryValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">

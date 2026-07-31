@@ -18,6 +18,32 @@
   // Kinds that mean the agent is blocked on / waiting for the human.
   const WAITING_KINDS = new Set(['needs-attention', 'response-ready']);
 
+  // What xterm hands to `onData` is "bytes that should go to the PTY" — the user's keystrokes, but
+  // also everything the terminal answers on its OWN. The recap dismissed on all of it (#384), and
+  // revealing a session necessarily moves focus, so with focus reporting on (DECSET 1004) the terminal
+  // replied `ESC [ O` and the banner tore itself down before it could be read. Measured: one focus
+  // switch, nothing typed, one payload — `"\u001b[O"`.
+  //
+  // Matched WHOLE, and only the shapes a terminal sends unprompted:
+  //
+  //   ESC [ I     ESC [ O          focus in / out (1004)
+  //   ESC [ <n;m> R                 cursor position report
+  //   ESC [ <n> n                   device status report
+  //   ESC [ ? …c   ESC [ > …c       device attributes
+  //   ESC [ M ␣␣␣  ESC [ < …M|m     mouse, X10 and SGR — reporting is on by default
+  //
+  // Deliberately NOT in the list: a bare `ESC` (the Escape key is a keystroke), `ESC O <A-D>` (arrows in
+  // application mode), `ESC [ <A-D>` (arrows in normal mode) and a bracketed paste — a paste is the user
+  // acting, and dismissing on it is right.
+  const TERMINAL_REPORT = /^\u001b\[(?:[IO]|[0-9;]*[Rn]|\?[0-9;]*c|>[0-9;]*c|M[\s\S]{3}|<[0-9;]*[Mm])$/;
+
+  /** Did a human produce this `onData` payload, or did the terminal answer a query with it? */
+  function isUserInput(data) {
+    const text = typeof data === 'string' ? data : '';
+    if (!text) return false;
+    return !TERMINAL_REPORT.test(text);
+  }
+
   function toMs(value) {
     if (value == null) return NaN;
     if (value instanceof Date) return value.getTime();
@@ -124,5 +150,6 @@
   return {
     buildAwaySummary,
     formatAwayDuration: formatDuration,
+    isUserInput,
   };
 });

@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildAwaySummary, formatAwayDuration } = require('../src/renderer/shell/away-summary');
+const { buildAwaySummary, formatAwayDuration, isUserInput } = require('../src/renderer/shell/away-summary');
 
 const BASE = new Date('2026-06-12T10:00:00.000Z').getTime();
 const minutes = (n) => new Date(BASE + n * 60_000).toISOString();
@@ -144,4 +144,46 @@ test('no lastViewedAt includes all meaningful events with empty sinceText', () =
   assert.equal(summary.sinceText, '');
   assert.equal(summary.hasChanges, true);
   assert.equal(summary.events.length, 1);
+});
+
+// --- #384: only a human dismisses the recap ---
+//
+// `onData` is everything bound for the PTY, the terminal's own answers included. The recap dismissed
+// on all of it, so revealing a session — which necessarily moves focus — tore the banner down in the
+// same beat it was rendered. Measured in a running instance: one focus switch, nothing typed, one
+// payload, and it was the focus-out report.
+
+const ESC = '';
+
+test('#384: a terminal answering a query is not a keystroke', () => {
+  const reports = [
+    `${ESC}[I`, `${ESC}[O`,                 // focus in / out (DECSET 1004) — the measured one
+    `${ESC}[24;80R`,                        // cursor position report
+    `${ESC}[0n`,                            // device status report
+    `${ESC}[?1;2c`, `${ESC}[>0;276;0c`,     // device attributes, primary and secondary
+    `${ESC}[M !!`,                          // mouse, X10 — button plus two coordinate bytes
+    `${ESC}[<0;12;7M`, `${ESC}[<0;12;7m`,   // mouse, SGR press and release
+  ];
+  for (const payload of reports) {
+    assert.equal(isUserInput(payload), false, `should not dismiss on ${JSON.stringify(payload)}`);
+  }
+});
+
+test('#384: a keystroke still dismisses', () => {
+  const keys = [
+    'a', 'Z', ' ', '\r', '',           // plain characters, Enter, Ctrl-C
+    ESC,                                     // the Escape KEY is input; a bare ESC is not a report
+    `${ESC}[A`, `${ESC}[D`,                  // arrows, normal mode
+    `${ESC}OA`, `${ESC}OP`,                  // arrows and F1 in application mode (SS3, not CSI)
+    `${ESC}[200~hello${ESC}[201~`,           // a bracketed paste is the user acting
+  ];
+  for (const payload of keys) {
+    assert.equal(isUserInput(payload), true, `should dismiss on ${JSON.stringify(payload)}`);
+  }
+});
+
+test('#384: nothing at all is not input either', () => {
+  assert.equal(isUserInput(''), false);
+  assert.equal(isUserInput(null), false);
+  assert.equal(isUserInput(undefined), false);
 });

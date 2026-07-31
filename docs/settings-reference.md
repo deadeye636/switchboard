@@ -139,6 +139,7 @@ shows the override, or it becomes invisible state.
 | `notifications.notifyOnReady` | Notify when a session is ready | bool | `false` | global |
 | `notifications.sound` | Alert sound | bool | `false` | global |
 | `stickyAttentionInbox` | Keep the attention inbox pinned | bool | `true` | global |
+| `awaySummary` | Show "While you were away" | bool | `true` | global |
 | `runningInbox.mode` | Idle running sessions in the inbox | `until-read` \| `after-finish` \| `timed` \| `always` \| `never` | **see conflicts** | global |
 | `runningInbox.minutes` | Keep finished sessions for (minutes) | 1–120 | `5` | global |
 

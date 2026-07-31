@@ -53,8 +53,26 @@ function awaySummaryFilesFor(sessionId) {
 
 // Called at the focus choke point. Renders the recap for sessions that changed
 // while unfocused, then records the new "last viewed" timestamp.
+/**
+ * Is the recap switched on (#384)? Default ON — only an explicit `false` turns it off, the same shape
+ * every other opt-out setting in this renderer uses.
+ *
+ * Read at call time rather than cached: the settings window applies live, and a cached copy would keep
+ * showing the banner until the next reload.
+ */
+function awaySummaryEnabled() {
+  return !(typeof appGlobalSettings !== 'undefined' && appGlobalSettings.awaySummary === false);
+}
+
 function handleSessionViewed(sessionId) {
   if (!sessionId) return;
+  // Still STAMPED when the recap is off, so switching it back on does not report an "away" that
+  // stretches to whenever it was turned off.
+  if (!awaySummaryEnabled()) {
+    lastViewedTime.set(sessionId, new Date());
+    if (awaySummarySessionId) hideAwaySummary();
+    return;
+  }
   const previous = lastViewedTime.get(sessionId);
   let summary = null;
   if (previous && !gridViewActive && typeof buildAwaySummary === 'function') {
@@ -170,10 +188,17 @@ function renderAwaySummary(sessionId, summary) {
     });
   }
 
-  // Auto-dismiss as soon as the user types into this terminal.
+  // Auto-dismiss as soon as the user types into this terminal — and ONLY then (#384). `onData` is
+  // everything bound for the PTY, the terminal's own answers included, so this used to fire on the
+  // focus report that revealing a session necessarily produces: the recap was rendered and dismissed
+  // in the same beat, which is why it was almost never seen. `isUserInput` is the filter, and it lives
+  // in the pure half so it can be tested against the shapes rather than clicked at.
   const entry = openSessions.get(sessionId);
   if (entry && entry.terminal && typeof entry.terminal.onData === 'function') {
-    awaySummaryInputDisposable = entry.terminal.onData(() => dismissAwaySummary(sessionId));
+    awaySummaryInputDisposable = entry.terminal.onData((data) => {
+      if (typeof isUserInput === 'function' && !isUserInput(data)) return;
+      dismissAwaySummary(sessionId);
+    });
   }
   awaySummarySessionId = sessionId;
 }
