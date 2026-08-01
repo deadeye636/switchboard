@@ -182,7 +182,9 @@ The only backend whose history is **not** in files — the reason the discovery 
   `{type:'message', message:{role, content:[{type:'text',text}], model, provider, stopReason, usage}}`.
 - **Pi is multi-provider *within* one session** — a real session switched from `anthropic/claude-opus-4-7`
   to `openai-codex/gpt-5.5` mid-flight. So "the session's model" is the **last** one on the active branch,
-  and token/cost totals are booked from that branch's assistant turns.
+  and token/cost totals are booked from that branch's assistant turns. For launch configuration, Pi declares
+  backend-owned model discovery: Switchboard asks `listModels({search})`, Pi runs `pi --list-models`, parses
+  the provider/model table, caches it briefly, and the generic renderer shows those ids as suggestions.
 - **Cost — corrects the plan:** `usage.cost` is an **object** (`{input, output, cacheRead, cacheWrite,
   total}`), not a number. Sum `usage.cost.total` across assistant turns. It is Pi's own estimate from its
   own price table, so it is recorded as an estimate and never as a settled amount.
@@ -295,7 +297,7 @@ which meant they were, in practice, not configurable from Switchboard.
 | **Claude** | `permissionMode`, `model`, `worktree` (+`worktreeName`), `chrome`, `addDirs`, `mcpEmulation`, `afkTimeoutSec` | — |
 | **Codex** | `model`, `approvalMode`, `sandbox`, `profile` (Codex' *own* config profile), `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` (`-c key=value`) | `--dangerously-bypass-approvals-and-sandbox` — its own help calls it "EXTREMELY DANGEROUS… solely for externally sandboxed environments". `sandbox: danger-full-access` already lets a user drop the sandbox on purpose; a single toggle that removes approvals *and* the sandbox is a different thing. `-C/--cd` (we own the cwd). |
 | **Hermes** | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo` | `--cli`/`--tui` (we run it in a PTY — interactive is the point), `-q`/`-Q` (non-interactive), anything that moves its session store. |
-| **Pi** | `model`, `provider`, `thinking`, `tools`, `excludeTools`, `appendSystemPrompt`, `noContextFiles` | **`--api-key`** — it would put a raw key on the COMMAND LINE, readable in any process listing. Pi reads its key from the environment; a template's `$VAR` env bundle (resolved at spawn, never on disk) is the only route we offer. Also `--mode json/rpc` and `--print` (non-interactive), `--session-dir`/`--no-session` (they move or suppress the store we watch). |
+| **Pi** | `model` (with model discovery), `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `noContextFiles` | **`--api-key`** — it would put a raw key on the COMMAND LINE, readable in any process listing. Pi reads its key from the environment; a template's `$VAR` env bundle (resolved at spawn, never on disk) is the only route we offer. Also `--mode json/rpc` and `--print` (non-interactive), `--session-dir`/`--no-session` (they move or suppress the store we watch), arbitrary `--extension` paths (Switchboard owns only its generated live-binding extension). |
 
 **Some options belong to Switchboard, not to a CLI**, and the registry adds those to *every* backend
 (`src/backends/agy/index.js`, `UNIVERSAL_FIELDS`) rather than letting four descriptors carry four copies that

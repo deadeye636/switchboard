@@ -110,6 +110,36 @@ async function resolveLaunchOptionsFor(project, backendId) {
   return options;
 }
 
+function textControlHtml(id, field, value, backendId, disabled) {
+  const dis = disabled ? 'disabled' : '';
+  const modelList = field.modelDiscovery ? ` list="${escapeHtml(id)}-models" data-model-discovery="${escapeHtml(backendId)}"` : '';
+  const datalist = field.modelDiscovery ? `<datalist id="${escapeHtml(id)}-models"></datalist>` : '';
+  return `<input type="text" class="settings-input" id="${escapeHtml(id)}" value="${escapeHtml(value == null ? '' : String(value))}"${modelList} ${dis}>${datalist}`;
+}
+
+function bindModelDiscovery(root) {
+  root.querySelectorAll('input[data-model-discovery]').forEach(input => {
+    if (input.dataset.modelDiscoveryBound) return;
+    input.dataset.modelDiscoveryBound = '1';
+    input.addEventListener('focus', async () => {
+      const backendId = input.dataset.modelDiscovery;
+      const listId = input.getAttribute('list') || '';
+      const list = listId ? root.querySelector('datalist[id="' + listId.replace(/"/g, '\\"') + '"]') : null;
+      if (!backendId || !list || !window.api?.backends?.listModels) return;
+      if (list.dataset.loaded === '1') return;
+      list.dataset.loaded = '1';
+      let result;
+      try { result = await window.api.backends.listModels(backendId, input.value || ''); } catch { return; }
+      if (!result || result.ok === false || !Array.isArray(result.models)) return;
+      list.innerHTML = result.models.map(m => {
+        const id = typeof m === 'string' ? m : (m.id || m.value || '');
+        const label = typeof m === 'string' ? '' : (m.label || '');
+        return id ? `<option value="${escapeHtml(id)}"${label && label !== id ? ` label="${escapeHtml(label)}"` : ''}></option>` : '';
+      }).join('');
+    });
+  });
+}
+
 /**
  * What the CONFIGURE dialog shows for a field: the effective value, so the dialog tells the truth
  * (backend default → global → project → template). Showing it is not the same as sending it.
@@ -533,8 +563,7 @@ async function showGeneratedConfigDialog(project, backend) {
     } else if (f.type === 'toggle') {
       control = `<label class="settings-toggle"><input type="checkbox" id="${id}" ${val ? 'checked' : ''} disabled><span class="settings-toggle-slider"></span></label>`;
     } else {
-      const t = f.type === 'number' ? 'text' : 'text';
-      control = `<input type="${t}" class="settings-input" id="${id}" value="${escapeHtml(val == null ? '' : String(val))}" disabled>`;
+      control = textControlHtml(id, f, val, backend.id, true);
     }
     // A backend's own quirks belong on screen (#160): the description comes from the descriptor, so a
     // CLI's caveat ("at your own risk", "only applies with the local provider above") reaches the user
@@ -575,6 +604,7 @@ async function showGeneratedConfigDialog(project, backend) {
   `;
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
+  bindModelDiscovery(dialog);
 
   // Un-ticking "use the backend's default" hands the option to the user: the control comes alive at the
   // value it was already showing, and that value will be sent. Re-ticking it hands it back — the same
@@ -662,7 +692,7 @@ async function showGeneratedResumeDialog(session, backend) {
     } else if (f.type === 'toggle') {
       control = `<label class="settings-toggle"><input type="checkbox" id="${id}" ${val ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>`;
     } else {
-      control = `<input type="text" class="settings-input" id="${id}" value="${escapeHtml(val == null ? '' : String(val))}">`;
+      control = textControlHtml(id, f, val, backend.id, false);
     }
     // A backend's own quirks belong on screen (#160): the description comes from the descriptor, so a
     // CLI's caveat ("at your own risk", "only applies with the local provider above") reaches the user
@@ -687,6 +717,7 @@ async function showGeneratedResumeDialog(session, backend) {
   `;
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
+  bindModelDiscovery(dialog);
 
   function close() {
     overlay.remove();

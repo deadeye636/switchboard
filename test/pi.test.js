@@ -295,6 +295,24 @@ test('the OAuth-shadow gotcha is surfaced, not just commented', () => {
 
 // --- descriptor -----------------------------------------------------------------------------------
 
+test('model discovery parses pi --list-models output into picker values', () => {
+  const out = pi._parseModelList([
+    'provider      model                context  max-out  thinking  images',
+    'openai-codex  gpt-5.5              272K     128K     yes       yes',
+    'anthropic     claude-sonnet-4-6    200K     64K      yes       no',
+  ].join('\n'));
+  assert.deepStrictEqual(out, [
+    { id: 'openai-codex/gpt-5.5', label: 'openai-codex/gpt-5.5' },
+    { id: 'anthropic/claude-sonnet-4-6', label: 'anthropic/claude-sonnet-4-6' },
+  ]);
+  assert.equal(pi.configFields.find(f => f.id === 'model').modelDiscovery, true);
+});
+
+test('Pi declares model discovery without making model entry mandatory', () => {
+  assert.equal(typeof pi.listModels, 'function');
+  assert.equal(pi.buildLaunch({ cwd: '/x', options: {} }).args.includes('--model'), false);
+});
+
 test('buildLaunch: new vs resume (binary-bound, §5.11)', () => {
   assert.deepStrictEqual(pi.buildLaunch({ cwd: 'Z:\\temp' }).args, []);
   assert.deepStrictEqual(

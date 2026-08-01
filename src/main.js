@@ -1459,6 +1459,7 @@ ipcMain.handle('backends-list', () => {
       id: b.id, label: b.label, description: b.description || null, tier: b.tier, axis: b.axis, status: b.status,
       enabled: !!b.enabled, isProfile: !!b.isProfile, icon: b.icon || null,
       monogram: b.monogram || null, colour: b.colour || null, configFields: b.configFields || [],
+      modelDiscovery: typeof b.listModels === 'function',
       // Is the binary actually installed? Settings shows the reason instead of letting the user enable
       // a backend whose first launch then dies with a raw shell error.
       available: b.available !== false, unavailableReason: b.unavailableReason || null,
@@ -1493,6 +1494,7 @@ ipcMain.handle('backends-list', () => {
     defaultLaunchTarget: backends.getDefaultLaunchTarget(),
   };
 });
+
 // Can this session be forked RIGHT NOW?
 //
 // Claude accepts `--session-id`, so the id we launched under IS its id — forking it always works. Codex,
@@ -1861,6 +1863,9 @@ try { require('./backends/claude').setRoots([PROJECTS_DIR]); } catch {}
 // live in the global settings blob, user Axis-A profiles in profiles.json. backends.list() then returns
 // built-ins ∪ profiles with their merged enabled flags.
 backends.init({ getGlobalSettings: () => getSetting('global') || {}, profiles });
+const backendModels = require('./app/backend-models');
+backendModels.init({ backends });
+backendModels.registerIpc(ipcMain);
 const { detectSessionTransitions } = sessionTransitions;
 
 // Set once quit begins so a still-pending debounced flush (or a late worker

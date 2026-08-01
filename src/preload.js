@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   backends: {
     list: () => ipcRenderer.invoke('backends-list'),
     canFork: (sessionId) => ipcRenderer.invoke('backend-can-fork', sessionId),
+    listModels: (backendId, search) => ipcRenderer.invoke('backend-list-models', backendId, search),
     transcriptPath: (sessionId) => ipcRenderer.invoke('handoff-transcript-path', sessionId),
   },
   sessionBackends: {

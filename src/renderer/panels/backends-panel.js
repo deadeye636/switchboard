@@ -170,7 +170,26 @@
     }
     const type = field.type === 'number' ? 'number' : 'text';
     const cls = field.type === 'number' ? 'settings-input settings-input-compact' : 'settings-input';
-    return `<input type="${type}" class="${cls} backend-default-input" data-backend="${esc(backendId)}" data-opt="${esc(field.id)}" data-type="${esc(field.type || 'text')}" id="${esc(name)}" value="${esc(value == null ? '' : value)}" ${dis}>`;
+    const modelList = field.modelDiscovery ? ` list="${esc(name)}-models" data-model-discovery="${esc(backendId)}"` : '';
+    const datalist = field.modelDiscovery ? `<datalist id="${esc(name)}-models"></datalist>` : '';
+    return `<input type="${type}" class="${cls} backend-default-input" data-backend="${esc(backendId)}" data-opt="${esc(field.id)}" data-type="${esc(field.type || 'text')}" id="${esc(name)}" value="${esc(value == null ? '' : value)}"${modelList} ${dis}>${datalist}`;
+  }
+
+  async function loadModelSuggestions(root, input) {
+    const backendId = input && input.dataset && input.dataset.modelDiscovery;
+    const listId = input && input.getAttribute('list');
+    const list = listId ? root.querySelector('datalist[id="' + listId.replace(/"/g, '\\"') + '"]') : null;
+    if (!backendId || !list || !window.api?.backends?.listModels) return;
+    if (list.dataset.loaded === '1') return;
+    list.dataset.loaded = '1';
+    let result;
+    try { result = await window.api.backends.listModels(backendId, input.value || ''); } catch { return; }
+    if (!result || result.ok === false || !Array.isArray(result.models)) return;
+    list.innerHTML = result.models.map(m => {
+      const id = typeof m === 'string' ? m : (m.id || m.value || '');
+      const label = typeof m === 'string' ? '' : (m.label || '');
+      return id ? `<option value="${esc(id)}"${label && label !== id ? ` label="${esc(label)}"` : ''}></option>` : '';
+    }).join('');
   }
 
   // A backend's launch options live on its OWN page, reached by the gear on its row (`launchDefaultsPage`
@@ -1144,6 +1163,9 @@
           readBackendEnvFromDom(page);
         }
       });
+      page.addEventListener('focusin', (e) => {
+        if (e.target.matches && e.target.matches('input[data-model-discovery]')) loadModelSuggestions(page, e.target);
+      });
       page.addEventListener('input', (e) => {
         recordDefault(e.target);
         recordHandoffPrompt(e.target);
@@ -1167,6 +1189,10 @@
         recordHandoffPrompt(e.target);
       });
     }
+
+    box.addEventListener('focusin', (e) => {
+      if (e.target.matches && e.target.matches('input[data-model-discovery]')) loadModelSuggestions(box, e.target);
+    });
 
     box.addEventListener('click', (e) => {
       const gear = e.target.closest('.backend-gear');

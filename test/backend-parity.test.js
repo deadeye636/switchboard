@@ -24,6 +24,18 @@ const READY = backends.list().filter(b => b.status === 'ready' && !b.isProfile);
 // `transcriptAccess: 'export'`) does not, it only versions its parser.
 const FILE_MODE = READY.filter(b => b.transcriptAccess === 'file');
 
+test('model-discovery fields are backed by a backend-owned listModels hook', () => {
+  for (const b of READY) {
+    const fields = Array.isArray(b.configFields) ? b.configFields : [];
+    const wants = fields.filter(f => f.modelDiscovery === true);
+    if (!wants.length) {
+      assert.equal(b.listModels, undefined, `${b.id}: no model-discovery field, no listModels hook`);
+      continue;
+    }
+    assert.equal(typeof b.listModels, 'function', `${b.id}: model-discovery fields need listModels()`);
+  }
+});
+
 test('every ready backend declares an availability probe', () => {
   // Without one, an enabled-but-not-installed backend is offered in the picker and dies in the terminal
   // with a raw shell error instead of a sentence the user can act on (D15). Codex shipped without it.

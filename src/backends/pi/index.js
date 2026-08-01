@@ -21,7 +21,7 @@ const os = require('os');
 const path = require('path');
 
 const fs = require('fs');
-const { execFileSync } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 
 const parser = require('./parser');
 const trust = require('./trust');
@@ -77,7 +77,7 @@ function cliHomeEnv() {
 //   `--extension` — owned by buildLiveBinding for Switchboard's per-spawn extension; arbitrary extension
 //     paths remain a future UI design, not a free text argv injection here.
 const configFields = [
-  { id: 'model', label: 'Model', type: 'text', default: '',
+  { id: 'model', label: 'Model', type: 'text', default: '', modelDiscovery: true,
     description: 'Model pattern or id — supports "provider/id" and an optional ":<thinking>" suffix.' },
   { id: 'provider', label: 'Provider', type: 'text', default: '',
     description: 'Provider name. Empty = Pi\'s own default.' },
@@ -114,6 +114,56 @@ const configFields = [
 /** Is pi actually installed? */
 function findExecutable() {
   return findOnPath('pi');
+}
+
+const MODEL_CACHE_TTL_MS = 10 * 60 * 1000;
+let _modelCache = null; // { at, search, models }
+
+function parseModelList(output) {
+  const lines = String(output || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const models = [];
+  for (const line of lines) {
+    if (/^provider\s+model\s+/i.test(line)) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) continue;
+    const provider = parts[0];
+    const model = parts[1];
+    if (!provider || !model) continue;
+    models.push({ id: `${provider}/${model}`, label: `${provider}/${model}` });
+  }
+  return models;
+}
+
+function piExecCommand() {
+  const exe = findExecutable();
+  if (!exe) return { command: 'pi', args: [] };
+  if (process.platform === 'win32' && /\.cmd$/i.test(exe)) {
+    const cli = path.join(path.dirname(exe), 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js');
+    return { command: 'node', args: [cli] };
+  }
+  return { command: exe, args: [] };
+}
+
+function listModels({ search } = {}) {
+  const q = String(search || '').trim();
+  const now = Date.now();
+  if (_modelCache && _modelCache.search === q && now - _modelCache.at < MODEL_CACHE_TTL_MS) {
+    return Promise.resolve({ ok: true, models: _modelCache.models, cached: true });
+  }
+  return new Promise((resolve) => {
+    const launch = piExecCommand();
+    const args = [...launch.args, '--list-models'];
+    if (q) args.push(q);
+    execFile(launch.command, args, { encoding: 'utf8', timeout: 8000, windowsHide: true }, (err, stdout, stderr) => {
+      if (err) {
+        resolve({ ok: false, reason: String((stderr || err.message || 'Could not list Pi models.')).trim() });
+        return;
+      }
+      const models = parseModelList(stdout);
+      _modelCache = { at: Date.now(), search: q, models };
+      resolve({ ok: true, models, cached: false });
+    });
+  });
 }
 
 /** The version of the node ON PATH (`v22.22.0`), or null when there is none. */
@@ -336,6 +386,8 @@ module.exports = {
   buildLaunch,
   probe,
   findExecutable,
+  listModels,
+  _parseModelList: parseModelList,
 
   // the dual-mode seam, file side (backends/file-store.js)
   discoverSessions: store.discoverSessions,
