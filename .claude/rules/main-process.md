@@ -11,8 +11,10 @@ paths:
 ## `src/main.js` is a composition root
 
 ~2000 lines, down from 5011 — the split is done (#213), #227 moved nine more handlers out. What is
-left: the requires, `DATA_DIR` (before anything requires db.js), the wiring for thirteen modules, and
-the **small IPC handlers** that stayed on purpose (thin, no shared state; moving them buys churn).
+left: the requires, `DATA_DIR` (before anything requires db.js), the module wiring (count the `.init(`
+calls rather than trusting a number written here — this one said "thirteen" through at least one
+module being added), and the **small IPC handlers** that stayed on purpose (thin, no shared state;
+moving them buys churn).
 `GRANDFATHERED` in `test/main-no-new-ipc.test.js` is the list — count it there rather than here.
 
 `src/app/` holds `lifecycle.js` (boot, ordered teardown), `windows.js`,
@@ -21,8 +23,9 @@ the **small IPC handlers** that stayed on purpose (thin, no shared state; moving
 `vcs.js` (the VCS poller + its standalone windows — #277), `detach.js` (detached session
 windows — #2, and since #316 which window renders which session), `presence.js` (is the USER at the
 machine — #386; one global fact, because every renderer has its own `windowFocused` and none can see
-the others) and `terminal/` (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow
-control, plus the PTY pure-logic).
+the others), `timeline.js` (what happened to a session — #396; the one writer of the record, so a
+session has one history however its windows come and go) and `terminal/` (`spawn.js` = open-terminal,
+`io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
 
 ## What routes per session, and what stays in main (#2, #393, #395)
 

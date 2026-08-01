@@ -14,7 +14,9 @@ same exports, so `require('../db/db')` is unchanged and no caller outside `src/d
 
 - `connection.js` (DATA_DIR + the one handle), `schema.js`, `migrations.js`
 - stores: `meta-store` (what the **user** decided), `session-store` (what the **scanner** derived),
-  `search-store` (FTS5), `tags-store`, `tasks-store`, `settings-store`, `stats-store`
+  `search-store` (FTS5), `tags-store`, `tasks-store`, `settings-store`, `stats-store`,
+  `timeline-store` (what HAPPENED to a session, over time — #396; its shape and both retention limits
+  are in `timeline-record.js`, outside it for the same reason `stats-queries.js` is outside `db.js`)
 - `project-refs.js` — a project's footprint moved across four stores, atomically
 - helpers predating the split: `sqlite-busy-retry.js` (wraps every write; **not** usable inside an
   open transaction — that is why `project-refs.js` takes the stores' raw statements),
