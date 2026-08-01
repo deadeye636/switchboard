@@ -49,14 +49,14 @@ back on Save.
 | `terminalMouseReporting` | Mouse mode | `native` \| `select` \| `off` | `select` | global |
 | `externalEditorCommand` | External editor | string | `''` (OS default) | global |
 | `fileClickTarget` | Clicking a file link opens | `internal` \| `external` | `internal` | global |
-| `markdownDefaultView` | Markdown files open as | `code` \| `preview` | `code` | global |
+| `markdownDefaultView` | Previewable files open as | `code` \| `preview` | `code` | global |
 | `terminalCloseBehavior` | Closing a terminal tab | `kill` \| `keep` | `kill` | global |
 | `gpuAcceleration` | GPU rendering (WebGL) — *Advanced* | `auto` \| `on` \| `off` | `auto` | global |
 | `conptyBackend` | Windows ConPTY — *Advanced, Windows only* | `bundled` \| `system` | `bundled` | **cascades** |
 | `secretRefCleanupOnSessionStop` | Delete secret temp files on session stop — *Advanced* | bool | `true` | global |
 | `secretRefSweepMinutes` | Secret temp-file sweep (minutes) — *Advanced* | ≥ 0, `0` = off | `0` | global |
 
-`terminalWebgl` is a retired key: a stored `false` migrates to `gpuAcceleration: 'off'`.
+`markdownDefaultView` keeps its legacy key name, but applies to every internal file viewer kind that has a rendered preview (currently Markdown and HTML). `terminalWebgl` is a retired key: a stored `false` migrates to `gpuAcceleration: 'off'`.
 `tabsLiveRender` is retired too (#339): it is read as the fallback for `liveRenderBackground`, so a
 stored preference survives — the setting stopped being about tabs when panes started obeying it.
 

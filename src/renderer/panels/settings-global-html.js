@@ -320,8 +320,8 @@
                 </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Markdown files open as</span>${help}</div>
-                    <div class="settings-description">How a Markdown file first opens in the internal editor. The preview toggle in the viewer still overrides this per file.</div>
+                    <div class="settings-field-header"><span class="settings-label">Previewable files open as</span>${help}</div>
+                    <div class="settings-description">How files with a rendered view, such as Markdown or HTML, first open in the internal editor. The preview toggle in the viewer still overrides this per file.</div>
                     <div class="settings-more"><b>Code</b>: the source editor. <b>Rendered preview</b>: the read-only rendered view. This only sets the initial mode; switching in the viewer is remembered per viewer as before.</div>
                   </div>
                   <div class="settings-field-control">

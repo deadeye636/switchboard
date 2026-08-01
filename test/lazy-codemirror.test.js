@@ -59,14 +59,18 @@ function setupViewerPanelDom() {
   };
 
   // Stub localStorage — ViewerPanel reads preview preference
+  const store = new Map();
   window.localStorage = {
-    getItem: () => null,
-    setItem: () => {},
+    getItem: (key) => store.has(key) ? store.get(key) : null,
+    setItem: (key, value) => store.set(key, String(value)),
   };
 
-  // Stub a11y helper — deadeye's viewer-toolbar.js calls the global
+  // Stub a11y helper — viewer-toolbar.js calls the global
   // syncTitleToAriaLabel (defined in a11y-utils.js, not loaded in this harness).
   window.syncTitleToAriaLabel = () => {};
+
+  window.previewKindForExt = (ext) => ext === 'html' || ext === 'htm' ? 'html' : (ext === 'md' || ext === 'mdx' ? 'markdown' : 'text');
+  window.extOf = (filePath) => (filePath.split('.').pop() || '').toLowerCase();
 
   // Intercept document.createElement so <script> elements resolve instantly.
   // We wrap the real createElement and fire onload synchronously after the
@@ -175,6 +179,31 @@ test('lazy-codemirror: second open() does not inject a second script tag', async
     const cmScripts = [...ctx.document.head.querySelectorAll('script')]
       .filter(s => s.src && s.src.includes('codemirror-bundle'));
     assert.equal(cmScripts.length, 1, 'codemirror-bundle.js must remain exactly one <script> tag after multiple open() calls');
+  } finally {
+    ctx.destroy();
+  }
+});
+
+test('viewer-panel: global preview default applies to HTML previews too', async () => {
+  const ctx = setupViewerPanelDom();
+  try {
+    ctx.window.appGlobalSettings = { markdownDefaultView: 'preview' };
+    ctx.window.createEditableViewer = (el, content) => ({
+      dispatch: () => {},
+      state: { doc: { toString: () => content, length: content.length } },
+      destroy: () => {},
+      _wrapCompartment: null,
+    });
+    ctx.window.createPlanEditor = ctx.window.createEditableViewer;
+    ctx.window.CMEditorView = { lineWrapping: [] };
+
+    const panel = new ctx.window.ViewerPanel(ctx.container, { language: 'auto', storageKey: 'viewer-preview' });
+    panel.open('Page', '/tmp/page.html', '<h1>Hello</h1>');
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.equal(panel.previewMode, true, 'HTML should obey the rendered-preview default');
+    assert.equal(panel.editorEl.style.display, 'none');
+    assert.equal(panel.previewEl.querySelector('iframe') !== null, true, 'HTML preview renders in a sandboxed iframe');
   } finally {
     ctx.destroy();
   }

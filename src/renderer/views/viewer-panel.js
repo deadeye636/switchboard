@@ -6,7 +6,7 @@
  * Watches files for external changes and reloads automatically.
  *
  * Toolbar buttons are shown/hidden automatically based on file type:
- *   - Preview: shown for markdown files
+ *   - Preview: shown for previewable files (Markdown and HTML)
  *   - Wrap: always shown (defaults on for markdown, off for others)
  *   - Save: shown if onSave is provided
  *   - Close: shown if onClose is provided
@@ -14,7 +14,7 @@
  *
  * Depends on: viewer-toolbar.js
  * Reads the global `appGlobalSettings.markdownDefaultView` (app.js) for the
- * initial Markdown view mode (#279); optional, guarded by typeof.
+ * initial view mode of previewable files (#279, legacy key); optional, guarded by typeof.
  * codemirror-bundle.js is loaded on demand (lazy) via loadCodeMirrorBundle().
  */
 
@@ -250,11 +250,12 @@ class ViewerPanel {
     }
 
     const isMd = this._isMarkdown(filePath);
+    const isPreviewable = this._isPreviewable(filePath);
     const isJsonish = this._isJsonish(filePath);
 
-    // Show/hide preview button based on file type (markdown or HTML).
+    // Show/hide preview button based on file type (Markdown or HTML).
     if (this.toolbar.previewBtn) {
-      this.toolbar.previewBtn.style.display = (isMd || this._previewKind === 'html') ? '' : 'none';
+      this.toolbar.previewBtn.style.display = isPreviewable ? '' : 'none';
     }
     // Format button: only for .json / .jsonl
     if (this.toolbar.formatBtn) {
@@ -278,21 +279,23 @@ class ViewerPanel {
     // identify whether it is the most-recent open() call or a stale one.
     this._openGen = (this._openGen || 0) + 1;
     const myGen = this._openGen;
-    const pending = { content, filePath, isMd };
+    const pending = { content, filePath, isMd, isPreviewable };
 
     // Defer all CodeMirror work until the bundle is available.
     loadCodeMirrorBundle().then(() => {
       // Guard: if open() was called again after this closure was queued,
       // a newer call has incremented _openGen — skip this stale one.
       if (this._openGen !== myGen) return;
-      const { content: c, filePath: fp, isMd: md } = pending;
+      const { content: c, filePath: fp, isMd: md, isPreviewable: previewable } = pending;
 
       // Save preview preference before creating/updating editor. A per-viewer
       // stored toggle wins; with none, fall back to the global default (#279).
-      const stored = (md && this.opts.storageKey) ? localStorage.getItem(this.opts.storageKey) : null;
+      // The setting key is still markdownDefaultView for compatibility, but
+      // the behaviour applies to every text file kind with a rendered preview.
+      const stored = (previewable && this.opts.storageKey) ? localStorage.getItem(this.opts.storageKey) : null;
       const globalDefaultPreview = typeof appGlobalSettings !== 'undefined'
         && appGlobalSettings.markdownDefaultView === 'preview';
-      const wantPreview = md && (stored === 'true' || (stored === null && globalDefaultPreview));
+      const wantPreview = previewable && (stored === 'true' || (stored === null && globalDefaultPreview));
 
       // Create or update editor
       if (!this.editorView) {
@@ -506,6 +509,11 @@ class ViewerPanel {
     if (!filePath) return this.opts.language === 'markdown';
     const ext = filePath.split('.').pop()?.toLowerCase();
     return ext === 'md' || ext === 'mdx';
+  }
+
+  _isPreviewable(filePath) {
+    if (!filePath) return this.opts.language === 'markdown';
+    return this._isMarkdown(filePath) || this._previewKind === 'html';
   }
 
   _isJsonish(filePath) {
