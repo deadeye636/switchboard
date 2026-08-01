@@ -20,9 +20,15 @@
 //
 // Callers (all at call time): app.js (the `timeline-appended` listener), shell/sidebar-events.js.
 
+// Kinds the record keeps so the RECAP can do its arithmetic — when you last looked, which files were
+// touched (#396). They are bookkeeping, not things that happened to the session, and listing them here
+// buries the events a reader came for under one "Viewed" per focus change.
+const TIMELINE_BOOKKEEPING_KINDS = new Set(['viewed']);
+
 function renderTimelineViewer(sessionId) {
   const session = sessionMap.get(sessionId);
-  const events = getTimelineEvents(sessionTimelineStore, sessionId);
+  const events = getTimelineEvents(sessionTimelineStore, sessionId)
+    .filter((event) => event && !TIMELINE_BOOKKEEPING_KINDS.has(event.kind));
   const filteredEvents = filterTimelineEvents(events, {
     query: timelineSearchInput?.value || '',
     kind: timelineKindFilter?.value || 'all',
