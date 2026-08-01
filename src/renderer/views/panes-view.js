@@ -1266,7 +1266,7 @@ window.__sessionDragId = null;
   // app has already done it, and repeating the app's own close route here is actively wrong for the
   // sidebar-driven surfaces: switching from Projects to Variables hides Projects, and answering that
   // with `closeAdminView()` sent the sidebar back to the previous tab and undid the switch (#342).
-  function closeViewTab(kind, { ref = null, closeTheView = false } = {}) {
+  function closeViewTab(kind, { ref = null, closeTheView = false, cameFrom = null } = {}) {
     if (!enabled) return;
     const tabId = viewTabId(kind, ref);
     const leaf = PaneTree.leafOfTab(tree, tabId);
@@ -1276,16 +1276,19 @@ window.__sessionDragId = null;
     // session's tab is what closing it should reveal. `PaneTree.closeTab` picks the neighbour by
     // position — right for a terminal tab, and for a file it lands on whatever happened to sit next to
     // it. Asked BEFORE the instance is destroyed, because that is what forgets the answer.
-    const cameFrom = isInstancedKind(kind) ? (window.filePanelSessionFor?.(kind, ref) || null) : null;
+    // A caller that already knows wins over the lookup, because the caller may be the reason the lookup
+    // can no longer answer: the file panel's own close removes its entry before telling us (#421).
+    const returnTo = cameFrom
+      || (isInstancedKind(kind) ? (window.filePanelSessionFor?.(kind, ref) || null) : null);
     // An instanced view is destroyed, not hidden — its owner answers an unresolved diff on the way out.
     if (closeTheView && isInstancedKind(kind)) window.filePanelCloseInstance?.(kind, ref);
     else if (closeTheView) hideViewElement(kind);
     tree = PaneTree.closeTab(tree, leaf.id, tabId);
     // …and only if that session is still a tab in the SAME pane. Reaching into another pane would move
     // the user's focus somewhere they were not looking, which is the complaint one step on.
-    if (cameFrom) {
-      const back = PaneTree.leafOfTab(tree, tabIdFor(cameFrom));
-      if (back && back.id === leaf.id) tree = PaneTree.setActiveTab(tree, back.id, tabIdFor(cameFrom));
+    if (returnTo) {
+      const back = PaneTree.leafOfTab(tree, tabIdFor(returnTo));
+      if (back && back.id === leaf.id) tree = PaneTree.setActiveTab(tree, back.id, tabIdFor(returnTo));
     }
     reportWindowViews(); // #364 — nothing here shows it any more
     activeLeaf();

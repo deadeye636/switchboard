@@ -601,8 +601,14 @@ function closePanelTab(key, { keepPanel = false, answer = true } = {}) {
   panelTabs.delete(key);
 
   // The pane tab goes with it — unless the pane tree is what asked for this close.
+  //
+  // `cameFrom` is passed EXPLICITLY because this route deletes the entry above before it gets here
+  // (#421). The pane tree's own answer to "which session was this opened from" is a lookup in
+  // `panelTabs`, and by now there is nothing left to look up — so closing a preview with the viewer's
+  // own × fell back to the neighbour-by-position rule and landed on the pane's last session, while
+  // closing the same preview by its TAB returned correctly. Two routes, one of which had the answer.
   if (panesActive() && !closingThroughPanes && window.panesView?.hasViewTab?.(entry.kind, entry.ref)) {
-    window.panesView.closeViewTab(entry.kind, { ref: entry.ref });
+    window.panesView.closeViewTab(entry.kind, { ref: entry.ref, cameFrom: entry.sessionId });
   }
 
   const state = filePanelState.get(entry.sessionId);

@@ -3288,6 +3288,49 @@ test('#388: closing a preview reveals the session it came from, not the neighbou
   } finally { h.destroy(); }
 });
 
+test('#421: the file panel\'s own close still knows which session to go back to', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.mount('b');
+    h.enable();
+    await h.settle();
+    // THE CASE: closing a preview with the viewer's own × removes the panel entry FIRST and tells the
+    // pane tree afterwards, so the lookup below has nothing left to answer with. That is why the caller
+    // passes the session explicitly — without it this landed on the pane's last session.
+    h.window.filePanelSessionFor = () => null;
+    h.window.filePanelCloseInstance = () => {};
+    h.panes.openViewTab('preview', { ref: '/x/notes.md' });
+    await h.settle();
+
+    h.panes.closeViewTab('preview', { ref: '/x/notes.md', closeTheView: true, cameFrom: 'a' });
+    await h.settle();
+
+    const active = h.document.querySelector('#terminals .session-tab.active');
+    assert.equal(active && active.dataset.tabId, 'term:a', 'back to the session it was opened from');
+  } finally { h.destroy(); }
+});
+
+test('#421: an explicit origin still refuses to jump into another pane', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('b');
+    h.enable();
+    await h.settle();
+    h.window.filePanelSessionFor = () => null;
+    h.window.filePanelCloseInstance = () => {};
+    h.panes.openViewTab('preview', { ref: '/x/notes.md' });
+    await h.settle();
+
+    h.panes.closeViewTab('preview', { ref: '/x/notes.md', closeTheView: true, cameFrom: 'not-here' });
+    await h.settle();
+
+    const active = h.document.querySelector('#terminals .session-tab.active');
+    assert.equal(active && active.dataset.tabId, 'term:b',
+      'the same-pane guard holds however the origin was learned');
+  } finally { h.destroy(); }
+});
+
 test('#388: a session that is no longer in that pane leaves the old behaviour alone', async () => {
   const h = setupPanesDom();
   try {
