@@ -218,6 +218,22 @@ function registerIpc(ipc) {
     }
   });
 
+  // Everything that happened since a point in time, across EVERY session — the recap overview's one
+  // query (#402). Per-session reads cannot answer it: the overview's whole job is to say WHICH sessions
+  // changed, so asking per session would mean knowing the answer before asking.
+  //
+  // Answers `{ events, truncated }`. The truncation flag is passed through rather than dropped: a recap
+  // that quietly loses a third of an absence looks exactly like one where less happened.
+  ipc.handle('timeline:since', (_event, sinceMs) => {
+    if (!ctx || typeof ctx.getTimelineEventsSince !== 'function') return { events: [], truncated: false };
+    try {
+      return ctx.getTimelineEventsSince(Number(sinceMs));
+    } catch (err) {
+      if (ctx.log) ctx.log.debug(`[timeline] could not read the record since ${sinceMs}: ${err.message}`);
+      return { events: [], truncated: false };
+    }
+  });
+
   // A fact only the UI can know. Written here rather than by the renderer, so the record still has one
   // writer and every window still learns about it the same way.
   ipc.handle('timeline:note', (_event, sessionId, kind, label, detail) => {

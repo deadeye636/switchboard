@@ -1228,6 +1228,51 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   padding: 4px;
 }
 
+/* A row and its discard × (#402). The × is a sibling, not a child — see `wrapInboxEntry`. */
+.attention-inbox-entry {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.attention-inbox-entry > .attention-inbox-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.attention-inbox-dismiss {
+  flex-shrink: 0;
+  align-self: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6a6a80;
+  padding: 2px 7px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  /* Only on hover of the row, so eight rows are not eight ×. Focus keeps it visible for the keyboard. */
+  opacity: 0;
+}
+
+.attention-inbox-entry:hover .attention-inbox-dismiss,
+.attention-inbox-dismiss:focus-visible {
+  opacity: 1;
+}
+
+.attention-inbox-dismiss:hover,
+.attention-inbox-dismiss:focus-visible {
+  background: rgba(255,255,255,0.08);
+  color: #d6d6e8;
+  outline: none;
+}
+
+.attention-recap-item .attention-inbox-status {
+  background: rgba(240,160,80,0.16);
+  color: #f0b060;
+}
+
 .attention-inbox-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -6694,197 +6739,241 @@ body.display-mode-panes #file-panel.open {
   vertical-align: middle;
 }
 
-/* ========== "WHILE YOU WERE AWAY" SUMMARY ========== */
-#away-summary {
-  flex: 0 0 auto;
-  margin: 8px 24px 0 8px;
-  padding: 10px 12px;
-  border: 1px solid rgba(128,136,255,0.28);
-  border-radius: 9px;
-  background: #1a1a24;
-  color: #c8c8dc;
-  font-size: 12px;
-  max-height: 38vh;
-  overflow-y: auto;
-  animation: away-summary-in 160ms ease-out;
+/* ========== "WHILE YOU WERE AWAY" OVERVIEW (#402) ========== */
+/* One surface for a whole absence, opened from the inbox entry. A main-area viewer like the
+   timeline one, so it takes the same shape. */
+#away-overview-viewer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: #111118;
 }
 
-#away-summary[hidden] {
-  display: none;
-}
-
-#away-summary.no-motion {
-  animation: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  #away-summary {
-    animation: none;
-  }
-}
-
-@keyframes away-summary-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.away-summary-head {
+#away-overview-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 8px;
+  padding: 8px 16px;
+  background: #18181f;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
 }
 
-.away-summary-title {
+#away-overview-title {
   font-size: 13px;
-  font-weight: 700;
-  color: #d8d8e8;
+  color: #b0b0c4;
+  font-weight: 600;
 }
 
-.away-summary-since {
+#away-overview-since {
+  font-size: 11px;
+  color: #f0b060;
+}
+
+#away-overview-count {
+  font-size: 11px;
+  color: #6a6a80;
+  margin-left: auto;
+}
+
+#away-overview-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+.away-overview-empty {
+  max-width: 520px;
+  margin: 48px auto;
   color: #7a7a90;
+  font-size: 13px;
+  text-align: center;
+}
+
+.away-overview-truncated {
+  margin-bottom: 10px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: rgba(240,160,80,0.08);
+  color: #d0a870;
   font-size: 11px;
 }
 
-.away-summary-waiting {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: rgba(240,160,80,0.18);
-  border: 1px solid rgba(240,160,80,0.42);
-  color: #f0a050;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.away-overview-row {
+  margin-bottom: 6px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 9px;
+  background: rgba(255,255,255,0.02);
+  overflow: hidden;
 }
 
-.away-summary-close {
-  margin-left: auto;
-  border: none;
-  background: none;
-  color: #9ca2ff;
-  font-size: 16px;
-  line-height: 1;
-  font-weight: 800;
+.away-overview-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
   cursor: pointer;
 }
 
-.away-summary-close:hover {
-  color: #ffffff;
+.away-overview-row-head:hover {
+  background: rgba(255,255,255,0.04);
 }
 
-.away-summary-events {
-  list-style: none;
-  margin: 0 0 8px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.away-overview-expand {
+  border: 0;
+  background: transparent;
+  color: #8a8aa0;
+  padding: 0 2px;
+  font: inherit;
+  cursor: pointer;
 }
 
-.away-summary-event {
-  position: relative;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 4px 8px 4px 16px;
-  border-radius: 6px;
-  background: rgba(255,255,255,0.03);
+.away-overview-expand .arrow {
+  display: inline-block;
+  font-size: 9px;
+  transition: transform 120ms ease;
 }
 
-.away-summary-event::before {
-  content: '';
-  position: absolute;
-  left: 6px;
-  top: 9px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #8088ff;
+.away-overview-row.expanded .away-overview-expand .arrow {
+  transform: rotate(90deg);
 }
 
-.away-summary-event.away-kind-needs-attention::before { background: #f0a050; }
-.away-summary-event.away-kind-response-ready::before { background: #4fc3f7; }
-.away-summary-event.away-kind-exited::before { background: #c0a0ff; }
-.away-summary-event.away-kind-stopped::before { background: #e05070; }
-
-.away-summary-event-time {
-  color: #7a7a90;
-  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
-  font-size: 10px;
-  flex-shrink: 0;
-}
-
-.away-summary-event-label {
-  color: #d8d8e8;
-  font-size: 12px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.away-summary-event-detail {
-  color: #9a9aac;
-  font-size: 11px;
+.away-overview-row-title {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #d6d6e8;
+  font-size: 12px;
+  font-weight: 600;
 }
 
-.away-summary-more {
-  color: #7a7a90;
+.away-overview-waiting {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(240,160,80,0.16);
+  color: #f0b060;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.away-overview-row-meta {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #6a6a80;
   font-size: 11px;
-  font-style: italic;
-  padding: 2px 8px;
 }
 
-.away-summary-files {
+.away-overview-open-btn {
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.05);
+  color: #c8c8dc;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.away-overview-open-btn:hover,
+.away-overview-open-btn:focus-visible {
+  background: rgba(255,255,255,0.11);
+  outline: none;
+}
+
+.away-overview-row-body {
+  padding: 2px 12px 10px 26px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.away-overview-events {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.away-overview-event {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+  font-size: 11px;
+}
+
+.away-overview-event::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #6a6a80;
+  flex-shrink: 0;
+  transform: translateY(-1px);
+}
+
+.away-overview-event.away-kind-needs-attention::before { background: #f0a050; }
+.away-overview-event.away-kind-response-ready::before { background: #4fc3f7; }
+.away-overview-event.away-kind-exited::before { background: #c0a0ff; }
+.away-overview-event.away-kind-stopped::before { background: #e05070; }
+
+.away-overview-event-time {
+  color: #6a6a80;
+  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.away-overview-event-label {
+  color: #c8c8dc;
+  flex-shrink: 0;
+}
+
+.away-overview-event-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #7a7a90;
+}
+
+.away-overview-more {
+  padding: 2px 0 2px 13px;
+  color: #6a6a80;
+  font-size: 10px;
+}
+
+.away-overview-files {
   display: flex;
   flex-wrap: wrap;
+  gap: 5px;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
+  margin-top: 8px;
 }
 
-.away-summary-files-label {
-  color: #7a7a90;
+.away-overview-files-label {
+  color: #6a6a80;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
-.away-summary-file {
-  padding: 2px 8px;
+.away-overview-file {
+  padding: 1px 7px;
   border-radius: 999px;
-  background: rgba(128,136,255,0.12);
-  border: 1px solid rgba(128,136,255,0.24);
-  color: #c8c8dc;
-  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+  background: rgba(255,255,255,0.05);
+  color: #b0b0c4;
   font-size: 10px;
 }
 
-.away-summary-file[data-kind="diff"] {
+.away-overview-file[data-kind="diff"] {
   background: rgba(79,195,247,0.12);
-  border-color: rgba(79,195,247,0.28);
-}
-
-.away-summary-actions {
-  display: flex;
-}
-
-.away-summary-timeline-link {
-  border: none;
-  background: none;
-  color: #9ca2ff;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-  padding: 0;
-}
-
-.away-summary-timeline-link:hover {
-  color: #ffffff;
-  text-decoration: underline;
+  color: #8fd6f7;
 }
 
 /* ===== Sidebar drag (project reorder, #17) ===== */

@@ -51,7 +51,7 @@
     "session-restore.js",
     "detach-window.js",
     "statusbar-usage.js",
-    "away-summary-banner.js",
+    "away-overview-view.js",
     "shortcuts.js",
     "terminal-themes.js",
     "terminal-context-menu.js",

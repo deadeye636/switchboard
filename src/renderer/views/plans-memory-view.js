@@ -154,6 +154,10 @@ function hideAllViewers() {
   if (typeof bookmarksViewer !== 'undefined' && bookmarksViewer) bookmarksViewer.style.display = 'none';
   jsonlViewer.style.display = 'none';
   timelineViewer.style.display = 'none';
+  // The recap overview (#402) is a main-area surface like the rest — left visible it paints over
+  // whatever replaced it.
+  const awayOverview = document.getElementById('away-overview-viewer');
+  if (awayOverview) awayOverview.style.display = 'none';
   terminalArea.style.display = '';
   // Stop any subagent file-watches kept alive by Agent blocks that the user
   // was viewing — without this, fs.watchFile keeps polling indefinitely.

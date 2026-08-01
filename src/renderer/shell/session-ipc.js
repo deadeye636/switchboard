@@ -13,7 +13,7 @@
 //
 // A PLAIN CLASSIC SCRIPT that LOADS AFTER app.js, and after the other after-app.js shell modules, because
 // its handlers call into several of them at event time: attention-engine.js (setActivity, applyAttention,
-// recordAttentionSignal — loaded before app.js) and away-summary-banner.js (recordFileTouched — loaded
+// recordAttentionSignal — loaded before app.js) and away-overview-view.js (recordFileTouched — loaded
 // after). All of those are
 // call-time, inside the handler bodies, so load order only has to guarantee they exist by the first event,
 // which "after app.js, events fire after boot" does. Registered before app.js the handlers would run into
@@ -26,7 +26,7 @@
 //   handles (placeholder, terminalHeader, terminalHeaderName/PtyTitle, gridViewerCount) and
 //   `refreshSessionHeaderChrome` for the facts that live in the name's tooltip (#358).
 //   Cross-module: setActivity / applyAttention (shell/attention-engine.js), recordFileTouched
-//   (shell/away-summary-banner.js), classifyAttentionSignal (shared/attention-source.js).
+//   (shell/away-overview-view.js), classifyAttentionSignal (shared/attention-source.js).
 
 // --- IPC listeners from main process ---
 

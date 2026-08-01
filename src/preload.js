@@ -97,6 +97,9 @@ contextBridge.exposeInMainWorld('api', {
   isSessionDetached: (sessionId) => ipcRenderer.invoke('is-session-detached', sessionId),
   detachedSessionIds: () => ipcRenderer.invoke('detached-session-ids'),
   focusDetachedWindow: (sessionId) => ipcRenderer.invoke('focus-detached-window', sessionId),
+  // Reveal a session wherever it lives — main asks its OWNER to show it, so a list that spans windows
+  // (the recap overview, #402) can reach a session this window must not mount itself.
+  revealSession: (sessionId) => ipcRenderer.invoke('reveal-session', sessionId),
   // Open one of the app's own views in another window (#364). Nothing moves — every window has its
   // own copy of the viewer elements — so the target opens its own and the caller closes its own.
   openViewInWindow: (windowId, kind, ref, file) => ipcRenderer.invoke('open-view-in-window', windowId, kind, ref, file),
@@ -200,6 +203,9 @@ contextBridge.exposeInMainWorld('api', {
   // Events arrive with `at` in epoch ms, newest first from the read.
   getSessionTimeline: (sessionId) => ipcRenderer.invoke('timeline:for-session', sessionId),
   onTimelineAppended: (cb) => ipcRenderer.on('timeline-appended', (_e, event) => cb(event)),
+  // Everything since a point in time, across every session — the recap overview's one read (#402).
+  // Answers `{ events, truncated }`; `truncated` means the record had more than the reader is allowed.
+  getTimelineSince: (sinceMs) => ipcRenderer.invoke('timeline:since', sinceMs),
   // For the one class of fact main cannot see: something that happened in the UI. Main still writes it,
   // and refuses any kind a window has no business claiming.
   noteTimelineEvent: (sessionId, kind, label, detail) =>

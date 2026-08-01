@@ -198,6 +198,26 @@ function dispatchSidebarActivation(e) {
     focusAttentionItem(next);
     return;
   }
+  // The discard × on a row (#402). Checked before the rows themselves: it is their SIBLING, so it would
+  // otherwise fall through to the generic handlers below and open what the user asked to be rid of.
+  if (t.closest('[data-recap-dismiss]')) {
+    e.stopPropagation();
+    if (typeof dismissAwayRecap === 'function') dismissAwayRecap();
+    return;
+  }
+  const inboxDismiss = t.closest('[data-inbox-dismiss]');
+  if (inboxDismiss) {
+    e.stopPropagation();
+    const row = inboxDismiss.parentElement?.querySelector('.attention-inbox-item');
+    if (row && typeof dismissAttentionItem === 'function') dismissAttentionItem(row.dataset.sessionId);
+    return;
+  }
+  // The recap entry carries no session — it opens the overview of the whole absence.
+  if (t.closest('.attention-recap-item')) {
+    e.stopPropagation();
+    if (typeof openAwayOverview === 'function') openAwayOverview();
+    return;
+  }
   const inboxItem = t.closest('.attention-inbox-item');
   if (inboxItem) {
     const session = sessionMap.get(inboxItem.dataset.sessionId);

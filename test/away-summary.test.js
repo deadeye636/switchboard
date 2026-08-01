@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildAwaySummary, formatAwayDuration, isUserInput } = require('../src/renderer/shell/away-summary');
+const { buildAwaySummary, formatAwayDuration } = require('../src/renderer/shell/away-summary');
 
 const BASE = new Date('2026-06-12T10:00:00.000Z').getTime();
 const minutes = (n) => new Date(BASE + n * 60_000).toISOString();
@@ -146,44 +146,106 @@ test('no lastViewedAt includes all meaningful events with empty sinceText', () =
   assert.equal(summary.events.length, 1);
 });
 
-// --- #384: only a human dismisses the recap ---
-//
-// `onData` is everything bound for the PTY, the terminal's own answers included. The recap dismissed
-// on all of it, so revealing a session — which necessarily moves focus — tore the banner down in the
-// same beat it was rendered. Measured in a running instance: one focus switch, nothing typed, one
-// payload, and it was the focus-out report.
+// #384 lived here: the tests for `isUserInput`, the filter that told a keystroke from a terminal
+// report. Both went with the banner (#402) — the recap is closed deliberately now, never by input, so
+// there is nothing left to filter. The lesson is kept in docs/specs/03-what-changed.md §1.
 
-const ESC = '';
+// --- buildAwayOverview: one recap for a whole absence (#402) ---------------------
 
-test('#384: a terminal answering a query is not a keystroke', () => {
-  const reports = [
-    `${ESC}[I`, `${ESC}[O`,                 // focus in / out (DECSET 1004) — the measured one
-    `${ESC}[24;80R`,                        // cursor position report
-    `${ESC}[0n`,                            // device status report
-    `${ESC}[?1;2c`, `${ESC}[>0;276;0c`,     // device attributes, primary and secondary
-    `${ESC}[M !!`,                          // mouse, X10 — button plus two coordinate bytes
-    `${ESC}[<0;12;7M`, `${ESC}[<0;12;7m`,   // mouse, SGR press and release
-  ];
-  for (const payload of reports) {
-    assert.equal(isUserInput(payload), false, `should not dismiss on ${JSON.stringify(payload)}`);
-  }
+const { buildAwayOverview } = require('../src/renderer/shell/away-summary');
+
+const ev = (sessionId, kind, at, extra = {}) => ({ sessionId, kind, label: kind, at, ...extra });
+
+test('#402: the overview groups a cross-session read into one entry per session', () => {
+  const overview = buildAwayOverview({
+    events: [
+      ev('s2', 'response-ready', minutes(9)),
+      ev('s1', 'exited', minutes(6)),
+      ev('s1', 'started', minutes(3)),
+    ],
+    awaySince: minutes(0),
+    now: minutes(10),
+  });
+
+  assert.equal(overview.hasChanges, true);
+  assert.equal(overview.sessionCount, 2);
+  // Newest session first: s2's event is later than s1's.
+  assert.deepEqual(overview.sessions.map((s) => s.sessionId), ['s2', 's1']);
+  assert.deepEqual(overview.sessions[1].events.map((e) => e.kind), ['exited', 'started']);
 });
 
-test('#384: a keystroke still dismisses', () => {
-  const keys = [
-    'a', 'Z', ' ', '\r', '',           // plain characters, Enter, Ctrl-C
-    ESC,                                     // the Escape KEY is input; a bare ESC is not a report
-    `${ESC}[A`, `${ESC}[D`,                  // arrows, normal mode
-    `${ESC}OA`, `${ESC}OP`,                  // arrows and F1 in application mode (SS3, not CSI)
-    `${ESC}[200~hello${ESC}[201~`,           // a bracketed paste is the user acting
-  ];
-  for (const payload of keys) {
-    assert.equal(isUserInput(payload), true, `should dismiss on ${JSON.stringify(payload)}`);
-  }
+test('#402: only sessions that actually changed are listed', () => {
+  const overview = buildAwayOverview({
+    // busy/idle churn is noise — a session that only did that did not "change" for a recap.
+    events: [ev('quiet', 'busy', minutes(4)), ev('quiet', 'idle', minutes(5)), ev('loud', 'exited', minutes(6))],
+    awaySince: minutes(0),
+    now: minutes(10),
+  });
+
+  assert.deepEqual(overview.sessions.map((s) => s.sessionId), ['loud']);
 });
 
-test('#384: nothing at all is not input either', () => {
-  assert.equal(isUserInput(''), false);
-  assert.equal(isUserInput(null), false);
-  assert.equal(isUserInput(undefined), false);
+test('#402: events before the absence began are not part of it', () => {
+  const overview = buildAwayOverview({
+    events: [ev('s1', 'exited', minutes(-5)), ev('s2', 'exited', minutes(5))],
+    awaySince: minutes(0),
+    now: minutes(10),
+  });
+
+  assert.deepEqual(overview.sessions.map((s) => s.sessionId), ['s2']);
+});
+
+test('#402: file-touched becomes the files half, deduped, never an event row', () => {
+  const overview = buildAwayOverview({
+    events: [
+      ev('s1', 'file-touched', minutes(8), { label: 'diff', detail: '/repo/src/a.js' }),
+      ev('s1', 'file-touched', minutes(7), { label: 'open', detail: '/repo/src/a.js' }),
+      ev('s1', 'file-touched', minutes(6), { label: 'open', detail: '/repo/src/b.js' }),
+    ],
+    awaySince: minutes(0),
+    now: minutes(10),
+  });
+
+  const entry = overview.sessions[0];
+  assert.equal(entry.events.length, 0);
+  assert.deepEqual(entry.files.map((f) => f.path), ['/repo/src/a.js', '/repo/src/b.js']);
+  // A session whose only news is touched files still counts as changed.
+  assert.equal(overview.hasChanges, true);
+});
+
+test('#402: waitingCount counts the sessions blocked on the human, not the events', () => {
+  const overview = buildAwayOverview({
+    events: [
+      ev('s1', 'needs-attention', minutes(9)),
+      ev('s1', 'response-ready', minutes(8)),
+      ev('s2', 'exited', minutes(7)),
+    ],
+    awaySince: minutes(0),
+    now: minutes(10),
+  });
+
+  assert.equal(overview.sessionCount, 2);
+  assert.equal(overview.waitingCount, 1);
+});
+
+test('#402: truncation is passed through, never inferred', () => {
+  const args = { events: [ev('s1', 'exited', minutes(5))], awaySince: minutes(0), now: minutes(10) };
+  assert.equal(buildAwayOverview({ ...args, truncated: true }).truncated, true);
+  assert.equal(buildAwayOverview(args).truncated, false);
+});
+
+test('#402: without an absence to measure from there is no overview', () => {
+  // The one wrong answer that looks right: listing the entire record as if it all happened while away.
+  const overview = buildAwayOverview({ events: [ev('s1', 'exited', minutes(5))], awaySince: null, now: minutes(10) });
+  assert.equal(overview.hasChanges, false);
+  assert.equal(overview.sessions.length, 0);
+});
+
+test('#402: per-session capping still applies, and reports what it dropped', () => {
+  const events = [];
+  for (let i = 12; i >= 1; i--) events.push(ev('s1', 'forked', minutes(i)));
+  const overview = buildAwayOverview({ events, awaySince: minutes(0), now: minutes(20), maxEventsPerSession: 8 });
+
+  assert.equal(overview.sessions[0].events.length, 8);
+  assert.equal(overview.sessions[0].extraEventCount, 4);
 });

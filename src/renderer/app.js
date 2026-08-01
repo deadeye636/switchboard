@@ -356,7 +356,7 @@ const lastActivityTime = new Map(); // sessionId → Date of last terminal outpu
 // `lastViewedTime` and `filesTouchedSinceViewed` used to live here. They are in the record now (#396) as
 // the `viewed` and `file-touched` kinds — they had the same lifetime bug as the timeline, in the same
 // surface: a reload lost the files half of the recap and left it unable to tell a first look from a
-// return. See shell/away-summary-banner.js.
+// return. See shell/away-overview-view.js.
 const sessionTimelineStore = createTimelineStore();
 
 // Noise patterns — these don't count as activity
@@ -601,24 +601,49 @@ function clearUnread(sessionId) {
   if (changed) refreshSessionStatusViews();
 }
 
+/**
+ * Settle everything that puts a session in the attention inbox: the attention flag and its reason, the
+ * ready flag, and the finish stamp the running-inbox reads.
+ *
+ * `keepTimedStamp` is the one difference between the two callers. Opening a session leaves a 'timed'
+ * stamp alone — that mode keeps a session for its full window regardless of being opened, removal by
+ * timeout only — but a DISMISS is the user saying "gone", and honouring the timer there would make the
+ * × do nothing at all in that mode.
+ */
+function settleAttentionState(sessionId, { keepTimedStamp = false } = {}) {
+  clearUnread(sessionId);
+  const changed = attentionSessions.delete(sessionId);
+  attentionReason.delete(sessionId);
+  // Drop the finish stamp so it won't reappear in the running-inbox (until-read removal / after-finish
+  // "you looked"). A running session isn't in attentionSessions, so this stamp removal is the *only*
+  // state change for until-read — fold it into the re-render guard or the item lingers until some
+  // unrelated event repaints the sidebar.
+  const stampCleared = (keepTimedStamp && runningInboxSetting.mode === 'timed')
+    ? false
+    : finishedAt.delete(sessionId);
+  for (const item of sessionRowEls(sessionId)) item.classList.remove('needs-attention');
+  if (changed || stampCleared) refreshSessionStatusViews();
+}
+
 function clearNotifications(sessionId) {
   // Focus choke point: every focus path (showSession, focusGridCard) flows through
   // here. Compute the "while you were away" recap before unread/attention state is
   // cleared, then stamp the session as viewed.
   handleSessionViewed(sessionId);
-  clearUnread(sessionId);
-  const changed = attentionSessions.delete(sessionId);
-  attentionReason.delete(sessionId);
-  // Opening the session settles it — drop the finish stamp so it won't reappear
-  // in the running-inbox (until-read removal / after-finish "you looked"). A
-  // running session isn't in attentionSessions, so this stamp removal is the
-  // *only* state change for until-read — fold it into the re-render guard or the
-  // item lingers until some unrelated event repaints the sidebar.
-  // Exception: 'timed' keeps the session for its full window regardless of
-  // opening (removal only by timeout), so the stamp must survive a focus there.
-  const stampCleared = runningInboxSetting.mode === 'timed' ? false : finishedAt.delete(sessionId);
-  for (const item of sessionRowEls(sessionId)) item.classList.remove('needs-attention');
-  if (changed || stampCleared) refreshSessionStatusViews();
+  settleAttentionState(sessionId, { keepTimedStamp: true });
+}
+
+/**
+ * Take an inbox item off the list without opening it (#402) — the × on the row.
+ *
+ * The same settling a focus does, minus the part that claims the user looked: nothing is stamped as
+ * viewed, so the recap still counts this session as one they have not seen. "I do not care about this
+ * one" and "I read this one" are different statements, and only the second belongs in the record.
+ */
+function dismissAttentionItem(sessionId) {
+  if (!sessionId) return;
+  settleAttentionState(sessionId);
+  refreshSidebar();
 }
 
 // Native notifications, the dock badge and the tray funnel (Spec 01) are shell/native-notifications.js
@@ -626,9 +651,9 @@ function clearNotifications(sessionId) {
 // window-focus listeners reach app.js state (sessionMap, openSession, …) at call time. app.js reaches
 // in at syncNativeNotifications and window._setNotificationSettings, both call-time.
 
-// The "while you were away" recap banner — the file-touch tracking, the banner and its dismissal —
-// is shell/away-summary-banner.js (#218), beside the pure shell/away-summary.js it renders. It owns
-// its own state; app.js calls into it at recordFileTouched and handleSessionViewed.
+// The "while you were away" recap — the inbox entry, the overview and the two facts only the UI can see
+// — is shell/away-overview-view.js (#402), beside the pure shell/away-summary.js it renders. It owns its
+// own state; app.js calls into it at recordFileTouched and handleSessionViewed.
 // Terminal themes, utils (cleanDisplayName, formatDate, escapeHtml, shellEscape)
 // are defined in terminal-themes.js and utils.js (loaded before app.js).
 

@@ -18,31 +18,12 @@
   // Kinds that mean the agent is blocked on / waiting for the human.
   const WAITING_KINDS = new Set(['needs-attention', 'response-ready']);
 
-  // What xterm hands to `onData` is "bytes that should go to the PTY" — the user's keystrokes, but
-  // also everything the terminal answers on its OWN. The recap dismissed on all of it (#384), and
-  // revealing a session necessarily moves focus, so with focus reporting on (DECSET 1004) the terminal
-  // replied `ESC [ O` and the banner tore itself down before it could be read. Measured: one focus
-  // switch, nothing typed, one payload — `"\u001b[O"`.
-  //
-  // Matched WHOLE, and only the shapes a terminal sends unprompted:
-  //
-  //   ESC [ I     ESC [ O          focus in / out (1004)
-  //   ESC [ <n;m> R                 cursor position report
-  //   ESC [ <n> n                   device status report
-  //   ESC [ ? …c   ESC [ > …c       device attributes
-  //   ESC [ M ␣␣␣  ESC [ < …M|m     mouse, X10 and SGR — reporting is on by default
-  //
-  // Deliberately NOT in the list: a bare `ESC` (the Escape key is a keystroke), `ESC O <A-D>` (arrows in
-  // application mode), `ESC [ <A-D>` (arrows in normal mode) and a bracketed paste — a paste is the user
-  // acting, and dismissing on it is right.
-  const TERMINAL_REPORT = /^\u001b\[(?:[IO]|[0-9;]*[Rn]|\?[0-9;]*c|>[0-9;]*c|M[\s\S]{3}|<[0-9;]*[Mm])$/;
-
-  /** Did a human produce this `onData` payload, or did the terminal answer a query with it? */
-  function isUserInput(data) {
-    const text = typeof data === 'string' ? data : '';
-    if (!text) return false;
-    return !TERMINAL_REPORT.test(text);
-  }
+  // `isUserInput` and the table of terminal reports it matched were here (#384). They existed for ONE
+  // caller: the banner dismissed itself on `onData`, which is everything bound for the PTY — the
+  // terminal's own focus and cursor replies included — so it tore itself down in the beat it was
+  // rendered. The recap is not dismissed by a keystroke any more (#402); it is closed deliberately, so
+  // there is nothing left to tell a human's bytes from a terminal's. `docs/specs/03-what-changed.md` §1
+  // keeps the lesson, which was about believing onData is the user — not about the regex.
 
   function toMs(value) {
     if (value == null) return NaN;
@@ -147,9 +128,85 @@
     };
   }
 
+  // buildAwayOverview — pure selector for the ONE recap of a whole absence (#402).
+  //
+  // Where buildAwaySummary answers "what did THIS session do", this answers "which sessions did
+  // anything", from a single cross-session read of the record. It is not a loop over per-session reads
+  // by accident: the overview's whole job is to say which sessions changed, so asking per session would
+  // mean knowing the answer before asking.
+  //
+  // Inputs:
+  //   events:    every recorded event since the absence began, across all sessions, newest-first —
+  //              `{ sessionId, kind, label, detail, at }` as stored.
+  //   truncated: the reader hit its row limit and there was more. Passed through, never inferred here.
+  //   awaySince: when the absence started. NOT optional: without it "since" has no meaning and the
+  //              answer would be the whole record, which is the one wrong answer that looks right.
+  //   now, maxEventsPerSession: as buildAwaySummary's `now` / `maxEvents`.
+  //
+  // Returns { sessions, sessionCount, waitingCount, truncated, sinceText, hasChanges }, sessions
+  // newest-first — each entry is a buildAwaySummary result plus the id it belongs to.
+  function buildAwayOverview({
+    events = [],
+    truncated = false,
+    awaySince = null,
+    now = Date.now(),
+    maxEventsPerSession = 8,
+  } = {}) {
+    const sinceMs = toMs(awaySince);
+    const nowMs = toMs(now);
+    const safeNow = Number.isFinite(nowMs) ? nowMs : Date.now();
+    const empty = {
+      sessions: [], sessionCount: 0, waitingCount: 0, truncated: !!truncated, sinceText: '', hasChanges: false,
+    };
+    if (!Number.isFinite(sinceMs)) return empty;
+
+    // Grouped by session, insertion order preserved — the read is newest-first, so the first event seen
+    // for a session is its newest, and that is the order the list is sorted by below.
+    const bySession = new Map();
+    for (const event of Array.isArray(events) ? events : []) {
+      if (!event || !event.sessionId) continue;
+      let group = bySession.get(event.sessionId);
+      if (!group) {
+        group = { events: [], files: [] };
+        bySession.set(event.sessionId, group);
+      }
+      // `file-touched` carries the path in `detail` and the kind in `label` — the same shape the
+      // per-session recap rebuilt from the record, so the builder below takes it unchanged.
+      if (event.kind === 'file-touched') {
+        if (event.detail) group.files.push({ path: event.detail, at: event.at, kind: event.label || 'open' });
+      } else {
+        group.events.push(event);
+      }
+    }
+
+    const sessions = [];
+    for (const [sessionId, group] of bySession) {
+      const summary = buildAwaySummary({
+        events: group.events,
+        filesTouched: group.files,
+        lastViewedAt: sinceMs,
+        now: safeNow,
+        maxEvents: maxEventsPerSession,
+      });
+      if (!summary.hasChanges) continue;
+      const newest = group.events[0] || group.files[0] || null;
+      sessions.push({ sessionId, ...summary, at: newest ? newest.at : null });
+    }
+    sessions.sort((a, b) => (toMs(b.at) || 0) - (toMs(a.at) || 0));
+
+    return {
+      sessions,
+      sessionCount: sessions.length,
+      waitingCount: sessions.filter((session) => session.waitingOnYou).length,
+      truncated: !!truncated,
+      sinceText: `You were away ${formatDuration(safeNow - sinceMs)}`,
+      hasChanges: sessions.length > 0,
+    };
+  }
+
   return {
     buildAwaySummary,
+    buildAwayOverview,
     formatAwayDuration: formatDuration,
-    isUserInput,
   };
 });

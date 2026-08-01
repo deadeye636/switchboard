@@ -230,5 +230,58 @@ what it says.
 INDEX rebuilding itself, not a deletion — hanging the history off them threw it away on an ordinary
 scan (measured: a turn's events survived under a minute). Deleting a project is the real deletion path.
 
-Still open: the recap is still a banner per session per window. [#402](https://github.com/deadeye636/switchboard/issues/402)
-replaces it with one inbox entry and a single overview.
+### 5 · One inbox entry and one overview — the banner is gone (#402)
+
+The banner was the **wrong shape**, and every one of its three costs was felt the first time the
+feature was used in earnest rather than tested:
+
+- **It was spread out.** It appeared over the terminal of the session it was about, in whichever
+  window happened to render it. With sessions across several windows, "what did I miss" meant
+  visiting each window and focusing each session in turn. Nothing answered the question once.
+- **A misplaced keystroke destroyed it.** Dismissing on real input was deliberate — §1 is the story of
+  getting that filter right — but it meant the recap could be gone before it was read, with no way to
+  recall it.
+- **It was per session.** Five sessions that changed produced five banners, one focus change at a
+  time, and nothing said how many were still waiting.
+
+Meanwhile the app already had one place that answers *something wants you*: the attention inbox,
+addressed to the main window on purpose. The recap was the one attention-shaped thing not using it.
+
+**As built.** Returning from an absence produces ONE entry in the inbox. Opening it shows one
+overview of every session that changed while the user was gone, each row expandable to the events and
+touched files the banner used to show, with a *Go to session* button beside it.
+
+| | |
+|---|---|
+| The data | `getTimelineEventsSince(awaySince)` — ONE cross-session read (`timeline:since`), because the overview's job is to say WHICH sessions changed, and asking per session means knowing the answer first |
+| The shaping | `buildAwayOverview` in `shell/away-summary.js`, beside the per-session `buildAwaySummary` it reuses per group. Pure, so the grouping and the caps are tested rather than clicked |
+| The surface | `shell/away-overview-view.js` + `#away-overview-viewer`, a main-area viewer like the timeline one |
+| Reaching a session | `reveal-session` (`app/detach.js`), which resolves the OWNER window per session. Always through main, even for a session this window renders — a row here may be about a session in a window of its own, and mounting that locally is two xterms on one PTY |
+
+**One surface across ALL windows had to be enforced, not assumed.** Every window loads the same
+shell, so a singleton inside one renderer is not unique across several. Two things make it one:
+`raisesAttention()` (#390) — the same answer that decides whether a window may badge, chime or notify
+— keeps the pending recap and the overview in the window that owns the inbox; and the `awayOverview`
+view kind deliberately names **no loader**, which is what makes `canLeaveWindow` in `views/panes-view.js`
+refuse to hand its tab to another window. A recap dragged across would arrive blank *and* leave a
+second surface behind.
+
+**Losing it is now a decision.** Closing the view — the header ×, Escape, opening a session — leaves
+the entry in the inbox to be opened again; only the entry's own × throws the recap away. Every inbox
+row got that × in the same pass: dismissing a session settles it *without* stamping it as viewed,
+because "I do not care about this one" and "I read this one" are different statements and only the
+second belongs in the record.
+
+**A second absence replaces the first** — including when it found nothing, which is why the refresh
+can clear as well as set. An open overview is updated in place rather than joined by a second one, and
+leaving the previous one standing would have the inbox asserting "you were away 12m" about an absence
+that ended two absences ago.
+
+What went with the banner: `shell/away-summary-banner.js`, the `#away-summary` styles, and
+`isUserInput` with the whole `TERMINAL_REPORT` table §1 is about. That filter existed solely because
+the banner dismissed on terminal traffic; the overview is never dismissed by a keystroke, so the
+problem it solved no longer exists. §1 stays as the record of why — the lesson is about believing
+`onData` is the user, not about the regex.
+
+Settings keep their meaning exactly: `awaySummary` (on) turns the whole thing off, `awayIdleMinutes`
+(10) is the threshold.

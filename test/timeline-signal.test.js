@@ -237,3 +237,39 @@ test('init clears the latches left by a previous wiring', () => {
   timeline.recordSignal('s1', { kind: 'idle' });
   assert.deepStrictEqual(kinds(second), [], 'a fresh wiring has seen no turn start');
 });
+
+// --- The read side for the recap overview (#402) ---------------------------------
+
+/** A minimal ipcMain: registerIpc hands its handlers here, and the test calls them directly. */
+function ipcHarness(ctx) {
+  const handlers = new Map();
+  timeline.init(ctx);
+  timeline.registerIpc({ handle: (channel, fn) => handlers.set(channel, fn) });
+  return (channel, ...args) => handlers.get(channel)(null, ...args);
+}
+
+test('#402: timeline:since passes the record through, truncation flag included', () => {
+  const answer = { events: [{ sessionId: 's1', kind: 'exited', at: 5 }], truncated: true };
+  const asked = [];
+  const invoke = ipcHarness({
+    getTimelineEventsSince: (sinceMs) => { asked.push(sinceMs); return answer; },
+    log: { debug() {} },
+  });
+
+  assert.deepStrictEqual(invoke('timeline:since', 1234), answer);
+  assert.deepStrictEqual(asked, [1234], 'the store is asked once, with the absence start');
+});
+
+test('#402: a record that cannot be read answers an empty absence, not a throw', () => {
+  const invoke = ipcHarness({
+    getTimelineEventsSince: () => { throw new Error('database is locked'); },
+    log: { debug() {} },
+  });
+
+  assert.deepStrictEqual(invoke('timeline:since', 1), { events: [], truncated: false });
+});
+
+test('#402: an older main process without the cross-session read answers empty', () => {
+  const invoke = ipcHarness({ log: { debug() {} } });
+  assert.deepStrictEqual(invoke('timeline:since', 1), { events: [], truncated: false });
+});

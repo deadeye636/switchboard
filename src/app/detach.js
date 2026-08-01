@@ -1191,6 +1191,24 @@ function registerIpc(ipc) {
   ipc.handle('is-session-detached', (_event, sessionId) => isDetached(sessionId));
   ipc.handle('detached-session-ids', () => detachedSessionIds());
 
+  // Show me this session, wherever it lives (#402).
+  //
+  // The recap overview is one list of every session that changed during an absence, and it is rendered
+  // in the main window — so most of its rows are about sessions this window does not hold. Opening one
+  // locally would mount a second xterm on a live PTY, which is the failure the detach rules exist to
+  // prevent; asking the OWNER to reveal it is the same journey the notification click already makes,
+  // with the window resolved per session rather than hard-coded to main.
+  ipc.handle('reveal-session', (_event, sessionId) => {
+    if (!sessionId) return { ok: false };
+    const win = windowForSession(sessionId);
+    if (!win || win.isDestroyed()) return { ok: false };
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    try { win.webContents.send('focus-session', sessionId); } catch { return { ok: false }; }
+    return { ok: true };
+  });
+
   // A detached window asks who it is. The query string already says so; this is the answer for code
   // that would rather not parse a URL.
   ipc.handle('focus-detached-window', (_event, sessionId) => {

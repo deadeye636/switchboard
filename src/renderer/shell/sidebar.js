@@ -44,9 +44,33 @@ function shortSessionLabel(session) {
 // The spring-cleaning dialog moved to shell/spring-cleaning.js (#218) — app.js opens it from the
 // toolbar; nothing in this file ever called it.
 
+/**
+ * A row plus its discard × (#402).
+ *
+ * The × is a SIBLING of the row button, not a child: nesting one button inside another is invalid, and
+ * the browser resolves it by moving the inner one out of the row entirely.
+ */
+function wrapInboxEntry(rowButton, dismissAttr, dismissTitle) {
+  const entry = document.createElement('div');
+  entry.className = 'attention-inbox-entry';
+  entry.appendChild(rowButton);
+  const dismiss = document.createElement('button');
+  dismiss.type = 'button';
+  dismiss.className = 'attention-inbox-dismiss';
+  dismiss.setAttribute(dismissAttr, '');
+  dismiss.title = dismissTitle;
+  dismiss.setAttribute('aria-label', dismissTitle);
+  dismiss.innerHTML = '&times;';
+  entry.appendChild(dismiss);
+  return entry;
+}
+
 function buildAttentionInbox(projects) {
   const items = getAttentionInboxItems(getAllRenderableSessions(projects), getSessionRuntimeState());
-  if (items.length === 0) return null;
+  // The recap of an absence is one entry among the rest (#402) — the inbox is already the one place that
+  // answers "something wants you", and the recap was the only attention-shaped thing not using it.
+  const recap = typeof awayRecapInboxEntry === 'function' ? awayRecapInboxEntry() : null;
+  if (items.length === 0 && !recap) return null;
 
   const section = document.createElement('section');
   section.className = 'attention-inbox';
@@ -57,14 +81,30 @@ function buildAttentionInbox(projects) {
   header.innerHTML = `
     <span>Attention</span>
     <div class="attention-inbox-header-actions">
-      <span>${items.length}</span>
-      <button type="button" class="attention-inbox-next-btn" title="Focus next session needing attention">Focus next</button>
+      ${/* The count is of SESSIONS waiting — with only a recap in the list, "0" is a true number and a
+            confusing one, so it and the button that would focus nothing are left out together. */ ''}
+      ${items.length ? `<span>${items.length}</span>
+      <button type="button" class="attention-inbox-next-btn" title="Focus next session needing attention">Focus next</button>` : ''}
     </div>
   `;
   section.appendChild(header);
 
   const list = document.createElement('div');
   list.className = 'attention-inbox-list';
+
+  if (recap) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'attention-inbox-item attention-recap-item status-needs-attention';
+    const sessions = `${recap.sessionCount} session${recap.sessionCount === 1 ? '' : 's'} changed`;
+    const meta = recap.waitingCount ? `${sessions} · ${recap.waitingCount} waiting on you` : sessions;
+    button.innerHTML = `
+      <span class="attention-inbox-status">Away</span>
+      <span class="attention-inbox-title">While you were away</span>
+      <span class="attention-inbox-meta">${escapeHtml(meta)}${recap.sinceText ? ' · ' + escapeHtml(recap.sinceText) : ''}</span>
+    `;
+    list.appendChild(wrapInboxEntry(button, 'data-recap-dismiss', 'Discard this recap'));
+  }
 
   for (const { session, status } of items.slice(0, 8)) {
     const button = document.createElement('button');
@@ -80,7 +120,8 @@ function buildAttentionInbox(projects) {
       <span class="attention-inbox-title">${escapeHtml(displayName)}</span>
       <span class="attention-inbox-meta">${escapeHtml(getSessionProjectLabel(session))} · ${escapeHtml(timeStr)}</span>
     `;
-    list.appendChild(button);
+    // Dismissing settles the session without claiming it was read — see `dismissAttentionItem`.
+    list.appendChild(wrapInboxEntry(button, 'data-inbox-dismiss', 'Dismiss without opening'));
   }
 
   if (items.length > 8) {

@@ -124,6 +124,10 @@ window.__sessionDragId = null;
     tasks: { hostId: 'tasks-viewer', title: 'Tasks', watched: true },
     bookmarks: { hostId: 'bookmarks-viewer', title: 'Bookmarks', watched: true },
     timeline: { hostId: 'timeline-viewer', title: 'Timeline', watched: true },
+    // The recap of an absence (#402). Names NO loader on purpose, which is what stops `canLeaveWindow`
+    // from handing it to another window: there must be exactly one of these across ALL windows, and a
+    // second one is precisely what dragging its tab across would create.
+    awayOverview: { hostId: 'away-overview-viewer', title: 'While you were away', watched: true },
   };
   const isInstancedKind = (kind) => !!(VIEW_KINDS[kind] && VIEW_KINDS[kind].instanced);
   // A singleton kind has one tab; an instanced one has a tab per thing it shows, so its id carries the

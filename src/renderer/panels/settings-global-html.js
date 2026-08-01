@@ -853,7 +853,7 @@
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Show "While you were away"</span>
-                    <div class="settings-description">When you return to a session that changed while you were elsewhere, show a recap of what happened above its terminal.</div>
+                    <div class="settings-description">When you come back to the machine, put one entry in the attention inbox listing every session that changed while you were away.</div>
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-away-summary" ${awaySummaryValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>

@@ -124,6 +124,15 @@
       </div>
       <div id="timeline-viewer-body"></div>
     </div>
+    <div id="away-overview-viewer" style="display:none;">
+      <div id="away-overview-header">
+        <span id="away-overview-title">While you were away</span>
+        <span id="away-overview-since"></span>
+        <span id="away-overview-count"></span>
+        <button class="viewer-header-close" data-close-viewer title="Close (Esc)" aria-label="Close">&times;</button>
+      </div>
+      <div id="away-overview-body"></div>
+    </div>
     <div id="terminal-area">
       <div id="terminal-header" style="display:none;">
         <div id="terminal-header-info">
@@ -227,7 +236,9 @@
        after session-restore.js, whose launch restore it suppresses in a detached window. -->
   <script src="shell/detach-window.js"></script>
   <script src="shell/statusbar-usage.js"></script>
-  <script src="shell/away-summary-banner.js"></script>
+  <!-- The recap's surface (#402): one inbox entry, one overview. It replaced the per-session banner
+       (away-summary-banner.js, gone), and reaches app.js and the attention engine at call time only. -->
+  <script src="shell/away-overview-view.js"></script>
   <!-- shortcuts.js defines matchShortcut/appShortcuts helpers used by terminal-manager,
        grid-view, app and settings-panel — must load before those consumers. -->
   <script src="shell/shortcuts.js"></script>

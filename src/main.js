@@ -307,6 +307,8 @@ const timeline = require('./app/timeline');
 timeline.init({
   recordTimelineEvent,
   getTimelineEvents,
+  // Across every session, for the one overview that answers a whole absence (#402).
+  getTimelineEventsSince,
   rekeyTimeline,
   getMainWindow: () => mainWindow,
   // Every window keeps its own read-through copy of the histories it draws, so every window hears about
