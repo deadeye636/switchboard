@@ -182,7 +182,9 @@ function handleHookRequest(req, res, token = attentionHookToken) {
         if (sessionId && bindKind) {
           const mainWindow = ctx.getMainWindow();
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('cli-busy-state', sessionId, bindKind === 'busy');
+            // Third arg = exact backend lifecycle edge. Renderer keeps OSC/store guesses from clearing a
+            // Ready row, but a terminal-bound lifecycle hook is the user's new turn and must clear it.
+            mainWindow.webContents.send('cli-busy-state', sessionId, bindKind === 'busy', true);
           }
           if (ctx.sendTimelineSignal) {
             ctx.sendTimelineSignal(sessionId, { kind: bindKind, source: 'hook', reason: 'terminal binding' });

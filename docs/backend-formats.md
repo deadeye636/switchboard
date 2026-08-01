@@ -185,8 +185,9 @@ The only backend whose history is **not** in files — the reason the discovery 
 - A failed turn is written with `stopReason:'error'`, an **empty** content array and an all-zero usage —
   it is still a transcript message, but its zero must not be reported as a cost.
 - State: Pi states **nothing in OSC**. Switchboard therefore keeps the transcript-tail inference (a
-  trailing user/tool result = a turn is running), with a growing tail window (one message is one line, and
-  a large answer can exceed the window entirely) plus the terminal-liveness signal. For sessions launched
+  trailing user/tool result, or an assistant `stopReason:'toolUse'`, means the turn is still running),
+  with a growing tail window (one message is one line, and a large answer can exceed the window entirely)
+  plus the terminal-liveness signal. For sessions launched
   by Switchboard, Pi also gets a per-spawn `--extension` file that posts the current `session_id` and
   neutral busy/idle edges (`turn_start`, `turn_end`, `agent_settled`) to the existing terminal-binding
   ingest; this is declared by Pi's descriptor, not by a core backend-id branch.

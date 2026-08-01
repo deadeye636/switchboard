@@ -160,9 +160,9 @@ function recordActivityEdge(sessionId, active) {
 }
 
 function setActivity(sessionId, active) {
-  // A ready session ignores an OSC "busy" guess: the heuristic fires on spinner frames, and a session
-  // waiting to be read should not flicker back to Working because of one. A hook `busy` signal is
-  // exact, and applyAttention clears ready before it gets here.
+  // A ready session ignores an OSC/store "busy" guess: the heuristic fires on spinner frames, and a
+  // session waiting to be read should not flicker back to Working because of one. A backend lifecycle
+  // edge is exact, and setExactActivity/applyAttention clear ready before it gets here.
   //
   // The GUARD IS ON THE BUSY EDGE ONLY. It used to cover both, which made the contradictory state
   // unrecoverable: with ready and busy somehow both set, the busy→idle edge that would have cleared
@@ -191,6 +191,14 @@ function setActivity(sessionId, active) {
     for (const item of sessionRowEls(sessionId)) item.classList.toggle('cli-busy', active);
   }
   if (changed) refreshSessionStatusViews();
+}
+
+function setExactActivity(sessionId, active) {
+  if (active && responseReadySessions.has(sessionId)) {
+    responseReadySessions.delete(sessionId);
+    for (const item of sessionRowEls(sessionId)) item.classList.remove('response-ready');
+  }
+  setActivity(sessionId, active);
 }
 
 /**
@@ -254,11 +262,7 @@ function applyAttention(sessionId, signal) {
     // A new turn started → clear any stale "ready" so the session flips to Working
     // even if it was left ready-but-unfocused (setActivity ignores busy while
     // response-ready is set).
-    if (responseReadySessions.has(sessionId)) {
-      responseReadySessions.delete(sessionId);
-      for (const item of sessionRowEls(sessionId)) item.classList.remove('response-ready');
-    }
-    setActivity(sessionId, true);
+    setExactActivity(sessionId, true);
   } else if (kind === 'subagent-live-start' || kind === 'subagent-live-stop') {
     // Exact subagent edges from the SubagentStart/SubagentStop hooks (#119). The
     // JSONL scan writes to the same set, so a subagent seen twice counts once.

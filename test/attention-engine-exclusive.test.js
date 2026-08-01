@@ -165,6 +165,18 @@ test('an exact hook busy signal does clear ready and starts the turn', () => {
   } finally { t.destroy(); }
 });
 
+test('an exact backend lifecycle busy edge clears ready too', () => {
+  const t = setup();
+  try {
+    t.call('markResponseReady')('s1');
+
+    t.call('setExactActivity')('s1', true);
+
+    assert.equal(t.ready('s1'), false, 'terminal-bound backend hooks are exact, not OSC guesses');
+    assert.equal(t.busy('s1'), true);
+  } finally { t.destroy(); }
+});
+
 // The focused session is the one the user is looking at, so it is never "ready for review".
 test('a focused session finishing does not become ready', () => {
   const t = setup({ activeSessionId: 's1' });

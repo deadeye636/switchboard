@@ -275,7 +275,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('terminal-notification', (_event, sessionId, message) => callback(sessionId, message));
   },
   onCliBusyState: (callback) => {
-    ipcRenderer.on('cli-busy-state', (_event, sessionId, busy) => callback(sessionId, busy));
+    ipcRenderer.on('cli-busy-state', (_event, sessionId, busy, exact) => callback(sessionId, busy, exact));
   },
   // The same facts, addressed to the window that RENDERS a session rather than to the main one (#395),
   // and RECORD-ONLY by contract: its handler writes this window's timeline and its own status, and

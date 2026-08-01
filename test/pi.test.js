@@ -166,6 +166,18 @@ test('busy while the last message is the user prompt; idle once the turn answere
   assert.strictEqual(deriveState({ lastRole: 'assistant', lastStopReason: 'stop', lastEntryAt: '2026-07-12T08:31:25.000Z' }, now), 'idle');
 });
 
+test('an assistant message that stopped for tool use is still working', () => {
+  const now = Date.parse('2026-07-12T08:31:30.000Z');
+  assert.strictEqual(
+    deriveState({ lastRole: 'assistant', lastStopReason: 'toolUse', lastEntryAt: '2026-07-12T08:31:25.000Z' }, now),
+    'busy',
+  );
+  assert.strictEqual(
+    deriveState({ lastRole: 'toolResult', lastEntryAt: '2026-07-12T08:31:26.000Z' }, now),
+    'busy',
+  );
+});
+
 test('a dangling prompt goes idle once it has been quiet — a crashed pi must not spin forever', () => {
   const last = '2026-07-12T08:00:00.000Z';
   const now = Date.parse(last) + ACTIVITY_WINDOW_MS + 1000;

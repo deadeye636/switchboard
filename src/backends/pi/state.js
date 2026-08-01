@@ -56,7 +56,10 @@ const TAIL_BYTES = 64 * 1024;
 function deriveState(row, now = Date.now(), opts = {}) {
   if (!row) return null;
 
+  const stop = row.lastStopReason == null ? '' : String(row.lastStopReason).toLowerCase();
+  const assistantNeedsTool = row.lastRole === 'assistant' && (stop === 'tooluse' || stop === 'tool_use' || stop === 'tool_calls');
   const running = row.lastRole === 'user'
+    || assistantNeedsTool
     || (row.lastRole !== 'assistant' && !row.lastStopReason);   // parse-state form: no answered turn yet
 
   const lastMs = row.lastEntryAt ? Date.parse(row.lastEntryAt) : NaN;

@@ -154,7 +154,7 @@ never had.
 | Claude | **states** it in the terminal (OSC title: spinner = busy, `✳` = idle) | — |
 | Codex | **states** it in its transcript (`task_started` / `task_complete`) | a busy turn out-writes a fixed tail window long before it completes → the window must **grow** |
 | Hermes | the **last message row**: a trailing user prompt = a turn is running; an assistant row whose `finish_reason` is not a tool one = it is answered | `ended_at` is **never written** — it reads null on every session, answered or not, so a rule built on it says "working" for three minutes after every reply (#165) |
-| Pi | launched sessions post neutral extension events; indexed sessions still fall back to transcript-tail inference (a trailing user/tool result = a turn is running) | tree-shaped JSONL means the visible branch is the leaf's parent path, and one message is one JSONL line, so a large answer can fill the whole tail window |
+| Pi | launched sessions post neutral extension events; indexed sessions still fall back to transcript-tail inference (a trailing user/tool result, or assistant `toolUse`, = a turn is running) | tree-shaped JSONL means the visible branch is the leaf's parent path, and one message is one JSONL line, so a large answer can fill the whole tail window |
 
 For the inferred ones, terminal output is used as a **liveness** signal (`ctx.lastOutputMs`): it may keep
 a running-but-silent turn out of idle, and may **never** declare one busy. Activity is a bad state signal

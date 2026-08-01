@@ -318,9 +318,10 @@ window.api.onAttentionSignal((signal) => {
   });
 });
 
-// --- CLI busy state (OSC 0 title spinner detection) ---
-window.api.onCliBusyState((sessionId, busy) => {
-  setActivity(sessionId, busy);
+// --- CLI busy state (OSC 0 title spinner detection, store state, or exact backend lifecycle edge) ---
+window.api.onCliBusyState((sessionId, busy, exact) => {
+  if (exact) setExactActivity(sessionId, busy);
+  else setActivity(sessionId, busy);
 });
 
 // --- The same facts, for a window that RENDERS a session without owning the inbox (#395) ---
