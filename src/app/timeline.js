@@ -195,10 +195,17 @@ function rekeySession(fromId, toId) {
 // What a RENDERER is allowed to add to a session's history.
 //
 // Deliberately a short list. Main sees every fact about a session's process and status, so the only
-// thing a window can contribute is something that happened in the UI and nowhere else — seeding a
-// handoff packet is the whole of it today. Restricting the kind rather than trusting the caller is what
-// keeps "main is the only writer" true in substance: a window cannot forge a busy edge or an exit.
-const NOTEABLE_KINDS = new Set(['started']);
+// things a window can contribute are things that happened in the UI and nowhere else. Restricting the
+// kind rather than trusting the caller is what keeps "main is the only writer" true in substance: a
+// window cannot forge a busy edge or an exit.
+//
+//   started       a handoff packet was seeded into a fresh session — from main's side that is just input
+//   viewed        the user looked at this session. The recap needs it to know a first look from a return
+//   file-touched  the agent opened or changed a file, via the MCP bridge the renderer receives
+//
+// The last two are what makes the recap survive a reload with the rest of the record (#396). They are
+// deliberately NOT in the recap's list of things worth listing — they are how it decides, not what it says.
+const NOTEABLE_KINDS = new Set(['started', 'viewed', 'file-touched']);
 
 function registerIpc(ipc) {
   ipc.handle('timeline:for-session', (_event, sessionId) => {

@@ -353,8 +353,10 @@ const sessionBusyState = new Map(); // sessionId → boolean (currently active)
 const subagentActiveSessions = new Set();
 const finishedAt = new Map(); // sessionId → ms timestamp of the last busy→idle edge (drives running-in-inbox)
 const lastActivityTime = new Map(); // sessionId → Date of last terminal output
-const lastViewedTime = new Map(); // sessionId → Date the session last became focused
-const filesTouchedSinceViewed = new Map(); // sessionId → Map<path, { at, kind }>
+// `lastViewedTime` and `filesTouchedSinceViewed` used to live here. They are in the record now (#396) as
+// the `viewed` and `file-touched` kinds — they had the same lifetime bug as the timeline, in the same
+// surface: a reload lost the files half of the recap and left it unable to tell a first look from a
+// return. See shell/away-summary-banner.js.
 const sessionTimelineStore = createTimelineStore();
 
 // Noise patterns — these don't count as activity

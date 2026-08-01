@@ -35,20 +35,31 @@ let awaySummaryEl = null;
 let awaySummarySessionId = null;
 let awaySummaryInputDisposable = null;
 
+// The files an agent touched, and when the user last looked, live in the RECORD now (#396) — they had
+// exactly the lifetime bug the timeline had, in the same surface: a reload emptied them, so the recap
+// lost the files half of what it was built to report and could no longer tell a first look from a
+// return. Both are noted through main, which writes them, so every window sees the same answer.
+//
+// `file-touched` carries the path in `detail` and the kind ('diff' / 'open') in `label`. That is enough
+// to rebuild what the pure recap builder takes, and it needs no table of its own.
+
 function recordFileTouched(sessionId, path, kind) {
   if (!sessionId || !path) return;
-  let map = filesTouchedSinceViewed.get(sessionId);
-  if (!map) {
-    map = new Map();
-    filesTouchedSinceViewed.set(sessionId, map);
-  }
-  map.set(path, { at: new Date().toISOString(), kind });
+  window.api.noteTimelineEvent(sessionId, 'file-touched', kind || 'open', path);
 }
 
+/** Rebuild the recap's `filesTouched` from the record: newest first, deduped by path in the builder. */
 function awaySummaryFilesFor(sessionId) {
-  const map = filesTouchedSinceViewed.get(sessionId);
-  if (!map) return [];
-  return [...map.entries()].map(([path, meta]) => ({ path, at: meta.at, kind: meta.kind }));
+  return getTimelineEvents(sessionTimelineStore, sessionId)
+    .filter((event) => event && event.kind === 'file-touched' && event.detail)
+    .map((event) => ({ path: event.detail, at: event.at, kind: event.label || 'open' }));
+}
+
+/** When the user last looked at this session, or null if they never have. */
+function lastViewedAtFor(sessionId) {
+  const seen = getTimelineEvents(sessionTimelineStore, sessionId)
+    .find((event) => event && event.kind === 'viewed');
+  return seen ? seen.at : null;
 }
 
 // Called at the focus choke point. Renders the recap for sessions that changed
@@ -111,15 +122,17 @@ async function handleSessionViewed(sessionId) {
   // Still STAMPED when the recap is off, so switching it back on does not report an "away" that
   // stretches to whenever it was turned off.
   if (!awaySummaryEnabled()) {
-    lastViewedTime.set(sessionId, new Date());
+    // Still STAMPED when the recap is off, so switching it back on does not report an "away" that
+    // stretches to whenever it was turned off.
+    window.api.noteTimelineEvent(sessionId, 'viewed', 'Viewed', '');
     if (awaySummarySessionId) hideAwaySummary();
     return;
   }
   await ensureTimelineLoaded(sessionId);
   // An ABSENCE is the trigger, not a focus change (#386) — and each session says what it missed once
-  // per absence. `lastViewedTime` still gates the very first look at a session: nothing was missed
-  // before you had ever seen it.
-  const previous = lastViewedTime.get(sessionId);
+  // per absence. A previous LOOK still gates the very first one: nothing was missed before you had
+  // ever seen the session.
+  const previous = lastViewedAtFor(sessionId);
   const away = (currentAbsence && previous && !absenceShownFor.has(sessionId)) ? currentAbsence : null;
   let summary = null;
   if (away && !gridViewActive && typeof buildAwaySummary === 'function') {
@@ -133,12 +146,11 @@ async function handleSessionViewed(sessionId) {
       now: new Date(),
     });
   }
-  lastViewedTime.set(sessionId, new Date());
+  // Read BEFORE this is written, or the look being recorded now would be the one that gates it.
+  window.api.noteTimelineEvent(sessionId, 'viewed', 'Viewed', '');
 
   if (summary && summary.hasChanges) {
     renderAwaySummary(sessionId, summary);
-    // Recap is now showing the snapshot — reset the per-session file tally.
-    filesTouchedSinceViewed.delete(sessionId);
   } else if (awaySummarySessionId) {
     // Focused something with nothing new — clear any stale banner.
     hideAwaySummary();
@@ -172,8 +184,10 @@ function hideAwaySummary() {
   awaySummarySessionId = null;
 }
 
-function dismissAwaySummary(sessionId) {
-  if (sessionId) filesTouchedSinceViewed.delete(sessionId);
+// Dismissing hides the banner and nothing else. It used to also clear that session's file tally, which
+// was the only way to stop the next recap repeating the same files — the record answers that by time
+// now (everything since the absence began), so there is nothing to reset and nothing to lose.
+function dismissAwaySummary() {
   hideAwaySummary();
 }
 

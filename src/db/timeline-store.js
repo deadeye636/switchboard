@@ -34,6 +34,7 @@ const stmts = {
     WHERE at > ? ORDER BY at DESC, id DESC LIMIT ?`),
   deleteForSession: db.prepare('DELETE FROM session_timeline WHERE sessionId = ?'),
   rekey: db.prepare('UPDATE session_timeline SET sessionId = ? WHERE sessionId = ?'),
+  deleteKind: db.prepare('DELETE FROM session_timeline WHERE sessionId = ? AND kind = ?'),
   // Every session of a PROJECT — the user deleted it, and this is the only delete that is a deletion.
   // Sub-selects on session_cache, so it runs while those rows still exist.
   deleteForProject: db.prepare(`DELETE FROM session_timeline WHERE sessionId IN
@@ -53,6 +54,14 @@ const stmts = {
 const MAX_ROWS = RETENTION.maxPerSession;
 const MAX_ROWS_ACROSS_SESSIONS = RETENTION.maxPerSession * 8;
 
+// Kinds where only the LATEST one means anything — a marker, not an event stream.
+//
+// `viewed` is written every time the user looks at a session, which on a busy afternoon is hundreds of
+// times. Kept as a stream it would push the events that matter out of the per-session cap: the history
+// would fill with "you looked at this" and forget what happened. Only "when did you last look" is ever
+// asked, so only the last one is kept.
+const SINGLETON_KINDS = new Set(['viewed']);
+
 /**
  * Record one event. Returns the stored event, or null when there was nothing to store — either the input
  * was not an event, or the same fact had just been recorded by a second producer.
@@ -66,13 +75,15 @@ function recordTimelineEvent(input, now = Date.now()) {
   if (event.at < retentionCutoff(now)) return null;
 
   const previous = stmts.newestOfKind.get(event.sessionId, event.kind);
-  if (isDuplicateOf(event, previous)) return null;
+  if (!SINGLETON_KINDS.has(event.kind) && isDuplicateOf(event, previous)) return null;
 
   // The age cutoff is measured from NOW, never from the event being written. Measured from the event, a
   // late or backdated one moves the cutoff back with it and prunes nothing — including itself, which is
   // how an event older than the retention window survived the write that was supposed to reject it.
   const cutoff = retentionCutoff(now);
   runWithBusyRetry(() => {
+    // A marker replaces itself rather than accumulating — see SINGLETON_KINDS.
+    if (SINGLETON_KINDS.has(event.kind)) stmts.deleteKind.run(event.sessionId, event.kind);
     stmts.insert.run(event);
     stmts.pruneOld.run(event.sessionId, cutoff);
     stmts.pruneOverCap.run(event.sessionId, event.sessionId, RETENTION.maxPerSession);
