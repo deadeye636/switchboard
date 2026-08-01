@@ -137,10 +137,17 @@ test('agy descriptor: buildLaunch resumes with --conversation and maps every opt
 
   const full = agy.buildLaunch({
     cwd: '/p',
-    options: { model: 'Gemini 3.1 Pro (High)', mode: 'plan', sandbox: true, addDirs: '/a, /b' },
+    options: { model: 'gemini-3.1-pro-high', mode: 'plan', effort: 'high', sandbox: true, addDirs: '/a, /b' },
   });
   assert.deepEqual(full.args,
-    ['--model', 'Gemini 3.1 Pro (High)', '--mode', 'plan', '--sandbox', '--add-dir', '/a', '--add-dir', '/b']);
+    ['--model', 'gemini-3.1-pro-high', '--mode', 'plan', '--effort', 'high', '--sandbox', '--add-dir', '/a', '--add-dir', '/b']);
+});
+
+test('agy descriptor: model discovery parses agy models output', () => {
+  assert.deepEqual(agy._parseModelList('gemini-3.6-flash-high\n\nclaude-sonnet-4-6\n'), [
+    { id: 'gemini-3.6-flash-high', label: 'gemini-3.6-flash-high' },
+    { id: 'claude-sonnet-4-6', label: 'claude-sonnet-4-6' },
+  ]);
 });
 
 test('agy descriptor: it does not pretend to fork', () => {

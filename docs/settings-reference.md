@@ -217,11 +217,11 @@ own `config.toml`.)
 | *(every backend)* | `preLaunchCmd` — applied at spawn, not argv |
 | `claude` | `permissionMode` (`default`), `model`, `worktree`, `worktreeName`, `chrome`, `addDirs`, `mcpEmulation` (**on**, applied at spawn), `afkTimeoutSec` |
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
-| `agy` | `model`, `mode`, `sandbox`, `addDirs` |
+| `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
 | `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `noContextFiles` |
 
-Pi's `model` field supports backend-owned suggestions from `pi --list-models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. Switchboard does not install or execute resources from there.
+Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. Switchboard does not install or execute resources from there.
 
 Claude's pre-multi-LLM top-level keys (`permissionMode`, `worktree`, `chrome`, …) are migrated once into
 `backendDefaults.claude` and removed from the blob.
@@ -404,6 +404,10 @@ notice, because those were explicit configuration choices.
 | `node scripts/upstream-check.js [--seen]` | Without the flag it only reports. |
 | `npm run hermes:help-check` | Runs `hermes --help` and fails when top-level options drift outside the audited Hermes descriptor list. |
 | `npm run claude:help-check` | Runs `claude --help` and fails when top-level options drift outside the audited Claude descriptor list. |
+| `npm run codex:help-check` | Runs `codex --help` and fails when top-level options or required resume/fork commands drift outside the audited Codex descriptor list. |
+| `npm run pi:help-check` | Runs `pi --help` and fails when top-level options or resource commands drift outside the audited Pi descriptor list. |
+| `npm run agy:help-check` | Runs `agy --help` and fails when top-level options or required model/plugin commands drift outside the audited agy descriptor list. |
+| `npm run backends:help-check` | Runs all backend CLI help drift checks. |
 | `node scripts/check-debug-port.js` | Exists because Electron silently starts *without* a debug port when the port is taken. |
 | `node scripts/build-backlog.js` | Regenerates `docs/BACKLOG.md` / `.jsonl` from GitHub issues. Both outputs are gitignored — run it once per clone. |
 

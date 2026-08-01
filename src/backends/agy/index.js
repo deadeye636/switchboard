@@ -15,6 +15,7 @@
 
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const parser = require('./parser');
 const { createFileStore, findOnPath } = require('../file-store');
@@ -38,9 +39,9 @@ function setRoot(dir) {
   _root = dir || null;
 }
 
-// agy's own launch options — taken from its real `agy --help` (v1.1.1). The model choices are exactly
-// what `agy models` lists (they are also the display strings the store records), so `--model` is fed a
-// value the CLI itself printed.
+// agy's own launch options — taken from its real `agy --help` (v1.1.1+). The model field uses
+// backend-owned discovery (`agy models`) because the advertised model ids drift independently of the
+// descriptor.
 //
 // Deliberately NOT here: `--dangerously-skip-permissions` — its own help calls it "Auto-approve all tool
 // permission requests without prompting". This is the same stance Switchboard takes on Codex'
@@ -48,25 +49,43 @@ function setRoot(dir) {
 // is a different thing from configuring a sandbox mode, and Switchboard is not the place to offer it.
 // Also left out: `--project`/`--new-project`/`--agent` (agy's own project/agent selection, orthogonal to
 // how Switchboard groups a cwd), and `--print`/`--prompt`/`-i` (non-interactive — we run the TUI).
-const MODEL_CHOICES = [
-  '',
-  'Gemini 3.5 Flash (Medium)',
-  'Gemini 3.5 Flash (High)',
-  'Gemini 3.5 Flash (Low)',
-  'Gemini 3.1 Pro (Low)',
-  'Gemini 3.1 Pro (High)',
-  'Claude Sonnet 4.6 (Thinking)',
-  'Claude Opus 4.6 (Thinking)',
-  'GPT-OSS 120B (Medium)',
-];
+const MODEL_CACHE_TTL_MS = 10 * 60 * 1000;
+let _modelCache = null; // { at, models }
+
+function parseModelList(output) {
+  return String(output || '')
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(Boolean)
+    .filter(l => !/\s/.test(l))
+    .map(id => ({ id, label: id }));
+}
+
+function listModels() {
+  const now = Date.now();
+  if (_modelCache && now - _modelCache.at < MODEL_CACHE_TTL_MS) {
+    return Promise.resolve({ ok: true, models: _modelCache.models, cached: true });
+  }
+  const exe = findExecutable() || 'agy';
+  const res = spawnSync(exe, ['models'], { encoding: 'utf8', timeout: 8000, windowsHide: true });
+  if (res.error || res.status !== 0) {
+    const reason = String((res.stderr || res.error?.message || 'Could not list agy models.')).trim();
+    return Promise.resolve({ ok: false, reason });
+  }
+  const models = parseModelList(res.stdout);
+  _modelCache = { at: Date.now(), models };
+  return Promise.resolve({ ok: true, models, cached: false });
+}
 
 const configFields = [
-  { id: 'model', label: 'Model', type: 'select',
-    choices: MODEL_CHOICES, choiceLabels: { '': 'agy\'s own default' }, default: '',
-    description: 'Model the agent should use — the list `agy models` prints. Empty = agy\'s own default.' },
+  { id: 'model', label: 'Model', type: 'text', default: '', modelDiscovery: true,
+    description: 'Model id the agent should use. Empty = agy\'s own default.' },
   { id: 'mode', label: 'Execution mode', type: 'select',
     choices: ['', 'accept-edits', 'plan'], choiceLabels: { '': 'agy\'s default' }, default: '',
     description: 'accept-edits auto-applies file edits; plan makes it plan without acting. Empty = agy\'s default.' },
+  { id: 'effort', label: 'Reasoning effort', type: 'select',
+    choices: ['', 'low', 'medium', 'high'], choiceLabels: { '': 'agy\'s default' }, default: '',
+    description: 'Reasoning effort for this session. Empty = agy\'s default.' },
   { id: 'sandbox', label: 'Sandbox', type: 'toggle', default: false,
     description: 'Run with terminal restrictions enabled (agy\'s `--sandbox`).' },
   { id: 'addDirs', label: 'Additional directories', type: 'text', default: '',
@@ -97,6 +116,7 @@ function buildLaunch({ cwd, resume, sessionId, options } = {}) {
 
   if (opts.model) args.push('--model', String(opts.model));
   if (opts.mode) args.push('--mode', String(opts.mode));
+  if (opts.effort) args.push('--effort', String(opts.effort));
   if (opts.sandbox) args.push('--sandbox');
   for (const dir of splitList(opts.addDirs)) args.push('--add-dir', dir);
 
@@ -185,6 +205,8 @@ module.exports = {
   buildLaunch,
   probe,
   findExecutable,
+  listModels,
+  _parseModelList: parseModelList,
 
   // Usage capability (#191, #201). agy exposes no local quota file, so unlike Codex this is a LIVE
   // network read against agy's own backend (Gemini Code Assist's `cloudcode-pa` private API) — hence

@@ -282,12 +282,14 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   length-delimited field whose value carries newlines and markdown, so a naive byte scan would split it.
 - **Resume** is `agy --conversation <id>`; `--continue`/`-c` reopens the most recent. **Fork** has no flag —
   `supportsFork: false` (offering it would launch an unrelated session).
-- **`agy --help` / the argv** (v1.1.1): `--model`, `--project` / `--new-project`, `--add-dir` (repeatable),
-  `--agent`, `--mode {accept-edits,plan}`, `--sandbox`, `--dangerously-skip-permissions`, `--print`/`-p`/
-  `--prompt` (non-interactive), `--prompt-interactive`/`-i`, `--conversation`, `--continue`/`-c`. Subcommands:
-  `models`, `agents`, `changelog`, `install`, `plugin`, `update`. **`agy models`** lists the launchable models
-  (Gemini 3.5 Flash L/M/H, Gemini 3.1 Pro L/H, Claude Sonnet 4.6, Claude Opus 4.6, GPT-OSS 120B) — multi-
-  provider, which is why its quota is per-model. On Windows `agy` on PATH is a real `.exe`, not a `.cmd` shim.
+- **`agy --help` / the argv** (v1.1.1+): `--model`, `--effort`, `--project` / `--new-project`, `--add-dir`
+  (repeatable), `--agent`, `--mode {accept-edits,plan}`, `--sandbox`, `--dangerously-skip-permissions`,
+  `--print`/`-p`/`--prompt` (non-interactive), `--prompt-interactive`/`-i`, `--conversation`,
+  `--continue`/`-c`. Subcommands: `models`, `agents`, `changelog`, `install`, `plugin`, `update`.
+  **`agy models`** lists the launchable model ids (for example `gemini-3.6-flash-high`,
+  `claude-sonnet-4-6`) — multi-provider, which is why its quota is per-model. Switchboard uses that command
+  for backend-owned model suggestions instead of pinning a stale choice list. On Windows `agy` on PATH is a
+  real `.exe`, not a `.cmd` shim.
 
 **Usage (#191).** Its quota is **per MODEL**, not per time window — community monitors report `Pro-L 80% ·
 Claude 25%`, each with its own reset, plus a shared **credit pool** spent once a model's quota is exhausted.
@@ -317,6 +319,7 @@ which meant they were, in practice, not configurable from Switchboard.
 | **Codex** | `model`, `approvalMode`, `sandbox`, `profile` (Codex' *own* config profile), `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` (`-c key=value`) | `--dangerously-bypass-approvals-and-sandbox` and `--dangerously-bypass-hook-trust` — their own help marks them dangerous. `sandbox: danger-full-access` already lets a user drop the sandbox on purpose; a single toggle that removes approvals *and* the sandbox is a different thing. `-C/--cd` (we own the cwd), `--remote*` / app-server wiring, `--no-alt-screen` (Switchboard owns the PTY). |
 | **Hermes** | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` | `--cli`/`--tui` (we run it in a PTY — interactive is the point), `-z`/`--oneshot` and `--usage-file` (non-interactive), `--continue` (picker/name rather than Switchboard's recorded id), `--no-restore-cwd` (resume semantics, not a launch default), `--dev`, anything that moves its session store or writes/manages resources. `npm run hermes:help-check` fails when `hermes --help` gains unaudited top-level flags. |
 | **Pi** | `model` (with model discovery), `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `noContextFiles` | **`--api-key`** — it would put a raw key on the COMMAND LINE, readable in any process listing. Pi reads its key from the environment; a template's `$VAR` env bundle (resolved at spawn, never on disk) is the only route we offer. Also `--mode json/rpc` and `--print` (non-interactive), `--session-dir`/`--no-session` (they move or suppress the store we watch), arbitrary `--extension` paths (Switchboard owns only its generated live-binding extension). |
+| **agy** | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` | `--dangerously-skip-permissions` (removes all tool approvals), `--project` / `--new-project` / `--agent` (agy's own project/agent selection, orthogonal to Switchboard's cwd), `--print` / `--prompt` and `--prompt-interactive` (non-standard launch modes), `--log-file` (diagnostic output path), `--continue` (latest conversation rather than Switchboard's recorded id). |
 
 **Some options belong to Switchboard, not to a CLI**, and the registry adds those to *every* backend
 (`src/backends/agy/index.js`, `UNIVERSAL_FIELDS`) rather than letting four descriptors carry four copies that
