@@ -88,6 +88,37 @@ test('Pi tree parsing follows the current leaf and uses session_info as the titl
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('Pi transcript view normalizes active-branch tools, bash and metadata without renderer backend branches', () => {
+  const entries = [
+    { type: 'session', version: 3, id: 'view-session', timestamp: '2026-07-12T11:00:00.000Z', cwd: 'Z:\\temp' },
+    { type: 'message', id: 'u1', parentId: null, timestamp: '2026-07-12T11:00:01.000Z', message: { role: 'user', content: 'root prompt' } },
+    { type: 'message', id: 'old', parentId: 'u1', timestamp: '2026-07-12T11:00:02.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'abandoned answer' }] } },
+    { type: 'message', id: 'a1', parentId: 'u1', timestamp: '2026-07-12T11:00:03.000Z', message: { role: 'assistant', content: [
+      { type: 'text', text: 'active answer' },
+      { type: 'toolCall', id: 'call-1', name: 'bash', arguments: { command: 'pwd' } },
+    ] } },
+    { type: 'message', id: 'r1', parentId: 'a1', timestamp: '2026-07-12T11:00:04.000Z', message: { role: 'toolResult', toolCallId: 'call-1', toolName: 'bash', content: [{ type: 'text', text: 'Z:/temp' }], isError: false } },
+    { type: 'message', id: 'b1', parentId: 'r1', timestamp: '2026-07-12T11:00:05.000Z', message: { role: 'bashExecution', command: 'git status', output: 'clean', exitCode: 0, cancelled: false, truncated: false } },
+    { type: 'session_info', id: 'n1', parentId: 'b1', timestamp: '2026-07-12T11:00:06.000Z', name: 'View title' },
+    { type: 'custom_message', id: 'c1', parentId: 'n1', timestamp: '2026-07-12T11:00:07.000Z', customType: 'review', content: 'visible extension note', display: true },
+    { type: 'branch_summary', id: 's1', parentId: 'c1', timestamp: '2026-07-12T11:00:08.000Z', fromId: 'old', summary: 'left branch summary' },
+  ];
+
+  const out = pi.normalizeTranscriptEntries(entries);
+  assert.deepStrictEqual(out.map(e => e.type), [
+    'message', 'message', 'message', 'local-command', 'custom-title', 'transcript-meta', 'transcript-meta',
+  ]);
+  assert.strictEqual(out[1].message.content[1].type, 'tool_use');
+  assert.deepStrictEqual(out[1].message.content[1].input, { command: 'pwd' });
+  assert.strictEqual(out[2].message.content[0].type, 'tool_result');
+  assert.strictEqual(out[2].message.content[0].tool_use_id, 'call-1');
+  assert.deepStrictEqual(out[3]._localCmd, { cmd: 'git status', output: 'clean\n[exit 0]' });
+  assert.strictEqual(out[4].customTitle, 'View title');
+  assert.match(out[5].label, /Extension message: review/);
+  assert.strictEqual(out[6].label, 'Branch summary');
+  assert.equal(JSON.stringify(out).includes('abandoned answer'), false, 'the viewer follows Pi\'s current leaf, like the parser');
+});
+
 test('Pi compaction and custom messages contribute searchable active-branch text', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-compact-'));
   const id = 'dddd4444-0000-4000-8000-000000000004';
@@ -106,6 +137,13 @@ test('Pi compaction and custom messages contribute searchable active-branch text
     assert.match(row.textContent, /extension context text/);
     assert.strictEqual(row.model, 'retained-model');
     assert.ok(Math.abs(row.estimatedCostUsd - 0.01) < 1e-9);
+
+    const normalized = pi.normalizeTranscriptEntries(
+      fs.readFileSync(p, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)),
+    );
+    assert.deepStrictEqual(normalized.map(e => e.type), ['message', 'transcript-meta', 'message', 'transcript-meta']);
+    assert.strictEqual(normalized[1].label, 'Compaction');
+    assert.match(JSON.stringify(normalized[2]), /retained answer/, 'retainedTail is visible in Message History too');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

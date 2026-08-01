@@ -672,6 +672,20 @@ function renderJsonlEntry(entry, toolResultMap) {
     return div;
   }
 
+  // --- backend-normalized metadata entries ---
+  if (entry.type === 'transcript-meta') {
+    const div = document.createElement('div');
+    div.className = 'jsonl-entry jsonl-meta-entry';
+    const detail = entry.detail ? ' <span class="jsonl-tool-detail">' + escapeHtml(entry.detail) + '</span>' : '';
+    div.innerHTML = '<span class="jsonl-meta-icon">' + escapeHtml(entry.icon || 'i') + '</span> '
+      + '<strong>' + escapeHtml(entry.label || 'Transcript event') + '</strong>' + detail
+      + (timeStr ? ' <span class="jsonl-ts">' + timeStr + '</span>' : '');
+    if (entry.content) {
+      div.appendChild(makeCollapsible('jsonl-tool-result', 'Details', entry.content, false));
+    }
+    return div;
+  }
+
   // --- system entries ---
   if (entry.type === 'system') {
     const div = document.createElement('div');
@@ -788,6 +802,15 @@ function renderJsonlEntry(entry, toolResultMap) {
       textEl.className = 'jsonl-text';
       textEl.innerHTML = renderJsonlText(block.text.trim());
       div.appendChild(textEl);
+    } else if (block.type === 'image') {
+      const data = block.source?.data || block.data;
+      if (data) {
+        const mediaType = block.source?.media_type || block.source?.mimeType || block.mimeType || 'image/png';
+        const imgEl = document.createElement('img');
+        imgEl.className = 'jsonl-tool-screenshot jsonl-clickable-img';
+        imgEl.src = `data:${mediaType};base64,${data}`;
+        div.appendChild(imgEl);
+      }
     } else if (block.type === 'tool_use') {
       const toolEl = renderToolUse(block);
       // Attach matched tool result into the tool block's content area

@@ -172,8 +172,12 @@ The only backend whose history is **not** in files — the reason the discovery 
   the parent walk from the last written leaf, not every line in the file. The parser indexes the active
   branch, includes compaction/branch summaries and displayed extension messages, and ignores abandoned
   branch text so search does not find a reply the user is no longer looking at.
+- Message History goes through Pi's descriptor-owned `normalizeTranscriptEntries()` adapter. It returns
+  renderer-neutral entries for the same active branch: `toolCall` → `tool_use`, `toolResult` →
+  `tool_result`, `bashExecution` → a local command block, and compaction/branch/custom/label/model events
+  → generic `transcript-meta` rows. The renderer knows none of Pi's role names.
 - `session_info` carries Pi's display name (`--name`, `/name`, extension `setSessionName()`); Switchboard
-  maps it to the row title overlay instead of treating it as chat text.
+  maps it to the row title overlay and to a Message History title event instead of treating it as chat text.
 - The turn payload is nested **one level down**, under `.message`:
   `{type:'message', message:{role, content:[{type:'text',text}], model, provider, stopReason, usage}}`.
 - **Pi is multi-provider *within* one session** — a real session switched from `anthropic/claude-opus-4-7`

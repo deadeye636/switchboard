@@ -1701,6 +1701,16 @@ async function readJsonlEntries(jsonlPath) {
   }
 }
 
+function normalizeTranscriptResult(backend, result) {
+  if (!result || result.error || !Array.isArray(result.entries)) return result;
+  if (!backend || typeof backend.normalizeTranscriptEntries !== 'function') return result;
+  try {
+    return { ...result, entries: backend.normalizeTranscriptEntries(result.entries) || [] };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
 ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
   const row = getCachedSession(sessionId);
   if (!row) return { error: 'Session not found in cache' };
@@ -1717,7 +1727,7 @@ ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
   // `transcriptAccess`, no hardcoded id. Without it the viewer and the handoff pre-fill (#148) break.
   if (((b && b.transcriptAccess) || 'file') !== 'file' && typeof b.readMessages === 'function') {
     try {
-      return { entries: b.readMessages(sessionId) || [] };
+      return normalizeTranscriptResult(b, { entries: b.readMessages(sessionId) || [] });
     } catch (err) {
       return { error: err.message };
     }
@@ -1725,7 +1735,7 @@ ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
 
   // Claude's transcripts live at PROJECTS_DIR/<folder>/<id>.jsonl; another file backend records its own
   // absolute path (v11) — reconstructing Claude's layout for it would read the wrong file.
-  if (row.filePath) return readJsonlEntries(row.filePath);
+  if (row.filePath) return normalizeTranscriptResult(b, await readJsonlEntries(row.filePath));
 
   // An Axis-B backend with its own store but no file and no exporter: say so, don't ENOENT at the user.
   if (b && b.axis === 'B') {
@@ -1733,7 +1743,7 @@ ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
   }
   const folder = row.folder || getCachedFolder(sessionId);
   if (!folder) return { error: 'Session not found in cache' };
-  return readJsonlEntries(path.join(PROJECTS_DIR, folder, sessionId + '.jsonl'));
+  return normalizeTranscriptResult(b, await readJsonlEntries(path.join(PROJECTS_DIR, folder, sessionId + '.jsonl')));
 });
 
 // A subagent row's transcript, resolved through its BACKEND (#233) — the same way read-session-jsonl

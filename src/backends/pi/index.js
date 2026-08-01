@@ -26,6 +26,7 @@ const { execFileSync } = require('child_process');
 const parser = require('./parser');
 const trust = require('./trust');
 const liveBinding = require('./live-binding');
+const transcriptView = require('./transcript-view');
 const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, piLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
@@ -325,6 +326,7 @@ module.exports = {
     }));
   },
   transcriptAccess: 'file',   // one JSONL per session
+  normalizeTranscriptEntries: transcriptView.normalizeTranscriptEntries,
   // Shown on the backend's settings page. Pi is the only backend where injecting a key can appear to
   // work and quietly do nothing: a stored `pi /login` OAuth session takes PRIORITY over the env vars we
   // pass, with no error. A user chasing "why is it still on the old account" has no way to see that from
