@@ -50,7 +50,7 @@ function addSettings(out, file, scope) {
   add(out, { kind: 'settings', scope, name: path.basename(file), path: file, source: 'settings-file' });
   const data = readJson(file);
   if (!data || typeof data !== 'object') return data;
-  for (const [key, kind] of [['packages', 'package'], ['extensions', 'extension'], ['skills', 'skill'], ['prompts', 'prompt'], ['themes', 'theme']]) {
+  for (const [key, kind] of [['packages', 'package'], ['extensions', 'extension'], ['skills', 'skill'], ['prompts', 'prompt-template'], ['themes', 'theme']]) {
     const values = Array.isArray(data[key]) ? data[key] : [];
     for (const value of values) {
       add(out, { kind, scope, name: configuredValueName(value), path: null, source: `${path.basename(file)}:${key}` });
@@ -112,7 +112,7 @@ function listResources({ projectPath } = {}) {
   addFlatFiles(resources, path.join(globalRoot, 'extensions'), 'global', 'extension', ['.ts', '.js']);
   addSkills(resources, path.join(globalRoot, 'skills'), 'global', true);
   addSkills(resources, agentSkillsDir(), 'global', false);
-  addFlatFiles(resources, path.join(globalRoot, 'prompts'), 'global', 'prompt', ['.md']);
+  addFlatFiles(resources, path.join(globalRoot, 'prompts'), 'global', 'prompt-template', ['.md']);
   addFlatFiles(resources, path.join(globalRoot, 'themes'), 'global', 'theme', ['.json']);
   addPackageDirs(resources, globalRoot, 'global');
 
@@ -122,7 +122,7 @@ function listResources({ projectPath } = {}) {
     addFlatFiles(resources, path.join(piDir, 'extensions'), 'project', 'extension', ['.ts', '.js']);
     addSkills(resources, path.join(piDir, 'skills'), 'project', true);
     addSkills(resources, path.join(projectPath, '.agents', 'skills'), 'project', false);
-    addFlatFiles(resources, path.join(piDir, 'prompts'), 'project', 'prompt', ['.md']);
+    addFlatFiles(resources, path.join(piDir, 'prompts'), 'project', 'prompt-template', ['.md']);
     addFlatFiles(resources, path.join(piDir, 'themes'), 'project', 'theme', ['.json']);
     addPackageDirs(resources, piDir, 'project');
   }

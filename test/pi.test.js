@@ -596,7 +596,7 @@ test('Pi resource discovery surfaces global and project resources read-only (#41
     assert.ok(keys.includes('global:package:npm:@x/pkg'));
     assert.ok(keys.includes('global:extension:guard'));
     assert.ok(keys.includes('global:skill:global-skill'));
-    assert.ok(keys.includes('global:prompt:review'));
+    assert.ok(keys.includes('global:prompt-template:review'));
     assert.ok(keys.includes('project:settings:settings.json'));
     assert.ok(keys.includes('project:skill:local-skill'));
     assert.ok(keys.includes('project:theme:team'));
