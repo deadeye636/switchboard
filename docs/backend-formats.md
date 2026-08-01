@@ -153,6 +153,10 @@ The only backend whose history is **not** in files — the reason the discovery 
   the store really writes without driving the TUI.
 - Auth: Hermes self-authenticates from its own `.env` / OAuth. Switchboard **injects nothing** and never
   reads its credential files.
+- Resource discovery is read-only through Hermes' `listResources()` hook. It surfaces config, SOUL.md,
+  skills, skill bundles, plugins, hooks, memories and model catalogs as neutral rows. Switchboard only
+  displays, copies or opens discovered paths; it never runs Hermes management commands or installs/updates
+  resources.
 - The TUI takes ≈ 12 s to paint (a heavy Python import) — a fresh tab looks dead until then, so the
   descriptor prints a hint.
 
@@ -300,7 +304,7 @@ which meant they were, in practice, not configurable from Switchboard.
 |---|---|---|
 | **Claude** | `permissionMode`, `model`, `worktree` (+`worktreeName`), `chrome`, `addDirs`, `mcpEmulation`, `afkTimeoutSec` | — |
 | **Codex** | `model`, `approvalMode`, `sandbox`, `profile` (Codex' *own* config profile), `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` (`-c key=value`) | `--dangerously-bypass-approvals-and-sandbox` — its own help calls it "EXTREMELY DANGEROUS… solely for externally sandboxed environments". `sandbox: danger-full-access` already lets a user drop the sandbox on purpose; a single toggle that removes approvals *and* the sandbox is a different thing. `-C/--cd` (we own the cwd). |
-| **Hermes** | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo` | `--cli`/`--tui` (we run it in a PTY — interactive is the point), `-q`/`-Q` (non-interactive), anything that moves its session store. |
+| **Hermes** | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` | `--cli`/`--tui` (we run it in a PTY — interactive is the point), `-z`/`--oneshot` (non-interactive), anything that moves its session store or writes/manages resources. |
 | **Pi** | `model` (with model discovery), `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `noContextFiles` | **`--api-key`** — it would put a raw key on the COMMAND LINE, readable in any process listing. Pi reads its key from the environment; a template's `$VAR` env bundle (resolved at spawn, never on disk) is the only route we offer. Also `--mode json/rpc` and `--print` (non-interactive), `--session-dir`/`--no-session` (they move or suppress the store we watch), arbitrary `--extension` paths (Switchboard owns only its generated live-binding extension). |
 
 **Some options belong to Switchboard, not to a CLI**, and the registry adds those to *every* backend

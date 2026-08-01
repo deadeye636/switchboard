@@ -8,6 +8,7 @@
 // the repo: the file existed only where it was made, and these tests failed on every clone (#158).
 const { test } = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -212,6 +213,18 @@ test('buildLaunch: resume targets the recorded session id (binary-bound, §5.11)
   assert.deepStrictEqual(launch.args, ['-r', 'sess-cli-1']);
 });
 
+test('buildLaunch exposes current Hermes runtime toggles without moving the watched store', () => {
+  const launch = hermes.buildLaunch({ cwd: 'D:/p', options: {
+    passSessionId: true,
+    ignoreUserConfig: true,
+    ignoreRules: true,
+  } });
+  assert.ok(launch.args.includes('--pass-session-id'));
+  assert.ok(launch.args.includes('--ignore-user-config'));
+  assert.ok(launch.args.includes('--ignore-rules'));
+  assert.ok(!launch.args.includes('--session-dir'), 'launch options must not move the state.db we watch');
+});
+
 // --- D10: identity adoption. Hermes, like Codex, creates its OWN session id in its own store, so the
 // id we launch under is not the id it records. Without this, resume targets an id Hermes never had and
 // the sidebar shows a ghost row. This is the DB-side of the same seam.
@@ -274,6 +287,37 @@ test('liveState: reads busy/idle straight from the session row', () => {
   // so it reads idle rather than spinning forever — the safety net.
   assert.strictEqual(hermes.liveState('sess-running'), 'idle');
   assert.strictEqual(hermes.liveState('does-not-exist'), null);
+});
+
+test('Hermes resource discovery surfaces config, skills, bundles, plugins and hooks read-only', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-resources-'));
+  try {
+    hermes.setHome(home);
+    fs.mkdirSync(path.join(home, 'skills', 'software', 'review'), { recursive: true });
+    fs.mkdirSync(path.join(home, 'skill-bundles'), { recursive: true });
+    fs.mkdirSync(path.join(home, 'plugins', 'demo-plugin'), { recursive: true });
+    fs.mkdirSync(path.join(home, 'hooks'), { recursive: true });
+    fs.mkdirSync(path.join(home, 'memories'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'config.yaml'), 'model:\n  provider: demo\n');
+    fs.writeFileSync(path.join(home, 'SOUL.md'), 'memory');
+    fs.writeFileSync(path.join(home, 'skills', 'software', 'review', 'SKILL.md'), '---\nname: review\ndescription: test\n---\n');
+    fs.writeFileSync(path.join(home, 'skill-bundles', 'team.yaml'), 'skills: [review]\n');
+    fs.writeFileSync(path.join(home, 'hooks', 'guard.sh'), '#!/bin/sh\n');
+
+    const res = hermes.listResources({ projectPath: 'ignored' });
+    assert.strictEqual(res.ok, true);
+    const keys = res.resources.map(r => `${r.scope}:${r.kind}:${r.name}`);
+    assert.ok(keys.includes('global:settings:config.yaml'));
+    assert.ok(keys.includes('global:memory:SOUL.md'));
+    assert.ok(keys.includes('global:skill:review'));
+    assert.ok(keys.includes('global:skill-bundle:team'));
+    assert.ok(keys.includes('global:plugin:demo-plugin'));
+    assert.ok(keys.includes('global:hook:guard.sh'));
+    assert.ok(keys.includes('global:memory-store:memories'));
+  } finally {
+    hermes.setHome(null);
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test('probe reports a clear reason when hermes is not installed', () => {

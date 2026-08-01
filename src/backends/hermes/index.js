@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 const reader = require('./reader');
+const resources = require('./resources');
 const { findOnPath } = require('../file-store');
 const { deriveState } = require('./state');
 
@@ -50,6 +51,12 @@ const configFields = [
     description: 'Approve unseen shell hooks from config.yaml without prompting. Only for hooks you trust.' },
   { id: 'yolo', label: 'Bypass approvals (yolo)', type: 'toggle', default: false,
     description: 'Runs dangerous commands without asking. Hermes calls this "at your own risk", and so do we.' },
+  { id: 'passSessionId', label: 'Pass session id to agent', type: 'toggle', default: false,
+    description: 'Include the Hermes session ID in the agent\'s system prompt.' },
+  { id: 'ignoreUserConfig', label: 'Ignore user config', type: 'toggle', default: false,
+    description: 'Ignore Hermes\' config.yaml for this run. Credentials in .env are still loaded.' },
+  { id: 'ignoreRules', label: 'Ignore rules and memory', type: 'toggle', default: false,
+    description: 'Skip AGENTS.md, SOUL.md, memory and preloaded skills for this run.' },
 ];
 
 /**
@@ -94,6 +101,9 @@ function buildLaunch({ cwd, resume, sessionId, options } = {}) {
   if (opts.safeMode) args.push('--safe-mode');
   if (opts.acceptHooks) args.push('--accept-hooks');
   if (opts.yolo) args.push('--yolo');
+  if (opts.passSessionId) args.push('--pass-session-id');
+  if (opts.ignoreUserConfig) args.push('--ignore-user-config');
+  if (opts.ignoreRules) args.push('--ignore-rules');
 
   const exe = findExecutable();
 
@@ -213,6 +223,7 @@ module.exports = {
   buildLaunch,
   probe,
   findExecutable,
+  listResources: resources.listResources,
 
   // --- the dual-mode seam, db side ---
   discoverSessions: reader.discoverSessions,

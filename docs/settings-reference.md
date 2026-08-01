@@ -218,10 +218,10 @@ own `config.toml`.)
 | `claude` | `permissionMode` (`default`), `model`, `worktree`, `worktreeName`, `chrome`, `addDirs`, `mcpEmulation` (**on**, applied at spawn), `afkTimeoutSec` |
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
 | `agy` | `model`, `mode`, `sandbox`, `addDirs` |
-| `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo` |
+| `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
 | `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `noContextFiles` |
 
-Pi's `model` field supports backend-owned suggestions from `pi --list-models`; failures leave the field as normal free text. Pi's backend settings page also shows a read-only resource inventory (packages, extensions, skills, prompt templates, themes and settings files) discovered by the Pi backend; Switchboard does not install or execute resources from there.
+Pi's `model` field supports backend-owned suggestions from `pi --list-models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Pi reports packages, extensions, skills, prompt templates, themes and settings files; Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. Switchboard does not install or execute resources from there.
 
 Claude's pre-multi-LLM top-level keys (`permissionMode`, `worktree`, `chrome`, …) are migrated once into
 `backendDefaults.claude` and removed from the blob.
