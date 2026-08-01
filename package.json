@@ -19,6 +19,7 @@
     "generate-icons": "node scripts/generate-icons.js && node scripts/generate-dmg-background.js",
     "upstream:check": "node scripts/upstream-check.js",
     "upstream:seen": "node scripts/upstream-check.js --seen",
+    "hermes:help-check": "node scripts/check-hermes-help.js",
     "build": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder",
     "build:mac": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --mac && node scripts/postinstall.js && codesign --sign - --force --deep dist/mac-arm64/Switchboard.app 2>/dev/null; true",
     "build:mac:arm64": "electron-builder --mac --arm64 2>/dev/null; true",

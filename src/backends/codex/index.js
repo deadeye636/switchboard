@@ -19,6 +19,7 @@ const path = require('path');
 
 const parser = require('./parser');
 const trust = require('./trust');
+const resources = require('./resources');
 const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, codexLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
@@ -198,6 +199,7 @@ module.exports = {
   plansDir: () => null,
   // Codex's per-project instruction file is AGENTS.md (#227). It used to be read under Claude's branch in
   // the core, so a Codex project's own file was attributed to Claude; now Codex declares it.
+  listResources: resources.createListResources({ codexHome }),
   memorySources: (scope) => {
     if (!scope || !scope.projectPath) return [];
     const short = require('../../session/derive-project-path').projectShortName(scope.projectPath);

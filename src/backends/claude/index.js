@@ -20,6 +20,7 @@ const fs = require('fs');
 const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId, readSubagentMeta, PARSER_SCHEMA_VERSION: readerVersion } = require('./session-reader');
 // The per-spawn hook settings that tie a /clear to its terminal (#223).
 const liveBinding = require('./live-binding');
+const resources = require('./resources');
 const { readFolderSessions } = require('./folder-reader');
 const { encodeProjectPath } = require('../../session/encode-project-path');
 const { projectShortName } = require('../../session/derive-project-path');
@@ -439,6 +440,7 @@ module.exports = {
   // canonical encoded name so a not-yet-indexed project still resolves) and the project-root CLAUDE.md +
   // .claude dirs. Each source is display-ready; the neutral Plans/Memory module scans/stats them and never
   // hardcodes ~/.claude itself.
+  listResources: resources.createListResources({ claudeHome }),
   memorySources: (scope) => {
     scope = scope || {};
     if (!scope.projectPath) {

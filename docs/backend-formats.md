@@ -23,6 +23,10 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
 - Claude accepts `--session-id`, so **we** choose the id — the only backend where that is true.
 - State: the CLI **reports** it in the terminal (OSC 0 title: a braille spinner = working, `✳` = idle;
   OSC 9;4 progress as a second source).
+- Resource discovery is read-only through Claude's `listResources()` hook. It surfaces settings,
+  instructions, commands, agents, plugins, hooks, skills and customization directories, including project
+  `.claude/` resources when a project is in scope. It deliberately excludes credentials, logs, history,
+  transcripts and Claude's main config file, which can carry secrets.
 
 ## Codex — file, JSONL (date-bucketed)
 
@@ -43,6 +47,10 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
   project (and poisons the search index with it).
 - Windows: `codex` on PATH is an npm **`.cmd` shim**, which `CreateProcess` cannot execute → argv spawn
   falls back to the shell.
+- Resource discovery is read-only through Codex' `listResources()` hook. It surfaces config, profile
+  configs, instructions, plugins, skills, rules, memories and model catalogs, including project
+  `AGENTS.md` / `.codex/` resources when a project is in scope. It deliberately excludes auth, logs,
+  transcripts and secret sandboxes.
 
 ### Rate limits ride along in the transcript (#191)
 
@@ -303,8 +311,8 @@ which meant they were, in practice, not configurable from Switchboard.
 | Backend | Declared | Deliberately left out, and why |
 |---|---|---|
 | **Claude** | `permissionMode`, `model`, `worktree` (+`worktreeName`), `chrome`, `addDirs`, `mcpEmulation`, `afkTimeoutSec` | — |
-| **Codex** | `model`, `approvalMode`, `sandbox`, `profile` (Codex' *own* config profile), `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` (`-c key=value`) | `--dangerously-bypass-approvals-and-sandbox` — its own help calls it "EXTREMELY DANGEROUS… solely for externally sandboxed environments". `sandbox: danger-full-access` already lets a user drop the sandbox on purpose; a single toggle that removes approvals *and* the sandbox is a different thing. `-C/--cd` (we own the cwd). |
-| **Hermes** | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` | `--cli`/`--tui` (we run it in a PTY — interactive is the point), `-z`/`--oneshot` (non-interactive), anything that moves its session store or writes/manages resources. |
+| **Codex** | `model`, `approvalMode`, `sandbox`, `profile` (Codex' *own* config profile), `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` (`-c key=value`) | `--dangerously-bypass-approvals-and-sandbox` and `--dangerously-bypass-hook-trust` — their own help marks them dangerous. `sandbox: danger-full-access` already lets a user drop the sandbox on purpose; a single toggle that removes approvals *and* the sandbox is a different thing. `-C/--cd` (we own the cwd), `--remote*` / app-server wiring, `--no-alt-screen` (Switchboard owns the PTY). |
+| **Hermes** | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` | `--cli`/`--tui` (we run it in a PTY — interactive is the point), `-z`/`--oneshot` and `--usage-file` (non-interactive), `--continue` (picker/name rather than Switchboard's recorded id), `--no-restore-cwd` (resume semantics, not a launch default), `--dev`, anything that moves its session store or writes/manages resources. `npm run hermes:help-check` fails when `hermes --help` gains unaudited top-level flags. |
 | **Pi** | `model` (with model discovery), `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `noContextFiles` | **`--api-key`** — it would put a raw key on the COMMAND LINE, readable in any process listing. Pi reads its key from the environment; a template's `$VAR` env bundle (resolved at spawn, never on disk) is the only route we offer. Also `--mode json/rpc` and `--print` (non-interactive), `--session-dir`/`--no-session` (they move or suppress the store we watch), arbitrary `--extension` paths (Switchboard owns only its generated live-binding extension). |
 
 **Some options belong to Switchboard, not to a CLI**, and the registry adds those to *every* backend

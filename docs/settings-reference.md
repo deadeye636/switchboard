@@ -221,7 +221,7 @@ own `config.toml`.)
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
 | `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `noContextFiles` |
 
-Pi's `model` field supports backend-owned suggestions from `pi --list-models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Pi reports packages, extensions, skills, prompt templates, themes and settings files; Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. Switchboard does not install or execute resources from there.
+Pi's `model` field supports backend-owned suggestions from `pi --list-models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. Switchboard does not install or execute resources from there.
 
 Claude's pre-multi-LLM top-level keys (`permissionMode`, `worktree`, `chrome`, …) are migrated once into
 `backendDefaults.claude` and removed from the blob.
@@ -402,6 +402,7 @@ notice, because those were explicit configuration choices.
 | `node scripts/seed-demo.js` | Parses no arguments; driven entirely by `SWITCHBOARD_DEMO_DIR`. Idempotent. Also `git init`s two of the demo projects and leaves a dirty working tree in each. |
 | `ELECTRON_RUN_AS_NODE=1 electron scripts/demo-content.js` | Seeds the demo's DB-only content. Driven by `SWITCHBOARD_DATA_DIR` + `SWITCHBOARD_DEMO_DIR`; refuses a data dir outside the demo tree. |
 | `node scripts/upstream-check.js [--seen]` | Without the flag it only reports. |
+| `npm run hermes:help-check` | Runs `hermes --help` and fails when top-level options drift outside the audited Hermes descriptor list. |
 | `node scripts/check-debug-port.js` | Exists because Electron silently starts *without* a debug port when the port is taken. |
 | `node scripts/build-backlog.js` | Regenerates `docs/BACKLOG.md` / `.jsonl` from GitHub issues. Both outputs are gitignored — run it once per clone. |
 
