@@ -62,6 +62,53 @@ test('cost: usage.cost is an OBJECT (.total), summed into an ESTIMATE — never 
   assert.strictEqual(row.costStatus, 'estimated');
 });
 
+test('Pi tree parsing follows the current leaf and uses session_info as the title', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-tree-'));
+  const id = 'cccc3333-0000-4000-8000-000000000003';
+  const p = path.join(dir, `2026-07-12T10-00-00-000Z_${id}.jsonl`);
+  try {
+    fs.writeFileSync(p, [
+      JSON.stringify({ type: 'session', version: 3, id, timestamp: '2026-07-12T10:00:00.000Z', cwd: 'Z:\\temp' }),
+      JSON.stringify({ type: 'message', id: 'u1', parentId: null, timestamp: '2026-07-12T10:00:01.000Z', message: { role: 'user', content: 'root prompt' } }),
+      JSON.stringify({ type: 'message', id: 'a1', parentId: 'u1', timestamp: '2026-07-12T10:00:02.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'old branch answer' }], model: 'old-model', stopReason: 'stop', usage: { input: 10, output: 1, totalTokens: 11, cost: { total: 0.01 } } } }),
+      JSON.stringify({ type: 'message', id: 'u2', parentId: 'u1', timestamp: '2026-07-12T10:00:03.000Z', message: { role: 'user', content: 'new branch prompt' } }),
+      JSON.stringify({ type: 'session_info', id: 'n1', parentId: 'u2', timestamp: '2026-07-12T10:00:04.000Z', name: 'Named Pi session' }),
+      JSON.stringify({ type: 'message', id: 'a2', parentId: 'n1', timestamp: '2026-07-12T10:00:05.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'new branch answer' }], model: 'new-model', stopReason: 'stop', usage: { input: 20, output: 2, totalTokens: 22, cost: { total: 0.02 } } } }),
+    ].join('\n') + '\n');
+
+    const row = parser.parseSession(handleFor(p));
+    assert.strictEqual(row.customTitle, 'Named Pi session');
+    assert.strictEqual(row.summary, 'root prompt');
+    assert.strictEqual(row.messageCount, 3, 'root + active branch only; abandoned assistant is ignored');
+    assert.strictEqual(row.userMessageCount, 2);
+    assert.strictEqual(row.model, 'new-model');
+    assert.strictEqual(row.inputTokens, 20, 'usage comes from the active branch only');
+    assert.match(row.textContent, /new branch answer/);
+    assert.doesNotMatch(row.textContent, /old branch answer/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Pi compaction and custom messages contribute searchable active-branch text', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-compact-'));
+  const id = 'dddd4444-0000-4000-8000-000000000004';
+  const p = path.join(dir, `2026-07-12T10-10-00-000Z_${id}.jsonl`);
+  try {
+    fs.writeFileSync(p, [
+      JSON.stringify({ type: 'session', version: 3, id, timestamp: '2026-07-12T10:10:00.000Z', cwd: 'Z:\\temp' }),
+      JSON.stringify({ type: 'message', id: 'u1', parentId: null, timestamp: '2026-07-12T10:10:01.000Z', message: { role: 'user', content: 'before compaction' } }),
+      JSON.stringify({ type: 'compaction', id: 'c1', parentId: 'u1', timestamp: '2026-07-12T10:10:02.000Z', summary: 'compact summary text', usage: { input: 3, output: 4, totalTokens: 7, cost: { total: 0.007 } }, retainedTail: [{ role: 'assistant', content: [{ type: 'text', text: 'retained answer' }], model: 'retained-model', stopReason: 'stop', usage: { input: 1, output: 2, totalTokens: 3, cost: { total: 0.003 } } }] }),
+      JSON.stringify({ type: 'custom_message', id: 'x1', parentId: 'c1', timestamp: '2026-07-12T10:10:03.000Z', customType: 'switchboard-test', content: 'extension context text', display: true }),
+    ].join('\n') + '\n');
+
+    const row = parser.parseSession(handleFor(p));
+    assert.match(row.textContent, /compact summary text/);
+    assert.match(row.textContent, /retained answer/);
+    assert.match(row.textContent, /extension context text/);
+    assert.strictEqual(row.model, 'retained-model');
+    assert.ok(Math.abs(row.estimatedCostUsd - 0.01) < 1e-9);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('a session whose turns all failed reports NO cost (not a zero)', () => {
   const store = tmpStore();
   const p = path.join(store.dir, '2026-07-12T07-49-04-568Z_aaaa1111-0000-4000-8000-000000000001.jsonl');
@@ -210,6 +257,33 @@ test('buildLaunch: new vs resume (binary-bound, §5.11)', () => {
   );
 });
 
+test('buildLaunch exposes current valuable Pi launch options without moving the watched store', () => {
+  const args = pi.buildLaunch({ cwd: 'Z:\\temp', options: {
+    name: 'Refactor auth',
+    models: 'sonnet:high,gpt-5.5',
+    noTools: true,
+    noBuiltinTools: true,
+    approval: 'approve',
+    offline: true,
+  } }).args;
+  assert.deepStrictEqual(args, [
+    '--name', 'Refactor auth',
+    '--models', 'sonnet:high,gpt-5.5',
+    '--no-tools',
+    '--no-builtin-tools',
+    '--approve',
+    '--offline',
+  ]);
+  assert.ok(pi.configFields.some(f => f.id === 'approval'), 'trust override is visible in backend settings');
+});
+
+test('buildLaunch can explicitly decline Pi project trust for one run', () => {
+  assert.deepStrictEqual(
+    pi.buildLaunch({ cwd: 'Z:\\temp', options: { approval: 'no-approve' } }).args,
+    ['--no-approve'],
+  );
+});
+
 test('fork: the sidebar offers it, so buildLaunch must honour it', () => {
   // Dropping forkFrom does not disable the Fork button — it launches a plain `pi`, i.e. an unrelated
   // empty session. Pi supports --fork, so wire it (found by the Phase-6 gate).
@@ -221,6 +295,23 @@ test('fork: the sidebar offers it, so buildLaunch must honour it', () => {
     pi.buildLaunch({ cwd: 'Z:\\temp', options: { forkFrom: 'abc' } }).args,
     ['--fork', 'abc'],
   );
+});
+
+test('Pi live binding is a backend-owned extension on the neutral terminal-binding seam', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-live-'));
+  try {
+    const binding = pi.buildLiveBinding({ dir, tag: 'tag-1', sessionUrl: 'http://127.0.0.1:9/switchboard-session-bind?t=x' });
+    assert.deepStrictEqual(binding.args.slice(0, 1), ['--extension']);
+    const file = binding.args[1];
+    const source = fs.readFileSync(file, 'utf8');
+    assert.match(source, /session_start/);
+    assert.match(source, /turn_start/);
+    assert.match(source, /agent_settled/);
+    assert.match(source, /getSessionId/);
+    assert.match(source, /session_id/);
+    pi.releaseLiveBinding(binding.cleanup);
+    assert.ok(!fs.existsSync(file), 'cleanup removes the generated extension');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('auth is injected as $VAR refs only — never a literal, never Pi credential files', () => {

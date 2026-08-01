@@ -28,7 +28,8 @@ const { bucketFromIso, bucketKey } = require('../metrics-bucket');
 //   v3: per-(date, HOUR, model), bucketed in LOCAL time, with cost booked on the turn that spent it (#159)
 // 4 (#193): the session header's `parentSession` is read now. Existing rows were parsed without it and
 // carry no lineage; bumping is what makes them re-read themselves — a parser change moves no mtime.
-const PARSER_SCHEMA_VERSION = 4;
+// 5 (#407): Pi's id/parentId tree and session_info entries decide the visible branch/title.
+const PARSER_SCHEMA_VERSION = 5;
 
 const FINGERPRINT_BYTES = 64;
 
@@ -59,6 +60,12 @@ function createParseState() {
     // Busy/idle input (state.js): the last assistant turn's stopReason. Pi emits no OSC and its
     // lifecycle events live only in --mode json, which excludes the TUI (T-6.3).
     lastStopReason: null,
+    // Raw entries after the session header. Pi JSONL is a TREE, not an append-only linear chat: the last
+    // appended entry is the current leaf, and the visible conversation is the parent walk back to root.
+    // Keep the parsed entries so buildRow can reconstruct that active branch (and incremental parsing can
+    // append to it) without teaching the core any Pi format.
+    entries: [],
+    sessionName: null,
 
     // Per-(date, hour, model) metrics -> session_metrics -> the Stats charts (#154, #159). Pi reports
     // usage AND cost per ASSISTANT MESSAGE, with a timestamp on the entry, so its buckets are exact —
@@ -106,13 +113,65 @@ function messageText(message) {
   const parts = [];
   for (const c of content) {
     if (c && typeof c.text === 'string') parts.push(c.text);
+    else if (c && c.type === 'thinking' && typeof c.thinking === 'string') parts.push(c.thinking);
+    else if (c && c.type === 'toolCall') parts.push([c.name, JSON.stringify(c.arguments || {})].filter(Boolean).join(' '));
   }
   return parts.join(' ');
+}
+
+function usageCost(usage) {
+  if (!usage || typeof usage !== 'object') return 0;
+  const cost = usage.cost;
+  const total = (cost && typeof cost === 'object') ? Number(cost.total || 0)
+    : (typeof cost === 'number' ? cost : 0);
+  return Number.isFinite(total) && total > 0 ? total : 0;
+}
+
+function applyUsageTotals(st, usage, bucket) {
+  if (!usage || typeof usage !== 'object') return;
+  st.inputTokens += Number(usage.input || 0);
+  st.outputTokens += Number(usage.output || 0);
+  st.cacheReadTokens += Number(usage.cacheRead || 0);
+  st.cacheCreationTokens += Number(usage.cacheWrite || 0);
+  st.reasoningTokens += Number(usage.reasoning || 0);
+  st.totalTokens += Number(usage.totalTokens || 0);
+  if (bucket) {
+    bucket.inputTokens += Number(usage.input || 0);
+    bucket.outputTokens += Number(usage.output || 0);
+    bucket.cacheReadTokens += Number(usage.cacheRead || 0);
+    bucket.cacheCreationTokens += Number(usage.cacheWrite || 0);
+  }
+  const total = usageCost(usage);
+  if (total > 0) {
+    st.estimatedCostUsd += total;
+    st.hasCost = true;
+    if (bucket) bucket.estimatedCostUsd = (bucket.estimatedCostUsd || 0) + total;
+  }
+}
+
+function activeEntries(entries) {
+  if (!Array.isArray(entries) || !entries.length) return [];
+  const byId = new Map();
+  let leaf = null;
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || !entry.id) continue;
+    byId.set(entry.id, entry);
+    leaf = entry;
+  }
+  if (!leaf) return entries.slice();   // legacy v1-ish fixtures: linear entries without tree ids
+  const out = [];
+  const seen = new Set();
+  for (let cur = leaf; cur && cur.id && !seen.has(cur.id); cur = cur.parentId ? byId.get(cur.parentId) : null) {
+    seen.add(cur.id);
+    out.push(cur);
+  }
+  return out.reverse();
 }
 
 function applyEntry(st, entry) {
   if (!entry || typeof entry !== 'object') return;
   const { type } = entry;
+  if (type !== 'session') st.entries.push(entry);
   if (typeof entry.timestamp === 'string' && entry.timestamp) {
     if (!st.startedAt) st.startedAt = entry.timestamp;
     st.lastEntryAt = entry.timestamp;
@@ -131,6 +190,10 @@ function applyEntry(st, entry) {
       // Last one wins — a session can switch model (and provider) mid-flight.
       if (typeof entry.modelId === 'string' && entry.modelId) st.model = entry.modelId;
       if (typeof entry.provider === 'string' && entry.provider) st.provider = entry.provider;
+      break;
+    }
+    case 'session_info': {
+      st.sessionName = typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : null;
       break;
     }
     case 'message': {
@@ -239,51 +302,132 @@ function readFrom(filePath, st, startOffset) {
   }
 }
 
+function visibleState(st) {
+  const out = createParseState();
+  out.sessionId = st.sessionId;
+  out.cwd = st.cwd;
+  out.parentSessionPath = st.parentSessionPath;
+  out.startedAt = st.startedAt;
+  out.lastEntryAt = st.lastEntryAt;
+  const pathEntries = activeEntries(st.entries);
+
+  for (const entry of pathEntries) {
+    if (typeof entry.timestamp === 'string' && entry.timestamp) out.lastEntryAt = entry.timestamp;
+    if (entry.type === 'model_change') {
+      if (typeof entry.modelId === 'string' && entry.modelId) out.model = entry.modelId;
+      if (typeof entry.provider === 'string' && entry.provider) out.provider = entry.provider;
+      continue;
+    }
+    if (entry.type === 'session_info') {
+      out.sessionName = typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : null;
+      continue;
+    }
+    if (entry.type === 'compaction' || entry.type === 'branch_summary') {
+      const text = entry.summary || '';
+      if (text) out.textParts.push(text);
+      const at = bucketFromIso(entry.timestamp, null);
+      const bucket = at.date ? metricBucket(out, at, out.model) : null;
+      applyUsageTotals(out, entry.usage, bucket);
+      if (Array.isArray(entry.retainedTail)) {
+        for (const m of entry.retainedTail) applyMessageToVisible(out, { type: 'message', timestamp: entry.timestamp, message: m });
+      }
+      continue;
+    }
+    if (entry.type === 'custom_message') {
+      const text = messageText({ content: entry.content });
+      if (text) out.textParts.push(text);
+      continue;
+    }
+    if (entry.type === 'message') applyMessageToVisible(out, entry);
+  }
+  return out;
+}
+
+function applyMessageToVisible(st, entry) {
+  const m = entry && entry.message;
+  if (!m || typeof m !== 'object') return;
+  const text = messageText(m);
+  const at = entryBucket(entry, m);
+
+  if (m.role === 'user') {
+    st.messageCount++;
+    st.userMessageCount++;
+    const words = countWords(text);
+    if (words > st.largestUserPromptWords) st.largestUserPromptWords = words;
+    if (!st.summary && text.trim()) st.summary = text.trim().slice(0, 200);
+    if (text) st.textParts.push(text);
+    if (at.date) metricBucket(st, at, st.model).messageCount++;
+    st.lastRole = 'user';
+    return;
+  }
+
+  if (m.role === 'assistant') {
+    st.messageCount++;
+    if (text) st.textParts.push(text);
+    if (typeof m.model === 'string' && m.model) st.model = m.model;
+    if (typeof m.provider === 'string' && m.provider) st.provider = m.provider;
+    st.lastStopReason = typeof m.stopReason === 'string' ? m.stopReason : null;
+    const bucket = at.date ? metricBucket(st, at, m.model || st.model) : null;
+    if (bucket) bucket.messageCount++;
+    applyUsageTotals(st, m.usage, bucket);
+    st.lastRole = 'assistant';
+    return;
+  }
+
+  if (m.role === 'toolResult' || m.role === 'bashExecution' || m.role === 'custom' || m.role === 'branchSummary' || m.role === 'compactionSummary') {
+    if (text) st.textParts.push(text);
+    const bucket = at.date ? metricBucket(st, at, st.model) : null;
+    applyUsageTotals(st, m.usage, bucket);
+    st.lastRole = m.role;
+  }
+}
+
 function buildRow(st, filePath, opts = {}) {
   if (!st.sessionId) return null;
   let stat;
   try { stat = fs.statSync(filePath); } catch { return null; }
-  const activeMinutes = st.startedAt && st.lastEntryAt
-    ? Math.max(0, Math.round((new Date(st.lastEntryAt) - new Date(st.startedAt)) / 60000))
+  const visible = visibleState(st);
+  const activeMinutes = visible.startedAt && visible.lastEntryAt
+    ? Math.max(0, Math.round((new Date(visible.lastEntryAt) - new Date(visible.startedAt)) / 60000))
     : 0;
 
   return {
-    sessionId: st.sessionId,
+    sessionId: visible.sessionId,
     backendId: 'pi',
-    cwd: st.cwd,                        // header value -> central project grouping (§5.9)
+    cwd: visible.cwd,                        // header value -> central project grouping (§5.9)
     // The parent transcript's PATH, untouched — turning it into a session id is the descriptor's job
     // (resolveLineage), because the id-in-the-filename convention is Pi's, not the core's (#193).
-    lineageParentRef: st.parentSessionPath,
+    lineageParentRef: visible.parentSessionPath,
     folder: opts.folder != null ? opts.folder : null,
     projectPath: opts.projectPath != null ? opts.projectPath : null,
-    summary: st.summary,
-    firstPrompt: st.summary,
-    created: st.startedAt || stat.birthtime.toISOString(),
-    modified: st.lastEntryAt || stat.mtime.toISOString(),
-    messageCount: st.messageCount,
-    userMessageCount: st.userMessageCount,
-    largestUserPromptWords: st.largestUserPromptWords,
-    textContent: st.textParts.join('\n'),   // FTS5 body
-    slug: null, customTitle: null, aiTitle: null,
-    startedAt: st.startedAt,
-    lastEntryAt: st.lastEntryAt,
+    summary: visible.summary,
+    firstPrompt: visible.summary,
+    created: visible.startedAt || stat.birthtime.toISOString(),
+    modified: visible.lastEntryAt || stat.mtime.toISOString(),
+    messageCount: visible.messageCount,
+    userMessageCount: visible.userMessageCount,
+    largestUserPromptWords: visible.largestUserPromptWords,
+    textContent: visible.textParts.join('\n'),   // FTS5 body
+    slug: null, customTitle: visible.sessionName || null, aiTitle: null,
+    startedAt: visible.startedAt,
+    lastEntryAt: visible.lastEntryAt,
     activeMinutes,
-    model: st.model,
-    inputTokens: st.inputTokens,
-    outputTokens: st.outputTokens,
-    cacheReadTokens: st.cacheReadTokens,
-    cacheCreationTokens: st.cacheCreationTokens,
-    reasoningTokens: st.reasoningTokens,
-    totalTokens: st.totalTokens,
+    model: visible.model,
+    inputTokens: visible.inputTokens,
+    outputTokens: visible.outputTokens,
+    cacheReadTokens: visible.cacheReadTokens,
+    cacheCreationTokens: visible.cacheCreationTokens,
+    reasoningTokens: visible.reasoningTokens,
+    totalTokens: visible.totalTokens,
     // Pi PRICES its own turns, so it reports a cost like Hermes — but it is an estimate from Pi's price
     // table, never a settled amount. A session whose turns all failed has no cost at all (not a zero).
-    estimatedCostUsd: st.hasCost ? st.estimatedCostUsd : null,
+    estimatedCostUsd: visible.hasCost ? visible.estimatedCostUsd : null,
     actualCostUsd: null,
-    costStatus: st.hasCost ? 'estimated' : null,
+    costStatus: visible.hasCost ? 'estimated' : null,
     // Busy/idle input for state.js.
-    lastStopReason: st.lastStopReason,
+    lastStopReason: visible.lastStopReason,
     // Feeds session_metrics -> the Stats heatmap / daily bars / per-model tokens (#154).
-    dailyMetrics: Object.values(st.dailyMetrics),
+    dailyMetrics: Object.values(visible.dailyMetrics),
   };
 }
 
@@ -322,6 +466,7 @@ function parseSessionIncremental(handle, opts = {}, prev = null) {
     if (ok) {
       st = { ...createParseState(), ...prev.state };
       st.textParts = Array.isArray(prev.state.textParts) ? prev.state.textParts.slice() : [];
+      st.entries = Array.isArray(prev.state.entries) ? prev.state.entries.slice() : [];
       start = prev.offset;
     }
   }

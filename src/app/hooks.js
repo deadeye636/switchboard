@@ -175,6 +175,19 @@ function handleHookRequest(req, res, token = attentionHookToken) {
             ctx.log.warn(`[session-bind] could not follow terminal=${tag.slice(0, 8)}: ${err.message}`);
           }
         }
+        // Some backends can also report a neutral busy/idle edge on the same terminal binding. The route
+        // still knows nothing about WHICH backend sent it; it only trusts the per-spawn URL+token and the
+        // session id reported by the terminal-bound extension.
+        const bindKind = hook.kind === 'busy' || hook.kind === 'idle' ? hook.kind : null;
+        if (sessionId && bindKind) {
+          const mainWindow = ctx.getMainWindow();
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('cli-busy-state', sessionId, bindKind === 'busy');
+          }
+          if (ctx.sendTimelineSignal) {
+            ctx.sendTimelineSignal(sessionId, { kind: bindKind, source: 'hook', reason: 'terminal binding' });
+          }
+        }
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end('{}');
         return;

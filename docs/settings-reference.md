@@ -219,7 +219,7 @@ own `config.toml`.)
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
 | `agy` | `model`, `mode`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo` |
-| `pi` | `model`, `provider`, `tools`, `excludeTools`, `appendSystemPrompt`, `thinking`, `noContextFiles` |
+| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `noContextFiles` |
 
 Claude's pre-multi-LLM top-level keys (`permissionMode`, `worktree`, `chrome`, …) are migrated once into
 `backendDefaults.claude` and removed from the blob.

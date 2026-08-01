@@ -168,20 +168,28 @@ The only backend whose history is **not** in files — the reason the discovery 
   transcript (#193). Only a fork has it, which is how four surveys of real sessions concluded Pi records no
   parent at all: none of the sessions read happened to be one. The parent's session id is the filename
   after the underscore (`<ISO>_<uuid>.jsonl`), so the link is exact rather than a lookup.
+- Entries after the header form a **tree** through `id` / `parentId`; the current visible conversation is
+  the parent walk from the last written leaf, not every line in the file. The parser indexes the active
+  branch, includes compaction/branch summaries and displayed extension messages, and ignores abandoned
+  branch text so search does not find a reply the user is no longer looking at.
+- `session_info` carries Pi's display name (`--name`, `/name`, extension `setSessionName()`); Switchboard
+  maps it to the row title overlay instead of treating it as chat text.
 - The turn payload is nested **one level down**, under `.message`:
   `{type:'message', message:{role, content:[{type:'text',text}], model, provider, stopReason, usage}}`.
 - **Pi is multi-provider *within* one session** — a real session switched from `anthropic/claude-opus-4-7`
-  to `openai-codex/gpt-5.5` mid-flight. So "the session's model" is the **last** one seen, and the token
-  and cost totals span providers.
+  to `openai-codex/gpt-5.5` mid-flight. So "the session's model" is the **last** one on the active branch,
+  and token/cost totals are booked from that branch's assistant turns.
 - **Cost — corrects the plan:** `usage.cost` is an **object** (`{input, output, cacheRead, cacheWrite,
   total}`), not a number. Sum `usage.cost.total` across assistant turns. It is Pi's own estimate from its
   own price table, so it is recorded as an estimate and never as a settled amount.
 - A failed turn is written with `stopReason:'error'`, an **empty** content array and an all-zero usage —
-  it must not be counted as a turn, and its zero must not be reported as a cost.
-- State: Pi states **nothing** — no OSC, and its lifecycle events exist only in `--mode json`, which is
-  mutually exclusive with the interactive TUI. Busy is inferred from which line exists last (a trailing
-  user prompt = a turn is running), with a growing tail window (one message is one line, and a large
-  answer can exceed the window entirely) plus the terminal-liveness signal.
+  it is still a transcript message, but its zero must not be reported as a cost.
+- State: Pi states **nothing in OSC**. Switchboard therefore keeps the transcript-tail inference (a
+  trailing user/tool result = a turn is running), with a growing tail window (one message is one line, and
+  a large answer can exceed the window entirely) plus the terminal-liveness signal. For sessions launched
+  by Switchboard, Pi also gets a per-spawn `--extension` file that posts the current `session_id` and
+  neutral busy/idle edges (`turn_start`, `turn_end`, `agent_settled`) to the existing terminal-binding
+  ingest; this is declared by Pi's descriptor, not by a core backend-id branch.
 - Undocumented dependencies: **Node ≥ 22.19** (the one on PATH, not the app's embedded one) and, on
   Windows, a **bash**. Both are probed, because a launch without them dies with nothing to act on.
 - Project trust lives in `(PI_CODING_AGENT_DIR | ~/.pi/agent)/trust.json`: a JSON object mapping canonical

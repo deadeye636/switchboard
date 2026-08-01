@@ -25,6 +25,7 @@ const { execFileSync } = require('child_process');
 
 const parser = require('./parser');
 const trust = require('./trust');
+const liveBinding = require('./live-binding');
 const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, piLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
@@ -72,6 +73,8 @@ function cliHomeEnv() {
 //     spawn, never written to disk) is the route for that, and the only one we will offer.
 //   `--mode json|rpc`, `--print` — non-interactive modes; we run Pi in a terminal.
 //   `--session-dir`, `--no-session`, `--session*` — they move or suppress the session store we watch.
+//   `--extension` — owned by buildLiveBinding for Switchboard's per-spawn extension; arbitrary extension
+//     paths remain a future UI design, not a free text argv injection here.
 const configFields = [
   { id: 'model', label: 'Model', type: 'text', default: '',
     description: 'Model pattern or id — supports "provider/id" and an optional ":<thinking>" suffix.' },
@@ -82,10 +85,25 @@ const configFields = [
     choiceLabels: { '': 'Pi\'s default' },
     default: '',
     description: 'How hard the model thinks before answering.' },
+  { id: 'name', label: 'Session name', type: 'text', default: '',
+    description: 'Initial Pi session display name (`--name`).' },
+  { id: 'models', label: 'Model cycle list', type: 'text', default: '',
+    description: 'Comma-separated model patterns for Pi\'s Ctrl+P cycling (`--models`).' },
   { id: 'tools', label: 'Tools (allowlist)', type: 'text', default: '',
     description: 'Comma-separated tool names to enable. Empty = all of them.' },
   { id: 'excludeTools', label: 'Tools (denylist)', type: 'text', default: '',
     description: 'Comma-separated tool names to disable. Applies to built-in, extension and custom tools.' },
+  { id: 'noTools', label: 'Disable tools', type: 'toggle', default: false,
+    description: 'Start Pi with all tools disabled by default (`--no-tools`).' },
+  { id: 'noBuiltinTools', label: 'Disable built-in tools', type: 'toggle', default: false,
+    description: 'Disable Pi\'s built-in tools but keep extension/custom tools enabled (`--no-builtin-tools`).' },
+  { id: 'approval', label: 'Project trust for this run', type: 'select',
+    choices: ['', 'approve', 'no-approve'],
+    choiceLabels: { '': 'Use saved trust', approve: 'Trust this run', 'no-approve': 'Do not trust this run' },
+    default: '',
+    description: 'Override Pi project trust for this launch only.' },
+  { id: 'offline', label: 'Offline startup', type: 'toggle', default: false,
+    description: 'Disable Pi startup network operations (`--offline`).' },
   { id: 'appendSystemPrompt', label: 'Append to system prompt', type: 'text', default: '',
     description: 'Text (or a file path) appended to Pi\'s system prompt.' },
   { id: 'noContextFiles', label: 'Ignore AGENTS.md / CLAUDE.md', type: 'toggle', default: false,
@@ -206,8 +224,15 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
   if (opts.model) args.push('--model', String(opts.model));
   if (opts.provider) args.push('--provider', String(opts.provider));
   if (opts.thinking) args.push('--thinking', String(opts.thinking));
+  if (opts.name) args.push('--name', String(opts.name));
+  if (opts.models) args.push('--models', String(opts.models));
   if (opts.tools) args.push('--tools', String(opts.tools));
   if (opts.excludeTools) args.push('--exclude-tools', String(opts.excludeTools));
+  if (opts.noTools) args.push('--no-tools');
+  if (opts.noBuiltinTools) args.push('--no-builtin-tools');
+  if (opts.approval === 'approve') args.push('--approve');
+  if (opts.approval === 'no-approve') args.push('--no-approve');
+  if (opts.offline) args.push('--offline');
   if (opts.appendSystemPrompt) args.push('--append-system-prompt', String(opts.appendSystemPrompt));
   if (opts.noContextFiles) args.push('--no-context-files');
 
@@ -260,6 +285,9 @@ module.exports = {
   colour: 'pi',
   supportsFork: true,     // `pi --fork <id>`
   supportsSubagents: false,   // fork, yes; subagents, no (#230)
+  supportsLiveRebinding: true,
+  buildLiveBinding: ({ dir, tag, sessionUrl, log } = {}) => liveBinding.writeBindingExtension({ dir, tag, sessionUrl, log }),
+  releaseLiveBinding: (file, log) => liveBinding.removeBindingExtension(file, log),
   // Lineage (#193): a FORKED Pi session records its origin in the header as `parentSession` — the full
   // path of the parent transcript. A hard link, like Claude's `forkedFrom` and Hermes' parent column.
   //
