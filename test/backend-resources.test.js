@@ -8,6 +8,7 @@ const path = require('node:path');
 const backendResources = require('../src/app/backend-resources');
 const claude = require('../src/backends/claude');
 const codex = require('../src/backends/codex');
+const agy = require('../src/backends/agy');
 const MAIN = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
 const PRELOAD = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
 
@@ -104,6 +105,44 @@ test('Codex resource discovery exposes safe config and project instructions only
   } finally {
     codex.setHome(null);
     fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test('agy resource discovery exposes safe settings and instructions only', () => {
+  const geminiHome = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'agy-gemini-resources-'));
+  const agyHome = path.join(geminiHome, 'antigravity-cli');
+  const conversations = path.join(agyHome, 'conversations');
+  const project = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'agy-project-resources-'));
+  try {
+    agy.setRoot(conversations);
+    fs.mkdirSync(conversations, { recursive: true });
+    fs.mkdirSync(path.join(agyHome, 'builtin'), { recursive: true });
+    fs.mkdirSync(path.join(agyHome, 'implicit'), { recursive: true });
+    fs.mkdirSync(path.join(agyHome, 'knowledge'), { recursive: true });
+    fs.mkdirSync(path.join(agyHome, 'log'), { recursive: true });
+    fs.writeFileSync(path.join(geminiHome, 'GEMINI.md'), 'instructions');
+    fs.writeFileSync(path.join(geminiHome, 'settings.json'), '{}');
+    fs.writeFileSync(path.join(geminiHome, 'oauth_creds.json'), '{}');
+    fs.writeFileSync(path.join(agyHome, 'settings.json'), '{}');
+    fs.writeFileSync(path.join(agyHome, 'history.jsonl'), '{}\n');
+    fs.writeFileSync(path.join(conversations, 'abc.db'), 'sqlite');
+    fs.writeFileSync(path.join(project, 'GEMINI.md'), 'project instructions');
+
+    const res = agy.listResources({ projectPath: project });
+    assert.equal(res.ok, true);
+    const keys = res.resources.map(r => `${r.scope}:${r.kind}:${r.name}`);
+    assert.ok(keys.includes('global:memory:GEMINI.md'));
+    assert.ok(keys.includes('global:settings:settings.json'));
+    assert.ok(keys.includes('global:resource:builtin'));
+    assert.ok(keys.includes('global:resource:implicit'));
+    assert.ok(keys.includes('global:memory-store:knowledge'));
+    assert.ok(keys.includes('project:memory:GEMINI.md'));
+    assert.ok(!res.resources.some(r => /oauth|account|auth|history|conversation|\.db$|log|crash|cache|tmp|scratch/i.test(r.path || '')),
+      'credentials, logs, histories and conversation stores are not resources');
+  } finally {
+    agy.setRoot(null);
+    fs.rmSync(geminiHome, { recursive: true, force: true });
     fs.rmSync(project, { recursive: true, force: true });
   }
 });

@@ -18,6 +18,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const parser = require('./parser');
+const resources = require('./resources');
 const { createFileStore, findOnPath } = require('../file-store');
 const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromDb } = require('./state');
@@ -187,6 +188,7 @@ module.exports = {
   resolveLineage: () => null,
   // agy keeps sessions in per-conversation SQLite DBs — row.filePath if the row has one, else null (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
+  listResources: resources.createListResources({ conversationsRoot }),
   // agy keeps no plans store (#227).
   plansDir: () => null,
   // agy's per-project instruction file is GEMINI.md (#227) — it used to be guessed under Claude's branch.

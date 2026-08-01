@@ -280,6 +280,10 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   exporter. `readMessages` walks the `steps` (14 = user, 15 = model; tool/lifecycle steps skipped) and pulls
   each turn's prose out of the protobuf blob with a shallow wire-format walk — a model reply is one
   length-delimited field whose value carries newlines and markdown, so a naive byte scan would split it.
+- Resource discovery is read-only through agy's `listResources()` hook. It surfaces safe Gemini and
+  Antigravity settings, `GEMINI.md`, builtin/implicit resource directories, knowledge directories and project
+  `GEMINI.md`. It deliberately excludes OAuth/account files, logs, crashes, caches, history, scratch/tmp data
+  and conversation databases.
 - **Resume** is `agy --conversation <id>`; `--continue`/`-c` reopens the most recent. **Fork** has no flag —
   `supportsFork: false` (offering it would launch an unrelated session).
 - **`agy --help` / the argv** (v1.1.1+): `--model`, `--effort`, `--project` / `--new-project`, `--add-dir`
