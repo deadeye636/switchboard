@@ -205,6 +205,17 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
       return false;
     }
 
+    // PageUp/PageDown scroll Switchboard's terminal viewport for every backend. Some TUIs consume bare
+    // page keys themselves, while others require Shift+PageUp through xterm/browser defaults; owning the
+    // bare keys here keeps the history shortcut consistent without naming a backend.
+    if ((e.key === 'PageUp' || e.key === 'PageDown') && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.type === 'keydown') {
+        e.preventDefault();
+        terminal.scrollPages(e.key === 'PageUp' ? -1 : 1);
+      }
+      return false;
+    }
+
     // Shift+Enter → newline (kitty protocol CSI 13;2u) so Claude Code treats it as newline, not submit.
     if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       if (e.type === 'keydown') {
