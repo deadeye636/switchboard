@@ -33,6 +33,10 @@ const stmts = {
   listSince: db.prepare(`SELECT id, sessionId, kind, label, detail, at FROM session_timeline
     WHERE at > ? ORDER BY at DESC, id DESC LIMIT ?`),
   deleteForSession: db.prepare('DELETE FROM session_timeline WHERE sessionId = ?'),
+  // Every session of a folder. Sub-selects on session_cache, so it MUST run before that folder's cache
+  // rows are gone — the same ordering `session_metrics` already needs.
+  deleteForFolder: db.prepare(`DELETE FROM session_timeline WHERE sessionId IN
+    (SELECT sessionId FROM session_cache WHERE folder = ?)`),
   pruneOld: db.prepare('DELETE FROM session_timeline WHERE sessionId = ? AND at < ?'),
   // Keep the newest N of this session; drop what falls out the bottom.
   pruneOverCap: db.prepare(`DELETE FROM session_timeline WHERE sessionId = ? AND id NOT IN (
@@ -102,14 +106,24 @@ function getTimelineEventsSince(sinceMs, limit = MAX_ROWS_ACROSS_SESSIONS) {
 /**
  * A session is gone — so is its history.
  *
- * NOT yet wired into the session-delete footprint (`deleteCachedSession`, `deleteCachedFolder`,
- * `deleteProjectRefs`): that is a second decision about where a cross-store delete belongs, and it lands
- * with the producers in the next step. Until then an orphaned history is bounded by `maxAgeDays` rather
- * than kept forever, which is one of the two reasons that limit exists.
+ * Called from the session-delete footprint in `session-store.js`, beside the metrics delete that has the
+ * same shape and the same reason: a history whose session no longer exists can never be read, and the
+ * age limit would only clear it thirty days late.
  */
 function deleteTimelineForSession(sessionId) {
   if (!sessionId) return;
   runWithBusyRetry(() => stmts.deleteForSession.run(sessionId));
+}
+
+/**
+ * Every history in a folder — a project removed, or a cold-start rebuild of one.
+ *
+ * ORDER MATTERS at the call site: this reads `session_cache` to find out which sessions those are, so it
+ * has to run BEFORE the cache rows go. Run it after and it matches nothing and reports success.
+ */
+function deleteTimelineForFolder(folder) {
+  if (!folder) return;
+  runWithBusyRetry(() => stmts.deleteForFolder.run(folder));
 }
 
 module.exports = {
@@ -117,6 +131,7 @@ module.exports = {
   getTimelineEvents,
   getTimelineEventsSince,
   deleteTimelineForSession,
+  deleteTimelineForFolder,
   // For project-refs.js's cross-domain transactions — same reason tasks-store exports its own.
   stmts,
 };
