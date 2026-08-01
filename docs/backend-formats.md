@@ -51,6 +51,9 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
   configs, instructions, plugins, skills, rules, memories and model catalogs, including project
   `AGENTS.md` / `.codex/` resources when a project is in scope. It deliberately excludes auth, logs,
   transcripts and secret sandboxes.
+- Forking uses Codex' native `codex fork <session-id>` command. Switchboard can launch/adopt the forked
+  rollout, but no verified on-disk parent field has been found in Codex JSONL yet, so `resolveLineage()`
+  still returns `null` rather than inventing a relationship.
 
 ### Rate limits ride along in the transcript (#191)
 

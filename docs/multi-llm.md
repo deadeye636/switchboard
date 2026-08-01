@@ -28,8 +28,8 @@ nothing to Codex, so Codex is never shown it.
 
 **Resume** keeps the backend the session was started with. There is no chooser: a Codex session resumes
 into Codex, a Claude session into Claude. **Fork** appears only on backends that can actually fork
-(Claude and Pi today) — a backend that cannot fork does not offer a button that would silently start an
-unrelated empty session instead.
+(Claude, Codex and Pi today) — a backend that cannot fork does not offer a button that would silently
+start an unrelated empty session instead.
 
 ## Reading a mixed sidebar
 

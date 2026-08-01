@@ -195,6 +195,26 @@ test('buildLaunch: resume targets the recorded session id (binary-bound, §5.11)
   assert.deepStrictEqual(l.args, ['resume', 'abc-123']);
 });
 
+test('buildLaunch: fork targets the recorded parent id and keeps launch options', () => {
+  const l = codex.buildLaunch({
+    resume: false,
+    sessionId: 'temp-1',
+    forkFrom: 'parent-123',
+    options: { model: 'gpt-5.5', approvalMode: 'never', sandbox: 'read-only' },
+  });
+  assert.deepStrictEqual(l.args, [
+    'fork', 'parent-123',
+    '-m', 'gpt-5.5',
+    '-a', 'never',
+    '-s', 'read-only',
+  ]);
+});
+
+test('buildLaunch: forkFrom via options is honoured too', () => {
+  const l = codex.buildLaunch({ resume: false, sessionId: 'temp-2', options: { forkFrom: 'parent-456' } });
+  assert.deepStrictEqual(l.args, ['fork', 'parent-456']);
+});
+
 test('discoverSessions recurses the date-bucketed rollout tree', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-home-'));
   const day = path.join(home, 'sessions', '2026', '06', '27');

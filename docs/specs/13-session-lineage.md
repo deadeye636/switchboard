@@ -36,7 +36,7 @@ Each backend's reader exposes only its OWN raw field; the descriptor turns it in
 |---|---|---|---|
 | Claude | `forkedFrom` (head) | `{ parent, 'fork' }` | hard. `/clear` records nothing on disk → handled live (below). |
 | Hermes | `lineageParentRef` (`parent_session_id` column) | `{ parent, 'parent' }` | hard |
-| Codex | — | `null` | `/clear` starts a new rollout with no back-ref; `compacted` is a state, not a parent |
+| Codex | — | `null` | `codex fork <id>` can launch a native fork, but no verified on-disk parent field has been found in the rollout JSONL yet; `/clear` starts a new rollout with no back-ref; `compacted` is a state, not a parent |
 | Pi | `parentSession` (the parent transcript's PATH, on a FORKED session only) | `{ parent, 'fork' }` | hard. The id is read out of Pi's filename convention `<ISO>_<uuid>.jsonl` in the descriptor — the WHOLE name must match, or a path like `backup_copy.jsonl` yields a confident link to a session that does not exist |
 | agy | — | `null` | a `parent_references` protobuf blob exists but is unverified |
 

@@ -98,11 +98,14 @@ function splitList(value) {
   return String(value || '').split(',').map(s => s.trim()).filter(Boolean);
 }
 
-function buildLaunch({ cwd, resume, sessionId, options } = {}) {
+function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
   const opts = options || {};
   const args = [];
+  const fork = forkFrom != null ? forkFrom : opts.forkFrom;
 
-  if (resume && sessionId) {
+  if (fork) {
+    args.push('fork', String(fork));
+  } else if (resume && sessionId) {
     args.push('resume', String(sessionId));
   }
 
@@ -185,10 +188,9 @@ module.exports = {
   status: 'ready',
   monogram: 'Cx',
   colour: 'codex',
-  // Codex has no confirmed fork flag. Declaring false HIDES the Fork button for its sessions — the
-  // alternative is what shipped before: the button stays, `forkFrom` is dropped in buildLaunch, and the
-  // user gets a brand-new empty session that has nothing to do with the one they forked.
-  supportsFork: false,
+  // Codex added a native `codex fork <session-id>` command. The backend owns that argv shape so the core
+  // can offer the generic Fork action without learning Codex subcommands.
+  supportsFork: true,
   supportsSubagents: false,   // no subagent concept (#230)
   // Lineage (#193): Codex records no parent link on disk — a `/clear` starts a new rollout with no
   // back-ref, and `compacted` is a per-message state, not a parent reference. Declares none (honest gap).
