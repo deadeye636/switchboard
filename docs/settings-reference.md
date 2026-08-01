@@ -287,7 +287,7 @@ Still open:
 | `SWITCHBOARD_USER_DATA` | Electron's `userData` (caches, window state, `main.log`, secret-ref temp files). A separate path means a **separate single-instance lock**. | dev: `~/.switchboard-dev/userData`; packaged: Electron's default |
 | `SWITCHBOARD_STORE_CLAUDE` | Claude's projects dir to scan. Claude's plans + global memory derive from its parent, so they isolate with it. | `~/.claude/projects` |
 | `SWITCHBOARD_STORE_CODEX` | Codex sessions root | `<CODEX_HOME>/sessions` |
-| `SWITCHBOARD_STORE_PI` | Pi sessions root — **wins over** `PI_CODING_AGENT_SESSION_DIR` | see that variable |
+| `SWITCHBOARD_STORE_PI` | Pi sessions root — **wins over** `PI_CODING_AGENT_SESSION_DIR`. Also derives an isolated Pi agent config dir for trust (`PI_CODING_AGENT_DIR`) beside the sessions root. | see those variables |
 | `SWITCHBOARD_STORE_HERMES` | Hermes home (the dir holding `state.db`) — **wins over** `HERMES_HOME` | see that variable |
 | `SWITCHBOARD_STORE_AGY` | agy conversations dir (agy has no env var of its own) | `~/.gemini/antigravity-cli/conversations` |
 | `SWITCHBOARD_AGY_CREDS` | agy's OAuth credentials file (`oauth_creds.json`) that the `usage` capability reads for its live quota fetch (#201). Point it elsewhere so an isolated instance never reads the real Google account. | `~/.gemini/oauth_creds.json` |
@@ -309,10 +309,10 @@ switch, and the instance lock is scoped to it.
 **They isolate what Switchboard READS. What a CLI WRITES is the CLI's own variable** — and since #241 a
 `SWITCHBOARD_STORE_*` also makes the spawn path hand that variable to the session, so a session launched
 from an isolated instance lands in the isolated store: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `HERMES_HOME`,
-`PI_CODING_AGENT_SESSION_DIR` (agy has none, so it cannot be isolated). Each backend declares its own via
-the `cliHomeEnv()` descriptor hook; the injected value sits **below** your `backendEnv` variables and a
-template's, so an explicit setting of yours still wins. Credentials live in that home — see
-`docs/demo-env.md` and `npm run demo:auth`.
+`PI_CODING_AGENT_SESSION_DIR` plus `PI_CODING_AGENT_DIR` for Pi's trust/config store (agy has none, so it
+cannot be isolated). Each backend declares its own via the `cliHomeEnv()` descriptor hook; the injected
+value sits **below** your `backendEnv` variables and a template's, so an explicit setting of yours still
+wins. Credentials live in that home — see `docs/demo-env.md` and `npm run demo:auth`.
 
 ### Other CLIs' home variables
 
@@ -321,6 +321,7 @@ template's, so an explicit setting of yours still wins. Credentials live in that
 | `CLAUDE_CONFIG_DIR` | Claude's config dir for the usage/auth reader. When set, the macOS keychain service name gains a hash suffix derived from the path. | `~/.claude` |
 | `CODEX_HOME` | Codex home — sessions, session index, trust check | `~/.codex` |
 | `HERMES_HOME` | Hermes home (holds `state.db`) | Windows `%LOCALAPPDATA%\hermes`, else `~/.hermes` |
+| `PI_CODING_AGENT_DIR` | Pi's agent config dir — settings, auth, resources and `trust.json` | `~/.pi/agent` |
 | `PI_CODING_AGENT_SESSION_DIR` | Pi's sessions dir | `~/.pi/agent/sessions` |
 
 ### System

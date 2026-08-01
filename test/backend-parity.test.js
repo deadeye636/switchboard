@@ -147,8 +147,8 @@ test('buildLiveBinding declines rather than throwing when it cannot bind', () =>
 });
 
 // #241: a SWITCHBOARD_STORE_* override moves where Switchboard LOOKS. Where the CLI WRITES is the CLI's
-// own business, and each CLI names that with its own variable — so the backend declares it, the core just
-// merges the answer into the PTY env. Two halves matter equally: an isolated run must hand the CLI a home
+// own business, and each CLI names that with its own variable(s) — so the backend declares them, the core
+// just merges the answer into the PTY env. Two halves matter equally: an isolated run must hand the CLI a home
 // INSIDE the isolated tree, and a normal run must hand it nothing at all (an unasked-for CLAUDE_CONFIG_DIR
 // would silently redirect a real session). A backend whose CLI has no such variable declines (agy).
 test('every backend declares cliHomeEnv — an isolated CLI home or an honest null (#241)', () => {
@@ -178,11 +178,13 @@ test('every backend declares cliHomeEnv — an isolated CLI home or an honest nu
       if (env !== null) {
         assert.equal(typeof env, 'object', `${id}.cliHomeEnv() returns an env object or null`);
         const keys = Object.keys(env);
-        assert.equal(keys.length, 1, `${id}: one home variable, not a bundle`);
-        assert.ok(
-          path.resolve(env[keys[0]]).startsWith(path.resolve(demo)),
-          `${id}: ${keys[0]}=${env[keys[0]]} must point inside the isolated store, not at the user's real home`,
-        );
+        assert.ok(keys.length >= 1, `${id}: at least one CLI home/store variable`);
+        for (const key of keys) {
+          assert.ok(
+            path.resolve(env[key]).startsWith(path.resolve(demo)),
+            `${id}: ${key}=${env[key]} must point inside the isolated store, not at the user's real home`,
+          );
+        }
       }
       if (saved === undefined) delete process.env[storeVar]; else process.env[storeVar] = saved;
     }

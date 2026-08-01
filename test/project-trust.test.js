@@ -15,6 +15,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const trust = require('../src/backends/codex/trust');
+const piTrust = require('../src/backends/pi/trust');
 const backends = require('../src/backends');
 
 // A config in the shape a real one has (read off a live install).
@@ -165,15 +166,69 @@ test('set() updates EVERY spelling of the path — on the platform where they ar
   }
 });
 
+// --- Pi trust.json ---------------------------------------------------------------------------------
+
+test('Pi trust reads the nearest parent decision and preserves explicit false', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-trust-'));
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  const prevStore = process.env.SWITCHBOARD_STORE_PI;
+  delete process.env.SWITCHBOARD_STORE_PI;
+  process.env.PI_CODING_AGENT_DIR = path.join(root, 'agent');
+  try {
+    const parent = path.join(root, 'repo');
+    const child = path.join(parent, 'child');
+
+    assert.deepStrictEqual(piTrust.set(parent, true), { ok: true });
+    assert.strictEqual(piTrust.get(child), true, 'a parent trust decision applies to children');
+
+    assert.deepStrictEqual(piTrust.set(child, false), { ok: true });
+    assert.strictEqual(piTrust.get(child), false, 'an explicit child denial overrides parent trust');
+    assert.strictEqual(piTrust.get(parent), true, 'the parent entry stays trusted');
+
+    const batch = piTrust.getMany([parent, child, path.join(root, 'elsewhere')]);
+    assert.strictEqual(batch.get(parent), true);
+    assert.strictEqual(batch.get(child), false);
+    assert.strictEqual(batch.get(path.join(root, 'elsewhere')), null);
+  } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = prev;
+    if (prevStore === undefined) delete process.env.SWITCHBOARD_STORE_PI; else process.env.SWITCHBOARD_STORE_PI = prevStore;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Pi trust writes only trust.json in the isolated agent dir', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-trust-iso-'));
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  const prevStore = process.env.SWITCHBOARD_STORE_PI;
+  const store = path.join(root, 'stores', 'pi');
+  process.env.PI_CODING_AGENT_DIR = path.join(root, 'real-agent-should-not-be-used');
+  process.env.SWITCHBOARD_STORE_PI = store;
+  try {
+    const project = path.join(root, 'repo');
+    assert.deepStrictEqual(piTrust.set(project, true), { ok: true });
+
+    const isolatedAgent = path.join(root, 'stores', 'pi-agent');
+    const file = path.join(isolatedAgent, 'trust.json');
+    assert.ok(fs.existsSync(file), 'trust.json is under the isolated agent dir derived from SWITCHBOARD_STORE_PI');
+    assert.ok(!fs.existsSync(path.join(process.env.PI_CODING_AGENT_DIR, 'trust.json')),
+      'the real PI_CODING_AGENT_DIR is ignored while SWITCHBOARD_STORE_PI isolates the backend');
+    assert.deepStrictEqual(piTrust.cliEnvForStore(store), { PI_CODING_AGENT_DIR: isolatedAgent });
+  } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = prev;
+    if (prevStore === undefined) delete process.env.SWITCHBOARD_STORE_PI; else process.env.SWITCHBOARD_STORE_PI = prevStore;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // --- the contract ----------------------------------------------------------------------------------
 
 test('a backend declares whether it HAS a project-trust gate — and only those that do, do', () => {
-  // Claude keeps trust in ~/.claude.json, Codex in its config.toml. Pi has none (its settings.json
-  // carries no trust), and Hermes has none (`trust_recent_files` is about files, not projects). A
-  // backend that has no gate must not pretend to: the UI shows what is real.
+  // Claude keeps trust in ~/.claude.json, Codex in its config.toml, Pi in trust.json. Hermes has none
+  // (`trust_recent_files` is about files, not projects). A backend that has no gate must not pretend to:
+  // the UI shows what is real.
   assert.strictEqual(typeof backends.get('claude').projectTrust?.get, 'function');
   assert.strictEqual(typeof backends.get('codex').projectTrust?.get, 'function');
-  assert.strictEqual(backends.get('pi').projectTrust, undefined, 'Pi has no per-project trust');
+  assert.strictEqual(typeof backends.get('pi').projectTrust?.get, 'function');
   assert.strictEqual(backends.get('hermes').projectTrust, undefined, 'Hermes has none either');
 });
 

@@ -24,6 +24,7 @@ const fs = require('fs');
 const { execFileSync } = require('child_process');
 
 const parser = require('./parser');
+const trust = require('./trust');
 const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, piLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
@@ -54,12 +55,13 @@ function setRoot(dir) {
   _root = dir || null;
 }
 
-// Where the CLI ITSELF writes (#241). Pi's own env names the sessions dir directly, exactly like our
-// override, so isolation hands the same path straight over. Null unless isolated.
+// Where the CLI ITSELF writes (#241/#406). Pi separates the sessions dir from the agent config dir, so
+// an isolated launch gets both: sessions where Switchboard scans, and trust/config beside that store.
+// Null unless isolated.
 function cliHomeEnv() {
   const store = process.env.SWITCHBOARD_STORE_PI;
   if (!store) return null;
-  return { PI_CODING_AGENT_SESSION_DIR: store };
+  return { PI_CODING_AGENT_SESSION_DIR: store, ...(trust.cliEnvForStore(store) || {}) };
 }
 
 // Pi's own launch options (§4a) — taken from its real `--help` (#160).
@@ -324,8 +326,8 @@ module.exports = {
   // ...and they are deleted with it. "Delete this project's sessions" used to clear Claude's store only,
   // so Pi's transcripts survived and came back the day the project was unhidden.
   deleteSessions: (filePaths) => deleteTranscripts(filePaths, sessionsRoot()),
-  // No `projectTrust`: Pi has no per-project trust gate (checked against a real install — its
-  // settings.json carries none). The project manager shows that honestly rather than inventing one.
+  // Pi's project trust lives in its own `trust.json` (#406), separate from the sessions store.
+  projectTrust: { get: trust.get, getMany: trust.getMany, set: trust.set },
 
   sessionsRoot,
   setRoot,

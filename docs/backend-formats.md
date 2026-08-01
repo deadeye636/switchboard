@@ -184,6 +184,9 @@ The only backend whose history is **not** in files — the reason the discovery 
   answer can exceed the window entirely) plus the terminal-liveness signal.
 - Undocumented dependencies: **Node ≥ 22.19** (the one on PATH, not the app's embedded one) and, on
   Windows, a **bash**. Both are probed, because a launch without them dies with nothing to act on.
+- Project trust lives in `(PI_CODING_AGENT_DIR | ~/.pi/agent)/trust.json`: a JSON object mapping canonical
+  project paths to `true` / `false`. Lookup walks parents, so trusting a parent folder trusts its children
+  unless a child records an explicit `false`. Switchboard exposes this through Pi's `projectTrust` hook.
 - **Trap:** a stored `pi /login` OAuth session takes **priority over env vars**, so an injected key can be
   silently shadowed. The descriptor surfaces that in Settings.
 

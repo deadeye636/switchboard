@@ -41,7 +41,7 @@ const TOKENS = {
   // alone, so the literal belongs in its folder like any other store token.
   claude: [/['"`\\/]\.claude(\.json)?['"`\\/]/, /\bCLAUDE_CONFIG_DIR\b/, /['"`\\/]subagents['"`\\/]/],
   codex:  [/['"`\\/]\.codex['"`\\/]/, /\bCODEX_HOME\b/],
-  pi:     [/['"`\\/]\.pi['"`\\/]/, /\bPI_CODING_AGENT_SESSION_DIR\b/],
+  pi:     [/['"`\\/]\.pi['"`\\/]/, /\bPI_CODING_AGENT_DIR\b/, /\bPI_CODING_AGENT_SESSION_DIR\b/],
   hermes: [/['"`\\/]\.hermes['"`\\/]/, /\bHERMES_HOME\b/],
   agy:    [/['"`\\/]\.gemini['"`\\/]/, /['"`]antigravity-cli['"`]/],
 };

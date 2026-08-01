@@ -28,12 +28,10 @@ const FORCE = process.argv.slice(2).includes('--force');
 
 // What each backend keeps its credentials in, and where that file lives in a demo home.
 //
-// Only backends whose CLI home is actually relocated by the demo appear here:
-//   - Pi's env var (PI_CODING_AGENT_SESSION_DIR) moves the SESSIONS dir alone — its config and login
-//     stay in the real ~/.pi, so a demo run is authenticated already and there is nothing to copy.
-//   - agy has no env var for its store at all, so the demo cannot isolate its writes (see its
-//     descriptor's cliHomeEnv) and this script has nothing to do for it either.
-// Both are listed as `nothing` so the report says so out loud rather than staying silent about them.
+// Only backends whose CLI home is actually relocated by the demo appear here. agy has no env var for its
+// store at all, so the demo cannot isolate its writes (see its descriptor's cliHomeEnv) and this script
+// has nothing to do for it. It is listed as `nothing` so the report says so out loud rather than staying
+// silent about it.
 const BACKENDS = [
   {
     id: 'claude',
@@ -64,8 +62,9 @@ const BACKENDS = [
   },
   {
     id: 'pi',
-    files: [],
-    nothing: 'only its sessions dir is relocated, so it keeps the real login',
+    demoHome: (demoDir) => path.join(demoDir, 'stores', 'pi-agent'),
+    realHome: () => process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent'),
+    files: ['auth.json'],
   },
   {
     id: 'agy',

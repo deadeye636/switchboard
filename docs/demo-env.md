@@ -28,7 +28,7 @@ Everything the demo run reads or writes lives under `SWITCHBOARD_DEMO_DIR` (defa
 | `SWITCHBOARD_USER_DATA` | `<demo>/userData` | Electron userData / Chromium cache — and its **own** single-instance lock, so the demo coexists with a normal `npm start` dev run instead of being refused by it |
 | `SWITCHBOARD_STORE_CLAUDE` | `<demo>/stores/claude/projects` | Claude's projects store |
 | `SWITCHBOARD_STORE_CODEX` | `<demo>/stores/codex/sessions` | Codex' date-bucketed rollouts |
-| `SWITCHBOARD_STORE_PI` | `<demo>/stores/pi` | Pi's sessions |
+| `SWITCHBOARD_STORE_PI` | `<demo>/stores/pi` | Pi's sessions, plus an isolated Pi agent config/trust dir at `<demo>/stores/pi-agent` |
 | `SWITCHBOARD_STORE_HERMES` | `<demo>/stores/hermes` | Hermes' `state.db` home |
 | `SWITCHBOARD_STORE_AGY` | `<demo>/stores/agy` | agy's conversations |
 
@@ -49,13 +49,14 @@ still wins.
 | Claude | `CLAUDE_CONFIG_DIR` = `<demo>/stores/claude` | transcripts, plans and global memory land in the demo |
 | Codex | `CODEX_HOME` = `<demo>/stores/codex` | rollouts, `session_index.jsonl`, `config.toml` |
 | Hermes | `HERMES_HOME` = `<demo>/stores/hermes` | its `state.db` home |
-| Pi | `PI_CODING_AGENT_SESSION_DIR` = `<demo>/stores/pi` | sessions only — Pi's config/login stay real |
+| Pi | `PI_CODING_AGENT_SESSION_DIR` = `<demo>/stores/pi`, `PI_CODING_AGENT_DIR` = `<demo>/stores/pi-agent` | sessions plus Pi config/trust land in the demo |
 | agy | *(none)* | agy has **no** env var for its store, so its writes cannot be isolated — an honest gap, not a silent one |
 
 **The login.** Credentials live in the CLI's home, so an isolated home starts out logged out. Two ways:
 
 - `npm run demo:auth` — copies the credentials you already have (`~/.claude/.credentials.json`,
-  `~/.codex/auth.json`) into the demo home. Deliberately a **separate command**: `demo:start` never reaches
+  `~/.codex/auth.json`, `~/.pi/agent/auth.json`) into the demo home. Deliberately a **separate command**:
+  `demo:start` never reaches
   into your real credential files. The copy is a snapshot — re-run it when a demo session claims it is
   logged out, and `--force` to overwrite. Your real project history (`~/.claude.json`) is **not** copied;
   the demo stays clean.
