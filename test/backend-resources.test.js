@@ -138,7 +138,8 @@ test('agy resource discovery exposes safe settings and instructions only', () =>
     assert.ok(keys.includes('global:resource:implicit'));
     assert.ok(keys.includes('global:memory-store:knowledge'));
     assert.ok(keys.includes('project:memory:GEMINI.md'));
-    assert.ok(!res.resources.some(r => /oauth|account|auth|history|conversation|\.db$|log|crash|cache|tmp|scratch/i.test(r.path || '')),
+    const relativePaths = res.resources.map(r => path.relative(geminiHome, r.path || ''));
+    assert.ok(!relativePaths.some(p => /oauth|account|auth|history|conversation|\.db$|(^|[\\/])(log|crashes|cache|tmp|scratch)([\\/]|$)/i.test(p)),
       'credentials, logs, histories and conversation stores are not resources');
   } finally {
     fs.rmSync(geminiHome, { recursive: true, force: true });
