@@ -158,6 +158,7 @@ const {
   listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
   getDailyBackendTokens, getDailyCost, getHourlyActivity,
+  recordTimelineEvent, getTimelineEvents, getTimelineEventsSince, deleteTimelineForSession,
   closeDb,
   DB_PATH,
 } = require('./db/db');
@@ -295,6 +296,22 @@ detach.init({
   hasPendingDiffsForWindow: (win) => hasPendingDiffsForWindow(win),
 });
 detach.registerIpc(ipcMain);
+
+// --- What happened to a session, kept where it survives a window (#396) -> app/timeline.js ---
+// The record used to be built in each renderer and died with it. Main sees every one of these facts
+// before any window does, so it writes them once and a session keeps ONE history however its windows
+// come and go.
+const timeline = require('./app/timeline');
+timeline.init({ recordTimelineEvent, log });
+
+// The seam all three status producers already share. Recording sits in FRONT of the window routing on
+// purpose: `detach.sendTimelineSignal` answers "which window needs to hear this" and deliberately sends
+// nothing when the session lives in the main window — so recording behind it would record every session
+// except the ordinary ones.
+const recordAndRouteTimelineSignal = (sessionId, signal) => {
+  timeline.recordSignal(sessionId, signal);
+  return detach.sendTimelineSignal(sessionId, signal);
+};
 
 // --- Is the user at the machine (#386) -> app/presence.js ---
 // One global fact, so it cannot live in a renderer: each window knows only about itself. Every window
@@ -1232,8 +1249,9 @@ hooks.init({
   // #303: a terminal reporting which session it is running now. Lazy on purpose — sessionTransitions is
   // required further down, and this is only ever called once a POST arrives.
   adoptSessionId: (tag, id) => sessionTransitions.adoptSessionId(tag, id),
-  // The same signal, recorded by the window that renders the session (#395). Raising it stays here.
-  sendTimelineSignal: (sessionId, signal) => detach.sendTimelineSignal(sessionId, signal),
+  // The same signal, written to the session's own record (#396) and echoed to the window that renders it
+  // (#395). Raising it — the inbox, the badge, the chime — stays here, on the channel above.
+  sendTimelineSignal: recordAndRouteTimelineSignal,
 });
 hooks.registerIpc(ipcMain);
 const { startAttentionHookServer, removeClaudeAttentionHook, attentionHooksEnabled } = hooks;
@@ -1847,8 +1865,12 @@ watchAdopt.init({
   activeSessions,
   getMainWindow: () => mainWindow,
   // A store-derived busy edge is the ONLY source for the backends that name their own sessions, so a
-  // window of its own hears nothing about them without this (#395).
-  sendTimelineSignal: (sessionId, signal) => detach.sendTimelineSignal(sessionId, signal),
+  // window of its own hears nothing about them without this (#395) — and it is what writes the record
+  // for them too (#396).
+  sendTimelineSignal: recordAndRouteTimelineSignal,
+  // Adoption moves a session onto the id its backend chose; the record's busy latch has to move with it,
+  // exactly as adopt.js's own liveBusy does, or the turn spanning the move never ends.
+  rekeyTimelineSession: (fromId, toId) => timeline.rekeySession(fromId, toId),
   backends,
   sessionBackends,
   log,
@@ -1887,8 +1909,11 @@ spawn.init({
   // events keep going to the main window, where the sidebar and the attention inbox live.
   windowForSession: (sessionId) => detach.windowForSession(sessionId),
   // …and the record-only echo for the window that renders it (#395). Sends nothing when that window
-  // IS the main one, so status still reaches main exactly once, through the channels above.
-  sendTimelineSignal: (sessionId, signal) => detach.sendTimelineSignal(sessionId, signal),
+  // IS the main one, so status still reaches main exactly once, through the channels above. It also
+  // writes the session's own record on the way past (#396) — see recordAndRouteTimelineSignal.
+  sendTimelineSignal: recordAndRouteTimelineSignal,
+  // The record's busy latch, dropped where every other per-session map is dropped on exit.
+  forgetTimelineSession: (sessionId) => timeline.forgetSession(sessionId),
   getAppQuitting: () => appQuitting,
   activeSessions,
   liveStoreRef,

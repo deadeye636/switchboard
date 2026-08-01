@@ -188,3 +188,27 @@ unfocused session. That was the same defect reached from the ordinary path, and 
 
 Three more things are per renderer and in memory, and a reload or a restart empties them:
 `lastViewedTime`, `filesTouchedSinceViewed`, `sessionTimelineStore`.
+
+### 4 · The record is moving out of the renderer (#396, in progress)
+
+The three above are the subject of [#396](https://github.com/deadeye636/switchboard/issues/396): the
+record the recap reads is emptied by a reload, a window close and a restart — exactly the span it
+exists to describe — and a session moved between windows hands its past to a window that never had it.
+
+Two steps have landed. **The record itself** is a `session_timeline` table written by the main process
+(`src/db/timeline-store.js`, shape and retention in `src/db/timeline-record.js`, both bounded by a
+stated 500-events-per-session / 30-day pair rather than by the renderer's undecided 80). **The
+producers** now write it: `src/app/timeline.js` sits in front of `detach.sendTimelineSignal` — in
+FRONT, because that call deliberately sends nothing when the session lives in the main window, so
+recording behind it would record every session except the ordinary ones.
+
+**One meaning changed, and it is the decision the issue turns on.** In the record, `response-ready`
+now means *the turn ended* — nothing about where the user was looking. The old meaning ("the turn
+ended while you were not looking at THIS session") is a per-window fact and a per-session record
+cannot hold one; the question it was really asking is answered by the absence, which `app/presence.js`
+already owns as one global fact. **Raising** a ready session — the inbox flag, the ready class, the
+badge — keeps its focus condition exactly as §1 of this file describes. #391 split recording from
+raising, and this uses that seam rather than cutting a new one.
+
+The renderer still keeps its own copy and still reads it; that is the next step. Until then the record
+is written twice, in two places, and only one of them survives a reload.

@@ -61,10 +61,16 @@ const sendToWindow = (channel, ...args) => {
   if (w && !w.isDestroyed()) w.webContents.send(channel, ...args);
 };
 
-// The same status fact, for the window that RENDERS the session to RECORD (#395). A no-op when that is
-// the main window, which already heard it on the channel above — so this can never double-record, and
-// it can never raise anything: its receiver only writes that window's own timeline. app/detach.js owns
-// the owner-versus-main rule, so it lives in one place rather than in each of the three producers.
+// The same status fact, sent onward for RECORDING rather than for raising (#395, #396). Two halves, and
+// only one of them is conditional:
+//
+//   the session's own record   ALWAYS written, by the main process (app/timeline.js)
+//   the renderer echo          sent only when the window that RENDERS this session is NOT the main one,
+//                              which already heard it on the channel above — so it cannot double-record,
+//                              and it can never raise: its receiver writes that window's timeline alone
+//
+// main.js composes the two; app/detach.js owns the owner-versus-main rule. Both live in one place rather
+// than in each of the three producers.
 const echoTimeline = (sessionId, kind, source, reason) => {
   if (ctx.sendTimelineSignal) ctx.sendTimelineSignal(sessionId, { kind, source, reason: reason || '' });
 };
@@ -830,7 +836,13 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     ctx.activeSessions.delete(sessionId);
     // Release the Codex rollout claim + busy latch for this session (T-4.5), so the file can be
     // re-claimed and the maps don't grow for the life of the app.
-    for (const id of [realId, sessionId]) { ctx.liveStoreRef.delete(id); ctx.liveBusy.delete(id); }
+    for (const id of [realId, sessionId]) {
+      ctx.liveStoreRef.delete(id);
+      ctx.liveBusy.delete(id);
+      // The timeline's own busy latch (#396) — same reason, same place: it exists to tell a busy→idle
+      // edge from a repeated report, and a dead session has neither.
+      if (ctx.forgetTimelineSession) ctx.forgetTimelineSession(id);
+    }
     // #223: this terminal is gone. Drop any clear claim it left behind — a claim from a dead terminal
     // can never be paired with a child, and leaving it would let it win a pairing that is not its own.
     // Then remove whatever the backend wrote for the binding.

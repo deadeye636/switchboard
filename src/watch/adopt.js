@@ -97,6 +97,10 @@ function claimLiveRecord(sessionId, session, backend) {
     const wasBusy = liveBusy.get(sessionId);
     liveBusy.delete(sessionId);
     if (wasBusy !== undefined) liveBusy.set(realId, wasBusy);
+    // The timeline's own busy latch moves for the same reason this one does (#396): a turn that started
+    // under the launch id ends under the adopted one, and a latch left behind turns the end of that turn
+    // into "this session was never working" — so it is never recorded.
+    if (ctx.rekeyTimelineSession) ctx.rekeyTimelineSession(sessionId, realId);
     const mainWindow = ctx.getMainWindow();
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('session-forked', sessionId, realId);
