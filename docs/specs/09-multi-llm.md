@@ -184,6 +184,12 @@ The state stays **unknown** — and the user is told that it is unknown, and why
 renderer → `sessionOptions` → `buildLaunch` → spawn. Both the per-backend settings page and the Configure
 dialog are **generated** from `configFields`, so a new backend needs no UI code.
 
+Env bundles resolve at spawn. Backend-owned default auth refs, such as Codex' `OPENAI_API_KEY` /
+`CODEX_API_KEY` and Pi's `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, are optional and may drop quietly when
+unset because the CLIs also support their own login stores. Missing refs from user `backendEnv`, templates
+or launchers still raise a session notice: those are explicit configuration choices and likely explain an
+auth failure.
+
 ### Data
 
 `session_cache` gained `backendId` (authoritative provenance), `filePath` (a rollout path cannot be

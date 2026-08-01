@@ -135,8 +135,12 @@ test('the spawn merges backend env BETWEEN the backend and the template', () => 
   // The template's own keys are lifted back out of launch.env first...
   assert.match(block, /for \(const key of Object\.keys\(templateEnv\)\) delete baseEnv\[key\];/,
     'or the user\'s backend variables would land on top of the template');
-  // ...and then re-applied last, so the template still wins.
-  const order = block.indexOf('...baseEnv') < block.indexOf('...(allEnv[baseId] || {})')
+  // ...then the backend defaults are resolved quietly, because Codex/Pi may authenticate from their
+  // own login stores and missing built-in API-key refs are not enough to warn the user.
+  assert.match(block, /const resolvedBaseEnv = ctx\.resolveSpawnEnv\(baseEnv, backend\.label \|\| backend\.id, sessionId, \{\s*noticeMissing: false,/s,
+    'backend-owned default auth refs should not raise a session notice when absent');
+  // ...and then the template is re-applied last, so it still wins.
+  const order = block.indexOf('...resolvedBaseEnv') < block.indexOf('...(allEnv[baseId] || {})')
     && block.indexOf('...(allEnv[baseId] || {})') < block.indexOf('...templateEnv');
   assert.equal(order, true, 'backend -> user\'s backend env -> template');
 });

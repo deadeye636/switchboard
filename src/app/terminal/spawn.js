@@ -568,10 +568,17 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         const baseEnv = { ...(launch.env || {}) };
         for (const key of Object.keys(templateEnv)) delete baseEnv[key];
 
+        // Backend-owned default auth refs are opportunistic: Codex/Pi may already be logged in through
+        // their own stores, so a missing host key must not raise a session warning. User backendEnv and
+        // template refs still resolve in the speaking path below, because those were explicit choices.
+        const resolvedBaseEnv = ctx.resolveSpawnEnv(baseEnv, backend.label || backend.id, sessionId, {
+          noticeMissing: false,
+        });
+
         // The template's name, not the backend's: three templates can reference three different keys,
         // and "OPENAI_API_KEY is not set" without saying WHOSE is a riddle (#169).
         Object.assign(ptyEnv, ctx.resolveSpawnEnv({
-          ...baseEnv,
+          ...resolvedBaseEnv,
           ...(allEnv[baseId] || {}),
           ...templateEnv,
         }, backend.label || backend.id, sessionId));

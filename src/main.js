@@ -14,7 +14,9 @@ const { withMainProcessUsageCache } = require('./backends/usage-cache');
 const backends = require('./backends');
 const sessionBackends = require('./session/session-backends');
 const profiles = require('./backends/profiles');
-// Every spawn path goes through resolveSpawnEnv() below — an unresolved $VAR is dropped AND said (#169).
+// Every spawn path goes through resolveSpawnEnv() below. User-owned unresolved $VAR refs are dropped AND
+// said (#169); backend-owned default auth refs may be dropped quietly because those CLIs can use login
+// stores instead.
 const { resolveEnvRefs, missingRefsMessage } = require('./backends/env-refs');
 // The PATH/PATHEXT walk lives with the file store, which is where every backend's availability probe
 // already asks for it (#240). Not backend-specific — it names no backend and knows no store.
@@ -995,16 +997,23 @@ ipcMain.handle('get-stats-from-db', (_event, backendId) => {
  * happily, and the user got a provider auth error that named nothing.
  *
  * Warn, do not refuse. Not every dropped reference is fatal — a bundle may carry an optional variable —
- * and refusing a launch on that guess would be its own bug. But it is SAID: named, in the log at `info`
- * level so a packaged build shows it, and as a toast on the session so the user connects the failure to
- * its cause instead of hunting a provider error.
+ * and refusing a launch on that guess would be its own bug. User-owned refs are SAID: named in the log
+ * and as a toast on the session so the user connects the failure to its cause instead of hunting a
+ * provider error. Backend-owned default auth refs may opt out because Codex/Pi can authenticate through
+ * their own login stores; missing API-key env vars alone are not actionable there.
  *
  * The editor already had this check. It ran where nothing was at stake, and a save-time check can never
  * replace a launch-time one anyway: the variable can vanish BETWEEN the save and the launch.
  */
-function resolveSpawnEnv(bundle, source, sessionId) {
+function resolveSpawnEnv(bundle, source, sessionId, options = {}) {
   const { env, missing } = resolveEnvRefs(bundle);
   if (!missing.length) return env;
+  if (options && options.noticeMissing === false) {
+    if (log.debug) {
+      log.debug('[env] ' + missingRefsMessage(missing, source));
+    }
+    return env;
+  }
 
   const message = missingRefsMessage(missing, source);
   log.warn('[env] ' + message);

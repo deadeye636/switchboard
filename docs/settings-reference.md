@@ -365,7 +365,10 @@ the **empty string** so an inherited host key cannot shadow the token or leak to
 `CLAUDE_CODE_DISABLE_*` stability flags. The Haiku slot matters most: a Haiku call that is not redirected
 goes to Anthropic, fails, and leaks the host key on the way. Backend auth is likewise references only
 (`OPENAI_API_KEY`/`CODEX_API_KEY` for Codex, `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` for Pi); Claude and
-Hermes inject nothing and use their own auth.
+Hermes inject nothing and use their own auth. The built-in Codex/Pi auth refs are opportunistic: if the
+host variables are absent, Switchboard drops them quietly because those CLIs can authenticate through
+login/OAuth stores. Missing refs from `backendEnv`, templates or custom launchers still raise a session
+notice, because those were explicit configuration choices.
 
 # Commands
 
