@@ -22,7 +22,7 @@
 // What it reaches into app.js at call time (read, or mutate a Map/Set in place; it rebinds no let):
 //   openSessions, sessionMap, pendingSessions, launchExitedSessions, userStoppedSessions (session tables),
 //   activeSessionId, cachedAllProjects, cachedProjects, gridViewActive, sessionTimelineStore,
-//   refreshSidebar, setActiveSession, trackActivity, recordTimelineEvent, and the terminal-header DOM
+//   refreshSidebar, setActiveSession, trackActivity, dropTimeline, and the terminal-header DOM
 //   handles (placeholder, terminalHeader, terminalHeaderName/PtyTitle, gridViewerCount) and
 //   `refreshSessionHeaderChrome` for the facts that live in the name's tooltip (#358).
 //   Cross-module: setActivity / applyAttention (shell/attention-engine.js), recordFileTouched
@@ -81,12 +81,10 @@ window.api.onSessionDetected((tempId, realId) => {
   // Re-key in openSessions
   openSessions.delete(tempId);
   openSessions.set(realId, entry);
-  const previousEvents = sessionTimelineStore.eventsBySession.get(tempId);
-  if (previousEvents) {
-    sessionTimelineStore.eventsBySession.delete(tempId);
-    sessionTimelineStore.eventsBySession.set(realId, previousEvents.map(event => ({ ...event, sessionId: realId })));
-  }
-  recordTimelineEvent(realId, 'started', 'Session detected', 'Claude wrote its real session id.');
+  // The history moved in the RECORD when main re-keyed it (#396); this window drops its copy so the
+  // next read fetches the moved one rather than trusting a locally patched duplicate.
+  dropTimeline(sessionTimelineStore, tempId);
+  dropTimeline(sessionTimelineStore, realId);
 
   // The header shows the id in the name's tooltip since #358, so a new id is a tooltip refresh rather
   // than a write into a span of its own.
@@ -124,12 +122,9 @@ window.rekeySessionState = function (oldId, newId) {
 
   openSessions.delete(oldId);
   openSessions.set(newId, entry);
-  const previousEvents = sessionTimelineStore.eventsBySession.get(oldId);
-  if (previousEvents) {
-    sessionTimelineStore.eventsBySession.delete(oldId);
-    sessionTimelineStore.eventsBySession.set(newId, previousEvents.map(event => ({ ...event, sessionId: newId })));
-  }
-  recordTimelineEvent(newId, 'forked', 'Session forked', `Forked from ${oldId}.`);
+  // Same as above: the record already moved, so this window forgets both ids and re-reads on demand.
+  dropTimeline(sessionTimelineStore, oldId);
+  dropTimeline(sessionTimelineStore, newId);
 
   // Re-key file panel state for the new session ID
   if (typeof rekeyFilePanelState === 'function') rekeyFilePanelState(oldId, newId);
@@ -195,7 +190,8 @@ window.api.onProcessExited((sessionId, exitCode) => {
   launchExitedSessions.add(sessionId);
   if (entry) {
     entry.closed = true;
-    recordTimelineEvent(sessionId, 'exited', 'Process exited', `Exit code ${exitCode}.`);
+    // 'exited' is recorded by the PTY's own exit handler in main (#396) — it knows the code and it knows
+    // the id the session ended under, which is not always the id this window opened it with.
     // Write a visible exit banner so the user can see when the process ended
     // and read any error output it printed (claude / devbox / shell stderr).
     // Without this, a fast-failing pre-launch command would tear down the

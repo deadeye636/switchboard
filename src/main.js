@@ -160,7 +160,7 @@ const {
   listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
   getDailyBackendTokens, getDailyCost, getHourlyActivity,
-  recordTimelineEvent, getTimelineEvents, getTimelineEventsSince, deleteTimelineForSession,
+  recordTimelineEvent, getTimelineEvents, getTimelineEventsSince, deleteTimelineForSession, rekeyTimeline,
   closeDb,
   DB_PATH,
 } = require('./db/db');
@@ -304,7 +304,17 @@ detach.registerIpc(ipcMain);
 // before any window does, so it writes them once and a session keeps ONE history however its windows
 // come and go.
 const timeline = require('./app/timeline');
-timeline.init({ recordTimelineEvent, log });
+timeline.init({
+  recordTimelineEvent,
+  getTimelineEvents,
+  rekeyTimeline,
+  getMainWindow: () => mainWindow,
+  // Every window keeps its own read-through copy of the histories it draws, so every window hears about
+  // a new event — which window draws which session changes while the app runs.
+  getDetachedWindows: () => [...detach.detachedWindows.values()],
+  log,
+});
+timeline.registerIpc(ipcMain);
 
 // The seam all three status producers already share. Recording sits in FRONT of the window routing on
 // purpose: `detach.sendTimelineSignal` answers "which window needs to hear this" and deliberately sends

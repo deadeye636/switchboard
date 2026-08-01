@@ -194,9 +194,11 @@ function setupPanesDom(opts = {}) {
     pendingSessions: new Map(),
     userStoppedSessions: new Set(),
     terminalWriteBuffers: new Map(),
-    sessionTimelineStore: { eventsBySession: new Map() },
+    // The renderer's read-through copy of what main holds (#396). A re-key drops both ids from it so
+    // the next read fetches the moved history rather than trusting a locally patched duplicate.
+    sessionTimelineStore: { eventsBySession: new Map(), loaded: new Set() },
+    dropTimeline: (store, id) => { store.eventsBySession.delete(id); store.loaded.delete(id); },
     setActiveSession: (id) => { window.activeSessionId = id; },
-    recordTimelineEvent: () => {},
     trackActivity: () => {},
     flowTrackReceived: () => {},
     scheduleFlush: () => {},

@@ -33,10 +33,11 @@ const stmts = {
   listSince: db.prepare(`SELECT id, sessionId, kind, label, detail, at FROM session_timeline
     WHERE at > ? ORDER BY at DESC, id DESC LIMIT ?`),
   deleteForSession: db.prepare('DELETE FROM session_timeline WHERE sessionId = ?'),
-  // Every session of a folder. Sub-selects on session_cache, so it MUST run before that folder's cache
-  // rows are gone — the same ordering `session_metrics` already needs.
-  deleteForFolder: db.prepare(`DELETE FROM session_timeline WHERE sessionId IN
-    (SELECT sessionId FROM session_cache WHERE folder = ?)`),
+  rekey: db.prepare('UPDATE session_timeline SET sessionId = ? WHERE sessionId = ?'),
+  // Every session of a PROJECT — the user deleted it, and this is the only delete that is a deletion.
+  // Sub-selects on session_cache, so it runs while those rows still exist.
+  deleteForProject: db.prepare(`DELETE FROM session_timeline WHERE sessionId IN
+    (SELECT sessionId FROM session_cache WHERE projectPath = ?)`),
   pruneOld: db.prepare('DELETE FROM session_timeline WHERE sessionId = ? AND at < ?'),
   // Keep the newest N of this session; drop what falls out the bottom.
   pruneOverCap: db.prepare(`DELETE FROM session_timeline WHERE sessionId = ? AND id NOT IN (
@@ -106,9 +107,10 @@ function getTimelineEventsSince(sinceMs, limit = MAX_ROWS_ACROSS_SESSIONS) {
 /**
  * A session is gone — so is its history.
  *
- * Called from the session-delete footprint in `session-store.js`, beside the metrics delete that has the
- * same shape and the same reason: a history whose session no longer exists can never be read, and the
- * age limit would only clear it thirty days late.
+ * NOT called from `deleteCachedSession`, and that is deliberate: the cache deletes are the INDEX
+ * rebuilding itself, and hanging the history off them threw it away on an ordinary scan (measured — a
+ * turn's events survived less than a minute). A history outlives its cache row; only a user deleting
+ * what it belongs to may drop it, which is `project-refs.js`.
  */
 function deleteTimelineForSession(sessionId) {
   if (!sessionId) return;
@@ -116,14 +118,27 @@ function deleteTimelineForSession(sessionId) {
 }
 
 /**
- * Every history in a folder — a project removed, or a cold-start rebuild of one.
+ * A session changed its id — its past comes with it.
+ *
+ * Without this the history splits in two at every `/clear` and every fork: the events before the move
+ * stay under an id nothing will ever ask about again, and the session appears to have begun at the
+ * moment it was re-keyed. "One history per session" has to mean the session, not the id it happened to
+ * carry at the time.
+ */
+function rekeyTimeline(fromId, toId) {
+  if (!fromId || !toId || fromId === toId) return;
+  runWithBusyRetry(() => stmts.rekey.run(toId, fromId));
+}
+
+/**
+ * Every history belonging to a project the user deleted.
  *
  * ORDER MATTERS at the call site: this reads `session_cache` to find out which sessions those are, so it
- * has to run BEFORE the cache rows go. Run it after and it matches nothing and reports success.
+ * has to run while those rows still exist. Run it after and it matches nothing and reports success.
  */
-function deleteTimelineForFolder(folder) {
-  if (!folder) return;
-  runWithBusyRetry(() => stmts.deleteForFolder.run(folder));
+function deleteTimelineForProject(projectPath) {
+  if (!projectPath) return;
+  runWithBusyRetry(() => stmts.deleteForProject.run(projectPath));
 }
 
 module.exports = {
@@ -131,7 +146,8 @@ module.exports = {
   getTimelineEvents,
   getTimelineEventsSince,
   deleteTimelineForSession,
-  deleteTimelineForFolder,
+  deleteTimelineForProject,
+  rekeyTimeline,
   // For project-refs.js's cross-domain transactions — same reason tasks-store exports its own.
   stmts,
 };

@@ -39,7 +39,7 @@
 //
 // What it reaches into, by file (all at call time):
 //   app.js   attentionSessions, responseReadySessions (mutate), refreshSessionStatusViews,
-//            getAllKnownSessionsForStatus, recordTimelineEvent, appLiveRegion, sessionBusyState,
+//            getAllKnownSessionsForStatus, appLiveRegion, sessionBusyState,
 //            activeSessionId, appGlobalSettings, finishedAt, attentionReason,
 //            window.sessionRuntimeState (the one snapshot builder, #260 — announceAttentionSummary
 //            reads the status maps through it now, not by naming activePtyIds/openSessions/lastActivityTime)
@@ -145,17 +145,12 @@ function recordActivityEdge(sessionId, active) {
     // for the focused-then-left case this stamp is what lets the configurable running-inbox
     // (after-finish / until-read) surface it.
     finishedAt.set(sessionId, Date.now());
-
-    // RECORDING that the turn ended is a fact about the session, and it does not depend on where the
-    // user was looking (#391). The away recap reads exactly this event to answer "was anything waiting
-    // for me", so tying the record to focus meant the commonest case of all — walk away from the
-    // session you are working in, come back — produced a recap that said nothing was.
-    recordTimelineEvent(sessionId, 'response-ready', 'Ready for review', 'Agent stopped producing output.');
   }
 
-  if (wasActive !== active) {
-    recordTimelineEvent(sessionId, active ? 'busy' : 'idle', active ? 'Agent working' : 'Agent idle', active ? 'Claude activity started.' : 'Claude activity stopped.');
-  }
+  // The EVENTS for this edge — busy, idle, and the turn ending — are written by the main process now
+  // (#396, `src/app/timeline.js`). It sees the same edge one step earlier, from the producer that
+  // detected it, and its record survives this window. What stays here is the STATUS this window draws
+  // from: the busy map above and the finish stamp the running-inbox reads.
   return { changed: wasActive !== active, wasActive };
 }
 
@@ -215,7 +210,8 @@ function recordAttentionSignal(sessionId, signal) {
   const { kind, reason } = signal;
 
   if (kind === 'needs-attention') {
-    recordTimelineEvent(sessionId, 'needs-attention', 'Needs human attention', reason || '');
+    // The EVENT is main's (#396); this window has nothing else to do with an attention signal it may
+    // not raise. Kept as a branch so an unknown kind still falls through to the return below.
   } else if (kind === 'ready' || kind === 'idle') {
     recordActivityEdge(sessionId, false);
   } else if (kind === 'busy') {
@@ -239,10 +235,10 @@ function applyAttention(sessionId, signal) {
 
   if (kind === 'needs-attention') {
     const winner = reduceAttention(attentionReason.get(sessionId) || null, { reason, source });
-    // Recorded whether or not the user is looking (#391) — "the agent asked me something" is part of
-    // what happened while they were away even when the session was the one in front. Reducing without
-    // storing keeps the focused case free of side effects: no reason kept, no set written.
-    recordTimelineEvent(sessionId, 'needs-attention', 'Needs human attention', winner.reason);
+    // The EVENT is written by main (#396), whether or not the user is looking (#391) — "the agent asked
+    // me something" is part of what happened while they were away even when the session was the one in
+    // front. Reducing without storing keeps the focused case free of side effects: no reason kept, no
+    // set written.
 
     // A focused session needs no inbox flag — the user is already looking at it.
     if (sessionId === activeSessionId) return;

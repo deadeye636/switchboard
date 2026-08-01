@@ -16,9 +16,9 @@
 //   session/session-timeline.js: getTimelineEvents, filterTimelineEvents, formatTimelineEvent, getTimelineKinds
 //   lib/utils.js: escapeHtml, cleanDisplayName
 //   views/plans-memory-view.js: hidePlanViewer
+//   app.js: ensureTimelineLoaded — the history is main's since #396, so it is FETCHED before it is read
 //
-// Callers (all at call time): app.js (recordTimelineEvent), shell/away-summary-banner.js,
-// shell/sidebar-events.js.
+// Callers (all at call time): app.js (the `timeline-appended` listener), shell/sidebar-events.js.
 
 function renderTimelineViewer(sessionId) {
   const session = sessionMap.get(sessionId);
@@ -92,13 +92,17 @@ function renderTimelineFilters(events) {
   timelineKindFilter.value = [...timelineKindFilter.options].some(option => option.value === current) ? current : 'all';
 }
 
-function showTimelineViewer(session) {
+// ASYNC since #396: the history is the main process's, so this window may not hold this session's yet.
+// The viewer opens immediately and renders once the answer is in — the two filter listeners below stay
+// synchronous, because by the time a filter can be typed the fetch has long since landed.
+async function showTimelineViewer(session) {
   hidePlanViewer();
   placeholder.style.display = 'none';
   terminalArea.style.display = 'none';
   timelineViewer.style.display = 'flex';
   if (timelineSearchInput) timelineSearchInput.value = '';
   if (timelineKindFilter) timelineKindFilter.value = 'all';
+  await ensureTimelineLoaded(session.sessionId);
   renderTimelineViewer(session.sessionId);
 }
 

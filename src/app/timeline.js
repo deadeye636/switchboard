@@ -50,15 +50,47 @@ function init(context) {
 // logs at info, so warning every time would bury the line that matters under thousands of its own copies.
 let warnedAboutWrites = false;
 
+/** Every window that draws a session, and therefore every window that keeps a copy of its history. */
+function liveWindows() {
+  const out = [];
+  const main = ctx && typeof ctx.getMainWindow === 'function' ? ctx.getMainWindow() : null;
+  if (main && !main.isDestroyed()) out.push(main);
+  const others = ctx && typeof ctx.getDetachedWindows === 'function' ? ctx.getDetachedWindows() : [];
+  for (const win of others || []) {
+    if (win && !win.isDestroyed() && win !== main) out.push(win);
+  }
+  return out;
+}
+
+/**
+ * Tell every window about an event that was just written.
+ *
+ * Broadcast rather than routed, and that is the point: a window keeps a read-through copy of the
+ * histories it draws, and which window draws which session changes while the app runs. Routing would
+ * make the copy correct only for as long as nothing moved. A window that has never heard of the session
+ * simply has nothing to update — the renderer's own cache decides, because it is the only thing that
+ * knows what it is holding.
+ */
+function announce(event) {
+  if (!event) return;
+  for (const win of liveWindows()) {
+    try { win.webContents.send('timeline-appended', event); } catch { /* a window on its way out */ }
+  }
+}
+
 function write(sessionId, [kind, label, defaultDetail], detail) {
   if (!ctx || typeof ctx.recordTimelineEvent !== 'function') return null;
   try {
-    return ctx.recordTimelineEvent({
+    const stored = ctx.recordTimelineEvent({
       sessionId,
       kind,
       label,
       detail: detail || defaultDetail,
     });
+    // Null means the store refused it — a duplicate from a second producer, or an event older than the
+    // retention window. Announcing it would put a row on screen that is not in the record.
+    if (stored) announce(stored);
+    return stored;
   } catch (err) {
     // A timeline that cannot be written must never take a session's status down with it.
     if (ctx.log) {
@@ -143,10 +175,54 @@ function forgetSession(sessionId) {
 function rekeySession(fromId, toId) {
   if (!fromId || !toId || fromId === toId) return;
   if (busyBySession.delete(fromId)) busyBySession.set(toId, true);
+  // The events already written move too, or the history splits in two at every /clear: everything before
+  // the move would sit under an id nothing asks about again, and the session would look newly born.
+  if (ctx && typeof ctx.rekeyTimeline === 'function') {
+    try { ctx.rekeyTimeline(fromId, toId); } catch (err) {
+      if (ctx.log) ctx.log.debug(`[timeline] could not move ${fromId} → ${toId}: ${err.message}`);
+    }
+  }
+}
+
+/**
+ * The read side. One handler, because a renderer asks for exactly one thing: the history of a session it
+ * is about to draw. Everything after that arrives on `timeline-appended`.
+ *
+ * Deliberately NOT a subscription the main process tracks. A window that closes, reloads or hands a
+ * session to another window would each need to be unsubscribed, and the failure mode of getting that
+ * wrong is a leak that grows with every reload. Broadcasting to live windows has no such bookkeeping.
+ */
+// What a RENDERER is allowed to add to a session's history.
+//
+// Deliberately a short list. Main sees every fact about a session's process and status, so the only
+// thing a window can contribute is something that happened in the UI and nowhere else — seeding a
+// handoff packet is the whole of it today. Restricting the kind rather than trusting the caller is what
+// keeps "main is the only writer" true in substance: a window cannot forge a busy edge or an exit.
+const NOTEABLE_KINDS = new Set(['started']);
+
+function registerIpc(ipc) {
+  ipc.handle('timeline:for-session', (_event, sessionId) => {
+    if (!ctx || typeof ctx.getTimelineEvents !== 'function' || !sessionId) return [];
+    try {
+      return ctx.getTimelineEvents(sessionId);
+    } catch (err) {
+      if (ctx.log) ctx.log.debug(`[timeline] session=${sessionId} could not be read: ${err.message}`);
+      return [];
+    }
+  });
+
+  // A fact only the UI can know. Written here rather than by the renderer, so the record still has one
+  // writer and every window still learns about it the same way.
+  ipc.handle('timeline:note', (_event, sessionId, kind, label, detail) => {
+    if (!NOTEABLE_KINDS.has(String(kind))) return false;
+    recordLifecycle(sessionId, kind, label, detail);
+    return true;
+  });
 }
 
 module.exports = {
   init,
+  registerIpc,
   recordSignal,
   recordLifecycle,
   forgetSession,

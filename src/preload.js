@@ -195,6 +195,15 @@ contextBridge.exposeInMainWorld('api', {
   // that just ended — `{ awaySince, awayMs }` — which is what the away recap lists events from.
   reportPresenceActivity: () => ipcRenderer.send('presence-activity'),
   onPresenceReturned: (cb) => ipcRenderer.on('presence-returned', (_e, absence) => cb(absence)),
+  // The session timeline (#396). Main holds it, so it survives a reload and a session moving between
+  // windows; a renderer reads a session's history ONCE and is then kept current by `onTimelineAppended`.
+  // Events arrive with `at` in epoch ms, newest first from the read.
+  getSessionTimeline: (sessionId) => ipcRenderer.invoke('timeline:for-session', sessionId),
+  onTimelineAppended: (cb) => ipcRenderer.on('timeline-appended', (_e, event) => cb(event)),
+  // For the one class of fact main cannot see: something that happened in the UI. Main still writes it,
+  // and refuses any kind a window has no business claiming.
+  noteTimelineEvent: (sessionId, kind, label, detail) =>
+    ipcRenderer.invoke('timeline:note', sessionId, kind, label, detail),
   resolveVariableInsert: (id, sessionId) => ipcRenderer.invoke('resolve-variable-insert', id, sessionId),
 
   browseFolder: () => ipcRenderer.invoke('browse-folder'),

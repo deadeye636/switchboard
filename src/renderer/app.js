@@ -527,11 +527,46 @@ function focusNextAttention() {
 
 
 
-function recordTimelineEvent(sessionId, kind, label, detail) {
-  addTimelineEvent(sessionTimelineStore, sessionId, kind, label, { detail });
-  if (timelineViewer.style.display !== 'none' && timelineViewer.dataset.sessionId === sessionId) {
-    renderTimelineViewer(sessionId);
+// --- The session timeline: read from main, never written here (#396) ---
+//
+// This window used to BUILD the timeline, which meant it died with the window and a session moved
+// between windows handed its past to a window that never had it. Main writes it now — it sees every
+// event before any renderer does — and this fetches a session's history once and is kept current by
+// `timeline-appended`.
+//
+// `recordTimelineEvent` is gone rather than made a no-op: every one of its former callers describes a
+// fact main already knows, and a second writer is how the two copies drifted in the first place.
+
+/**
+ * Make sure this window has a session's history before something reads it.
+ *
+ * Every reader here is synchronous (the timeline viewer, the away recap), so the fetch has to happen
+ * before them rather than inside them. Fetching once per session and per window is the whole cost.
+ */
+async function ensureTimelineLoaded(sessionId) {
+  if (!sessionId || isTimelineLoaded(sessionTimelineStore, sessionId)) return;
+  try {
+    const events = await window.api.getSessionTimeline(sessionId);
+    // A second call may have landed while this one was in flight — the later answer is not fresher.
+    if (!isTimelineLoaded(sessionTimelineStore, sessionId)) {
+      hydrateTimeline(sessionTimelineStore, sessionId, events);
+    }
+  } catch {
+    // A history that cannot be read must not stop the view that wanted it. It stays unloaded, so the
+    // next attempt tries again rather than believing an empty answer.
   }
+}
+
+function wireTimelineUpdates() {
+  window.api.onTimelineAppended((event) => {
+    if (!event || !event.sessionId) return;
+    addTimelineEvent(sessionTimelineStore, event.sessionId, event.kind, event.label, {
+      id: event.id, detail: event.detail, at: event.at,
+    });
+    if (timelineViewer.style.display !== 'none' && timelineViewer.dataset.sessionId === event.sessionId) {
+      renderTimelineViewer(event.sessionId);
+    }
+  });
 }
 
 // Central activity dispatcher
@@ -721,7 +756,8 @@ async function confirmAndStopSession(sessionId) {
   if (!confirmed) return;
   userStoppedSessions.add(sessionId); // suppress the relaunch banner + timed auto-close
   await window.api.stopSession(sessionId);
-  recordTimelineEvent(sessionId, 'stopped', 'Session stopped', 'Stopped by the user.');
+  // The 'stopped' event is main's to write (#396) — `stop-session` is the one place that knows the
+  // process did not merely end, the user ended it.
   activePtyIds.delete(sessionId);
   if (!gridViewActive && activeSessionId === sessionId) {
     setActiveSession(null);
@@ -1059,7 +1095,8 @@ async function launchNewSession(project, sessionOptions, seedText) {
 
   // Inject into cached project data so it appears in sidebar immediately
   sessionMap.set(sessionId, session);
-  recordTimelineEvent(sessionId, 'started', sessionOptions?.forkFrom ? 'Fork requested' : 'Session started', sessionOptions?.forkFrom ? `Forking from ${sessionOptions.forkFrom}.` : 'Created from Switchboard.');
+  // 'started' is recorded by the spawn itself (#396), after the PTY exists — so a launch that fails
+  // never claims to have started anything.
   for (const projList of [cachedProjects, cachedAllProjects]) {
     let proj = projList.find(p => p.projectPath === projectPath);
     if (!proj) {
@@ -1140,7 +1177,9 @@ function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, timelineLabel,
       // and never submitted it — while the code that follows sat waiting for an answer the user had to
       // press Enter to get. Both routes use this one function now, so they cannot drift apart again.
       window.api.sendInput(sessionId, `\x1b[200~${seedText}\x1b[201~\r`);
-      recordTimelineEvent(
+      // Main cannot see this one: from its side a seeded session is a session that received input. So
+      // it is NOTED rather than recorded here — main still writes it, and every window still hears it.
+      window.api.noteTimelineEvent(
         sessionId, 'started',
         timelineLabel || 'Handoff seeded',
         timelineNote || 'Seeded fresh session with the handoff packet.',
@@ -2101,6 +2140,11 @@ window.api.onStatusUpdate((text, type) => {
 });
 
 scheduleUsageStatusRefresh();
+
+// --- Keep this window's copy of the session histories current (#396) ---
+// Registered at parse time, before anything can fetch one: an event that arrives between a fetch and
+// its listener would otherwise be the one line missing from the recap.
+wireTimelineUpdates();
 
 
 // --- Initialize file panel (MCP bridge UI) ---

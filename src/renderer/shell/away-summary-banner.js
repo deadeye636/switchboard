@@ -102,7 +102,11 @@ window.api.onPresenceReturned?.((absence) => {
   absenceShownFor.clear(); // a new absence — every session may say what it missed
 });
 
-function handleSessionViewed(sessionId) {
+// ASYNC since #396: the history lives in the main process, and this window may not have fetched this
+// session's yet. Callers do not await it — a recap is allowed to appear a frame late — but the read
+// below must not run before the answer is in, or a session whose history simply had not arrived yet
+// reads as "nothing happened while you were away", which is the one thing this must never say wrongly.
+async function handleSessionViewed(sessionId) {
   if (!sessionId) return;
   // Still STAMPED when the recap is off, so switching it back on does not report an "away" that
   // stretches to whenever it was turned off.
@@ -111,6 +115,7 @@ function handleSessionViewed(sessionId) {
     if (awaySummarySessionId) hideAwaySummary();
     return;
   }
+  await ensureTimelineLoaded(sessionId);
   // An ABSENCE is the trigger, not a focus change (#386) — and each session says what it missed once
   // per absence. `lastViewedTime` still gates the very first look at a session: nothing was missed
   // before you had ever seen it.

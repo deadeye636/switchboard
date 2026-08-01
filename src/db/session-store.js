@@ -20,10 +20,6 @@ const { db } = require('./connection');
 const { runWithBusyRetry } = require('./sqlite-busy-retry');
 // The one canonical form for a project path (#245). Pure string work — no fs, no db.
 const { normPath } = require('../session/derive-project-path');
-// A session's history goes when the session does (#396). RAW statements, for the same reason
-// project-refs.js takes them raw: they run INSIDE the busy-retry wrapper the deletes below already hold,
-// and nesting a second one would be wrong.
-const { stmts: timelineStmts } = require('./timeline-store');
 
 const stmts = {
   // Session cache statements
@@ -348,13 +344,19 @@ function getCachedSession(sessionId) {
   return normalizeCacheRow(stmts.cacheGetSession.get(sessionId) || null);
 }
 
+// THE SESSION TIMELINE IS NOT DELETED HERE, and that is the whole lesson of #396's first attempt.
+//
+// This looks like "the session is gone", and it is not: this pair is the INDEX's, called from
+// `src/index/index-writes.js` and `backends/claude/store-indexer.js` whenever a transcript is re-read or
+// a folder rebuilt. Deleting the history alongside the cache row therefore threw it away on an ordinary
+// scan — measured in a running instance, a turn's busy/idle/response-ready vanished within a minute of
+// being written, leaving only the events that happened to land after the last scan.
+//
+// A history outlives its cache row on purpose. What may drop it is a user deleting the thing it belongs
+// to, and that path is `project-refs.js` — not this one.
 function deleteCachedSession(sessionId) {
   runWithBusyRetry(() => {
     stmts.metricsDeleteBySession.run(sessionId);
-    // …and what happened to it (#396). Same shape and same reason as the metrics above: a history whose
-    // session is gone can never be read again, and the record's own age limit would only clear it thirty
-    // days later.
-    timelineStmts.deleteForSession.run(sessionId);
     stmts.cacheDeleteSession.run(sessionId);
   });
 }
@@ -365,20 +367,16 @@ function deleteCachedFolder(folder, scope) {
   const c = backendScopeClause(scope);
   const metricsSql = 'DELETE FROM session_metrics WHERE sessionId IN'
     + ' (SELECT sessionId FROM session_cache WHERE folder = ?' + c.sql + ')';
-  const timelineSql = 'DELETE FROM session_timeline WHERE sessionId IN'
-    + ' (SELECT sessionId FROM session_cache WHERE folder = ?' + c.sql + ')';
   const cacheSql = 'DELETE FROM session_cache WHERE folder = ?' + c.sql;
   runWithBusyRetry(() => {
-    // Delete metrics and timelines first — both statements sub-select on session_cache, so they must run
-    // before the session_cache rows for this folder are gone. Both are scoped exactly as the cache delete
-    // is: a backend-scoped wipe must not take another backend's history with it.
+    // Delete metrics first — the metrics statement sub-selects on session_cache, so it must run
+    // before the session_cache rows for this folder are gone. The session TIMELINE is deliberately not
+    // here — see the note above deleteCachedSession: this runs on a rebuild, not on a deletion.
     if (!scope) {
       stmts.metricsDeleteByFolder.run(folder);
-      timelineStmts.deleteForFolder.run(folder);
       stmts.cacheDeleteFolder.run(folder);
     } else {
       prepScoped(metricsSql).run(folder, ...c.params);
-      prepScoped(timelineSql).run(folder, ...c.params);
       prepScoped(cacheSql).run(folder, ...c.params);
     }
     // cache_meta is Claude's per-folder index state (only the Claude scan writes it), so it is

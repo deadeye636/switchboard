@@ -25,6 +25,7 @@ const metaStore = require('./meta-store');
 const tagsStore = require('./tags-store');
 const tasksStore = require('./tasks-store');
 const settingsStore = require('./settings-store');
+const timelineStore = require('./timeline-store');
 
 
 // Move every reference from oldPath to newPath. Where the destination already
@@ -59,6 +60,11 @@ const deleteProjectRefsTx = db.transaction((projectPath) => {
   tagsStore.stmts.projectTagDeleteAll.run(projectPath);
   tasksStore.stmts.projectHandoffsDeleteAll.run(projectPath);
   settingsStore.stmts.settingsDelete.run('project:' + projectPath);
+  // What happened to this project's sessions (#396). THIS is the deletion path — the cache deletes in
+  // session-store.js are the index rebuilding itself and must not touch a history. Sub-selects on
+  // session_cache, so it runs while those rows are still there: a hard project delete drops the cache
+  // separately, and the order between the two is not guaranteed from here.
+  timelineStore.stmts.deleteForProject.run(projectPath);
 });
 
 function deleteProjectRefs(projectPath) {

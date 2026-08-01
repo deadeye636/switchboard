@@ -159,7 +159,9 @@ async function stopAllRunning(runningToStop) {
     // "re-click to relaunch" banner or a timed tab auto-close (issue #78).
     if (typeof window._markUserStopped === 'function') window._markUserStopped(sid);
     await window.api.stopSession(sid);
-    recordTimelineEvent(sid, 'stopped', 'Session stopped', 'Stopped via grid bulk action.');
+    // 'stopped' is recorded by the stop itself (#396). What is lost with it is the words "via grid bulk
+    // action" — the record says the user stopped the session, not which button they used, and one
+    // history per session is worth more than that detail.
     activePtyIds.delete(sid);
   }
   refreshSidebar();

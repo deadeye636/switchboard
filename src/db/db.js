@@ -152,7 +152,8 @@ module.exports = {
   getTimelineEvents: timelineStore.getTimelineEvents,
   getTimelineEventsSince: timelineStore.getTimelineEventsSince,
   deleteTimelineForSession: timelineStore.deleteTimelineForSession,
-  deleteTimelineForFolder: timelineStore.deleteTimelineForFolder,
+  deleteTimelineForProject: timelineStore.deleteTimelineForProject,
+  rekeyTimeline: timelineStore.rekeyTimeline,
   // --- the stats aggregates (stats-store.js) ---
   getDailyActivity: statsStore.getDailyActivity,
   getDailyMetrics: statsStore.getDailyMetrics,
