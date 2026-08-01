@@ -210,5 +210,25 @@ already owns as one global fact. **Raising** a ready session — the inbox flag,
 badge — keeps its focus condition exactly as §1 of this file describes. #391 split recording from
 raising, and this uses that seam rather than cutting a new one.
 
-The renderer still keeps its own copy and still reads it; that is the next step. Until then the record
-is written twice, in two places, and only one of them survives a reload.
+**The renderer no longer keeps a record of its own.** It holds a read-through CACHE of what main has:
+a session's history is fetched once per window and kept current by a `timeline-appended` broadcast to
+every window, because which window draws which session changes while the app runs. The cache carries a
+`loaded` set, so "not fetched yet" and "fetched, nothing there" stay different answers — answering the
+first as if it were the second is how a recap ends up empty for the one absence it was built for.
+
+Every former writer in the renderer is **removed**, not silenced. The one exception is a fact only the
+UI can see — a handoff packet seeded into a session — and it is NOTED through `timeline:note`, which
+accepts a short list of kinds and lets main do the writing. A window cannot forge a busy edge or an exit.
+
+The recap's last two memories moved with it. `viewed` and `file-touched` are kinds in the record rather
+than tables of their own; `viewed` is a MARKER, replaced rather than accumulated, because it is written
+every time the user looks at a session and a stream of it would push the events that matter out of the
+per-session cap. Neither is listed by the recap or the timeline viewer: they are how it decides, not
+what it says.
+
+**What deletes a history, and what must not.** `deleteCachedSession` / `deleteCachedFolder` are the
+INDEX rebuilding itself, not a deletion — hanging the history off them threw it away on an ordinary
+scan (measured: a turn's events survived under a minute). Deleting a project is the real deletion path.
+
+Still open: the recap is still a banner per session per window. [#402](https://github.com/deadeye636/switchboard/issues/402)
+replaces it with one inbox entry and a single overview.

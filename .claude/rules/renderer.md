@@ -227,6 +227,23 @@ Three things that are easy to undo by accident:
   caller: panes mode looked covered only because `render()` calls `refitVisible()` right after the
   policy, which `focusPane` does not.
 
+## The session timeline is READ here, never written (#396)
+
+`session/session-timeline.js` is a read-through **cache** of what the main process holds, not a record.
+A window fetches a session's history once (`window.api.getSessionTimeline`) and is kept current by
+`onTimelineAppended`, which main broadcasts to EVERY window — which window draws which session changes
+while the app runs, so routing it would make the copy correct only until something moved.
+
+- **`recordTimelineEvent` is gone.** Every former caller described something main already knows, and a
+  second writer is how the two copies drifted. Do not reintroduce one.
+- **A fact only the UI can see** goes through `window.api.noteTimelineEvent`, which main validates
+  against a short list of kinds and then writes itself. A window cannot forge a busy edge or an exit.
+- **`loaded` is load-bearing.** A session with no events and a session not yet fetched look identical
+  from the events map alone, and answering the second as "nothing happened" is the failure the whole
+  feature exists to prevent. `addTimelineEvent` drops events for a session this window has not fetched.
+- Readers are synchronous, so `ensureTimelineLoaded(sessionId)` runs BEFORE them —
+  `showTimelineViewer` and `handleSessionViewed` are async for that reason alone.
+
 ## `src/shared/`
 
 The four modules **both processes load** — `attention-source`, `custom-launchers`,

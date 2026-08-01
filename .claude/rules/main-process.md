@@ -105,6 +105,7 @@ detached → detached. Four things follow, and `docs/specs/17-detached-windows.m
 | Version-control status, the changes/diff windows | `src/app/vcs.js` (the seam it drives is `src/vcs/`) |
 | Detached session windows, which window a session renders in, moving one between windows | `src/app/detach.js` |
 | Whether the user is at the machine (focus + input, across every window) | `src/app/presence.js` |
+| What happened to a session, and reading its history back | `src/app/timeline.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;
