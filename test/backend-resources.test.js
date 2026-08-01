@@ -8,7 +8,7 @@ const path = require('node:path');
 const backendResources = require('../src/app/backend-resources');
 const claude = require('../src/backends/claude');
 const codex = require('../src/backends/codex');
-const agy = require('../src/backends/agy');
+const agyResources = require('../src/backends/agy/resources');
 const MAIN = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
 const PRELOAD = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
 
@@ -115,7 +115,7 @@ test('agy resource discovery exposes safe settings and instructions only', () =>
   const conversations = path.join(agyHome, 'conversations');
   const project = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'agy-project-resources-'));
   try {
-    agy.setRoot(conversations);
+    const listResources = agyResources.createListResources({ conversationsRoot: () => conversations });
     fs.mkdirSync(conversations, { recursive: true });
     fs.mkdirSync(path.join(agyHome, 'builtin'), { recursive: true });
     fs.mkdirSync(path.join(agyHome, 'implicit'), { recursive: true });
@@ -129,7 +129,7 @@ test('agy resource discovery exposes safe settings and instructions only', () =>
     fs.writeFileSync(path.join(conversations, 'abc.db'), 'sqlite');
     fs.writeFileSync(path.join(project, 'GEMINI.md'), 'project instructions');
 
-    const res = agy.listResources({ projectPath: project });
+    const res = listResources({ projectPath: project });
     assert.equal(res.ok, true);
     const keys = res.resources.map(r => `${r.scope}:${r.kind}:${r.name}`);
     assert.ok(keys.includes('global:memory:GEMINI.md'));
@@ -141,7 +141,6 @@ test('agy resource discovery exposes safe settings and instructions only', () =>
     assert.ok(!res.resources.some(r => /oauth|account|auth|history|conversation|\.db$|log|crash|cache|tmp|scratch/i.test(r.path || '')),
       'credentials, logs, histories and conversation stores are not resources');
   } finally {
-    agy.setRoot(null);
     fs.rmSync(geminiHome, { recursive: true, force: true });
     fs.rmSync(project, { recursive: true, force: true });
   }
