@@ -16,6 +16,8 @@
 //   settings-store.js — settings blobs and saved variables.
 //   project-refs.js   — a project's whole footprint, moved or dropped ATOMICALLY across four of the above.
 //   stats-store.js    — the Stats screen's aggregates (SQL in stats-queries.js).
+//   timeline-store.js — the per-session timeline: what happened, and when (shape + retention in
+//                       timeline-record.js, which is testable because it opens nothing).
 //
 // `./connection` is required FIRST and that is load-bearing, not style: it resolves DATA_DIR and opens the
 // database at module load, which is exactly what this file used to do on its own first lines. main.js
@@ -55,6 +57,7 @@ const metaStore = require('./meta-store');
 const projectRefs = require('./project-refs');
 const sessionStore = require('./session-store');
 const searchStore = require('./search-store');
+const timelineStore = require('./timeline-store');
 
 module.exports = {
   // --- session + project metadata, the register, auto-hide (meta-store.js) ---
@@ -144,6 +147,11 @@ module.exports = {
   saveSavedVariable: settingsStore.saveSavedVariable,
   deleteSavedVariable: settingsStore.deleteSavedVariable,
   touchSavedVariable: settingsStore.touchSavedVariable,
+  // --- the session timeline, the record behind the recap (timeline-store.js) ---
+  recordTimelineEvent: timelineStore.recordTimelineEvent,
+  getTimelineEvents: timelineStore.getTimelineEvents,
+  getTimelineEventsSince: timelineStore.getTimelineEventsSince,
+  deleteTimelineForSession: timelineStore.deleteTimelineForSession,
   // --- the stats aggregates (stats-store.js) ---
   getDailyActivity: statsStore.getDailyActivity,
   getDailyMetrics: statsStore.getDailyMetrics,

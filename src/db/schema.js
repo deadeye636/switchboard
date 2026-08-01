@@ -205,6 +205,25 @@ function applySchema(db) {
   try { db.exec("ALTER TABLE saved_variables ADD COLUMN insertTemplate TEXT DEFAULT ''"); } catch {}
   db.exec('CREATE INDEX IF NOT EXISTS idx_saved_variables_scope_project ON saved_variables(scope, projectPath)');
 
+  // Session timeline — what happened to a session, over time (#396). One row per event, one history
+  // per session rather than one per window: the record is written by the main process, which sees every
+  // event before any renderer does, so a session moving between windows changes nothing about it.
+  //
+  // `at` is epoch milliseconds rather than an ISO string: retention prunes by age on every write, and a
+  // comparison the index can use is the difference between a scan and a lookup.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_timeline (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sessionId TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      label TEXT NOT NULL,
+      detail TEXT,
+      at INTEGER NOT NULL
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_session_timeline_session_at ON session_timeline(sessionId, at)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_session_timeline_at ON session_timeline(at)');
+
   // Index for fast folder lookups
   db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_folder ON session_cache(folder)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_session_cache_slug ON session_cache(slug)');

@@ -428,6 +428,25 @@ const migrations = [
       db.prepare("UPDATE settings SET value = ? WHERE key = 'global'").run(JSON.stringify(global));
     } catch { /* an unreadable blob is not worth failing a migration over */ }
   },
+  // The session timeline (#396). schema.js creates it for a fresh database; this is the same shape for
+  // one that already exists. Nothing is backfilled — the record it replaces lived in renderer memory and
+  // is gone by the time this runs.
+  (db) => {
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS session_timeline (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sessionId TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          label TEXT NOT NULL,
+          detail TEXT,
+          at INTEGER NOT NULL
+        )
+      `);
+    } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_session_timeline_session_at ON session_timeline(sessionId, at)'); } catch {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_session_timeline_at ON session_timeline(at)'); } catch {}
+  },
 ];
 
 /**
