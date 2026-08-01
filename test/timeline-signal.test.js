@@ -164,6 +164,37 @@ test('a broken record says so ONCE, loudly, then stays out of the way', () => {
   assert.ok(debugs.length > 20, 'the per-event detail is still there for whoever is diagnosing');
 });
 
+test('the lifecycle facts are recorded and leave the busy latch alone', () => {
+  const written = harness();
+  timeline.recordLifecycle('s1', 'started', 'Session started', 'Created from Switchboard.');
+  timeline.recordSignal('s1', { kind: 'busy' });
+  timeline.recordLifecycle('s1', 'exited', 'Process exited', 'Exit code 0.');
+
+  assert.deepStrictEqual(kinds(written), ['started', 'busy', 'exited']);
+  assert.strictEqual(timeline._busyBySession.has('s1'), true,
+    'an exit is not the end of a turn — it must not clear the latch behind the signal path');
+});
+
+test('a session killed mid-turn is never called ready', () => {
+  const written = harness();
+  timeline.recordSignal('s1', { kind: 'busy' });
+  timeline.recordLifecycle('s1', 'stopped', 'Session stopped', 'Stopped by the user.');
+  timeline.recordLifecycle('s1', 'exited', 'Process exited', 'Exit code 1.');
+  assert.ok(!kinds(written).includes('response-ready'),
+    'work that was thrown away is not work waiting to be read');
+});
+
+test('a lifecycle event needs a session and a kind, and keeps its own label', () => {
+  const written = harness();
+  timeline.recordLifecycle(null, 'started', 'x');
+  timeline.recordLifecycle('s1', '', 'x');
+  assert.deepStrictEqual(kinds(written), []);
+
+  timeline.recordLifecycle('s1', 'forked');
+  assert.strictEqual(written[0].label, 'forked', 'no label falls back to the kind');
+  assert.strictEqual(written[0].detail, '');
+});
+
 test('a turn that spans a session id change still ends', () => {
   const written = harness();
   timeline.recordSignal('launch-id', { kind: 'busy' });

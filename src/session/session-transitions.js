@@ -337,8 +337,13 @@ function applyRekey(fromId, session, toId) {
   // registered under the old one would fall silent mid-run while its bytes went to the main window.
   try { require('../app/detach').rekey(fromId, toId); } catch { /* module not wired in a test build */ }
   // …and the timeline's busy latch (#396). The producers recompute the id per event, so a turn that
-  // began under `fromId` ends under `toId` — and without this the end of it is never recorded.
-  try { require('../app/timeline').rekeySession(fromId, toId); } catch { /* module not wired in a test build */ }
+  // began under `fromId` ends under `toId` — and without this the end of it is never recorded. The move
+  // itself is recorded too: under the NEW id, because that is the history a reader will open.
+  try {
+    const timeline = require('../app/timeline');
+    timeline.rekeySession(fromId, toId);
+    timeline.recordLifecycle(toId, 'forked', 'Session forked', `Forked from ${fromId}.`);
+  } catch { /* module not wired in a test build */ }
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('session-forked', fromId, toId);

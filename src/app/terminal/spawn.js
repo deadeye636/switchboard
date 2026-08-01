@@ -838,6 +838,11 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         sendToWindow('process-exited', sessionId, exitCode);
       }
     }
+    // The process is gone, recorded under the id the session ended up with (#396). Before the latch is
+    // dropped below, and deliberately NOT through the signal path: an exit is not the end of a turn.
+    if (ctx.recordTimelineLifecycle) {
+      ctx.recordTimelineLifecycle(realId, 'exited', 'Process exited', `Exit code ${exitCode}.`);
+    }
     ctx.activeSessions.delete(realId);
     // Clean up the original key too in case transition detection hasn't run yet
     ctx.activeSessions.delete(sessionId);
@@ -869,6 +874,17 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
 
   if (sessionOptions?.forkFrom) {
     ctx.log.info(`[fork-spawn] tempId=${sessionId} forkFrom=${sessionOptions.forkFrom} folder=${projectFolder} knownFiles=${knownJsonlFiles.size}`);
+  }
+
+  // The session's own record starts here (#396) — after the PTY exists, so a spawn that threw never
+  // claims to have started anything.
+  if (ctx.recordTimelineLifecycle) {
+    ctx.recordTimelineLifecycle(
+      sessionId,
+      'started',
+      sessionOptions?.forkFrom ? 'Fork requested' : 'Session started',
+      sessionOptions?.forkFrom ? `Forking from ${sessionOptions.forkFrom}.` : 'Created from Switchboard.',
+    );
   }
 
   return { ok: true, reattached: false, mcpActive: !!mcpServer };

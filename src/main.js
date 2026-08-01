@@ -1309,6 +1309,10 @@ ipcMain.handle('stop-session', (_event, sessionId) => {
   // process for a session the user just stopped (#130). onExit still fires and does
   // the real cleanup; setting this twice is harmless.
   session.exited = true;
+  // Recorded HERE and not in the exit handler: this is the one place that knows the process did not
+  // simply end, the user ended it (#396). The exit that follows says the process is gone; only this
+  // says why.
+  timeline.recordLifecycle(session.realSessionId || sessionId, 'stopped', 'Session stopped', 'Stopped by the user.');
   try { session.pty.kill(); } catch { /* already gone — the flag is what matters */ }
   return { ok: true };
 });
@@ -1942,6 +1946,8 @@ spawn.init({
   sendTimelineSignal: recordAndRouteTimelineSignal,
   // The record's busy latch, dropped where every other per-session map is dropped on exit.
   forgetTimelineSession: (sessionId) => timeline.forgetSession(sessionId),
+  // …and the lifecycle facts, which are not signals: a spawn and an exit each happen once, here.
+  recordTimelineLifecycle: (sessionId, kind, label, detail) => timeline.recordLifecycle(sessionId, kind, label, detail),
   getAppQuitting: () => appQuitting,
   activeSessions,
   liveStoreRef,

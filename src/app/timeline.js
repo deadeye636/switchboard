@@ -109,6 +109,20 @@ function recordSignal(sessionId, signal) {
   }
 }
 
+/**
+ * The lifecycle facts, which are not signals and have no edge: a session started, exited, was stopped,
+ * was forked. Each has exactly one moment and one producer in main, so they are recorded where they
+ * happen rather than derived from anything.
+ *
+ * Separate from `recordSignal` because they must NOT touch the busy latch. An exit is not the end of a
+ * turn — a session killed mid-turn never finished one — and writing `response-ready` for it would put a
+ * "ready for you" in the recap for work that was thrown away.
+ */
+function recordLifecycle(sessionId, kind, label, detail) {
+  if (!sessionId || !kind) return;
+  write(sessionId, [kind, label || kind, ''], detail || '');
+}
+
 /** A session's process is gone — its busy latch is meaningless, and keeping it leaks one entry per session. */
 function forgetSession(sessionId) {
   busyBySession.delete(sessionId);
@@ -134,6 +148,7 @@ function rekeySession(fromId, toId) {
 module.exports = {
   init,
   recordSignal,
+  recordLifecycle,
   forgetSession,
   rekeySession,
   // For tests: the latch is the whole of this module's state.
