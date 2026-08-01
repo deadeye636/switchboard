@@ -202,6 +202,10 @@ The only backend whose history is **not** in files — the reason the discovery 
 - Project trust lives in `(PI_CODING_AGENT_DIR | ~/.pi/agent)/trust.json`: a JSON object mapping canonical
   project paths to `true` / `false`. Lookup walks parents, so trusting a parent folder trusts its children
   unless a child records an explicit `false`. Switchboard exposes this through Pi's `projectTrust` hook.
+- Resource discovery is read-only through Pi's `listResources({projectPath})` hook. It surfaces global and
+  project `settings.json`, configured packages/resources, and auto-discovered extensions, skills, prompt
+  templates and themes as neutral rows. Switchboard only displays, copies or opens discovered paths;
+  installing, updating or executing Pi packages/extensions is deliberately out of scope (#411).
 - **Trap:** a stored `pi /login` OAuth session takes **priority over env vars**, so an injected key can be
   silently shadowed. The descriptor surfaces that in Settings.
 

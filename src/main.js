@@ -1460,6 +1460,7 @@ ipcMain.handle('backends-list', () => {
       enabled: !!b.enabled, isProfile: !!b.isProfile, icon: b.icon || null,
       monogram: b.monogram || null, colour: b.colour || null, configFields: b.configFields || [],
       modelDiscovery: typeof b.listModels === 'function',
+      resourceDiscovery: typeof b.listResources === 'function',
       // Is the binary actually installed? Settings shows the reason instead of letting the user enable
       // a backend whose first launch then dies with a raw shell error.
       available: b.available !== false, unavailableReason: b.unavailableReason || null,
@@ -1866,6 +1867,9 @@ backends.init({ getGlobalSettings: () => getSetting('global') || {}, profiles })
 const backendModels = require('./app/backend-models');
 backendModels.init({ backends });
 backendModels.registerIpc(ipcMain);
+const backendResources = require('./app/backend-resources');
+backendResources.init({ backends, shell });
+backendResources.registerIpc(ipcMain);
 const { detectSessionTransitions } = sessionTransitions;
 
 // Set once quit begins so a still-pending debounced flush (or a late worker

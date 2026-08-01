@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('api', {
     list: () => ipcRenderer.invoke('backends-list'),
     canFork: (sessionId) => ipcRenderer.invoke('backend-can-fork', sessionId),
     listModels: (backendId, search) => ipcRenderer.invoke('backend-list-models', backendId, search),
+    listResources: (backendId, projectPath) => ipcRenderer.invoke('backend-list-resources', backendId, projectPath),
+    openResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-open-resource', backendId, resourcePath, projectPath),
     transcriptPath: (sessionId) => ipcRenderer.invoke('handoff-transcript-path', sessionId),
   },
   sessionBackends: {

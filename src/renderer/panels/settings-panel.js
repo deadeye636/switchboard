@@ -536,6 +536,7 @@
     if (backendsRoot && window.backendsPanel) {
       window.backendsPanel.mount(backendsRoot, {
         isProject,
+        projectPath: isProject ? projectPath : null,
         settings: current,
         // The project scope needs BOTH: what it overrides itself (`settings.backendDefaults`) and what
         // it would inherit (`globalDefaults`) — the launch defaults cascade per OPTION, so a row must

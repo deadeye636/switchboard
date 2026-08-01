@@ -192,6 +192,69 @@
     }).join('');
   }
 
+  function resourcesShell(backend, title) {
+    if (!backend.resourceDiscovery) return '';
+    return `
+      <details class="settings-adv backend-resources" data-resources-for="${esc(backend.id)}" open>
+        <summary><svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>${esc(title || 'Resources')}</summary>
+        <div class="backend-env-hint">Read-only view of backend-owned resources. Switchboard does not install or execute them from here.</div>
+        <div class="backend-resource-list" data-resource-list="${esc(backend.id)}"><div class="settings-hint">Loading resources…</div></div>
+      </details>`;
+  }
+
+  function renderResources(result) {
+    if (!result || result.ok === false) return `<div class="settings-hint">Could not load resources${result && result.reason ? ': ' + esc(result.reason) : '.'}</div>`;
+    const rows = Array.isArray(result.resources) ? result.resources : [];
+    if (!rows.length) return '<div class="settings-hint">No configured or auto-discovered resources found.</div>';
+    return rows.map(r => `
+      <div class="settings-field backend-resource-row">
+        <div class="settings-field-info">
+          <div class="settings-field-header">
+            <span class="backend-pill">${esc(r.kind || 'resource')}</span>
+            <span class="settings-label">${esc(r.name || r.path || 'Resource')}</span>
+            ${r.scope ? `<span class="backend-pill ${r.scope === 'project' ? 'soon' : ''}">${esc(r.scope)}</span>` : ''}
+          </div>
+          ${r.source ? `<div class="settings-description">${esc(r.source)}</div>` : ''}
+          ${r.path ? `<div class="settings-more open"><code>${esc(r.path)}</code></div>` : ''}
+        </div>
+        <div class="settings-field-control">
+          ${r.path ? `<button type="button" class="backend-btn backend-resource-open" data-path="${esc(r.path)}">Open</button><button type="button" class="backend-btn backend-resource-copy" data-path="${esc(r.path)}">Copy path</button>` : ''}
+        </div>
+      </div>`).join('');
+  }
+
+  async function loadResources(root, backendId, projectPath) {
+    const list = root && root.querySelector(`.backend-resource-list[data-resource-list="${CSS.escape(backendId)}"]`);
+    if (!list || !window.api?.backends?.listResources) return;
+    list.dataset.projectPath = projectPath || '';
+    let result;
+    try { result = await window.api.backends.listResources(backendId, projectPath || null); }
+    catch (err) { result = { ok: false, reason: err && err.message }; }
+    list.innerHTML = renderResources(result);
+  }
+
+  function bindResourceCopy(root) {
+    root.addEventListener('click', async (e) => {
+      const copy = e.target.closest && e.target.closest('.backend-resource-copy');
+      if (copy) {
+        e.preventDefault();
+        try { await navigator.clipboard.writeText(copy.dataset.path || ''); copy.textContent = 'Copied'; }
+        catch { copy.textContent = 'Copy failed'; }
+        return;
+      }
+      const open = e.target.closest && e.target.closest('.backend-resource-open');
+      if (!open) return;
+      e.preventDefault();
+      const list = open.closest('.backend-resource-list');
+      const backendId = list && list.dataset.resourceList;
+      const projectPath = list && list.dataset.projectPath;
+      let res = null;
+      try { res = await window.api.backends.openResource(backendId, open.dataset.path || '', projectPath || null); } catch {}
+      if (res && res.ok) open.textContent = 'Opened';
+      else open.textContent = 'Open failed';
+    });
+  }
+
   // A backend's launch options live on its OWN page, reached by the gear on its row (`launchDefaultsPage`
   // below). EVERY backend has one, Claude included (`backendDefaults.<id>.<opt>`, 00 §4a).
   //
@@ -973,7 +1036,17 @@
           </div>
           <div class="settings-hint">Per-backend launch options for this project. Each option falls back to the global default unless you override it here. Enabling a backend and the default launch target stay global.</div>
         </div>
-        ${readyBackends.map(b => inlineDefaultsSection(b, mergedOwnDefaults(), inheritedDefaults)).join('')}`;
+        ${readyBackends.map(b => inlineDefaultsSection(b, mergedOwnDefaults(), inheritedDefaults)).join('')}
+        ${readyBackends.filter(b => b.resourceDiscovery).map(b => `
+          <div class="settings-section">
+            <div class="settings-section-title backend-inline-title">
+              <span class="backend-icon-slot" data-icon="${esc(b.icon || b.colour || b.id)}" data-size="16" ${b.monogram ? `data-monogram="${esc(b.monogram)}"` : ''}></span>
+              ${esc(b.label)} resources
+            </div>
+            ${resourcesShell(b, 'Project and global resources')}
+          </div>`).join('')}`;
+      bindResourceCopy(box);
+      readyBackends.filter(b => b.resourceDiscovery).forEach(b => loadResources(box, b.id, ctx.projectPath || null));
       box.addEventListener('input', (e) => recordDefault(e.target));
       box.addEventListener('change', (e) => {
         // Un-checking "use global default" starts an override at the value currently shown; re-checking
@@ -1126,13 +1199,16 @@
         { summarise: bySummarise[backend.id], read: byRead[backend.id] },
         { summarise: ctx.fieldValue('handoffPrompt', ''), read: ctx.fieldValue('handoffReadPrompt', '') },
       )
-        + integrationsHtml(backend, ctx);
+        + integrationsHtml(backend, ctx)
+        + resourcesShell(backend, 'Global resources');
       const page = document.createElement('div');
       page.className = 'backends-panel';
       page.innerHTML = launchDefaultsPage(backend, mergedDefaults(), false, extras);
       root.replaceChildren(page);
       paintIcons(page);
 
+      bindResourceCopy(page);
+      loadResources(page, backend.id, null);
       page.addEventListener('click', (e) => {
         if (e.target.closest('[data-act="back"]')) mount(root, { ...ctx, keepPending: true });
       });

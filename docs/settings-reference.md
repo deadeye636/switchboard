@@ -221,7 +221,7 @@ own `config.toml`.)
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo` |
 | `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `noContextFiles` |
 
-Pi's `model` field supports backend-owned suggestions from `pi --list-models`; failures leave the field as normal free text.
+Pi's `model` field supports backend-owned suggestions from `pi --list-models`; failures leave the field as normal free text. Pi's backend settings page also shows a read-only resource inventory (packages, extensions, skills, prompt templates, themes and settings files) discovered by the Pi backend; Switchboard does not install or execute resources from there.
 
 Claude's pre-multi-LLM top-level keys (`permissionMode`, `worktree`, `chrome`, …) are migrated once into
 `backendDefaults.claude` and removed from the blob.

@@ -567,6 +567,45 @@ test('a parentSession Pi did not write yields no link rather than a guess (#193)
   assert.strictEqual(pi.resolveLineage(null), null);
 });
 
+test('Pi resource discovery surfaces global and project resources read-only (#411)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-resources-'));
+  const project = path.join(dir, 'project');
+  const store = path.join(dir, 'stores', 'pi');
+  const saved = process.env.SWITCHBOARD_STORE_PI;
+  try {
+    process.env.SWITCHBOARD_STORE_PI = store;
+    const agent = path.join(dir, 'stores', 'pi-agent');
+    fs.mkdirSync(path.join(agent, 'extensions'), { recursive: true });
+    fs.mkdirSync(path.join(agent, 'skills', 'global-skill'), { recursive: true });
+    fs.mkdirSync(path.join(agent, 'prompts'), { recursive: true });
+    fs.writeFileSync(path.join(agent, 'settings.json'), JSON.stringify({ packages: ['npm:@x/pkg'], extensions: ['./extra.ts'] }));
+    fs.writeFileSync(path.join(agent, 'extensions', 'guard.ts'), 'export default () => {}');
+    fs.writeFileSync(path.join(agent, 'skills', 'global-skill', 'SKILL.md'), '---\nname: global-skill\ndescription: test\n---\n');
+    fs.writeFileSync(path.join(agent, 'prompts', 'review.md'), 'Review');
+
+    fs.mkdirSync(path.join(project, '.pi', 'themes'), { recursive: true });
+    fs.mkdirSync(path.join(project, '.pi', 'skills', 'local-skill'), { recursive: true });
+    fs.writeFileSync(path.join(project, '.pi', 'settings.json'), JSON.stringify({ prompts: ['./prompt.md'] }));
+    fs.writeFileSync(path.join(project, '.pi', 'themes', 'team.json'), '{}');
+    fs.writeFileSync(path.join(project, '.pi', 'skills', 'local-skill', 'SKILL.md'), '---\nname: local-skill\ndescription: test\n---\n');
+
+    const res = pi.listResources({ projectPath: project });
+    assert.equal(res.ok, true);
+    const keys = res.resources.map(r => `${r.scope}:${r.kind}:${r.name}`);
+    assert.ok(keys.includes('global:settings:settings.json'));
+    assert.ok(keys.includes('global:package:npm:@x/pkg'));
+    assert.ok(keys.includes('global:extension:guard'));
+    assert.ok(keys.includes('global:skill:global-skill'));
+    assert.ok(keys.includes('global:prompt:review'));
+    assert.ok(keys.includes('project:settings:settings.json'));
+    assert.ok(keys.includes('project:skill:local-skill'));
+    assert.ok(keys.includes('project:theme:team'));
+  } finally {
+    if (saved === undefined) delete process.env.SWITCHBOARD_STORE_PI; else process.env.SWITCHBOARD_STORE_PI = saved;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('#283 liveState gate re-derives with a fresh now — a quiet running turn still flips to idle', () => {
   const { deriveStateFromFileTailGated, _clearFactsCache } = require('../src/backends/pi/state');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-gate-'));

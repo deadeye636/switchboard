@@ -36,6 +36,17 @@ test('model-discovery fields are backed by a backend-owned listModels hook', () 
   }
 });
 
+test('backend resource discovery is descriptor-owned and optional', () => {
+  for (const b of READY) {
+    if (b.listResources === undefined) continue;
+    assert.equal(typeof b.listResources, 'function', `${b.id}: listResources must be a hook`);
+    const res = b.listResources({ projectPath: null });
+    assert.ok(res && typeof res === 'object', `${b.id}.listResources returns an object`);
+    assert.equal(typeof res.ok, 'boolean', `${b.id}.listResources returns {ok}`);
+    if (res.ok) assert.ok(Array.isArray(res.resources), `${b.id}.listResources returns {resources: []}`);
+  }
+});
+
 test('every ready backend declares an availability probe', () => {
   // Without one, an enabled-but-not-installed backend is offered in the picker and dies in the terminal
   // with a raw shell error instead of a sentence the user can act on (D15). Codex shipped without it.

@@ -27,6 +27,7 @@ const parser = require('./parser');
 const trust = require('./trust');
 const liveBinding = require('./live-binding');
 const transcriptView = require('./transcript-view');
+const resources = require('./resources');
 const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, piLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
@@ -387,6 +388,7 @@ module.exports = {
   probe,
   findExecutable,
   listModels,
+  listResources: resources.listResources,
   _parseModelList: parseModelList,
 
   // the dual-mode seam, file side (backends/file-store.js)
