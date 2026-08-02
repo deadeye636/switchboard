@@ -447,6 +447,37 @@ window.__sessionDragId = null;
     // tab whose session is not running never reaches it (see `openFromTab`). A no-op in the main
     // window, which titles itself.
     if (typeof window.updateDetachedWindowTitle === 'function') window.updateDetachedWindowTitle();
+    // LAST, and it has to be last (#425). `show()` only schedules this render, so the caller's
+    // `terminal.focus()` runs while the tree is still the old one — and the rebuild below it moves the
+    // terminal's container into its pane. A focused element that is re-parented is blurred by the DOM,
+    // so the caret ended up nowhere and typing went into the void. It "worked sometimes" precisely when
+    // the node happened not to move: switching tabs inside the pane that already held it.
+    //
+    // Only a pending request focuses, never every render: a resize, a sash drag and a status repaint all
+    // render too, and stealing the caret out of the search bar on those would be a worse bug than the one
+    // this fixes.
+    applyPendingFocus();
+  }
+
+  // The session whose terminal should hold the caret once this render has settled, or null.
+  let pendingFocusSessionId = null;
+
+  /** Ask for the caret after the next render — the only way to survive the re-parenting above. */
+  function requestFocus(sessionId) {
+    pendingFocusSessionId = sessionId || null;
+  }
+
+  function applyPendingFocus() {
+    const sessionId = pendingFocusSessionId;
+    pendingFocusSessionId = null;
+    if (!sessionId) return;
+    const entry = openSessions.get(sessionId);
+    if (!entry || entry.closed) return;
+    // Only if that session is still the one on top of its pane. Between the request and this render the
+    // user may have clicked elsewhere, and a queued focus that fires anyway would drag them back.
+    const leaf = PaneTree.leafOfTab(tree, tabIdFor(sessionId));
+    if (!leaf || leaf.activeTabId !== tabIdFor(sessionId)) return;
+    try { entry.terminal.focus(); } catch { /* disposed between the request and the render */ }
   }
 
   /** Write out each revealed pane's replay backlog. Runs right after `applyVisibility`. */
@@ -3345,6 +3376,9 @@ window.__sessionDragId = null;
     const leaving = activeLeafId;
     activeLeafId = leaf.id;
     dropEmptyPaneLeft(leaving);
+    // The caret belongs to the session being shown, and it has to be claimed AFTER the render that is
+    // about to move its container — see `applyPendingFocus` (#425).
+    requestFocus(sessionId);
     scheduleRender();
     persist();
     return true;
