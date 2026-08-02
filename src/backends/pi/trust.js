@@ -52,6 +52,20 @@ function agentDir() {
     || (process.env.PI_CODING_AGENT_DIR ? resolvePath(process.env.PI_CODING_AGENT_DIR) : path.join(os.homedir(), '.pi', 'agent'));
 }
 
+/**
+ * The SHARED skills directory (`~/.agents/skills`), which is a convention several CLIs read rather than
+ * anything Pi owns — and which is therefore easy to forget when isolating (#241).
+ *
+ * It has to move with the isolated store like everything else: an isolated instance listing the user's
+ * real skills is the same leak as listing their real settings, and `openResource` hands those paths to
+ * the OS. Anchored beside the isolated agent dir, so a demo run reads its own `.agents` or nothing at all.
+ */
+function agentsSharedSkillsDir() {
+  const store = process.env.SWITCHBOARD_STORE_PI;
+  if (store) return path.join(path.dirname(resolvePath(store)), '.agents', 'skills');
+  return path.join(os.homedir(), '.agents', 'skills');
+}
+
 function trustPath() {
   return path.join(agentDir(), 'trust.json');
 }
@@ -137,6 +151,7 @@ module.exports = {
   trustPath,
   agentDir,
   agentDirFromStore,
+  agentsSharedSkillsDir,
   cliEnvForStore,
   _canonicalize: canonicalize,
 };

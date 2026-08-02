@@ -101,9 +101,8 @@ function addPackageDirs(out, root, scope) {
   }
 }
 
-function agentSkillsDir() {
-  return path.join(os.homedir(), '.agents', 'skills');
-}
+// Resolved by trust.js, which is where every Pi path that has to follow the isolated store lives.
+const agentSkillsDir = () => trust.agentsSharedSkillsDir();
 
 function listResources({ projectPath } = {}) {
   const resources = [];

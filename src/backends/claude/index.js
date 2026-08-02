@@ -32,9 +32,12 @@ function claudeHome() {
   return path.dirname(_roots[0]);
 }
 
-// Claude's session store root. Defaults to ~/.claude/projects; main.js overrides it with its own
-// PROJECTS_DIR at init (and tests point it at a fixture) via setRoots().
-let _roots = [path.join(os.homedir(), '.claude', 'projects')];
+// Claude's session store root. main.js overrides it with its own PROJECTS_DIR at init (and tests point it
+// at a fixture) via setRoots() — but the DEFAULT follows SWITCHBOARD_STORE_CLAUDE too, and leaving that
+// out is a trap rather than a nicety: anything that reads a Claude path BEFORE main.js has called
+// setRoots gets the user's real home, and reports it as if it were the isolated one. Measured while
+// auditing the resource readers, which resolve `claudeHome()` from this very value.
+let _roots = [process.env.SWITCHBOARD_STORE_CLAUDE || path.join(os.homedir(), '.claude', 'projects')];
 
 function setRoots(roots) {
   if (Array.isArray(roots) && roots.length) _roots = roots.slice();

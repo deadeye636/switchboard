@@ -29,8 +29,16 @@ const { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated } = r
 // is honoured, and overridable via setHome().
 let _home = null;
 
+// SWITCHBOARD_STORE_CODEX comes FIRST, and leaving it out is what let an isolated run read the user's
+// real home (#241). It names the sessions dir; the home is its parent — the same resolution `trust.js`
+// already used for the file it writes. This one is read by `listResources`, so without it a demo instance
+// listed the user's real `config.toml`, `AGENTS.md` and plugins, and offered to open them.
+//
+// `_home` still wins: that is the explicit answer a test or main.js set on purpose.
 function codexHome() {
   if (_home) return _home;
+  const store = process.env.SWITCHBOARD_STORE_CODEX;
+  if (store) return path.dirname(store);
   return process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
 }
 

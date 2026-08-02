@@ -55,6 +55,98 @@ test('every place that composes a CLI home follows that backend\'s store overrid
   }
 });
 
+// --- The same guard, DERIVED instead of listed -------------------------------
+//
+// The list above is the four places #241 found. It cannot see a fifth: a file added later composes a CLI
+// home, nobody adds it here, and the guard reports success about a file it never opened. That is exactly
+// what happened — the resource readers added in one evening read the user's real `~/.codex` and
+// `~/.agents/skills` from an isolated instance, with this test green, because they were not on the list.
+//
+// So the question is asked of EVERY file under `src/`: if you compose a CLI's home from `os.homedir()`,
+// you must consult that backend's store override. A file that legitimately does not needs an entry in
+// EXEMPT with a reason — the point is not that exceptions are forbidden, it is that they are deliberate
+// and readable, and that the default for anything new is "flagged".
+
+const HOME_COMPOSERS = [
+  ['SWITCHBOARD_STORE_CLAUDE', /homedir\(\)[^;\n]*['"`]\.claude/],
+  ['SWITCHBOARD_STORE_CODEX', /homedir\(\)[^;\n]*['"`]\.codex/],
+  ['SWITCHBOARD_STORE_PI', /homedir\(\)[^;\n]*['"`]\.(pi|agents)/],
+  ['SWITCHBOARD_STORE_HERMES', /homedir\(\)[^;\n]*['"`]\.?hermes/],
+  ['SWITCHBOARD_STORE_AGY', /homedir\(\)[^;\n]*['"`]\.(agy|gemini)/],
+];
+
+// Each entry says WHY the path may stay on the real home. Anything not here has to follow its override.
+const EXEMPT = new Map([
+  ['src/db/connection.js',
+    'the ~/.claude/browser paths are LEGACY Switchboard databases it adopts from, not a CLI home it reads; '
+    + 'its own isolation is SWITCHBOARD_DATA_DIR'],
+  ['src/db/migrations.js',
+    'a shipped migration back-fills the pre-override default; rewriting it would change what already ran '
+    + 'on every existing database'],
+  ['src/backends/claude/usage.js',
+    'reads the account limits the CLI cached, which are a property of the ACCOUNT rather than of the store, '
+    + 'and follows CLAUDE_CONFIG_DIR when the CLI was pointed elsewhere'],
+  ['src/backends/agy/usage.js',
+    'has an override of its own, SWITCHBOARD_AGY_CREDS — the credentials file is not under the sessions store'],
+]);
+
+function walkJs(dir, out = []) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walkJs(full, out);
+    else if (entry.name.endsWith('.js')) out.push(full);
+  }
+  return out;
+}
+
+/**
+ * The block that composes the home, not the whole file.
+ *
+ * Asking "does this FILE mention the override" is too coarse, and measurably so: the codex descriptor
+ * mentioned `SWITCHBOARD_STORE_CODEX` in its sessions-root helper while the home helper right above it
+ * ignored it — a file-level check called that compliant, and an isolated run read the real `~/.codex`.
+ * So the answer has to come from the same function that builds the path.
+ */
+function enclosingBlock(src, index) {
+  const before = src.slice(0, index);
+  const start = Math.max(
+    before.lastIndexOf('\nfunction '),
+    before.lastIndexOf('\nconst '),
+    before.lastIndexOf('\n  function '),
+  );
+  const from = start === -1 ? 0 : start;
+  const end = src.indexOf('\n}', index);
+  return src.slice(from, end === -1 ? src.length : end);
+}
+
+test('NO file composes a CLI home without following that store override (#241, derived)', () => {
+  const offenders = [];
+  for (const file of walkJs(path.join(ROOT, 'src'))) {
+    const rel = path.relative(ROOT, file).split(path.sep).join('/');
+    const src = stripComments(fs.readFileSync(file, 'utf8'));
+    if (EXEMPT.has(rel)) continue;
+    for (const [envVar, pattern] of HOME_COMPOSERS) {
+      const re = new RegExp(pattern.source, 'g');
+      let match;
+      while ((match = re.exec(src)) !== null) {
+        if (enclosingBlock(src, match.index).includes(envVar)) continue;
+        offenders.push(`${rel} composes a CLI home but never consults ${envVar}`);
+        break;
+      }
+    }
+  }
+  assert.deepEqual(offenders, [],
+    'an isolated (demo/sandbox) run would read the user\'s real store from these files. Follow the '
+    + 'override, or add the file to EXEMPT with the reason it may not.');
+});
+
+test('the EXEMPT list does not outlive the files it excuses (#241)', () => {
+  for (const rel of EXEMPT.keys()) {
+    assert.ok(fs.existsSync(path.join(ROOT, rel)),
+      `${rel} is exempted from the isolation guard but no longer exists — drop the entry`);
+  }
+});
+
 // The other half: the override must not be resolved ONCE at module load. These modules are required long
 // before a path is read, and a test (or a future launcher) may set the variable later; a constant frozen at
 // load time answers with the real home for the rest of the process.
