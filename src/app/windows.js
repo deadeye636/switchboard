@@ -16,6 +16,7 @@ const { BrowserWindow, dialog, ipcMain, Menu, screen, shell } = require('electro
 const path = require('path');
 const fs = require('fs');
 const quitGuard = require('./quit-guard');
+const sessionShutdown = require('./session-shutdown');
 
 let ctx = null;
 let settingsWindow = null;
@@ -368,12 +369,12 @@ function createWindow() {
     // On macOS the app stays alive in the dock after the last window closes.
     // Kill all running PTY processes so orphaned `claude` processes don't
     // accumulate in the background with no way for the user to interact.
-    for (const [id, session] of ctx.activeSessions) {
-      if (!session.exited) {
-        try { session.pty.kill(); } catch {}
-      }
-      ctx.activeSessions.delete(id);
-    }
+    // Through session-shutdown (#424), which REMEMBERS each pid: this handler empties the map below, so
+    // by the time `before-quit` runs there is no session list left to check that any of them actually
+    // died. The pid list is what survives that, and it is what the wait and the tree-kill escalation
+    // work from.
+    sessionShutdown.killAll(ctx.activeSessions);
+    for (const [id] of ctx.activeSessions) ctx.activeSessions.delete(id);
     // Release all subagent file watchers
     for (const [, entry] of ctx.subagentWatchers) {
       try { fs.unwatchFile(entry.filePath, entry.listener); } catch {}

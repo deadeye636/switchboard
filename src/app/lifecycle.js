@@ -13,6 +13,7 @@
 'use strict';
 
 const path = require('path');
+const sessionShutdown = require('./session-shutdown');
 
 /**
  * Does this build take the single-instance lock? Everything does now, unless it opts out (#220).
@@ -170,7 +171,11 @@ function registerQuitHandlers(ctx) {
     if (process.platform !== 'darwin') app.quit();
   });
 
-  app.on('before-quit', () => {
+  // Set once the processes have been confirmed gone, so the second pass through `before-quit` — the one
+  // this handler asks for by preventing the first — walks straight through instead of looping.
+  let sessionsConfirmedStopped = false;
+
+  app.on('before-quit', (event) => {
     // Stop any pending debounced cache flush from running after the DB closes (#90).
     ctx.setAppQuitting(true);
 
@@ -190,12 +195,10 @@ function registerQuitHandlers(ctx) {
     ctx.stopProjectsWatcher();
     ctx.stopBackendWatchers();
 
-    // Kill all PTY processes on quit
-    for (const [, session] of ctx.activeSessions) {
-      if (!session.exited) {
-        try { session.pty.kill(); } catch {}
-      }
-    }
+    // Ask every PTY still running to stop. The WAIT for them is below, after the rest of the teardown —
+    // this used to be the whole of it, and a kill that had not landed by the time the process exited
+    // never landed at all (#424).
+    sessionShutdown.killAll(ctx.activeSessions);
 
     // Wipe any secret-ref temp files written for inline secret insertion.
     ctx.cleanupSecretRefs();
@@ -203,6 +206,23 @@ function registerQuitHandlers(ctx) {
     // Flush the launch-time backend/profile overlay so a session started just before quit keeps
     // its provenance across the restart (§5.7).
     try { ctx.flushSessionBackends(); } catch {}
+
+    // …and only now let the process go (#424). Everything above is synchronous; a process exiting is
+    // not. Quitting used to fire the kills and leave, so on a machine where a CLI took a moment to wind
+    // down the app was already gone and the CLI was orphaned — which is exactly what a user then finds
+    // still running with no window to reach it from.
+    //
+    // The quit is HELD for one round trip: this pass is cancelled, the pids are waited on (and the
+    // stubborn ones get their whole tree killed), and then quit is asked for again. The flag is what
+    // stops that second ask from cancelling itself in turn.
+    if (sessionsConfirmedStopped) return;
+    event.preventDefault();
+    sessionShutdown.awaitAllStopped({ log: ctx.log })
+      .catch((err) => ctx.log.warn(`[shutdown] could not confirm every session stopped: ${err.message}`))
+      .then(() => {
+        sessionsConfirmedStopped = true;
+        app.quit();
+      });
   });
 
   // Close SQLite after all windows are closed to avoid "connection is not open" errors
