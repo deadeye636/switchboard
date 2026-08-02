@@ -59,6 +59,8 @@
     "variables-panel.js",
     "variable-palette.js",
     "terminal-fit.js",
+    "page-key-routing.js",
+    "cursor-stabilization.js",
     "terminal-manager.js",
     "session-nav.js",
     "grid-bulk-actions.js",

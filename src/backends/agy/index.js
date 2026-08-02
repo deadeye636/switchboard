@@ -178,6 +178,8 @@ module.exports = {
   status: 'ready',
   monogram: 'Ag',
   colour: 'agy',
+  // agy's navigation and edit areas handle PageUp/PageDown themselves; keep the keys in the PTY.
+  pageKeyTarget: 'pty',
   // No confirmed fork flag — declaring false HIDES the Fork button for agy's sessions rather than
   // launching an unrelated empty session when it is pressed.
   supportsFork: false,

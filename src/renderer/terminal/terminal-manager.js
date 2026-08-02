@@ -8,6 +8,8 @@
 // wrapInGridCard, showGridView (grid-view.js)
 // Depends on: shellEscape (utils.js)
 // Depends on: pasteIntoTerminal, fileUriToPath (terminal-context-menu.js)
+// Depends on: handleTerminalPageKeyEvent (page-key-routing.js)
+// Depends on: createCursorStabilizer (cursor-stabilization.js)
 
 // --- One insert route for paste and drop (#307) ---
 // Paste and drop hand the terminal the same thing — a DataTransfer — so they read it the same way.
@@ -146,7 +148,7 @@ async function insertFromDataTransfer(dt, terminal, sessionId, { clipboardBitmap
 //   1. attachCustomKeyEventHandler returning false — blocks xterm's key pipeline (onKey/onData)
 //   2. preventDefault on capture-phase keydown — prevents browser inserting \n into textarea
 const isMac = window.api.platform === 'darwin';
-function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } = {}) {
+function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, getPageKeyTarget } = {}) {
   // Set when the Insert-variable shortcut (default Ctrl/Cmd+Shift+V) fires, so the
   // paste event that same keystroke also generates is swallowed once (#89).
   let suppressPasteOnce = false;
@@ -205,16 +207,9 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind } 
       return false;
     }
 
-    // PageUp/PageDown scroll Switchboard's terminal viewport for every backend. Some TUIs consume bare
-    // page keys themselves, while others require Shift+PageUp through xterm/browser defaults; owning the
-    // bare keys here keeps the history shortcut consistent without naming a backend.
-    if ((e.key === 'PageUp' || e.key === 'PageDown') && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
-      if (e.type === 'keydown') {
-        e.preventDefault();
-        terminal.scrollPages(e.key === 'PageUp' ? -1 : 1);
-      }
-      return false;
-    }
+    // A backend owns whether bare PageUp/PageDown belong to its TUI or Switchboard's xterm viewport.
+    const pageKeyResult = handleTerminalPageKeyEvent(e, getPageKeyTarget?.(), pages => terminal.scrollPages(pages));
+    if (pageKeyResult !== null) return pageKeyResult;
 
     // Shift+Enter → newline (kitty protocol CSI 13;2u) so Claude Code treats it as newline, not submit.
     if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -919,6 +914,27 @@ function isSessionVisible(sessionId) {
   return entry.element.classList.contains('visible');
 }
 
+// Resolve lazily as well as at terminal creation: backend caches and restored terminals start in parallel,
+// so a negative answer during boot is not final. The first write after the registry arrives still stabilizes.
+function ensureCursorStabilizer(entry) {
+  if (entry.cursorStabilizer) return entry.cursorStabilizer;
+  const backendId = typeof sessionBackendId === 'function' ? sessionBackendId(entry.session) : '';
+  const backend = backendId && typeof getBackend === 'function' ? getBackend(backendId) : null;
+  if (backend?.cursorUpdatePolicy !== 'settle') return null;
+  entry.cursorStabilizer = createCursorStabilizer({ writeControl: control => entry.terminal.write(control) });
+  return entry.cursorStabilizer;
+}
+
+// Keep a backend-declared TUI's hardware cursor out of intermediate update cells. The stabilizer wraps
+// only the VT write; flow accounting and replay caps continue to measure the backend's original bytes.
+function writeTerminalOutput(entry, data, callback) {
+  const stabilizer = ensureCursorStabilizer(entry);
+  entry.terminal.write(stabilizer ? stabilizer.wrap(data) : data, () => {
+    stabilizer?.parsed();
+    if (callback) callback();
+  });
+}
+
 // Drain the raw replay buffer for sessionId by writing all accumulated data to the
 // terminal in a single coalesced write(). Called on (re)visibility.
 // The write callback always scrolls to bottom for replayed data — the user expects
@@ -936,7 +952,7 @@ function drainReplayBuffer(sessionId) {
   }
   const data = arr.join('');
   rawReplayBuffers.delete(sessionId);
-  entry.terminal.write(data, () => {
+  writeTerminalOutput(entry, data, () => {
     // Destroyed between write() and callback → terminal is disposed, don't touch it.
     if (openSessions.get(sessionId) !== entry) return;
     entry.terminal.scrollToBottom();
@@ -1076,7 +1092,7 @@ function flushTerminalBuffer(sessionId) {
 
   const wasAtBottom = isAtBottom(entry.terminal);
   const savedViewportY = entry.terminal.buffer.active.viewportY;
-  entry.terminal.write(data, () => {
+  writeTerminalOutput(entry, data, () => {
     flowTrackParsed(sessionId, rawLen);
     // The session may have been destroyed between write() and this callback —
     // don't touch a disposed terminal.
@@ -1299,7 +1315,11 @@ function createTerminalEntry(session, opts = {}) {
   searchBar.querySelector('.terminal-search-prev').addEventListener('click', () => searchAddon.findPrevious(searchInput.value, searchOpts));
   searchBar.querySelector('.terminal-search-close').addEventListener('click', closeSearchBar);
 
-  const entry = { terminal, element: container, fitAddon, searchAddon, openSearchBar, closeSearchBar, session, closed: false, webglAddon: null };
+  const entry = {
+    terminal, element: container, fitAddon, searchAddon, openSearchBar, closeSearchBar,
+    session, closed: false, webglAddon: null, cursorStabilizer: null,
+  };
+  ensureCursorStabilizer(entry);
   openSessions.set(sessionId, entry);
   lruTouch(sessionId);
   loadTerminalWebgl(entry);
@@ -1325,7 +1345,14 @@ function createTerminalEntry(session, opts = {}) {
     if (data === '\x1b[I' || data === '\x1b[O') return;
     window.api.sendInput(entry.session.sessionId, data);
   });
-  setupTerminalKeyBindings(terminal, container, () => entry.session.sessionId, { onFind: openSearchBar });
+  setupTerminalKeyBindings(terminal, container, () => entry.session.sessionId, {
+    onFind: openSearchBar,
+    getPageKeyTarget: () => {
+      const backendId = typeof sessionBackendId === 'function' ? sessionBackendId(entry.session) : '';
+      const backend = backendId && typeof getBackend === 'function' ? getBackend(backendId) : null;
+      return backend?.pageKeyTarget;
+    },
+  });
   setupTerminalContextMenu(container, terminal, () => entry.session.sessionId, () => hoveredLinkUri);
   setupDragAndDrop(container, terminal, () => entry.session.sessionId);
   terminal.onResize(({ cols, rows }) => {
@@ -1548,6 +1575,7 @@ function destroySession(sessionId) {
   // Drop any accumulated replay data — the terminal is being torn down so
   // there is no point draining it on a future showSession.
   rawReplayBuffers.delete(sessionId);
+  entry.cursorStabilizer?.dispose();
   // terminal.dispose() also disposes the parser and its registered OSC
   // handlers (the OSC-52 clipboard hook) and all onX emitters — no manual
   // cleanup needed for those. The DnD/search-bar listeners live on

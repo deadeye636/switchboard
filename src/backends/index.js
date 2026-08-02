@@ -143,6 +143,9 @@ function profileToDescriptor(p) {
     configFields: usable ? base.configFields : [],
     PARSER_SCHEMA_VERSION: base ? base.PARSER_SCHEMA_VERSION : undefined,
     supportsFork: base ? base.supportsFork : false,
+    // Page keys belong to the binary the template runs, exactly like its launch options.
+    pageKeyTarget: base ? base.pageKeyTarget : 'pty',
+    cursorUpdatePolicy: base ? base.cursorUpdatePolicy : undefined,
     supportsSubagents: base ? base.supportsSubagents === true : false,   // #230
     transcriptAccess: base ? base.transcriptAccess : undefined,
     // A template's sessions are written by the base binary, into the base's store, in the base's format —

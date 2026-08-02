@@ -131,6 +131,32 @@ everything else through, and handle the session case where it actually happens (
 When a widget must react to something the app does, hook the app's own choke point rather than trying
 to recognise the keystroke that led there.
 
+### The backend that already worked was overwritten (#410)
+
+The requirement itself said Claude already paged its visible history with bare PageUp/PageDown. The
+implementation intercepted those keys before xterm could send them to the PTY and called
+`terminal.scrollPages()` for every backend. That made the requested shortcut appear consistent while
+removing Claude's own history and overlay navigation — the known-good path was treated as an
+implementation detail to replace rather than as the regression control.
+
+The test encoded the replacement, not the requirement: it source-matched `scrollPages()` and `return
+false`. It therefore proved that the key was swallowed, which was the defect. The verification opened
+the app and checked the console, but never pressed the key in the backend explicitly named as already
+working.
+
+What would have prevented it:
+
+- Write the current/desired behaviour matrix before touching a shared input handler. "Claude works;
+  the others differ" is evidence of backend-owned semantics, not permission to erase Claude's answer.
+- Treat bare terminal keys as PTY input by default. A full-screen TUI may use them in its transcript,
+  overlays or configurable keymap even when xterm scrollback also exists.
+- Put differences on the backend descriptor and make unknown values fall through to the PTY. Shared
+  renderer code dispatches the declaration; it never guesses from a backend id.
+- Test the negative half: a PTY-owned key causes no `preventDefault`, no `scrollPages()` and still reaches
+  the application. A regex proving that an interception branch exists is not a behavioural test.
+- Live-check the previously working backend, not only the backend that motivated the change. The old
+  success path is the cheapest and strongest regression fixture available.
+
 ## A fix that reduces the symptom is not the fix
 
 #140 investigated "grid card renders clean, turns corrupt a moment later" and got the mechanism right:

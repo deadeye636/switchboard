@@ -1475,6 +1475,12 @@ ipcMain.handle('backends-list', () => {
       id: b.id, label: b.label, description: b.description || null, tier: b.tier, axis: b.axis, status: b.status,
       enabled: !!b.enabled, isProfile: !!b.isProfile, icon: b.icon || null,
       monogram: b.monogram || null, colour: b.colour || null, configFields: b.configFields || [],
+      // Bare PageUp/PageDown either reach this backend's TUI or scroll xterm's viewport. The renderer
+      // applies the declaration without naming a backend; unknown values conservatively reach the PTY.
+      pageKeyTarget: b.pageKeyTarget || 'pty',
+      // Some TUIs split an update cursor and the final input cursor across PTY chunks. The renderer
+      // may stabilize those frames without learning which backend emitted them.
+      cursorUpdatePolicy: b.cursorUpdatePolicy || null,
       modelDiscovery: typeof b.listModels === 'function',
       resourceDiscovery: typeof b.listResources === 'function',
       // Is the binary actually installed? Settings shows the reason instead of letting the user enable

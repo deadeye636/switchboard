@@ -310,6 +310,38 @@ per-model request quotas, which are enough for a status-bar figure.
 
 ---
 
+## Terminal page-key ownership
+
+Bare PageUp/PageDown are not generic terminal-scroll shortcuts when a full-screen TUI owns the visible
+history. Each descriptor therefore declares `pageKeyTarget` instead of the renderer naming backends or
+intercepting every session alike. The current TUIs all declare `'pty'`:
+
+| Backend | Verified TUI behaviour |
+|---|---|
+| Claude | Pages its visible conversation history and active overlays. |
+| Codex | Its TUI keymap has `page_up` / `page_down` list and pager actions. |
+| Hermes | Its input handler scrolls the transcript by half a viewport and routes page keys through prompt overlays. |
+| Pi | `tui.editor.pageUp` / `pageDown` and selector page actions default to the bare keys and are user-configurable. |
+| agy | Its navigation and editing areas expose PageUp/PageDown actions. |
+
+A future backend may declare `'viewport'`; only then does Switchboard swallow the bare key and call
+xterm's `scrollPages()`. Modifier chords keep xterm's existing behaviour.
+
+### Hardware cursor updates
+
+Codex and Pi declare `cursorUpdatePolicy: 'settle'`, for two measured forms of the same PTY boundary:
+
+- Codex ends an animation transaction with `?25h` at the updated cell, then sends
+  `?25l` + the composer position + `?25h` in a later chunk. At xterm's normal visible flush cadence the
+  red hardware cursor therefore alternates between both valid intermediate positions.
+- Pi draws its own white software cursor. It positions the hardware cursor for IME and normally ends by
+  hiding it, but the redraw and final `?25l` can cross a chunk boundary and expose the red cursor briefly.
+
+For those descriptors, Switchboard hides the hardware cursor around each parsed VT write and restores the
+TUI's last requested visibility after 80 ms without output. It does not invent cursor visibility: Pi's final
+hide remains hidden, while Codex's final show returns at its composer position. Claude, Hermes and agy keep
+native VT handling because their measured redraws already finish atomically.
+
 ## What each CLI accepts on its command line (#160)
 
 Read off each binary's **own `--help`** on a real install. The Settings page and the Configure dialog are

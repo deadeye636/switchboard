@@ -188,6 +188,8 @@ const ALLOWED_BINDINGS = {
   'src/renderer/session/session-health.js': [],
   'src/renderer/views/stats-view.js': [],
   'src/renderer/terminal/variable-palette.js': [],
+  'src/renderer/terminal/page-key-routing.js': [],
+  'src/renderer/terminal/cursor-stabilization.js': [],
 };
 
 test('the renderer never branches on a backend id', () => {

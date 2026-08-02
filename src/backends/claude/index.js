@@ -484,6 +484,8 @@ module.exports = {
   status: 'ready',
   monogram: 'C',
   colour: 'claude',
+  // Claude's full-screen TUI owns its history and its overlays; bare PageUp/PageDown must reach the PTY.
+  pageKeyTarget: 'pty',
   // Which environment-variable family this CLI reads its endpoint from (#212), or nothing if it has
   // none. An Axis-A template pointed at a third-party endpoint (DeepSeek, GLM, OpenRouter) works by
   // setting ANTHROPIC_* variables, so the profile editor offers its Endpoint fields only on a base that

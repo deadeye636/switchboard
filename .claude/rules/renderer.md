@@ -122,6 +122,22 @@ not in that map. `window.sessionIdsInThisWindow()` (`shell/detach-window.js`) is
 layout when panes mode is on, `openSessions` otherwise. It was derived twice before it was named, and
 the second derivation got it wrong.
 
+## A working backend is the control, not the thing to normalize away
+
+When a request says a terminal interaction already works in one backend, write the behaviour matrix
+**before** changing shared xterm handling: one row per backend, current owner (TUI/PTY vs xterm), desired
+owner, and evidence. The working row is the regression control and must still work after the change.
+
+Bare terminal keys are application input unless a backend descriptor explicitly gives them to
+Switchboard. Never intercept an unmodified key globally because another TUI does not use it; full-screen
+TUIs own history, overlays, lists and user-customizable bindings that xterm cannot see. Build the neutral
+descriptor seam first, then declare every backend's answer. Unknown answers fall through to the PTY.
+
+Verification must prove both directions: for a PTY-owned key, no `preventDefault`, no xterm scroll and the
+key reaches the TUI; for an xterm-owned key, the PTY receives nothing. A source-regex test is only a wiring
+guard, not that behaviour test. Live-check the previously working backend as well as the backend that
+motivated the change — testing only the new success path is how a regression gets called consistency.
+
 ## A new control inherits NO styling
 
 A button with only a behaviour class renders as the browser's native control — a white box with
