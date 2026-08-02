@@ -188,11 +188,9 @@ module.exports = {
   status: 'ready',
   monogram: 'Cx',
   colour: 'codex',
-  // Codex binds page_up/page_down in its TUI lists and pager; keep the bare keys in the PTY.
-  pageKeyTarget: 'pty',
-  // Codex emits an animation frame with a visible cursor, then restores the composer cursor in a
-  // separate PTY chunk. xterm otherwise paints both positions as a red tracer during every redraw.
-  cursorUpdatePolicy: 'settle',
+  // MEASURED, not read off its keymap: Codex ignores ESC[5~/ESC[6~ at its prompt, and it runs on the
+  // NORMAL buffer, so xterm holds the session history. The bare keys therefore page that history here.
+  pageKeyTarget: 'viewport',
   // Codex added a native `codex fork <session-id>` command. The backend owns that argv shape so the core
   // can offer the generic Fork action without learning Codex subcommands.
   supportsFork: true,

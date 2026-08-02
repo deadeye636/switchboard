@@ -28,6 +28,30 @@ function pageEvent(key, overrides = {}) {
   };
 }
 
+// The answer PER BACKEND, pinned. This table is the guard #410 did not have: a change to shared terminal
+// key handling cannot quietly move a backend that was not in its scope, because moving one fails HERE, by
+// name, and whoever does it has to say so out loud by editing this table.
+//
+// Each entry is what was MEASURED in a live session — key pressed, both directions watched — not what a
+// CLI's keymap documentation claims. Documentation got this wrong twice: first every backend was given to
+// xterm (which took the key away from Claude, the one that already worked), then every backend was given
+// to the PTY (which left Pi and Codex with a key that does nothing).
+//
+//   claude  its full-screen TUI pages its own history, and it runs on the ALTERNATE screen where xterm
+//           holds no scrollback at all — there is nothing here that could page anything. It worked
+//           before #410 touched it. Leave it alone.
+//   codex   ignores ESC[5~ at its prompt, and runs on the NORMAL buffer, so xterm holds the history
+//   pi      ignores ESC[5~ at its prompt, and runs on the NORMAL buffer, so xterm holds the history
+//   hermes  NOT measured — keeps the conservative default, which is also its behaviour today
+//   agy     NOT measured — same
+const PAGE_KEY_TARGETS = {
+  claude: 'pty',
+  codex: 'viewport',
+  pi: 'viewport',
+  hermes: 'pty',
+  agy: 'pty',
+};
+
 test('every backend explicitly owns its bare page-key target', () => {
   for (const backend of BACKENDS) {
     assert.ok(['pty', 'viewport'].includes(backend.pageKeyTarget),
@@ -35,10 +59,15 @@ test('every backend explicitly owns its bare page-key target', () => {
   }
 });
 
-test('current coding TUIs receive bare PageUp/PageDown through the PTY', () => {
+test('each backend keeps the page-key answer that was measured for IT', () => {
   for (const backend of BACKENDS) {
-    assert.equal(backend.pageKeyTarget, 'pty',
-      `${backend.id}: its TUI handles page keys; intercepting them breaks application history and overlays`);
+    const expected = PAGE_KEY_TARGETS[backend.id];
+    assert.ok(expected,
+      `${backend.id}: new backend — measure its page keys in a live session and add it to PAGE_KEY_TARGETS`);
+    assert.equal(backend.pageKeyTarget, expected,
+      `${backend.id}: its page-key ownership changed. If that is deliberate, say so by editing `
+      + 'PAGE_KEY_TARGETS — a backend that already worked is the regression control, never collateral of '
+      + 'a change aimed at a different one');
   }
 });
 

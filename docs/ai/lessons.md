@@ -157,6 +157,27 @@ What would have prevented it:
 - Live-check the previously working backend, not only the backend that motivated the change. The old
   success path is the cheapest and strongest regression fixture available.
 
+**And then it happened a second time, in the opposite direction.** The correction gave the keys back to
+the PTY for *every* backend — restoring Claude, but leaving Pi and Codex, the two the request was
+actually about, with a key that does nothing: measured, both ignore `ESC[5~` at their prompt. The
+declarations had been filled in from each CLI's keymap documentation rather than by pressing the key.
+So the same defect shipped twice, from opposite ends, and both rounds had a green test that asserted the
+*shared branch* instead of each backend's outcome.
+
+Two things came out of it, and they are the actual prevention:
+
+- **A per-backend capability is pinned per backend** (`PAGE_KEY_TARGETS` in
+  `test/terminal-page-scroll.test.js`). A blanket assertion over all backends is the bug written as a
+  test: it passes exactly when everything was moved together. One entry per backend means moving one
+  fails by name, and the person doing it has to say so.
+- **Measure, do not read.** Every wrong entry came from documentation; every right one came from a live
+  session. A backend nobody measured stays on the value it already had — out of scope is not a default.
+
+The same round shipped a cursor "fix" that bracketed every PTY chunk with a hide/show sequence. A chunk
+may end mid-sequence, so it tore escape sequences in half and the whole screen rendered as garbage —
+found by the user on an installed build, not by the suite. **Never inject bytes into a stream that
+arrives in arbitrary chunks.**
+
 ## A fix that reduces the symptom is not the fix
 
 #140 investigated "grid card renders clean, turns corrupt a moment later" and got the mechanism right:

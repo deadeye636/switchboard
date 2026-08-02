@@ -9,7 +9,6 @@
 // Depends on: shellEscape (utils.js)
 // Depends on: pasteIntoTerminal, fileUriToPath (terminal-context-menu.js)
 // Depends on: handleTerminalPageKeyEvent (page-key-routing.js)
-// Depends on: createCursorStabilizer (cursor-stabilization.js)
 
 // --- One insert route for paste and drop (#307) ---
 // Paste and drop hand the terminal the same thing — a DataTransfer — so they read it the same way.
@@ -914,26 +913,14 @@ function isSessionVisible(sessionId) {
   return entry.element.classList.contains('visible');
 }
 
-// Resolve lazily as well as at terminal creation: backend caches and restored terminals start in parallel,
-// so a negative answer during boot is not final. The first write after the registry arrives still stabilizes.
-function ensureCursorStabilizer(entry) {
-  if (entry.cursorStabilizer) return entry.cursorStabilizer;
-  const backendId = typeof sessionBackendId === 'function' ? sessionBackendId(entry.session) : '';
-  const backend = backendId && typeof getBackend === 'function' ? getBackend(backendId) : null;
-  if (backend?.cursorUpdatePolicy !== 'settle') return null;
-  entry.cursorStabilizer = createCursorStabilizer({ writeControl: control => entry.terminal.write(control) });
-  return entry.cursorStabilizer;
-}
-
-// Keep a backend-declared TUI's hardware cursor out of intermediate update cells. The stabilizer wraps
-// only the VT write; flow accounting and replay caps continue to measure the backend's original bytes.
-function writeTerminalOutput(entry, data, callback) {
-  const stabilizer = ensureCursorStabilizer(entry);
-  entry.terminal.write(stabilizer ? stabilizer.wrap(data) : data, () => {
-    stabilizer?.parsed();
-    if (callback) callback();
-  });
-}
+// NOTHING MAY BE INJECTED INTO THE PTY STREAM HERE, and a cursor stabilizer that did it is why this
+// comment exists. It wrapped every chunk in `ESC [ ? 2 5 l` … `ESC [ ? 2 5 l` to keep a TUI's
+// intermediate cursor from showing. A PTY chunk may END MID-SEQUENCE — the next chunk carries the rest —
+// so bracketing chunks tore those sequences in half and the whole screen rendered as garbage. Restoring
+// visibility on a timer had a second defect of its own: 80 ms later the cursor sits wherever the last
+// redraw parked it, so it reappeared in the wrong column.
+//
+// Write what the backend sent, unchanged. A cursor artefact is cosmetic; a corrupted stream is not.
 
 // Drain the raw replay buffer for sessionId by writing all accumulated data to the
 // terminal in a single coalesced write(). Called on (re)visibility.
@@ -952,7 +939,7 @@ function drainReplayBuffer(sessionId) {
   }
   const data = arr.join('');
   rawReplayBuffers.delete(sessionId);
-  writeTerminalOutput(entry, data, () => {
+  entry.terminal.write(data, () => {
     // Destroyed between write() and callback → terminal is disposed, don't touch it.
     if (openSessions.get(sessionId) !== entry) return;
     entry.terminal.scrollToBottom();
@@ -1092,7 +1079,7 @@ function flushTerminalBuffer(sessionId) {
 
   const wasAtBottom = isAtBottom(entry.terminal);
   const savedViewportY = entry.terminal.buffer.active.viewportY;
-  writeTerminalOutput(entry, data, () => {
+  entry.terminal.write(data, () => {
     flowTrackParsed(sessionId, rawLen);
     // The session may have been destroyed between write() and this callback —
     // don't touch a disposed terminal.
@@ -1317,9 +1304,8 @@ function createTerminalEntry(session, opts = {}) {
 
   const entry = {
     terminal, element: container, fitAddon, searchAddon, openSearchBar, closeSearchBar,
-    session, closed: false, webglAddon: null, cursorStabilizer: null,
+    session, closed: false, webglAddon: null,
   };
-  ensureCursorStabilizer(entry);
   openSessions.set(sessionId, entry);
   lruTouch(sessionId);
   loadTerminalWebgl(entry);
@@ -1575,7 +1561,6 @@ function destroySession(sessionId) {
   // Drop any accumulated replay data — the terminal is being torn down so
   // there is no point draining it on a future showSession.
   rawReplayBuffers.delete(sessionId);
-  entry.cursorStabilizer?.dispose();
   // terminal.dispose() also disposes the parser and its registered OSC
   // handlers (the OSC-52 clipboard hook) and all onX emitters — no manual
   // cleanup needed for those. The DnD/search-bar listeners live on

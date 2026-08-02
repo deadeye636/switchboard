@@ -138,6 +138,22 @@ key reaches the TUI; for an xterm-owned key, the PTY receives nothing. A source-
 guard, not that behaviour test. Live-check the previously working backend as well as the backend that
 motivated the change — testing only the new success path is how a regression gets called consistency.
 
+**PIN THE ANSWER PER BACKEND, or the next change will move the ones it was not aimed at.** This went
+wrong twice in opposite directions on the same keys: once by giving every backend to xterm (which took
+the key from the only backend that already worked), once by giving every backend to the PTY (which left
+the two backends the request was actually about with a key that does nothing). Both passed their tests,
+because both tests asserted the shared branch rather than each backend's outcome.
+
+`PAGE_KEY_TARGETS` in `test/terminal-page-scroll.test.js` is the shape that stops it: one entry per
+backend, so changing any backend's behaviour fails by name and has to be spelled out. A per-backend
+capability gets that table; a blanket assertion over all backends (`for (…) assert.equal(x, 'pty')`) is
+the same defect written as a test — it passes precisely when everything was moved together.
+
+**And do not fill such a table from a CLI's documentation.** Every wrong entry in both rounds came from
+reading a keymap; every correct one came from pressing the key in a live session and watching both
+directions. Where a backend was not measured, leave it on the value it already had and say so — an
+unmeasured backend is out of scope, not a default to guess at.
+
 ## A new control inherits NO styling
 
 A button with only a behaviour class renders as the browser's native control — a white box with

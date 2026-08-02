@@ -313,34 +313,41 @@ per-model request quotas, which are enough for a status-bar figure.
 ## Terminal page-key ownership
 
 Bare PageUp/PageDown are not generic terminal-scroll shortcuts when a full-screen TUI owns the visible
-history. Each descriptor therefore declares `pageKeyTarget` instead of the renderer naming backends or
-intercepting every session alike. The current TUIs all declare `'pty'`:
+history — and they are dead keys when a TUI ignores them. Each descriptor declares `pageKeyTarget`, so
+the renderer dispatches a per-backend answer instead of one branch for everyone.
 
-| Backend | Verified TUI behaviour |
-|---|---|
-| Claude | Pages its visible conversation history and active overlays. |
-| Codex | Its TUI keymap has `page_up` / `page_down` list and pager actions. |
-| Hermes | Its input handler scrolls the transcript by half a viewport and routes page keys through prompt overlays. |
-| Pi | `tui.editor.pageUp` / `pageDown` and selector page actions default to the bare keys and are user-configurable. |
-| agy | Its navigation and editing areas expose PageUp/PageDown actions. |
+**Each row below was measured in a running session** — key pressed, PTY traffic and viewport watched.
+Do not fill this table from a CLI's keymap documentation: that was done twice and was wrong both times,
+in opposite directions.
 
-A future backend may declare `'viewport'`; only then does Switchboard swallow the bare key and call
-xterm's `scrollPages()`. Modifier chords keep xterm's existing behaviour.
+| Backend | Target | What the measurement showed |
+|---|---|---|
+| Claude | `pty` | Its TUI pages its own history. It runs on the **alternate screen**, where xterm keeps no scrollback (`baseY: 0`) — so Switchboard could not page anything here even if it wanted to. Worked before #410; must stay untouched. |
+| Codex | `viewport` | Sends `ESC[5~` and nothing happens: the prompt ignores it. Runs on the normal buffer, so xterm holds the history and pages it. |
+| Pi | `viewport` | Same: `ESC[5~` reaches it and is ignored, normal buffer, xterm holds the history. |
+| Hermes | `pty` | **Not measured.** Keeps the conservative default, which is also its behaviour today. |
+| agy | `pty` | **Not measured.** Same. |
 
-### Hardware cursor updates
+`'viewport'` is what makes Switchboard swallow the bare key and call xterm's `scrollPages()`; anything
+else — including an unknown or missing value — leaves the key to the application. Modifier chords keep
+xterm's existing behaviour everywhere, so Shift+PageUp still scrolls a scrollback where one exists.
 
-Codex and Pi declare `cursorUpdatePolicy: 'settle'`, for two measured forms of the same PTY boundary:
+**The per-backend answer is pinned in `test/terminal-page-scroll.test.js` (`PAGE_KEY_TARGETS`).** That
+table exists because a change aimed at one backend twice moved backends that were not in its scope. A
+backend that already works is the regression control; changing its answer has to be a deliberate edit
+that fails the suite by name until someone makes it.
 
-- Codex ends an animation transaction with `?25h` at the updated cell, then sends
-  `?25l` + the composer position + `?25h` in a later chunk. At xterm's normal visible flush cadence the
-  red hardware cursor therefore alternates between both valid intermediate positions.
-- Pi draws its own white software cursor. It positions the hardware cursor for IME and normally ends by
-  hiding it, but the redraw and final `?25l` can cross a chunk boundary and expose the red cursor briefly.
+### Hardware cursor updates — attempted and reverted
 
-For those descriptors, Switchboard hides the hardware cursor around each parsed VT write and restores the
-TUI's last requested visibility after 80 ms without output. It does not invent cursor visibility: Pi's final
-hide remains hidden, while Codex's final show returns at its composer position. Claude, Hermes and agy keep
-native VT handling because their measured redraws already finish atomically.
+Codex and Pi briefly declared a `cursorUpdatePolicy: 'settle'` that had the renderer bracket every PTY
+chunk with a cursor-hide and restore visibility on a timer. **It is gone, and it must not come back in
+that form.** A PTY chunk may end MID-SEQUENCE, with the remainder in the next chunk, so bracketing
+chunks tore escape sequences in half and the terminal rendered as garbage. The timer half was wrong on
+its own too: 80 ms after the burst the cursor sits wherever the last redraw parked it, so restoring
+visibility put it in the wrong column.
+
+The renderer writes what the backend sent, unchanged. A cursor artefact is cosmetic; a corrupted
+stream is not.
 
 ## What each CLI accepts on its command line (#160)
 

@@ -335,12 +335,9 @@ module.exports = {
   status: 'ready',
   monogram: 'Pi',
   colour: 'pi',
-  // Pi exposes PageUp/PageDown as configurable TUI editor/list actions; keep them in the PTY.
-  pageKeyTarget: 'pty',
-  // Pi draws a white software cursor and positions a normally-hidden hardware cursor for IME. Its
-  // redraw and final hide can arrive in separate PTY chunks, so keep xterm's cursor hidden until the
-  // burst settles; the final ?25l remains authoritative.
-  cursorUpdatePolicy: 'settle',
+  // MEASURED, not read off its keymap: Pi ignores ESC[5~/ESC[6~ at its prompt, and it runs on the
+  // NORMAL buffer, so xterm holds the session history. The bare keys therefore page that history here.
+  pageKeyTarget: 'viewport',
   supportsFork: true,     // `pi --fork <id>`
   supportsSubagents: false,   // fork, yes; subagents, no (#230)
   supportsLiveRebinding: true,

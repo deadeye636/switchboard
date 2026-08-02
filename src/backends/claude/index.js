@@ -484,7 +484,9 @@ module.exports = {
   status: 'ready',
   monogram: 'C',
   colour: 'claude',
-  // Claude's full-screen TUI owns its history and its overlays; bare PageUp/PageDown must reach the PTY.
+  // Claude's full-screen TUI owns its history and its overlays, and it runs on the ALTERNATE screen —
+  // where xterm has no scrollback at all, so there is nothing here to page even if we wanted to. The bare
+  // keys must reach the PTY. This one was working before #410 touched it; do not change it again.
   pageKeyTarget: 'pty',
   // Which environment-variable family this CLI reads its endpoint from (#212), or nothing if it has
   // none. An Axis-A template pointed at a third-party endpoint (DeepSeek, GLM, OpenRouter) works by
