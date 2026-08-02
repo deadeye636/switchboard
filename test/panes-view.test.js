@@ -3369,3 +3369,71 @@ test('#388: a singleton view is unaffected — it has no session to go back to',
     assert.equal(asked, 0, 'the file panel is not asked about a view it does not own');
   } finally { h.destroy(); }
 });
+
+// --- The caret after a switch (#425) ----------------------------------------
+//
+// `show()` only SCHEDULES the render, and the render moves the terminal's container into its pane.
+// Focusing before that — which is what the caller used to do — is focusing an element that is about to
+// be re-parented, and re-parenting blurs it. So these tests assert WHEN the focus happened, not just
+// that it did: the container has to be inside its pane already.
+
+test('#425: switching to a session focuses it AFTER its container is in the pane', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('s1');
+    h.enable();
+    await h.settle();
+    await h.open('s2');
+
+    const s2 = h.openSessions.get('s2');
+    s2.focusCalls.length = 0;
+    h.panes.show('s2');
+    await h.settle();
+
+    assert.equal(s2.focusCalls.length, 1, 'the switched-to session gets the caret exactly once');
+    assert.match(s2.focusCalls[0].parentClass || '', /pane-body/,
+      'focused while already inside its pane — a focus taken before the move is blurred by the move');
+  } finally { h.destroy(); }
+});
+
+test('#425: an ordinary render does not steal the caret', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('s1');
+    h.enable();
+    await h.settle();
+
+    const s1 = h.openSessions.get('s1');
+    s1.focusCalls.length = 0;
+    // What a resize, a status repaint or a sash drag ends in. Nobody asked for the caret here, and
+    // taking it would pull the user out of the search bar mid-word.
+    h.panes.render();
+    await h.settle();
+
+    assert.deepEqual(s1.focusCalls, [], 'only a switch may claim the caret');
+  } finally { h.destroy(); }
+});
+
+test('#425: a queued focus is dropped when that session is no longer on top', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('s1');
+    h.enable();
+    await h.settle();
+    await h.open('s2');
+
+    const s1 = h.openSessions.get('s1');
+    const s2 = h.openSessions.get('s2');
+    s1.focusCalls.length = 0;
+    s2.focusCalls.length = 0;
+
+    // Two switches inside one microtask: the render that follows must serve the LAST one. A queued
+    // focus that fired anyway would drag the user back to a session they already left.
+    h.panes.show('s1');
+    h.panes.show('s2');
+    await h.settle();
+
+    assert.deepEqual(s1.focusCalls, [], 'the superseded request must not fire');
+    assert.equal(s2.focusCalls.length, 1);
+  } finally { h.destroy(); }
+});

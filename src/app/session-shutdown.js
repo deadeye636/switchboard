@@ -109,8 +109,11 @@ function awaitAllStopped({
 
   return new Promise((resolve) => {
     let elapsed = 0;
+    let settled = false;
 
     const finish = (escalated) => {
+      if (settled) return;
+      settled = true;
       const leftover = escalated.filter((pid) => isAlive(pid));
       for (const pid of waited) pendingPids.delete(pid);
       if (leftover.length && log && typeof log.warn === 'function') {
@@ -127,13 +130,25 @@ function awaitAllStopped({
       let outstanding = stubborn.length;
       for (const pid of stubborn) {
         killTree(pid, () => {
+          if (settled) return;
           outstanding -= 1;
           if (outstanding === 0) finish(stubborn);
         });
       }
     };
 
+    // THE HARD DEADLINE, and it is the reason this cannot hang the app.
+    //
+    // Everything above depends on someone else finishing: `isAlive` on the OS, and `killTree` on a
+    // `taskkill` that has to call its callback. A taskkill that never returns — a zombie, an antivirus
+    // holding the handle, a permission prompt nobody sees — would leave `outstanding` above zero forever,
+    // and the quit that awaits this would never come back. An app that will not close is a worse failure
+    // than the orphaned process this module exists to prevent, so the answer is guaranteed to arrive:
+    // whatever has not been settled by the deadline is reported as leftover and the quit continues.
+    setTimer(() => finish(waited.filter((pid) => isAlive(pid))), timeoutMs * 2);
+
     const poll = () => {
+      if (settled) return;
       if (waited.every((pid) => !isAlive(pid))) return finish([]);
       elapsed += POLL_MS;
       if (elapsed >= timeoutMs) return escalate();

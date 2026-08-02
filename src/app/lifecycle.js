@@ -171,13 +171,34 @@ function registerQuitHandlers(ctx) {
     if (process.platform !== 'darwin') app.quit();
   });
 
-  // Set once the processes have been confirmed gone, so the second pass through `before-quit` — the one
-  // this handler asks for by preventing the first — walks straight through instead of looping.
+  // The three states of quitting, and each one is a bug someone can trigger from the keyboard (#424):
+  //   teardownStarted          the body below has run. A SECOND before-quit — Alt+F4 twice, a menu Quit
+  //                            on top of a window close — must not run it again: it would re-kill from a
+  //                            list already emptied, start a second wait over the same pids, and worst of
+  //                            all could let a late `flushSessionBackends` write after will-quit closed
+  //                            the DB, which is the #90 class of bug this file's header is about.
+  //   sessionsConfirmedStopped the wait finished, so the quit we ask for ourselves goes straight through.
+  //   systemShuttingDown       Windows is logging out. Holding a quit there is not caution, it is a race
+  //                            against a grace window we do not control — the OS force-kills the tree and
+  //                            the orphan comes back. Kill and get out of the way.
+  let teardownStarted = false;
   let sessionsConfirmedStopped = false;
+  let systemShuttingDown = false;
+
+  // Windows only, and it fires BEFORE before-quit.
+  app.on('session-end', () => { systemShuttingDown = true; });
 
   app.on('before-quit', (event) => {
     // Stop any pending debounced cache flush from running after the DB closes (#90).
     ctx.setAppQuitting(true);
+
+    // A repeat while the first pass is still waiting: hold the quit, change nothing. Letting it through
+    // would run will-quit — and close the DB — underneath a teardown that has not finished.
+    if (teardownStarted) {
+      if (!sessionsConfirmedStopped && !systemShuttingDown) event.preventDefault();
+      return;
+    }
+    teardownStarted = true;
 
     // Leave no hook pointing at a port nobody listens on: Claude Code blocks on every
     // UserPromptSubmit until it times out, in every project, not just ours (#125). The
@@ -215,7 +236,11 @@ function registerQuitHandlers(ctx) {
     // The quit is HELD for one round trip: this pass is cancelled, the pids are waited on (and the
     // stubborn ones get their whole tree killed), and then quit is asked for again. The flag is what
     // stops that second ask from cancelling itself in turn.
-    if (sessionsConfirmedStopped) return;
+    //
+    // Except during a system shutdown, where the kills above are all we get to do: the OS is not waiting
+    // for us, and holding the quit only risks being force-killed mid-wait — with the orphan this whole
+    // path exists to prevent.
+    if (sessionsConfirmedStopped || systemShuttingDown) return;
     event.preventDefault();
     sessionShutdown.awaitAllStopped({ log: ctx.log })
       .catch((err) => ctx.log.warn(`[shutdown] could not confirm every session stopped: ${err.message}`))

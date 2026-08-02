@@ -27,15 +27,25 @@ function reset() {
   shutdown._pendingPids.clear();
 }
 
-// A timer that fires when the test says so, so a 3 s timeout costs nothing to exercise.
+// A virtual clock, so a 3 s timeout costs nothing to exercise.
+//
+// It has to honour the DELAY, not just the order things were queued: the hard deadline is registered
+// first and fires last, and a queue that ignored `ms` would fire it immediately and hide the very
+// ordering these tests are about.
 function manualTimer() {
+  let now = 0;
+  let seq = 0;
   const queue = [];
   return {
-    setTimer: (fn) => { queue.push(fn); return queue.length; },
+    setTimer: (fn, ms = 0) => { queue.push({ fn, at: now + ms, seq: seq++ }); return seq; },
+    /** Fire the next timer that is due, advancing the clock to it. */
     tick(times = 1) {
       for (let i = 0; i < times; i++) {
-        const fn = queue.shift();
-        if (fn) fn();
+        if (!queue.length) return;
+        queue.sort((a, b) => (a.at - b.at) || (a.seq - b.seq));
+        const next = queue.shift();
+        now = next.at;
+        next.fn();
       }
     },
     get pending() { return queue.length; },
@@ -163,4 +173,62 @@ test('#424: both kill sites go through the module that remembers', () => {
     assert.doesNotMatch(src, /session\.pty\.kill\(\)/,
       `${rel} still kills a pty directly — that pid is then forgotten and nothing checks it`);
   }
+});
+
+// --- The ways this could hang the app, which is worse than the leak it fixes ---
+
+test('#424: a tree kill whose callback never comes cannot hang the quit', async () => {
+  reset();
+  shutdown.killSession(fakeSession(31));
+  const timer = manualTimer();
+
+  const pending = shutdown.awaitAllStopped({
+    timeoutMs: 100,
+    isAlive: () => true,
+    // A taskkill that never returns: a zombie, an antivirus holding the handle, a permission prompt
+    // nobody sees. Without a hard deadline the promise never settles and the app never closes.
+    killTree: () => {},
+    setTimer: timer.setTimer,
+  });
+
+  // First the poll reaches the deadline and escalates; the escalation then goes silent. The hard
+  // deadline is the queued timer left after it.
+  timer.tick(1);
+  timer.tick(timer.pending);
+  const result = await pending;
+
+  assert.deepEqual(result.leftover, [31], 'the answer arrives anyway, and says what survived');
+});
+
+test('#424: the answer is given once, even when the late callback finally arrives', async () => {
+  reset();
+  shutdown.killSession(fakeSession(41));
+  const timer = manualTimer();
+  let late = null;
+
+  const pending = shutdown.awaitAllStopped({
+    timeoutMs: 100,
+    isAlive: () => true,
+    killTree: (pid, done) => { late = done; },
+    setTimer: timer.setTimer,
+  });
+  timer.tick(1);
+  timer.tick(timer.pending);
+  const result = await pending;
+  // The kill finally reports back long after the quit moved on. Resolving twice is not possible, but a
+  // second `finish` would also delete pids a NEXT quit is waiting on.
+  assert.doesNotThrow(() => late && late());
+  assert.deepEqual(result.leftover, [41]);
+});
+
+// --- The wiring, because the logic above is worth nothing if the quit does not use it ---
+
+test('#424: a repeated quit does not re-run the teardown underneath the first one', () => {
+  const lifecycle = read('src/app/lifecycle.js');
+  assert.match(lifecycle, /teardownStarted/,
+    'a second before-quit must be recognised, or the body runs again over an emptied session list');
+  assert.match(lifecycle, /if \(teardownStarted\) \{/,
+    'the guard has to sit ABOVE the teardown body, not beside it');
+  assert.match(lifecycle, /systemShuttingDown/,
+    'a logoff must not be held: the OS is not waiting, and being force-killed mid-wait re-creates the orphan');
 });

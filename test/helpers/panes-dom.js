@@ -114,9 +114,16 @@ function setupPanesDom(opts = {}) {
     // A stand-in xterm carrying only what panes-view reads of it: the scrollback budget (#352).
     // terminal-manager.js is not loaded here, so `SCROLLBACK_SINGLE` is not either — the value below
     // is that constant, and panes-view falls back to the same number when it cannot see it.
+    // `focus` records WHERE the container was when the caret was claimed, not just that it was: #425 was
+    // a focus that happened at the right moment against the wrong tree, so "it was called" proves nothing
+    // and "it was called while the element was already in its pane" is the whole assertion.
+    const focusCalls = [];
     openSessions.set(sessionId, {
-      session, element, webglAddon: null,
-      terminal: { options: { scrollback: 10000 } },
+      session, element, webglAddon: null, focusCalls,
+      terminal: {
+        options: { scrollback: 10000 },
+        focus() { focusCalls.push({ parentClass: element.parentElement ? element.parentElement.className : null }); },
+      },
     });
     if (running) activePtyIds.add(sessionId);
     return { session, element };

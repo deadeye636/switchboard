@@ -1628,7 +1628,10 @@ function showSession(sessionId) {
       // layout (past the cap, or after a refused load) every click created a context for the policy
       // to dispose a microtask later.
       forceRepaint(entry); // stale atlas heal on reveal (#118); no-op on the DOM renderer
-      entry.terminal.focus();
+      // NO `terminal.focus()` here, and putting one back would recreate #425. `show()` above only
+      // SCHEDULES the render, so a focus taken now is against the old tree — and the render then moves
+      // this terminal's container into its pane, which blurs whatever was focused inside it. panes-view
+      // claims the caret itself once it has finished moving things (`applyPendingFocus`).
     }
     return;
   }
