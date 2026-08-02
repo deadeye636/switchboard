@@ -192,20 +192,25 @@ context switch. Each feature has a full design doc under `docs/specs/`.
 - An optional **alert sound** on a new "Needs You" (coalesced, off by default),
   with the decision logic unit-tested.
 
-### 03 — "While you were away" summary
-`src/renderer/shell/away-summary.js`
+### 03 — "While you were away" recap
+`src/renderer/shell/away-summary.js`, `src/renderer/shell/away-overview-view.js`
 
 - Tracks whether **you** were away — not whether a window lost focus (#386).
   `src/app/presence.js` owns it: every window reports focus and input, and main
   is the only place that can see all of them. Switching windows and sessions
   while you work shows nothing; the attention inbox is the surface for that.
-- On coming back after a real absence, shows a compact, dismissible summary on
-  the session you open: the timeline events from that absence, the files touched,
-  and whether it's waiting on you. Never hides the live terminal. Once per
-  session per absence.
-- Only a keystroke dismisses it (#384). It used to dismiss on anything the
-  terminal sent, including the focus report that revealing a session produces —
-  so it tore itself down before it could be read.
+- On coming back after a real absence you get **one entry in the attention
+  inbox**, and opening it shows **one overview of every session that changed**:
+  rows expand to that session's events and the files it touched, and each row
+  has a button that reveals its session in the window that holds it (#402).
+- It used to be a banner over the terminal, per session, in whichever window
+  rendered it — so the answer to "what did I miss" sat wherever the sessions had
+  been scattered to, and a stray keystroke destroyed it before it was read.
+- Losing it is a decision now: closing the overview leaves the entry to be opened
+  again, and only its × discards it. Every inbox row has that × — dismissing a
+  session settles it *without* marking it as read.
+- The record behind it lives in the main process (#396), so it survives a reload,
+  a window close and a restart — the exact span the recap exists to describe.
 - Two settings: show it at all, and how long counts as away.
 
 ### 04 — One-click handoff

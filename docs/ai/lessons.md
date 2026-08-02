@@ -110,6 +110,27 @@ called done and verified by hand:
   `drive-app.js` verifies **the old build** and reports a pass (#220).
 - A dev enable/quit of the attention hook stripped the **installed** app's live hook, because the
   sentinel carries no instance marker (#219).
+- Resource discovery, added for five backends in one evening, read the user's **real** `~/.codex` and
+  `~/.agents/skills` from an isolated instance — and the resource list is clickable, so those real
+  files opened in the user's editor. Hermes, written the same evening, did it right; the pattern was
+  there to copy.
+
+## A guard that lists its targets reports success about code it never opened
+
+Three defects in one session shared one shape, and it is worth naming on its own because each guard
+looked reasonable in review:
+
+- **A blanket assertion over all backends.** `for (const b of BACKENDS) assert.equal(b.pageKeyTarget,
+  'pty')` passes exactly when every backend was moved together — which was the bug. The fix is one
+  pinned entry per backend, so moving one fails by name (`PAGE_KEY_TARGETS`).
+- **A hand-written file list.** `store-isolation.test.js` checked six named files; the readers added
+  later were invisible to it. The fix is to derive the targets and require a stated reason to opt out.
+- **A source regex where behaviour was meant.** The first page-key test matched `scrollPages()` in the
+  source, so it proved the key was swallowed — the defect — and the second one only proved the wiring
+  existed. Neither pressed the key.
+
+The question to ask of a new guard: *what would still pass if the thing I am guarding against happened
+to a part I did not list?* If the answer is "all of it", the guard is a list, not a guard.
 
 ## Keyboard handling that guessed at the platform
 

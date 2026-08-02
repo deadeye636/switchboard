@@ -42,6 +42,11 @@ throughout, and a window can hold as many sessions as you move into it. The othe
 badge and a tray icon — even when the window is in the background. Detection runs off CLI hooks, so
 it catches the permission prompts a terminal heuristic misses.
 
+**And it tells you what you missed.** Come back after being away from the machine and the inbox holds
+one entry: every session that changed while you were gone, in one list, each row opening to what it
+did and which files it touched. Away means away — leaving the desk, not switching windows — and the
+record behind it survives a reload, a window close and a restart.
+
 **It notices when a session is getting expensive.** Each one is rated Healthy → Growing → Marathon
 Risk → Handoff Recommended from turns, transcript size, active time and cache reads. When it is time,
 a guided handoff asks the agent for a context packet, starts a fresh lean session with it, and

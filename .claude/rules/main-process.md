@@ -24,8 +24,36 @@ moving them buys churn).
 windows — #2, and since #316 which window renders which session), `presence.js` (is the USER at the
 machine — #386; one global fact, because every renderer has its own `windowFocused` and none can see
 the others), `timeline.js` (what happened to a session — #396; the one writer of the record, so a
-session has one history however its windows come and go) and `terminal/` (`spawn.js` = open-terminal,
+session has one history however its windows come and go), `session-shutdown.js` (stopping every CLI
+process and CHECKING that it stopped — #424) and `terminal/` (`spawn.js` = open-terminal,
 `io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
+
+## Quitting WAITS, and both kill sites go through one module (#424)
+
+`pty.kill()` is asynchronous. Firing it at every session and letting the process exit is not a teardown,
+it is a hope — a CLI that had not wound down by then was orphaned in the background, with no window left
+to reach it from. A single kill works; what was missing was the second half.
+
+`app/session-shutdown.js` REMEMBERS every pid it asked to stop, waits for them, and tree-kills whatever
+is still alive at the deadline. The remembering is load-bearing: the main window's `closed` handler
+empties `activeSessions` immediately, so by the time `before-quit` runs there is no session list left to
+check — but there is still a list of pids.
+
+Three things in `lifecycle.js` that look like paranoia and are not, each a failure someone can trigger
+from the keyboard:
+
+- **`before-quit` cancels its own first pass** (`event.preventDefault()`), waits, then quits again.
+  Without the `sessionsConfirmedStopped` flag the second ask cancels itself and the app never closes.
+- **A repeat while that wait is in flight is HELD, not re-run** (`teardownStarted`). Running the body
+  twice re-kills from an emptied list, starts a second wait on the same pids, and can let a late
+  `flushSessionBackends` write after `will-quit` closed the DB — the #90 class of bug.
+- **A system logoff is not held** (`session-end` → `systemShuttingDown`). Windows is not waiting for us;
+  holding the quit there only risks being force-killed mid-wait, which re-creates the orphan.
+
+And a hard deadline inside `awaitAllStopped`, because everything it waits on belongs to someone else: a
+`taskkill` that never calls back would otherwise leave the promise pending forever. **An app that will
+not close is worse than the leak this fixes** — so the answer is guaranteed to arrive, and whatever
+survived is reported rather than swallowed.
 
 ## What routes per session, and what stays in main (#2, #393, #395)
 
@@ -173,6 +201,22 @@ the real home from an instance that promises it touches nothing real.
 path is read). `test/store-isolation.test.js` is the guard; `backend-path-neutrality` does NOT cover
 this — it sees that a file knows Claude's layout, not whether it resolves that layout against the
 isolated home.
+
+**It happened a fifth and sixth time, and the guard's SHAPE is why** (#424-era audit). The resource
+readers added for Codex and Pi read the user's real `~/.codex` and `~/.agents/skills` from an isolated
+instance — and `openResource` hands what it lists to `shell.openPath()`. The guard was a hand-written
+list of six files, so a file added later was simply never opened by it, and it reported success about
+code it had not seen. It **derives** its targets now: every file under `src/` that composes a CLI home
+must consult that backend's override, and one that legitimately may not needs an entry with the reason.
+
+Two things that audit is worth carrying:
+
+- **Ask the enclosing BLOCK, not the file.** The old codex descriptor mentioned
+  `SWITCHBOARD_STORE_CODEX` in its sessions-root helper while the home helper right above it ignored
+  it. A file-level check called that compliant.
+- **A module's DEFAULT counts too.** Claude's root is injected by main.js and was correct in the app —
+  but the module's own default was the real home, so anything reading before that injection got the
+  real one and looked isolated. That is what made the first pass of the audit itself misreport.
 
 ## The attention hook is OFF in a dev build (#219)
 

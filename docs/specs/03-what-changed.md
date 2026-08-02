@@ -102,7 +102,10 @@ terminal answers on its own. Revealing a session necessarily moves focus, so wit
 (DECSET 1004) the terminal replied `ESC [ O` and the banner tore itself down in the same beat it was
 rendered. Measured in a running instance: one focus switch, nothing typed, one payload.
 
-`isUserInput` in `shell/away-summary.js` is the filter, and it is deliberately a **whole-string match
+*(`isUserInput` was removed with the banner in #402 — §5. It is described here in the present tense
+because the lesson is about believing `onData` is the user, and that outlives the function.)*
+
+`isUserInput` in `shell/away-summary.js` was the filter, and it was deliberately a **whole-string match
 against the shapes a terminal sends unprompted** — focus in/out, cursor-position and device-status
 replies, device attributes, mouse in X10 and SGR. A bare `ESC` (the Escape key), the arrows in either
 mode, and a bracketed paste all stay input, because those are the user acting.

@@ -128,6 +128,40 @@ node scripts/drive-app.js drag ".pane .session-tab" ".pane[data-pane-id='pane-2'
 It reports the payload's MIME types, so "the drop did nothing" and "the drop carried the wrong data"
 stay distinguishable.
 
+## A key press has to be a real key press — and it answers TWO questions at once
+
+Same reason as the drag. `el.dispatchEvent(new KeyboardEvent(...))` reaches whatever listener the
+script picked; it does not go through the browser's key pipeline, so xterm's
+`attachCustomKeyEventHandler` and the PTY behind it are never exercised. CDP's
+**`Input.dispatchKeyEvent`** is the real thing: focus the terminal's `.xterm-helper-textarea`, dispatch
+`rawKeyDown` + `keyUp`, and both halves become observable.
+
+Both halves is the point. For any terminal key, ask who got it:
+
+```js
+// before: watch what leaves for the PTY, and where the viewport stands
+const spy = entry.terminal.onData(d => sent.push(d));
+const before = entry.terminal.buffer.active.viewportY;
+```
+
+- bytes in `onData` and an unmoved `viewportY` → the **application** got the key
+- nothing in `onData` and a moved `viewportY` → **xterm** consumed it
+
+That distinction is what #410 got wrong twice in opposite directions. Two more things it taught:
+
+- **`window.api` is frozen** (contextBridge), so `window.api.sendInput = spy` fails silently and your
+  recorder records nothing. Hook `terminal.onData` instead.
+- **A full-screen TUI runs on the ALTERNATE screen**, where `baseY` is 0 and there is no scrollback at
+  all — `scrollPages()` there cannot move anything, however correct the call looks. Read
+  `buffer.active.type` before concluding anything about scrolling, and read it *after* the CLI has
+  finished starting: the buffer switches from `normal` to `alternate` partway through, and a
+  measurement taken too early describes the startup screen.
+
+**Timers are throttled in a background window.** A `setInterval` sampler at 20 ms fires about once a
+second while the window is not in front, so a sampling loop reports two data points and looks like
+"nothing changed". Drive the code path directly, or bring the page to front, rather than believing the
+gaps.
+
 ## Opening several terminal tabs to verify (WebGL, shared atlas)
 
 To reproduce more than one live terminal at once — needed to see the tabs-mode shared-atlas behaviour

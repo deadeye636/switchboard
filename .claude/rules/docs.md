@@ -9,11 +9,11 @@ paths:
 | Kind | Home |
 |---|---|
 | **Design record** for a feature ("why is it like this", decisions, as-built + known gaps) | `docs/specs/NN-<feature>.md` + a row in `docs/specs/README.md` |
-| **User-facing guide** ("how do I use it") | `docs/<feature>.md`, linked from the README's "What this fork adds" |
+| **User-facing guide** ("how do I use it") | `docs/<feature>.md`, linked from the README's **"What it does"** |
 | **Reference** (formats, build gotchas, colors) | `docs/<topic>.md` (e.g. `backend-formats.md`, `build-windows.md`, `settings-reference.md`) |
 | **How a human builds, runs, tests or packages it** | `docs/development.md`. The README links there and keeps only the build-from-source block the security section needs. |
 | **Agent-facing procedure** (release, porting, running, driving) | `docs/ai/<topic>.md` + a row in the CLAUDE.md router |
-| **Fork feature list** | `README.md` "What this fork adds" **and** `docs/fork-features.md` (Wave 4) — a new fork feature goes in **both** |
+| **Fork feature list** | `README.md` **"What it does"** (the reader-facing paragraph) **and** `docs/fork-features.md` (the per-feature record) — a new fork feature goes in **both**. The section was called "What this fork adds" when this rule was written; naming a heading that no longer exists is how a rule quietly stops being followed |
 | **Backlog** | GitHub Issues. `docs/BACKLOG.md` / `.jsonl` are **generated** (`node scripts/build-backlog.js`) and **gitignored** — never hand-edit, never commit, and never link to them from a doc (they do not exist in the public repo) |
 | **Planning scaffolding** (task lists, state trackers, agent prompts, mockups) | `docs/plans/<issue-nr>-<slug>/` — `PLAN.md` for the working plan, `mockups/` for HTML/image mockups. This tree is **gitignored** (local only), so it never reaches the public repo. Once the work lands, its lasting parts belong in a spec; the rest is noise, and stale plan text next to a correct spec is worse than no plan text. **Do not** drop plans in `.claude/scratchpad/` or a system temp dir — `docs/plans/<slug>/` is the one home. |
 
