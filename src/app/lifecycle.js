@@ -206,8 +206,9 @@ function registerQuitHandlers(ctx) {
     try { if (ctx.attentionHooksEnabled()) ctx.removeClaudeAttentionHook(); } catch { /* best effort */ }
     ctx.cleanupHandoffExports();
 
-    // Shut down all MCP servers
-    ctx.shutdownAllMcp();
+    // Shut down all MCP servers. With the log, so a quit that walks over an unanswered review says so
+    // (#405) — quit is exactly when nobody is watching the screen to notice.
+    ctx.shutdownAllMcp(ctx.log);
 
     // Remove the tray icon
     ctx.destroyTray();

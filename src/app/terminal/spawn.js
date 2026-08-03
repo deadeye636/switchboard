@@ -815,9 +815,10 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // During quit the DB is already closed (getSetting below would throw) and
     // before-quit has shut down MCP + killed the PTYs — skip the cleanup.
     if (ctx.getAppQuitting()) return;
-    // Clean up MCP server
+    // Clean up MCP server. It answers and clears whatever reviews this session still had open (#405),
+    // so the log line belongs to this exit rather than to nowhere.
     const mcpId = session.realSessionId || sessionId;
-    ctx.shutdownMcpServer(mcpId);
+    ctx.shutdownMcpServer(mcpId, ctx.log);
     session.mcpServer = null;
 
     const realId = session.realSessionId || sessionId;

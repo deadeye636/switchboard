@@ -474,38 +474,73 @@ async function startMcpServer(sessionId, workspaceFolders, getWindow, log) {
 
 /**
  * Shut down the MCP server for a session.
+ *
+ * Two things this owes whoever is still looking at a review of that session (#405).
+ *
+ * The answer is a REJECTION. It used to be `accept`, which said the user approved every edit still on
+ * screen — nobody approved anything, the process ended. For a CLI that died with it the answer changes
+ * nothing, but the same call also settles the diffs of a session whose PTY exited while the CLI lives
+ * on, and "the session ended" is not "yes, write it".
+ *
+ * And the renderer has to be TOLD. Nothing else clears those surfaces: the entries stayed in the file
+ * panel, the pager kept counting them, and answering one sent `mcpDiffResponse` into a bridge that had
+ * already answered for it. Same two kinds of window as `closeAllDiffTabs` — the ones a diff was shown
+ * in, plus the one rendering the session now, which may hold none of them.
  */
-function shutdownMcpServer(sessionId) {
+function shutdownMcpServer(sessionId, log) {
   const entry = servers.get(sessionId);
   if (!entry) return;
 
-  // Resolve all pending diffs
+  // Resolve all pending diffs — rejected, and collect the windows showing them.
+  const showing = new Set();
+  let answered = 0;
   for (const [, pending] of entry.pendingDiffs) {
     if (pending.timer) clearTimeout(pending.timer);
-    pending.resolve({ action: 'accept' });
+    if (pending.win && !pending.win.isDestroyed()) showing.add(pending.win);
+    pending.resolve({ action: 'reject', reason: 'session ended' });
+    answered++;
   }
   entry.pendingDiffs.clear();
 
-  // Close WebSocket
-  if (entry.ws) {
-    try { entry.ws.close(); } catch {}
+  // Sent even when this bridge holds nothing: a review whose call already timed out is gone from
+  // `pendingDiffs` while its card is still on screen, and that card can only be cleared from here.
+  // The whole block is guarded, resolving the window included: this also runs on the way out of the
+  // app, where every window is somewhere between alive and destroyed, and a throw here would take
+  // the lock-file cleanup below with it.
+  try {
+    const current = targetWindow(entry);
+    if (current) showing.add(current);
+    for (const win of showing) {
+      try { win.webContents.send('mcp-close-all-diffs', entry.sessionId); } catch {}
+    }
+  } catch {}
+  if (answered && log) {
+    log.info(`[mcp] session=${entry.sessionId} ended holding ${answered} unanswered review(s) — rejected and cleared`);
   }
-
-  // Close server
-  try { entry.wss.close(); } catch {}
 
   // Delete lock file
   try { fs.unlinkSync(entry.lockFilePath); } catch {}
 
+  // The entry is gone from the registry NOW — a relaunch under the same id must not find this one —
+  // but the socket outlives it by a turn. `handleOpenDiff` is still parked on the promise resolved
+  // above; it writes its DIFF_REJECTED in a microtask, and closing here synchronously would take the
+  // socket out from under the answer this function just decided to give. `sendResult` reads
+  // `entry.ws`, not the registry, so the reply still finds its way out.
   servers.delete(sessionId);
+  setImmediate(() => {
+    if (entry.ws) {
+      try { entry.ws.close(); } catch {}
+    }
+    try { entry.wss.close(); } catch {}
+  });
 }
 
 /**
  * Shut down all MCP servers (app quit).
  */
-function shutdownAll() {
+function shutdownAll(log) {
   for (const sessionId of servers.keys()) {
-    shutdownMcpServer(sessionId);
+    shutdownMcpServer(sessionId, log);
   }
 }
 

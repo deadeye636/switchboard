@@ -315,3 +315,58 @@ test('a window showing an unanswered review says so, so it is not taken down und
     shutdownMcpServer('d6');
   }
 });
+
+// --- #405: the session ends, and the reviews it left behind go with it ----------------------------
+//
+// Shutting the bridge down settled every pending diff server-side and told nobody. The entries stayed
+// in the renderer's file panel, the pager kept counting them, and closing one sent `mcpDiffResponse`
+// into a bridge that had already answered. The answer it gave was `accept`, which claims the user
+// approved an edit they never saw.
+
+test('a session ending clears the reviews it left behind, in every window showing one', async () => {
+  const owner = fakeWindow('owner');
+  const current = fakeWindow('current');
+  let target = owner;
+  const server = await startMcpServer('d7', [tmpHome], () => target, log);
+  const ws = await connect(server.port, server.authToken);
+  try {
+    const call = openDiff(ws, 1, __filename);
+    await waitFor(() => owner.sent.length > 0, 'the diff to be sent');
+    target = current;                              // the session moved after the review opened
+
+    shutdownMcpServer('d7', log);
+
+    const closes = (w) => w.sent.filter((s) => s.channel === 'mcp-close-all-diffs');
+    assert.equal(closes(owner).length, 1, 'the window actually showing the review is told to drop it');
+    assert.equal(closes(owner)[0].args[0], 'd7', 'and told which session it belongs to');
+    assert.equal(closes(current).length, 1, 'so is the one rendering the session now');
+
+    // Deliberately NOT `call.answered()`: that helper waits forever, and "the answer never arrives"
+    // is exactly the failure this asserts against — it has to fail as a timeout, not as a hang.
+    await waitFor(() => call.replies.some((m) => m.id === 1), 'the CLI to be answered before the socket goes');
+    const reply = call.replies.find((m) => m.id === 1);
+    assert.match(JSON.stringify(reply.result), /DIFF_REJECTED/,
+      'the session ended — that is a rejection, not an approval nobody gave');
+  } finally {
+    ws.close();
+  }
+});
+
+test('a session ending clears the renderer even when the bridge itself holds nothing', async () => {
+  // The two halves can disagree: a review whose ten-minute timeout has fired is out of `pendingDiffs`
+  // and still on screen, and nothing else will ever reach that card. So the clear is unconditional —
+  // it is the renderer's state being reset, not this bridge's being reported.
+  const win = fakeWindow('quiet');
+  const server = await startMcpServer('d8', [tmpHome], () => win, log);
+  const ws = await connect(server.port, server.authToken);
+  try {
+    await openFile(ws, 1, __filename);
+    win.sent.length = 0;
+    shutdownMcpServer('d8', log);
+    const closes = win.sent.filter((s) => s.channel === 'mcp-close-all-diffs');
+    assert.equal(closes.length, 1);
+    assert.equal(closes[0].args[0], 'd8');
+  } finally {
+    ws.close();
+  }
+});
