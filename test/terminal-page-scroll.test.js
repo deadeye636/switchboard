@@ -42,14 +42,16 @@ function pageEvent(key, overrides = {}) {
 //           before #410 touched it. Leave it alone.
 //   codex   ignores ESC[5~ at its prompt, and runs on the NORMAL buffer, so xterm holds the history
 //   pi      ignores ESC[5~ at its prompt, and runs on the NORMAL buffer, so xterm holds the history
-//   hermes  NOT measured — keeps the conservative default, which is also its behaviour today
-//   agy     NOT measured — same
+//   hermes  measured: the bare keys do nothing, and the history pages only under Shift — which is
+//           xterm's own scrollback, so the TUI is not using them and xterm holds the transcript
+//   agy     measured: the same, in a session against the real store (agy declares no store variable,
+//           so it cannot be driven from an isolated instance — this row is the owner's reading)
 const PAGE_KEY_TARGETS = {
   claude: 'pty',
   codex: 'viewport',
   pi: 'viewport',
-  hermes: 'pty',
-  agy: 'pty',
+  hermes: 'viewport',
+  agy: 'viewport',
 };
 
 test('every backend explicitly owns its bare page-key target', () => {

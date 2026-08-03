@@ -193,8 +193,11 @@ module.exports = {
   status: 'ready',
   monogram: 'H',
   colour: 'hermes',
-  // Hermes scrolls its transcript and overlays on PageUp/PageDown; xterm must forward the keys.
-  pageKeyTarget: 'pty',
+  // MEASURED in a live session, which is the only way this line is allowed to be written: the bare keys
+  // do NOTHING in Hermes — the history only pages under Shift, which is xterm's own scrollback. So the
+  // TUI is not using them and xterm holds the transcript. What stood here before ("Hermes scrolls its
+  // transcript and overlays on PageUp/PageDown") was read off a keymap and was wrong.
+  pageKeyTarget: 'viewport',
   supportsFork: false,   // no confirmed fork flag — do not offer what we cannot do (see codex/index.js)
   supportsSubagents: false,   // no subagent concept (#230)
   // Lineage (#193): Hermes records a real parent in its store (`parent_session_id`), which the reader

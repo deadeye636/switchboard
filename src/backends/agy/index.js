@@ -178,8 +178,10 @@ module.exports = {
   status: 'ready',
   monogram: 'Ag',
   colour: 'agy',
-  // agy's navigation and edit areas handle PageUp/PageDown themselves; keep the keys in the PTY.
-  pageKeyTarget: 'pty',
+  // MEASURED in a live session, not read off its keymap: the bare keys do NOTHING in agy — the history
+  // only pages under Shift, which is xterm's own scrollback, so the TUI is not using them. What stood
+  // here before ("agy's navigation and edit areas handle PageUp/PageDown themselves") was a reading.
+  pageKeyTarget: 'viewport',
   // No confirmed fork flag — declaring false HIDES the Fork button for agy's sessions rather than
   // launching an unrelated empty session when it is pressed.
   supportsFork: false,

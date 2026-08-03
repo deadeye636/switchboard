@@ -325,8 +325,8 @@ in opposite directions.
 | Claude | `pty` | Its TUI pages its own history. It runs on the **alternate screen**, where xterm keeps no scrollback (`baseY: 0`) — so Switchboard could not page anything here even if it wanted to. Worked before #410; must stay untouched. |
 | Codex | `viewport` | Sends `ESC[5~` and nothing happens: the prompt ignores it. Runs on the normal buffer, so xterm holds the history and pages it. |
 | Pi | `viewport` | Same: `ESC[5~` reaches it and is ignored, normal buffer, xterm holds the history. |
-| Hermes | `pty` | **Not measured.** Keeps the conservative default, which is also its behaviour today. |
-| agy | `pty` | **Not measured.** Same. |
+| Hermes | `viewport` | The bare keys do nothing; the transcript pages only under **Shift**, which is xterm's own scrollback. So the TUI is not using them and xterm holds the history. |
+| agy | `viewport` | The same, measured against the **real** store: agy declares no store variable (`cliHomeEnv()` → null), so it cannot be driven from an isolated instance. |
 
 `'viewport'` is what makes Switchboard swallow the bare key and call xterm's `scrollPages()`; anything
 else — including an unknown or missing value — leaves the key to the application. Modifier chords keep
