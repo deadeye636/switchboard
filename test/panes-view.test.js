@@ -1400,6 +1400,57 @@ test('a dormant session moved in gets a tab, and the pane offers Launch (#332)',
   } finally { h.destroy(); }
 });
 
+// --- #403: the placeholder must not paint over an open review --------------------------------------
+//
+// A review has no tab of its own (#398) — it rides on its session's pane, over the terminal underneath.
+// A session with no process draws the "not running / Launch" placeholder in that same rect, absolutely
+// positioned like the review host and appended after it, so it simply won. Measured on a dormant session
+// with one review open: the host in the DOM at full size, nothing hidden, nothing thrown, and
+// `elementFromPoint` at its centre returning the placeholder.
+
+test('an open review keeps the pane, rather than being painted over by the launch placeholder (#403)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('dorm-1', { sessionId: 'dorm-1', name: 'Dormant one', type: 'agent' });
+
+    const reviewHost = h.document.createElement('div');
+    reviewHost.className = 'fp-instance';
+    h.window.filePanelReviewHostFor = (sessionId) => (sessionId === 'dorm-1' ? reviewHost : null);
+
+    assert.equal(h.panes.openDormantTab('dorm-1'), true);
+    await h.settle();
+
+    const body = h.document.querySelector('.pane.pane-active .pane-body');
+    assert.ok(body.contains(reviewHost), 'the review is in the pane');
+    assert.equal(reviewHost.classList.contains('pane-hosted-hidden'), false, 'and it is the visible one');
+    assert.equal(h.document.querySelectorAll('.pane-empty-launch').length, 0,
+      'the placeholder does not go in on top of it');
+
+    // Answering it gives the pane back: the same render, now with nothing to show for that session.
+    h.window.filePanelReviewHostFor = () => null;
+    h.panes.render();
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane-empty-launch').length, 1,
+      'and the Launch placeholder is reachable again once no review is open');
+  } finally { h.destroy(); }
+});
+
+test('a dormant session with no review still gets the launch placeholder (#403)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('dorm-1', { sessionId: 'dorm-1', name: 'Dormant one', type: 'agent' });
+    h.window.filePanelReviewHostFor = () => null;
+
+    assert.equal(h.panes.openDormantTab('dorm-1'), true);
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane-empty-launch').length, 1);
+  } finally { h.destroy(); }
+});
+
 test('a dormant tab is not created for a session it cannot name (#332)', async () => {
   const h = setupPanesDom();
   try {

@@ -685,6 +685,10 @@ window.__sessionDragId = null;
     // reader moving into the body is told what it is looking at.
     body.setAttribute('role', 'tabpanel');
     if (leaf.activeTabId) body.setAttribute('aria-labelledby', domTabId(leaf.id, leaf.activeTabId));
+    // Whether the tab on top is showing a review. A dormant session draws the launch placeholder, and
+    // the placeholder is built last — so it painted over an open review, at full size, with nothing
+    // hidden and nothing thrown (#403). The review wins that rect while it is open.
+    let activeReview = false;
     for (const tab of leaf.tabs) {
       if (isViewTab(tab)) {
         // The element follows its TAB, active or not — parked out of sight when
@@ -713,6 +717,7 @@ window.__sessionDragId = null;
         review.classList.add('pane-hosted');
         review.classList.toggle('pane-hosted-hidden', tab.id !== leaf.activeTabId);
         body.appendChild(review);
+        if (tab.id === leaf.activeTabId) activeReview = true;
       }
       const entry = openSessions.get(sessionId);
       if (entry) body.appendChild(entry.element); // moves the live container, xterm and all
@@ -722,7 +727,12 @@ window.__sessionDragId = null;
     // one. The tab stays, and clicking it opens the session into this pane.
     const activeTab = leaf.tabs.find((t) => t.id === leaf.activeTabId);
     const activeMounted = activeTab && (isViewTab(activeTab) || openSessions.has(sessionOfTab(activeTab)));
-    if (!leaf.tabs.length || !activeMounted) {
+    // …and it is skipped entirely under an open review, rather than drawn beneath it: `.pane-empty` and
+    // the review host are both absolutely positioned over the same rect, so a later sibling simply wins.
+    // What brings the placeholder back is `closePanelTab` re-rendering when a review goes — including
+    // the case where the review was not the session's shown entry, which is the branch that pairs with
+    // this one. Without that pairing, skipping the placeholder here leaves the rect empty.
+    if ((!leaf.tabs.length || !activeMounted) && !activeReview) {
       body.appendChild(buildEmptyState(leaf, activeTab));
     }
     // Clicking anywhere in a pane makes it the one a sidebar click fills (O7).

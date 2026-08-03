@@ -627,6 +627,13 @@ function closePanelTab(key, { keepPanel = false, answer = true } = {}) {
       if (next) { showPanel(state); renderPanel(entry.sessionId); }
       else hidePanel();
     }
+  } else if (panesActive() && entry.kind === 'diff') {
+    // A review that was NOT the shown entry still had its host in a pane — `filePanelReviewHostFor`
+    // falls back to the newest open review when a preview took `shownKey`, precisely so a review is
+    // never invisible. Removing that host above is therefore a change to the pane, and without this
+    // the pane keeps a rect with the review gone and nothing put back: since #403 the launch
+    // placeholder is skipped while a review is open, so "nothing" is what would be drawn.
+    window.panesView?.render?.();
   }
   updateReviewPager(entry.sessionId);
 }

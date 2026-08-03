@@ -316,6 +316,62 @@ test('outside panes mode a second diff replaces the first — and REJECTS it (#3
   } finally { h.destroy(); }
 });
 
+// --- #405: the session ended, so the bridge clears its reviews --------------------------------------
+//
+// `closeAllDiffs` is the channel a session exit now arrives on, not just a CLI's own `closeAllDiffTabs`.
+// What has to survive that: the counter, and the pane the reviews were riding on.
+
+test('a session ending clears both its reviews and their counter, and leaves another session\'s alone (#405)', async () => {
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.ipc.openDiff('s1', 'diff-1', diffData());
+    h.ipc.openDiff('s1', 'diff-2', diffData({ tabName: 'second' }));
+    h.ipc.openDiff('s2', 'diff-3', diffData({ tabName: 'other session' }));
+    await h.settle();
+
+    const counts = () => h.qa('.fp-review-count').map((el) => el.textContent).filter(Boolean);
+    assert.deepEqual(counts(), ['1 of 2', '2 of 2'], 's1 pages through two, s2 has nothing to page');
+
+    h.ipc.closeAllDiffs('s1');
+    await h.settle();
+
+    assert.equal(h.window.filePanelReviewHostFor('s1'), null, 's1 has no review left');
+    assert.ok(h.window.filePanelReviewHostFor('s2'), "and s2's is untouched");
+    assert.deepEqual(counts(), [], 'the counter goes with the reviews it counted');
+    assert.deepEqual(h.calls.diffResponses, [],
+      'the bridge already answered these — answering again would write into a server that is gone');
+  } finally { h.destroy(); }
+});
+
+test('a review cleared while a preview holds the panel still rebuilds the pane (#403)', async () => {
+  // The review was not the shown entry: a preview opened afterwards takes `shownKey`, and
+  // `filePanelReviewHostFor` falls back to the newest review precisely so it stays on screen. Removing
+  // that host is a change to the pane either way — and since the launch placeholder is skipped while a
+  // review is open, a pane not rebuilt here would be left showing nothing at all.
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.ipc.openDiff('s1', 'diff-1', diffData());
+    h.files.set('/a.md', 'a');
+    await h.openFileInPanel('s1', '/a.md');
+    await h.settle();
+
+    assert.equal(h.state('s1').currentTab.filePath, '/a.md', 'the preview is what the panel shows');
+    assert.ok(h.window.filePanelReviewHostFor('s1'), 'and the review is still on screen under it');
+
+    const before = h.calls.render || 0;
+    h.ipc.closeAllDiffs('s1');
+    await h.settle();
+
+    assert.equal(h.window.filePanelReviewHostFor('s1'), null);
+    assert.ok((h.calls.render || 0) > before, 'the pane is rebuilt, so the placeholder can come back');
+    assert.equal(h.state('s1').currentTab.filePath, '/a.md', 'and the preview is untouched');
+  } finally { h.destroy(); }
+});
+
 test('each session keeps its own tab, and switching shows that session\'s', async () => {
   const h = setupFilePanelDom();
   try {
