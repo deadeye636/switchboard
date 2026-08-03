@@ -60,10 +60,11 @@ special case anywhere outside that provider's own folder.
 
   What replaced the sentence is a **guard**, not a better sentence: `test/backend-integrations.test.js`
   holds an id-comparison check (either order, either quote style), a literal counter, and a
-  no-table-keyed-by-backend-id check, over all eleven renderer files, each mutation-tested. Two named
+  no-table-keyed-by-backend-id check, over every file listed in `ALLOWED_BINDINGS`, each mutation-tested
+  — **read the count there**: this paragraph said "eleven renderer files" while the map held 45. Two named
   bindings survive because they are migrations rather than guesses — `LEGACY_TEMPLATE_BASE` (a template
   from before #161) and `LEGACY_SESSION_BACKEND` (a session row indexed before provenance existed).
-  **#211** is the same migration in `src/projects/projects.js`, main-side, and is still open. Do not
+  The same migration main-side, in `src/projects/projects.js`, closed with **#211** (below). Do not
   restore the sentence — extend the guard.
 
 ## Architecture
@@ -274,7 +275,7 @@ The ones that will look wrong to someone tidying up later:
    transcript file supplies its messages through `readMessages()`, which is what lets a handoff be
    produced from it at all — without it the review dialog comes up empty and the user retypes what the
    agent just wrote.
-8. **Argv spawn is honoured only when the command is a real executable.** On Windows `CreateProcess`
+8b. **Argv spawn is honoured only when the command is a real executable.** On Windows `CreateProcess`
    cannot run an npm `.cmd` shim (which is what `codex` is), so argv mode falls back to the shell there.
 
    **...and only when nobody asked for a shell.** A `preLaunchCmd` is a raw shell prefix, so it needs a
@@ -386,24 +387,22 @@ A template inherits none of this: `profileToDescriptor` builds an explicit field
 `integrations` nor `endpointEnv` nor `description`. That is deliberate — a template has no gear page, and
 the profile editor asks the **base**, off the built-ins.
 
-## As built — known gaps
+## What the seam absorbed
 
-Filed as issues rather than silently carried:
+**No gap this spec once listed is still open.** What follows is the record of what moved and why,
+because the movement is the design — not a changelog. The gaps that were one line each are described
+in the section above that owns them: the per-option cascade (#149) under Decisions 3, Hermes' probe
+scope and its unreadable-DB fallback (#150/#151) under *Busy/idle*, the staleness gate and the Stats
+filter (#152/#159) under *Metrics*, the plan leftovers (#153), every backend feeding the charts (#154),
+the hot paths (#155), and the shared file-store helper (#156) under *A file backend composes the file
+half*. `test/settings-cascade.test.js` runs the cascade for real now, rather than scraping it out of
+main.js's source with `new Function`, which is what it had to do while it lived in an Electron-bound
+file.
 
-- ~~**#149** `backendDefaults` cascades as a whole block, not per option.~~ **Fixed** — the cascade is
-  per option (`mergeBackendDefaults` in `src/app/settings.js`, moved there from `main.js` by #213).
-  `test/settings-cascade.test.js` runs it for real now, rather than scraping it out of main.js's source
-  with `new Function`, which is what it had to do while it lived in an Electron-bound file.
-- **#150/#151** Hermes: probe scope, no busy/idle fallback when its DB is unreadable.
-- **#153** leftovers vs. the plan (Tier-2 registration path, a launch-time `$VAR` warning, picker cosmetics).
-- **#155** hot-path cost (Hermes re-parses a session per watcher flush; store walks per flush).
-- **#156** this contract needs a shared file-store helper — Codex and Pi duplicate ~60 lines of walk /
-  watch / match / lookup boilerplate that the next file backend would copy a third time.
-
-Closed since: **#154** (every backend feeds the charts), **#152** + **#159** (below), **#188** (the core
-now reads Claude through its descriptor — the format modules moved into `backends/claude/`
-(`session-reader.js` / `folder-reader.js`) and `src/index/session-cache.js` pulls its readers off the descriptor,
-so the folder is no longer half a lie; the Electron-free scan worker imports the reader by path).
+**#188** — the core reads Claude through its descriptor. The format modules moved into
+`backends/claude/` (`session-reader.js` / `folder-reader.js`) and `src/index/session-cache.js` pulls its
+readers off the descriptor, so the folder is no longer half a lie; the Electron-free scan worker
+imports the reader by path.
 
 **#211** (the Projects admin no longer knows Claude exists — per-project meta/config is `projectMeta`, the
 transcript path is `transcriptPathFor`, and `src/projects/projects.js` requires no backend module and names

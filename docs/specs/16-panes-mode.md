@@ -1,121 +1,13 @@
 # 16 — Panes mode (VS-Code-style editor groups)
 
-**Status: built** (#309 the mode and the tree, #310 the typed views, #311 per-pane preview and diff).
-The other view kinds are one instance per kind by decision, not by omission — see §4.3. Written *before*
-the build, so its job is
-different from specs 01–15: it is the **record of the layout options and why one was chosen**, and a
-later rework should read it before re-running the argument.
+**Status: built, and the DEFAULT display mode** (#374). It absorbed tabs mode entirely (#357) — a
+single-leaf tree IS that mode — and grid stays the mosaic beside it (§4.4). `views/pane-tree.js` is the
+pure model, `views/panes-view.js` the DOM half.
 
-**As built.** `views/pane-tree.js` (pure model) + `views/panes-view.js` (the DOM half) ship
-the tree, the per-pane strip, the `…` pane menu (A), tab drag with the 10 % edge split, sashes,
-localStorage persistence and the two shortcuts (#309). The typed views followed (#310): preview and
-diff, plus message history, plan, activity and memory, are pane tabs.
-
-Four later fixes belong to the record:
-
-- **The pane actions also answer a right-click** (#312) — on a tab together with that tab's own
-  actions, on the strip or the session bar alone. All three entry points build their items in one
-  place, and the subject is the tab that was clicked, not whichever one is active.
-- **A tab drag shows where it will land** (#313). The caret needed a model fix: `moveTab` read its
-  `index` as a position *after* the dragged tab was lifted out, while its only caller meant the gap it
-  could see — so every rightward drag landed one tab too far and dropping a tab last was impossible.
-- **The bar's indicators moved out of the tools** (#321). The status is a dot in front of the session
-  name, as in the sidebar and on the tab; the IDE-emulation mark left the pane for the sidebar row.
-  §4.2 has the reasoning.
-- **An exited session does not leave a live-looking tab** (#317, #318). A deliberate stop closes the
-  tab in panes mode too (`closeTabNow` was guarded on tabs mode alone). And clicking a tab whose
-  session has no process no longer opens it — that path spawns a fresh CLI, which is the opposite of
-  what clicking a dead tab means. The pane says so instead and offers a **Launch** button: the one
-  empty state that carries an action, because it is the one case where opening costs a process. A tab
-  whose session is still running elsewhere is unaffected — clicking it attaches, as before. The tab
-  reads as ended (dimmed, struck through) when `launchExitedSessions` says so — a marker cleared the
-  moment a live PTY appears under the id, so a tab restored from a saved layout whose session never ran
-  *this run* is not "exited". Its menu also gained **Stop & close** and **Relaunch** (#312).
-
-Two things diverge from the plan above and are load-bearing:
-
-- **H2 became a setting, not a decision.** `paneToolsPlacement` picks `bar` (default — the session
-  tools on a row of their own, §4.2 H1) or `strip` (H2). Seeing H2 in place is what changed the call;
-  both render paths are cheap, so the choice moved to the user.
-- **One instance per view kind, not one per pane** — except preview and diff. Each of these views is a
-  single element with module-wide state, so the tab moves to the pane you opened it from instead of
-  being duplicated. Preview and diff got an instance per tab in #311 (§4.3), which is what two diffs
-  side by side needed. Message history, plan, activity and memory stay single-instance deliberately:
-  they are read, not compared, and the transcript viewer's state (current session, search hits,
-  bookmarks, subagent watches) would have to be unpicked for no gain. **Neither flavour can change
-  window** — see O16.
-
-### The audit pass (#343–#352)
-
-Two agents read and drove the mode against VS Code, Windows Terminal, tmux, iTerm2 and Zed. Nothing
-below was found by the suite — **no test loaded `panes-view.js` at all** until this pass, which is
-the finding behind all the others. `test/helpers/panes-dom.js` is the jsdom harness that ended it.
-
-Four defects that outlived whatever caused them:
-
-- **The grid mosaic could be switched on inside panes mode** (#343) and pulled every terminal
-  container out of its pane. The gate was a tabs-only test copied to four entry paths; it now sits in
-  `showGridView()`, the funnel all five run through, and the boot heal clears the runtime flag as
-  well as the stored one.
-- **A detached window overwrote the layout on teardown** (#344) — `disable()` wrote past the guard
-  `persist()` has. One writer, one check, per spec 17 §4.
-- **A sash drag could never end** (#345). Its listeners hung on the sash, which every rebuild
-  destroys, so `pane-sashing` stayed on `<body>`. Listeners live on `window` now, `pointercancel`
-  and `lostpointercapture` end it, and both paths that destroy the sash finish the gesture first.
-  Note for whoever reads that CSS: `body.pane-sashing .terminal-container` LOSES on specificity to
-  `body.display-mode-panes .terminal-container.visible`, so the rule does nothing for the terminal
-  you can see — the drag survives a terminal because of `setPointerCapture`, not because of it.
-- **A `/clear` orphaned the pane tab** (#346). A tab id is derived from its session id, so an id move
-  left the tree naming a retired one. `PaneTree.replaceTab` renames it in place.
-
-Behaviour the mode was missing, and now has:
-
-- **Closing a pane follows the same close behaviour as closing its tabs** (#347). It used to skip it
-  entirely and orphan every process in the pane — the opposite of what the `×` on those tabs does. It
-  asks once when it would stop processes, and says so when the settings keep them running.
-- **The strip can show, reach and clear its tabs** (#349): the active tab scrolls into view, arrows
-  and a filterable list appear when the tabs overflow, only inactive tabs shrink, duplicate names are
-  qualified by project, and the tab menu closes others / to the right / all.
-- **A keyboard model** (#350). Pane arrows are spatial — they were indexing the leaves in render
-  order and wrapping, so "up" could go left. Plus zoom, split down, tab navigation within a pane, and
-  close tab / close pane. `docs/settings-reference.md` lists every binding.
-- **The strip is a tab list** (#351): roles, `aria-selected`, roving tabindex, a focusable sash that
-  resizes and resets from the keyboard, and a live region of its own.
-
-And the follow-ups that came out of it:
-
-- **The split chord could not be pressed** (#353). `paneSplit` asked for Shift plus the character
-  `\`, which cannot happen together — the Backslash key reports `|` under Shift on a US layout and
-  does not exist on a German one. Dead since #309, and it survived a live check because a scripted
-  keydown sets `key` directly. Bindings can now name a **physical key**; splitting gained its other
-  two directions in the same pass.
-- **Direction is decided by overlap, not by centres** (#354). A pane taller than yours could have a
-  lower centre while sitting beside you, so "down" moved sideways. Shared geometry, so the grid got
-  the same fix.
-- **Every main-area surface is a pane tab** (#342). `#terminal-area` is the LAST child of `#main` and
-  the viewers are earlier siblings at `z-index: auto` — in the other modes they take over by hiding
-  that area, which this mode deliberately prevents, so DOM order put the pane tree on top of them.
-  Extending `VIEW_KINDS` was chosen over a takeover layer, because Activity already worked that way
-  and because the "admin vs session" line does not cut cleanly (Tasks and Timeline are opened
-  session-scoped). Two close routes, matching the `data-close-admin` / `data-close-viewer` split the
-  viewers' own headers already use — and only a **user** close runs one, or hiding Projects to show
-  Variables sends the sidebar back and undoes the switch.
-
-**#352 is closed.** Its last boxes landed as decisions rather than patches, and both are worth knowing:
-
-- **The LRU still does not bound the live terminal count**, and that is deliberate. `lruEvictOne` skips
-  everything with a live PTY, because discarding a running session's scrollback while it keeps
-  producing output is a visible loss, not a cache decision. What was missing is that the limit was
-  invisible until Chromium began dropping GPU contexts — so the status bar counts live terminals from
-  24 up (`shell/terminal-pressure.js`), amber there and red at 30.
-- **Trimming a background tab's scrollback is a setting, off by default** (`paneBackgroundScrollback`).
-  The reasoning for the default stands: grid can trim because a card is a preview, while a background
-  pane tab is a session the user will switch back to, and xterm cannot restore lines a shrunk buffer
-  dropped. Whoever keeps twenty panes open can now make that trade knowingly.
-
-Also from that pass: undo for layout changes and named layouts, "Distribute evenly" and a
-double-click sash reset, actions on an empty pane (plus `paneCloseEmpty`), and a tab dragged out of
-the window to detach it (spec 17 §2b carries the window half, including #360).
+Written *before* the build, so its job differs from specs 01–15: it is the **record of the layout
+options and why one was chosen**, and a later rework should read it before re-running the argument.
+**§8 carries what shipped after that argument**, including the two places it overtook the decision
+record.
 
 Issue: #309 · builds the ownership model that detachable windows (#2) then consume.
 
@@ -272,7 +164,7 @@ detached window (#2) "a tree with one leaf" instead of a separate mechanism.
 
 | ID | Decision | Note |
 |---|---|---|
-| O1 | Third mode `panes` beside `legacy` and `tabs` | `legacy` stays the default; non-breaking |
+| O1 | ~~Third mode `panes` beside `legacy` and `tabs`, `legacy` stays the default~~ **Overtaken.** `tabs` is gone (#357) and `panes` is the default (#374); `legacy` is grid's old spelling | Kept because the non-breaking third-mode framing is why the tree had to render a single leaf at all — which is what made absorbing tabs possible. §1, §8 |
 | O2 | Grid stays a mode of its own | grid = *automatic overview of all sessions*; panes = *manually arranged workspace*. See §4.4 |
 | O3 | Tiled split tree, no free-floating windows inside the main area | |
 | O4 | No cap on simultaneously rendered terminals | Still true — from two panes up they all render, on the DOM renderer (O14) |
@@ -284,10 +176,11 @@ detached window (#2) "a tree with one leaf" instead of a separate mechanism.
 | O10 | Closing a pane's last tab removes the pane, the neighbour takes the space | |
 | O11 | Plan, stats, memory and JSONL views may live in panes | |
 | O12 | Preview and diff are ordinary tabs | variant **P2**, §4.3 |
-| O13 | Session tools merge into the pane's tab strip | variant **H2**, §4.2 |
+| O13 | ~~Session tools merge into the pane's tab strip (variant **H2**)~~ **Overtaken.** It is the setting `paneToolsPlacement`, and its default is **H1** (`bar`) | Seeing H2 in place changed the call; both render paths are cheap, so the choice moved to the user. §4.2, §8 |
 | O16 | The `…` menu groups its entries by subject, and a whole pane can be moved to a window of its own (#340) | Headings, not just a separator — the two subjects were indistinguishable. Only terminal tabs travel; a view tab is named before anything moves. §4.1 |
 
-Chosen combination: **A + H2 + P2**.
+Chosen combination: **A + H2 + P2** — with the H2 half since made a setting whose default is H1
+(O13).
 
 ## 4 · The variants
 
@@ -625,3 +518,114 @@ and per-panel visibility events are what the WebGL policy needs.
 - **Spec 08** — flexible grid layout. The pure-module shape (`grid-layout.js`: order, spans, pointer
   geometry, keyboard move mode, all DOM-free and require-able) is the template for `pane-tree.js`.
 - **Spec 06** — grid bulk actions. One of the features that keeps grid a mode of its own (§4.4).
+
+## 8 · The record: what shipped after the plan
+
+Grouped by what it is about, not by when it landed. Two entries overtook §3 and are marked there:
+**O1** (there is no `tabs` mode any more and `panes` is the default) and **O13** (H2 became the
+setting `paneToolsPlacement`, whose default is H1).
+
+**Where the argument was settled by building it.** `views/pane-tree.js` + `views/panes-view.js`
+shipped the tree, the per-pane strip, the `…` menu (A), tab drag with the 10 % edge split, sashes,
+localStorage persistence and the two shortcuts (#309). The typed views followed (#310) — preview and
+diff, plus message history, plan, activity and memory as pane tabs — and #311 gave preview and diff
+one instance per tab. The other kinds are one instance per kind **by decision, not omission** (§4.3):
+they are read, not compared, and the transcript viewer's state would have to be unpicked for no gain.
+Neither flavour can change window (O16).
+
+### Fixes that belong to the record
+
+- **The pane actions also answer a right-click** (#312) — on a tab together with that tab's own
+  actions, on the strip or the session bar alone. All three entry points build their items in one
+  place, and the subject is the tab that was clicked, not whichever one is active.
+- **A tab drag shows where it will land** (#313). The caret needed a model fix: `moveTab` read its
+  `index` as a position *after* the dragged tab was lifted out, while its only caller meant the gap it
+  could see — so every rightward drag landed one tab too far and dropping a tab last was impossible.
+- **The bar's indicators moved out of the tools** (#321). The status is a dot in front of the session
+  name, as in the sidebar and on the tab; the IDE-emulation mark left the pane for the sidebar row.
+  §4.2 has the reasoning.
+- **An exited session does not leave a live-looking tab** (#317, #318). A deliberate stop closes the
+  tab in panes mode too (`closeTabNow` was guarded on tabs mode alone). And clicking a tab whose
+  session has no process no longer opens it — that path spawns a fresh CLI, which is the opposite of
+  what clicking a dead tab means. The pane says so instead and offers a **Launch** button: the one
+  empty state that carries an action, because it is the one case where opening costs a process. A tab
+  whose session is still running elsewhere is unaffected — clicking it attaches, as before. The tab
+  reads as ended (dimmed, struck through) when `launchExitedSessions` says so — a marker cleared the
+  moment a live PTY appears under the id, so a tab restored from a saved layout whose session never ran
+  *this run* is not "exited". Its menu also gained **Stop & close** and **Relaunch** (#312).
+
+**H2 became a setting, not a decision.** `paneToolsPlacement` picks `bar` (default — the session tools
+on a row of their own, §4.2 H1) or `strip` (H2). Seeing H2 in place is what changed the call; both
+render paths are cheap, so the choice moved to the user. §3 O13 records the decision it overtook.
+
+### The audit pass (#343–#352)
+
+Two agents read and drove the mode against VS Code, Windows Terminal, tmux, iTerm2 and Zed. Nothing
+below was found by the suite — **no test loaded `panes-view.js` at all** until this pass, which is
+the finding behind all the others. `test/helpers/panes-dom.js` is the jsdom harness that ended it.
+
+Four defects that outlived whatever caused them:
+
+- **The grid mosaic could be switched on inside panes mode** (#343) and pulled every terminal
+  container out of its pane. The gate was a tabs-only test copied to four entry paths; it now sits in
+  `showGridView()`, the funnel all five run through, and the boot heal clears the runtime flag as
+  well as the stored one.
+- **A detached window overwrote the layout on teardown** (#344) — `disable()` wrote past the guard
+  `persist()` has. One writer, one check, per spec 17 §4.
+- **A sash drag could never end** (#345). Its listeners hung on the sash, which every rebuild
+  destroys, so `pane-sashing` stayed on `<body>`. Listeners live on `window` now, `pointercancel`
+  and `lostpointercapture` end it, and both paths that destroy the sash finish the gesture first.
+  Note for whoever reads that CSS: `body.pane-sashing .terminal-container` LOSES on specificity to
+  `body.display-mode-panes .terminal-container.visible`, so the rule does nothing for the terminal
+  you can see — the drag survives a terminal because of `setPointerCapture`, not because of it.
+- **A `/clear` orphaned the pane tab** (#346). A tab id is derived from its session id, so an id move
+  left the tree naming a retired one. `PaneTree.replaceTab` renames it in place.
+
+Behaviour the mode was missing, and now has:
+
+- **Closing a pane follows the same close behaviour as closing its tabs** (#347). It used to skip it
+  entirely and orphan every process in the pane — the opposite of what the `×` on those tabs does. It
+  asks once when it would stop processes, and says so when the settings keep them running.
+- **The strip can show, reach and clear its tabs** (#349): the active tab scrolls into view, arrows
+  and a filterable list appear when the tabs overflow, only inactive tabs shrink, duplicate names are
+  qualified by project, and the tab menu closes others / to the right / all.
+- **A keyboard model** (#350). Pane arrows are spatial — they were indexing the leaves in render
+  order and wrapping, so "up" could go left. Plus zoom, split down, tab navigation within a pane, and
+  close tab / close pane. `docs/settings-reference.md` lists every binding.
+- **The strip is a tab list** (#351): roles, `aria-selected`, roving tabindex, a focusable sash that
+  resizes and resets from the keyboard, and a live region of its own.
+
+And the follow-ups that came out of it:
+
+- **The split chord could not be pressed** (#353). `paneSplit` asked for Shift plus the character
+  `\`, which cannot happen together — the Backslash key reports `|` under Shift on a US layout and
+  does not exist on a German one. Dead since #309, and it survived a live check because a scripted
+  keydown sets `key` directly. Bindings can now name a **physical key**; splitting gained its other
+  two directions in the same pass.
+- **Direction is decided by overlap, not by centres** (#354). A pane taller than yours could have a
+  lower centre while sitting beside you, so "down" moved sideways. Shared geometry, so the grid got
+  the same fix.
+- **Every main-area surface is a pane tab** (#342). `#terminal-area` is the LAST child of `#main` and
+  the viewers are earlier siblings at `z-index: auto` — in the other modes they take over by hiding
+  that area, which this mode deliberately prevents, so DOM order put the pane tree on top of them.
+  Extending `VIEW_KINDS` was chosen over a takeover layer, because Activity already worked that way
+  and because the "admin vs session" line does not cut cleanly (Tasks and Timeline are opened
+  session-scoped). Two close routes, matching the `data-close-admin` / `data-close-viewer` split the
+  viewers' own headers already use — and only a **user** close runs one, or hiding Projects to show
+  Variables sends the sidebar back and undoes the switch.
+
+**#352 is closed.** Its last boxes landed as decisions rather than patches, and both are worth knowing:
+
+- **The LRU still does not bound the live terminal count**, and that is deliberate. `lruEvictOne` skips
+  everything with a live PTY, because discarding a running session's scrollback while it keeps
+  producing output is a visible loss, not a cache decision. What was missing is that the limit was
+  invisible until Chromium began dropping GPU contexts — so the status bar counts live terminals from
+  24 up (`shell/terminal-pressure.js`), amber there and red at 30.
+- **Trimming a background tab's scrollback is a setting, off by default** (`paneBackgroundScrollback`).
+  The reasoning for the default stands: grid can trim because a card is a preview, while a background
+  pane tab is a session the user will switch back to, and xterm cannot restore lines a shrunk buffer
+  dropped. Whoever keeps twenty panes open can now make that trade knowingly.
+
+Also from that pass: undo for layout changes and named layouts, "Distribute evenly" and a
+double-click sash reset, actions on an empty pane (plus `paneCloseEmpty`), and a tab dragged out of
+the window to detach it (spec 17 §2b carries the window half, including #360).

@@ -104,7 +104,7 @@ absent from the installer.
 | `src/backends/**` | one folder per coding CLI + `index.js` registry + `file-store.js` |
 | `src/servers/**` | MCP IDE bridge (`mcp-bridge.js`) |
 | `src/vcs/**` | the VCS seam (#277) — provider registry + git provider + pure porcelain-v2/diff parser; core is VCS-blind. The poller/IPC live in `src/app/vcs.js` |
-| `src/projects/**` | the project registry — the last place the backend-id migration is still open (#211) |
+| `src/projects/**` | the project registry — backend-neutral since #211 (`projectMeta` / `transcriptPathFor`, no backend module required) |
 
 ## Commands
 
