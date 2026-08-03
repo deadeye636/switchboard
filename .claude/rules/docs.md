@@ -33,6 +33,20 @@ decision, rather than being deleted.
 A feature unique to this fork (not inherited from upstream) goes in the **README "What this fork
 adds"** list **and** in `docs/fork-features.md`. Terse, matched to the existing style.
 
+## A path you write in a doc is checked; a count you write is not
+
+`test/doc-refs.test.js` fails when a backticked repo path in `CLAUDE.md`, `README.md`,
+`.claude/rules/**` or `docs/**` does not exist. Naming a dead path on purpose (a removal record, a
+plan option not taken) means an entry in `DELIBERATE` in `scripts/check-doc-refs.js` **with the
+reason** — and the guard reports an exemption whose path came back, so the list cannot rot.
+
+**Nothing checks a number, a caller count or "the last place X is still open".** Those went stale in
+four docs at once and no test could see it: `.claude/rules/renderer.md` said the backend-id guard ran
+over eleven renderer files while `ALLOWED_BINDINGS` held 45, two `src/app/` modules were missing from
+both enumerations that list them, and spec 09 called #211 open in one paragraph and closed in another.
+So **do not write the number** — name the list, the test or the directory that holds the answer. If
+you must write one, write what you compared it against.
+
 ## Language & privacy
 
 - All docs, code comments and user-facing UI text are **English**. Commit messages too.

@@ -410,6 +410,7 @@ notice, because those were explicit configuration choices.
 | `npm run backends:help-check` | Runs all backend CLI help drift checks. |
 | `node scripts/check-debug-port.js` | Exists because Electron silently starts *without* a debug port when the port is taken. |
 | `node scripts/build-backlog.js` | Regenerates `docs/BACKLOG.md` / `.jsonl` from GitHub issues. Both outputs are gitignored — run it once per clone. |
+| `node scripts/check-doc-refs.js` | Fails when a repo path named in backticks in `CLAUDE.md`, `README.md`, `.claude/rules/**` or `docs/**` no longer exists. `docs/plans/**` is skipped (gitignored scaffolding, written against a tree that does not exist yet). A path named on purpose — a removal record, a plan option not taken — goes in `DELIBERATE` in that file **with its reason**, keyed by the doc that names it; an exemption whose path comes back is reported too. `test/doc-refs.test.js` runs it in the suite. |
 
 ## Known inconsistency
 
