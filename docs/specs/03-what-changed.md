@@ -311,3 +311,27 @@ problem it solved no longer exists. §1 stays as the record of why — the lesso
 
 Settings keep their meaning exactly: `awaySummary` (on) turns the whole thing off, `awayIdleMinutes`
 (10) is the threshold.
+
+### 6 · …and it took the presence reporting with it (#426)
+
+The banner deleted in §5 held one thing that was not about banners: the throttled `keydown` /
+`pointerdown` / `wheel` / `focus` listeners that call `reportPresenceActivity()`. Nothing took them
+over. So `lastActivityAt` in `app/presence.js` never left null, `absenceEnded` always answered null,
+and **no absence was ever detected** — the inbox entry of §5 and its survival across a reload above are
+both correct and were both unreachable from ordinary use for as long as this stood.
+
+What made it invisible is worth more than the fix: every check of the recap, in both issues, had
+called `reportPresenceActivity()` itself. Driving the producer is the natural way to test a consumer,
+and it answers a different question than the one being asked — *does the app produce this* was never
+put to the app. The measurement that finally settled it was two real key presses through
+`Input.dispatchKeyEvent`, 85 s apart, with the harness touching nothing else.
+
+The listeners live in `shell/away-overview-view.js` now, beside the surface they feed, and
+`test/presence-reporting.test.js` runs the real file in a jsdom window and dispatches real events at
+it. That test is the guard on both ways of losing this again: drop the block and its assertion fails,
+delete the file and it cannot even load. A source-regex guard would have passed against a file that
+registers a listener and sends nothing.
+
+`mousemove` stayed out, deliberately: it fires while a hand rests on a desk that gets nudged, which is
+exactly the presence this must not infer. `focus` clears the throttle before reporting — coming back
+IS the moment the answer changes, and that is the one report that must not be skipped.

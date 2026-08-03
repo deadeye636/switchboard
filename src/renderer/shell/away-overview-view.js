@@ -19,7 +19,7 @@
 //   views/plans-memory-view.js hideAllViewers
 //   lib/utils.js             escapeHtml, cleanDisplayName
 //   preload                  getTimelineSince, revealSession, onPresenceReturned,
-//                            getPendingAbsence, discardAbsence
+//                            reportPresenceActivity, getPendingAbsence, discardAbsence
 //
 // IT OWNS ITS OWN STATE — the pending recap and which rows are expanded are read and written by nothing
 // else. The sidebar asks for the inbox entry through `awayRecapInboxEntry()`; sidebar-events.js calls the
@@ -82,6 +82,35 @@ function awayRecapInboxEntry() {
 //
 // `presence-returned` is main's one global answer to "the user was gone, from T, for D"
 // (`src/app/presence.js`). It reaches every window; only the one that owns the inbox acts on it.
+//
+// REPORTING is the other half, and it belongs beside the surface it feeds (#426). It lived in the banner
+// this file replaced and was deleted with it, with nothing taking it over — so `lastActivityAt` in main
+// never left null, no gap was ever an absence, and the recap could not appear at all from ordinary use.
+// Every check of the feature had called `reportPresenceActivity` itself, which is precisely why the
+// missing half stayed invisible. Every window reports: presence is about the MACHINE, and a window of
+// its own is somewhere the user can be even though it owns no inbox.
+
+// Throttled, because this fires on every keystroke and every pointer press while the answer only ever
+// changes by minutes. `send`, so nothing waits on it.
+const PRESENCE_REPORT_MS = 15_000;
+let lastPresenceReport = 0;
+function reportPresence() {
+  const now = Date.now();
+  if (now - lastPresenceReport < PRESENCE_REPORT_MS) return;
+  lastPresenceReport = now;
+  try { window.api.reportPresenceActivity?.(); } catch { /* an older main process */ }
+}
+
+// `keydown`, `pointerdown` and `wheel` are the user doing something; `focus` is the window coming back,
+// and it CLEARS the throttle first because that is the moment the answer changes — a return that lands
+// inside the window of the last report is the one report that must not be skipped.
+//
+// `mousemove` is deliberately absent: it fires while a hand rests on a desk that gets nudged, which is
+// exactly the presence this must not infer.
+for (const evt of ['keydown', 'pointerdown', 'wheel']) {
+  window.addEventListener(evt, reportPresence, { capture: true, passive: true });
+}
+window.addEventListener('focus', () => { lastPresenceReport = 0; reportPresence(); });
 
 window.api.onPresenceReturned?.(async (absence) => {
   if (!absence || !Number.isFinite(absence.awaySince)) return;
