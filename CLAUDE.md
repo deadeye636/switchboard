@@ -81,7 +81,9 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 - **Labels:** prio `P1`/`P2`/`P3` (open only), type `bug`/`feature`/`port`/`chore`, `source:*`
   (`jbr`/`brianstanley`/`supacode`/`kreaddis`), `wontfix`.
 - `gh` default repo is pinned to `deadeye636/switchboard` (`gh repo set-default`) — always our fork,
-  never `doctly`. Decisions still land in commit messages + memory.
+  never `doctly`. Decisions still land in commit messages + memory. **A hook refuses** a `gh` command
+  naming `doctly`, and a `git push` to any of the read-only fork remotes
+  (`.claude/hooks/guard-commands.js`).
 
 ## Architecture map
 
@@ -119,7 +121,9 @@ absent from the installer.
 - `npm start` — bundles CodeMirror, then launches Electron against the **real** stores. The exception,
   for when you deliberately want live data.
 - `npm run start:debug` — the same with DevTools port 9222 open → `docs/ai/driving-the-app.md`.
-- `npm run stop:dev` — stop **this checkout's** dev run. Never `taskkill /IM electron.exe`.
+- `npm run stop:dev` — stop **this checkout's** dev run. Killing every `electron` image takes the
+  installed app and the other checkouts with it, so a hook refuses that
+  (`.claude/hooks/guard-commands.js`).
 - `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe` → `docs/ai/release.md`.
 - `npm run upstream:check` / `upstream:seen` — → `docs/ai/fork-and-porting.md`.
 

@@ -58,7 +58,6 @@ const DELIBERATE = {
   },
   'docs/specs/05-hook-attention-detection.md': {
     'src/servers/schedule-runner.js': 'named as removed with the scheduler (#246) — spec 14 is the record',
-    '.claude/settings.json': "Claude's own project-scope config in a USER's project, not a file of ours",
   },
   'docs/specs/07-session-groups.md': {
     'test/groups-model.test.js': 'the plan of a feature removed in #185; tags replaced it',
