@@ -19,7 +19,9 @@ moving them buys churn).
 
 `src/app/` holds `lifecycle.js` (boot, ordered teardown), `windows.js`,
 `notifications.js`, `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`,
-`settings-transfer.js`, `plans-memory.js` (Plans/Memory/Work-Files tabs — #227),
+`settings-transfer.js`, `backend-models.js` + `backend-resources.js` (backend-owned model and
+resource discovery — the core asks the descriptor, each backend owns how it shells out and fails),
+`plans-memory.js` (Plans/Memory/Work-Files tabs — #227),
 `vcs.js` (the VCS poller + its standalone windows — #277), `detach.js` (detached session
 windows — #2, and since #316 which window renders which session), `presence.js` (is the USER at the
 machine — #386; one global fact, because every renderer has its own `windowFocused` and none can see
@@ -27,6 +29,8 @@ the others), `timeline.js` (what happened to a session — #396; the one writer 
 session has one history however its windows come and go), `session-shutdown.js` (stopping every CLI
 process and CHECKING that it stopped — #424) and `terminal/` (`spawn.js` = open-terminal,
 `io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
+**The directory is the truth** — this enumeration silently missed two modules for as long as they
+existed, so list `src/app/` before assuming an area has no home yet.
 
 ## Quitting WAITS, and both kill sites go through one module (#424)
 
