@@ -56,9 +56,21 @@ const BACKENDS = [
   {
     id: 'hermes',
     demoHome: (demoDir) => path.join(demoDir, 'stores', 'hermes'),
-    realHome: () => null,   // its credential file is not confirmed against a real install — do not guess
-    files: [],
-    nothing: 'no confirmed credential file — log in inside the demo home if it asks',
+    // Hermes' home IS its install directory — `%LOCALAPPDATA%\hermes` holds `hermes-agent/venv` right
+    // beside `state.db` — so an isolated home is emptier for it than for anyone else (#427).
+    realHome: () => process.env.HERMES_HOME || (process.platform === 'win32'
+      ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'hermes')
+      : path.join(os.homedir(), '.hermes')),
+    // MEASURED against a real install, keys only, never values: `auth.json` carries `version`,
+    // `providers`, `credential_pool`, `updated_at` and `active_provider`.
+    files: ['auth.json'],
+    // …and Hermes WRITES that file itself on first start, minus `active_provider` — a shape that looks
+    // like a credential and names nobody to talk to. Without this the copy would report "already there"
+    // and leave the demo exactly as stuck as before (#427).
+    supersedes: isUnusableHermesAuth,
+    // What is deliberately left behind, stated where the next reader will look: `.env` is not
+    // credentials (eleven tool-tuning assignments — TERMINAL_*, BROWSER_*, *_DEBUG), and `config.yaml`
+    // is the user's own 64-key configuration, which is the same thing `.claude.json` is for Claude.
   },
   {
     id: 'pi',
@@ -90,6 +102,23 @@ function primeClaudeConfig(demoHome) {
   return 'onboarding marked done in the demo .claude.json';
 }
 
+/**
+ * Is the `auth.json` sitting in the demo home the one Hermes wrote for itself rather than a credential?
+ *
+ * Hermes creates the file on first start with the right shape and no `active_provider` — nothing is
+ * chosen, so the session has nobody to talk to. Keyed on that field rather than on size or mtime,
+ * because it is the one that decides, and unreadable-or-absent counts as unusable: the copy is the
+ * safe answer either way.
+ */
+function isUnusableHermesAuth(destFile) {
+  try {
+    const auth = JSON.parse(fs.readFileSync(destFile, 'utf8'));
+    return !auth || typeof auth.active_provider !== 'string' || !auth.active_provider;
+  } catch {
+    return true;
+  }
+}
+
 function copyCredentials(demoDir) {
   const report = [];
 
@@ -109,7 +138,11 @@ function copyCredentials(demoDir) {
         report.push({ id: b.id, state: 'missing', detail: `${name} not found in the real home — log in there first, or inside the demo home` });
         continue;
       }
-      if (fs.existsSync(dest) && !FORCE) {
+      // A file that is already there is kept — unless the backend can tell that what is there is not a
+      // credential at all. Without that, a CLI that writes its own empty one on first start makes this
+      // script report success about a demo it left exactly as stuck as before (#427).
+      const superseded = fs.existsSync(dest) && typeof b.supersedes === 'function' && b.supersedes(dest);
+      if (fs.existsSync(dest) && !FORCE && !superseded) {
         report.push({ id: b.id, state: 'kept', detail: `${name} already in the demo home (--force to overwrite)` });
         continue;
       }
