@@ -2020,6 +2020,10 @@ setTimeout(() => {
   }
 
   refreshSidebar();
+  // A recap left pending when this window last went away survives the reload now (#422) — asked for
+  // here, after the settings are in, because the recap's own switch is one of them. It refreshes the
+  // sidebar itself once it has something to show.
+  if (typeof restoreAwayRecap === 'function') restoreAwayRecap();
 })();
 
 // Let the settings panel push updated key bindings live (no restart needed).

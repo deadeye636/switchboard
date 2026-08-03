@@ -198,6 +198,12 @@ contextBridge.exposeInMainWorld('api', {
   // that just ended — `{ awaySince, awayMs }` — which is what the away recap lists events from.
   reportPresenceActivity: () => ipcRenderer.send('presence-activity'),
   onPresenceReturned: (cb) => ipcRenderer.on('presence-returned', (_e, absence) => cb(absence)),
+  // The same absence, asked for rather than heard (#422). A window that reloads missed the
+  // announcement, and the recap it was building was in that renderer alone; this is how it gets it
+  // back. `discardAbsence` is the other half — the user threw the recap away, so a reload must not
+  // resurrect it. It carries the absence it means, so a newer one that arrived meanwhile survives.
+  getPendingAbsence: () => ipcRenderer.invoke('presence:pending-absence'),
+  discardAbsence: (awaySince) => ipcRenderer.invoke('presence:discard-absence', awaySince),
   // The session timeline (#396). Main holds it, so it survives a reload and a session moving between
   // windows; a renderer reads a session's history ONCE and is then kept current by `onTimelineAppended`.
   // Events arrive with `at` in epoch ms, newest first from the read.

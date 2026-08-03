@@ -64,6 +64,71 @@ test('activity is recorded across calls, and only the gap that crosses the thres
   assert.equal(presence.recordActivity(T0 + 41 * MIN), null, 'and back is only reported once');
 });
 
+// --- The absence survives a renderer reload (#422) ---------------------------------
+
+test('#422: the reported absence is HELD, so a window that reloads can ask for it', () => {
+  presence.init({ getSetting: () => ({ awayIdleMinutes: 10 }), log: { info() {} } });
+  assert.equal(presence.pendingRecapAbsence(), null, 'nothing has happened yet');
+
+  presence.recordActivity(T0);
+  presence.recordActivity(T0 + 40 * MIN);
+  assert.deepEqual(presence.pendingRecapAbsence(), { awaySince: T0, awayMs: 40 * MIN });
+
+  presence.recordActivity(T0 + 41 * MIN);
+  assert.deepEqual(presence.pendingRecapAbsence(), { awaySince: T0, awayMs: 40 * MIN },
+    'ordinary activity is not an answer to the recap — only a discard or a newer absence is');
+});
+
+test('#422: a newer absence replaces the held one rather than queueing behind it', () => {
+  presence.init({ getSetting: () => ({ awayIdleMinutes: 10 }), log: { info() {} } });
+  presence.recordActivity(T0);
+  presence.recordActivity(T0 + 40 * MIN);
+  presence.recordActivity(T0 + 200 * MIN);
+
+  assert.deepEqual(presence.pendingRecapAbsence(), { awaySince: T0 + 40 * MIN, awayMs: 160 * MIN },
+    'an entry about an absence that ended two absences ago is wrong, not merely old');
+});
+
+test('#422: a discard is keyed on WHICH absence, so a newer one is not thrown away with it', () => {
+  presence.init({ getSetting: () => ({ awayIdleMinutes: 10 }), log: { info() {} } });
+  presence.recordActivity(T0);
+  presence.recordActivity(T0 + 40 * MIN);
+
+  assert.equal(presence.discardRecapAbsence(T0 + 999), false, 'an absence that is not the current one');
+  assert.deepEqual(presence.pendingRecapAbsence(), { awaySince: T0, awayMs: 40 * MIN }, 'still held');
+
+  assert.equal(presence.discardRecapAbsence(T0), true);
+  assert.equal(presence.pendingRecapAbsence(), null, 'discarded stays discarded across a reload');
+  assert.equal(presence.discardRecapAbsence(T0), false, 'and a second discard has nothing to do');
+});
+
+test('#422: a discard that lost the race leaves the absence the user has not seen', () => {
+  presence.init({ getSetting: () => ({ awayIdleMinutes: 10 }), log: { info() {} } });
+  presence.recordActivity(T0);
+  presence.recordActivity(T0 + 40 * MIN);
+  // A second absence ends between the click and the message arriving in main.
+  presence.recordActivity(T0 + 200 * MIN);
+
+  assert.equal(presence.discardRecapAbsence(T0), false);
+  assert.deepEqual(presence.pendingRecapAbsence(), { awaySince: T0 + 40 * MIN, awayMs: 160 * MIN },
+    'the recap the user has not seen must not be discarded by a click about the previous one');
+});
+
+test('#422: the two halves are reachable over IPC, and a fresh wiring holds nothing', () => {
+  const handlers = new Map();
+  presence.init({ getSetting: () => ({ awayIdleMinutes: 10 }), log: { info() {} } });
+  presence.registerIpc({ on() {}, handle: (channel, fn) => handlers.set(channel, fn) });
+  const invoke = (channel, ...args) => handlers.get(channel)(null, ...args);
+
+  assert.equal(invoke('presence:pending-absence'), null, 'init clears what a previous wiring held');
+  presence.recordActivity(T0);
+  presence.recordActivity(T0 + 40 * MIN);
+  assert.deepEqual(invoke('presence:pending-absence'), { awaySince: T0, awayMs: 40 * MIN });
+
+  assert.equal(invoke('presence:discard-absence', T0), true);
+  assert.equal(invoke('presence:pending-absence'), null);
+});
+
 test('a settings store that throws does not stop presence being tracked', () => {
   presence.init({ getSetting: () => { throw new Error('no db'); }, log: { info() {} } });
   assert.equal(presence.recordActivity(T0), null);

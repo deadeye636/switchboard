@@ -13,12 +13,13 @@
 // into, by file, because the header is the only import graph this renderer has:
 //
 //   app.js                   appGlobalSettings, refreshSidebar, placeholder, terminalArea,
-//                            returnToTerminal, sessionMap, gridViewActive
+//                            returnToTerminal, sessionMap
 //   shell/away-summary.js    buildAwayOverview (UMD → window property)
 //   shell/attention-engine.js raisesAttention
 //   views/plans-memory-view.js hideAllViewers
 //   lib/utils.js             escapeHtml, cleanDisplayName
-//   preload                  getTimelineSince, revealSession, onPresenceReturned
+//   preload                  getTimelineSince, revealSession, onPresenceReturned,
+//                            getPendingAbsence, discardAbsence
 //
 // IT OWNS ITS OWN STATE — the pending recap and which rows are expanded are read and written by nothing
 // else. The sidebar asks for the inbox entry through `awayRecapInboxEntry()`; sidebar-events.js calls the
@@ -87,6 +88,32 @@ window.api.onPresenceReturned?.(async (absence) => {
   if (!awayRecapEnabled() || !awayRecapIsMine()) return;
   await refreshAwayRecap(absence);
 });
+
+/**
+ * Take the pending recap back after a reload (#422).
+ *
+ * The record has survived a reload since #396; the fact that an absence just ended did not, because it
+ * arrived as one event in this renderer and nothing asked for it again. Main holds it now, so this asks —
+ * and asks for the ABSENCE, not for a recap: the summary is rebuilt from the record, which is the same
+ * path the live announcement takes, so the two cannot answer differently.
+ *
+ * Called from app.js's settings init rather than at parse time, because `awayRecapEnabled` reads the
+ * settings blob and a recap restored before it loads would ignore the user having switched the feature
+ * off. `awayRecapIsMine` is the same one-inbox gate the live path uses — a window of its own must not
+ * claim the recap by reloading.
+ */
+async function restoreAwayRecap() {
+  if (awayRecapPending) return;
+  if (!awayRecapEnabled() || !awayRecapIsMine()) return;
+  let absence = null;
+  try {
+    absence = await window.api.getPendingAbsence?.();
+  } catch {
+    // An older main process, or one that cannot answer — the recap is simply not restored.
+  }
+  if (!absence || !Number.isFinite(absence.awaySince)) return;
+  await refreshAwayRecap(absence);
+}
 
 /**
  * Read the record for this absence and turn it into the pending recap.
@@ -163,6 +190,17 @@ function closeAwayOverview() {
  */
 function dismissAwayRecap() {
   const wasOpen = awayOverviewOpen();
+  // Main has to hear it, or the next reload asks for the absence and hands the entry straight back
+  // (#422). Told which absence is being discarded, so one that ended between the click and this call
+  // survives — main decides, this only reports.
+  //
+  // Not awaited, and it does not need to be: the message is posted before this function returns, and a
+  // reload started afterwards can only ask for the absence from a page that has yet to load. Awaiting it
+  // would make every caller of a click handler async for an answer nothing reads.
+  const discarded = awayRecapPending && awayRecapPending.absence;
+  if (discarded && Number.isFinite(discarded.awaySince)) {
+    try { window.api.discardAbsence?.(discarded.awaySince); } catch { /* an older main process */ }
+  }
   awayRecapPending = null;
   awayOverviewExpanded.clear();
   if (wasOpen) closeAwayOverview();

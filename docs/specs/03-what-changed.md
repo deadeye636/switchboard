@@ -280,6 +280,29 @@ can clear as well as set. An open overview is updated in place rather than joine
 leaving the previous one standing would have the inbox asserting "you were away 12m" about an absence
 that ended two absences ago.
 
+**And the entry survives a reload (#422).** The record behind it had since #396; the fact that an
+absence just ended had not, because it arrived as one `presence-returned` event in one renderer and
+nothing asked for it again — so a dev reload, or the app's own restart path, dropped the recap while
+the data it was built from sat untouched. `app/presence.js` holds the pending absence now, and the
+discard with it: the renderer asks for the absence on load (`presence:pending-absence`) and rebuilds
+the summary from the record, and `dismissAwayRecap` tells main which absence it threw away
+(`presence:discard-absence`). Two things that shape has to get right, and both are load-bearing:
+
+- **Both halves move together.** Persisting only the absence brings the entry back after every reload
+  *including* the ones the user dismissed it in, which is worse than losing it.
+- **The discard names the absence it means.** A newer absence can end between the click and the
+  message arriving; clearing whatever is held would throw away a recap nobody has seen.
+
+One asymmetry on purpose: an absence during which *nothing happened* clears the renderer's pending
+recap and leaves main's absence standing. There is nothing to discard — the user was never shown an
+entry — and the record can still grow into that absence, in which case a reload correctly finds it.
+
+The restore runs behind `raisesAttention()` like the live announcement, so a window of its own cannot
+claim the recap by reloading, and behind the settings init, so a recap is not restored into a window
+whose user has switched the feature off. It is main-process memory, not a table: a reload and a window
+close are what the issue is about, and a recap that outlived a restart of the app would be reporting an
+absence from before it.
+
 What went with the banner: `shell/away-summary-banner.js`, the `#away-summary` styles, and
 `isUserInput` with the whole `TERMINAL_REPORT` table §1 is about. That filter existed solely because
 the banner dismissed on terminal traffic; the overview is never dismissed by a keystroke, so the

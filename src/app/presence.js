@@ -15,6 +15,12 @@
 // gone, from T, for D" the moment activity comes back after a gap. The recap needs the gap, not the
 // flag, and a flag would have to be polled to be turned into one.
 //
+// It also KEEPS that absence until it is thrown away (#422). The record behind the recap has survived a
+// reload since #396; the fact that an absence just ended did not, because it arrived as one event in one
+// renderer — so a reload dropped the recap while the data it was built from was still sitting there.
+// Both halves have to live here, and together: keeping only the absence would bring the entry back after
+// every reload INCLUDING the ones the user dismissed it in, which is worse than losing it.
+//
 // No DB, no Electron at module load: `BrowserWindow` and the windows arrive through ctx, so the pure
 // half below runs in `node --test`.
 'use strict';
@@ -59,10 +65,16 @@ function absenceEnded({ lastActivityAt, now, idleMs }) {
 let ctx = null;
 // When the app last saw focus or input in ANY window. Null until the first report — see `absenceEnded`.
 let lastActivityAt = null;
+// The absence that has been reported and not yet thrown away — what a window that reloads asks for
+// (#422). Exactly one, and always the NEWEST: a second absence replaces the first for the same reason
+// the renderer's recap does, because an entry about an absence that ended two absences ago is wrong
+// rather than merely old.
+let pendingAbsence = null;
 
 function init(context) {
   ctx = context;
   lastActivityAt = null;
+  pendingAbsence = null;
 }
 
 /** Every window that should hear about an absence: the main one plus every window of its own. */
@@ -93,7 +105,28 @@ function idleMsFromSettings() {
 function recordActivity(now = Date.now()) {
   const absence = absenceEnded({ lastActivityAt, now, idleMs: idleMsFromSettings() });
   lastActivityAt = now;
+  if (absence) pendingAbsence = absence;
   return absence;
+}
+
+/** The absence a window that just loaded still has to report, or null. */
+function pendingRecapAbsence() {
+  return pendingAbsence;
+}
+
+/**
+ * The user threw the recap away — so the absence goes too, and stays gone across a reload.
+ *
+ * Keyed on WHICH absence was discarded rather than clearing whatever is held: a newer absence can end
+ * between the click and this call, and dropping that one would lose a recap the user has not seen. An
+ * answer of false means the discard was about an absence that is no longer the current one, which is
+ * exactly the case where nothing should happen.
+ */
+function discardRecapAbsence(awaySince) {
+  if (!pendingAbsence) return false;
+  if (Number(awaySince) !== pendingAbsence.awaySince) return false;
+  pendingAbsence = null;
+  return true;
 }
 
 function registerIpc(ipc) {
@@ -109,12 +142,23 @@ function registerIpc(ipc) {
       try { win.webContents.send('presence-returned', absence); } catch { /* a window on its way out */ }
     }
   });
+
+  // What a window asks for once it has loaded — the absence it may have missed the announcement of
+  // (#422). Every window may ask; which one is allowed to ACT on it is the renderer's own one-inbox
+  // rule (`raisesAttention`), the same answer that gates the live announcement.
+  ipc.handle('presence:pending-absence', () => pendingAbsence);
+
+  // …and the other half: the user discarded the recap, so the absence must not come back on the next
+  // reload. Carries the absence it means — see `discardRecapAbsence`.
+  ipc.handle('presence:discard-absence', (_event, awaySince) => discardRecapAbsence(awaySince));
 }
 
 module.exports = {
   init,
   registerIpc,
   recordActivity,
+  pendingRecapAbsence,
+  discardRecapAbsence,
   // Pure, for the suite.
   absenceEnded,
   resolveIdleMs,
