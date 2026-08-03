@@ -177,8 +177,12 @@
 
   async function loadModelSuggestions(root, input) {
     const backendId = input && input.dataset && input.dataset.modelDiscovery;
-    const listId = input && input.getAttribute('list');
-    const list = listId ? root.querySelector('datalist[id="' + listId.replace(/"/g, '\\"') + '"]') : null;
+    // `input.list` IS the datalist the browser resolved from the `list` attribute — no selector, so no
+    // question of escaping one. The fallback covers an input not (yet) in a document, where the browser
+    // has nothing to resolve against; `CSS.escape` because a field id is ours but not a promise.
+    const listId = input ? input.getAttribute('list') : null;
+    const list = (input && input.list)
+      || (listId ? root.querySelector('datalist#' + CSS.escape(listId)) : null);
     if (!backendId || !list || !window.api?.backends?.listModels) return;
     if (list.dataset.loaded === '1') return;
     list.dataset.loaded = '1';

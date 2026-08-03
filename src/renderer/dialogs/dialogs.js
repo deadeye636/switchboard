@@ -123,8 +123,10 @@ function bindModelDiscovery(root) {
     input.dataset.modelDiscoveryBound = '1';
     input.addEventListener('focus', async () => {
       const backendId = input.dataset.modelDiscovery;
-      const listId = input.getAttribute('list') || '';
-      const list = listId ? root.querySelector('datalist[id="' + listId.replace(/"/g, '\\"') + '"]') : null;
+      // The browser already resolved the `list` attribute for us (see backends-panel.js, same pair):
+      // reading the property beats rebuilding an attribute selector nobody can escape correctly.
+      const listId = input.getAttribute('list');
+      const list = input.list || (listId ? root.querySelector('datalist#' + CSS.escape(listId)) : null);
       if (!backendId || !list || !window.api?.backends?.listModels) return;
       if (list.dataset.loaded === '1') return;
       list.dataset.loaded = '1';
