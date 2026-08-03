@@ -241,6 +241,31 @@ Two things follow, and both generalise past this feature:
   nothing. `test/presence-reporting.test.js` runs the real file in a jsdom window and dispatches real
   events at it, so dropping the block fails an assertion and deleting the file fails the load.
 
+## "Not yet" and "never" look identical, and the difference was three minutes (#427)
+
+A Hermes session launched in the demo instance showed nothing. Checked at 25 s, checked again at 150 s:
+no bytes at all. From there the reasoning ran downhill fast and every step was defensible — the home
+must be broken, so `hermes doctor` was asked (it reported the home healthy); then the CLI must be
+starved of something, so it was spawned from a bare node-pty with the same home, the same cwd, the same
+env overlay, the same bundled `conpty.dll` and the same early resize (it painted every time, in about
+75 s). Conclusion: the CLI is fine, the app loses the bytes, this is a Switchboard bug — written into
+the issue as a finding, with a table.
+
+It was none of that. The session comes up in **about three and a half minutes** in a cold home, and
+every probe that "exonerated the CLI" had simply run against a warm one. What the app shows meanwhile
+is its own startup hint promising ten to fifteen seconds, which is true of a warm home and off by an
+order of magnitude for a fresh one.
+
+Three things to take from it:
+
+- **A negative measurement needs a stated deadline.** "Nothing after 150 s" is a fact; "nothing will
+  come" is a claim, and only a wait long enough to have been wrong supports it.
+- **The throttling trap has a second half.** A five-second poll written into one in-page `eval`
+  actually sampled at 5, 11, 17 … 41, 73, 133, 193 seconds — the paint landed in a gap, so the harness
+  confirmed the wrong answer. `docs/ai/driving-the-app.md` now says to poll from outside the page.
+- **A ruled-out cause is only ruled out for the conditions it was tested under.** Each probe was
+  honest and each was answering "does the CLI work in a *warm* home", which nobody had asked.
+
 ## A fix that reduces the symptom is not the fix
 
 #140 investigated "grid card renders clean, turns corrupt a moment later" and got the mechanism right:

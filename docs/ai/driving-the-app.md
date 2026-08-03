@@ -223,9 +223,23 @@ a driven session look like "the CLI wrote no transcript", and all three are the 
    same shape — and a driven session that never submitted has no user message, so the CLI correctly
    writes no transcript at all.
 
+4. **A COLD home starts far slower than a warm one, and the two are indistinguishable while you wait.**
+   A demo instance hands the CLI an empty home, so the first session there also downloads its model
+   caches and runs its plugin discovery before anything is drawn. Measured for Hermes: about **three
+   and a half minutes**, against the ten to fifteen seconds its own startup hint promises — and the
+   hint is what the terminal shows meanwhile. Two checks taken at 25 s and 150 s read as "the CLI
+   writes nothing", which then reads as an app that loses bytes; both were wrong, and proving it cost
+   an evening (#427).
+
 To see what a driven session is actually showing, attach to the data stream instead of guessing:
 `window.api.onTerminalData((id, data) => …)`, strip the escapes, print the tail. That is how the three
 above were told apart — the composer still held the un-submitted prompt.
+
+**Poll from OUTSIDE the page, or not at all.** The throttling above turns an in-page sampling loop into
+a liar in exactly this situation: a five-second poll written into one `eval` actually sampled at 5, 11,
+17 … then 41, 73, 133, 193 seconds, and the paint happened inside a gap. The reading it produced was
+"still nothing" for a session that had already come up. One `drive-app.js` call per sample costs a
+round trip and cannot lie about when it looked.
 
 For a live session in the **demo** instance, run `npm run demo:auth` first: an isolated home has no
 credentials and has never onboarded (see `docs/demo-env.md`).

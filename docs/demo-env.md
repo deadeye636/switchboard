@@ -63,8 +63,17 @@ still wins.
 - Or log in once inside the demo home yourself: run the CLI with `CLAUDE_CONFIG_DIR=<demo>/stores/claude`
   and follow the prompt.
 
-Hermes has no confirmed credential file, so `demo:auth` skips it and says so; log in inside its demo home if
-it asks.
+**Hermes needs two things this script now does** (#427), and both were measured against a real install
+rather than guessed. Its credential is `auth.json` — and it writes an `auth.json` of its own on first
+start, with the right shape and no `active_provider` in it. A copy that stops at "a file is already
+there" therefore reports success about a home that has nobody to talk to, which is why `demo-auth.js`
+asks that one field before it keeps what it finds. Its `.env` (tool tuning) and its `config.yaml` (your
+own configuration) are deliberately left behind, for the same reason `~/.claude.json` is.
+
+**And it starts SLOWLY in a cold home** — minutes, not the ten to fifteen seconds the terminal's own
+startup hint promises: a fresh home downloads model caches and runs plugin discovery before the TUI
+appears at all. See `docs/ai/driving-the-app.md`; a check taken too early reads exactly like a session
+that will never come up, and that mistake has been made here twice.
 
 **Everything that writes into Claude's home follows the override too** — it is not only the transcripts.
 The MCP IDE bridge's lock files, the attention hook's `settings.json` patch and the Projects
