@@ -29,13 +29,18 @@ const SCANNED = [
 const REPO_ROOTS = ['src/', 'test/', 'scripts/', 'docs/', 'build/', '.claude/'];
 
 // Generated, built or deliberately local — absent from a fresh clone, so their absence is not drift.
+// This list is what tells a CI checkout apart from a working one: every entry below exists here after
+// a build or a first run and in no fresh clone, so leaving one out fails only on the runner, where the
+// author never looks. That is exactly how the three at the bottom got in.
 const NOT_ON_DISK = [
   'docs/BACKLOG.md',
   'docs/BACKLOG.jsonl',
   'docs/plans/',
-  '.claude/scratchpad/',
+  '.claude/scratchpad',   // written with and without its trailing slash; the prefix match needs the shorter one
   '.claude/worktrees',
   'build/Release',
+  'src/renderer/codemirror-bundle.js',  // esbuild writes it on every start; gitignored
+  '.claude/settings.local.json',        // a checkout's own harness settings, never committed
 ];
 
 // `docs/plans/**` is gitignored planning scaffolding: it is written against a tree that does not
