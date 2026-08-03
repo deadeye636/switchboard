@@ -97,13 +97,27 @@ Pick a needle that only one of them can match:
 
 ```
 node scripts/drive-app.js "--target=Switchboard file" eval "…"   # the MAIN window (title + a URL word)
-node scripts/drive-app.js --target=detached= eval "…"            # the detached window (its query string)
+node scripts/drive-app.js --target=win=detached eval "…"         # a detached window (its query string)
 ```
+
+`win=detached` is the marker every window of its own carries, and the only one that matches all of them:
+`detached=<sessionId>` is in the URL only when the window was opened ON a session, so a view window
+(#370) and a restored one that has not been filled yet have no such pair to match — measured with all
+three open at once, `?win=detached&view=stats` against `?win=detached&detached=<id>` against a bare
+`index.html`. It is written `--target=win=detached` — the flag splits on its FIRST `=`, so the needle
+keeps the second. With more than one detached window open it matches all of them and the first in the
+CDP list wins, which is the same ambiguity one paragraph up: add `view=<kind>` or the session id when
+you mean a particular one.
+
+The main-window needle survives that, and for a reason worth knowing: a detached window renames itself
+(its session's name, its view's name), so `Switchboard` alone stops matching it once it has loaded.
+**Once it has loaded** is the caveat — a window that has just been opened still carries the frame's
+`Switchboard`, so give a fresh one its moment before addressing the main window by title.
 
 When in doubt, ask the page who it is: `window.isDetachedWindow()` answers from the URL and never
 changes, and `window.__detachedSessionId` is the session that window currently treats as its own —
 since #325 the **active** one, not the one it was opened with. Neither tells you the whole set, and
-`--target=detached=` matches every detached window. For what is where, ask main:
+`--target=win=detached` matches every detached window. For what is where, ask main:
 `await window.api.listSessionWindows(sessionId)` returns one entry per window
 (`{id, title, isMain, sessionIds, current}`), with `current` on the one holding that session.
 `sessionIds` is `null` for the main window — it renders everything the detach map does not claim, so
