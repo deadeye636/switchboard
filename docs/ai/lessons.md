@@ -199,6 +199,48 @@ may end mid-sequence, so it tore escape sequences in half and the whole screen r
 found by the user on an installed build, not by the suite. **Never inject bytes into a stream that
 arrives in arbitrary chunks.**
 
+## `onData` is not the user (#384)
+
+The away recap was a banner, and the plan said *auto-dismiss on next user input to that terminal*. The
+code did exactly that:
+
+```js
+entry.terminal.onData(() => dismissAwaySummary(sessionId));
+```
+
+`onData` is xterm's **bytes bound for the PTY** — the user's keystrokes, but also everything the
+terminal answers on its own. Revealing a session necessarily moves focus, so with focus reporting on
+(DECSET 1004) the terminal replied `ESC [ O` and the banner tore itself down in the same beat it was
+rendered. Measured in a running instance: one focus switch, nothing typed, one payload.
+
+The repair was a whole-string filter (`isUserInput`) against the shapes a terminal sends unprompted —
+focus in/out, cursor-position and device-status replies, device attributes, mouse in X10 and SGR —
+while a bare `ESC`, the arrows in either mode and a bracketed paste stayed input, because those are the
+user acting. It went away with the banner in #402, and the lesson is not the regex: **a stream named
+after the user carries the terminal's own traffic too.**
+
+## Driving the producer answers a different question (#426)
+
+The banner deleted in #402 held one thing that was not about banners: the throttled `keydown` /
+`pointerdown` / `wheel` / `focus` listeners that call `reportPresenceActivity()`. Nothing took them
+over. So `lastActivityAt` in `app/presence.js` never left null, `absenceEnded` always answered null,
+and **no absence was ever detected** — the whole away recap was correct and unreachable from ordinary
+use for as long as that stood.
+
+What made it invisible is worth more than the fix: every check of the recap, across two issues, had
+called `reportPresenceActivity()` itself. Driving the producer is the natural way to test a consumer,
+and it answers a different question than the one being asked — *does the app produce this* was never
+put to the app. The measurement that settled it was two real key presses through
+`Input.dispatchKeyEvent`, 85 s apart, with the harness touching nothing else.
+
+Two things follow, and both generalise past this feature:
+
+- **Deleting a surface deletes whatever was hosted in it.** Grep the removed file for every name it
+  exports *and* for every listener it registered — the #218 rule applied to a deletion.
+- **A source-regex guard would have passed** against a file that registers a listener and sends
+  nothing. `test/presence-reporting.test.js` runs the real file in a jsdom window and dispatches real
+  events at it, so dropping the block fails an assertion and deleting the file fails the load.
+
 ## A fix that reduces the symptom is not the fix
 
 #140 investigated "grid card renders clean, turns corrupt a moment later" and got the mechanism right:
