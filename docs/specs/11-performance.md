@@ -155,7 +155,11 @@ incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`).
     the store / opens `state.db` on every flush until it pairs — throttling it was declined because it breaks
     the "keep asking until the locked DB answers" contract (`test/live-adopt.test.js`). Short-lived per
     session. The per-ref caches (`_factsCache`, `_liveStateCache`) are not evicted on session exit — bounded
-    by live-session count, an evictable follow-up. Moving the remaining reads off-main is [#283].
+    by live-session count, an evictable follow-up. Moving the remaining reads off-main was filed as [#283]
+    and closed by **shrinking them instead** (`cec31ad`): after #282 the disk IO was already ~0, and an
+    independent analysis showed a worker buys single-digit ms while re-opening the
+    `updateBackendLiveStates`/re-key race surface (the #210/#90 class). The win was in the read, not the
+    thread.
 - **MITIGATED by [#209]; the residual is [#210]** — the live-session identity match. `updateBackendLiveStates`
   stays synchronous in the watcher flush (it drives the spinner), and through `claimLiveRecord` it calls
   `matchLiveSession` (`src/backends/file-store.js`) for a freshly spawned, not-yet-paired Axis-B session. That

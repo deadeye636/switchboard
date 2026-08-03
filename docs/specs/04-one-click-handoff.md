@@ -4,7 +4,19 @@
 
 **Status:** Implemented · **Roadmap:** Opportunity #4 (Phase 3) · **Independent:** Yes
 
-> **As built:** the flow lives in `src/renderer/handoff/handoff.js` (`runHandoff`) plus `src/renderer/handoff/handoff-actions.js` and `src/renderer/handoff/handoff-extract.js` — not in `dialogs.js`, and the `handoff-flow.js` state machine proposed below was built and later replaced by this split.
+> **As built:** the flow lives in `src/renderer/handoff/handoff.js` (`runHandoff`) plus
+> `src/renderer/handoff/handoff-actions.js` and `src/renderer/handoff/handoff-extract.js` — not in
+> `dialogs.js`, and the `handoff-flow.js` state machine proposed below was built and later replaced by
+> this split. Its tests went with it: `test/handoff-{actions,extract,prompt,submit}.test.js`, not the
+> single `handoff-flow.test.js` named below.
+>
+> **The fork-vs-fresh question below is DECIDED: fresh wins, nothing is resumed.** A fresh agent reads
+> the old session's transcript and writes the handoff itself, which is why the transcript has to exist
+> and be reachable before the flow starts. Forking would inherit the bloated context the feature exists
+> to escape.
+>
+> Paths spelled `public/…` below predate #214 and are a record of the ground this was designed against;
+> that tree is `src/renderer/` now.
 
 ## Problem & goal
 

@@ -12,8 +12,8 @@ user-facing feature list lives in the README; this is the "why is it like this".
 
 ## The gate
 
-`resolve-variable-insert` (main.js) turns a variable into the exact text placed in a terminal. What it may
-emit is decided entirely by that variable's **insert template**:
+`resolve-variable-insert` (`src/app/variables.js`, in main.js until #213) turns a variable into the exact
+text placed in a terminal. What it may emit is decided entirely by that variable's **insert template**:
 
 | Placeholder | Emits | Plaintext leaves main? |
 |---|---|---|
@@ -212,8 +212,8 @@ resolver's parser.
 
 ## The editor
 
-`src/shared/variable-insert.js` lives under `public/` behind a **UMD wrapper** so main requires it and the
-renderer loads it as a plain `<script>`. Not tidiness: the preview must compose with the **same functions**
+`src/shared/variable-insert.js` sits behind a **UMD wrapper** so main requires it and the renderer loads
+it as a plain `<script>` (it was under `public/` until #214 — that tree is gone). Not tidiness: the preview must compose with the **same functions**
 the insert runs, or it drifts from what it claims to show — and a preview that disagrees with the resolver is
 worse than none.
 

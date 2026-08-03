@@ -16,6 +16,15 @@
 > from — `setActivity` / `applyAttention` — also left app.js, for **`src/renderer/shell/attention-engine.js`**.
 > The state both work on (`attentionSessions`, `responseReadySessions`, `refreshSessionStatusViews`,
 > `clearNotifications`, `getAllKnownSessionsForStatus`) stays in app.js; the line numbers below are pre-#228.
+>
+> **Only ONE window may announce (#390).** Since #2 the app has several windows and every one of them
+> loads this shell, so every one ran the funnel — and `set-badge` / `set-tray-summary` do not look at who
+> sent them, so a window of its own reported "0 waiting" and cleared what main had just set.
+> `raisesAttention()` in `shell/attention-engine.js` is the single answer to "may THIS window announce",
+> and it gates exactly four surfaces: **the badge, the tray summary, the native notification and the
+> attention chime** (spec 02). A new OS-facing surface has to consult it or it fires from every window.
+> It fails **open** on a missing identity answer — a silenced main window is the worse failure.
+> Recording is not gated: every window still learns about its own sessions. See spec 17 §2.
 
 ## Problem & goal
 

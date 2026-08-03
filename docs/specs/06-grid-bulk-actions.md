@@ -2,7 +2,10 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Implemented · **Roadmap:** Opportunity #6 (Phase 4) · **Independent:** Yes (coordinate `grid-view.js` regions with Spec 07 if concurrent)
+**Status:** Implemented · **Roadmap:** Opportunity #6 (Phase 4) · **Independent:** Yes
+
+> **Spec 07 is gone (#185)**, so every "coordinate with Spec 07" below is history: groups were removed and
+> the grid is a single flat card grid. Session tags do that job now.
 
 > **Moved (#218):** the chips and the three buttons live in **`src/renderer/views/grid-bulk-actions.js`**
 > now, not in grid-view.js — `renderGridStatusFilters`, `renderGridBulkActions`, `stepThroughQueue`,

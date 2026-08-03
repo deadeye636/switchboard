@@ -2,7 +2,9 @@
 
 Each file in this folder is a **self-contained spec for one feature**, written so a single agent can pick it up and implement it without needing the original planning conversation. They derive from the productivity roadmap (since migrated to GitHub Issues).
 
-**Specs 01–15 were implemented; two of those features have since been removed** (07 and 14 — their specs stay as design/rebuild records, marked in the table and in their own `Status:` line). **16 is the first spec written before the build** — it records the layout options for panes mode and why one was chosen, so a later rework does not re-run the argument. Its `Status:` line says what shipped and which gap is open by decision. Each spec's `Status:` line and an "As built" note (where the implementation diverged) reflect the final state. Line-number references below describe the codebase at spec-writing time and have drifted.
+**Specs 01–15 were implemented; two of those features have since been removed** (07 and 14 — their specs stay as design/rebuild records, marked in the table and in their own `Status:` line). **16 is the only spec written before its build** — it records the layout options for panes mode and why one was chosen, so a later rework does not re-run the argument. 17 and 18 were written after the fact, as a design record and an evaluation.
+
+**How to read one.** The `Status:` line is the current state. Where a spec's body still describes the plan, an **"As built"** banner at the top says what diverged and where the code went — read the banner first, and treat anything it contradicts as history. Line numbers and `public/` paths date from before #214/#218 and have drifted; `test/doc-refs.test.js` guards the paths, nothing guards a line number.
 
 **Every agent must read this README first**, then their assigned spec.
 
@@ -25,7 +27,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 13 | [Session lineage: provenance + /clear re-key](13-session-lineage.md) | #223, #193 | No — touches the transition detector, the scan, and the sidebar |
 | 14 | [Scheduled tasks (cron-driven headless runs)](14-scheduled-tasks.md) — **removed (#246)**, kept as a rebuild record | #206 | Was: Claude-only |
 | 15 | [VCS-aware session cards (chip, changes window, diffs)](15-vcs-status.md) | #277, #284, #285, #287 | Yes — new `src/vcs/` seam + `src/app/vcs.js` |
-| 16 | [Panes mode (VS-Code-style editor groups)](16-panes-mode.md) — **built**; views are one instance per kind (#311 open). Layout options + why one was chosen | #309, #310 | No — touches the terminal host, the session bar and the preview panel |
+| 16 | [Panes mode (VS-Code-style editor groups)](16-panes-mode.md) — **built, and the default display mode** (#374); it absorbed tabs mode (#357). Preview and diff are one instance per tab (#311), the other view kinds one per kind by decision. Layout options + why one was chosen | #309, #310 | No — touches the terminal host, the session bar and the preview panel |
 | 17 | [Detached session windows](17-detached-windows.md) — **built**; the routing separation, the one-session-one-renderer invariant, and (#316) a window owning a set of sessions that move in any direction | #2 | No — main-process routing + every renderer mount path |
 | 18 | [Pi RPC runtime evaluation](18-pi-rpc-evaluation.md) — **evaluated**; keep Pi on PTY/TUI for now, revisit RPC as a separate structured-runtime capability | #413 | No — future runtime architecture |
 
@@ -33,7 +35,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 
 **Process model** — Electron. `src/main.js` (main process, Node) ⇄ `src/preload.js` (context bridge) ⇄ `src/renderer/**` (renderer). The renderer has no Node access; everything crosses via `window.api` (see `src/preload.js`).
 
-**Where main-process code goes (#213).** `src/main.js` is a **composition root** — requires, `DATA_DIR`, wiring, and the small handlers that share no state. An area lives in its own module under `src/app/` (`windows`, `notifications`, `settings`, `variables`, `hooks`, `lifecycle`, `terminal/{spawn,io}`) or `src/watch/` (`projects`, `stores`, `adopt`). **A new IPC handler belongs in one of those, not in main.js** — #222 is the guard that will enforce it. See CLAUDE.md's Architecture section for the ctx rule a module follows; the short version:
+**Where main-process code goes (#213).** `src/main.js` is a **composition root** — requires, `DATA_DIR`, wiring, and the small handlers that share no state. An area lives in its own module under `src/app/` or `src/watch/` — **list those directories rather than trusting an enumeration here**, which is exactly how two modules went unmentioned for as long as they existed. **A new IPC handler belongs in one of them, not in main.js**, and `test/main-no-new-ipc.test.js` (#222) fails on one and names the module to use instead. See CLAUDE.md's Architecture section for the ctx rule a module follows; the short version:
 
 - shared state arrives through a **ctx object**: a `const` (a Map) straight through, a `let` (`mainWindow`, `appQuitting`) **only ever as a getter**;
 - the module never top-level-requires `db.js`, and takes Electron through ctx too (`registerIpc(ipc)`, `ctx.dialog`, …) — that is what keeps it loadable in `node --test`, which is the whole reason the split was worth doing.
@@ -50,7 +52,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 
 **Settings persistence** — `window.api.getSetting(key)` / `setSetting(key, value)` (SQLite-backed via `src/db/db.js`). The renderer keeps a `global` settings blob (restored in `app.js` ~line 1261). Small per-feature blobs (e.g. `groups`) are the cheapest persistence path.
 
-**Tests** — Node's built-in test runner (`node --test`), files in `test/*.test.js`. Run with `npm test`. Tests require the module under test via `require('../public/foo.js')` thanks to the UMD wrapper. Native modules (better-sqlite3, node-pty) are avoided in unit tests — keep logic decoupled from them.
+**Tests** — Node's built-in test runner (`node --test`), files in `test/*.test.js`. Run with `npm test`. Tests require the module under test by its real path (`require('../src/renderer/session/session-status.js')` — the tree was `public/` until #214) thanks to the UMD wrapper. Native modules (better-sqlite3, node-pty) are avoided in unit tests — keep logic decoupled from them.
 
 **Validation gate for every spec (user rule):**
 1. `npm test` passes.
@@ -72,9 +74,12 @@ These Sets/Maps are the source of truth for supervision and are passed into the 
 
 Status/health helpers: `getSessionStatus`, `getStatusCounts`, `getAttentionInboxItems`, `getNextAttentionInboxItem` (`src/renderer/session/session-status.js`); `getSessionHealth`, `buildHandoffTemplate`, `buildHandoffRequestPrompt` (`src/renderer/session/session-health.js`).
 
-## File-conflict map (for parallel work)
+## File-conflict map — history
 
-Coordinate or sequence when two in-flight specs touch the same file.
+**This planned the original parallel build of 01–08 and is kept for that record only.** Every spec in it
+has shipped or been removed, so there is nothing left to sequence; the addresses below also predate #214
+and #218, which moved most of them. It is still worth a read for one thing: which files the features
+collide in, which has not changed.
 
 | File | Specs that touch it | Note |
 |------|---------------------|------|
@@ -87,4 +92,4 @@ Coordinate or sequence when two in-flight specs touch the same file.
 | `src/renderer/style.css` | 01, 03, 06, 07, 08 | Append new rule blocks at end; low conflict risk. |
 | `src/renderer/panels/settings-panel.js` | 01, 02 | Both add Global Settings toggles — coordinate the settings section. |
 
-**Recommended ordering:** Ship 01 first (foundational, exercises the IPC/notification path). 02, 03, 04, 05, 06 are independent and can run in parallel. For the grid family, do 07 then 08; 06 can run with 07 if both authors coordinate `grid-view.js` regions.
+*(The ordering this section recommended — 01 first, then 02–06 in parallel, 07 before 08 — was followed and is done.)*
