@@ -78,7 +78,7 @@ function announce(event) {
   }
 }
 
-function write(sessionId, [kind, label, defaultDetail], detail) {
+function write(sessionId, [kind, label, defaultDetail], detail, detailIsSubject = false) {
   if (!ctx || typeof ctx.recordTimelineEvent !== 'function') return null;
   try {
     const stored = ctx.recordTimelineEvent({
@@ -86,6 +86,9 @@ function write(sessionId, [kind, label, defaultDetail], detail) {
       kind,
       label,
       detail: detail || defaultDetail,
+      // Whether that detail names WHAT the event is about, which is what the record's duplicate rule
+      // asks (#423). The producer answers it; a status signal describing one fact does not.
+      detailIsSubject,
     });
     // Null means the store refused it — a duplicate from a second producer, or an event older than the
     // retention window. Announcing it would put a row on screen that is not in the record.
@@ -149,10 +152,13 @@ function recordSignal(sessionId, signal) {
  * Separate from `recordSignal` because they must NOT touch the busy latch. An exit is not the end of a
  * turn — a session killed mid-turn never finished one — and writing `response-ready` for it would put a
  * "ready for you" in the recap for work that was thrown away.
+ *
+ * `detailIsSubject` is the producer saying its detail names the thing the event is about — a path, not a
+ * reason — so two of them in the same beat are two events rather than one (#423).
  */
-function recordLifecycle(sessionId, kind, label, detail) {
+function recordLifecycle(sessionId, kind, label, detail, detailIsSubject = false) {
   if (!sessionId || !kind) return;
-  write(sessionId, [kind, label || kind, ''], detail || '');
+  write(sessionId, [kind, label || kind, ''], detail || '', detailIsSubject === true);
 }
 
 /** A session's process is gone — its busy latch is meaningless, and keeping it leaks one entry per session. */
@@ -236,9 +242,9 @@ function registerIpc(ipc) {
 
   // A fact only the UI can know. Written here rather than by the renderer, so the record still has one
   // writer and every window still learns about it the same way.
-  ipc.handle('timeline:note', (_event, sessionId, kind, label, detail) => {
+  ipc.handle('timeline:note', (_event, sessionId, kind, label, detail, detailIsSubject) => {
     if (!NOTEABLE_KINDS.has(String(kind))) return false;
-    recordLifecycle(sessionId, kind, label, detail);
+    recordLifecycle(sessionId, kind, label, detail, detailIsSubject === true);
     return true;
   });
 }

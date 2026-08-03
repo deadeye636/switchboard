@@ -278,10 +278,13 @@ function renderAwayOverview() {
  * The path rides in `detail` and the kind ('diff' / 'open') in `label`, which is all the overview needs to
  * rebuild the files half of a session's entry — no table of its own, and it survives a reload with the
  * rest of the record.
+ *
+ * That path is also WHAT the event is about, and saying so is what keeps two files touched in the same
+ * beat — the ordinary case for a diff over several files — from being read as one event twice (#423).
  */
 function recordFileTouched(sessionId, path, kind) {
   if (!sessionId || !path) return;
-  window.api.noteTimelineEvent(sessionId, 'file-touched', kind || 'open', path);
+  window.api.noteTimelineEvent(sessionId, 'file-touched', kind || 'open', path, true);
 }
 
 /**

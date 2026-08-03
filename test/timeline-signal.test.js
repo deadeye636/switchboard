@@ -195,6 +195,27 @@ test('a lifecycle event needs a session and a kind, and keeps its own label', ()
   assert.strictEqual(written[0].detail, '');
 });
 
+test('#423: a lifecycle event can say its detail names WHAT it is about', () => {
+  const written = harness();
+  timeline.recordLifecycle('s1', 'file-touched', 'open', '/repo/src/a.js', true);
+  timeline.recordLifecycle('s1', 'exited', 'Process exited', 'Exit code 0.');
+
+  assert.strictEqual(written[0].detailIsSubject, true, 'the path is the thing the event is about');
+  assert.strictEqual(written[1].detailIsSubject, false, 'an exit code is a description, not a subject');
+});
+
+test('#423: a status signal never claims its reason names a thing', () => {
+  const written = harness();
+  timeline.recordSignal('s1', { kind: 'needs-attention', reason: 'waiting for you' });
+  timeline.recordSignal('s1', { kind: 'busy' });
+  timeline.recordSignal('s1', { kind: 'idle' });
+
+  // needs-attention, busy, then the idle edge — which is two events, idle and response-ready.
+  assert.deepStrictEqual(written.map((e) => `${e.kind}:${e.detailIsSubject}`),
+    ['needs-attention:false', 'busy:false', 'idle:false', 'response-ready:false'],
+    'two producers reporting one edge with different wording must still collapse into one');
+});
+
 test('a turn that spans a session id change still ends', () => {
   const written = harness();
   timeline.recordSignal('launch-id', { kind: 'busy' });
@@ -272,4 +293,20 @@ test('#402: a record that cannot be read answers an empty absence, not a throw',
 test('#402: an older main process without the cross-session read answers empty', () => {
   const invoke = ipcHarness({ log: { debug() {} } });
   assert.deepStrictEqual(invoke('timeline:since', 1), { events: [], truncated: false });
+});
+
+test('#423: the note carries the declaration across IPC, and only a real one', () => {
+  const written = [];
+  const invoke = ipcHarness({
+    recordTimelineEvent: (event) => { written.push(event); return event; },
+    log: { debug() {} },
+  });
+
+  assert.strictEqual(invoke('timeline:note', 's1', 'file-touched', 'open', '/repo/src/a.js', true), true);
+  assert.strictEqual(invoke('timeline:note', 's1', 'viewed', 'Viewed', ''), true);
+  assert.strictEqual(invoke('timeline:note', 's1', 'busy', 'Agent working', '', true), false,
+    'a window still cannot forge a busy edge, declaration or not');
+
+  assert.deepStrictEqual(written.map((e) => [e.kind, e.detailIsSubject]),
+    [['file-touched', true], ['viewed', false]]);
 });

@@ -81,6 +81,45 @@ test('a duplicate is the same session and kind within the window', () => {
   assert.ok(!isDuplicateOf(null, first));
 });
 
+test('#423: an event whose detail NAMES what it is about is only a duplicate of the same thing', () => {
+  const touched = (detail, at) => ({
+    sessionId: 's1', kind: 'file-touched', label: 'open', detail, detailIsSubject: true, at,
+  });
+  const first = touched('/repo/src/a.js', 1_000_000);
+
+  assert.ok(!isDuplicateOf(touched('/repo/src/b.js', 1_000_050), first),
+    'two files touched in the same beat are two events — the second is what used to be lost');
+  assert.ok(isDuplicateOf(touched('/repo/src/a.js', 1_000_050), first),
+    'the SAME file reported twice is still one event');
+  assert.ok(!isDuplicateOf(touched('/repo/src/a.js', 1_003_000), first), 'the window still applies');
+
+  // The declaration rides on the event, so a stored row that predates it (no flag, plain detail) is
+  // still compared correctly: only the candidate is asked.
+  assert.ok(!isDuplicateOf(touched('/repo/src/b.js', 1_000_050),
+    { sessionId: 's1', kind: 'file-touched', detail: '/repo/src/a.js', at: 1_000_000 }));
+});
+
+test('#423: an event that only DESCRIBES itself is unchanged — one edge stays one event', () => {
+  const busy = { sessionId: 's1', kind: 'busy', label: 'Agent working', detail: 'Claude activity started.', at: 1_000_000 };
+
+  for (const kind of ['busy', 'idle', 'response-ready']) {
+    const first = { ...busy, kind };
+    assert.ok(isDuplicateOf({ ...first, at: 1_000_100, detail: 'reported by the other producer' }, first),
+      `two producers reporting one ${kind} edge stay one event`);
+  }
+});
+
+test('normalizeTimelineEvent carries the declaration, and nothing else counts as one', () => {
+  const of = (input) => normalizeTimelineEvent({ sessionId: 's1', kind: 'file-touched', ...input }, 5).detailIsSubject;
+
+  assert.strictEqual(of({ detail: '/a.js', detailIsSubject: true }), true);
+  assert.strictEqual(of({ detail: '/a.js' }), false, 'the default is the rule the record already had');
+  for (const value of ['true', 1, {}, null]) {
+    assert.strictEqual(of({ detail: '/a.js', detailIsSubject: value }), false,
+      `${String(value)} is not a declaration — an accidental truthy must not change the rule`);
+  }
+});
+
 test('splitTruncated tells a full answer from a cut one', () => {
   const rows = [1, 2, 3, 4, 5];
 

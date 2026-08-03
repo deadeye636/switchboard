@@ -43,7 +43,11 @@ function normalizeTimelineEvent(input, now = Date.now()) {
   const label = typeof input.label === 'string' && input.label.trim() ? input.label.trim() : kind;
   const detail = typeof input.detail === 'string' ? input.detail : '';
 
-  return { sessionId, kind, label, detail, at: toEpochMs(input.at, now) };
+  // Does that detail NAME the thing the event is about, or only describe it? Only the producer can
+  // answer, so only the producer says — `isDuplicateOf` is the one reader (#423).
+  const detailIsSubject = input.detailIsSubject === true;
+
+  return { sessionId, kind, label, detail, detailIsSubject, at: toEpochMs(input.at, now) };
 }
 
 function toEpochMs(value, fallback) {
@@ -67,8 +71,18 @@ function toEpochMs(value, fallback) {
  * edge that moved with it. The record is meant to hold one history per session, so the duplicate has to
  * be refused at the door rather than filtered out at every reader.
  *
- * Deliberately NOT keyed on `detail`: the same event reported twice can carry a differently worded
- * reason, and treating those as distinct is exactly the duplicate this exists to catch.
+ * Deliberately NOT keyed on `detail` by default: the same event reported twice can carry a differently
+ * worded reason, and treating those as distinct is exactly the duplicate this exists to catch.
+ *
+ * An event whose detail NAMES what it is about says so, and then that detail decides (#423).
+ * `file-touched` carries a path there, and an agent that touches two files in one beat writes two events
+ * that share a session, a kind and a millisecond — dropping the second loses a file no reader downstream
+ * can recover. The declaration rides on the EVENT rather than on a list of kinds kept beside this rule,
+ * so a kind added later is covered by whoever writes it instead of by remembering to come back here.
+ *
+ * Only the CANDIDATE's declaration is read, and that is enough: a kind has one producer, so the stored
+ * event it is compared against was written under the same convention. Which is what keeps the flag a
+ * rule about the event rather than a column of the table.
  *
  * The window is short because it is not a rate limit. Two producers reporting one fact do it in the same
  * tick, give or take the IPC hop; a window wide enough to be comfortable starts swallowing events that
@@ -79,6 +93,7 @@ function isDuplicateOf(candidate, previous, windowMs = 400) {
   if (!candidate || !previous) return false;
   if (candidate.sessionId !== previous.sessionId) return false;
   if (candidate.kind !== previous.kind) return false;
+  if (candidate.detailIsSubject && candidate.detail !== (previous.detail || '')) return false;
   return Math.abs(candidate.at - previous.at) <= windowMs;
 }
 

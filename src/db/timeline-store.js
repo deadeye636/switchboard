@@ -25,8 +25,9 @@ const stmts = {
   insert: db.prepare(`INSERT INTO session_timeline (sessionId, kind, label, detail, at)
     VALUES (@sessionId, @kind, @label, @detail, @at)`),
   // The newest event of this session and kind — the only one a duplicate could be a copy of, because a
-  // duplicate arrives within seconds of the original.
-  newestOfKind: db.prepare(`SELECT sessionId, kind, at FROM session_timeline
+  // duplicate arrives within seconds of the original. `detail` rides along because an event whose detail
+  // names WHAT it is about is only a duplicate of one naming the same thing (#423).
+  newestOfKind: db.prepare(`SELECT sessionId, kind, detail, at FROM session_timeline
     WHERE sessionId = ? AND kind = ? ORDER BY at DESC LIMIT 1`),
   listForSession: db.prepare(`SELECT id, sessionId, kind, label, detail, at FROM session_timeline
     WHERE sessionId = ? ORDER BY at DESC, id DESC LIMIT ?`),
@@ -84,7 +85,17 @@ function recordTimelineEvent(input, now = Date.now()) {
   runWithBusyRetry(() => {
     // A marker replaces itself rather than accumulating — see SINGLETON_KINDS.
     if (SINGLETON_KINDS.has(event.kind)) stmts.deleteKind.run(event.sessionId, event.kind);
-    stmts.insert.run(event);
+    // The columns are spelled out rather than passing the event: it also carries `detailIsSubject`, which
+    // is a rule ABOUT the event and not a column of it (#423). better-sqlite3 would ignore the extra key
+    // — the point is that this row says what the table holds, so adding a rule to the shape cannot
+    // quietly start writing one.
+    stmts.insert.run({
+      sessionId: event.sessionId,
+      kind: event.kind,
+      label: event.label,
+      detail: event.detail,
+      at: event.at,
+    });
     stmts.pruneOld.run(event.sessionId, cutoff);
     stmts.pruneOverCap.run(event.sessionId, event.sessionId, RETENTION.maxPerSession);
   });

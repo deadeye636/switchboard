@@ -208,8 +208,11 @@ contextBridge.exposeInMainWorld('api', {
   getTimelineSince: (sinceMs) => ipcRenderer.invoke('timeline:since', sinceMs),
   // For the one class of fact main cannot see: something that happened in the UI. Main still writes it,
   // and refuses any kind a window has no business claiming.
-  noteTimelineEvent: (sessionId, kind, label, detail) =>
-    ipcRenderer.invoke('timeline:note', sessionId, kind, label, detail),
+  //
+  // `detailIsSubject` says the detail NAMES what the event is about (a path) rather than describing it (a
+  // reason), which is what stops two files touched in the same beat from collapsing into one (#423).
+  noteTimelineEvent: (sessionId, kind, label, detail, detailIsSubject = false) =>
+    ipcRenderer.invoke('timeline:note', sessionId, kind, label, detail, detailIsSubject === true),
   resolveVariableInsert: (id, sessionId) => ipcRenderer.invoke('resolve-variable-insert', id, sessionId),
 
   browseFolder: () => ipcRenderer.invoke('browse-folder'),
