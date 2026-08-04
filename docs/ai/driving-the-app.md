@@ -297,7 +297,10 @@ What to watch, and the gotchas that cost time here:
 - **agy cannot run in the demo instance.** It has no store env var (`cliHomeEnv()` → null), so a
   demo-launched agy writes to the real `~/.gemini/antigravity-cli` while the app scans the empty demo
   agy store — adoption never reproduces. Use `npm start` / `npm run start:debug` (real stores) for
-  agy. Codex and Pi **can** be isolated, so `demo:start` reproduces them.
+  agy. Codex and Pi **can** be isolated, so `demo:start` reproduces them. The same applies to
+  **anything else read out of agy's home**: its resource list comes back empty in the demo and full
+  against the real stores, so a reading taken there describes the sandbox — `docs/demo-env.md`
+  ("Known gaps") has the derivation.
 - **Paths through `drive-app.js eval` lose their backslashes** (`D:\Projekte\x` → `D:Projektex`). Never
   hand-build a Windows `projectPath` in the eval string — read the real object from
   `await window.api.getProjects(false)` and pass `proj.projectPath`.

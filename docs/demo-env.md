@@ -90,6 +90,15 @@ touches nothing real. `test/store-isolation.test.js` is the guard.
   usage history) shows nothing at all.
 - **agy cannot be isolated.** Its CLI has no env var for its store, so a demo-launched agy session writes to
   the real `~/.gemini/antigravity-cli`. Its descriptor declines the hook rather than pretending.
+- **…and in the demo agy's RESOURCE list is empty — that is the isolation, not agy.**
+  `SWITCHBOARD_STORE_AGY` names the *conversations* directory, and `src/backends/agy/resources.js` derives
+  agy's home and Gemini's home from it by going two levels up. Under the real layout those two levels land
+  exactly right; under the override they land on the shared store folder and the demo root, where none of
+  the files it looks for exist. Measured against the real stores it lists the global instructions, both
+  `settings.json`, `builtin/`, `implicit/` and `knowledge/`; in the demo it lists nothing at all. So a check
+  run there answers "agy exposes no resources", which is wrong about agy and right about the sandbox — and
+  it has already been reported once as a defect in the resource list. Nothing leaks either way: the only
+  failure direction is showing too little, and `openResource` opens only what was listed.
 - **One shipped DB migration reads the real `~/.claude/projects`** (`src/db/migrations.js`) to backfill
   project paths. A migration is append-only and must never be edited once shipped, so it stays as it is —
   read-only, and its result is dominated by the `session_cache` rows it seeds from.
