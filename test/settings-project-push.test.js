@@ -70,6 +70,11 @@ test('an unrelated key does not push', () => {
 // The OTHER door (#434). `merge-setting` writes without going through persistSettingsBlob on purpose —
 // it fires per drag frame and must not re-arm the backend watchers — and skipped the push with it. It
 // gates on the CHANGE rather than the key, so the frequency that justifies the shortcut stays free.
+//
+// Only the FIRST of the three fails if the push is taken back out — the other two also pass against the
+// code from before #434, which never pushed on a merge at all. They are not revert-proof coverage: they
+// pin the CHOICE against a plausible wrong version of it (a gate on the key alone) and hold the drag
+// caller still. Said here because a row of green tests reads like proof of more than it checked.
 test('merging a new display name into a project blob pushes', () => {
   const { handlers, pushes } = wire({ 'project:/x/y': { displayName: 'Before', tabOrder: ['a'] } });
 
