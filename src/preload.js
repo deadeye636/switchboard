@@ -301,6 +301,18 @@ contextBridge.exposeInMainWorld('api', {
   onTerminalNotification: (callback) => {
     ipcRenderer.on('terminal-notification', (_event, sessionId, message) => callback(sessionId, message));
   },
+  // Sessions a process OUTSIDE Switchboard is running (#172). The list is polled by main; a window asks
+  // once when it opens and is kept current by the broadcast. Entries carry
+  // `{ sessionId, kind, pid, name, state, backendId }` — `kind` is 'background' or 'interactive'.
+  getLiveOwners: () => ipcRenderer.invoke('live-owners:get'),
+  onLiveOwners: (callback) => {
+    ipcRenderer.on('live-owners', (_event, owners) => callback(owners || []));
+  },
+  // A resume that DID start and died because the session was held elsewhere — the net under the guard
+  // that can only refuse from a warm cache. Carries the same entry plus the sentence to show.
+  onResumeConflict: (callback) => {
+    ipcRenderer.on('resume-conflict', (_event, payload) => callback(payload));
+  },
   onCliBusyState: (callback) => {
     ipcRenderer.on('cli-busy-state', (_event, sessionId, busy, exact) => callback(sessionId, busy, exact));
   },

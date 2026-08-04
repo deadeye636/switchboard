@@ -179,6 +179,27 @@ window.clearActiveTerminalView = function () {
   placeholder.style.display = '';
 };
 
+// The net under the spawn guard (#172): the resume DID start and died because something else is running
+// the session. Main asked the CLI after the fact, so this arrives a moment after the exit banner — the
+// same dialog the pre-spawn refusal opens, because to the user it is the same situation.
+window.api.onResumeConflict((payload) => {
+  if (payload && typeof window.showResumeConflict === 'function') window.showResumeConflict(payload);
+});
+
+// Sessions a process OUTSIDE Switchboard is running (#172). One list for the whole window; the sidebar
+// reads it while rendering a row, so it is stored rather than pushed into the DOM from here.
+window.api.onLiveOwners((owners) => {
+  if (typeof setLiveOwners === 'function') setLiveOwners(owners);
+});
+// …and the list as it stands right now, because a window that opens (or reloads) between two ticks would
+// otherwise show every row unmarked for up to a poll interval. It is the snapshot main already holds —
+// asking cannot spawn a CLI.
+if (window.api.getLiveOwners) {
+  window.api.getLiveOwners()
+    .then((owners) => { if (typeof setLiveOwners === 'function') setLiveOwners(owners); })
+    .catch(() => { /* an older main process without the poller */ });
+}
+
 window.api.onProcessExited((sessionId, exitCode) => {
   const entry = openSessions.get(sessionId);
   const session = sessionMap.get(sessionId);

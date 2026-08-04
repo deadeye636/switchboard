@@ -339,6 +339,22 @@ presence.init({
 });
 presence.registerIpc(ipcMain);
 
+// --- Is something OUTSIDE Switchboard running this session? (#172) -> app/live-owners.js ---
+// A background agent or a terminal elsewhere holds a session, and the CLI refuses to open it twice. Only
+// the CLI knows, so this asks the backends that can answer, on a slow interval and only while a window is
+// visible. The spawn guard reads the backend's cache; this is what keeps that cache warm and what marks
+// the row in the sidebar.
+const liveOwners = require('./app/live-owners');
+liveOwners.init({
+  backends,
+  activeSessions,
+  getMainWindow: () => mainWindow,
+  getDetachedWindows: () => [...detach.detachedWindows.values()],
+  getAppQuitting: () => appQuitting,
+  log,
+});
+liveOwners.registerIpc(ipcMain);
+
 // --- Native notifications, dock/taskbar badge, and tray (Spec 01) -> app/notifications.js ---
 const notifications = require('./app/notifications');
 notifications.init({ getMainWindow: () => mainWindow, log });
@@ -2073,6 +2089,7 @@ const lifecycleCtx = {
   startProjectsWatcher,
   startBackendWatchers,
   startAttentionHookServer,
+  startLiveOwners: () => liveOwners.start(),
   cleanStaleLockFiles,
   populateCacheViaWorker,
   applyAutoHide: (onStartup) => projects.applyAutoHide(onStartup),

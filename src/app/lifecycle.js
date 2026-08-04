@@ -114,6 +114,9 @@ function start(ctx) {
     // so their sessions appear live, not just after a restart (T-4.8).
     ctx.startBackendWatchers();
     ctx.startAttentionHookServer();
+    // Who else is running one of our sessions (#172). Its own first fetch is delayed — nothing on screen
+    // needs the answer while the cold-start scan is running.
+    try { ctx.startLiveOwners(); } catch { /* a build without the module still boots */ }
     // Remove IDE lock files left behind by a crashed instance whose PID was
     // reused (the function only unlinks locks matching our own pid).
     ctx.cleanStaleLockFiles(ctx.log);

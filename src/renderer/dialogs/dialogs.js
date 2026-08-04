@@ -200,6 +200,56 @@ async function forkSession(session, project) {
   launchNewSession(project, options);
 }
 
+/**
+ * A resume that cannot happen because something else is running the session (#172).
+ *
+ * Reached from two places, deliberately the same dialog: the pre-spawn refusal (the answer was already
+ * known) and the exit handler (it was not, the tab died, main asked afterwards). The user should not be
+ * able to tell which one caught it — the difference is only whether a terminal flashed.
+ *
+ * Three ways out, and the middle one is not a courtesy. If the CLI's list is ever wrong, "Resume anyway"
+ * is what keeps a false refusal from locking someone out of their own session.
+ */
+async function showResumeConflict({ sessionId, projectPath, owner, message } = {}) {
+  if (!sessionId) return;
+  const session = (typeof sessionMap !== 'undefined' && sessionMap.get(sessionId))
+    || { sessionId, projectPath };
+  const details = {};
+  if (owner && owner.name) details['Running as'] = owner.name;
+  if (owner && owner.pid) details['Process'] = `pid ${owner.pid}`;
+  if (owner && owner.state) details['State'] = owner.state;
+
+  const where = owner && owner.kind === 'background'
+    ? 'as a background agent'
+    : `in another terminal${owner && owner.pid ? ` (pid ${owner.pid})` : ''}`;
+  const choice = await showControlDialog({
+    title: 'This session is already running',
+    // `message` comes from main when the refusal did (it composed one from the backend's answer). Asked
+    // BEFORE any spawn there is nothing to quote, so the same sentence is built here — deliberately the
+    // same words, because the user cannot tell which route caught it and should not have to.
+    message: message || `This session is already running ${where}. Opening it a second time can be `
+      + 'refused outright, and where it is not, both runs write into one transcript. Fork a copy to '
+      + 'branch off from where it is now — or resume anyway if you know it is free.',
+    details,
+    tone: 'warning',
+    confirmLabel: 'Fork a copy',
+    secondaryLabel: 'Resume anyway',
+    cancelLabel: 'Cancel',
+  });
+
+  if (choice === true) {
+    const project = findProjectForSession(session) || (projectPath ? { projectPath } : null);
+    if (project) forkSession(session, project);
+    return;
+  }
+  // The user has overruled the list. `ignoreLiveOwner` rides through the spawn guard as their answer,
+  // and the CLI still gets the last word — if it really is held, the tab says so as it did before.
+  if (choice === 'secondary') {
+    openSession(session, null, { ignoreLiveOwner: true });
+  }
+}
+window.showResumeConflict = showResumeConflict;
+
 function findProjectForSession(session) {
   const project = [...cachedAllProjects, ...cachedProjects].find(p =>
     p.sessions && p.sessions.some(s => s.sessionId === session.sessionId)

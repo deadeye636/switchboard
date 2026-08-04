@@ -2058,6 +2058,19 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   background: rgba(128, 136, 255, 0.14);
 }
 
+/* A session a process OUTSIDE Switchboard is running (#172) — amber, because it is the reason a resume
+   here will be refused, and the same shape as the IDE chip beside it. */
+.session-elsewhere-chip {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 700;
+  color: #d9a441;
+  background: rgba(217, 164, 65, 0.14);
+}
+
 .session-health-chip,
 .grid-card-health-chip {
   flex-shrink: 0;

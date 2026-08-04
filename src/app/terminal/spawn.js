@@ -87,17 +87,26 @@ const sendTerminalData = (sessionId, data) => {
 /**
  * What the user is told about a session that is already running somewhere else (#172).
  *
- * Backend-neutral by construction: every word comes from the descriptor's label and from the entry the
- * backend handed back. The two kinds read differently on purpose — a background agent has no window to
- * switch to and no pid worth naming, an interactive one is a terminal the user can go and find.
+ * IT DOES NOT CLAIM THE RESUME WILL FAIL, and that wording is a measurement, not caution. The first
+ * version said the CLI "will not open it twice" — then a background agent listed as `blocked` was
+ * resumed successfully while it sat in that list. What the list proves is that a process is associated
+ * with the session; whether the CLI refuses depends on what that process is doing, and nothing in the
+ * answer says so reliably.
+ *
+ * So the app reports what it knows and lets the user decide. Being wrong in the other direction — a
+ * confident refusal of a session that was free — is the failure this whole path exists to avoid.
+ *
+ * Backend-neutral by construction: the two kinds read differently because they are different situations,
+ * not because one of them is Claude's. A background agent has no window to switch to and no pid worth
+ * naming; an interactive one is a terminal the user can go and find.
  */
-function liveOwnerMessage(owner, backend) {
-  const label = (backend && (backend.label || backend.id)) || 'This CLI';
+function liveOwnerMessage(owner) {
   const where = owner.kind === 'background'
     ? 'as a background agent'
     : (owner.pid ? `in another terminal (pid ${owner.pid})` : 'in another terminal');
-  return `This session is currently running ${where}, and ${label} will not open it twice. `
-    + 'Fork a copy to branch off from where it is now, or close it where it is running first.';
+  return `This session is already running ${where}. Opening it a second time can be refused outright, `
+    + 'and where it is not, both runs write into one transcript. Fork a copy to branch off from where it '
+    + 'is now — or resume anyway if you know it is free.';
 }
 
 /** The open-terminal handler. Reattaches to a live session, or spawns a new PTY for it. */
@@ -232,6 +241,10 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // the label comes along because the descriptor is only in scope inside that branch.
   let resumeUnknown = false;
   let resumeUnknownLabel = '';
+  // The descriptor this session launched under, for the exit handler (#172). Hoisted for the same reason
+  // as the two above: the guard on the way IN can only fire from a warm cache, so the cold case is caught
+  // on the way OUT — and the exit handler lives outside the branch where the backend is in scope.
+  let launchBackend = null;
   // Does the OSC-0 TITLE busy heuristic apply to this session? Only for the claude binary — see the
   // session object below. Same reason `isClaudeBinary` exists, hoisted because the session is built out
   // here while the descriptor is only in scope in the branch.
@@ -360,6 +373,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             + `so it cannot be resumed. Re-create it, or start a new session.` };
       }
       startupHint = backend.startupHint || null;
+      launchBackend = backend;
 
       // §5.8 guard: only a `ready` (built) AND `enabled` (user-activated) backend may ever spawn. A
       // `planned` binary or a disabled backend is rejected here, before any PTY exists — the picker
@@ -451,8 +465,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           owner = Array.isArray(owners) ? owners.find((o) => o && o.sessionId === sessionId) || null : null;
         } catch { owner = null; }
         if (owner) {
-          ctx.log.info(`[spawn] refused: session ${sessionId} is held by a live ${owner.kind} process`);
-          return { ok: false, error: liveOwnerMessage(owner, backend), liveOwner: { ...owner, backendId: backend.id } };
+          ctx.log.info(`[spawn] held back: session ${sessionId} is already running as a ${owner.kind} process`);
+          return { ok: false, error: liveOwnerMessage(owner), liveOwner: { ...owner, backendId: backend.id } };
         }
       }
 
@@ -880,6 +894,37 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         sendToWindow('process-exited', sessionId, exitCode);
       }
     }
+    // THE NET UNDER THE GUARD (#172). The refusal on the way in can only fire from a warm cache, so a
+    // resume that dies immediately might be exactly the conflict the guard could not see yet. Ask the CLI
+    // NOW — the tab is already gone, so the ~0.4 s costs the user nothing — and if the session really is
+    // held elsewhere, offer the fork here instead of leaving a tab that exited 1 with a raw CLI line.
+    //
+    // Narrow on purpose: a resume, a non-zero exit, and only within the first ten seconds. A session that
+    // ran for an hour and then failed is not this defect, and asking about it would put a child process
+    // behind an ordinary exit.
+    const diedFast = Date.now() - (session._openedAt || 0) < 10000;
+    if (!isNew && !sessionOptions?.forkFrom && exitCode !== 0 && diedFast
+        && launchBackend && typeof launchBackend.refreshLiveOwners === 'function') {
+      Promise.resolve()
+        .then(() => launchBackend.refreshLiveOwners())
+        .then((owners) => {
+          const owner = Array.isArray(owners) ? owners.find((o) => o && o.sessionId === realId) : null;
+          if (!owner) return;
+          ctx.log.info(`[spawn] session=${realId} exited ${exitCode}: it is held by a live ${owner.kind} process`);
+          const payload = {
+            sessionId: realId,
+            projectPath,
+            backendId: launchBackend.id,
+            owner: { ...owner, backendId: launchBackend.id },
+            message: liveOwnerMessage(owner),
+          };
+          const w = ctx.windowForSession ? ctx.windowForSession(realId) : null;
+          const target = w && !w.isDestroyed() ? w : ctx.getMainWindow();
+          if (target && !target.isDestroyed()) target.webContents.send('resume-conflict', payload);
+        })
+        .catch(() => { /* the CLI could not answer — the exit banner stands on its own */ });
+    }
+
     // The process is gone, recorded under the id the session ended up with (#396). Before the latch is
     // dropped below, and deliberately NOT through the signal path: an exit is not the end of a turn.
     if (ctx.recordTimelineLifecycle) {

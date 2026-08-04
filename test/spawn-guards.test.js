@@ -276,14 +276,23 @@ function heldBy(owners, over = {}) {
   return fakeBackend({ id: 'claude', label: 'Claude Code', liveOwnersCached: () => owners, ...over });
 }
 
-test('#172: resuming a session a background agent holds is refused before any PTY exists', async () => {
+test('#172: resuming a session a background agent holds is held back before any PTY exists', async () => {
   setup({ backend: heldBy([BG]) });
   const r = await spawn.openTerminal('s', CWD, false, { backendId: 'claude' });
   assert.equal(r.ok, false);
-  assert.match(r.error, /running as a background agent/);
-  assert.match(r.error, /Claude Code will not open it twice/);
-  assert.match(r.error, /Fork a copy/, 'the way out Claude itself names');
+  assert.match(r.error, /already running as a background agent/);
+  assert.match(r.error, /Fork a copy/, 'the way out the CLI itself names');
   assert.equal(r.liveOwner.kind, 'background', 'the renderer needs the entry to offer the fork');
+});
+
+// A measurement, not a style note: the first version of this message said the CLI "will not open it
+// twice", and then a background agent listed as `blocked` was resumed successfully while it sat in that
+// list. The list proves a process is ASSOCIATED with the session, not that the CLI will refuse.
+test('#172: the message does not claim the resume is impossible', async () => {
+  setup({ backend: heldBy([BG]) });
+  const r = await spawn.openTerminal('s', CWD, false, { backendId: 'claude' });
+  assert.doesNotMatch(r.error, /will not open it twice|cannot be resumed|impossible/i);
+  assert.match(r.error, /can be refused outright/, 'it says what MAY happen, and lets the user decide');
 });
 
 test('#172: an interactive owner is a terminal the user can go and find, and says its pid', async () => {

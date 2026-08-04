@@ -1378,7 +1378,11 @@ async function showTerminalHeader(session) {
 // `show: false` mounts the session without switching the view to it — the launch
 // restore reopens several at once and would otherwise reveal, focus and re-fit
 // each terminal in turn before landing on the one that should have focus.
-async function openSession(session, customOptions, { show = true } = {}) {
+// `ignoreLiveOwner` is the user overruling the "this session is running elsewhere" refusal (#172). It is
+// a flag on the third argument rather than a customOptions object, because customOptions REPLACES the
+// resolved launch options — passing one just to carry a flag would strip the session's own model,
+// permission mode and everything else the cascade resolved.
+async function openSession(session, customOptions, { show = true, ignoreLiveOwner = false } = {}) {
   // Opening a terminal session is a fresh navigation — drop any pending
   // "return to tasks" target so a later viewer-close doesn't jump back to tasks.
   window.__tasksReturnTarget = null;
@@ -1407,6 +1411,22 @@ async function openSession(session, customOptions, { show = true } = {}) {
     }
   }
 
+  // Something OUTSIDE Switchboard is already running this session (#172). ASK BEFORE OPENING ANYTHING:
+  // the alternative is a tab that appears, prints a refusal and sits there exited, which is the shape
+  // this issue exists to remove. The main process guards this too — that one catches a call this check
+  // never saw (a stale renderer, a window that opened between two polls) and answers with the same
+  // dialog, so both routes end in the user choosing rather than in a dead terminal.
+  //
+  // Not a verdict: a background agent listed as blocked was measured resuming perfectly well. The list
+  // says a process is associated, not that the CLI will refuse — hence a question with three answers.
+  if (!ignoreLiveOwner && typeof liveOwnerFor === 'function' && typeof window.showResumeConflict === 'function') {
+    const owner = liveOwnerFor(sessionId);
+    if (owner) {
+      window.showResumeConflict({ sessionId, projectPath, owner });
+      return;
+    }
+  }
+
   // Create new terminal entry (hidden until showSession)
   const entry = createTerminalEntry(session);
 
@@ -1429,11 +1449,18 @@ async function openSession(session, customOptions, { show = true } = {}) {
   // a plain-click resume tries to spin up a fresh git worktree and fails to attach
   // (the Resume-with-config dialog already omits worktree, which is why it works).
   if (resumeOptions) { delete resumeOptions.worktree; delete resumeOptions.worktreeName; }
-  const result = await window.api.openTerminal(sessionId, projectPath, false, resumeOptions);
+  // Carried through the spawn guard as the user's own answer (#172), never set by the app itself.
+  const spawnOptions = ignoreLiveOwner ? { ...(resumeOptions || {}), ignoreLiveOwner: true } : resumeOptions;
+  const result = await window.api.openTerminal(sessionId, projectPath, false, spawnOptions);
   if (!result.ok) {
     entry.terminal.write(`\r\nError: ${result.error}\r\n`);
     entry.closed = true;
     if (show) showSession(sessionId);
+    // A session something else is running is not a failure to report and forget (#172): the CLI names a
+    // way out — fork a copy — and the app can take it. The refusal carries the entry that says so.
+    if (result.liveOwner && typeof window.showResumeConflict === 'function') {
+      window.showResumeConflict({ sessionId, projectPath, owner: result.liveOwner, message: result.error });
+    }
     return;
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);

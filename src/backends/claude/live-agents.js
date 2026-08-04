@@ -28,9 +28,17 @@
 
 const { execFile } = require('child_process');
 
-// How long an answer stays usable. The list changes when a session starts or ends, which is rare compared
-// with how often it is read, and a stale entry costs at most one dialog the user can click through.
-const DEFAULT_TTL_MS = 15000;
+// How long an answer stays usable.
+//
+// IT MUST OUTLIVE THE POLL INTERVAL, and getting that backwards is not a tuning question — it is the
+// difference between a guard that works and one that never fires. At 15 s against a 45 s poll (measured:
+// a real resume of a live background agent spawned anyway) the cache was cold for two thirds of every
+// interval, and the click path only ever reads the cache. So this is one interval plus room for a slow
+// tick; `app/live-owners.js` owns the interval and this is written against it.
+//
+// The cost of the other direction is bounded and recoverable: an entry at most a minute old can name a
+// session that has since ended, which produces a dialog the user clicks "Resume anyway" on.
+const DEFAULT_TTL_MS = 60000;
 // A CLI that does not answer must not hold anything up. Measured at ~0.55 s, so this is six times the
 // observed cost — long enough for a loaded machine, short enough that the poller never stacks up.
 const DEFAULT_TIMEOUT_MS = 3000;

@@ -132,6 +132,20 @@ function buildSessionItem(session, opts = {}) {
   // IDE emulation, next to the state it qualifies (#321). It sat in every pane's bar, where four
   // panes drew four identical marks; here it appears once per session, in the row that already
   // carries the session's other badges.
+  // Something OUTSIDE Switchboard is running this session (#172). Worth a mark of its own because the
+  // two rows are otherwise identical: the CLI writes the same auto-title into a background agent's
+  // transcript and into the interactive session working on the same topic, so "which of these two can I
+  // open?" has no visible answer without it. It is also the reason a resume here will be refused.
+  const liveOwner = typeof liveOwnerFor === 'function' ? liveOwnerFor(session.sessionId) : null;
+  if (liveOwner) {
+    const chip = document.createElement('span');
+    chip.className = 'session-detail-pill session-elsewhere-chip';
+    chip.textContent = liveOwner.kind === 'background' ? 'Agent' : 'Elsewhere';
+    chip.title = liveOwner.kind === 'background'
+      ? 'Running as a background agent, so it cannot be resumed here. Fork a copy instead.'
+      : `Running in another terminal${liveOwner.pid ? ` (pid ${liveOwner.pid})` : ''}, so it cannot be resumed here.`;
+    detailEl.appendChild(chip);
+  }
   if (typeof window.isMcpActiveForSession === 'function' && window.isMcpActiveForSession(session.sessionId)) {
     const ideChip = document.createElement('span');
     ideChip.className = 'session-detail-pill session-ide-chip';

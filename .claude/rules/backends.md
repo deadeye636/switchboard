@@ -40,6 +40,25 @@ keeps its **plans + memory/instruction files** (`plansDir` / `memorySources`, #2
 **subagents** (`supportsSubagents`, #230 — only Claude does), and its CLI home variable
 (`cliHomeEnv`, #241).
 
+## "Is something else already running this session?" is TWO hooks (#172)
+
+`liveOwnersCached()` reads a cache and **never spawns**; `refreshLiveOwners()` is the one that costs a
+child process. The split is what lets the spawn path ask on the click for free — only Claude declares
+them (`claude agents --json`, ~0.4 s), and a backend that cannot answer declares neither and keeps
+today's behaviour. `app/live-owners.js` polls, filters out sessions **this app** is running (ours is not
+"elsewhere") and broadcasts; the sidebar marks the row, the spawn path asks before opening a tab.
+
+Three things that were paid for once each:
+
+- **The cache TTL must be LONGER than the poll interval.** At 15 s against a 45 s poll the guard was
+  unreachable for two thirds of every interval — measured, with a real resume spawning anyway. Both
+  constants carry a note pointing at the other.
+- **The list is not a verdict.** A background agent listed as `blocked` resumed perfectly well. It says a
+  process is *associated* with the session, so the app asks (fork / resume anyway / cancel) instead of
+  refusing — a confident refusal of a session that was free is the worse failure.
+- **The two entry shapes differ**: a background agent has no pid and reports `state`, an interactive one
+  has a pid and reports `status`. Normalise in the backend folder, never at the reader.
+
 ## Don't hardcode a backend id outside its own folder
 
 `src/main.js` / `src/app/**` / `src/watch/**` / `src/index/session-cache.js` / `src/renderer/**`

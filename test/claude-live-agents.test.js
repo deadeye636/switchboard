@@ -51,6 +51,15 @@ test('#172: the cache is what the click path reads, and a cold one answers "do n
   assert.equal(liveAgents.ownerOf('11111111-2222-4333-8444-555555555555'), null);
 });
 
+// The guard reads the cache and never fetches, so a TTL below the poll interval leaves it cold for most
+// of every interval — which is exactly what happened: a real resume of a live background agent spawned
+// anyway, because the answer had expired 30 s before the click.
+test('#172: the cache outlives the interval that refreshes it', () => {
+  const { POLL_MS } = require('../src/app/live-owners');
+  assert.ok(liveAgents.DEFAULT_TTL_MS > POLL_MS,
+    'a cache that expires between two polls makes the spawn guard unreachable');
+});
+
 test('#172: a stale answer is not an answer', async () => {
   const now = 1_000_000;
   await liveAgents.refresh({ exec: fakeExec(REAL_OUTPUT), now: () => now });

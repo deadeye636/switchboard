@@ -9,6 +9,38 @@
 // showNewSessionPopover, openSettingsViewer, showResumeSessionDialog,
 // showJsonlViewer, showTimelineViewer, forkSession, openSession, loadProjects (app.js/dialogs.js)
 
+// --- Sessions a process OUTSIDE Switchboard is running (#172) ------------------------------------
+//
+// Main polls the CLIs that can answer and broadcasts the list; this window holds the latest one and the
+// row builder reads it while rendering. Held here rather than in app.js because the sidebar is what
+// draws it, and it is a cache of someone else's fact — nothing in this window may add to it.
+let liveOwnersBySession = new Map();
+
+/** Same sessions, same kinds? A 45 s timer must not rebuild the sidebar for an unchanged answer. */
+function sameLiveOwners(a, b) {
+  if (a.size !== b.size) return false;
+  for (const [id, entry] of a) {
+    const other = b.get(id);
+    if (!other || other.kind !== entry.kind || other.pid !== entry.pid) return false;
+  }
+  return true;
+}
+
+function setLiveOwners(owners) {
+  const next = new Map();
+  for (const owner of owners || []) {
+    if (owner && owner.sessionId) next.set(owner.sessionId, owner);
+  }
+  if (sameLiveOwners(liveOwnersBySession, next)) return;
+  liveOwnersBySession = next;
+  if (typeof refreshSidebar === 'function') refreshSidebar();
+}
+
+/** Who is running this session outside this app, or null. Read by the row builder and by nothing else. */
+function liveOwnerFor(sessionId) {
+  return liveOwnersBySession.get(sessionId) || null;
+}
+
 function slugId(slug) {
   return 'slug-' + slug.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
