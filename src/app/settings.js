@@ -311,7 +311,20 @@ function registerIpc(ipc) {
     // reconcile on the `global` key, and this handler fires on every sidebar drag and tab reorder. A
     // partial that changes `backendEnabled` would need that re-arm — no caller does, and one that starts
     // to belongs on set-setting.
-    ctx.db.setSetting(key, scrubBlobForDisk({ ...base, ...(partial || {}) }));
+    const next = scrubBlobForDisk({ ...base, ...(partial || {}) });
+    ctx.db.setSetting(key, next);
+    // Skipping persistSettingsBlob skipped the project-list push with it (#434). Gate on the CHANGE and
+    // not on the key: `displayName` is the one field of a project blob the list renders
+    // (getProjectDisplayNames), and this handler fires per drag frame — a per-project tabOrder through
+    // here must not cost a sidebar rebuild each time. The door decides, not its callers, so a future one
+    // inherits this without knowing it exists.
+    if (key.startsWith('project:') && next.displayName !== base.displayName) {
+      try {
+        ctx.notifyRendererProjectsChanged();
+      } catch (err) {
+        ctx.log.warn('[settings] projects push after project merge failed:', err?.message || err);
+      }
+    }
     return { ok: true };
   });
 

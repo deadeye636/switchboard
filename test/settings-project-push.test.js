@@ -20,15 +20,16 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const settings = require('../src/app/settings');
 
-// Wire the module against a fake ctx and return { handlers, pushes, written }.
-function wire() {
+// Wire the module against a fake ctx and return { handlers, pushes, written }. `stored` is the blob
+// store merge-setting reads back through — set-setting never looks at it.
+function wire(stored = {}) {
   const written = [];
   const pushes = [];
   const handlers = new Map();
   settings.init({
     db: {
-      getSetting: () => null,
-      setSetting: (key, value) => written.push({ key, value }),
+      getSetting: (key) => stored[key] || null,
+      setSetting: (key, value) => { written.push({ key, value }); stored[key] = value; },
     },
     log: { info() {}, warn() {}, error() {} },
     startBackendWatchers: () => {},
@@ -64,6 +65,35 @@ test('an unrelated key does not push', () => {
   handlers.get('set-setting')(null, 'window-bounds', { x: 0, y: 0 });
 
   assert.equal(pushes.length, 0);
+});
+
+// The OTHER door (#434). `merge-setting` writes without going through persistSettingsBlob on purpose —
+// it fires per drag frame and must not re-arm the backend watchers — and skipped the push with it. It
+// gates on the CHANGE rather than the key, so the frequency that justifies the shortcut stays free.
+test('merging a new display name into a project blob pushes', () => {
+  const { handlers, pushes } = wire({ 'project:/x/y': { displayName: 'Before', tabOrder: ['a'] } });
+
+  handlers.get('merge-setting')(null, 'project:/x/y', { displayName: 'After' });
+
+  assert.equal(pushes.length, 1, 'the list renders that field, so it has to be told');
+});
+
+test('a per-project partial that leaves the display name alone does not push', () => {
+  const { handlers, pushes, written } = wire({ 'project:/x/y': { displayName: 'Before' } });
+
+  handlers.get('merge-setting')(null, 'project:/x/y', { tabOrder: ['a', 'b'] });
+
+  assert.equal(written.length, 1, 'it is still written');
+  assert.equal(pushes.length, 0, 'a sidebar rebuild per drag frame is what this door exists to avoid');
+  assert.equal(written[0].value.displayName, 'Before', 'and the merge kept the rest of the blob');
+});
+
+test('the global door still never pushes on a merge', () => {
+  const { handlers, pushes } = wire({ global: { sidebarWidth: 340 } });
+
+  handlers.get('merge-setting')(null, 'global', { sidebarWidth: 420 });
+
+  assert.equal(pushes.length, 0, 'the sidebar drag is the caller this shortcut was built for');
 });
 
 // The renderer half of #433: the dead branch is gone and must not come back. `loadProjects` is app.js's,
