@@ -15,6 +15,7 @@ const {
   buildSessionBarTooltip,
   resolveRenameTarget,
   projectTailOf,
+  sessionProjectName,
 } = require('../src/renderer/session/session-tabs');
 
 // --- The tab tooltip (#334) --------------------------------------------------
@@ -45,6 +46,44 @@ test('projectTailOf reads the last segment of either path flavour', () => {
   assert.equal(projectTailOf('/srv/projects/api-gateway/'), 'api-gateway');
   assert.equal(projectTailOf(''), '');
   assert.equal(projectTailOf(undefined), '');
+});
+
+// #435: the session bar named the FOLDER even where the user had renamed the project — the sidebar
+// showed the new name and the header beside it still showed the directory. The two lookups it needs
+// belong to the window that owns the project list, so they arrive on `window`; run each case with the
+// stub the app would otherwise provide.
+function withWindow(stub, fn) {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, 'window');
+  const prev = globalThis.window;
+  globalThis.window = stub;
+  try { return fn(); } finally {
+    if (had) globalThis.window = prev; else delete globalThis.window;
+  }
+}
+
+// What the app really wires: the pure helper decides, the lookup only supplies the custom name.
+const appWindow = (customName) => ({
+  projectDisplayNameForSession: () => customName,
+  projectDisplayLabel: require('../src/renderer/lib/project-name').projectDisplayLabel,
+});
+
+test('a renamed project is named by the user, not by its folder', () => {
+  const session = { sessionId: 's1', projectPath: 'D:\\work\\switchboard' };
+  assert.equal(withWindow(appWindow('Alpha Service'), () => sessionProjectName(session)), 'Alpha Service');
+});
+
+test('without a display name it stays exactly what it showed before', () => {
+  const session = { sessionId: 's1', projectPath: 'D:\\work\\switchboard' };
+  assert.equal(withWindow(appWindow(''), () => sessionProjectName(session)), 'switchboard');
+  // Whitespace is not a name — projectDisplayLabel trims, and the folder wins.
+  assert.equal(withWindow(appWindow('   '), () => sessionProjectName(session)), 'switchboard');
+});
+
+test('a window without the project list falls back rather than throwing', () => {
+  const session = { sessionId: 's1', projectPath: '/srv/projects/api-gateway' };
+  assert.equal(withWindow({}, () => sessionProjectName(session)), 'api-gateway');
+  assert.equal(withWindow(appWindow('Alpha'), () => sessionProjectName(null)), 'Alpha');
+  assert.equal(withWindow({}, () => sessionProjectName(null)), '');
 });
 
 // --- Auto-close on exit ---

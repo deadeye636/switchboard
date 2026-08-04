@@ -55,8 +55,14 @@ function getSessionRuntimeState() {
   return window.sessionRuntimeState();
 }
 
+// The user's own name for the project if there is one, the two trailing path segments otherwise (#435) —
+// the sidebar's own project headers pick their label through the same helper a few hundred lines below.
 function getSessionProjectLabel(session) {
-  return session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : 'Other';
+  if (!session.projectPath) return 'Other';
+  const tail = session.projectPath.split('/').filter(Boolean).slice(-2).join('/');
+  const custom = (typeof window.projectDisplayNameForSession === 'function')
+    ? window.projectDisplayNameForSession(session) : '';
+  return projectDisplayLabel(custom, tail);
 }
 
 function getAllRenderableSessions(projects) {

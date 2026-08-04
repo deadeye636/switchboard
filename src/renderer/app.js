@@ -208,6 +208,13 @@ let activeSessionTagFilter = new Set();
 let sessionTagMap = new Map();
 let cachedProjects = [];
 let cachedAllProjects = [];
+// A project's user-set display name, reachable from a session that has no project object to hand — the
+// terminal header, the session-bar tooltip and the attention inbox all name a project that way (#435).
+// Keyed BOTH ways on purpose: by session id, which inherits main's canonical bucketing of one directory
+// spelled two ways (#245), and by the raw path for a session that is not in a bucket yet (a pending
+// launch). Re-derived by loadProjects, never edited in place.
+let projectDisplayNameBySession = new Map();
+let projectDisplayNameByPath = new Map();
 let loadProjectsGen = 0; // bumped per loadProjects() call; stale responses bail (issue #75)
 let activePtyIds = new Set();
 let sortedOrder = []; // [{ projectPath, itemIds: [itemId, ...] }, ...] — single source of truth for sidebar order
@@ -979,6 +986,28 @@ function setRefreshSpinning(on) {
   if (resortBtn) resortBtn.classList.toggle('spinning', !!on);
 }
 
+// Both lookups above, from the project lists as they stand. Archived first so a live bucket's spelling
+// wins where a directory appears in both.
+function rebuildProjectDisplayNames() {
+  projectDisplayNameBySession = new Map();
+  projectDisplayNameByPath = new Map();
+  for (const project of [...cachedAllProjects, ...cachedProjects]) {
+    const name = typeof project.displayName === 'string' ? project.displayName.trim() : '';
+    if (!name) continue;
+    if (project.projectPath) projectDisplayNameByPath.set(project.projectPath, name);
+    for (const session of project.sessions || []) projectDisplayNameBySession.set(session.sessionId, name);
+  }
+}
+
+// The display name of the project a SESSION belongs to, or '' — the callers pair it with the path tail
+// they already show through projectDisplayLabel, so an empty answer leaves them exactly as they were.
+window.projectDisplayNameForSession = function (session) {
+  if (!session) return '';
+  return projectDisplayNameBySession.get(session.sessionId)
+    || projectDisplayNameByPath.get(session.projectPath)
+    || '';
+};
+
 async function loadProjects({ resort = false } = {}) {
   const myGen = ++loadProjectsGen;
   const wasEmpty = cachedProjects.length === 0;
@@ -1001,6 +1030,7 @@ async function loadProjects({ resort = false } = {}) {
   cachedAllProjects = allProjects;
   dedup(cachedProjects);
   dedup(cachedAllProjects);
+  rebuildProjectDisplayNames();
 
   // Reconcile pending sessions: remove ones that now have real data
   let hasReinjected = false;

@@ -112,10 +112,22 @@ function projectTailOf(projectPath) {
   return parts[parts.length - 1] || '';
 }
 
+// What to CALL that project (#435). The user's own name for it if there is one, the folder otherwise —
+// the same rule the sidebar applies, through the same helper, because a second rule is a second answer.
+// Both lookups are on window: this file is loaded by windows that have no project list at all.
+function sessionProjectName(session) {
+  const tail = projectTailOf(session && session.projectPath);
+  const custom = (typeof window !== 'undefined' && typeof window.projectDisplayNameForSession === 'function')
+    ? window.projectDisplayNameForSession(session) : '';
+  return (typeof window !== 'undefined' && typeof window.projectDisplayLabel === 'function')
+    ? window.projectDisplayLabel(custom, tail) : (custom || tail);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     resolveAutoCloseMode, resolveAutoCloseDelaySec, shouldAutoClose,
     buildTabTooltip, buildSessionBarTooltip, resolveRenameTarget, projectTailOf,
+    sessionProjectName,
   };
 }
 
@@ -261,12 +273,12 @@ if (typeof module !== 'undefined' && module.exports) {
         ? cleanDisplayName(session.aiTitle || session.summary) : (session.aiTitle || session.summary)),
       ptyTitle,
       sessionId: session.sessionId,
-      project: projectTailOf(session.projectPath),
+      project: sessionProjectName(session),
       backend: backend && backend.label,
       state: status && status.label,
     });
   };
-  window.sessionProjectLabel = (session) => projectTailOf(session && session.projectPath);
+  window.sessionProjectLabel = (session) => sessionProjectName(session);
 
   window.scheduleTabAutoClose = scheduleTabAutoClose;
   window.cancelTabAutoClose = cancelTabAutoClose;
