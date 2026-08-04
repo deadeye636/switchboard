@@ -84,6 +84,22 @@ const sendTerminalData = (sessionId, data) => {
   if (w && !w.isDestroyed()) w.webContents.send('terminal-data', sessionId, data);
 };
 
+/**
+ * What the user is told about a session that is already running somewhere else (#172).
+ *
+ * Backend-neutral by construction: every word comes from the descriptor's label and from the entry the
+ * backend handed back. The two kinds read differently on purpose — a background agent has no window to
+ * switch to and no pid worth naming, an interactive one is a terminal the user can go and find.
+ */
+function liveOwnerMessage(owner, backend) {
+  const label = (backend && (backend.label || backend.id)) || 'This CLI';
+  const where = owner.kind === 'background'
+    ? 'as a background agent'
+    : (owner.pid ? `in another terminal (pid ${owner.pid})` : 'in another terminal');
+  return `This session is currently running ${where}, and ${label} will not open it twice. `
+    + 'Fork a copy to branch off from where it is now, or close it where it is running first.';
+}
+
 /** The open-terminal handler. Reattaches to a live session, or spawns a new PTY for it. */
 async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   if (!ctx.getMainWindow()) return { ok: false, error: 'no window' };
@@ -412,6 +428,31 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           resumeUnknown = true;
           resumeUnknownLabel = backend.label || backend.id;
           ctx.log.info(`[spawn] backend=${backend.id} does not know session ${sessionId} — starting a new session instead of resuming`);
+        }
+      }
+
+      // A session a LIVE process already holds cannot be resumed — the CLI refuses to open one twice and
+      // says so by dying, which arrives as a tab that flashes up and exits 1 (#172). The backend answers
+      // whether that is the case; a backend that cannot answer does not declare the hook and keeps
+      // today's behaviour.
+      //
+      // FROM THE CACHE ONLY. Asking the CLI here would put a child process on the click path, and the
+      // click is the one moment the app must not think. So this fires when the answer happens to be fresh
+      // — which, with the poller running, is nearly always — and stays silent otherwise. The net for the
+      // cold case is the exit handler, which asks after the fact and offers the same choice.
+      //
+      // A session THIS app is already running is not this defect: the renderer never offers a resume for
+      // a tab it holds, and reporting one as "held elsewhere" would be a lie about our own window.
+      if (!isNew && !sessionOptions?.forkFrom && !sessionOptions?.ignoreLiveOwner
+          && typeof backend.liveOwnersCached === 'function' && !ctx.activeSessions.has(sessionId)) {
+        let owner = null;
+        try {
+          const owners = backend.liveOwnersCached();
+          owner = Array.isArray(owners) ? owners.find((o) => o && o.sessionId === sessionId) || null : null;
+        } catch { owner = null; }
+        if (owner) {
+          ctx.log.info(`[spawn] refused: session ${sessionId} is held by a live ${owner.kind} process`);
+          return { ok: false, error: liveOwnerMessage(owner, backend), liveOwner: { ...owner, backendId: backend.id } };
         }
       }
 

@@ -21,6 +21,9 @@ const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, reso
 // The per-spawn hook settings that tie a /clear to its terminal (#223).
 const liveBinding = require('./live-binding');
 const resources = require('./resources');
+// Who is holding a session right now (#172) — the CLI is the only one that knows.
+const liveAgents = require('./live-agents');
+const { findOnPath } = require('../file-store');
 const { readFolderSessions } = require('./folder-reader');
 const { encodeProjectPath } = require('../../session/encode-project-path');
 const { projectShortName } = require('../../session/derive-project-path');
@@ -435,6 +438,22 @@ module.exports = {
     return { args: ['--settings', file], cleanup: file };
   },
   releaseLiveBinding: (cleanup, log) => liveBinding.removeBindingSettings(cleanup, log),
+  // --- Is a live process already holding this session? (#172) -----------------------------------
+  //
+  // Claude refuses to open a session twice and says so by dying, so a resume the app could never
+  // perform used to be offered like any other. Only the CLI knows what is running; `claude agents
+  // --json` is where it says it, and live-agents.js owns the calling, the cache and the two entry
+  // shapes.
+  //
+  // TWO hooks, not one, and the split is the whole point: `liveOwnersCached` never spawns anything, so
+  // the spawn path can ask it on the click for free and simply learn nothing when the answer is cold.
+  // `refreshLiveOwners` is the one that costs a child process, and only the poller calls it.
+  //
+  // A backend that cannot answer this declares neither, and the core keeps today's behaviour for it —
+  // whether Codex, Hermes or Pi have the same conflict is unmeasured, and a guessed `null` would be a
+  // claim rather than an answer.
+  liveOwnersCached: () => liveAgents.peek(),
+  refreshLiveOwners: () => liveAgents.refresh({ bin: findOnPath('claude') || 'claude' }),
   // Where Claude keeps its plan documents (#227) — the Plans tab reads every launchable backend's plansDir
   // and shows nothing for a backend that has none. ~/.claude/plans, or the isolated home under a demo run.
   plansDir: () => path.join(claudeHome(), 'plans'),

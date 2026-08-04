@@ -264,6 +264,83 @@ test('a backend that names no sessions of its own resumes unconditionally (#290)
   assert.equal(seen[0].resume, true);
 });
 
+// --- A session a live process already holds (#172) ------------------------------------------------
+//
+// The CLI refuses to open one twice and says so by dying, so what the user got for clicking Resume was a
+// tab that flashed up and exited 1. Every test below is about the guard NOT overreaching: it may only
+// refuse what it actually knows, from an answer that is actually fresh.
+const BG = { sessionId: 's', kind: 'background', pid: null, name: 'a job', state: 'blocked' };
+const TTY = { sessionId: 's', kind: 'interactive', pid: 4242, name: 'a terminal', state: 'busy' };
+
+function heldBy(owners, over = {}) {
+  return fakeBackend({ id: 'claude', label: 'Claude Code', liveOwnersCached: () => owners, ...over });
+}
+
+test('#172: resuming a session a background agent holds is refused before any PTY exists', async () => {
+  setup({ backend: heldBy([BG]) });
+  const r = await spawn.openTerminal('s', CWD, false, { backendId: 'claude' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /running as a background agent/);
+  assert.match(r.error, /Claude Code will not open it twice/);
+  assert.match(r.error, /Fork a copy/, 'the way out Claude itself names');
+  assert.equal(r.liveOwner.kind, 'background', 'the renderer needs the entry to offer the fork');
+});
+
+test('#172: an interactive owner is a terminal the user can go and find, and says its pid', async () => {
+  setup({ backend: heldBy([TTY]) });
+  const r = await spawn.openTerminal('s', CWD, false, { backendId: 'claude' });
+  assert.match(r.error, /in another terminal \(pid 4242\)/);
+});
+
+test('#172: "Resume anyway" is honoured — a wrong list must never lock the user out', async () => {
+  const seen = [];
+  setup({ backend: heldBy([BG], {
+    buildLaunch: (args) => { seen.push(args); throw new Error('stop short of the PTY'); },
+  }) });
+  await spawn.openTerminal('s', CWD, false, { backendId: 'claude', ignoreLiveOwner: true });
+  assert.equal(seen.length, 1, 'it went past the guard and built the launch');
+  assert.equal(seen[0].resume, true);
+});
+
+test('#172: a cold cache refuses nothing — not knowing is not evidence', async () => {
+  const seen = [];
+  setup({ backend: heldBy(null, {
+    buildLaunch: (args) => { seen.push(args); throw new Error('stop short of the PTY'); },
+  }) });
+  await spawn.openTerminal('s', CWD, false, { backendId: 'claude' });
+  assert.equal(seen.length, 1, 'null means "do not know", and the spawn proceeds as it does today');
+});
+
+test('#172: a fork is never refused — forking is the offered way OUT of the conflict', async () => {
+  const seen = [];
+  setup({ backend: heldBy([BG], {
+    liveRefFor: () => 'a-real-store-ref',
+    buildLaunch: (args) => { seen.push(args); throw new Error('stop short of the PTY'); },
+  }) });
+  await spawn.openTerminal('n', CWD, false, { backendId: 'claude', forkFrom: 's' });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].forkFrom, 's');
+});
+
+test('#172: a session THIS app is running is not reported as held somewhere else', async () => {
+  const seen = [];
+  // `exited` so the reattach branch above lets it through to the spawn path — the entry is still in
+  // activeSessions, which is what the guard checks. Our own live session is not "elsewhere".
+  setup({
+    backend: heldBy([TTY], { buildLaunch: (args) => { seen.push(args); throw new Error('stop short of the PTY'); } }),
+    sessions: [['s', { exited: true, outputBuffer: [] }]],
+  });
+  await spawn.openTerminal('s', CWD, false, { backendId: 'claude' });
+  assert.equal(seen.length, 1, 'refusing here would be the app lying about its own window');
+});
+
+test('#172: a backend that cannot answer the question is unaffected', async () => {
+  const seen = [];
+  setup({ backend: fakeBackend({ buildLaunch: (args) => { seen.push(args); throw new Error('stop short of the PTY'); } }) });
+  await spawn.openTerminal('s', CWD, false, { backendId: 'codex' });
+  assert.equal(seen.length, 1, 'no hook, no guard, no change in behaviour');
+});
+
 // A pre-launch command is a raw shell prefix. A newline in it is a second command line.
 test('a newline in the pre-launch command is refused', async () => {
   setup();
