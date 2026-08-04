@@ -73,7 +73,9 @@ test('the guard runs on the single write path, next to the launcher one', () => 
   settings.init({
     db: { setSetting: (key, value) => written.push({ key, value }) },
     log: { info() {}, warn() {}, error() {} },
-    // key !== 'global' below, so the re-arm is not reached; give it nothing to call.
+    // key !== 'global' below, so the backend re-arm is not reached. The projects push is (a `project:`
+    // key, #433) — the scrub is what this test is about, so it just has to be callable.
+    notifyRendererProjectsChanged: () => {},
   });
 
   settings.persistSettingsBlob('project:/x', {

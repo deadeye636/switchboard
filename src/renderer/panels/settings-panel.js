@@ -953,9 +953,10 @@
         if (typeof refreshSidebar === 'function') refreshSidebar();
       }
 
-      // Project scope: reload projects so a changed display name is re-derived
-      // (buildProjectsFromCache reads the per-project settings blob main-side).
-      if (isProject && typeof loadProjects === 'function') loadProjects();
+      // No reload of the project list here: `loadProjects` lives in app.js, which this window does not
+      // load — since the in-app overlay was dropped the project scope is served by the pop-out only, so
+      // the branch that used to stand here was dead (#433). Main pushes projects-changed on a
+      // `project:<path>` save instead, which reaches every window rather than just this one.
       // Rebuild the sidebar tag-filter chips so newly added/removed tags show up.
       if (isProject && typeof window._refreshProjectTagFilter === 'function') {
         window._refreshProjectTagFilter();
@@ -1016,10 +1017,11 @@
 
     // Hide and Remove are different things (#167), so the project page offers both. It used to have one
     // button that said "Hide" and called removeProject — back when they were the same act.
+    // No reload here either (#433): hide and remove both push projects-changed from projects.js, and
+    // `loadProjects` would resolve to nothing in this window anyway.
     const closeAfterProjectAction = () => {
       settingsViewer.style.display = 'none';
       document.getElementById('placeholder').style.display = 'flex';
-      if (typeof loadProjects === 'function') loadProjects();
     };
 
     const hideBtn = svBtn('#sv-remove-btn');

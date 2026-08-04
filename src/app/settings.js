@@ -191,6 +191,17 @@ function persistSettingsBlob(key, value) {
     } catch (err) {
       ctx.log.warn('[backends] re-arm after settings change failed:', err?.message || err);
     }
+  } else if (key.startsWith('project:')) {
+    // A project blob carries the display name the sidebar renders (buildProjectsFromCache reads it
+    // through getProjectDisplayNames), so a save has to push or the list keeps the old name until an
+    // unrelated index event happens to fire — arbitrarily long on an idle app (#433). The push belongs
+    // HERE and not in the renderer that saved: the settings pop-out has no project list of its own to
+    // reload, and every window's copy is stale, not just the sender's.
+    try {
+      ctx.notifyRendererProjectsChanged();
+    } catch (err) {
+      ctx.log.warn('[settings] projects push after project save failed:', err?.message || err);
+    }
   }
 }
 
