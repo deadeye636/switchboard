@@ -114,7 +114,9 @@ function projectTailOf(projectPath) {
 
 // What to CALL that project (#435). The user's own name for it if there is one, the folder otherwise —
 // the same rule the sidebar applies, through the same helper, because a second rule is a second answer.
-// Both lookups are on window: this file is loaded by windows that have no project list at all.
+// Both lookups come off `window` because app.js owns the project lists and hands them out that way. The
+// guards are for the NODE side — the unit tests require this file with no window at all — not for a page
+// that lacks them: every page that loads this file loads app.js too (test/fixtures/script-order.json).
 function sessionProjectName(session) {
   const tail = projectTailOf(session && session.projectPath);
   const custom = (typeof window !== 'undefined' && typeof window.projectDisplayNameForSession === 'function')

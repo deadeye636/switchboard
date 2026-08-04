@@ -66,6 +66,9 @@ function setup(g = {}) {
 
   // Real a11y-utils so ariaButton (called by the builders) resolves exactly as in the browser.
   vm.runInContext(fs.readFileSync(path.join(REN, 'lib/a11y-utils.js'), 'utf8'), ctx, { filename: 'lib/a11y-utils.js' });
+  // Real project-name so getSessionProjectLabel picks its label through the same helper the app gives it
+  // — stubbing that one would test the stub's rule instead of the shipped one (#435).
+  vm.runInContext(fs.readFileSync(path.join(REN, 'lib/project-name.js'), 'utf8'), ctx, { filename: 'lib/project-name.js' });
   vm.runInContext(fs.readFileSync(path.join(REN, 'shell/sidebar.js'), 'utf8'), ctx, { filename: 'shell/sidebar.js' });
 
   const call = (name, ...args) => vm.runInContext(name, ctx)(...args);
@@ -275,5 +278,54 @@ test('processProjectSessions collapses same-slug sessions into one group element
     assert.ok(ids.includes('slug-feat'), 'the two feat sessions collapse into a slug group');
     assert.ok(ids.includes('si-solo'), 'the ungrouped session renders as a row');
     assert.equal(ids.length, 2);
+  } finally { destroy(); }
+});
+
+// --- getSessionProjectLabel: what the attention inbox calls a project (#435) ---
+//
+// sidebar.js carries its OWN derivation of this (two trailing path segments, where session-tabs.js takes
+// one), so the unit test over that file's copy says nothing about this one. Same rule, second
+// implementation — which is exactly the pair that drifts.
+
+test('getSessionProjectLabel prefers the name the user gave the project', () => {
+  const { call, destroy } = setup({ projectDisplayNameForSession: () => 'Alpha Service' });
+  try {
+    assert.equal(call('getSessionProjectLabel', { sessionId: 's1', projectPath: '/srv/work/switchboard' }),
+      'Alpha Service');
+  } finally { destroy(); }
+});
+
+test('getSessionProjectLabel keeps the two-segment tail where there is no such name', () => {
+  const { call, destroy } = setup({ projectDisplayNameForSession: () => '' });
+  try {
+    // Two segments, not one — the inbox has always shown that much and this must not quietly become the
+    // session bar's shorter form.
+    assert.equal(call('getSessionProjectLabel', { sessionId: 's1', projectPath: '/srv/work/switchboard' }),
+      'work/switchboard');
+    assert.equal(call('getSessionProjectLabel', { sessionId: 's1', projectPath: '/only' }), 'only');
+  } finally { destroy(); }
+});
+
+test('getSessionProjectLabel treats whitespace as no name at all', () => {
+  const { call, destroy } = setup({ projectDisplayNameForSession: () => '   ' });
+  try {
+    assert.equal(call('getSessionProjectLabel', { sessionId: 's1', projectPath: '/srv/work/switchboard' }),
+      'work/switchboard');
+  } finally { destroy(); }
+});
+
+test('a session with no project path is still Other', () => {
+  const { call, destroy } = setup({ projectDisplayNameForSession: () => 'Alpha Service' });
+  try {
+    assert.equal(call('getSessionProjectLabel', { sessionId: 's1' }), 'Other');
+  } finally { destroy(); }
+});
+
+// A window that never got the lookup (it lives in app.js) must fall back, not throw.
+test('getSessionProjectLabel survives a window without the lookup', () => {
+  const { call, destroy } = setup();
+  try {
+    assert.equal(call('getSessionProjectLabel', { sessionId: 's1', projectPath: '/srv/work/switchboard' }),
+      'work/switchboard');
   } finally { destroy(); }
 });
