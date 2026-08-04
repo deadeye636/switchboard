@@ -185,6 +185,12 @@ function registerQuitHandlers(ctx) {
   let sessionsConfirmedStopped = false;
   let systemShuttingDown = false;
 
+  // Every step of the teardown says that it ran (#397). Quitting happens once, so a handful of info
+  // lines costs nothing — and it is the only thing that makes a future hang legible: the last line of a
+  // SUCCESSFUL quit used to be the window teardown's `[detach] the app is going`, which is exactly the
+  // line the one observed hang stopped at. A silent good path and a hang look identical in a log.
+  const step = (msg) => { try { ctx.log.info(`[shutdown] ${msg}`); } catch { /* never hold a quit for a log line */ } };
+
   // Windows only, and it fires BEFORE before-quit.
   app.on('session-end', () => { systemShuttingDown = true; });
 
@@ -199,6 +205,7 @@ function registerQuitHandlers(ctx) {
       return;
     }
     teardownStarted = true;
+    step(systemShuttingDown ? 'quit requested by the system shutting down' : 'quit requested');
 
     // Leave no hook pointing at a port nobody listens on: Claude Code blocks on every
     // UserPromptSubmit until it times out, in every project, not just ours (#125). The
@@ -220,7 +227,12 @@ function registerQuitHandlers(ctx) {
     // Ask every PTY still running to stop. The WAIT for them is below, after the rest of the teardown —
     // this used to be the whole of it, and a kill that had not landed by the time the process exited
     // never landed at all (#424).
-    sessionShutdown.killAll(ctx.activeSessions);
+    const asked = sessionShutdown.killAll(ctx.activeSessions);
+    // Both numbers, because they usually differ and the difference is not a defect: the main window's
+    // `closed` handler kills first and empties `activeSessions`, so a normal quit asks for NOTHING here
+    // and still has pids to wait for. Logging only the first number reads like a teardown that skipped
+    // the sessions.
+    step(`asked ${asked} session process(es) to stop; ${sessionShutdown.pendingCount()} pid(s) to wait for`);
 
     // Wipe any secret-ref temp files written for inline secret insertion.
     ctx.cleanupSecretRefs();
@@ -241,18 +253,24 @@ function registerQuitHandlers(ctx) {
     // Except during a system shutdown, where the kills above are all we get to do: the OS is not waiting
     // for us, and holding the quit only risks being force-killed mid-wait — with the orphan this whole
     // path exists to prevent.
-    if (sessionsConfirmedStopped || systemShuttingDown) return;
+    if (sessionsConfirmedStopped || systemShuttingDown) {
+      step('not waiting for the processes — the system is going down');
+      return;
+    }
     event.preventDefault();
+    step(`waiting up to ${sessionShutdown.DEFAULT_TIMEOUT_MS * 2} ms for the processes to go`);
     sessionShutdown.awaitAllStopped({ log: ctx.log })
       .catch((err) => ctx.log.warn(`[shutdown] could not confirm every session stopped: ${err.message}`))
       .then(() => {
         sessionsConfirmedStopped = true;
+        step('the processes are settled — asking for the quit again');
         app.quit();
       });
   });
 
   // Close SQLite after all windows are closed to avoid "connection is not open" errors
   app.on('will-quit', () => {
+    step('closing the workers and the database');
     // Flush any debounced per-file re-index so the last transcript edits inside a
     // debounce window are persisted before we close the DB (perf review item H).
     try { ctx.flushPendingReindex(); } catch {}
@@ -268,6 +286,10 @@ function registerQuitHandlers(ctx) {
     // shutdown() suppresses the restart logic before calling terminate().
     ctx.shutdownSearchClient();
     ctx.closeDb();
+    // THE LAST LINE OF A CLEAN QUIT (#397). Everything Switchboard owns is closed here; anything that
+    // keeps the process alive past this point is a handle nothing in this file opened, and a log that
+    // ends on this line says so. electron-log's file transport writes synchronously, so it lands.
+    step('everything is closed — nothing of ours is holding the process');
   });
 }
 

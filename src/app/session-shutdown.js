@@ -91,11 +91,41 @@ function killAll(activeSessions) {
 }
 
 /**
+ * Say how the wait ended — ALWAYS, not only when something went wrong (#397).
+ *
+ * Silence on the good path was the gap. A clean quit's last line was the window teardown's, which is
+ * the exact line the one observed hang stopped at too, so the log could not tell the two apart. A step
+ * that says nothing when it succeeds cannot say where it stopped when it does not.
+ *
+ * `how` separates the two ways this ends without a poll seeing the pids go: an escalation that ran, and
+ * the hard deadline giving up on one that did not answer.
+ */
+function report(log, { waited, escalated, leftover, how }) {
+  if (!log) return;
+  const at = how === 'deadline' ? ' at the hard deadline' : '';
+  if (leftover.length) {
+    if (typeof log.warn === 'function') {
+      log.warn(`[shutdown] ${leftover.length} of ${waited.length} process(es) survived the stop${at}: ${leftover.join(', ')}`);
+    }
+    return;
+  }
+  if (typeof log.info !== 'function') return;
+  if (how === 'deadline') {
+    log.info(`[shutdown] ${waited.length} process(es) confirmed gone at the hard deadline`);
+  } else if (escalated.length) {
+    log.info(`[shutdown] ${waited.length} process(es) stopped, ${escalated.length} needed a tree kill`);
+  } else {
+    log.info(`[shutdown] ${waited.length} process(es) stopped`);
+  }
+}
+
+/**
  * Wait for everything that was killed to be gone, then escalate for the rest.
  *
- * Resolves with `{ waited, escalated, leftover }` — `leftover` is what survived even the tree kill, and
- * it is the only outcome worth a warning: a user who quits and finds a CLI still running has no way to
- * find out why, which is the whole failure this module exists to end.
+ * Resolves with `{ waited, escalated, leftover, how }` — `leftover` is what survived even the tree kill,
+ * and it is the only outcome worth a warning: a user who quits and finds a CLI still running has no way
+ * to find out why, which is the whole failure this module exists to end. `how` is how the wait ended
+ * (`gone` / `escalated` / `deadline`), and every one of them is logged (#397).
  */
 function awaitAllStopped({
   timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -105,34 +135,30 @@ function awaitAllStopped({
   log = null,
 } = {}) {
   const waited = [...pendingPids];
-  if (waited.length === 0) return Promise.resolve({ waited: [], escalated: [], leftover: [] });
+  if (waited.length === 0) return Promise.resolve({ waited: [], escalated: [], leftover: [], how: 'gone' });
 
   return new Promise((resolve) => {
     let elapsed = 0;
     let settled = false;
 
-    const finish = (escalated) => {
+    const finish = (escalated, how) => {
       if (settled) return;
       settled = true;
       const leftover = escalated.filter((pid) => isAlive(pid));
       for (const pid of waited) pendingPids.delete(pid);
-      if (leftover.length && log && typeof log.warn === 'function') {
-        log.warn(`[shutdown] ${leftover.length} process(es) survived the stop: ${leftover.join(', ')}`);
-      } else if (escalated.length && log && typeof log.info === 'function') {
-        log.info(`[shutdown] ${escalated.length} process(es) needed a tree kill`);
-      }
-      resolve({ waited, escalated, leftover });
+      report(log, { waited, escalated, leftover, how });
+      resolve({ waited, escalated, leftover, how });
     };
 
     const escalate = () => {
       const stubborn = waited.filter((pid) => isAlive(pid));
-      if (stubborn.length === 0) return finish([]);
+      if (stubborn.length === 0) return finish([], 'gone');
       let outstanding = stubborn.length;
       for (const pid of stubborn) {
         killTree(pid, () => {
           if (settled) return;
           outstanding -= 1;
-          if (outstanding === 0) finish(stubborn);
+          if (outstanding === 0) finish(stubborn, 'escalated');
         });
       }
     };
@@ -145,11 +171,11 @@ function awaitAllStopped({
     // and the quit that awaits this would never come back. An app that will not close is a worse failure
     // than the orphaned process this module exists to prevent, so the answer is guaranteed to arrive:
     // whatever has not been settled by the deadline is reported as leftover and the quit continues.
-    setTimer(() => finish(waited.filter((pid) => isAlive(pid))), timeoutMs * 2);
+    setTimer(() => finish(waited.filter((pid) => isAlive(pid)), 'deadline'), timeoutMs * 2);
 
     const poll = () => {
       if (settled) return;
-      if (waited.every((pid) => !isAlive(pid))) return finish([]);
+      if (waited.every((pid) => !isAlive(pid))) return finish([], 'gone');
       elapsed += POLL_MS;
       if (elapsed >= timeoutMs) return escalate();
       setTimer(poll, POLL_MS);
@@ -159,10 +185,16 @@ function awaitAllStopped({
   });
 }
 
+/** How many pids are still owed an exit. For the quit's log line — the count is the wait's size. */
+function pendingCount() {
+  return pendingPids.size;
+}
+
 module.exports = {
   killSession,
   killAll,
   awaitAllStopped,
+  pendingCount,
   DEFAULT_TIMEOUT_MS,
   // For the suite: the defaults are what production runs, so they are worth exercising directly.
   _defaultIsAlive: defaultIsAlive,

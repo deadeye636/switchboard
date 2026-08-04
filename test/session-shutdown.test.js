@@ -113,6 +113,53 @@ test('#424: a process that survives even the tree kill is REPORTED, not swallowe
   assert.match(warnings[0], /99/);
 });
 
+// #397: a step that says nothing when it works cannot say where it stopped when it does not. The one
+// observed hang ended on the window teardown's line — the same line a SUCCESSFUL quit ended on.
+test('#397: the good path is logged too, not only the failures', async () => {
+  reset();
+  shutdown.killSession(fakeSession(4242));
+  const lines = [];
+
+  const result = await shutdown.awaitAllStopped({
+    isAlive: () => false,
+    log: { info: (msg) => lines.push(msg), warn: () => assert.fail('nothing went wrong here') },
+  });
+
+  assert.equal(result.how, 'gone');
+  assert.equal(lines.length, 1, 'a silent success is indistinguishable from a hang in a log file');
+  assert.match(lines[0], /1 process\(es\) stopped/);
+});
+
+test('#397: giving up at the deadline says so, instead of reading like a normal stop', async () => {
+  reset();
+  shutdown.killSession(fakeSession(51));
+  const timer = manualTimer();
+  const warnings = [];
+
+  const pending = shutdown.awaitAllStopped({
+    timeoutMs: 100,
+    isAlive: () => true,
+    killTree: () => {},          // never calls back — only the hard deadline can end this
+    setTimer: timer.setTimer,
+    log: { warn: (msg) => warnings.push(msg), info() {} },
+  });
+  timer.tick(1);
+  timer.tick(timer.pending);
+  const result = await pending;
+
+  assert.equal(result.how, 'deadline', 'the bounded give-up is a distinct outcome, not an escalation');
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /hard deadline/, 'a deliberate timeout is logged as one (#397 acceptance 4)');
+});
+
+test('#397: the teardown logs its last step, after the database is closed', () => {
+  const lifecycle = read('src/app/lifecycle.js');
+  assert.match(lifecycle, /const step = \(msg\)/,
+    'the teardown needs one place that writes its breadcrumbs, or half the steps stay silent');
+  assert.match(lifecycle, /ctx\.closeDb\(\);\s*(?:\/\/[^\n]*\n\s*)*step\(/,
+    'the LAST line of a clean quit must come after closeDb — a hang past it is then legible');
+});
+
 test('#424: a session already marked exited is not killed and not waited on', async () => {
   reset();
   const session = fakeSession(5, { exited: true });

@@ -59,6 +59,13 @@ And a hard deadline inside `awaitAllStopped`, because everything it waits on bel
 not close is worse than the leak this fixes** — so the answer is guaranteed to arrive, and whatever
 survived is reported rather than swallowed.
 
+**Every step of the teardown logs that it ran, including the ones that worked (#397).** The one observed
+hang ended on `[detach] the app is going` — the same line a *successful* quit ended on, so the log could
+not tell a finished teardown from a stuck one. `lifecycle.js`'s `step()` writes the breadcrumbs and the
+last of them comes **after** `closeDb()`: a log that stops before it names the step that hung, and one
+that reaches it says the handle belongs to something this file never opened. Keep that ordering, and do
+not make the good path silent again to save lines — quitting happens once.
+
 ## What routes per session, and what stays in main (#2, #393, #395)
 
 A session can live in a window of its own. `app/detach.js` owns the map and answers
