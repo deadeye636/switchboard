@@ -133,6 +133,11 @@ function getTimelineEventsSince(sinceMs, limit = MAX_ROWS_ACROSS_SESSIONS) {
  * rebuilding itself, and hanging the history off them threw it away on an ordinary scan (measured — a
  * turn's events survived less than a minute). A history outlives its cache row; only a user deleting
  * what it belongs to may drop it, which is `project-refs.js`.
+ *
+ * So nothing in `src/` calls this: the project delete needs the raw statement inside its transaction, and
+ * there is no per-session delete in the UI. It stays because `scripts/db-probe.js` needs a way to clean up
+ * after itself, and because the day a single session becomes deletable this is the call — not a second
+ * DELETE written next to `project-refs.js`'s.
  */
 function deleteTimelineForSession(sessionId) {
   if (!sessionId) return;

@@ -117,5 +117,82 @@ probe('createTask({sessionId}) resolving its own projectPath', () => {
   return 'ok';
 });
 
+// 8. THE SESSION TIMELINE'S OWN SQL (#396), which nothing else in this repo has ever run.
+//
+// `npm test` covers the shape rules (timeline-record.js) and the writer's decisions (timeline.js with a
+// stubbed store) — neither loads better-sqlite3, so the four statements that keep the record bounded and
+// keyed have only ever been read, never executed. Every one of them is a write path on the ordinary
+// quit/turn cycle, and all four fail QUIETLY: a broken prune grows the table, a broken rekey splits a
+// history at the next /clear, and both look exactly like nothing happening.
+//
+// Written under a probe-only session id and deleted again below, so this leaves no rows behind.
+const timelineStore = require(path.join(repo, 'src', 'db', 'timeline-store.js'));
+const PROBE_SESSION = '__probe_timeline__';
+const PROBE_SESSION_2 = '__probe_timeline_moved__';
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+probe('timeline: write + read back', () => {
+  timelineStore.deleteTimelineForSession(PROBE_SESSION);
+  db.recordTimelineEvent({ sessionId: PROBE_SESSION, kind: 'started', label: 'Session started' });
+  return `rows=${db.getTimelineEvents(PROBE_SESSION).length}`;
+});
+
+// The duplicate rule reads the newest row of the same kind — SQL, not logic, and the one thing that
+// stops two producers reporting one fact from writing it twice.
+probe('timeline: a second producer is not a second event', () => {
+  const before = db.getTimelineEvents(PROBE_SESSION).length;
+  db.recordTimelineEvent({ sessionId: PROBE_SESSION, kind: 'started', label: 'Session started' });
+  return `rows ${before} -> ${db.getTimelineEvents(PROBE_SESSION).length}`;
+});
+
+// The per-session cap. Distinct `detail` with `detailIsSubject`, or the duplicate rule above would
+// collapse the whole run into one row and the cap would never be reached.
+probe('timeline: the per-session cap holds (500)', () => {
+  for (let i = 0; i < 520; i++) {
+    db.recordTimelineEvent({
+      sessionId: PROBE_SESSION, kind: 'file-touched', label: 'File touched',
+      detail: `probe-${i}.txt`, detailIsSubject: true,
+    });
+  }
+  const raw2 = new Database(db.DB_PATH, { readonly: true });
+  const n = raw2.prepare('SELECT COUNT(*) AS n FROM session_timeline WHERE sessionId = ?').get(PROBE_SESSION).n;
+  raw2.close();
+  return `rows=${n} (cap 500)`;
+});
+
+// The age bound, which no read-only check can see: a row is planted with an old `at` through the store's
+// own statement — recordTimelineEvent would refuse it on arrival — and the next ordinary write must take
+// it away.
+probe('timeline: an old row is pruned by the next write', () => {
+  timelineStore.stmts.insert.run({
+    sessionId: PROBE_SESSION, kind: 'exited', label: 'Old', detail: '', at: Date.now() - 40 * DAY_MS,
+  });
+  db.recordTimelineEvent({ sessionId: PROBE_SESSION, kind: 'stopped', label: 'Stopped' });
+  const raw3 = new Database(db.DB_PATH, { readonly: true });
+  const old = raw3.prepare('SELECT COUNT(*) AS n FROM session_timeline WHERE sessionId = ? AND at < ?')
+    .get(PROBE_SESSION, Date.now() - 31 * DAY_MS).n;
+  raw3.close();
+  return `rows older than the window=${old}`;
+});
+
+// A rekey is the ordinary case, not an edge — every /clear and every fork moves a session's id.
+probe('timeline: a rekey moves the whole history', () => {
+  const before = db.getTimelineEvents(PROBE_SESSION).length;
+  db.rekeyTimeline(PROBE_SESSION, PROBE_SESSION_2);
+  return `${before} rows -> old=${db.getTimelineEvents(PROBE_SESSION).length} new=${db.getTimelineEvents(PROBE_SESSION_2).length}`;
+});
+
+// The recap's one read, including the flag that keeps "exactly full" and "there was more" apart.
+probe('timeline: the cross-session read answers bounded', () => {
+  const r = db.getTimelineEventsSince(Date.now() - DAY_MS);
+  return `events=${r.events.length} truncated=${r.truncated}`;
+});
+
+probe('timeline: a history can be deleted again', () => {
+  db.deleteTimelineForSession(PROBE_SESSION);
+  db.deleteTimelineForSession(PROBE_SESSION_2);
+  return `left=${db.getTimelineEvents(PROBE_SESSION).length + db.getTimelineEvents(PROBE_SESSION_2).length}`;
+});
+
 db.closeDb();
 console.log(JSON.stringify(out, null, 2));
