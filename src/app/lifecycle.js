@@ -201,7 +201,13 @@ function registerQuitHandlers(ctx) {
     // A repeat while the first pass is still waiting: hold the quit, change nothing. Letting it through
     // would run will-quit — and close the DB — underneath a teardown that has not finished.
     if (teardownStarted) {
-      if (!sessionsConfirmedStopped && !systemShuttingDown) event.preventDefault();
+      if (!sessionsConfirmedStopped && !systemShuttingDown) {
+        // Said out loud, because from the outside it looks like the app ignored the keystroke — and a
+        // user who hits Alt+F4 again is a user who already thinks the quit is stuck. The second pass we
+        // ask for OURSELVES falls through silently: the line above it already said it was coming.
+        step('a repeat quit request arrived while the first pass is still waiting — held');
+        event.preventDefault();
+      }
       return;
     }
     teardownStarted = true;
