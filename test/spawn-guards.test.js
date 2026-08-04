@@ -350,6 +350,20 @@ test('#172: a backend that cannot answer the question is unaffected', async () =
   assert.equal(seen.length, 1, 'no hook, no guard, no change in behaviour');
 });
 
+// The net under the guard lives in the PTY's exit handler, which needs a real PTY and a real binary to
+// reach — the same reason the spawn itself is not tested in this file. So what is pinned here is that it
+// is still WIRED: the conditions that keep it narrow (a resume, a non-zero exit, a fast death) and the
+// channel it answers on. Without the last one the renderer never hears, and the tab just dies as before.
+test('#172: the exit handler still asks about a resume that died immediately', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src/app/terminal/spawn.js'), 'utf8');
+  assert.match(src, /diedFast/, 'a session that ran for an hour and then failed is not this defect');
+  assert.match(src, /exitCode !== 0/, 'a clean exit is not a conflict');
+  assert.match(src, /refreshLiveOwners\(\)/, 'the cold-cache case is the whole reason this path exists');
+  assert.match(src, /'resume-conflict'/, 'and the renderer has to be told, or nothing offers the fork');
+});
+
 // A pre-launch command is a raw shell prefix. A newline in it is a second command line.
 test('a newline in the pre-launch command is refused', async () => {
   setup();

@@ -112,6 +112,29 @@ test('#172: an npm `.cmd` shim is the one case that needs a shell', async () => 
     'Node refuses to spawn a .cmd without one, and the arguments are two constants');
 });
 
+// #241, one layer along. The CLI is spawned from the MAIN process here, not from a session's PTY — and
+// main's own environment never carries CLAUDE_CONFIG_DIR. Without the merge, an isolated instance asks
+// the user's REAL installation what is running and reports those sessions as its own. A path-composition
+// guard cannot see this: nothing composes a path, a child process simply inherits the wrong home.
+test('#172/#241: the CLI is asked inside the ISOLATED home, not the real one', async () => {
+  const path = require('node:path');
+  const claude = require('../src/backends/claude');
+  const realRefresh = liveAgents.refresh;
+  const before = process.env.SWITCHBOARD_STORE_CLAUDE;
+  let seen = null;
+  liveAgents.refresh = (opts) => { seen = opts; return Promise.resolve(null); };
+  process.env.SWITCHBOARD_STORE_CLAUDE = path.join('C', 'temp', 'sandbox', '.claude', 'projects');
+  try {
+    await claude.refreshLiveOwners();
+    assert.equal(seen.env.CLAUDE_CONFIG_DIR, path.join('C', 'temp', 'sandbox', '.claude'),
+      'the sandbox home, or the poller reports the real machine\'s live sessions');
+  } finally {
+    liveAgents.refresh = realRefresh;
+    if (before === undefined) delete process.env.SWITCHBOARD_STORE_CLAUDE;
+    else process.env.SWITCHBOARD_STORE_CLAUDE = before;
+  }
+});
+
 test('#172: an entry with no session id is not an entry', () => {
   const parsed = liveAgents._parseAgents(JSON.stringify([
     { kind: 'background', name: 'nameless' },

@@ -452,8 +452,17 @@ module.exports = {
   // A backend that cannot answer this declares neither, and the core keeps today's behaviour for it —
   // whether Codex, Hermes or Pi have the same conflict is unmeasured, and a guessed `null` would be a
   // claim rather than an answer.
+  //
+  // THE HOME GOES WITH IT. This spawns the CLI from the MAIN process, which — unlike a session's PTY —
+  // never carries `CLAUDE_CONFIG_DIR`, so without the merge below an isolated instance would ask the
+  // user's REAL Claude what is running and report those sessions as its own. Same failure as composing a
+  // path from `os.homedir()` (#241), one layer along: a child process that inherits the wrong home.
+  // Resolved per call, because `cliHomeEnv()` reads the override at call time.
   liveOwnersCached: () => liveAgents.peek(),
-  refreshLiveOwners: () => liveAgents.refresh({ bin: findOnPath('claude') || 'claude' }),
+  refreshLiveOwners: () => liveAgents.refresh({
+    bin: findOnPath('claude') || 'claude',
+    env: { ...process.env, ...(cliHomeEnv() || {}) },
+  }),
   // Where Claude keeps its plan documents (#227) — the Plans tab reads every launchable backend's plansDir
   // and shows nothing for a backend that has none. ~/.claude/plans, or the isolated home under a demo run.
   plansDir: () => path.join(claudeHome(), 'plans'),

@@ -102,6 +102,11 @@ function ownerOf(sessionId, opts = {}) {
 function refresh({
   exec = execFile,
   bin = 'claude',
+  // The environment the CLI is asked IN. Passed by the descriptor, which knows this backend's home
+  // variable — main's own environment does not carry it, so an isolated instance would otherwise ask the
+  // user's real installation what is running. Undefined means "inherit", which is only right when no
+  // isolation is in play.
+  env = undefined,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   now = () => Date.now(),
 } = {}) {
@@ -124,7 +129,7 @@ function refresh({
       // Windows: Node refuses to spawn one without a shell. The measured install here is a real `.exe`,
       // so this branch exists for the machines where it is not — with the same two constant arguments.
       const viaShim = /\.(cmd|bat)$/i.test(String(bin));
-      exec(bin, ['agents', '--json'], { timeout: timeoutMs, windowsHide: true, shell: viaShim }, (err, stdout) => {
+      exec(bin, ['agents', '--json'], { timeout: timeoutMs, windowsHide: true, shell: viaShim, env }, (err, stdout) => {
         if (err) return done(null);
         done(parseAgents(String(stdout || '')));
       });

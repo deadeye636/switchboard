@@ -24,6 +24,8 @@ let ctx = null;
 let timer = null;
 // The last published list, so a window that opens (or reloads) does not have to wait for the next tick.
 let snapshot = [];
+// Has a poll ever completed? Only so the first answer can be logged even when it is empty — see poll().
+let answered = false;
 
 // Long enough that the child process is invisible in a profile, short enough that a session someone
 // started in another terminal is marked before they have finished wondering why they cannot resume it.
@@ -40,6 +42,7 @@ const FIRST_DELAY_MS = 8000;
 function init(context) {
   ctx = context;
   snapshot = [];
+  answered = false;
 }
 
 /** Every backend that can answer "is a live process holding this session?". */
@@ -107,8 +110,13 @@ async function poll() {
   snapshot = collected;
   if (ctx.log) {
     const line = `[live-owners] ${collected.length} session(s) are running outside Switchboard`;
-    if (changed) ctx.log.info(line); else ctx.log.debug(line);
+    // The FIRST answer is always said out loud, even when it is zero. Otherwise "the poller found
+    // nothing" and "the poller never ran" are the same silence — which is what an isolation check ran
+    // into: an isolated instance correctly reporting none looked exactly like a poller that was gated
+    // off, and the measurement could not tell them apart.
+    if (changed || !answered) ctx.log.info(line); else ctx.log.debug(line);
   }
+  answered = true;
   broadcast(snapshot);
   return snapshot;
 }
@@ -147,4 +155,8 @@ module.exports = {
   poll,
   current: () => snapshot,
   POLL_MS,
+  // For tests: the gates live in `tick`, and a gate that stops working is invisible — the app simply
+  // does less, correctly, forever. (Measured once from the other side: a window started hidden made the
+  // poller do nothing at all, and the run looked like the feature was broken.)
+  _tick: tick,
 };
