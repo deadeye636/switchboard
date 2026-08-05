@@ -979,6 +979,13 @@ function showSidebarSkeleton() {
   sidebarContent.innerHTML = `<div class="sidebar-skeleton" aria-hidden="true">${group(3)}${group(2)}${group(1)}</div>`;
 }
 
+// ...and taking it away again, for the one case that has no first render to replace it: the very first
+// load failed (#431). Leaving the placeholder rows up would promise a list that is not coming.
+function hideSidebarSkeleton() {
+  if (!sidebarContent) return;
+  if (sidebarContent.querySelector('.sidebar-skeleton')) sidebarContent.innerHTML = '';
+}
+
 // The other loading state: the list is already there, and the reload was asked for at the Refresh button
 // (#180). Mark it at the trigger — replacing the list with a skeleton would take away what you are
 // looking at and rebuild it, which is a flicker for nothing.
@@ -1008,6 +1015,42 @@ window.projectDisplayNameForSession = function (session) {
     || '';
 };
 
+// #431: the list could not be re-read. Says so where the list is, keeps the cause in the tooltip, and
+// retries on click — the same shape as the unlisted notice above, deliberately, because it lands in the
+// same slot and a second visual language there would read as a different kind of thing.
+function showProjectsError(err) {
+  const el = document.getElementById('projects-error-notice');
+  if (!el) return;
+  const notice = window.projectsFailureNotice(err, cachedProjects.length > 0 || cachedAllProjects.length > 0);
+  el.textContent = notice.text;
+  el.title = notice.title;
+  el.style.display = '';
+  // The status bar too — the sidebar line is easy to miss when the window is scrolled, and this is the
+  // one channel that already carries "something happened" for the whole app.
+  if (statusBarActivity) {
+    statusBarActivity.textContent = 'Project list unavailable';
+    statusBarActivity.className = '';
+  }
+}
+
+// Retired by the next load that works — never by a timer. A warning that expires on its own would leave
+// a stale sidebar looking current.
+function clearProjectsError() {
+  const el = document.getElementById('projects-error-notice');
+  if (!el || el.style.display === 'none') return;
+  el.style.display = 'none';
+  el.textContent = '';
+  el.title = '';
+  if (statusBarActivity && statusBarActivity.textContent === 'Project list unavailable') {
+    statusBarActivity.textContent = '';
+  }
+}
+
+{
+  const el = document.getElementById('projects-error-notice');
+  if (el) el.addEventListener('click', () => loadProjects());
+}
+
 async function loadProjects({ resort = false } = {}) {
   const myGen = ++loadProjectsGen;
   const wasEmpty = cachedProjects.length === 0;
@@ -1017,15 +1060,35 @@ async function loadProjects({ resort = false } = {}) {
   // (The "Loading\u2026" text this replaces sat in the filter toolbar, resizing a row of icons.)
   if (wasEmpty) showSidebarSkeleton();
   else setRefreshSpinning(true);
-  const [defaultProjects, allProjects] = await Promise.all([
-    window.api.getProjects(false),
-    window.api.getProjects(true),
-  ]);
+  // #431: the listing can now FAIL, and a failure is not an empty list. Both calls are awaited together,
+  // so one broken read makes the whole answer unknown — which is right: a half-known list is not one the
+  // sidebar can be rebuilt from. Everything below the assignment is skipped in that case, so what is on
+  // screen stays exactly where it is, and the failure gets a line of its own instead of looking like a
+  // user with no projects.
+  let defaultProjects, allProjects;
+  try {
+    [defaultProjects, allProjects] = await Promise.all([
+      window.api.getProjects(false),
+      window.api.getProjects(true),
+    ]);
+  } catch (err) {
+    // The generation check belongs here too: a stale failure must not overwrite the state a newer call
+    // has already established, warning included.
+    if (myGen !== loadProjectsGen) return;
+    setRefreshSpinning(false);
+    if (wasEmpty) hideSidebarSkeleton();
+    showProjectsError(err);
+    // Not the list, but everything that is not about the list: what is running is a separate question and
+    // still has an answer.
+    try { await pollActiveSessions(); } catch {}
+    return;
+  }
   // A newer loadProjects() started while we awaited — drop this stale response
   // so it can't overwrite fresher cachedProjects with older data.
   // (A newer call owns the spinner too, so a stale one leaves it running for them.)
   if (myGen !== loadProjectsGen) return;
   setRefreshSpinning(false);
+  clearProjectsError();
   cachedProjects = defaultProjects;
   cachedAllProjects = allProjects;
   dedup(cachedProjects);

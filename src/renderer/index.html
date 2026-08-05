@@ -52,6 +52,9 @@
     <!-- #183: sessions exist in projects that are not on the list. They are indexed and searchable and
          the sidebar paints none of them — without this line, nothing anywhere says so. -->
     <button id="unlisted-notice" style="display:none;" type="button"></button>
+    <!-- #431: the list could not be re-read. What is above is the LAST KNOWN list, not the current one —
+         without this the sidebar simply looked like it had fewer projects, or none. Click retries. -->
+    <button id="projects-error-notice" style="display:none;" type="button"></button>
     <div id="plans-content" style="display:none;"></div>
     <div id="stats-content" style="display:none;">
       <div class="plans-empty">Click the Stats tab to view activity heatmap.</div>
@@ -204,6 +207,7 @@
   <script src="session/session-status.js"></script>
   <script src="shell/pixel-icon.js"></script>
   <script src="lib/project-name.js"></script>
+  <script src="lib/project-list-state.js"></script>
   <script src="lib/project-sort.js"></script>
   <!-- Pure tag-filter matching (#98 projects, #164 sessions) — shared with the node tests. -->
   <script src="session/session-tags-filter.js"></script>

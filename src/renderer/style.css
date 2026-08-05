@@ -1118,7 +1118,11 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
 
 /* What the sidebar is NOT showing (#183): sessions in projects that are not on the list. Sits under the
    project list, out of the way, and only exists when there is something to say. */
-#unlisted-notice {
+/* #431's failure line shares the shape: same slot, same size, same behaviour of only existing when there
+   is something to say. It differs in colour alone, because the two say different things — one is a fact
+   about your projects, the other is the app admitting it could not read them. */
+#unlisted-notice,
+#projects-error-notice {
   flex-shrink: 0;
   display: block;
   width: 100%;
@@ -1134,6 +1138,13 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   transition: background 0.15s, color 0.15s;
 }
 #unlisted-notice:hover { background: rgba(217,119,87,0.12); color: #d97757; }
+
+/* Red, not the amber above: this is a failure, and it stays until a load succeeds. */
+#projects-error-notice {
+  background: rgba(220,80,80,0.10);
+  color: #d98080;
+}
+#projects-error-notice:hover { background: rgba(220,80,80,0.18); color: #ff9a9a; }
 
 /* The chip the project manager wears while it is filtered to those projects. */
 .pa-chip {

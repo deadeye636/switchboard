@@ -981,8 +981,13 @@ ipcMain.handle('get-projects', async (_event, showArchived) => {
     queueIndexSweep();
     return built;
   } catch (err) {
-    console.error('Error listing projects:', err);
-    return [];
+    // #431: NOT `return []`. An empty array is a real answer — it is what a fresh install looks like —
+    // so returning it here made a broken read indistinguishable from having no projects, and the
+    // renderer dutifully replaced a populated sidebar with nothing. Rejecting is the only way the other
+    // side can tell "none" from "unknown". The cause goes to the log FILE: console.error reaches nobody
+    // in a packaged build, which is why this failure could happen quietly for as long as it did.
+    log.error(`[get-projects] listing failed (showArchived=${!!showArchived}):`, err);
+    throw err;
   }
 });
 

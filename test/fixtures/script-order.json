@@ -25,6 +25,7 @@
     "session-status.js",
     "pixel-icon.js",
     "project-name.js",
+    "project-list-state.js",
     "project-sort.js",
     "session-tags-filter.js",
     "attention-source.js",
