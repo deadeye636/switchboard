@@ -117,6 +117,12 @@ function start(ctx) {
     // Who else is running one of our sessions (#172). Its own first fetch is delayed — nothing on screen
     // needs the answer while the cold-start scan is running.
     try { ctx.startLiveOwners(); } catch { /* a build without the module still boots */ }
+    // The database's own upkeep (#430) — deliberately NOT on this path: it arms a timer and returns, so
+    // the merge and the reclaim land well after the first render and after the cold-start scan that
+    // writes the very tables they touch.
+    try { ctx.startDbUpkeep(); } catch (err) {
+      ctx.log.warn('[db-upkeep] could not be scheduled:', err?.message || err);
+    }
     // Remove IDE lock files left behind by a crashed instance whose PID was
     // reused (the function only unlinks locks matching our own pid).
     ctx.cleanStaleLockFiles(ctx.log);

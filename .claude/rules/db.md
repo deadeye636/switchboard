@@ -18,6 +18,10 @@ same exports, so `require('../db/db')` is unchanged and no caller outside `src/d
   `timeline-store` (what HAPPENED to a session, over time — #396; its shape and both retention limits
   are in `timeline-record.js`, outside it for the same reason `stats-queries.js` is outside `db.js`)
 - `project-refs.js` — a project's footprint moved across four stores, atomically
+- `compact.js` — the merge + reclaim statements (#430). **The order is the point**: `optimize` frees
+  pages into the freelist without shrinking the file, the vacuum is what gives them back. Measured on a
+  102 MB install: 85% of the file was unmerged FTS segments, and the pair took it to 17.5 MB. WHEN this
+  runs is a question about the app, so the policy is `src/app/db-upkeep.js`, not here.
 - helpers predating the split: `sqlite-busy-retry.js` (wraps every write; **not** usable inside an
   open transaction — that is why `project-refs.js` takes the stores' raw statements),
   `search-query-util.js` (the MATCH cap shared with the search worker, #79), `stats-queries.js`

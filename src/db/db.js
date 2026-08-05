@@ -58,6 +58,8 @@ const projectRefs = require('./project-refs');
 const sessionStore = require('./session-store');
 const searchStore = require('./search-store');
 const timelineStore = require('./timeline-store');
+// Not a store — it prepares nothing at load and owns no table, so its position here is only tidiness.
+const compact = require('./compact');
 
 module.exports = {
   // --- session + project metadata, the register, auto-hide (meta-store.js) ---
@@ -163,6 +165,13 @@ module.exports = {
   getDailyBackendTokens: statsStore.getDailyBackendTokens,
   getDailyCost: statsStore.getDailyCost,
   getHourlyActivity: statsStore.getHourlyActivity,
+  // --- keeping the file from drifting upward (compact.js, #430) ---
+  freeSpace: compact.freeSpace,
+  optimizeSearchIndex: compact.optimizeSearchIndex,
+  needsFullVacuum: compact.needsFullVacuum,
+  incrementalVacuum: compact.incrementalVacuum,
+  fullVacuum: compact.fullVacuum,
+  autoVacuumMode: compact.autoVacuumMode,
   closeDb,
   // Exported so main.js can pass the resolved path to the search-query worker
   // without re-deriving the SWITCHBOARD_DATA_DIR logic in a second place.

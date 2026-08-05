@@ -51,6 +51,13 @@ if (IS_DEFAULT_DATA_DIR && !fs.existsSync(DB_PATH)) {
 }
 const db = new Database(DB_PATH);
 
+// Incremental auto-vacuum, for NEW databases only (#430). SQLite can only change this mode while the
+// file holds no table, so this line is what it says on a fresh install and silently nothing on every
+// existing one — which is correct, and why `src/db/compact.js` still carries the full VACUUM for the
+// databases that were created before this existed. It must stay ABOVE the WAL pragma and above
+// applySchema: `journal_mode = WAL` writes to the file, and after that it is too late to ask.
+try { db.pragma('auto_vacuum = INCREMENTAL'); } catch { /* an existing file simply keeps its mode */ }
+
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
 // NORMAL fsyncs only at checkpoints, not every commit — the standard WAL

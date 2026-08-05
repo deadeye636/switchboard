@@ -194,5 +194,43 @@ probe('timeline: a history can be deleted again', () => {
   return `left=${db.getTimelineEvents(PROBE_SESSION).length + db.getTimelineEvents(PROBE_SESSION_2).length}`;
 });
 
+// --- Compaction (#430) ---
+// The one part of compact.js that only a REAL run can answer: whether the statements execute at all, and
+// whether a database created since #430 came out in incremental mode. On a fresh data dir auto_vacuum
+// must be 2; on an existing one it stays 0 for ever, which is exactly why the full VACUUM is kept.
+probe('compact: the file reports its own waste', () => {
+  const s = db.freeSpace();
+  return `pages=${s.pageCount} free=${s.freelist} (${(s.ratio * 100).toFixed(1)}%) total=${(s.totalBytes / 1048576).toFixed(1)} MB`;
+});
+
+probe('compact: auto_vacuum mode', () => `${db.autoVacuumMode()} (2 = incremental, 0 = none)`);
+
+probe('compact: the FTS merge runs', () => {
+  const r = db.optimizeSearchIndex();
+  return r.ok ? `ok in ${r.ms} ms` : `FAILED: ${r.error}`;
+});
+
+probe('compact: the threshold decides on the state AFTER the merge', () => {
+  const s = db.freeSpace();
+  return `${db.needsFullVacuum(s)} at free=${(s.freeBytes / 1048576).toFixed(1)} MB / ${(s.ratio * 100).toFixed(1)}%`;
+});
+
+probe('compact: the incremental pass runs', () => {
+  const r = db.incrementalVacuum(256);
+  return r.ok ? `ok in ${r.ms} ms, gave back ${(r.reclaimedBytes / 1048576).toFixed(1)} MB` : `FAILED: ${r.error}`;
+});
+
+probe('compact: the full vacuum runs, and the file is still sound', () => {
+  const before = db.freeSpace().totalBytes;
+  const r = db.fullVacuum();
+  const after = db.freeSpace().totalBytes;
+  const raw4 = new Database(db.DB_PATH, { readonly: true });
+  const integrity = raw4.pragma('integrity_check', { simple: true });
+  raw4.close();
+  return r.ok
+    ? `${(before / 1048576).toFixed(1)} MB -> ${(after / 1048576).toFixed(1)} MB in ${r.ms} ms, integrity=${integrity}`
+    : `FAILED: ${r.error}`;
+});
+
 db.closeDb();
 console.log(JSON.stringify(out, null, 2));

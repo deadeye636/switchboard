@@ -161,6 +161,7 @@ const {
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
   getDailyBackendTokens, getDailyCost, getHourlyActivity,
   recordTimelineEvent, getTimelineEvents, getTimelineEventsSince, deleteTimelineForSession, rekeyTimeline,
+  freeSpace, optimizeSearchIndex, needsFullVacuum, incrementalVacuum, fullVacuum, autoVacuumMode,
   closeDb,
   DB_PATH,
 } = require('./db/db');
@@ -2059,6 +2060,16 @@ ipcMain.handle('get-about-info', () => ({
 // in the module with the reasons; main.js only supplies the pieces.
 const lifecycle = require('./app/lifecycle');
 
+// #430: the merge + reclaim pass. Wired here rather than inside lifecycle.js for the usual reason — the
+// module takes the DB through ctx, so it stays loadable without Electron.
+const dbUpkeep = require('./app/db-upkeep');
+dbUpkeep.init({
+  db: { freeSpace, optimizeSearchIndex, needsFullVacuum, incrementalVacuum, fullVacuum, autoVacuumMode },
+  activeSessions,
+  getAppQuitting: () => appQuitting,
+  log,
+});
+
 const lifecycleCtx = {
   app,
   session,
@@ -2090,6 +2101,7 @@ const lifecycleCtx = {
   startBackendWatchers,
   startAttentionHookServer,
   startLiveOwners: () => liveOwners.start(),
+  startDbUpkeep: () => dbUpkeep.start(),
   cleanStaleLockFiles,
   populateCacheViaWorker,
   applyAutoHide: (onStartup) => projects.applyAutoHide(onStartup),

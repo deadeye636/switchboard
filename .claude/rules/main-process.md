@@ -27,7 +27,9 @@ windows — #2, and since #316 which window renders which session), `presence.js
 machine — #386; one global fact, because every renderer has its own `windowFocused` and none can see
 the others), `timeline.js` (what happened to a session — #396; the one writer of the record, so a
 session has one history however its windows come and go), `session-shutdown.js` (stopping every CLI
-process and CHECKING that it stopped — #424) and `terminal/` (`spawn.js` = open-terminal,
+process and CHECKING that it stopped — #424), `db-upkeep.js` (when the database is compacted and how
+much of it — #430; the SQL is `src/db/compact.js`, what needs to know about the app is here) and
+`terminal/` (`spawn.js` = open-terminal,
 `io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
 **The directory is the truth** — this enumeration silently missed two modules for as long as they
 existed, so list `src/app/` before assuming an area has no home yet.
