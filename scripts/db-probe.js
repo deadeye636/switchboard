@@ -220,6 +220,13 @@ probe('compact: the incremental pass runs', () => {
   return r.ok ? `ok in ${r.ms} ms, gave back ${(r.reclaimedBytes / 1048576).toFixed(1)} MB` : `FAILED: ${r.error}`;
 });
 
+// The search result BEFORE anything is compacted, kept so the pass can be shown not to have changed it.
+// A merge that quietly dropped rows would otherwise look like a pure win.
+const searchBefore = (() => {
+  try { return db.searchByType('session', 'the', 50, false).map(r => r.sessionId || r.id).join(','); }
+  catch (err) { return 'unavailable: ' + err.message; }
+})();
+
 probe('compact: the full vacuum runs, and the file is still sound', () => {
   const before = db.freeSpace().totalBytes;
   const r = db.fullVacuum();
@@ -230,6 +237,31 @@ probe('compact: the full vacuum runs, and the file is still sound', () => {
   return r.ok
     ? `${(before / 1048576).toFixed(1)} MB -> ${(after / 1048576).toFixed(1)} MB in ${r.ms} ms, integrity=${integrity}`
     : `FAILED: ${r.error}`;
+});
+
+// Acceptance #3: the same query, the same rows. Compared as the id list, not a count — a merge that
+// swapped one row for another would pass a count.
+probe('compact: the same search returns the same rows', () => {
+  let after;
+  try { after = db.searchByType('session', 'the', 50, false).map(r => r.sessionId || r.id).join(','); }
+  catch (err) { return 'unavailable: ' + err.message; }
+  const rows = searchBefore ? searchBefore.split(',').filter(Boolean).length : 0;
+  return after === searchBefore ? `identical (${rows} rows)` : `CHANGED\n  before: ${searchBefore}\n  after:  ${after}`;
+});
+
+// Acceptance #1: no drift. Three more passes over an ALREADY compacted database must not move the file
+// — that is the difference between "it shrank once" and "it reaches a steady size".
+probe('compact: three further passes leave the size where it is', () => {
+  const sizes = [db.freeSpace().totalBytes];
+  for (let i = 0; i < 3; i++) {
+    db.optimizeSearchIndex();
+    if (db.needsFullVacuum(db.freeSpace())) db.fullVacuum();
+    else if (db.autoVacuumMode() === 2) db.incrementalVacuum();
+    sizes.push(db.freeSpace().totalBytes);
+  }
+  const mbs = sizes.map(b => (b / 1048576).toFixed(1));
+  const steady = sizes.every(b => b === sizes[0]);
+  return `${mbs.join(' -> ')} MB  ${steady ? 'steady' : 'DRIFTED'}`;
 });
 
 db.closeDb();

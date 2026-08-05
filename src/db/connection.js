@@ -54,8 +54,13 @@ const db = new Database(DB_PATH);
 // Incremental auto-vacuum, for NEW databases only (#430). SQLite can only change this mode while the
 // file holds no table, so this line is what it says on a fresh install and silently nothing on every
 // existing one — which is correct, and why `src/db/compact.js` still carries the full VACUUM for the
-// databases that were created before this existed. It must stay ABOVE the WAL pragma and above
-// applySchema: `journal_mode = WAL` writes to the file, and after that it is too late to ask.
+// databases that were created before this existed.
+//
+// IT MUST STAY ABOVE THE WAL PRAGMA, and that is measured, not assumed: on a brand-new file, setting
+// auto_vacuum first then WAL leaves the mode at 2, while WAL first then auto_vacuum — with no table
+// created yet either way — leaves it at 0. The journal switch writes page 1, so the file is no longer
+// empty by the time the question is asked. Moving this line down is silent: nothing fails, and every
+// database made afterwards simply never gets the mode.
 try { db.pragma('auto_vacuum = INCREMENTAL'); } catch { /* an existing file simply keeps its mode */ }
 
 db.pragma('journal_mode = WAL');

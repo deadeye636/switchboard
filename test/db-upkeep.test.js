@@ -20,7 +20,7 @@ const PAGE = 4096;
 function makeCtx(opts = {}) {
   const {
     freeBefore = 0, freeAfterMerge = freeBefore, pages = 25000,
-    autoVacuum = 2, sessions = 0, quitting = false, mergeOk = true,
+    autoVacuum = 2, sessions = 0, quitting = false, mergeOk = true, vacuumOk = true,
   } = opts;
   const calls = [];
   const logs = [];
@@ -43,8 +43,20 @@ function makeCtx(opts = {}) {
     },
     // The real predicate, not a stub of it — the thresholds are part of what this pins.
     needsFullVacuum: (s) => s.freeBytes >= 32 * 1024 * 1024 || s.ratio >= 0.2,
-    incrementalVacuum: () => { calls.push('incremental'); reclaimed = freeAfterMerge; vacuumed = true; return { ok: true, ms: 40, reclaimedBytes: freeAfterMerge * PAGE }; },
-    fullVacuum: () => { calls.push('full'); reclaimed = freeAfterMerge; vacuumed = true; return { ok: true, ms: 180, reclaimedBytes: freeAfterMerge * PAGE }; },
+    // A failing vacuum still reports a duration — compact.js times its catch path too, which is exactly
+    // why the log must look at `ok` and not at `ms`.
+    incrementalVacuum: () => {
+      calls.push('incremental');
+      if (!vacuumOk) return { ok: false, ms: 12, reclaimedBytes: 0, error: 'database is locked' };
+      reclaimed = freeAfterMerge; vacuumed = true;
+      return { ok: true, ms: 40, reclaimedBytes: freeAfterMerge * PAGE };
+    },
+    fullVacuum: () => {
+      calls.push('full');
+      if (!vacuumOk) return { ok: false, ms: 12, reclaimedBytes: 0, error: 'database is locked' };
+      reclaimed = freeAfterMerge; vacuumed = true;
+      return { ok: true, ms: 180, reclaimedBytes: freeAfterMerge * PAGE };
+    },
     autoVacuumMode: () => autoVacuum,
   };
   const activeSessions = new Map();
@@ -158,4 +170,46 @@ test('the scheduled pass is what eventually runs it', async () => {
   upkeep.start({ delayMs: 1 });
   await new Promise(r => setTimeout(r, 25));
   assert.deepEqual(calls, ['optimize']);
+});
+
+// --- Saying what actually happened ---
+//
+// A verifier found the log reporting a reclaim that threw as one that worked: compact.js times its own
+// catch path, so `ms` is set either way, and printing it alone read as success. These pin the four
+// outcomes as four distinct words, and the failure as a failure.
+
+test('a vacuum that threw is reported as failed, not as a duration', () => {
+  const { logs } = makeCtx({ freeBefore: 0, freeAfterMerge: 20000, sessions: 0, vacuumOk: false });
+  const res = upkeep.runUpkeep({ force: true });
+  assert.match(logs[0], /reclaim full FAILED: database is locked/);
+  assert.doesNotMatch(logs[0], /full 12 ms/, 'the duration of a failure must not stand in for success');
+  assert.equal(res.ok, false);
+});
+
+test('nothing worth doing is "none", not "deferred" — there is no later pass waiting', () => {
+  // Small waste and no incremental mode: the steady state of every database created before #430, so
+  // this is the line its owner reads at every launch. "deferred" promised something that never comes.
+  const { logs } = makeCtx({ freeBefore: 0, freeAfterMerge: 1000, autoVacuum: 0, sessions: 0 });
+  const res = upkeep.runUpkeep({ force: true });
+  assert.equal(res.form, 'none');
+  assert.match(logs[0], /reclaim none \(waste is below the threshold\)/);
+});
+
+test('"deferred" is only used where something IS worth doing and cannot be', () => {
+  // It takes BOTH: a live session (so the exclusive form waits) and a database with no incremental mode
+  // (so there is no cheap form to fall back on). With nothing running, the full form runs whatever the
+  // mode is — a VACUUM needs no auto_vacuum — so there is no reachable state where the reason is a guess.
+  const both = makeCtx({ freeBefore: 0, freeAfterMerge: 20000, autoVacuum: 0, sessions: 1 });
+  assert.equal(upkeep.runUpkeep({ force: true }).form, 'deferred');
+  assert.match(both.logs[0], /a session is running, and this database has no incremental mode/);
+
+  const nothingRunning = makeCtx({ freeBefore: 0, freeAfterMerge: 20000, autoVacuum: 0, sessions: 0 });
+  assert.equal(upkeep.runUpkeep({ force: true }).form, 'full', 'no mode needed for the full form');
+  assert.doesNotMatch(nothingRunning.logs[0], /deferred/);
+});
+
+test('an incremental pass under a running session says what is still owed', () => {
+  const { logs } = makeCtx({ freeBefore: 0, freeAfterMerge: 20000, autoVacuum: 2, sessions: 1 });
+  assert.equal(upkeep.runUpkeep({ force: true }).form, 'incremental');
+  assert.match(logs[0], /full vacuum deferred — a session is running/);
 });

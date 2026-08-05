@@ -59,26 +59,41 @@ function runUpkeep({ force = false } = {}) {
   const sessionsRunning = ctx.activeSessions ? ctx.activeSessions.size : 0;
   const wantsFull = ctx.db.needsFullVacuum(afterMerge);
 
+  // FOUR outcomes, and each one has to be its own word — `deferred` used to double as "nothing was
+  // worth doing", which is the steady state of every database created before #430 and read as a promise
+  // that something would happen later. It says only what it means now: wanted the exclusive form,
+  // could not have it.
   let reclaim = { ok: true, ms: 0, reclaimedBytes: 0 };
   let form = 'none';
+  let why = '';
+  const canIncremental = ctx.db.autoVacuumMode() === 2;
   if (wantsFull && sessionsRunning === 0) {
     form = 'full';
     reclaim = ctx.db.fullVacuum();
-  } else if (afterMerge.freelist > 0) {
-    // Either the waste is small, or a session is live and the exclusive form is deferred to the next
-    // launch. The incremental pass needs auto_vacuum=INCREMENTAL, which only a database created since
-    // #430 has — on an older one it reclaims nothing and says so, rather than pretending.
-    form = ctx.db.autoVacuumMode() === 2 ? 'incremental' : 'deferred';
-    if (form === 'incremental') reclaim = ctx.db.incrementalVacuum();
+  } else if (afterMerge.freelist > 0 && canIncremental) {
+    form = 'incremental';
+    reclaim = ctx.db.incrementalVacuum();
+    if (wantsFull) why = ' (full vacuum deferred — a session is running)';
+  } else if (wantsFull) {
+    // Worth reclaiming and neither form available. Only reachable with a session live — with nothing
+    // running the first branch already took the full form, whatever this database's mode is — so the
+    // reason is not a guess: the exclusive one waits for the session, the cheap one does not exist here.
+    form = 'deferred';
+    why = ' (a session is running, and this database has no incremental mode)';
+  } else {
+    // Nothing worth doing. Not deferred: there is no later pass waiting to happen.
+    why = afterMerge.freelist > 0 ? ' (waste is below the threshold)' : '';
   }
 
   const after = ctx.db.freeSpace();
-  const deferredWhy = form === 'deferred'
-    ? (wantsFull ? (sessionsRunning ? ' (a session is running)' : ' (no incremental mode on this database)') : '')
-    : (wantsFull && sessionsRunning ? ' (full vacuum deferred — a session is running)' : '');
+  // A reclaim that THREW must not read like one that worked — compact.js times its own failure, so
+  // `reclaim.ms` is set either way and printing it alone said "done" for a vacuum that never ran.
+  const reclaimText = reclaim.ok
+    ? form + (reclaim.ms ? ' ' + reclaim.ms + ' ms' : '') + why
+    : form + ' FAILED: ' + reclaim.error;
   ctx.log.info(
     `[db-upkeep] merge ${merge.ok ? merge.ms + ' ms' : 'FAILED: ' + merge.error} · ` +
-    `reclaim ${form}${reclaim.ms ? ' ' + reclaim.ms + ' ms' : ''}${deferredWhy} · ` +
+    `reclaim ${reclaimText} · ` +
     `${mb(before.totalBytes)} -> ${mb(after.totalBytes)}, ${mb(after.freeBytes)} free`,
   );
 
