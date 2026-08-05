@@ -3488,3 +3488,35 @@ test('#425: a queued focus is dropped when that session is no longer on top', as
     assert.equal(s2.focusCalls.length, 1);
   } finally { h.destroy(); }
 });
+
+// --- #436: a reorder along the tab row is not a split across the whole area ---
+//
+// #376's sliver of the outer band crosses the tab strip so the area's TOP edge is sayable at all.
+// The reorder gesture runs along exactly that line, so the tabs themselves must not answer it.
+
+test('#436: a point over the tabs answers "reorder", not a split across the whole area', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    await h.open('live-2');
+    stubPaneGeometry(h);
+    // Two tabs along the left half of a strip 800 wide — the empty space beside them is the band's.
+    const tabs = [...h.document.querySelectorAll('.pane-strip .session-tab')];
+    tabs.forEach((el, i) => {
+      el.getBoundingClientRect = () => ({
+        left: i * 150, top: 0, width: 150, height: 30,
+        right: (i * 150) + 150, bottom: 30, x: i * 150, y: 0,
+      });
+    });
+
+    // Inside the 10 px sliver, but over the first tab's right half: the gap after it.
+    assert.deepEqual({ ...h.panes.dropTargetAt(100, 5) }, { kind: 'tab', leafId: 'pane-1', index: 1 });
+    // Beside the tabs, same height: the band is untouched, so the top edge stays reachable.
+    assert.deepEqual({ ...h.panes.dropTargetAt(500, 5) }, { kind: 'root', zone: 'up' });
+    // Beside the tabs but PAST the sliver: the strip appends, and the container's 36 px band must not
+    // answer over it. Both depths reach this point, so this is the one that tells them apart — and a
+    // probe that said "root split" here would highlight a layout the local drop does not perform.
+    assert.deepEqual({ ...h.panes.dropTargetAt(500, 15) }, { kind: 'tab', leafId: 'pane-1', index: -1 });
+  } finally { h.destroy(); }
+});

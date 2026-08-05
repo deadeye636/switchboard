@@ -2726,6 +2726,40 @@ window.__sessionDragId = null;
   }
 
   /**
+   * Which outer zone a point in the STRIP is in — and never one over the tabs themselves (#436).
+   *
+   * The strip sits along the top of the pane area, so #376's sliver of the outer band crosses the tab
+   * row, and a reorder drag travels exactly along that line. The result was a root-split preview
+   * across the whole area during a gesture that only means "put this tab in that gap". A drag over a
+   * tab is a reorder and nothing else; the band keeps the strip's empty space, where no reorder
+   * happens, so the top edge stays sayable.
+   */
+  function stripOuterZoneAt(list, point) {
+    if (overTabRow(list, point)) return null;
+    return outerZoneAt(point, OUTER_BAND_STRIP_PX);
+  }
+
+  /** Is this point inside some pane's strip? Then that strip reads it, not the container's band. */
+  function insideAnyStrip(point) {
+    if (!terminalsEl) return false;
+    for (const strip of terminalsEl.querySelectorAll('.pane-strip')) {
+      if (hits(strip, point.clientX, point.clientY)) return true;
+    }
+    return false;
+  }
+
+  /** Is this point over the tabs' own column, rather than the empty space beside them? */
+  function overTabRow(list, point) {
+    const tabs = list ? list.querySelectorAll('.session-tab') : [];
+    if (!tabs.length) return false;
+    // The whole column, not the tab boxes: the strip has padding above them, and a point there is
+    // still aimed at the tab under it.
+    const first = tabs[0].getBoundingClientRect();
+    const last = tabs[tabs.length - 1].getBoundingClientRect();
+    return point.clientX >= first.left && point.clientX <= last.right;
+  }
+
+  /**
    * The outer band, wired once on the CONTAINER (#376).
    *
    * The band runs along the edge of the whole area, and parts of that edge are not a pane: a sash
@@ -2776,14 +2810,22 @@ window.__sessionDragId = null;
   function dropTargetAt(clientX, clientY) {
     if (!enabled || !tree) return null;
     const point = { clientX, clientY };
-    const outer = outerZoneAt(point);
+    // A point in a STRIP is read by that strip, never by the container's band (#436). The band
+    // reaches 36 px into an area whose top 35 are the strip, so asking it first answered "split
+    // across everything" for points the strip itself takes — over a tab as a reorder, and past its
+    // own 10 px sliver as an append. A local drag gives the strip that priority by claiming the
+    // event; this is the same rule for the probe, which has no event to claim.
+    const outer = insideAnyStrip(point) ? null : outerZoneAt(point);
     if (outer) return { kind: 'root', zone: outer };
     for (const pane of terminalsEl.querySelectorAll('.pane')) {
       const leafId = pane.dataset.paneId;
       if (!leafId) continue;
       const strip = pane.querySelector('.pane-strip');
       if (strip && hits(strip, clientX, clientY)) {
-        const stripOuter = outerZoneAt(point, OUTER_BAND_STRIP_PX);
+        // Same reading as a local drag over this strip (#436) — the far window has to answer what a
+        // drop will do, and a probe that still said "root split" here would highlight one layout and
+        // perform another.
+        const stripOuter = stripOuterZoneAt(strip.querySelector('.session-tabs-list'), point);
         if (stripOuter) return { kind: 'root', zone: stripOuter };
         for (const el of strip.querySelectorAll('.session-tab')) {
           if (!hits(el, clientX, clientY)) continue;
@@ -2864,10 +2906,14 @@ window.__sessionDragId = null;
         if (!isOurDrag(e)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
+        // Claimed here, exactly as the drop below is (#436). Letting it bubble put the container's
+        // 36 px band over the strip's own 10 px sliver, so the hint was drawn from one reading and
+        // the drop performed the other.
+        e.stopPropagation();
         // A sliver of the outer band reaches into the strip (#376) so the TOP edge of the area is
         // sayable at all — the strip covers it everywhere else. Only a sliver: the strip is a target
         // in its own right and the tabs have to stay easier to hit than the band above them.
-        const outer = outerZoneAt(e, OUTER_BAND_STRIP_PX);
+        const outer = stripOuterZoneAt(list, e);
         if (outer) showOuterHint(outer);
         else { clearOuterHint(); showTabCaret(list, endCaretEdge(list)); }
       });
@@ -2878,7 +2924,7 @@ window.__sessionDragId = null;
         if (!isOurDrag(e)) return;
         e.preventDefault();
         const sessionId = isSessionDrag(e) ? window.__sessionDragId : null;
-        const outer = outerZoneAt(e, OUTER_BAND_STRIP_PX);
+        const outer = stripOuterZoneAt(list, e);
         clearDropFeedback();
         e.stopPropagation(); // handled here — the container's outer-band listener must not repeat it
         if (outer) {
