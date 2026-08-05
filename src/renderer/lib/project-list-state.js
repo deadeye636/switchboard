@@ -13,19 +13,12 @@
     Object.assign(root, factory());
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
-  // A listing attempt, as one of three answers. `empty` is a RESULT, not a failure: an install with no
-  // projects renders as empty and must carry no warning.
-  function projectListState({ ok, projects }) {
-    if (!ok) return 'unknown';
-    return (projects && projects.length) ? 'loaded' : 'empty';
-  }
-
-  // May what is already on screen be replaced by this answer? Only a real one — an unknown list leaves
-  // the previous paint alone, because a wrong empty sidebar is worse than a stale one.
-  function replacesExistingList(state) {
-    return state === 'loaded' || state === 'empty';
-  }
-
+  // This module held two more functions — a three-state classifier and a "may this replace the list"
+  // predicate — and a verifier pointed out that nothing called them. `loadProjects` expresses the same
+  // rule as control flow (the failure path returns before it assigns), which is the honest place for it,
+  // and the tests over the unused pair would have stayed green through a break in the real thing. Better
+  // no abstraction than one that only exists to be tested.
+  //
   // What the user is told. Short enough for the sidebar's one line; the cause rides in the tooltip,
   // because it is a developer's sentence and the line above it has to stay readable.
   //
@@ -44,5 +37,5 @@
       };
   }
 
-  return { projectListState, replacesExistingList, projectsFailureNotice };
+  return { projectsFailureNotice };
 });

@@ -1027,7 +1027,13 @@ function showProjectsError(err) {
   el.style.display = '';
   // The status bar too — the sidebar line is easy to miss when the window is scrolled, and this is the
   // one channel that already carries "something happened" for the whole app.
+  //
+  // Cancelling `activityTimer` first is not tidiness: onStatusUpdate schedules a clear for whatever it
+  // last wrote (3 s after a `done`, immediately for an empty text), and that timer does not check what
+  // is in the element when it fires. A status message that arrived a moment before this failure would
+  // therefore wipe this one — silently, and only sometimes, which is the worst kind.
   if (statusBarActivity) {
+    if (activityTimer) { clearTimeout(activityTimer); activityTimer = null; }
     statusBarActivity.textContent = 'Project list unavailable';
     statusBarActivity.className = '';
   }

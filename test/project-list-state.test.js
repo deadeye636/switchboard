@@ -10,30 +10,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const {
-  projectListState, replacesExistingList, projectsFailureNotice,
-} = require('../src/renderer/lib/project-list-state');
-
-test('an empty install is a RESULT, not a failure', () => {
-  assert.equal(projectListState({ ok: true, projects: [] }), 'empty');
-  assert.equal(projectListState({ ok: true, projects: undefined }), 'empty');
-});
-
-test('a listing that arrived is loaded', () => {
-  assert.equal(projectListState({ ok: true, projects: [{ projectPath: '/x' }] }), 'loaded');
-});
-
-test('a failed read is unknown — the one state that did not exist before', () => {
-  assert.equal(projectListState({ ok: false }), 'unknown');
-  assert.equal(projectListState({ ok: false, projects: [] }), 'unknown',
-    'even carrying an empty array: how it got here is what decides');
-});
-
-test('only a real answer may replace what is on screen', () => {
-  assert.equal(replacesExistingList('loaded'), true);
-  assert.equal(replacesExistingList('empty'), true, 'a genuinely empty install must be able to empty it');
-  assert.equal(replacesExistingList('unknown'), false, 'a wrong empty sidebar is worse than a stale one');
-});
+const { projectsFailureNotice } = require('../src/renderer/lib/project-list-state');
+const fs = require('node:fs');
+const path = require('node:path');
 
 // The wording is not decoration here: with a list on screen the reassuring half is true, and on a first
 // load that failed the same sentence would be a lie about an empty sidebar.
@@ -57,4 +36,40 @@ test('both branches always offer the retry, because the click is the only way ba
   for (const hadList of [true, false]) {
     assert.match(projectsFailureNotice(new Error('x'), hadList).title, /Click to try again/);
   }
+});
+
+// The guarantee this issue is actually about lives in `loadProjects`, as control flow: the failure path
+// returns BEFORE it assigns, so the pending-session reconciliation below it never runs against a list
+// that failed. app.js is a classic script that cannot be required, so this reads it as text.
+//
+// That makes it a WIRING GUARD, not a behaviour test — it sees that the early return is still there, not
+// that the app does the right thing with it. The behaviour was verified by breaking the store under a
+// running app (rename session_cache, refresh, sidebar keeps its rows). Re-verify that way after touching
+// this function; a green line here is not a substitute.
+test('loadProjects still returns from its failure path before assigning the list', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const start = src.indexOf('async function loadProjects(');
+  assert.ok(start !== -1, 'loadProjects was renamed — update this guard');
+
+  // The getProjects call and its catch, up to the generation check that follows them.
+  const region = src.slice(start, start + 3000);
+  const catchAt = region.indexOf('} catch (err) {');
+  assert.ok(catchAt !== -1, 'the listing is no longer wrapped — #431 depends on it being caught here');
+  const catchBody = region.slice(catchAt, region.indexOf('\n  }', catchAt));
+
+  assert.match(catchBody, /\breturn\b/, 'the failure path must leave before the assignment below it');
+  assert.doesNotMatch(catchBody, /cachedProjects\s*=/, 'nothing may replace the list on a failed read');
+  assert.match(catchBody, /showProjectsError\(/, 'and the failure has to be said out loud');
+  assert.match(catchBody, /myGen !== loadProjectsGen/, 'a stale failure must not overwrite a newer answer');
+});
+
+// The reconciliation is the specific thing that must not run: against a list that failed, every pending
+// id looks absent and every pending session is re-injected as if its launch were still in flight.
+test('the pending-session reconciliation sits after the failure path, not before it', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const start = src.indexOf('async function loadProjects(');
+  const catchAt = src.indexOf('} catch (err) {', start);
+  const reconcileAt = src.indexOf('for (const [sid, pending] of [...pendingSessions])', start);
+  assert.ok(reconcileAt !== -1, 'the reconciliation loop moved — re-check that the failure path still skips it');
+  assert.ok(catchAt < reconcileAt, 'it must be reachable only past the catch that returns');
 });
