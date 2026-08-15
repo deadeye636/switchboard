@@ -70,8 +70,9 @@
   },
   "overrides": {
     "node-gyp": "13.0.0",
-    "brace-expansion@1": "1.1.16",
-    "brace-expansion@2": "2.1.2"
+    "brace-expansion@1": "1.1.18",
+    "brace-expansion@2": "2.1.4",
+    "js-yaml@4": "4.3.1"
   },
   "build": {
     "appId": "ai.doctly.switchboard",
