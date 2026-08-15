@@ -269,6 +269,16 @@ Smaller but important changes (mostly in main/Node-side files).
 - **Restore open sessions** across a normal quit/relaunch, with a one-shot restore
   on app restart (`src/renderer/shell/update-restart.js`; originally built for auto-update
   relaunches — the auto-updater itself has since been removed from this fork).
+  Restored is what was **running**, not only what had a tab (#438) — and the two come back
+  differently, because the goal is the state at quit rather than a busier one:
+  - a session that had a **tab** is reopened with its tab, as before;
+  - a session that was only **running** (its tab closed, its CLI still going — the quit guard already
+    counts it) gets its **process back and no tab**. The sidebar marks it running and a click
+    reattaches it with its scrollback, exactly as before the quit.
+
+  A window of its own restores its own sessions the same way, telling the two apart by its saved pane
+  arrangement. A plain terminal stays excluded: it has no transcript, so a reopened one would be a
+  fresh shell wearing the old session's name.
 
 ### Session/cache correctness
 - **Reconcile the cache with the filesystem** on `get-projects` so sessions stop

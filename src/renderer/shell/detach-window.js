@@ -165,11 +165,13 @@ if (isOwnWindow) document.body.classList.add('detached-window');
   /**
    * Put back what this window held when the app last quit (#371).
    *
-   * Answers whether it had anything to put back. The sessions are MOUNTED, which resumes their CLI —
-   * that is what restoring a session means, and it is what the main window has always done with its
-   * own set. It is deliberately not what an ADOPT does: a session moving between windows must never
-   * start a process the user stopped, because there the user asked to move a window, not to launch.
-   * Here they asked for their windows back.
+   * Answers whether it had anything to put back. A session that had a tab here is MOUNTED, which
+   * resumes its CLI — that is what restoring a session means, and it is what the main window has always
+   * done with its own set. One that was only RUNNING here gets its process back and no tab (#438), the
+   * same answer the main window gives, so a window comes back holding what it held.
+   * None of this is what an ADOPT does: a session moving between windows must never start a process the
+   * user stopped, because there the user asked to move a window, not to launch. Here they asked for
+   * their windows back.
    */
   async function restoreThisWindow() {
     let payload = null;
@@ -188,6 +190,15 @@ if (isOwnWindow) document.body.classList.add('detached-window');
       window.panesView?.applyRestoredLayout?.(payload.layout.tree, payload.layout.activeLeafId);
     }
 
+    // Which of them actually had a TAB here (#438). Main knows this window owned them; only the
+    // arrangement says which were on screen, because closing a tab leaves the session running and
+    // owned. Those come back the way they were: process started, nothing mounted.
+    // No layout at all means nothing to tell them apart — then every session had a tab, which is what
+    // the restore assumed before this window ever kept an arrangement.
+    const tabbed = (payload.layout && window.panesView?.sessionIdsInLayout)
+      ? new Set(window.panesView.sessionIdsInLayout() || [])
+      : null;
+
     let first = null;
     for (const id of sessions) {
       // The same budget the boot path gives its own session: the index is being scanned while this
@@ -198,6 +209,12 @@ if (isOwnWindow) document.body.classList.add('detached-window');
         // still has this window down as the one rendering it, so hand the claim back rather than
         // leaving it routed at a window that shows it nowhere.
         try { await window.api.releaseSessionClaim(id); } catch { /* nothing to hand back to */ }
+        continue;
+      }
+      if (tabbed && !tabbed.has(id)) {
+        // Ran here without being shown. The claim stays with this window — it is still where this
+        // session belongs, and that is what routes its output and a sidebar click back here.
+        if (typeof startSessionProcess === 'function') await startSessionProcess(session);
         continue;
       }
       await mountOnce(session, !first);

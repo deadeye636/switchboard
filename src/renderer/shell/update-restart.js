@@ -13,33 +13,61 @@
   // kept under a distinct key so the two restore paths never clobber each other.
   const OPEN_SESSIONS_STATE_KEY = 'persistedOpenSessions';
 
-  function collectUpdateRestartState(openSessions, { activeSessionId = null, gridViewActive = false } = {}) {
+  // What the next launch brings back, in TWO lists, because "what was open" and "what was running" are not
+  // the same state (#438). Closing a tab does not stop its process: the session stays live — counted by the
+  // quit guard, drawn as running in the sidebar — while nothing renders it. Collected from the tabs alone,
+  // the quit killed such a session and the next launch never started it again.
+  //
+  //   sessions — had a tab. Reopened with its tab, exactly as before.
+  //   headless — was only RUNNING. Its process is started again and nothing is mounted, so the app comes
+  //              back in the state it was closed in rather than in a busier one. The sidebar marks it
+  //              running and a click reattaches it with its scrollback.
+  //
+  // `running` is what the caller believes was live without a tab — it knows about detached windows, this
+  // does not. De-duplicated against the tabs, so a session that had both is a tab and nothing else.
+  function collectUpdateRestartState(openSessions, { activeSessionId = null, gridViewActive = false, running = [] } = {}) {
     const sessions = [];
+    const headless = [];
+    const seen = new Set();
+    const take = (session, into) => {
+      if (!session || !session.sessionId || !session.projectPath) return;
+      // A plain terminal has no transcript to resume — reopening one would be a fresh shell wearing the old
+      // session's name, which reads as "your work came back" when nothing did.
+      if (session.type === 'terminal') return;
+      if (seen.has(session.sessionId)) return;
+      seen.add(session.sessionId);
+      into.push({
+        sessionId: session.sessionId,
+        projectPath: session.projectPath,
+      });
+    };
     if (openSessions && typeof openSessions[Symbol.iterator] === 'function') {
       for (const [, entry] of openSessions) {
-        const session = entry?.session;
-        if (!session || entry.closed || session.type === 'terminal') continue;
-        if (!session.sessionId || !session.projectPath) continue;
-        sessions.push({
-          sessionId: session.sessionId,
-          projectPath: session.projectPath,
-        });
+        if (!entry || entry.closed) continue;
+        take(entry.session, sessions);
       }
     }
-    // Only a session we actually store can be focused again on the next launch.
-    // A plain terminal (filtered out above) or a session whose file is gone would
-    // otherwise leave the restore without a focus target.
+    for (const session of running || []) take(session, headless);
+    // Only a session we actually MOUNT can be focused again on the next launch. A plain terminal (filtered
+    // out above), a session whose file is gone, or one coming back headless would otherwise leave the
+    // restore pointing at something it is not going to show.
     const restorable = new Set(sessions.map((s) => s.sessionId));
     return {
       activeSessionId: restorable.has(activeSessionId) ? activeSessionId : null,
       gridViewActive: !!gridViewActive,
       sessions,
+      headless,
       savedAt: new Date().toISOString(),
     };
   }
 
+  // Worth acting on at all? A state carrying only headless entries still is: those processes have to be
+  // started even though no tab comes back with them. Tolerates a blob written before `headless` existed.
   function hasRestorableUpdateSessions(state) {
-    return !!state && Array.isArray(state.sessions) && state.sessions.length > 0;
+    if (!state) return false;
+    const tabs = Array.isArray(state.sessions) ? state.sessions.length : 0;
+    const bare = Array.isArray(state.headless) ? state.headless.length : 0;
+    return tabs + bare > 0;
   }
 
   // Resolve a persisted state blob into the concrete, de-duplicated list of

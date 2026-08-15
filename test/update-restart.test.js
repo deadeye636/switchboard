@@ -26,6 +26,71 @@ test('collectUpdateRestartState stores resumable Claude sessions only', () => {
   assert.equal(hasRestorableUpdateSessions(state), true);
 });
 
+// #438 — the state at quit is what was RUNNING, not only what had a tab, and the two come back
+// differently: a tab is reopened, a tabless process is only started again. Collecting from the tabs alone
+// meant the quit killed such a session and the next launch never resumed it.
+test('collectUpdateRestartState keeps a tabless running session apart from the tabs', () => {
+  const state = collectUpdateRestartState(new Map([
+    ['s1', { closed: false, session: { sessionId: 's1', projectPath: '/repo/a' } }],
+  ]), {
+    activeSessionId: 's1',
+    running: [{ sessionId: 's9', projectPath: '/repo/z' }],
+  });
+
+  assert.deepEqual(state.sessions, [{ sessionId: 's1', projectPath: '/repo/a' }]);
+  assert.deepEqual(state.headless, [{ sessionId: 's9', projectPath: '/repo/z' }]);
+});
+
+test('collectUpdateRestartState counts a session with both a tab and a process as a tab', () => {
+  const state = collectUpdateRestartState(new Map([
+    ['s1', { closed: false, session: { sessionId: 's1', projectPath: '/repo/a' } }],
+  ]), {
+    running: [{ sessionId: 's1', projectPath: '/repo/a' }],
+  });
+
+  assert.deepEqual(state.sessions, [{ sessionId: 's1', projectPath: '/repo/a' }]);
+  assert.deepEqual(state.headless, [], 'starting it a second time is the double-mount to avoid');
+});
+
+test('collectUpdateRestartState does not store a running plain terminal', () => {
+  // Nothing to resume — a reopened plain terminal is a fresh shell wearing the old session's name.
+  const state = collectUpdateRestartState(new Map(), {
+    running: [{ sessionId: 'term', projectPath: '/repo/c', type: 'terminal' }],
+  });
+
+  assert.deepEqual(state.sessions, []);
+  assert.deepEqual(state.headless, []);
+  assert.equal(hasRestorableUpdateSessions(state), false);
+});
+
+test('a state carrying only headless sessions is still worth restoring', () => {
+  // The case the issue is about: every tab was closed, the process kept going. There is nothing to mount
+  // and still something to do.
+  const state = collectUpdateRestartState(new Map(), {
+    activeSessionId: null,
+    running: [{ sessionId: 's9', projectPath: '/repo/z' }],
+  });
+
+  assert.deepEqual(state.sessions, []);
+  assert.deepEqual(state.headless, [{ sessionId: 's9', projectPath: '/repo/z' }]);
+  assert.equal(hasRestorableUpdateSessions(state), true);
+});
+
+test('a headless session is never the restore focus target', () => {
+  // It is not being mounted, so focusing it would leave the view pointing at nothing.
+  const state = collectUpdateRestartState(new Map(), {
+    activeSessionId: 's9',
+    running: [{ sessionId: 's9', projectPath: '/repo/z' }],
+  });
+
+  assert.equal(state.activeSessionId, null);
+});
+
+test('hasRestorableUpdateSessions reads a blob written before headless existed', () => {
+  assert.equal(hasRestorableUpdateSessions({ sessions: [{ sessionId: 's1', projectPath: '/a' }] }), true);
+  assert.equal(hasRestorableUpdateSessions({ sessions: [] }), false);
+});
+
 test('collectUpdateRestartState drops an activeSessionId that cannot be restored', () => {
   const openSessions = new Map([
     ['s1', { closed: false, session: { sessionId: 's1', projectPath: '/repo/a' } }],

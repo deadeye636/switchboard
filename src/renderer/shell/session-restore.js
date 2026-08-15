@@ -14,9 +14,12 @@
 //
 // What it reaches into, by file — it is THREE, not just app.js, and the header is the only import graph
 // this renderer has:
-//   app.js                     openSessions, activeSessionId, gridViewActive, sessionMap,
-//                              appGlobalSettings, restoreProgressEl, openSession,
+//   app.js                     openSessions, activeSessionId, gridViewActive, sessionMap, activePtyIds,
+//                              appGlobalSettings, restoreProgressEl, openSession, pollActiveSessions,
 //                              refreshSessionStatusViews
+//   dialogs/dialogs.js         resolveLaunchOptionsFor
+//   backends/backend-registry.js   sessionBackendId
+//   shell/detach-window.js     window.isSessionDetached
 //   views/grid-view.js         showGridView
 //   terminal/terminal-manager.js   showSession
 //   shell/update-restart.js    OPEN_SESSIONS_STATE_KEY, collectUpdateRestartState,
@@ -42,6 +45,26 @@ function restoreOpenSessionsEnabled() {
   return !(appGlobalSettings && appGlobalSettings.restoreSessionsOnLaunch === false);
 }
 
+// The sessions whose PROCESS is alive while nothing in this window renders them (#438). Closing a tab does
+// not stop the CLI — the sidebar still marks it running and the quit guard counts it among what the close
+// will end — so it is part of the state at quit and has to come back with the rest.
+//
+// Two exclusions, both about not mounting one PTY twice: a session that still has a live tab is already
+// collected from `openSessions`, and a session living in a window of its own is restored by THAT window
+// (#2) — taking it here would put a second xterm on it the moment both restores finish.
+function runningSessionsWithoutTab() {
+  if (typeof activePtyIds === 'undefined' || typeof sessionMap === 'undefined') return [];
+  const out = [];
+  for (const sessionId of activePtyIds) {
+    const entry = openSessions.get(sessionId);
+    if (entry && !entry.closed) continue;
+    if (typeof window.isSessionDetached === 'function' && window.isSessionDetached(sessionId)) continue;
+    const session = sessionMap.get(sessionId);
+    if (session) out.push(session);
+  }
+  return out;
+}
+
 // Synchronous (runs from beforeunload/pagehide) — must not await anything.
 function saveOpenSessionsState() {
   if (typeof collectUpdateRestartState !== 'function') return;
@@ -53,7 +76,11 @@ function saveOpenSessionsState() {
     try { localStorage.removeItem(OPEN_SESSIONS_STATE_KEY); } catch {}
     return;
   }
-  const state = collectUpdateRestartState(openSessions, { activeSessionId, gridViewActive });
+  const state = collectUpdateRestartState(openSessions, {
+    activeSessionId,
+    gridViewActive,
+    running: runningSessionsWithoutTab(),
+  });
   try {
     if (typeof hasRestorableUpdateSessions === 'function' && hasRestorableUpdateSessions(state)) {
       localStorage.setItem(OPEN_SESSIONS_STATE_KEY, JSON.stringify(state));
@@ -78,6 +105,30 @@ function setRestoreProgress(done, total) {
   if (count) { count.textContent = multi ? `${done} of ${total}` : ''; count.style.display = multi ? '' : 'none'; }
   if (track) track.style.display = multi ? '' : 'none';
   if (fill) fill.style.transform = `scaleX(${total > 0 ? done / total : 0})`;
+}
+
+// Start a session's process again WITHOUT mounting it (#438) — the other half of the restore. It is the
+// same IPC `attachRunningSession` uses, minus the terminal entry: main spawns the resume, buffers its
+// output as it does for any session nobody is looking at, and `session-ipc.js` drops `terminal-data` for a
+// session with no entry. A click then takes the ordinary reattach path and gets the scrollback replayed.
+//
+// The resume options mirror openSession/attachRunningSession, worktree stripped: resuming must reuse the
+// session's directory, never spin up a fresh worktree. They are resolved for THIS session's backend, or a
+// Claude model would be handed to `pi --model` (#225).
+async function startSessionProcess(session) {
+  const sessionId = session && session.sessionId;
+  const projectPath = session && session.projectPath;
+  if (!sessionId || !projectPath) return false;
+  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || '';
+  let resumeOptions = null;
+  try { resumeOptions = await resolveLaunchOptionsFor({ projectPath }, backendId); } catch {}
+  if (resumeOptions) { delete resumeOptions.worktree; delete resumeOptions.worktreeName; }
+  try {
+    const result = await window.api.openTerminal(sessionId, projectPath, false, resumeOptions);
+    return !!(result && result.ok);
+  } catch {
+    return false; // a session whose process cannot come back is still in the sidebar to click
+  }
 }
 
 async function restoreOpenSessionsOnLaunch() {
@@ -116,6 +167,14 @@ async function restoreOpenSessionsOnLaunch() {
     lookup: (id) => sessionMap.get(id),
     isOpen: (id) => openSessions.has(id),
   });
+  // The sessions that were running with no tab (#438). Same resolution, other list — `selectRestorableSessions`
+  // reads `sessions`, so the headless set is handed to it under that name.
+  const bareSessions = selectRestorableSessions({ sessions: state.headless }, {
+    lookup: (id) => sessionMap.get(id),
+    // Already mounted, or its process is somehow live already: either way, starting it again is the
+    // double-mount this whole area is careful about.
+    isOpen: (id) => openSessions.has(id) || (typeof activePtyIds !== 'undefined' && activePtyIds.has(id)),
+  });
 
   // Mount them all first, switch the view exactly once. The flag suppresses the
   // per-session status churn (refreshSessionStatusViews returns early) and keeps
@@ -128,12 +187,19 @@ async function restoreOpenSessionsOnLaunch() {
   // never `display` — a container without layout measures 0×0 and safeFit would
   // fit the terminal to garbage dimensions.
   document.body.classList.add('restoring-sessions');
-  setRestoreProgress(0, uniqueSessions.length);
+  const total = uniqueSessions.length + bareSessions.length;
+  setRestoreProgress(0, total);
+  let done = 0;
+  let started = 0;
   try {
-    let done = 0;
     for (const session of uniqueSessions) {
       await openSession(session, null, { show: false });
-      setRestoreProgress(++done, uniqueSessions.length);
+      setRestoreProgress(++done, total);
+    }
+    // …and the tabless ones get their process back and nothing else.
+    for (const session of bareSessions) {
+      if (await startSessionProcess(session)) started++;
+      setRestoreProgress(++done, total);
     }
   } finally {
     window.__restoringOpenSessions = false;
@@ -142,10 +208,13 @@ async function restoreOpenSessionsOnLaunch() {
 
   const focusId = resolveRestoreFocusId(state, uniqueSessions, (id) => openSessions.has(id));
   if (focusId) showSession(focusId);
+  // A headless start is invisible until the poll notices the new PTY — without this the session it just
+  // resumed is drawn as idle in the sidebar, which is the one thing the user has to see to know it ran.
+  if (started && typeof pollActiveSessions === 'function') { try { await pollActiveSessions(); } catch {} }
   // Statuses were gated for the whole restore — bring the sidebar, panes and grid
   // up to date once now that the full set is open.
   refreshSessionStatusViews();
-  return uniqueSessions.length > 0;
+  return uniqueSessions.length > 0 || started > 0;
 }
 
 // Persist on the renderer unload that accompanies an ordinary quit. localStorage
