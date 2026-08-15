@@ -20,6 +20,8 @@
 //   'none'       → right-click does nothing
 //
 // Depends on globals: openFileInPanel (file-panel.js), window.api.
+// `pasteIntoTerminal` / `insertResolvedText` live here but are the app's paste path: terminal/variable-palette.js
+// and panels/variables-panel.js call them too, so a variable inserts the same way from every surface.
 // Pure helpers (fileUriToPath / classifyLinkUri / buildTerminalMenuItems) are
 // unit-tested; showTerminalContextMenu does the DOM rendering.
 
@@ -124,6 +126,38 @@ function pasteIntoTerminal(terminal, sessionId, text) {
   if (terminal && typeof terminal.paste === 'function') terminal.paste(text);
 }
 
+// Place a RESOLVED variable's text in the terminal. The one entry point for all three insert surfaces (the
+// palette, the quick-pick, the context menu), because the multi-line answer has to be the same in each.
+//
+// Main no longer refuses a line break (that made a multi-line prompt uninsertable), so the paste is what
+// keeps it from being read as Enter. Where the program has bracketed-paste mode off there is no wrapper to
+// hide behind — xterm's own paste() normalizes every newline to \r, i.e. submits — so the breaks collapse to
+// spaces instead. The insert lands either way; only its layout changes.
+//
+// `submit` sends the Enter SEPARATELY, after the paste has closed. Appending it to the text would put it
+// inside the bracketed packet, where it is just another character of the pasted block. It also goes only
+// when the text ITSELF went — a bare Enter on a session whose text was dropped submits whatever the
+// composer already held.
+//
+// A session can be running without this window holding an xterm for it, and `terminal.paste()` is a local
+// call: without the IPC fallback the text would vanish with no error. The quick-pick used to write straight
+// through `sendInput`, so this is the one thing that path relied on. Returns whether the text was delivered.
+function insertResolvedText(terminal, sessionId, text, { trailing = '', submit = false } = {}) {
+  if (typeof text !== 'string' || !text) return false;
+  const bracketed = !!(terminal && terminal.modes && terminal.modes.bracketedPasteMode);
+  const body = (bracketed && sessionId) ? text : text.replace(/[\r\n]+/g, ' ');
+  const payload = body + trailing;
+  if (terminal && (bracketed || typeof terminal.paste === 'function')) {
+    pasteIntoTerminal(terminal, sessionId, payload);
+  } else if (sessionId) {
+    window.api.sendInput(sessionId, payload); // no xterm here — the breaks are already collapsed
+  } else {
+    return false;
+  }
+  if (submit && sessionId) window.api.sendInput(sessionId, '\r');
+  return true;
+}
+
 // Fetch saved variables for the session's project and group them by scope for
 // the Variables submenu. Returns [] on any error (submenu then shows Manage only).
 async function fetchVariableGroups(projectPath) {
@@ -155,7 +189,7 @@ async function runTerminalMenuAction(id, ctx) {
       // without inline-ref support.
       const res = await window.api.resolveVariableInsert(varId, sessionId);
       if (res && res.ok && typeof res.text === 'string') {
-        pasteIntoTerminal(terminal, sessionId, res.text);
+        insertResolvedText(terminal, sessionId, res.text);
       } else if (res && res.fallback === 'copy') {
         await window.api.writeClipboard(res.value || '');
         window.showControlToast?.({ message: "Secret copied — paste manually (shell doesn't support inline refs)", timeoutMs: 3000 });
@@ -533,6 +567,7 @@ if (typeof module !== 'undefined' && module.exports) {
     classifyLinkUri,
     buildTerminalMenuItems,
     pasteIntoTerminal,
+    insertResolvedText,
     runTerminalMenuAction,
     showTerminalContextMenu,
     closeTerminalContextMenu,

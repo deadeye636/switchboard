@@ -167,10 +167,22 @@ so the one security-relevant question here ("can this shell read a file inline?"
 *told*. It was also derived from the wrong setting: the project's CLI shell (`shellProfile`) answers for a
 plain terminal that spawned with `terminalShellProfile`.
 
-**Multi-line and control characters are refused.** A composed newline is typed as Enter and runs whatever
-precedes it; an ESC byte reaches the PTY raw (the quick-pick sends resolved text through `sendInput` with no
-bracketed-paste guard). Multi-line content is what `{path}` is for. *This means composing a multi-line ssh
-key inline is not supported — it never was safe.*
+**Control characters are refused; a line break is carried where it can be.** An ESC byte is out in every
+case — pasted or typed, the terminal parses it. A newline used to be refused for the same reason, which made
+the ordinary use of a template — a multi-line **prompt** for the CLI — impossible to insert at all. Two
+things changed instead of that rule:
+
+- **Every insert surface pastes, it does not type.** The quick-pick was the one still writing resolved text
+  through `sendInput` raw, which is what the old refusal was protecting. All three (palette, quick-pick,
+  context menu) now go through `insertResolvedText` in `src/renderer/terminal/terminal-context-menu.js`:
+  bracketed paste where the program supports it, and where it does not, the breaks collapse to spaces —
+  xterm's own `paste()` normalizes a newline to `\r`, which is Enter. `send` mode's Enter is a **separate**
+  write after the packet closed, or it would be one more character of the pasted block.
+- **An insert that materializes a temp file still collapses them**, in main. A `{ref}` is one shell word on
+  one command line, so a break there submits the half in front of it. `{path}` remains the way to hand a
+  multi-line **value** to a command; what is new is that a multi-line **template** inserts as text.
+
+*Composing a multi-line ssh key inline is still not supported — that is the `{path}` case above.*
 
 **Fallback on a shell with no inline read** (cmd/WSL/unknown): the **root's** own `{ref}` still falls back to
 a clipboard copy — the user asked for that variable, so handing them its value to paste is the consent they

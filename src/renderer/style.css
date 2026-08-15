@@ -9602,7 +9602,9 @@ body.pane-sashing .terminal-container { pointer-events: none; }
 .va-value-wrap { position: relative; }
 .va-value-input { width: 100%; min-height: 64px; resize: vertical; font-family: inherit; }
 .va-value-input.secret-masked { -webkit-text-security: disc; }
-.va-template-input { width: 100%; min-height: 36px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* A template is as often a multi-line prompt as it is a one-line shell fragment, so the field starts at six
+   rows. The floor is doubled with it — dragging the handle to the old 36px hid all but one line. */
+.va-template-input { width: 100%; min-height: 72px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .va-eye {
   position: absolute;
   top: 6px;

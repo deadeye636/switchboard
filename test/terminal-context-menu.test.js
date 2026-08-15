@@ -139,6 +139,72 @@ test('pasteIntoTerminal: multiline without bracketed mode → terminal.paste', (
   assert.strictEqual(term.pasted, 'a\nb');
 });
 
+// ── insertResolvedText ───────────────────────────────────────────────
+// Main stopped refusing a resolved variable that holds a line break (a multi-line prompt in a template was
+// otherwise uninsertable), so this function is what keeps such a text from being READ as Enter.
+
+test('insertResolvedText: multiline + bracketed → one bracketed packet, breaks intact', () => {
+  const sent = [];
+  const savedWindow = global.window;
+  global.window = { api: { sendInput: (id, d) => sent.push([id, d]) } };
+  try {
+    const term = { modes: { bracketedPasteMode: true }, paste(t) { this.pasted = t; } };
+    menu.insertResolvedText(term, 's1', 'look at this\nand report', { trailing: ' ' });
+    assert.deepStrictEqual(sent, [['s1', '\x1b[200~look at this\nand report \x1b[201~']]);
+    assert.strictEqual(term.pasted, undefined);
+  } finally { global.window = savedWindow; }
+});
+
+test('insertResolvedText: no bracketed mode → the breaks become spaces, nothing is submitted', () => {
+  // xterm's own paste() normalizes every newline to \r, which IS Enter. Collapsing is what lets the text
+  // arrive at all — the alternative was main refusing the insert.
+  const sent = [];
+  const savedWindow = global.window;
+  global.window = { api: { sendInput: (id, d) => sent.push([id, d]) } };
+  try {
+    const term = { modes: { bracketedPasteMode: false }, paste(t) { this.pasted = t; } };
+    menu.insertResolvedText(term, 's1', 'look at this\r\nand report', { trailing: ' ' });
+    assert.strictEqual(term.pasted, 'look at this and report ');
+    assert.strictEqual(sent.length, 0);
+  } finally { global.window = savedWindow; }
+});
+
+test('insertResolvedText: a running session with no xterm here still gets the text', () => {
+  // `terminal.paste()` is a local call. The quick-pick used to write through sendInput, which reaches the
+  // PTY whether or not THIS window mounted the session — dropping the text silently is not an option.
+  const sent = [];
+  const savedWindow = global.window;
+  global.window = { api: { sendInput: (id, d) => sent.push([id, d]) } };
+  try {
+    const ok = menu.insertResolvedText(null, 's1', 'look at this\nand report', { trailing: ' ' });
+    assert.strictEqual(ok, true);
+    assert.deepStrictEqual(sent, [['s1', 'look at this and report ']]);
+  } finally { global.window = savedWindow; }
+});
+
+test('insertResolvedText: no session id → nothing is sent, and no bare Enter', () => {
+  const sent = [];
+  const savedWindow = global.window;
+  global.window = { api: { sendInput: (id, d) => sent.push([id, d]) } };
+  try {
+    const ok = menu.insertResolvedText(null, null, 'text', { submit: true });
+    assert.strictEqual(ok, false);
+    assert.deepStrictEqual(sent, [], 'an Enter with no text submits whatever the composer already held');
+  } finally { global.window = savedWindow; }
+});
+
+test('insertResolvedText: submit sends Enter AFTER the paste closed, not inside it', () => {
+  const sent = [];
+  const savedWindow = global.window;
+  global.window = { api: { sendInput: (id, d) => sent.push([id, d]) } };
+  try {
+    const term = { modes: { bracketedPasteMode: true }, paste(t) { this.pasted = t; } };
+    menu.insertResolvedText(term, 's1', 'first\nsecond', { submit: true });
+    assert.deepStrictEqual(sent, [['s1', '\x1b[200~first\nsecond\x1b[201~'], ['s1', '\r']],
+      'an Enter inside the packet would be one more character of the pasted block');
+  } finally { global.window = savedWindow; }
+});
+
 // ── DOM / action functions (jsdom + vm) ──────────────────────────────
 
 function setupMenuDom() {

@@ -555,8 +555,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
     plaintext, even when its own template says `{value}`: that consent was given for inserting *that*
     variable, at its own row, with its Secret pill — not for someone else's insert months later, where
     it would land in shell history, scrollback and the transcript the CLI uploads. It resolves through a
-    0600 temp file instead. Cycles, a 20-node cap, a composed line break and a **quoted** file reference
+    0600 temp file instead. Cycles, a 20-node cap, a control character and a **quoted** file reference
     are all refused before anything reaches the terminal.
+  - **A multi-line template inserts as text**: every surface pastes rather than types, so a template holding
+    a whole prompt arrives as one block and nothing is submitted. Only an insert that materializes a temp
+    file collapses its breaks to spaces — a file reference is one shell word on one command line.
   - **A template editor that shows what the insert will do** (#204): chips to place `{value}` / `{path}` /
     `{ref}` / another variable, and a live preview built with the **same functions the insert runs** — so
     it cannot drift from what will actually be produced. It needs no plaintext to do it. A file reference

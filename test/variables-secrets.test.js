@@ -12,8 +12,9 @@
 //  - the temp file holding a decrypted secret must be 0600;
 //  - EVERY failure path must unlink what the insert already wrote — a composed insert writes several
 //    files and can fail late, and the age sweep is off by default, so nothing else would collect them;
-//  - a resolved value containing a newline or ESC must never be inserted: it would be typed as Enter and
-//    run whatever precedes it.
+//  - a resolved value containing an ESC must never be inserted, and a newline must not survive an insert
+//    that materializes a temp file — there it would submit the half of the command line in front of it.
+//    A newline elsewhere is carried: the renderer pastes it, so a multi-line prompt in a template works.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -156,23 +157,42 @@ test('a shell that cannot read a file inline gets the clipboard fallback, and no
   assert.equal(fs.existsSync(path.join(ctx.dir, 'secret-refs')), false, 'nothing was materialized');
 });
 
-test('a value with a newline is refused, and the file it already wrote is gone', (t) => {
+test('a newline in an insert that writes a temp file collapses to a space — the command stays one line', (t) => {
   const ctx = setup(t, {
     rows: [secretRow({ value: enc('line1\nrm -rf /'), insertTemplate: '{path} {value}' })],
   });
 
   const out = variables.resolveVariableInsert('v1', 'sess-1');
-  assert.equal(out.ok, false);
-  assert.match(out.error, /line break or control character/);
-  assert.deepEqual(fs.readdirSync(path.join(ctx.dir, 'secret-refs')), [],
-    'the unwind ran — a newline would be typed as Enter and run what precedes it');
+  assert.equal(out.ok, true, out.error);
+  assert.ok(!/[\r\n]/.test(out.text), 'a break here would submit the half of the command in front of it');
+  assert.match(out.text, /line1 rm -rf \//, 'the text still arrives, on one line');
+  assert.equal(fs.readdirSync(path.join(ctx.dir, 'secret-refs')).length, 1, 'the {path} file is still the one it wrote');
 });
 
-test('an ESC byte is refused the same way — the quick-pick sends text to the PTY raw', (t) => {
-  setup(t, { rows: [secretRow({ value: enc('a\x1b[31mb'), insertTemplate: '{value}' })] });
+test('a multi-line template that materializes nothing keeps its breaks — the insert pastes them', (t) => {
+  // The reason this stopped being a refusal: a template holding a multi-line PROMPT (no {path}, no {ref})
+  // could not be inserted at all, and that is the ordinary way these are used.
+  const ctx = setup(t, {
+    rows: [{
+      id: 'v1', name: 'Review', secret: 0, scope: 'global', value: '', valueEncoding: 'plain',
+      insertTemplate: 'Look at this repo\nReport only, change nothing',
+    }],
+  });
+
+  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  assert.deepEqual(out, { ok: true, text: 'Look at this repo\nReport only, change nothing' });
+  assert.equal(fs.existsSync(path.join(ctx.dir, 'secret-refs')), false, 'nothing to materialize');
+});
+
+test('an ESC byte is still refused, and the file it already wrote is gone', (t) => {
+  // A control sequence has no safe way in: pasted it is still parsed by the terminal.
+  const ctx = setup(t, {
+    rows: [secretRow({ value: enc('a\x1b[31mb'), insertTemplate: '{path} {value}' })],
+  });
   const out = variables.resolveVariableInsert('v1', 'sess-1');
   assert.equal(out.ok, false);
-  assert.match(out.error, /line break or control character/);
+  assert.match(out.error, /control character/);
+  assert.deepEqual(fs.readdirSync(path.join(ctx.dir, 'secret-refs')), [], 'the unwind ran');
 });
 
 test('an insert with no running session resolves nothing', (t) => {

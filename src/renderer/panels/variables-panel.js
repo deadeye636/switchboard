@@ -13,6 +13,9 @@
 //
 // window.variablesInsert exposes applyVariable so the terminal context-menu
 // (terminal-context-menu.js) shares the exact same secret-safe path.
+//
+// Free globals it reaches for, at call time: `insertResolvedText` (terminal-context-menu.js) — the app's
+// one paste path, so a multi-line template arrives the same way from every surface.
 
 (function () {
   let popover = null;
@@ -64,8 +67,15 @@
       return false;
     }
 
-    window.api.sendInput(ctx.sessionId, text + (mode === 'send' ? '\n' : ''));
-    try { window._openSessions?.get(ctx.sessionId)?.terminal?.focus(); } catch {}
+    // PASTE it, never type it. This used to be a raw `sendInput`, which is why main refused any resolved
+    // text holding a line break: a break typed at a PTY is Enter, and it would have run the half of the
+    // command in front of it. A multi-line prompt in a template is the ordinary case, so the paste path
+    // (bracketed where the program supports it) is what carries it now — and `send` gets its Enter after
+    // the paste has closed, not inside it.
+    let terminal = null;
+    try { terminal = window._openSessions?.get(ctx.sessionId)?.terminal || null; } catch {}
+    insertResolvedText(terminal, ctx.sessionId, text, { submit: mode === 'send' });
+    try { terminal?.focus(); } catch {}
     return true;
   }
 

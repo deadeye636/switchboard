@@ -300,7 +300,7 @@
                 </select>
               </div>
             </div>
-            <textarea class="settings-input va-template-input" id="va-f-template" rows="3" autocomplete="off" spellcheck="false">${escapeHtml(form.insertTemplate)}</textarea>
+            <textarea class="settings-input va-template-input" id="va-f-template" rows="6" autocomplete="off" spellcheck="false">${escapeHtml(form.insertTemplate)}</textarea>
           </div>
           <div class="va-preview-head">
             <span>Preview</span>
@@ -510,11 +510,16 @@
       const textById = new Map();
       const offsetsById = new Map();
       let touchesSecret = false;
+      // Does any node write a temp file? That is the same question the insert answers with `written.length`,
+      // and it is what decides whether a line break can survive: a {ref} is one shell word on one command
+      // line, so there the breaks collapse to spaces.
+      let materializes = false;
       for (const nodeId of graph.order) {
         const node = nodesById.get(nodeId);
         const isRoot = nodeId === ROOT_ID;
         const tmpl = VI.finalTemplateFor(node, isRoot);
         if (node.secret) touchesSecret = true;
+        if (tmpl.includes('{path}') || tmpl.includes('{ref}')) materializes = true;
         if (!isRoot && node.secret && VI.effectiveTemplate(node).includes('{value}')) {
           notes.push(['info', `${node.name} is a secret — inserted as a file read, never as plaintext`]);
         }
@@ -564,7 +569,11 @@
           + (hit.nested ? ' The insert will refuse this.' : '')]);
       }
       if (VI.shellRefFor(previewShell, '') === null) notes.push(['warn', `This shell cannot read a file inline — {ref} falls back to a clipboard copy.`]);
-      if (/[\n\r]/.test(own.text)) notes.push(['error', 'The result contains a line break — use {path} for multi-line content. The insert will refuse this.']);
+      if (/[\n\r]/.test(own.text)) {
+        notes.push(materializes
+          ? ['warn', 'The result contains a line break and also reads a temp file — the insert collapses the breaks to spaces, so the command stays on one line.']
+          : ['info', 'The result contains line breaks. The insert pastes it as one block, so nothing is submitted; a program without bracketed-paste support gets the breaks as spaces.']);
+      }
       if (/\{var:(?![^{}]+\})/.test(tmpl)) notes.push(['warn', '{var: without a closing brace is treated as literal text.']);
 
       previewEl.innerHTML = highlightRefs(own.text, own.refOffsets, unsafe);

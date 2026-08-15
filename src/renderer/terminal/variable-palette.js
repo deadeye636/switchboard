@@ -19,7 +19,7 @@
 // clipboard write. Identical to what the context menu and the quick-pick already do.
 //
 // Free globals it reaches for, all at CALL time, so tag order does not decide them — guarded anyway:
-//   `pasteIntoTerminal`, `closeTerminalContextMenu`, `closeSelectionBar` (terminal-context-menu.js)
+//   `insertResolvedText`, `closeTerminalContextMenu`, `closeSelectionBar` (terminal-context-menu.js)
 //   `sessionMap` (app.js) · `escapeHtml` (lib/utils.js)
 //   `window.showControlToast` (dialogs/control-dialogs.js) · `window.openVariablesTab` (app.js)
 //   `window.api.listSavedVariables` / `.resolveVariableInsert` / `.writeClipboard` (preload.js)
@@ -286,8 +286,8 @@
         // An empty value would insert a lone space — say so instead of pretending something happened.
         if (!res.text) {
           window.showControlToast?.({ message: `“${variable.name}” is empty`, timeoutMs: 3000 });
-        } else if (typeof pasteIntoTerminal === 'function') {
-          pasteIntoTerminal(terminal, sessionId, res.text + ' ');
+        } else if (typeof insertResolvedText === 'function') {
+          insertResolvedText(terminal, sessionId, res.text, { trailing: ' ' });
         }
       } else if (res && res.fallback === 'copy') {
         await window.api.writeClipboard(res.value || '');

@@ -134,7 +134,7 @@ function trackSecretRef(filePath, sessionId) {
 }
 
 // Undo a track + delete the file. A composed insert can write several temp files and then fail — a nested
-// ref on a shell that cannot read one, a quoted ref, a line break in the result — and it must not leave the
+// ref on a shell that cannot read one, a quoted ref, a control character in the result — and it must not leave the
 // secrets it already wrote lying around. The age sweep is opt-in and off by default, so nothing else would
 // collect them until the session ends. Best-effort: an unlink that fails still gets untracked, since the
 // quit-time directory sweep is the backstop.
@@ -302,7 +302,7 @@ function resolveVariableInsert(id, sessionId) {
       refOffsetsById.set(p.nodeId, composed.refOffsets);
     }
 
-    const text = textById.get(root.id) ?? '';
+    let text = textById.get(root.id) ?? '';
     const refOffsets = refOffsetsById.get(root.id) || [];
 
     // Ref safety is a property of the FINISHED string: shellRefFor returns a complete, pre-quoted shell
@@ -323,13 +323,20 @@ function resolveVariableInsert(id, sessionId) {
       return { ok: false, error: `A referenced variable resolves to a file reference, but ${why} — remove the quotes around it. The reference is already a complete shell word.` };
     }
 
-    // A composed line break would be typed as Enter and run whatever precedes it. An ESC byte belongs here
-    // too: the quick-pick sends resolved text straight through `sendInput` with no bracketed-paste guard, so
-    // a control sequence in a value reaches the PTY raw. Multi-line content belongs in a file — {path}.
-    if (/[\n\r\x1b]/.test(text)) {
+    // An ESC byte stays refused: a control sequence has no safe way into a terminal, pasted or typed, and
+    // nothing a user writes in a template needs one.
+    if (/\x1b/.test(text)) {
       for (const f of written) untrackSecretRef(f, sessionId);
-      return { ok: false, error: `"${root.name}" resolves to text containing a line break or control character — use {path} for multi-line content.` };
+      return { ok: false, error: `"${root.name}" resolves to text containing a control character — remove it from the template.` };
     }
+
+    // A line break used to be refused the same way, which made the ordinary case — a multi-line PROMPT in a
+    // template that materializes nothing — impossible to insert at all. It is carried now: every insert path
+    // PASTES (bracketed where the program supports it), so the breaks arrive as text rather than as Enter.
+    // What still cannot carry one is an insert that wrote a temp file: {ref} composes a single shell word,
+    // and a break inside that command line submits the half in front of it. Those collapse to spaces — the
+    // insert lands either way, which is the point. The renderer collapses too where it cannot paste.
+    if (written.length) text = text.replace(/[\r\n]+/g, ' ');
 
     // `lastUsedAt` used to be written by the `use-saved-variables` handler, which was this column's ONLY
     // writer and which nothing ever called — so the column has been dead data. This is the honest place
