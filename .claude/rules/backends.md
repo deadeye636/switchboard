@@ -40,6 +40,20 @@ keeps its **plans + memory/instruction files** (`plansDir` / `memorySources`, #2
 **subagents** (`supportsSubagents`, #230 — only Claude does), and its CLI home variable
 (`cliHomeEnv`, #241).
 
+## The capability matrix is DECLARED, not derived (#439)
+
+`src/backends/capabilities.js` holds the catalog of "what can this backend do"; each descriptor answers
+every row with `yes` / `limited` / `no`, and a `limited` answer carries a note saying which half is
+missing. **Do not replace that with `typeof descriptor.hook === 'function'`** — nearly every hook exists
+on every backend, several of them precisely in order to decline (agy's `cliHomeEnv` returns null, Codex'
+`resolveLineage` returns null), so presence says a backend answered the question, not what it answered.
+
+Derivation stays as a *check*: `test/backend-capabilities.test.js` refuses a `yes` whose declaring field
+is absent, and pins every backend's every answer by name.
+
+**A new row means every backend answers it, declining included.** A row nobody answered renders as a
+visible gap rather than as a no — that is deliberate, not a bug to paper over.
+
 ## "Is something else already running this session?" is TWO hooks (#172)
 
 `liveOwnersCached()` reads a cache and **never spawns**; `refreshLiveOwners()` is the one that costs a

@@ -14,6 +14,7 @@ const { withMainProcessUsageCache } = require('./backends/usage-cache');
 const backends = require('./backends');
 const sessionBackends = require('./session/session-backends');
 const profiles = require('./backends/profiles');
+const backendCapabilities = require('./backends/capabilities');
 // Every spawn path goes through resolveSpawnEnv() below. User-owned unresolved $VAR refs are dropped AND
 // said (#169); backend-owned default auth refs may be dropped quietly because those CLIs can use login
 // stores instead.
@@ -1537,7 +1538,14 @@ ipcMain.handle('backends-list', () => {
       // does not carry this (nor `integrations`, nor `description`). That is fine and not an oversight —
       // the editor asks the BASE, off the built-ins, never the template's own descriptor.
       endpointEnv: b.endpointEnv || null,
+      // What this backend can do, one answer per catalog row (#439). Declared on the descriptor and
+      // normalised here, exactly like `usage` and `integrations`: the DECLARATION crosses IPC and the
+      // renderer draws whatever arrived, so a new backend is complete without touching the renderer.
+      capabilities: backendCapabilities.answersFor(b),
     })),
+    // The rows themselves, once per payload rather than once per backend — labels and descriptions live
+    // in the core so the renderer holds no capability table of its own.
+    capabilityCatalog: backendCapabilities.catalogForRenderer(),
     defaultLaunchTarget: backends.getDefaultLaunchTarget(),
   };
 });

@@ -531,6 +531,29 @@ module.exports = {
   // Anthropic's logo as a raw SVG string emitted only when the id read `claude`. A backend that names
   // no icon simply gets the monogram badge, which is still the norm.
   icon: 'anthropic',
+  // What this backend can do, row by row, for the capability matrix (#439). Declared rather than
+  // derived: nearly every hook exists on every backend, several of them in order to decline, so
+  // presence says a backend answered the question and not what it answered. `limited` carries the
+  // note explaining which half is missing; `src/backends/capabilities.js` holds the catalog.
+  capabilities: {
+    fork: 'yes',
+    deleteSessions: 'yes',
+    moveProject: 'yes',
+    transcriptHandoff: 'yes',
+    lineage: 'yes',
+    modelList: 'no',
+    endpoint: 'yes',
+    projectTrust: 'yes',
+    subagentSessions: 'yes',
+    liveOwners: 'yes',
+    liveRebinding: 'yes',
+    quota: 'yes',
+    resourceDiscovery: 'yes',
+    resourceDepth: { state: 'no', note: 'the directories are listed, not their contents' },
+    plans: 'yes',
+    projectConfig: 'yes',
+    viewportPaging: { state: 'no', note: 'its full-screen TUI owns the bare page keys' },
+  },
   configFields,
   buildLaunch,
   discoverSessions,

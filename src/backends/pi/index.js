@@ -386,6 +386,27 @@ module.exports = {
   // pass, with no error. A user chasing "why is it still on the old account" has no way to see that from
   // inside Switchboard, so say it where they configure it.
   caveat: 'If you have run `pi /login`, its stored OAuth account takes priority over any API key passed in — Pi will use the logged-in account, not the key.',
+  // The capability matrix's answers for Pi (#439) — declared, not derived from hook presence; see
+  // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
+  capabilities: {
+    fork: { state: 'limited', note: 'only after its first reply — Pi names its own sessions' },
+    deleteSessions: 'yes',
+    moveProject: 'yes',
+    transcriptHandoff: 'yes',
+    lineage: { state: 'limited', note: 'only a forked session names its parent' },
+    modelList: 'yes',
+    endpoint: 'no',
+    projectTrust: 'yes',
+    subagentSessions: 'no',
+    liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
+    liveRebinding: 'yes',
+    quota: { state: 'no', note: 'reports no plan allowance' },
+    resourceDiscovery: 'yes',
+    resourceDepth: 'yes',
+    plans: { state: 'no', note: 'keeps no plans store' },
+    projectConfig: 'no',
+    viewportPaging: 'yes',
+  },
   configFields,
   buildLaunch,
   probe,

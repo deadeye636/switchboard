@@ -387,6 +387,47 @@ A template inherits none of this: `profileToDescriptor` builds an explicit field
 `integrations` nor `endpointEnv` nor `description`. That is deliberate — a template has no gear page, and
 the profile editor asks the **base**, off the built-ins.
 
+## The capability matrix (#439)
+
+Each backend covers a different part of what the app can do, and until #439 the only way to see that was to
+click through five settings pages and notice which controls were missing. The matrix is one table: rows are
+capabilities, columns are backends, cells are `yes` / `limited` / `no`.
+
+**The answers are DECLARED, and that is the whole decision.** The obvious implementation reads
+`typeof descriptor.someHook === 'function'`, and it produces a table that is wrong. Nearly every hook exists
+on every backend — `plansDir`, `memorySources`, `resolveLineage`, `cliHomeEnv`, `transcriptPathFor` and
+`listResources` are declared by all five — and several exist *in order to decline*: agy's `cliHomeEnv`
+returns null, Codex' `resolveLineage` returns null, Hermes' `plansDir` returns null. Presence says a backend
+answered the question, not what it answered. Two backends enumerate their skill files and two stop at the
+directory, through the same hook name.
+
+```js
+capabilities: {
+  fork: 'yes',
+  lineage: { state: 'no', note: 'records no parent link on disk' },
+}
+```
+
+- **`src/backends/capabilities.js` holds the catalog** — the rows, their labels, their groups, and
+  `answersFor(descriptor)`. Keyed by capability, never by backend id, so it is the core's and not any one
+  backend's. A backend that says nothing about a row answers `unknown`, which is drawn as a visible gap: a
+  forgotten row and a deliberate no are different facts and must not look alike.
+- **`limited` requires a note.** A half-yes that does not say which half is worse than a plain no.
+- **The catalog crosses IPC once per `backends-list` payload**, beside each backend's answers. The renderer
+  holds no labels, no ids and no answers — same shape as `usage` and `integrations`.
+- **Derivation survives as a CHECK, not as a source.** `test/backend-capabilities.test.js` refuses a `yes`
+  whose declaring field is absent, so a declaration cannot drift from the descriptor in silence. On top of
+  that sits a pinned table, one entry per backend and per capability, in the shape of `PAGE_KEY_TARGETS`:
+  changing any backend's answer fails by name. A loop asserting the same value for every backend would be
+  the defect the pinning exists to catch.
+- **Templates get no column.** `profileToDescriptor` forwards the base's `capabilities` — a template runs
+  the base's binary, so its answers are the base's, and a column would be a copy under another name.
+- **A disabled backend keeps its column**, marked. The matrix says what a backend can do, not whether it is
+  switched on today.
+
+Adding a row means every backend answers it, declining included. That is the point of the catalog living in
+one file: the question cannot be asked of four backends and skipped for the fifth.
+
 ## What the seam absorbed
 
 **No gap this spec once listed is still open.** What follows is the record of what moved and why,

@@ -146,6 +146,10 @@ function profileToDescriptor(p) {
     // Page keys belong to the binary the template runs, exactly like its launch options.
     pageKeyTarget: base ? base.pageKeyTarget : 'pty',
     supportsSubagents: base ? base.supportsSubagents === true : false,   // #230
+    // A template runs the base's binary, so it can do exactly what the base can (#439). The matrix gives
+    // it no column of its own for that reason — a column would be a copy under another name — but the
+    // answers still have to be here, or anything asking a template's capabilities gets a wall of gaps.
+    capabilities: base ? base.capabilities : undefined,
     transcriptAccess: base ? base.transcriptAccess : undefined,
     // A template's sessions are written by the base binary, into the base's store, in the base's format —
     // so the base is also the one that can move them and delete them. Without these two the project

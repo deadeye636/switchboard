@@ -192,6 +192,9 @@ const ALLOWED_BINDINGS = {
   // #281 — the editor's formatting bar. Both files are about file kinds, not backends.
   'src/renderer/views/format-commands.js': [],
   'src/renderer/views/format-toolbar.js': [],
+  // #439 — the capability matrix. It renders the catalog and the answers main sent it, so it names no
+  // backend and holds no per-backend table; if it ever needs one, the descriptor is the place.
+  'src/renderer/panels/backend-capabilities.js': [],
 };
 
 test('the renderer never branches on a backend id', () => {

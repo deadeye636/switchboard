@@ -219,6 +219,27 @@ module.exports = {
     return [{ kind: 'file', path: path.join(scope.projectPath, 'AGENTS.md'), displayPath: short + '/', source: 'project' }];
   },
   transcriptAccess: 'file',   // rollout JSONL on disk
+  // The capability matrix's answers for Codex (#439) — declared, not derived from hook presence; see
+  // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
+  capabilities: {
+    fork: { state: 'limited', note: 'only after its first reply — Codex names its own sessions' },
+    deleteSessions: 'yes',
+    moveProject: 'yes',
+    transcriptHandoff: 'yes',
+    lineage: { state: 'no', note: 'records no parent link on disk' },
+    modelList: 'no',
+    endpoint: 'no',
+    projectTrust: 'yes',
+    subagentSessions: 'no',
+    liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
+    liveRebinding: 'no',
+    quota: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
+    resourceDiscovery: 'yes',
+    resourceDepth: { state: 'no', note: 'the directories are listed, not their contents' },
+    plans: { state: 'no', note: 'keeps no plans store' },
+    projectConfig: 'no',
+    viewportPaging: 'yes',
+  },
   configFields,
   buildLaunch,
   probe,

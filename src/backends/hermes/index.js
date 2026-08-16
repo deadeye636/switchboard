@@ -224,6 +224,27 @@ module.exports = {
   // even starts looking for the terminal to settle (#148). Our own startup hint counts as output, so
   // "the terminal went quiet" is not a usable readiness signal here on its own.
   seedGraceMs: 20000,
+  // The capability matrix's answers for Hermes (#439) — declared, not derived from hook presence; see
+  // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
+  capabilities: {
+    fork: { state: 'no', note: 'no confirmed fork flag' },
+    deleteSessions: { state: 'no', note: 'its history is in a database Switchboard may only read' },
+    moveProject: { state: 'no', note: 'the working directory is a column in that read-only database' },
+    transcriptHandoff: { state: 'yes', note: 'exported to a temporary markdown file first' },
+    lineage: 'yes',
+    modelList: 'no',
+    endpoint: 'no',
+    projectTrust: { state: 'no', note: 'no per-project trust gate' },
+    subagentSessions: 'no',
+    liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
+    liveRebinding: 'no',
+    quota: { state: 'no', note: 'reports no plan allowance' },
+    resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
+    resourceDepth: 'yes',
+    plans: { state: 'no', note: 'keeps no plans store' },
+    projectConfig: 'no',
+    viewportPaging: 'yes',
+  },
   configFields,
   buildLaunch,
   probe,

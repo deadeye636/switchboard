@@ -207,6 +207,27 @@ module.exports = {
   // raw path. Leaving it as 'file' let read-session-jsonl hand the binary blob to the JSONL reader and
   // the handoff to a fresh agent.
   transcriptAccess: 'export',
+  // The capability matrix's answers for agy (#439) — declared, not derived from hook presence; see
+  // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
+  capabilities: {
+    fork: { state: 'no', note: 'no confirmed fork flag' },
+    deleteSessions: 'yes',
+    moveProject: { state: 'no', note: 'the working directory sits in a protobuf blob' },
+    transcriptHandoff: { state: 'yes', note: 'exported to a temporary markdown file first' },
+    lineage: { state: 'no', note: 'its parent reference is an undecoded blob' },
+    modelList: 'yes',
+    endpoint: 'no',
+    projectTrust: 'no',
+    subagentSessions: 'no',
+    liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
+    liveRebinding: 'no',
+    quota: 'yes',
+    resourceDiscovery: 'yes',
+    resourceDepth: { state: 'no', note: 'the directories are listed, not their contents' },
+    plans: { state: 'no', note: 'keeps no plans store' },
+    projectConfig: 'no',
+    viewportPaging: 'yes',
+  },
   configFields,
   buildLaunch,
   probe,

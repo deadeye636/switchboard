@@ -953,10 +953,14 @@
     // unlaunchable target to the first LAUNCHABLE one, which is the only honest guess (#212).
     let defaultLaunchTarget = '';
     let profiles = [];
+    // The capability rows + their labels, straight from main (#439). Held as it arrived: the matrix
+    // overlay is the only reader, and it draws whatever is in here.
+    let capabilityCatalog = null;
     try {
       const res = await window.api.backends.list();
       backends = (res && res.backends) || [];
       defaultLaunchTarget = (res && res.defaultLaunchTarget) || '';
+      capabilityCatalog = (res && res.capabilityCatalog) || null;
     } catch {
       root.innerHTML = '<div class="settings-hint">Could not load the backend list.</div>';
       return;
@@ -1147,7 +1151,10 @@
 
     box.innerHTML = `
       <div class="settings-section">
-        <div class="settings-section-title">Built-in</div>
+        <div class="settings-section-title backend-defaults-head">
+          <span>Built-in</span>
+          <button type="button" class="backend-btn" id="sv-capability-matrix">What each backend supports</button>
+        </div>
         ${builtins.map(builtinRow).join('')}
       </div>
 
@@ -1187,6 +1194,16 @@
 
     root.replaceChildren(box);
     paintIcons(box);
+
+    // The capability matrix (#439). A read-only overlay, so it hangs off its own button rather than the
+    // delegated handler below — nothing about it survives the panel being re-mounted.
+    const capabilityBtn = box.querySelector('#sv-capability-matrix');
+    if (capabilityBtn) {
+      capabilityBtn.addEventListener('click', () => {
+        if (typeof window.openBackendCapabilityMatrix !== 'function') return;
+        window.openBackendCapabilityMatrix({ backends, catalog: capabilityCatalog });
+      });
+    }
 
     // --- the per-backend page (gear) -------------------------------------------------------------
     // Only ONE backend's inputs are in the DOM at a time, so the Save button can no longer read the
