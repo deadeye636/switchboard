@@ -26,12 +26,13 @@ const EXTERNAL_ICON = '<svg stroke="currentColor" fill="none" stroke-width="2" v
 const LOCK_ICON = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>';
 
 // The three-way control that replaced the preview toggle for previewable files
-// (#281). `text` is the plain editor — the same source view as `edit`, without
-// the formatting bar.
+// (#281). The same three Obsidian has, and for the same reasons: `live` renders
+// the source as you edit it, `text` shows the source as it is, `preview` renders
+// it read-only. All three edit ONE document — the file's own text.
 const VIEW_MODES = [
-  { id: 'edit', label: 'Edit', title: 'Source editor with the formatting bar' },
+  { id: 'live', label: 'Live', title: 'Edit the rendered document — the source stays Markdown' },
   { id: 'preview', label: 'Preview', title: 'Rendered document (read-only)' },
-  { id: 'text', label: 'Text', title: 'Plain source editor, no formatting bar' },
+  { id: 'text', label: 'Text', title: 'Plain source, every marker visible' },
 ];
 
 /**
@@ -101,7 +102,7 @@ function toggleMarkdownPreview({ editorEl, previewEl, toggleBtn, editorView, isP
  *   .copyContentBtn - Copy content button (or null)
  *   .diffToggleBtn - Diff toggle button (or null)
  *   .modeGroup    - The edit/preview/text control (or null)
- *   .modeButtons  - { edit, preview, text } buttons (empty without viewModes)
+ *   .modeButtons  - { live, preview, text } buttons (empty without viewModes)
  *   .readOnlyBadge - The "read-only" chip (or null)
  *   .setTitle(text)
  *   .setPath(text)

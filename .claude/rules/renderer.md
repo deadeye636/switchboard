@@ -50,6 +50,17 @@ The `<script>` tag, `test/fixtures/script-order.json`, and `ALLOWED_BINDINGS` in
 left out is silently unchecked. For app.js's siblings the tag and the script-order entry go in the
 `index.html` set, not `settings.html` (app.js is not loaded there).
 
+**Unless it is inside the bundle**, and then it is a one-file change with a different rule. A module
+`import`ed by `src/renderer/jsonl/codemirror-setup.js` is esbuild's problem, not the script list's:
+no tag, no `script-order.json` entry, and `renderer-no-undef` never sees it (the bundle is excluded
+from every lint environment on purpose — see the CSP note below). It reaches the renderer only
+through what `codemirror-setup.js` puts on `window`, so **the export is the seam** — add it there,
+and reach for it as `window.foo` from a classic script, never as a bare global.
+
+`src/renderer/jsonl/live-markdown.js` (#281) is the pattern: a CodeMirror extension that needs
+`@codemirror/view` at parse time and therefore cannot be a `<script>`. Its wiring is guarded by
+`test/live-preview-wiring.test.js` reading the source, because nothing else can.
+
 ## A new HTML PAGE is a different three-file change
 
 The app has standalone windows beside `index.html`/`settings.html` — the changes window

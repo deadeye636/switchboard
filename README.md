@@ -104,6 +104,11 @@ chart rather than a row of zeroes.
   edits appear in a side panel with inline or side-by-side diffs, where you accept, reject or edit
   before they are applied. Switch it off to let Claude find your real editor instead.
 - **File preview** — Markdown, sandboxed HTML (no scripts), and images inline
+- **Live editing** — a Markdown or HTML file can be edited *as the rendered document*: the syntax
+  markers are hidden and the content is styled, while the line under the cursor shows its markers
+  again. The file stays plain Markdown throughout — nothing is converted, so nothing is lost. A
+  formatting bar writes the syntax for you, and a file you cannot write opens read-only.
+  → [spec 19](docs/specs/19-editor-live-preview.md)
 - **Version control** — per-repo changes window with inline diffs, an optional branch + counts badge,
   behind a provider seam so another VCS would be a new file, not a change to the app.
   → [spec 15](docs/specs/15-vcs-status.md)

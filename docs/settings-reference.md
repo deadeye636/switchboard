@@ -62,13 +62,28 @@ back on Save.
 
 `markdownDefaultView` keeps its legacy key name, but applies to every internal file viewer kind that has a rendered preview (currently Markdown and HTML). `terminalWebgl` is a retired key: a stored `false` migrates to `gpuAcceleration: 'off'`.
 
-A previewable file has three view modes since #281 — **edit** (the source editor plus the formatting
-bar), **preview** (the rendered document, read-only) and **text** (the same source editor without the
-bar) — and the two settings above decide which one it opens in. `markdownDefaultView` picks rendered
-or source; `editorToolbarMode` picks which of the two source modes "source" means. The viewer's own
-three-way control still overrides both, remembered per viewer as the preview toggle was: the stored
-value is now `edit` / `preview` / `text`, and the `true` / `false` it used to hold migrates on first
-read. A file the app cannot write is pinned to `preview`, and that forced mode is never stored.
+A previewable file has three view modes since #281, the same three Obsidian has:
+
+| Mode | What it is |
+|---|---|
+| `live` | the source editor **drawn as the rendered document** — the syntax markers are hidden and the content is styled, and the line holding the cursor shows its markers again so it stays editable. Carries the formatting bar. |
+| `preview` | the rendered document, read-only |
+| `text` | the source as it is, every marker visible, no bar |
+
+All three hold the same text — the file's own. `live` renders it with CodeMirror decorations rather
+than converting it, so nothing is ever serialised back and no formatting choice can be lost.
+
+`markdownDefaultView` picks rendered or source; `editorToolbarMode` picks which of the two source
+modes "source" means. The viewer's own three-way control still overrides both, remembered per viewer
+as the preview toggle was: the stored value is `live` / `preview` / `text`, and both legacies migrate
+on first read — `true` / `false` from the old preview toggle, and `edit` from before the source mode
+grew a rendering of its own. A file the app cannot write is pinned to `preview`, and that forced mode
+is never stored.
+
+In an HTML file `live` covers the **inline** elements and headings — `<strong>`, `<em>`, `<u>`,
+`<code>`, `<mark>`, `<a>`, `<h1>`–`<h6>`. Block layout is deliberately not rendered: a table or a
+CSS-driven grid would mean laying out HTML inside a text editor, and `preview` already does that
+properly.
 
 `editorToolbarPlacement` moves the bar without changing what it can do. `bar` is a strip under the
 viewer's toolbar row that wraps to a second line when the panel is narrow; `overlay` is the same strip
@@ -86,7 +101,10 @@ underline, text colour, highlight and alignment, which Markdown has no syntax of
 portability switch, not a security one: the preview renders those tags either way, and colours come
 from a fixed palette in both settings. It does nothing in an HTML file, where tags are the format.
 
-All five apply live: changing one reaches an already-open viewer, not only the next file.
+The three toolbar switches apply live: changing `editorToolbarPlacement`, `editorToolbarVisibility`
+or `editorToolbarHtmlTags` reaches an already-open viewer. `markdownDefaultView` and
+`editorToolbarMode` do not, on purpose — they decide which mode a file **opens** in, and applying
+them live would swap the mode out from under someone who is mid-edit.
 `tabsLiveRender` is retired too (#339): it is read as the fallback for `liveRenderBackground`, so a
 stored preference survives — the setting stopped being about tabs when panes started obeying it.
 

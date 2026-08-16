@@ -581,6 +581,15 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   (`allow-same-origin`, no scripts), and **images** (PNG/JPG/GIF/WebP/SVG/… via a size-capped
   base64 data-URL IPC) inline (port of **brianstanley**). Pure kind/MIME helpers in
   `src/shared/preview-kind.js` (unit-tested).
+- **Live Preview and a formatting bar in the editor** — a Markdown or HTML file opens in one of three
+  modes: **live** edits the source *drawn as the rendered document* (the syntax markers hidden, the
+  content styled, and the cursor's line showing its markers again), **preview** is read-only, **text**
+  is the raw source. All three hold the same text — the file's own — because `live` renders with
+  CodeMirror decorations rather than converting anything, so nothing is ever serialised back. A
+  formatting bar writes into the source (bold through tables, per-kind command tables) and can sit
+  under the toolbar, float over the editor, or appear beside the selection. A file the app cannot
+  write is pinned to the read-only preview, and that forced mode is never remembered.
+  Design record: [`docs/specs/19-editor-live-preview.md`](specs/19-editor-live-preview.md).
 
 ### Supervision extensions
 - **Handoff library** — save packets, editable prompt, resume, direct "New session" seed,

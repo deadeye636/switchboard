@@ -342,3 +342,43 @@ reverse. Two symptoms that exclude each other are one predicate that is too wide
 - **The self-check that worked was removing the fix, not adding to it.** When a repair runs on every
   fit, "does the bug come back without it, and is everything else still fine with it" is one run and
   answers both halves.
+
+## A requirement declined on a premise nobody checked (#281)
+
+The ask was "edit the rendered Markdown, like Obsidian". It was read as WYSIWYG and declined on cost:
+a second document model, a serialiser back to source, round-trip loss, a fork to maintain. Every one
+of those costs is real — **for WYSIWYG**. Obsidian's Live Preview is not WYSIWYG. It is CodeMirror
+editing the Markdown source with decorations that hide the markers and style the content, so none of
+those costs apply.
+
+The reasoning was sound and aimed at the wrong object. What would have caught it in a minute: the
+requirement named a product, and the product's mechanism was one search away.
+
+The same issue carried a second unchecked premise, this one written into the issue body as a
+decision: colour and alignment buttons were kept out because they "would widen the sanitiser's
+surface (#49)". Measured afterwards, DOMPurify's default allowlist already passes `<u>`, `<mark>`,
+`<span style>` and `<div align>` — a hand-typed tag renders in the preview today. The decision had
+been standing for weeks on something a five-line script disproved.
+
+- **When a request names a product, look at how that product does it before pricing the work.** The
+  price of the wrong architecture is not the price of the request.
+- **A design decision that rests on a factual claim needs the claim measured, once, in writing.** Both
+  claims here were plausible, both were repeated in an issue body, and both were wrong.
+- A concern raised and then reaffirmed by the owner is a decision, not a debate. The correction cost
+  here was one message; carrying the wrong premise further would have cost the feature.
+
+## A single-element PowerShell array is not an array (#281)
+
+An edit script did `$pairs = @( @('old','new') )`, then `foreach ($pair in $pairs) { $s.Replace($pair[0], $pair[1]) }`.
+PowerShell **flattens** `@(@(a,b))` to `@(a,b)`, so the loop iterated the two strings, `$pair[0]` was
+the first *character* of one — and the script ran `.Replace('f','u')` over an entire source file.
+Every `function` became `uunction`. The same pattern with two or more pairs is fine, which is why it
+had worked four times before.
+
+`git checkout HEAD -- <file>` recovered it, at the cost of re-applying the uncommitted edits by hand.
+
+- **Prefer the `Edit` tool over a scripted string replace.** It fails loudly on a miss and cannot
+  touch anything it was not aimed at.
+- If a script must do the replacing, force the shape: `@(,@('old','new'))`, or iterate an array of
+  hashtables. Never index into a loop variable whose type you have not pinned.
+- Commit before running a rewrite over a file you have uncommitted work in.

@@ -6,22 +6,31 @@
  * Watches files for external changes and reloads automatically.
  *
  * Toolbar buttons are shown/hidden automatically based on file type:
- *   - View modes (edit/preview/text): shown for previewable files (Markdown and HTML)
+ *   - View modes (live/preview/text): shown for previewable files (Markdown and HTML)
  *   - Wrap: always shown (defaults on for markdown, off for others)
  *   - Save: shown if onSave is provided, hidden for a file that cannot be written
  *   - Close: shown if onClose is provided
  *   - Copy path/content: shown if opted in
  *
- * A previewable file has three modes (#281): `edit` is the source editor plus the
- * formatting bar, `preview` is the rendered document, `text` is the source editor
- * without the bar. Everything else has one view and no control.
+ * A previewable file has three modes (#281), the same three Obsidian has:
+ *   live     the source editor drawn as the rendered document — markers hidden,
+ *            content styled — plus the formatting bar. The cursor's line shows
+ *            its markers again, which is what makes it editable.
+ *   preview  the rendered document, read-only
+ *   text     the source as it is, every marker visible, no bar
+ * All three hold the SAME text: the file's own. Nothing serialises anything back.
+ * Everything else has one view and no control.
  *
  * Depends on: viewer-toolbar.js, format-toolbar.js, format-commands.js
- * Reads three globals off `appGlobalSettings` (app.js), all guarded by typeof:
- *   markdownDefaultView   — rendered-or-source for every previewable kind (#279, legacy key)
- *   editorToolbarMode     — which of the two source modes the setting means (#281)
- *   editorToolbarHtmlTags — whether the Markdown bar offers its four HTML commands (#281)
- * codemirror-bundle.js is loaded on demand (lazy) via loadCodeMirrorBundle().
+ * Reads five globals off `appGlobalSettings` (app.js), all guarded by typeof:
+ *   markdownDefaultView     — rendered-or-source for every previewable kind (#279, legacy key)
+ *   editorToolbarMode       — which of the two source modes the setting means (#281)
+ *   editorToolbarPlacement  — where the formatting bar sits (#281)
+ *   editorToolbarVisibility — always, or only under the pointer / on focus (#281)
+ *   editorToolbarHtmlTags   — whether the Markdown bar offers its four HTML commands (#281)
+ * codemirror-bundle.js is loaded on demand (lazy) via loadCodeMirrorBundle();
+ * `live` itself lives in the bundle (jsonl/live-markdown.js) and is switched
+ * through window.setLivePreview.
  */
 
 // ── Lazy CodeMirror loader ───────────────────────────────────────────────────
@@ -85,7 +94,7 @@ class ViewerPanel {
     // State
     this.filePath = '';
     this.editorView = null;
-    this.viewMode = 'edit';
+    this.viewMode = 'live';
     this.readOnly = false;
     this.wrapMode = false;
     this._previewable = false;
@@ -326,7 +335,7 @@ class ViewerPanel {
     // Reset to a source view before updating content (without touching localStorage)
     this.previewEl.style.display = 'none';
     this.editorEl.style.display = '';
-    this.viewMode = 'edit';
+    this.viewMode = 'live';
     this.toolbar.setPreviewMode(false);
 
     // Watch for external changes (sync — does not need CodeMirror)
@@ -391,7 +400,7 @@ class ViewerPanel {
       // forced the choice, which would pin one unwritable file's mode onto the
       // rest (#281).
       const migrate = stored !== null && !this.readOnly && stored !== wantMode;
-      this.viewMode = null; // force _setViewMode to apply, even for 'edit'
+      this.viewMode = null; // force _setViewMode to apply, even for 'live'
       this._setViewMode(wantMode, migrate);
     }).catch((err) => {
       console.error('[viewer-panel] Failed to load codemirror-bundle:', err);
@@ -412,7 +421,7 @@ class ViewerPanel {
     this.toolbar.setViewModesVisible(false);
     this._previewable = false;
     this._formatKind = null;
-    this.viewMode = 'edit';
+    this.viewMode = 'live';
     this._applyFormatBar();
     this.previewEl.innerHTML = '';
     const img = document.createElement('img');
@@ -445,17 +454,20 @@ class ViewerPanel {
   // Which of the two source modes the settings mean.
   _toolbarMode() {
     const settings = (typeof appGlobalSettings !== 'undefined' && appGlobalSettings) || {};
-    return settings.editorToolbarMode === 'plain' ? 'text' : 'edit';
+    return settings.editorToolbarMode === 'plain' ? 'text' : 'live';
   }
 
   // The starting mode, in priority order: a file that cannot be written is pinned
   // to preview, then the stored per-viewer choice (including the two legacy
   // boolean values this replaced), then the settings.
   _resolveViewMode(previewable, stored) {
-    if (!previewable) return 'edit';
+    if (!previewable) return 'live';
     if (this.readOnly) return 'preview';
-    if (stored === 'edit' || stored === 'preview' || stored === 'text') return stored;
-    // Legacy: the key used to hold the preview flag as 'true' / 'false'.
+    if (stored === 'live' || stored === 'preview' || stored === 'text') return stored;
+    // Two legacies now: the key first held the preview flag as 'true' / 'false',
+    // then the source mode was called 'edit' before Live Preview gave it a
+    // rendering of its own.
+    if (stored === 'edit') return 'live';
     if (stored === 'true') return 'preview';
     if (stored === 'false') return this._toolbarMode();
     const settings = (typeof appGlobalSettings !== 'undefined' && appGlobalSettings) || {};
@@ -466,7 +478,7 @@ class ViewerPanel {
   // write to storageKey, or that default would freeze into a per-viewer override
   // and later changes to the setting would be ignored (#279).
   _setViewMode(mode, persist = true) {
-    if (!this._previewable && mode !== 'edit') return;
+    if (!this._previewable && mode !== 'live') return;
     // The pin applies where there is something to pin TO: a kind with no rendered
     // preview keeps its single editor view, read-only or not.
     if (this.readOnly && this._previewable && mode !== 'preview') return;
@@ -491,10 +503,21 @@ class ViewerPanel {
     }
     this.toolbar.setViewMode(this.viewMode);
     this.toolbar.setPreviewMode(this.previewMode);
+    this._applyLiveMarkdown();
     this._applyFormatBar();
   }
 
-  // The bar belongs to `edit` alone: `text` exists precisely to switch it off,
+  // `live` is the same editor over the same text as `text` — only drawn with the
+  // markers hidden and the content styled. Toggling it is a compartment
+  // reconfigure, so the undo history, the scroll position and the selection
+  // survive a mode switch (#281).
+  _applyLiveMarkdown() {
+    if (typeof window.setLivePreview !== 'function' || !this.editorView) return;
+    const base = (typeof fileDirUrl === 'function' && this.filePath) ? fileDirUrl(this.filePath) : '';
+    window.setLivePreview(this.editorView, this.viewMode === 'live' ? this._formatKind : null, base);
+  }
+
+  // The bar belongs to `live` alone: `text` exists precisely to switch it off,
   // and `preview` has nothing to write into.
   _applyFormatBar() {
     if (!this.formatBar) return;
@@ -508,7 +531,7 @@ class ViewerPanel {
     const hoverOnly = settings.editorToolbarVisibility === 'hover' && placement !== 'selection';
     this.container.classList.toggle('viewer-panel-hover-toolbar', hoverOnly);
 
-    const show = this.viewMode === 'edit' && this._formatKind && !this._imageMode;
+    const show = this.viewMode === 'live' && this._formatKind && !this._imageMode;
     if (!show || typeof formatCommandsFor !== 'function') {
       this.formatBar.setCommands([]);
       this.formatBar.hidePopup();
@@ -526,7 +549,7 @@ class ViewerPanel {
   _syncSelectionPopup() {
     if (!this.formatBar || this.formatBar.placement !== 'selection') return;
     const view = this.editorView;
-    if (!view || this.readOnly || this.viewMode !== 'edit' || !this._formatKind) {
+    if (!view || this.readOnly || this.viewMode !== 'live' || !this._formatKind) {
       this.formatBar.hidePopup();
       return;
     }

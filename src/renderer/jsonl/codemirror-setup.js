@@ -8,6 +8,7 @@ import { highlightSelectionMatches } from '@codemirror/search';
 import { dracula } from '@ddietr/codemirror-themes/theme/dracula';
 import { tags } from '@lezer/highlight';
 import { MergeView, unifiedMergeView } from '@codemirror/merge';
+import { livePreviewFor } from './live-markdown';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
 import { json } from '@codemirror/lang-json';
@@ -311,8 +312,12 @@ const cmSaveDomHandler = ViewPlugin.fromClass(class {
   destroy() {}
 });
 
-function createPlanEditor(parent) {
+function createPlanEditor(parent, { live = null, imageBase = '' } = {}) {
   const wrapCompartment = new Compartment();
+  // Live Preview rides in a compartment so switching between the `live` and
+  // `text` modes is a reconfigure, not a new editor — the undo history, the
+  // scroll position and the selection all survive the switch (#281).
+  const liveCompartment = new Compartment();
   const state = EditorState.create({
     doc: '',
     extensions: [
@@ -341,12 +346,22 @@ function createPlanEditor(parent) {
       syntaxHighlighting(markdownExtras),
       appThemePatch,
       wrapCompartment.of(EditorView.lineWrapping),
+      liveCompartment.of(livePreviewFor(live, imageBase)),
     ],
   });
 
   const view = new EditorView({ state, parent });
   view._wrapCompartment = wrapCompartment;
+  view._liveCompartment = liveCompartment;
   return view;
+}
+
+// Switch an existing editor's Live Preview to a kind ('markdown' / 'html'), or
+// anything else to turn it off (#281). Exported rather than done by the caller
+// so the extension list stays in this file.
+function setLivePreview(view, kind, imageBase) {
+  if (!view || !view._liveCompartment) return;
+  view.dispatch({ effects: view._liveCompartment.reconfigure(livePreviewFor(kind, imageBase)) });
 }
 
 // ── Language Detection ───────────────────────────────────────────────
@@ -418,9 +433,10 @@ function createReadOnlyViewer(parent, content, filename) {
 
 // ── Editable File Viewer (for file panel) ───────────────────────────
 
-function createEditableViewer(parent, content, filename, { wrap = false } = {}) {
+function createEditableViewer(parent, content, filename, { wrap = false, live = null, imageBase = '' } = {}) {
   const langExt = getLanguageExt(filename);
   const wrapCompartment = new Compartment();
+  const liveCompartment = new Compartment();
 
   const state = EditorState.create({
     doc: content,
@@ -450,11 +466,13 @@ function createEditableViewer(parent, content, filename, { wrap = false } = {}) 
       syntaxHighlighting(markdownExtras),
       appThemePatch,
       wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
+      liveCompartment.of(livePreviewFor(live, imageBase)),
     ],
   });
 
   const view = new EditorView({ state, parent });
   view._wrapCompartment = wrapCompartment;
+  view._liveCompartment = liveCompartment;
   return view;
 }
 
@@ -545,6 +563,8 @@ window.cmOpenGotoLine = openGotoLine;
 // history(); these only give the toolbar the same commands the keymap has.
 window.cmUndo = undo;
 window.cmRedo = redo;
+// Live Preview (#281) — the `live` mode's decorations, switched per editor.
+window.setLivePreview = setLivePreview;
 
 marked.setOptions({ breaks: true, gfm: true });
 window.marked = marked;

@@ -30,6 +30,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 16 | [Panes mode (VS-Code-style editor groups)](16-panes-mode.md) — **built, and the default display mode** (#374); it absorbed tabs mode (#357). Preview and diff are one instance per tab (#311), the other view kinds one per kind by decision. Layout options + why one was chosen | #309, #310 | No — touches the terminal host, the session bar and the preview panel |
 | 17 | [Detached session windows](17-detached-windows.md) — **built**; the routing separation, the one-session-one-renderer invariant, and (#316) a window owning a set of sessions that move in any direction | #2 | No — main-process routing + every renderer mount path |
 | 18 | [Pi RPC runtime evaluation](18-pi-rpc-evaluation.md) — **evaluated**; keep Pi on PTY/TUI for now, revisit RPC as a separate structured-runtime capability | #413 | No — future runtime architecture |
+| 19 | [Live Preview + formatting bar in the internal editor](19-editor-live-preview.md) — **built**; the Obsidian model (decorations over the source, never a serialiser), three modes, the read-only pin, and the sanitiser claim that turned out to be false | #281 | Yes — the viewer, plus one module inside the CodeMirror bundle |
 
 ## Shared architecture (read once, applies to all specs)
 

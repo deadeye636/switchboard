@@ -113,11 +113,11 @@ async function openPanel(ctx, filePath, content = '# hi', opts = {}) {
 
 // --- which mode a file opens in ---------------------------------------------
 
-test('a Markdown file opens in edit with the formatting bar', async () => {
+test('a Markdown file opens in live with the formatting bar', async () => {
   const ctx = setupPanelDom();
   try {
     const panel = await openPanel(ctx, '/tmp/a.md');
-    assert.equal(panel.viewMode, 'edit');
+    assert.equal(panel.viewMode, 'live');
     assert.equal(panel.formatBar.el.classList.contains('has-commands'), true);
     assert.ok(panel.formatBar.el.querySelector('[data-command="bold"]'));
   } finally { ctx.destroy(); }
@@ -146,7 +146,7 @@ test('an HTML file gets the same three modes and its own command table', async (
   const ctx = setupPanelDom();
   try {
     const panel = await openPanel(ctx, '/tmp/page.html', '<h1>hi</h1>');
-    assert.equal(panel.viewMode, 'edit');
+    assert.equal(panel.viewMode, 'live');
     assert.equal(panel._formatKind, 'html');
     // The HTML table has no task list; the Markdown one does.
     assert.equal(panel.formatBar.el.querySelector('[data-command="task-list"]'), null);
@@ -213,6 +213,17 @@ test('a stored mode beats the settings', async () => {
   } finally { ctx.destroy(); }
 });
 
+test("the legacy 'edit' migrates to live", async () => {
+  // The source mode was called `edit` before Live Preview gave it a rendering of
+  // its own. A stored `edit` must not fall through to the settings.
+  const ctx = setupPanelDom({ stored: 'edit', settings: { markdownDefaultView: 'preview' } });
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md');
+    assert.equal(panel.viewMode, 'live');
+    assert.equal(ctx.store.get('viewer-mode'), 'live', 'the old name must be rewritten');
+  } finally { ctx.destroy(); }
+});
+
 test("the legacy 'true' migrates to preview", async () => {
   const ctx = setupPanelDom({ stored: 'true' });
   try {
@@ -243,11 +254,11 @@ test('a file that cannot be written opens in preview and stays there', async () 
     assert.equal(panel.toolbar.readOnlyBadge.style.display, '');
     assert.equal(panel.toolbar.saveBtn.style.display, 'none');
 
-    assert.equal(panel.toolbar.modeButtons.edit.disabled, true);
+    assert.equal(panel.toolbar.modeButtons.live.disabled, true);
     assert.equal(panel.toolbar.modeButtons.text.disabled, true);
     assert.equal(panel.toolbar.modeButtons.preview.disabled, false);
 
-    panel.toolbar.modeButtons.edit.click();
+    panel.toolbar.modeButtons.live.click();
     assert.equal(panel.viewMode, 'preview', 'the pin must hold');
   } finally { ctx.destroy(); }
 });
@@ -266,7 +277,7 @@ test('a read-only file with no preview keeps its editor but loses saving', async
   const ctx = setupPanelDom({ readOnly: true });
   try {
     const panel = await openPanel(ctx, '/tmp/data.json', '{}');
-    assert.equal(panel.viewMode, 'edit', 'there is nothing to pin to');
+    assert.equal(panel.viewMode, 'live', 'there is nothing to pin to');
     assert.equal(panel.toolbar.saveBtn.style.display, 'none');
   } finally { ctx.destroy(); }
 });
@@ -353,7 +364,7 @@ test('the bar is gone in preview and in text', async () => {
     assert.equal(panel.formatBar.el.classList.contains('has-commands'), false);
     panel.toolbar.modeButtons.text.click();
     assert.equal(panel.formatBar.el.classList.contains('has-commands'), false);
-    panel.toolbar.modeButtons.edit.click();
+    panel.toolbar.modeButtons.live.click();
     assert.equal(panel.formatBar.el.classList.contains('has-commands'), true);
   } finally { ctx.destroy(); }
 });
