@@ -23,6 +23,17 @@ const DELETE_ICON = '<svg stroke="currentColor" fill="none" stroke-width="2" vie
 
 const EXTERNAL_ICON = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" xmlns="http://www.w3.org/2000/svg"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
 
+const LOCK_ICON = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>';
+
+// The three-way control that replaced the preview toggle for previewable files
+// (#281). `text` is the plain editor — the same source view as `edit`, without
+// the formatting bar.
+const VIEW_MODES = [
+  { id: 'edit', label: 'Edit', title: 'Source editor with the formatting bar' },
+  { id: 'preview', label: 'Preview', title: 'Rendered document (read-only)' },
+  { id: 'text', label: 'Text', title: 'Plain source editor, no formatting bar' },
+];
+
 /**
  * Flash a button with a brief color change to indicate success.
  * For icon buttons: flashes green. For text buttons: replaces text temporarily.
@@ -72,6 +83,7 @@ function toggleMarkdownPreview({ editorEl, previewEl, toggleBtn, editorView, isP
  * @param {boolean} opts.copyPath     - Show copy-path button
  * @param {boolean} opts.copyContent  - Show copy-content button
  * @param {boolean} opts.preview      - Show preview toggle
+ * @param {boolean} opts.viewModes    - Show the edit/preview/text control (#281)
  * @param {boolean} opts.wrap         - Show wrap toggle
  * @param {boolean} opts.save         - Show save button
  * @param {boolean} opts.close        - Show close button
@@ -88,8 +100,14 @@ function toggleMarkdownPreview({ editorEl, previewEl, toggleBtn, editorView, isP
  *   .copyPathBtn  - Copy path button (or null)
  *   .copyContentBtn - Copy content button (or null)
  *   .diffToggleBtn - Diff toggle button (or null)
+ *   .modeGroup    - The edit/preview/text control (or null)
+ *   .modeButtons  - { edit, preview, text } buttons (empty without viewModes)
+ *   .readOnlyBadge - The "read-only" chip (or null)
  *   .setTitle(text)
  *   .setPath(text)
+ *   .setViewModesVisible(visible)
+ *   .setViewMode(mode)
+ *   .setReadOnly(readOnly)
  *   .setPreviewMode(active)
  *   .setWrapMode(active)
  *   .flashSave()
@@ -130,6 +148,34 @@ function createViewerToolbar(opts = {}) {
     diffToggleBtn.className = 'fp-toolbar-btn';
     diffToggleBtn.style.display = 'none';
     controlsEl.appendChild(diffToggleBtn);
+  }
+
+  // The read-only badge sits with the mode control because that is what it
+  // explains: the modes are there but two of them are not reachable (#281).
+  let readOnlyBadge = null;
+  let modeGroup = null;
+  const modeButtons = {};
+  if (opts.viewModes) {
+    readOnlyBadge = document.createElement('span');
+    readOnlyBadge.className = 'viewer-readonly-badge';
+    readOnlyBadge.innerHTML = `${LOCK_ICON}<span>read-only</span>`;
+    readOnlyBadge.title = 'This file cannot be written';
+    readOnlyBadge.style.display = 'none';
+    controlsEl.appendChild(readOnlyBadge);
+
+    modeGroup = document.createElement('div');
+    modeGroup.className = 'viewer-mode-group';
+    modeGroup.style.display = 'none';
+    for (const mode of VIEW_MODES) {
+      const btn = document.createElement('button');
+      btn.className = 'fp-toolbar-btn viewer-mode-btn';
+      btn.dataset.mode = mode.id;
+      btn.textContent = mode.label;
+      btn.title = mode.title;
+      modeButtons[mode.id] = btn;
+      modeGroup.appendChild(btn);
+    }
+    controlsEl.appendChild(modeGroup);
   }
 
   let previewBtn = null;
@@ -232,9 +278,36 @@ function createViewerToolbar(opts = {}) {
     formatBtn,
     deleteBtn,
     externalEditorBtn,
+    modeGroup,
+    modeButtons,
+    readOnlyBadge,
 
     setTitle(text) { titleEl.textContent = text; },
     setPath(text) { pathEl.textContent = text; },
+
+    // Show the three-way control for kinds that have a rendered preview, hide it
+    // for the rest — a .json file has one view, and a disabled segment would only
+    // ask the reader why.
+    setViewModesVisible(visible) {
+      if (modeGroup) modeGroup.style.display = visible ? '' : 'none';
+    },
+
+    setViewMode(mode) {
+      for (const [id, btn] of Object.entries(modeButtons)) {
+        btn.classList.toggle('active', id === mode);
+        btn.setAttribute('aria-pressed', String(id === mode));
+      }
+    },
+
+    // A file that cannot be written is pinned to preview: the other two segments
+    // stay visible so the reader can see what the file WOULD offer, but they do
+    // not respond (#281).
+    setReadOnly(readOnly) {
+      if (readOnlyBadge) readOnlyBadge.style.display = readOnly ? '' : 'none';
+      for (const [id, btn] of Object.entries(modeButtons)) {
+        btn.disabled = readOnly && id !== 'preview';
+      }
+    },
 
     setPreviewMode(active) {
       if (!previewBtn) return;

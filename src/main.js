@@ -797,6 +797,11 @@ ipcMain.handle('clipboard-write-text', (_event, text) => {
 // --- Terminal images: clipboard bitmaps, dropped images -> app/terminal/images.js (#307/#308) ---
 // A CLI reads an image by PATH, so every image reaching a terminal becomes a temp file first. That
 // module owns the temp directory, the three ways bytes arrive, and its pruning.
+// --- Is a file writable? -> app/file-access.js (#281) ---
+// The viewer asks per open so it can pin an unwritable file to the read-only preview.
+const fileAccess = require('./app/file-access');
+fileAccess.registerIpc(ipcMain);
+
 const terminalImages = require('./app/terminal/images');
 terminalImages.init({ clipboard, net, log });
 terminalImages.registerIpc(ipcMain);

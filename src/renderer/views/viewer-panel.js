@@ -6,15 +6,21 @@
  * Watches files for external changes and reloads automatically.
  *
  * Toolbar buttons are shown/hidden automatically based on file type:
- *   - Preview: shown for previewable files (Markdown and HTML)
+ *   - View modes (edit/preview/text): shown for previewable files (Markdown and HTML)
  *   - Wrap: always shown (defaults on for markdown, off for others)
- *   - Save: shown if onSave is provided
+ *   - Save: shown if onSave is provided, hidden for a file that cannot be written
  *   - Close: shown if onClose is provided
  *   - Copy path/content: shown if opted in
  *
- * Depends on: viewer-toolbar.js
- * Reads the global `appGlobalSettings.markdownDefaultView` (app.js) for the
- * initial view mode of previewable files (#279, legacy key); optional, guarded by typeof.
+ * A previewable file has three modes (#281): `edit` is the source editor plus the
+ * formatting bar, `preview` is the rendered document, `text` is the source editor
+ * without the bar. Everything else has one view and no control.
+ *
+ * Depends on: viewer-toolbar.js, format-toolbar.js, format-commands.js
+ * Reads three globals off `appGlobalSettings` (app.js), all guarded by typeof:
+ *   markdownDefaultView   — rendered-or-source for every previewable kind (#279, legacy key)
+ *   editorToolbarMode     — which of the two source modes the setting means (#281)
+ *   editorToolbarHtmlTags — whether the Markdown bar offers its four HTML commands (#281)
  * codemirror-bundle.js is loaded on demand (lazy) via loadCodeMirrorBundle().
  */
 
@@ -43,6 +49,24 @@ function loadCodeMirrorBundle() {
 
 window.loadCodeMirrorBundle = loadCodeMirrorBundle;
 
+// Every live panel, so a settings change reaches the formatting bar without
+// reopening the file (#281). app.js calls the hook below from
+// reapplyGlobalSettings, AFTER it has refreshed appGlobalSettings — a listener
+// registered here would run before that and read the old values, because these
+// panels are constructed long before app.js binds its own.
+//
+// Detached panels prune themselves on the next broadcast: the file panel creates
+// one instance per tab (#311), and destroy() is its between-files teardown, not
+// its end of life, so there is no single moment to unregister in.
+const _livePanels = new Set();
+
+window._applyViewerFormatSettings = () => {
+  for (const panel of _livePanels) {
+    if (!panel.container || !panel.container.isConnected) { _livePanels.delete(panel); continue; }
+    panel._applyFormatBar();
+  }
+};
+
 class ViewerPanel {
   /**
    * @param {HTMLElement} container - Parent element to render into
@@ -61,16 +85,20 @@ class ViewerPanel {
     // State
     this.filePath = '';
     this.editorView = null;
-    this.previewMode = opts.storageKey ? localStorage.getItem(opts.storageKey) === 'true' : false;
+    this.viewMode = 'edit';
+    this.readOnly = false;
     this.wrapMode = false;
+    this._previewable = false;
+    this._formatKind = null;
     this._watchedPath = null;
     this._saving = false;
 
-    // Create toolbar — always include preview, wrap, save; visibility managed in open()
+    // Create toolbar — always include the mode control, wrap and save; visibility
+    // managed in open()
     this.toolbar = window.createViewerToolbar({
       copyPath: !!opts.copyPath,
       copyContent: !!opts.copyContent,
-      preview: true,
+      viewModes: true,
       wrap: true,
       gotoLine: true,
       format: !!opts.format,
@@ -81,13 +109,30 @@ class ViewerPanel {
     });
     container.insertBefore(this.toolbar.el, container.firstChild);
 
-    // Hide preview initially (shown in open() if markdown)
-    if (this.toolbar.previewBtn) this.toolbar.previewBtn.style.display = 'none';
+    // The overlay and selection placements position themselves against this
+    // element, so it has to be the offset parent (#281).
+    container.classList.add('viewer-panel-host');
+
+    // Formatting bar, directly under the toolbar row and above the editor (#281).
+    this.formatBar = window.createFormatBar
+      ? window.createFormatBar({ onCommand: (cmd, value) => this._runFormatCommand(cmd, value) })
+      : null;
+    if (this.formatBar) container.insertBefore(this.formatBar.el, this.toolbar.el.nextSibling);
 
     // Create editor area
     this.editorEl = document.createElement('div');
     this.editorEl.className = 'viewer-panel-editor';
     container.appendChild(this.editorEl);
+
+    // Selection placement: the popup follows the selection, so the panel watches
+    // for one. CodeMirror's update listener is not reachable from here (the
+    // bundle exposes views, not extensions), and reading the selection off the
+    // view after a mouse or key event is enough — it is the same state the
+    // command would run against.
+    this._onEditorSelectionChange = () => this._syncSelectionPopup();
+    for (const evt of ['mouseup', 'keyup', 'focusout']) {
+      this.editorEl.addEventListener(evt, this._onEditorSelectionChange);
+    }
 
     // Create preview area
     this.previewEl = document.createElement('div');
@@ -110,10 +155,16 @@ class ViewerPanel {
     if (window.api.onFileChanged) {
       this._offFileChanged = window.api.onFileChanged(this._onFileChanged);
     }
+
+    _livePanels.add(this);
   }
 
   _wireEvents() {
     const { toolbar, opts } = this;
+
+    for (const [mode, btn] of Object.entries(toolbar.modeButtons || {})) {
+      btn.addEventListener('click', () => this._setViewMode(mode));
+    }
 
     if (toolbar.previewBtn) {
       toolbar.previewBtn.addEventListener('click', () => this._togglePreview());
@@ -226,12 +277,14 @@ class ViewerPanel {
    * codemirror-bundle.js has been loaded (first call triggers the load; all
    * subsequent calls share the same cached Promise and resolve near-instantly).
    */
-  open(title, filePath, content) {
+  open(title, filePath, content, options = {}) {
     this._unwatchFile();
 
     this.filePath = filePath;
+    this.readOnly = !!options.readOnly;
     this.toolbar.setTitle(title);
     this.toolbar.setPath(filePath);
+    this.toolbar.setReadOnly(this.readOnly);
 
     this._previewKind = (typeof previewKindForExt === 'function')
       ? previewKindForExt(typeof extOf === 'function' ? extOf(filePath) : (filePath.split('.').pop() || '').toLowerCase())
@@ -245,30 +298,36 @@ class ViewerPanel {
     this._imageMode = false;
     // Restore editor + editor-only buttons (a prior image open may have hidden them).
     this.editorEl.style.display = '';
-    for (const b of [this.toolbar.wrapBtn, this.toolbar.saveBtn, this.toolbar.gotoLineBtn]) {
+    for (const b of [this.toolbar.wrapBtn, this.toolbar.gotoLineBtn]) {
       if (b) b.style.display = '';
+    }
+    // Saving a file that cannot be written is a button that only ever fails.
+    if (this.toolbar.saveBtn) {
+      this.toolbar.saveBtn.style.display = this.readOnly ? 'none' : '';
     }
 
     const isMd = this._isMarkdown(filePath);
     const isPreviewable = this._isPreviewable(filePath);
     const isJsonish = this._isJsonish(filePath);
 
-    // Show/hide preview button based on file type (Markdown or HTML).
+    this._previewable = isPreviewable;
+    this._formatKind = isPreviewable ? (isMd ? 'markdown' : 'html') : null;
+
+    // The three-way control replaces the old preview toggle for previewable kinds.
+    this.toolbar.setViewModesVisible(isPreviewable);
     if (this.toolbar.previewBtn) {
-      this.toolbar.previewBtn.style.display = isPreviewable ? '' : 'none';
+      this.toolbar.previewBtn.style.display = 'none';
     }
     // Format button: only for .json / .jsonl
     if (this.toolbar.formatBtn) {
       this.toolbar.formatBtn.style.display = isJsonish ? '' : 'none';
     }
 
-    // Reset to edit mode before updating content (without touching localStorage)
-    if (this.previewMode) {
-      this.previewEl.style.display = 'none';
-      this.editorEl.style.display = '';
-      if (this.toolbar.previewBtn) this.toolbar.previewBtn.classList.remove('active');
-      this.previewMode = false;
-    }
+    // Reset to a source view before updating content (without touching localStorage)
+    this.previewEl.style.display = 'none';
+    this.editorEl.style.display = '';
+    this.viewMode = 'edit';
+    this.toolbar.setPreviewMode(false);
 
     // Watch for external changes (sync — does not need CodeMirror)
     this._watchFile(filePath);
@@ -281,21 +340,30 @@ class ViewerPanel {
     const myGen = this._openGen;
     const pending = { content, filePath, isMd, isPreviewable };
 
+    // Ask whether the file can be written, unless the caller already knows (#281).
+    // The panel asks rather than each of the four readers reporting it: three of
+    // them return a bare string, and a caller-supplied flag would be present only
+    // where someone remembered to pass it.
+    const readOnlyProbe = options.readOnly !== undefined
+      ? Promise.resolve(!!options.readOnly)
+      : Promise.resolve(window.api.isFileReadOnly ? window.api.isFileReadOnly(filePath) : false)
+        .catch(() => false);
+
     // Defer all CodeMirror work until the bundle is available.
-    loadCodeMirrorBundle().then(() => {
+    Promise.all([loadCodeMirrorBundle(), readOnlyProbe]).then(([, readOnly]) => {
       // Guard: if open() was called again after this closure was queued,
       // a newer call has incremented _openGen — skip this stale one.
       if (this._openGen !== myGen) return;
       const { content: c, filePath: fp, isMd: md, isPreviewable: previewable } = pending;
 
-      // Save preview preference before creating/updating editor. A per-viewer
-      // stored toggle wins; with none, fall back to the global default (#279).
-      // The setting key is still markdownDefaultView for compatibility, but
-      // the behaviour applies to every text file kind with a rendered preview.
+      this.readOnly = !!readOnly;
+      this.toolbar.setReadOnly(this.readOnly);
+      if (this.toolbar.saveBtn) this.toolbar.saveBtn.style.display = this.readOnly ? 'none' : '';
+
+      // Resolve the starting mode before creating/updating the editor. A stored
+      // per-viewer choice wins; with none, the settings decide (#279, #281).
       const stored = (previewable && this.opts.storageKey) ? localStorage.getItem(this.opts.storageKey) : null;
-      const globalDefaultPreview = typeof appGlobalSettings !== 'undefined'
-        && appGlobalSettings.markdownDefaultView === 'preview';
-      const wantPreview = previewable && (stored === 'true' || (stored === null && globalDefaultPreview));
+      const wantMode = this._resolveViewMode(previewable, stored);
 
       // Create or update editor
       if (!this.editorView) {
@@ -317,12 +385,14 @@ class ViewerPanel {
         });
       }
 
-      // Re-apply preview preference. Persist only when it came from a stored
-      // per-viewer toggle; a global-default seed (stored === null) must not be
-      // written back, or it would pin itself and outlive the setting (#279).
-      if (wantPreview) {
-        this._setPreview(true, stored === 'true');
-      }
+      // Apply the resolved mode. Persist only when the value came from storage —
+      // a settings seed (stored === null) must not be written back, or it would
+      // pin itself and outlive the setting (#279) — and never when read-only
+      // forced the choice, which would pin one unwritable file's mode onto the
+      // rest (#281).
+      const migrate = stored !== null && !this.readOnly && stored !== wantMode;
+      this.viewMode = null; // force _setViewMode to apply, even for 'edit'
+      this._setViewMode(wantMode, migrate);
     }).catch((err) => {
       console.error('[viewer-panel] Failed to load codemirror-bundle:', err);
     });
@@ -339,7 +409,11 @@ class ViewerPanel {
                      this.toolbar.saveBtn, this.toolbar.gotoLineBtn]) {
       if (b) b.style.display = 'none';
     }
-    this.previewMode = false;
+    this.toolbar.setViewModesVisible(false);
+    this._previewable = false;
+    this._formatKind = null;
+    this.viewMode = 'edit';
+    this._applyFormatBar();
     this.previewEl.innerHTML = '';
     const img = document.createElement('img');
     img.className = 'fp-image-preview';
@@ -364,25 +438,137 @@ class ViewerPanel {
     }
   }
 
-  // persist=false is used when the global default (#279) seeds the initial mode:
-  // it must not write to storageKey, or that default would freeze into a per-viewer
-  // override and later changes to the setting would be ignored.
-  _togglePreview(persist = true) {
-    if (!this.previewMode) {
+  // `previewMode` stayed as a derived read: it is what the rest of the panel and
+  // its tests ask about, and there is exactly one source of truth for it.
+  get previewMode() { return this.viewMode === 'preview'; }
+
+  // Which of the two source modes the settings mean.
+  _toolbarMode() {
+    const settings = (typeof appGlobalSettings !== 'undefined' && appGlobalSettings) || {};
+    return settings.editorToolbarMode === 'plain' ? 'text' : 'edit';
+  }
+
+  // The starting mode, in priority order: a file that cannot be written is pinned
+  // to preview, then the stored per-viewer choice (including the two legacy
+  // boolean values this replaced), then the settings.
+  _resolveViewMode(previewable, stored) {
+    if (!previewable) return 'edit';
+    if (this.readOnly) return 'preview';
+    if (stored === 'edit' || stored === 'preview' || stored === 'text') return stored;
+    // Legacy: the key used to hold the preview flag as 'true' / 'false'.
+    if (stored === 'true') return 'preview';
+    if (stored === 'false') return this._toolbarMode();
+    const settings = (typeof appGlobalSettings !== 'undefined' && appGlobalSettings) || {};
+    return settings.markdownDefaultView === 'preview' ? 'preview' : this._toolbarMode();
+  }
+
+  // persist=false is used when the settings seed the initial mode: it must not
+  // write to storageKey, or that default would freeze into a per-viewer override
+  // and later changes to the setting would be ignored (#279).
+  _setViewMode(mode, persist = true) {
+    if (!this._previewable && mode !== 'edit') return;
+    // The pin applies where there is something to pin TO: a kind with no rendered
+    // preview keeps its single editor view, read-only or not.
+    if (this.readOnly && this._previewable && mode !== 'preview') return;
+    if (mode === this.viewMode) return;
+
+    this.viewMode = mode;
+    this._applyViewMode();
+    if (persist && this.opts.storageKey && this._previewable) {
+      localStorage.setItem(this.opts.storageKey, mode);
+    }
+  }
+
+  _applyViewMode() {
+    if (this.previewMode) {
       this._renderPreview();
       this.editorEl.style.display = 'none';
       this.previewEl.style.display = 'block';
-      this.toolbar.setPreviewMode(true);
-      this.previewMode = true;
-      if (persist && this.opts.storageKey) localStorage.setItem(this.opts.storageKey, 'true');
     } else {
       this.previewEl.style.display = 'none';
       this.previewEl.innerHTML = ''; // drop the rendered content / iframe
       this.editorEl.style.display = '';
-      this.toolbar.setPreviewMode(false);
-      this.previewMode = false;
-      if (persist && this.opts.storageKey) localStorage.setItem(this.opts.storageKey, 'false');
     }
+    this.toolbar.setViewMode(this.viewMode);
+    this.toolbar.setPreviewMode(this.previewMode);
+    this._applyFormatBar();
+  }
+
+  // The bar belongs to `edit` alone: `text` exists precisely to switch it off,
+  // and `preview` has nothing to write into.
+  _applyFormatBar() {
+    if (!this.formatBar) return;
+    const settings = (typeof appGlobalSettings !== 'undefined' && appGlobalSettings) || {};
+    const placement = settings.editorToolbarPlacement || 'bar';
+    this.formatBar.setPlacement(placement);
+    if (placement === 'overlay') this.formatBar.setOverlayTop(this.toolbar.el.offsetHeight + 6);
+
+    // Hover-only makes no sense for the popup, which is already conditional; and
+    // FOCUS has to reveal it too, or the bar is unreachable without a mouse.
+    const hoverOnly = settings.editorToolbarVisibility === 'hover' && placement !== 'selection';
+    this.container.classList.toggle('viewer-panel-hover-toolbar', hoverOnly);
+
+    const show = this.viewMode === 'edit' && this._formatKind && !this._imageMode;
+    if (!show || typeof formatCommandsFor !== 'function') {
+      this.formatBar.setCommands([]);
+      this.formatBar.hidePopup();
+      return;
+    }
+    const htmlTags = settings.editorToolbarHtmlTags !== 'off';
+    this.formatBar.setCommands(formatCommandsFor(this._formatKind, { htmlTags }));
+    this.formatBar.setDisabled(this.readOnly);
+    this._syncSelectionPopup();
+  }
+
+  // Selection placement only: show the popup beside a non-empty selection, hide
+  // it otherwise. Coordinates come back from CodeMirror in viewport space and are
+  // translated into the panel's, which is what the popup is positioned against.
+  _syncSelectionPopup() {
+    if (!this.formatBar || this.formatBar.placement !== 'selection') return;
+    const view = this.editorView;
+    if (!view || this.readOnly || this.viewMode !== 'edit' || !this._formatKind) {
+      this.formatBar.hidePopup();
+      return;
+    }
+    const sel = view.state.selection.main;
+    if (sel.from === sel.to || typeof view.coordsAtPos !== 'function') {
+      this.formatBar.hidePopup();
+      return;
+    }
+    const coords = view.coordsAtPos(sel.from);
+    if (!coords) { this.formatBar.hidePopup(); return; }
+    const host = this.container.getBoundingClientRect();
+    this.formatBar.showAt(coords.left - host.left, coords.top - host.top - 42);
+  }
+
+  // One command, one dispatch: the command decides the text, the panel decides
+  // nothing. Focus goes back to the editor so a second click keeps working on the
+  // selection the first one left behind.
+  _runFormatCommand(command, value) {
+    const view = this.editorView;
+    if (!view || this.readOnly) return;
+
+    if (command.kind === 'history') {
+      const run = command.id === 'redo' ? window.cmRedo : window.cmUndo;
+      if (typeof run === 'function') run(view);
+      view.focus();
+      return;
+    }
+
+    const doc = view.state.doc.toString();
+    const { from, to } = view.state.selection.main;
+    const change = command.run(doc, from, to, value);
+    view.dispatch({
+      changes: { from: change.from, to: change.to, insert: change.insert },
+      selection: { anchor: change.anchor, head: change.head },
+      scrollIntoView: true,
+    });
+    view.focus();
+    this._syncSelectionPopup();
+  }
+
+  _togglePreview(persist = true) {
+    this._setViewMode(this.previewMode ? this._toolbarMode() : 'preview', persist);
   }
 
   // Fill the preview element for the current file kind: a sandboxed iframe for
@@ -422,6 +608,8 @@ class ViewerPanel {
 
   async _save() {
     if (!this.opts.onSave || !this.filePath) return;
+    // Cmd/Ctrl+S reaches here even with the button hidden (#281).
+    if (this.readOnly) return;
     this._saving = true;
     const content = this.getContent();
     try {
@@ -458,6 +646,27 @@ class ViewerPanel {
     this.previewEl.innerHTML = '';
     this.previewEl.style.display = 'none';
     this._imageMode = false;
+    // The bar is emptied, not destroyed: destroy() is also the "between files"
+    // teardown and the panel is reopened with the same instance. dispose() is
+    // the end of life.
+    if (this.formatBar) this.formatBar.setCommands([]);
+  }
+
+  /**
+   * End of life, as opposed to destroy()'s between-files reset.
+   *
+   * The file panel builds one ViewerPanel per file tab (#311), and each one's
+   * format bar holds two document-level listeners. Without this, every preview
+   * opened and closed leaves both behind — with the panel, its DOM and its
+   * commands still reachable through them.
+   */
+  dispose() {
+    this.destroy();
+    if (this.formatBar) this.formatBar.destroy();
+    for (const evt of ['mouseup', 'keyup', 'focusout']) {
+      this.editorEl.removeEventListener(evt, this._onEditorSelectionChange);
+    }
+    _livePanels.delete(this);
   }
 
   // ── File Watching ──────────────────────────────────────────────────

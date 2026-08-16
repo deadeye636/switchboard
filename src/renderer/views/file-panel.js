@@ -239,7 +239,10 @@ function createPanelInstance(parent, hooks = {}) {
     // A tab's editor view lives in this body, so its search / goto-line bars are cached on it. Dropping
     // the tab without forgetting them leaves the next diff reusing a bar attached to a destroyed view.
     forgetEditorBars() { delete bodyEl._cmSearchBar; delete bodyEl._cmGotoLine; },
-    destroyViewer() { viewerPanel.destroy(); },
+    // The tab is going away for good, so this is dispose(), not destroy(): the
+    // instance is never reopened, and its format bar holds document listeners
+    // that the between-files reset deliberately keeps (#281).
+    destroyViewer() { viewerPanel.dispose(); },
   };
 }
 

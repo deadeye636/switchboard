@@ -3397,6 +3397,217 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   background: rgba(120,130,255,0.1);
 }
 
+/* ---- The three view modes and the formatting bar (#281) ---------------------
+   A previewable file (Markdown, HTML) opens in one of edit / preview / text. The
+   segmented control replaces the old preview toggle; the bar below the toolbar
+   row belongs to `edit` alone. Both reuse .fp-toolbar-btn — a bare <button> here
+   would render as the browser's own control next to the styled ones. */
+.viewer-mode-group {
+  display: inline-flex;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.viewer-mode-btn {
+  border-radius: 0;
+  border-right-width: 0;
+  padding: 3px 9px;
+}
+
+.viewer-mode-btn:first-child { border-radius: 5px 0 0 5px; }
+
+.viewer-mode-btn:last-child {
+  border-radius: 0 5px 5px 0;
+  border-right-width: 1px;
+}
+
+.viewer-mode-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.viewer-mode-btn:disabled:hover {
+  border-color: rgba(255,255,255,0.08);
+  color: #9090a8;
+  background: transparent;
+}
+
+.viewer-readonly-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #d0a24c;
+  background: rgba(208,162,76,0.12);
+  border: 1px solid rgba(208,162,76,0.28);
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+/* The offset parent for the two floating placements. */
+.viewer-panel-host {
+  position: relative;
+}
+
+/* Three placements, one bar. `bar` is a strip in the flow; `overlay` floats over
+   the editor; `selection` is a popup the panel positions beside the selection. */
+.viewer-format-bar {
+  display: none;
+  position: relative;
+  padding: 5px 16px 6px;
+  background: #15151c;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+
+.viewer-format-bar.has-commands {
+  display: block;
+}
+
+.viewer-format-bar.is-overlay {
+  position: absolute;
+  z-index: 12;
+  top: 6px;
+  right: 14px;
+  max-width: calc(100% - 28px);
+  padding: 5px 8px 6px;
+  background: rgba(24,24,31,0.94);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+}
+
+/* The popup is only ever shown with a selection, so it stays hidden until the
+   panel places it — a bar that appeared at 0,0 first and jumped afterwards would
+   be worse than one that appears late. */
+.viewer-format-bar.is-selection {
+  position: absolute;
+  z-index: 14;
+  padding: 4px 6px;
+  background: rgba(24,24,31,0.97);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+  border-bottom: 1px solid rgba(255,255,255,0.12);
+}
+
+.viewer-format-bar.is-selection.has-commands {
+  display: none;
+}
+
+.viewer-format-bar.is-selection.has-commands.is-open {
+  display: block;
+}
+
+/* Hover-only: the strip gives its height back until the pointer is over the panel
+   or something inside it has focus. The focus half is not optional — without it
+   the bar cannot be reached from the keyboard at all. */
+.viewer-panel-hover-toolbar .viewer-format-bar.has-commands {
+  display: none;
+}
+
+.viewer-panel-hover-toolbar:hover .viewer-format-bar.has-commands,
+.viewer-panel-hover-toolbar:focus-within .viewer-format-bar.has-commands {
+  display: block;
+}
+
+.viewer-format-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.viewer-format-btn {
+  padding: 3px 6px;
+  min-width: 26px;
+}
+
+.viewer-format-glyph {
+  font-size: 12px;
+  line-height: 14px;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.viewer-format-glyph.is-bold { font-weight: 700; }
+.viewer-format-glyph.is-italic { font-style: italic; }
+.viewer-format-glyph.is-strike { text-decoration: line-through; }
+.viewer-format-glyph.is-underline { text-decoration: underline; }
+
+.viewer-format-caret {
+  display: inline-flex;
+  margin-left: 1px;
+  opacity: 0.6;
+}
+
+/* The last colour picked, so the button says what a click would do. */
+.viewer-format-swatch {
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.viewer-format-btn:has(.viewer-format-swatch) {
+  position: relative;
+  padding-bottom: 5px;
+}
+
+.viewer-format-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: rgba(255,255,255,0.08);
+}
+
+.viewer-format-bar.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.viewer-format-menu {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: #1c1c25;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+}
+
+.viewer-format-menu.is-swatches {
+  display: grid;
+  grid-template-columns: repeat(4, 18px);
+  gap: 4px;
+}
+
+.viewer-format-menu-item {
+  text-align: left;
+  white-space: nowrap;
+  border-color: transparent;
+}
+
+.viewer-format-swatch-item {
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.viewer-format-swatch-item:hover {
+  border-color: #8088ff;
+}
+
 /* Plan CodeMirror editor */
 .viewer-panel-editor {
   flex: 1;

@@ -51,7 +51,8 @@
       collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
       paneCloseEmptyValue, paneBackgroundScrollbackValue,
-      externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
+      externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
+      favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       pixelSessionIconValue, projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
@@ -328,6 +329,59 @@
                     <select class="settings-select" id="sv-markdown-default-view">
                       <option value="code" ${markdownDefaultViewValue !== 'preview' ? 'selected' : ''}>Code</option>
                       <option value="preview" ${markdownDefaultViewValue === 'preview' ? 'selected' : ''}>Rendered preview</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Source editor</span>${help}</div>
+                    <div class="settings-description">Whether a previewable file's source editor carries the formatting bar. Applies to Markdown and HTML; other files have no bar either way.</div>
+                    <div class="settings-more"><b>With formatting bar</b>: the <i>edit</i> mode, two rows of formatting buttons above the editor. <b>Plain editor</b>: the <i>text</i> mode, the same editor without them. Both remain reachable from the viewer; this only sets which one a file opens in.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-editor-toolbar-mode">
+                      <option value="toolbar" ${editorToolbarModeValue !== 'plain' ? 'selected' : ''}>With formatting bar</option>
+                      <option value="plain" ${editorToolbarModeValue === 'plain' ? 'selected' : ''}>Plain editor</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Where the formatting bar sits</span>${help}</div>
+                    <div class="settings-description">The bar's placement in the source editor. The commands are the same in all three.</div>
+                    <div class="settings-more"><b>Under the toolbar</b>: a strip in the layout, wrapping to a second line when the panel is narrow. <b>Floating over the editor</b>: the same strip as a tile in the top-right corner, with the text scrolling beneath it. <b>Beside the selection</b>: nothing until text is selected, then a popup next to it; the block commands — headings, lists, tables — sit behind its <i>more</i> button, since they have no selection to attach to.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-editor-toolbar-placement">
+                      <option value="bar" ${editorToolbarPlacementValue !== 'overlay' && editorToolbarPlacementValue !== 'selection' ? 'selected' : ''}>Under the toolbar</option>
+                      <option value="overlay" ${editorToolbarPlacementValue === 'overlay' ? 'selected' : ''}>Floating over the editor</option>
+                      <option value="selection" ${editorToolbarPlacementValue === 'selection' ? 'selected' : ''}>Beside the selection</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Show the formatting bar</span>${help}</div>
+                    <div class="settings-description">Whether the bar is always there or waits until the panel is under the pointer.</div>
+                    <div class="settings-more"><b>Always</b>: the bar stays put. <b>On hover</b>: it gives its space back to the editor and returns when the pointer enters the panel — or when the editor has keyboard focus, so it stays reachable without a mouse. Has no effect on the selection popup, which is conditional either way.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-editor-toolbar-visibility">
+                      <option value="always" ${editorToolbarVisibilityValue !== 'hover' ? 'selected' : ''}>Always</option>
+                      <option value="hover" ${editorToolbarVisibilityValue === 'hover' ? 'selected' : ''}>On hover</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">HTML formatting in Markdown</span>${help}</div>
+                    <div class="settings-description">Offer underline, text colour, highlight and alignment while editing Markdown. These write HTML tags into the file.</div>
+                    <div class="settings-more">Markdown has no syntax of its own for them, so the buttons write <code>&lt;u&gt;</code>, <code>&lt;span style&gt;</code>, <code>&lt;mark&gt;</code> and <code>&lt;div align&gt;</code>. The preview renders those, but GitHub, Pandoc and static site generators may not. Turn this off to keep a file portable. Colours come from a fixed palette either way. Does not affect HTML files, where tags are the format.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-editor-toolbar-html-tags">
+                      <option value="on" ${editorToolbarHtmlTagsValue !== 'off' ? 'selected' : ''}>Offer them</option>
+                      <option value="off" ${editorToolbarHtmlTagsValue === 'off' ? 'selected' : ''}>Markdown only</option>
                     </select>
                   </div>
                 </div>

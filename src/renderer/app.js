@@ -1928,6 +1928,9 @@ async function reapplyGlobalSettings() {
   if (g.shortcuts && typeof setAppShortcuts === 'function') setAppShortcuts(g.shortcuts);
   window._applySessionDisplaySettings?.(g);
   window._applyProjectSortSettings?.(g);
+  // #281: the formatting bar's placement and visibility apply to an already-open
+  // file, not only to the next one.
+  window._applyViewerFormatSettings?.();
   // Tag definitions (name, colour, hidden/disabled) are edited in the same window
   // and are committed without a Save, so re-read them here: from the standalone
   // settings window this broadcast is the only thing that reaches the chips in the

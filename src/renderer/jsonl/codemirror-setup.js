@@ -1,6 +1,6 @@
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, highlightSpecialChars, ViewPlugin, Decoration } from '@codemirror/view';
 import { EditorState, StateField, StateEffect, Compartment } from '@codemirror/state';
-import { defaultKeymap, indentWithTab, history, historyKeymap } from '@codemirror/commands';
+import { defaultKeymap, indentWithTab, history, historyKeymap, undo, redo } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
@@ -541,6 +541,10 @@ window.CMEditorView = EditorView;
 window.CMEditorState = EditorState;
 window.CMMergeView = MergeView;
 window.cmOpenGotoLine = openGotoLine;
+// The format bar's undo/redo buttons (#281). Every editor here already installs
+// history(); these only give the toolbar the same commands the keymap has.
+window.cmUndo = undo;
+window.cmRedo = redo;
 
 marked.setOptions({ breaks: true, gfm: true });
 window.marked = marked;

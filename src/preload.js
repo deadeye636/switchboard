@@ -386,6 +386,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   readFileForPanel: (filePath) => ipcRenderer.invoke('read-file-for-panel', filePath),
   readFileDataUrl: (filePath) => ipcRenderer.invoke('read-file-dataurl', filePath),
+  // #281 — the viewer pins a file it cannot write to the read-only preview.
+  isFileReadOnly: (filePath) => ipcRenderer.invoke('is-file-read-only', filePath),
   saveFileForPanel: (filePath, content) => ipcRenderer.invoke('save-file-for-panel', filePath, content),
   watchFile: (filePath) => ipcRenderer.invoke('watch-file', filePath),
   unwatchFile: (filePath) => ipcRenderer.invoke('unwatch-file', filePath),

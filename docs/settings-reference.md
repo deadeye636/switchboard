@@ -50,6 +50,10 @@ back on Save.
 | `externalEditorCommand` | External editor | string | `''` (OS default) | global |
 | `fileClickTarget` | Clicking a file link opens | `internal` \| `external` | `internal` | global |
 | `markdownDefaultView` | Previewable files open as | `code` \| `preview` | `code` | global |
+| `editorToolbarMode` | Source editor | `toolbar` \| `plain` | `toolbar` | global |
+| `editorToolbarPlacement` | Where the formatting bar sits | `bar` \| `overlay` \| `selection` | `bar` | global |
+| `editorToolbarVisibility` | Show the formatting bar | `always` \| `hover` | `always` | global |
+| `editorToolbarHtmlTags` | HTML formatting in Markdown | `on` \| `off` | `on` | global |
 | `terminalCloseBehavior` | Closing a terminal tab | `kill` \| `keep` | `kill` | global |
 | `gpuAcceleration` | GPU rendering (WebGL) — *Advanced* | `auto` \| `on` \| `off` | `auto` | global |
 | `conptyBackend` | Windows ConPTY — *Advanced, Windows only* | `bundled` \| `system` | `bundled` | **cascades** |
@@ -57,6 +61,32 @@ back on Save.
 | `secretRefSweepMinutes` | Secret temp-file sweep (minutes) — *Advanced* | ≥ 0, `0` = off | `0` | global |
 
 `markdownDefaultView` keeps its legacy key name, but applies to every internal file viewer kind that has a rendered preview (currently Markdown and HTML). `terminalWebgl` is a retired key: a stored `false` migrates to `gpuAcceleration: 'off'`.
+
+A previewable file has three view modes since #281 — **edit** (the source editor plus the formatting
+bar), **preview** (the rendered document, read-only) and **text** (the same source editor without the
+bar) — and the two settings above decide which one it opens in. `markdownDefaultView` picks rendered
+or source; `editorToolbarMode` picks which of the two source modes "source" means. The viewer's own
+three-way control still overrides both, remembered per viewer as the preview toggle was: the stored
+value is now `edit` / `preview` / `text`, and the `true` / `false` it used to hold migrates on first
+read. A file the app cannot write is pinned to `preview`, and that forced mode is never stored.
+
+`editorToolbarPlacement` moves the bar without changing what it can do. `bar` is a strip under the
+viewer's toolbar row that wraps to a second line when the panel is narrow; `overlay` is the same strip
+as a tile over the top-right of the editor, which scrolls beneath it; `selection` shows nothing until
+text is selected, then a popup beside it. The popup carries the character commands directly and puts
+the block ones — headings, lists, quote, table, rule, alignment — behind its overflow button as a flat
+list, because those have no selection to attach to and every command has to stay reachable.
+
+`editorToolbarVisibility: hover` gives the bar's height back to the editor until the pointer enters
+the panel **or the editor takes keyboard focus** — the second half is what keeps the bar reachable
+without a mouse. It does nothing under `selection`, which is conditional already.
+
+`editorToolbarHtmlTags` drops the four commands that would write raw HTML into a **Markdown** file —
+underline, text colour, highlight and alignment, which Markdown has no syntax of its own for. It is a
+portability switch, not a security one: the preview renders those tags either way, and colours come
+from a fixed palette in both settings. It does nothing in an HTML file, where tags are the format.
+
+All five apply live: changing one reaches an already-open viewer, not only the next file.
 `tabsLiveRender` is retired too (#339): it is read as the fallback for `liveRenderBackground`, so a
 stored preference survives — the setting stopped being about tabs when panes started obeying it.
 

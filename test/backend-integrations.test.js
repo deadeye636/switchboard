@@ -189,6 +189,9 @@ const ALLOWED_BINDINGS = {
   'src/renderer/views/stats-view.js': [],
   'src/renderer/terminal/variable-palette.js': [],
   'src/renderer/terminal/page-key-routing.js': [],
+  // #281 — the editor's formatting bar. Both files are about file kinds, not backends.
+  'src/renderer/views/format-commands.js': [],
+  'src/renderer/views/format-toolbar.js': [],
 };
 
 test('the renderer never branches on a backend id', () => {

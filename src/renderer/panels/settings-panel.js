@@ -189,6 +189,13 @@
     const fileClickTargetValue = fieldValue('fileClickTarget', 'internal');
     // #279 how a Markdown file first opens in the internal editor (per-file toggle still overrides).
     const markdownDefaultViewValue = fieldValue('markdownDefaultView', 'code');
+    // #281 which of the two source modes the setting above means, and whether the
+    // Markdown bar offers the four commands that write HTML tags.
+    const editorToolbarModeValue = fieldValue('editorToolbarMode', 'toolbar');
+    const editorToolbarHtmlTagsValue = fieldValue('editorToolbarHtmlTags', 'on');
+    // #281 where the bar sits, and whether it waits for the pointer.
+    const editorToolbarPlacementValue = fieldValue('editorToolbarPlacement', 'bar');
+    const editorToolbarVisibilityValue = fieldValue('editorToolbarVisibility', 'always');
     // gpuAcceleration ports VSCode's auto|on|off model (#87); migrate the old boolean
     // terminalWebgl (false → off, else auto).
     const gpuAccelRaw = fieldValue('gpuAcceleration', undefined);
@@ -420,7 +427,9 @@
         collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
         confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
         paneCloseEmptyValue, paneBackgroundScrollbackValue,
-        externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
+        externalEditorValue, fileClickTargetValue, markdownDefaultViewValue,
+        editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
+        favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         pixelSessionIconValue, projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
@@ -727,6 +736,13 @@
         settings.externalEditorCommand = (settingsViewerBody.querySelector('#sv-external-editor')?.value || '').trim();
         settings.fileClickTarget = settingsViewerBody.querySelector('#sv-file-click-target')?.value === 'external' ? 'external' : 'internal';
         settings.markdownDefaultView = settingsViewerBody.querySelector('#sv-markdown-default-view')?.value === 'preview' ? 'preview' : 'code';
+        settings.editorToolbarMode = settingsViewerBody.querySelector('#sv-editor-toolbar-mode')?.value === 'plain' ? 'plain' : 'toolbar';
+        settings.editorToolbarHtmlTags = settingsViewerBody.querySelector('#sv-editor-toolbar-html-tags')?.value === 'off' ? 'off' : 'on';
+        {
+          const placement = settingsViewerBody.querySelector('#sv-editor-toolbar-placement')?.value;
+          settings.editorToolbarPlacement = (placement === 'overlay' || placement === 'selection') ? placement : 'bar';
+        }
+        settings.editorToolbarVisibility = settingsViewerBody.querySelector('#sv-editor-toolbar-visibility')?.value === 'hover' ? 'hover' : 'always';
         settings.gpuAcceleration = settingsViewerBody.querySelector('#sv-gpu-acceleration').value || 'auto';
         // Select only rendered on Windows — keep the stored value elsewhere.
         {

@@ -10,6 +10,8 @@
     "purify.min.js",
     "icons.js",
     "preview-kind.js",
+    "format-commands.js",
+    "format-toolbar.js",
     "viewer-toolbar.js",
     "viewer-panel.js",
     "file-panel.js",
