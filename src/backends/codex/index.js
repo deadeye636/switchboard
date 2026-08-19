@@ -213,6 +213,7 @@ module.exports = {
   // Codex's per-project instruction file is AGENTS.md (#227). It used to be read under Claude's branch in
   // the core, so a Codex project's own file was attributed to Claude; now Codex declares it.
   listResources: resources.createListResources({ codexHome }),
+  expandResource: resources.expandResource,   // one level into a listed directory (#440)
   memorySources: (scope) => {
     if (!scope || !scope.projectPath) return [];
     const short = require('../../session/derive-project-path').projectShortName(scope.projectPath);
@@ -235,7 +236,7 @@ module.exports = {
     liveRebinding: 'no',
     quota: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
     resourceDiscovery: 'yes',
-    resourceDepth: { state: 'no', note: 'the directories are listed, not their contents' },
+    resourceDepth: 'yes',
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',
     viewportPaging: 'yes',

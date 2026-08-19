@@ -40,6 +40,22 @@ keeps its **plans + memory/instruction files** (`plansDir` / `memorySources`, #2
 **subagents** (`supportsSubagents`, #230 — only Claude does), and its CLI home variable
 (`cliHomeEnv`, #241).
 
+## A directory is listed; `expandResource` reads it (#440)
+
+`listResources` names a customization directory as ONE row. What is inside it comes from
+`expandResource({ path, source, scope })`, and the walk itself is shared —
+`src/backends/resource-expand.js` holds three modes (`skillTree`, `flatFiles`, `dirs`) and each backend
+declares which rule each of its directories follows, keyed by the `source` its listing entry carries.
+
+**Do not put the walk back into `listResources`.** hermes and pi used to enumerate inline, so every
+settings-panel open paid for a recursive scan — hermes capped at 500, pi uncapped and unguarded, where
+one unreadable subdirectory threw and took the whole listing with it.
+
+**Containment is checked against `realpath`, not against how a path was spelled.** A skills directory is
+where symlinks live; `path.relative` alone passes a link that points at a private key.
+`app/backend-resources.js` re-derives the listing per call and refuses anything not under a listed
+directory — that re-derivation is also what makes a changed store override fail closed.
+
 ## The capability matrix is DECLARED, not derived (#439)
 
 `src/backends/capabilities.js` holds the catalog of "what can this backend do"; each descriptor answers

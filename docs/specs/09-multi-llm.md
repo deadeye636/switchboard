@@ -387,6 +387,29 @@ A template inherits none of this: `profileToDescriptor` builds an explicit field
 `integrations` nor `endpointEnv` nor `description`. That is deliberate — a template has no gear page, and
 the profile editor asks the **base**, off the built-ins.
 
+## Reading a backend's own configuration (#440)
+
+`listResources` was always a listing; since #440 it is only a listing. A customization directory is one
+row, and `expandResource` reads one level into it when the user opens it.
+
+- **The walk is shared, the rules are declared.** `src/backends/resource-expand.js` has three modes —
+  a skills tree that stops at whatever folder holds `SKILL.md`, flat files with an optional extension
+  filter, and subdirectories. Each backend maps its own directories to a mode, keyed by the `source`
+  its listing entries already carry. Five copies of the walk with five filters is the defect this
+  avoids by construction.
+- **hermes and pi moved into it.** Both enumerated inline, so a settings-panel open ran a recursive
+  scan; pi's was uncapped and unguarded, and a single unreadable subdirectory failed the whole listing.
+  The cap now belongs to the hook contract rather than to one backend's walk.
+- **Junctions are followed.** `Dirent.isDirectory()` is false for one, which is how a junctioned skills
+  directory read as empty with nothing to see. `statSync` answers instead.
+- **Containment uses `realpath`.** Lexical containment passes a symlink out of the tree, and a skills
+  directory is exactly where symlinks live.
+- **The Agent Files tab is where this surfaces**, beside the instruction files it already showed — the
+  main window, next to the sessions, rather than two windows away in settings. The Backends settings
+  page keeps the inventory and its Open / Copy path buttons. What the tab shows is narrower than what a
+  backend lists: plan documents have their own tab, and a plugin directory opened in a text editor is a
+  dead end.
+
 ## The capability matrix (#439)
 
 Each backend covers a different part of what the app can do, and until #439 the only way to see that was to

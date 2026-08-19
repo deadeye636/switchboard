@@ -472,6 +472,8 @@ module.exports = {
   // .claude dirs. Each source is display-ready; the neutral Plans/Memory module scans/stats them and never
   // hardcodes ~/.claude itself.
   listResources: resources.createListResources({ claudeHome }),
+  // One level into a listed directory (#440) — the shared walker, this backend's rules.
+  expandResource: resources.expandResource,
   memorySources: (scope) => {
     scope = scope || {};
     if (!scope.projectPath) {
@@ -549,7 +551,7 @@ module.exports = {
     liveRebinding: 'yes',
     quota: 'yes',
     resourceDiscovery: 'yes',
-    resourceDepth: { state: 'no', note: 'the directories are listed, not their contents' },
+    resourceDepth: 'yes',
     plans: 'yes',
     projectConfig: 'yes',
     viewportPaging: { state: 'no', note: 'its full-screen TUI owns the bare page keys' },

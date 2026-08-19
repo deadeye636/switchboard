@@ -250,6 +250,7 @@ module.exports = {
   probe,
   findExecutable,
   listResources: resources.listResources,
+  expandResource: resources.expandResource,   // one level into a listed directory (#440)
 
   // --- the dual-mode seam, db side ---
   discoverSessions: reader.discoverSessions,

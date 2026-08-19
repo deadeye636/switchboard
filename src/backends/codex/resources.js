@@ -8,6 +8,17 @@
 const fs = require('fs');
 const path = require('path');
 
+const { createExpandResource } = require('../resource-expand');
+
+// One level into each listed directory (#440), keyed by the `source` its listing entry carries.
+const EXPAND_RULES = {
+  'plugins-directory': { mode: 'dirs', kind: 'plugin' },
+  'skills-directory': { mode: 'skillTree', kind: 'skill' },
+  'rules-directory': { mode: 'flatFiles', kind: 'rule', exts: ['.md'] },
+  'memories-directory': { mode: 'flatFiles', kind: 'memory-store', exts: ['.md'] },
+  'project-rules': { mode: 'flatFiles', kind: 'rule', exts: ['.md'] },
+};
+
 function isFile(p) {
   try { return fs.statSync(p).isFile(); } catch { return false; }
 }
@@ -81,4 +92,6 @@ function createListResources({ codexHome }) {
   };
 }
 
-module.exports = { createListResources };
+const expandResource = createExpandResource(EXPAND_RULES);
+
+module.exports = { createListResources, expandResource, EXPAND_RULES };

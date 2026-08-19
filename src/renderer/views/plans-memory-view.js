@@ -180,7 +180,13 @@ async function loadMemories() {
 function renderMemories(filterIds) {
   memoryContent.innerHTML = '';
   const data = cachedMemoryData;
-  const allFiles = [...data.global.files, ...data.projects.flatMap(p => p.files)];
+  // Backend resource groups count as content (#440): a store can hold skills and no loose file, and
+  // answering that with "no memory files found" would hide everything the tab just learned about.
+  const groupsOf = (scope) => (scope && Array.isArray(scope.groups) ? scope.groups : []);
+  const allFiles = [
+    ...data.global.files, ...groupsOf(data.global).flatMap(g => g.files),
+    ...data.projects.flatMap(p => [...p.files, ...groupsOf(p).flatMap(g => g.files)]),
+  ];
   if (allFiles.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'plans-empty';
@@ -190,22 +196,31 @@ function renderMemories(filterIds) {
   }
 
   // Global group
-  if (data.global.files.length > 0) {
-    const globalFiles = filterIds ? data.global.files.filter(f => filterIds.has(f.filePath)) : data.global.files;
-    if (globalFiles.length > 0) {
-      memoryContent.appendChild(buildMemoryGroup('__global__', 'Global', globalFiles));
-    }
+  const globalFiles = filterIds ? data.global.files.filter(f => filterIds.has(f.filePath)) : data.global.files;
+  const globalGroups = filterResourceGroups(groupsOf(data.global), filterIds);
+  if (globalFiles.length > 0 || globalGroups.length > 0) {
+    memoryContent.appendChild(buildMemoryGroup('__global__', 'Global', globalFiles, globalGroups));
   }
 
   // Per-project groups
   for (const proj of data.projects) {
     const projFiles = filterIds ? proj.files.filter(f => filterIds.has(f.filePath)) : proj.files;
-    if (projFiles.length === 0) continue;
-    memoryContent.appendChild(buildMemoryGroup(proj.folder, projectDisplayLabel(proj.displayName, proj.shortName), projFiles));
+    const projGroups = filterResourceGroups(groupsOf(proj), filterIds);
+    if (projFiles.length === 0 && projGroups.length === 0) continue;
+    memoryContent.appendChild(buildMemoryGroup(
+      proj.folder, projectDisplayLabel(proj.displayName, proj.shortName), projFiles, projGroups, proj.projectPath));
   }
 }
 
-function buildMemoryGroup(key, label, files) {
+/** A search filter applies inside a resource group too; a group with nothing left drops out. */
+function filterResourceGroups(groups, filterIds) {
+  if (!filterIds) return groups;
+  return groups
+    .map(g => ({ ...g, files: g.files.filter(f => filterIds.has(f.filePath)) }))
+    .filter(g => g.files.length > 0);
+}
+
+function buildMemoryGroup(key, label, files, resourceGroups = [], projectPath = null) {
   const group = document.createElement('div');
   group.className = 'project-group';
   const isCollapsed = memoryCollapsedState.get(key) === true; // default expanded
@@ -227,7 +242,7 @@ function buildMemoryGroup(key, label, files) {
 
   const countBadge = document.createElement('span');
   countBadge.className = 'memory-file-count';
-  countBadge.textContent = files.length;
+  countBadge.textContent = files.length + resourceGroups.reduce((n, g) => n + g.files.length, 0);
   header.appendChild(countBadge);
 
   header.addEventListener('click', () => {
@@ -244,9 +259,71 @@ function buildMemoryGroup(key, label, files) {
   for (const file of files) {
     filesList.appendChild(buildMemoryItem(file));
   }
+  // The backend's own customization directories, each collapsible on its own (#440). They sit under the
+  // instruction files because that is the reading order: what the agent is told, then what it can do.
+  for (const rg of resourceGroups) {
+    filesList.appendChild(buildResourceGroup(rg, key, projectPath));
+  }
   group.appendChild(filesList);
 
   return group;
+}
+
+// A directory of skills / rules / commands, drawn as a nested collapsible block. Collapsed by default:
+// the instruction files are what the tab has always been for, and a store with many skills would
+// otherwise push them off the screen.
+function buildResourceGroup(rg, parentKey, projectPath) {
+  const key = parentKey + '::' + rg.id;
+  const block = document.createElement('div');
+  block.className = 'project-group memory-resource-group';
+  const isCollapsed = memoryCollapsedState.get(key) !== false;   // default collapsed
+  if (isCollapsed) block.classList.add('collapsed');
+
+  const header = document.createElement('div');
+  header.className = 'project-header memory-resource-header';
+
+  const arrow = document.createElement('span');
+  arrow.className = 'arrow';
+  arrow.innerHTML = '&#9660;';
+  header.appendChild(arrow);
+
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'project-name';
+  nameSpan.textContent = rg.label;
+  header.appendChild(nameSpan);
+
+  const backendSpan = document.createElement('span');
+  backendSpan.className = 'memory-resource-backend';
+  backendSpan.textContent = rg.backendLabel;
+  header.appendChild(backendSpan);
+
+  const count = document.createElement('span');
+  count.className = 'memory-file-count';
+  count.textContent = rg.files.length;
+  header.appendChild(count);
+
+  header.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const nowCollapsed = !block.classList.contains('collapsed');
+    block.classList.toggle('collapsed');
+    memoryCollapsedState.set(key, nowCollapsed);
+  });
+  block.appendChild(header);
+
+  const list = document.createElement('div');
+  list.className = 'project-sessions';
+  for (const file of rg.files) {
+    list.appendChild(buildMemoryItem({ ...file, backendId: rg.backendId, projectPath }));
+  }
+  if (rg.truncated) {
+    const note = document.createElement('div');
+    note.className = 'plans-empty memory-resource-note';
+    note.textContent = 'Only the first entries are shown.';
+    list.appendChild(note);
+  }
+  block.appendChild(list);
+
+  return block;
 }
 
 function buildMemoryItem(file) {
@@ -298,7 +375,20 @@ async function openMemory(file) {
   const target = memoryContent.querySelector(`.memory-item[data-filepath="${CSS.escape(file.filePath)}"]`);
   if (target) target.classList.add('active');
 
-  const content = await window.api.readMemory(file.filePath);
+  // An instruction file is read as memory; a file that came from a backend's resource directory is read
+  // through that backend, because the memory reader only answers for `.md` under a memory root (#440).
+  let content;
+  if (file.backendId) {
+    const res = await window.api.backends.readResource(file.backendId, file.filePath, file.projectPath || null);
+    if (!res || res.ok === false) {
+      // The reason exists — say it, rather than showing an empty editor that looks like an empty file.
+      showControlMessage({ title: 'Cannot show this file', message: (res && res.reason) || 'Unknown error', tone: 'warning' });
+      return;
+    }
+    content = res.content;
+  } else {
+    content = await window.api.readMemory(file.filePath);
+  }
   currentMemoryFilePath = file.filePath;
   currentMemoryContent = content;
 

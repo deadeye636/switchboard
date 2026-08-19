@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('api', {
     canFork: (sessionId) => ipcRenderer.invoke('backend-can-fork', sessionId),
     listModels: (backendId, search) => ipcRenderer.invoke('backend-list-models', backendId, search),
     listResources: (backendId, projectPath) => ipcRenderer.invoke('backend-list-resources', backendId, projectPath),
+    // One level into a listed directory (#440). Main re-derives the listing and checks containment.
+    expandResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-expand-resource', backendId, resourcePath, projectPath),
+    readResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-read-resource', backendId, resourcePath, projectPath),
     openResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-open-resource', backendId, resourcePath, projectPath),
     transcriptPath: (sessionId) => ipcRenderer.invoke('handoff-transcript-path', sessionId),
   },

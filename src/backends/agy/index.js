@@ -193,6 +193,7 @@ module.exports = {
   // agy keeps sessions in per-conversation SQLite DBs — row.filePath if the row has one, else null (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
   listResources: resources.createListResources({ conversationsRoot }),
+  expandResource: resources.expandResource,   // one level into a listed directory (#440)
   // agy keeps no plans store (#227).
   plansDir: () => null,
   // agy's per-project instruction file is GEMINI.md (#227) — it used to be guessed under Claude's branch.
@@ -223,7 +224,7 @@ module.exports = {
     liveRebinding: 'no',
     quota: 'yes',
     resourceDiscovery: 'yes',
-    resourceDepth: { state: 'no', note: 'the directories are listed, not their contents' },
+    resourceDepth: 'yes',
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',
     viewportPaging: 'yes',

@@ -136,12 +136,8 @@ const CATALOG = [
     id: 'resourceDepth',
     group: 'resources',
     label: 'List what is inside those directories',
-    // The one row with no `declaredBy`, so nothing cross-checks it against reality: every backend
-    // declares the same `listResources`, and whether that reader walks a directory or stops at it is
-    // not visible in the descriptor. Verified by reading the five readers. #440 adds the expansion
-    // hook this row is really about — give it `declaredBy: 'expandResource'` then, and the row starts
-    // checking itself.
     description: 'Name the individual skills, rules and hooks, not only the directory holding them.',
+    declaredBy: 'expandResource',
   },
   {
     id: 'plans',

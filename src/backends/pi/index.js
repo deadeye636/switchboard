@@ -413,6 +413,7 @@ module.exports = {
   findExecutable,
   listModels,
   listResources: resources.listResources,
+  expandResource: resources.expandResource,   // one level into a listed directory (#440)
   _parseModelList: parseModelList,
 
   // the dual-mode seam, file side (backends/file-store.js)

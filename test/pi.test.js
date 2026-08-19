@@ -594,12 +594,27 @@ test('Pi resource discovery surfaces global and project resources read-only (#41
     const keys = res.resources.map(r => `${r.scope}:${r.kind}:${r.name}`);
     assert.ok(keys.includes('global:settings:settings.json'));
     assert.ok(keys.includes('global:package:npm:@x/pkg'));
-    assert.ok(keys.includes('global:extension:guard'));
-    assert.ok(keys.includes('global:skill:global-skill'));
-    assert.ok(keys.includes('global:prompt-template:review'));
+    // Since #440 the listing names the DIRECTORY, not the files inside it — the walk of both skill roots
+    // used to run on every settings-panel open, uncapped and unguarded.
+    assert.ok(keys.includes('global:extension:extensions'));
+    assert.ok(keys.includes('global:skill:skills'));
+    assert.ok(keys.includes('global:prompt-template:prompts'));
     assert.ok(keys.includes('project:settings:settings.json'));
-    assert.ok(keys.includes('project:skill:local-skill'));
-    assert.ok(keys.includes('project:theme:team'));
+    assert.ok(keys.includes('project:skill:skills'));
+    assert.ok(keys.includes('project:theme:themes'));
+
+    const globalSkills = res.resources.find(r => r.scope === 'global' && r.source === 'skills-directory');
+    const gs = pi.expandResource({ path: globalSkills.path, source: globalSkills.source, scope: 'global' });
+    assert.strictEqual(gs.ok, true);
+    assert.deepStrictEqual(gs.entries.map(e => `${e.kind}:${e.name}`), ['skill:global-skill']);
+
+    const projectSkills = res.resources.find(r => r.scope === 'project' && r.source === 'skills-directory');
+    const ps = pi.expandResource({ path: projectSkills.path, source: projectSkills.source, scope: 'project' });
+    assert.deepStrictEqual(ps.entries.map(e => `${e.kind}:${e.name}`), ['skill:local-skill']);
+
+    const exts = res.resources.find(r => r.scope === 'global' && r.source === 'extensions-directory');
+    const ex = pi.expandResource({ path: exts.path, source: exts.source, scope: 'global' });
+    assert.deepStrictEqual(ex.entries.map(e => `${e.kind}:${e.name}`), ['extension:guard']);
   } finally {
     if (saved === undefined) delete process.env.SWITCHBOARD_STORE_PI; else process.env.SWITCHBOARD_STORE_PI = saved;
     fs.rmSync(dir, { recursive: true, force: true });

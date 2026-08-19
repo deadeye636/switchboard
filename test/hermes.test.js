@@ -309,11 +309,26 @@ test('Hermes resource discovery surfaces config, skills, bundles, plugins and ho
     const keys = res.resources.map(r => `${r.scope}:${r.kind}:${r.name}`);
     assert.ok(keys.includes('global:settings:config.yaml'));
     assert.ok(keys.includes('global:memory:SOUL.md'));
-    assert.ok(keys.includes('global:skill:review'));
-    assert.ok(keys.includes('global:skill-bundle:team'));
-    assert.ok(keys.includes('global:plugin:demo-plugin'));
-    assert.ok(keys.includes('global:hook:guard.sh'));
+    // Since #440 the listing names the DIRECTORY; what is inside it comes from expandResource, so the
+    // settings panel no longer pays for a walk of the whole skills tree on every open.
+    assert.ok(keys.includes('global:skill:skills'));
+    assert.ok(keys.includes('global:skill-bundle:skill-bundles'));
+    assert.ok(keys.includes('global:plugin:plugins'));
+    assert.ok(keys.includes('global:hook:hooks'));
     assert.ok(keys.includes('global:memory-store:memories'));
+
+    const skillsDir = res.resources.find(r => r.source === 'skills-directory');
+    const skills = hermes.expandResource({ path: skillsDir.path, source: skillsDir.source, scope: 'global' });
+    assert.strictEqual(skills.ok, true);
+    assert.deepStrictEqual(skills.entries.map(e => `${e.kind}:${e.name}`), ['skill:review']);
+
+    const bundlesDir = res.resources.find(r => r.source === 'skill-bundles');
+    const bundles = hermes.expandResource({ path: bundlesDir.path, source: bundlesDir.source, scope: 'global' });
+    assert.deepStrictEqual(bundles.entries.map(e => `${e.kind}:${e.name}`), ['skill-bundle:team']);
+
+    const hooksDir = res.resources.find(r => r.source === 'hooks-directory');
+    const hooks = hermes.expandResource({ path: hooksDir.path, source: hooksDir.source, scope: 'global' });
+    assert.deepStrictEqual(hooks.entries.map(e => `${e.kind}:${e.name}`), ['hook:guard.sh']);
   } finally {
     hermes.setHome(null);
     fs.rmSync(home, { recursive: true, force: true });

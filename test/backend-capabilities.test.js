@@ -21,14 +21,14 @@ const PINNED = {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', liveRebinding: 'yes', quota: 'yes',
-    resourceDiscovery: 'yes', resourceDepth: 'no', plans: 'yes', projectConfig: 'yes',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', plans: 'yes', projectConfig: 'yes',
     viewportPaging: 'no',
   },
   codex: {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'no',
     modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', liveRebinding: 'no', quota: 'limited',
-    resourceDiscovery: 'yes', resourceDepth: 'no', plans: 'no', projectConfig: 'no',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', plans: 'no', projectConfig: 'no',
     viewportPaging: 'yes',
   },
   hermes: {
@@ -49,7 +49,7 @@ const PINNED = {
     fork: 'no', deleteSessions: 'yes', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'no',
     modelList: 'yes', endpoint: 'no', projectTrust: 'no',
     subagentSessions: 'no', liveOwners: 'no', liveRebinding: 'no', quota: 'yes',
-    resourceDiscovery: 'yes', resourceDepth: 'no', plans: 'no', projectConfig: 'no',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', plans: 'no', projectConfig: 'no',
     viewportPaging: 'yes',
   },
 };

@@ -8,6 +8,17 @@
 const fs = require('fs');
 const path = require('path');
 
+const { createExpandResource } = require('../resource-expand');
+
+// One level into each listed directory (#440), keyed by the `source` its listing entry carries.
+const EXPAND_RULES = {
+  'builtin-resources': { mode: 'flatFiles', kind: 'resource', keepExtension: true },
+  'implicit-resources': { mode: 'flatFiles', kind: 'resource', keepExtension: true },
+  'knowledge-directory': { mode: 'flatFiles', kind: 'memory-store', exts: ['.md'] },
+  'plugins-directory': { mode: 'dirs', kind: 'plugin' },
+  'project-gemini-directory': { mode: 'flatFiles', kind: 'settings', keepExtension: true },
+};
+
 function isFile(p) {
   try { return fs.statSync(p).isFile(); } catch { return false; }
 }
@@ -76,4 +87,6 @@ function createListResources({ conversationsRoot }) {
   };
 }
 
-module.exports = { createListResources };
+const expandResource = createExpandResource(EXPAND_RULES);
+
+module.exports = { createListResources, expandResource, EXPAND_RULES };

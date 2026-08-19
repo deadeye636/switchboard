@@ -8,6 +8,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const { createExpandResource } = require('../resource-expand');
+
 const FILES = [
   ['settings.json', 'settings', 'settings'],
   ['settings.local.json', 'settings', 'settings'],
@@ -27,6 +29,23 @@ const DIRS = [
   ['keybindings', 'keybinding', 'keybindings-directory'],
   ['plans', 'plan-store', 'plans-directory'],
 ];
+
+// How each listed directory is read one level deep (#440), keyed by the `source` its listing entry
+// carries — `source` is what tells `commands` from `agents` when both are flat markdown.
+const EXPAND_RULES = {
+  'commands-directory': { mode: 'flatFiles', kind: 'command', exts: ['.md'] },
+  'agents-directory': { mode: 'flatFiles', kind: 'agent', exts: ['.md'] },
+  'plugins-directory': { mode: 'dirs', kind: 'plugin' },
+  'hooks-directory': { mode: 'flatFiles', kind: 'hook', keepExtension: true },
+  'skills-directory': { mode: 'skillTree', kind: 'skill' },
+  'output-styles-directory': { mode: 'flatFiles', kind: 'output-style', exts: ['.md'] },
+  'workflows-directory': { mode: 'flatFiles', kind: 'workflow', exts: ['.md'] },
+  'plans-directory': { mode: 'flatFiles', kind: 'plan-store', exts: ['.md'] },
+  'project-commands': { mode: 'flatFiles', kind: 'command', exts: ['.md'] },
+  'project-agents': { mode: 'flatFiles', kind: 'agent', exts: ['.md'] },
+  'project-skills': { mode: 'skillTree', kind: 'skill' },
+  'project-hooks': { mode: 'flatFiles', kind: 'hook', keepExtension: true },
+};
 
 function isFile(p) {
   try { return fs.statSync(p).isFile(); } catch { return false; }
@@ -94,4 +113,6 @@ function createListResources({ claudeHome }) {
   };
 }
 
-module.exports = { createListResources };
+const expandResource = createExpandResource(EXPAND_RULES);
+
+module.exports = { createListResources, expandResource, EXPAND_RULES };

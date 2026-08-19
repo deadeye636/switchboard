@@ -192,6 +192,9 @@ const ALLOWED_BINDINGS = {
   // #281 — the editor's formatting bar. Both files are about file kinds, not backends.
   'src/renderer/views/format-commands.js': [],
   'src/renderer/views/format-toolbar.js': [],
+  // #440 — the Agent Files tab renders backend resource groups. It carries a backendId through to the
+  // read call, which is data from main, never a literal it decides on.
+  'src/renderer/views/plans-memory-view.js': [],
   // #439 — the capability matrix. It renders the catalog and the answers main sent it, so it names no
   // backend and holds no per-backend table; if it ever needs one, the descriptor is the place.
   'src/renderer/panels/backend-capabilities.js': [],

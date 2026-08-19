@@ -142,6 +142,106 @@ function collectSource(s, out, seen) {
   }
 }
 
+// --- Backend resource groups (#440) ---
+//
+// The customization directories a backend keeps — skills, rules, commands, agents — shown in this tab
+// beside the instruction files it already lists. They arrive as GROUPS rather than as loose files,
+// because a flat list of 500 skills is what this replaced: the directory is the row, its entries are
+// what the row opens.
+//
+// One level is read here rather than on demand. The tab needs the count for its header and the search
+// index needs the text, so a lazy load would have to run anyway before either could be right — and the
+// walk is the same capped one the settings panel used to run on every open.
+
+// What this TAB shows, which is narrower than what a backend lists. Two kinds are deliberately absent
+// and both were visible mistakes before they were rules:
+//
+//   plan-store  the Plans tab already shows exactly these files, in a tab named for them.
+//   plugin / package / theme / extension
+//               a plugin is a directory, and a directory opened in a text editor is a dead end. They
+//               stay in the Backends settings list, where "Open" hands them to the system.
+//
+// This is a property of the tab, not of any backend — it names kinds, which are the shared vocabulary,
+// and no backend id appears here.
+const TAB_KINDS = new Set([
+  'skill', 'skill-bundle', 'rule', 'command', 'agent', 'prompt-template',
+  'output-style', 'workflow', 'memory-store', 'memory', 'hook', 'resource',
+]);
+
+/** Is this listing entry a directory this backend can read into? */
+function isExpandableDir(entry) {
+  if (!entry || !entry.path) return false;
+  try { if (!fs.statSync(entry.path).isDirectory()) return false; } catch { return false; }
+  return true;
+}
+
+/** A resource entry in the shape the memory list renders. */
+function resourceFile(entry, rootPath) {
+  let stat = null;
+  try { stat = fs.statSync(entry.path); } catch { return null; }
+  const rel = path.relative(rootPath, entry.path);
+  return {
+    filename: entry.name || path.basename(entry.path),
+    filePath: entry.path,
+    modified: stat.mtime.toISOString(),
+    size: stat.size,
+    displayPath: rel && !rel.startsWith('..') ? rel : path.basename(entry.path),
+    source: entry.source || null,
+    kind: entry.kind || null,
+  };
+}
+
+/**
+ * The resource groups for one scope. `seen` is shared with the instruction files so a file that is both
+ * (Claude's CLAUDE.md is listed by memorySources AND by listResources) appears once.
+ */
+function resourceGroups(projectPath, seen) {
+  const groups = [];
+  for (const b of memoryBackends()) {
+    if (typeof b.listResources !== 'function' || typeof b.expandResource !== 'function') continue;
+    let listed = null;
+    try { listed = b.listResources({ projectPath: projectPath || null }); } catch { continue; }
+    if (!listed || listed.ok === false || !Array.isArray(listed.resources)) continue;
+
+    for (const entry of listed.resources) {
+      const wantScope = projectPath ? 'project' : 'global';
+      if ((entry.scope || 'global') !== wantScope) continue;
+      if (!TAB_KINDS.has(entry.kind)) continue;
+      if (!isExpandableDir(entry)) continue;
+
+      let expanded = null;
+      try { expanded = b.expandResource({ path: entry.path, source: entry.source, scope: entry.scope, projectPath: projectPath || null }); }
+      catch { expanded = null; }
+      if (!expanded || expanded.ok === false || !Array.isArray(expanded.entries) || !expanded.entries.length) continue;
+
+      const files = [];
+      for (const child of expanded.entries) {
+        if (!child || !child.path || seen.has(child.path)) continue;
+        // One level is what this reads, so a child that is itself a directory has nothing to open —
+        // it would sit in the list and answer a click with "that is a directory".
+        try { if (fs.statSync(child.path).isDirectory()) continue; } catch { continue; }
+        const file = resourceFile(child, entry.path);
+        if (!file) continue;
+        seen.add(child.path);
+        files.push(file);
+      }
+      if (!files.length) continue;
+
+      groups.push({
+        id: b.id + ':' + entry.path,
+        backendId: b.id,
+        backendLabel: b.label || b.id,
+        label: entry.name || path.basename(entry.path),
+        kind: entry.kind || 'resource',
+        path: entry.path,
+        truncated: !!expanded.truncated,
+        files,
+      });
+    }
+  }
+  return groups;
+}
+
 // --- Plans ---
 
 function getPlans() {
@@ -235,6 +335,7 @@ function getMemories() {
     try { sources = b.memorySources({ projectPath: null, storeFolders: [] }) || []; } catch { sources = []; }
     for (const s of sources) collectSource(s, globalFiles, globalSeen);
   }
+  const globalGroups = resourceGroups(null, globalSeen);
 
   // Per-project files: from the register (every backend's provenance), not one store directory.
   const projects = [];
@@ -248,27 +349,33 @@ function getMemories() {
       try { sources = b.memorySources({ projectPath, storeFolders }) || []; } catch { sources = []; }
       for (const s of sources) collectSource(s, files, seen);
     }
-    if (files.length) {
+    const groups = resourceGroups(projectPath, seen);
+    if (files.length || groups.length) {
       const displayName = displayNames.get(projectPath) || '';
       projects.push({
         folder: storeFolders[0] || encodeProjectPath(projectPath),
-        projectPath, shortName: short, displayName, files,
+        projectPath, shortName: short, displayName, files, groups,
       });
     }
   }
 
-  projects.sort((a, b) => {
-    const aMax = Math.max(...a.files.map(f => new Date(f.modified).getTime()));
-    const bMax = Math.max(...b.files.map(f => new Date(f.modified).getTime()));
-    return bMax - aMax;
-  });
+  // A project can now have groups and no loose files (#440), so the newest of EVERYTHING it holds
+  // decides the order — `Math.max()` of nothing is -Infinity, which would sink such a project.
+  const newestOf = (p) => {
+    const times = [...p.files, ...p.groups.flatMap(g => g.files)].map(f => new Date(f.modified).getTime());
+    return times.length ? Math.max(...times) : 0;
+  };
+  projects.sort((a, b) => newestOf(b) - newestOf(a));
 
-  const result = { global: { files: globalFiles }, projects };
+  const result = { global: { files: globalFiles, groups: globalGroups }, projects };
 
   try {
+    // Group files are indexed too (#440) — a skill the tab shows but search cannot find reads as a bug.
     const allFiles = [
       ...globalFiles.map(f => ({ ...f, label: 'Global' })),
-      ...projects.flatMap(p => p.files.map(f => ({ ...f, label: p.displayName || p.shortName }))),
+      ...globalGroups.flatMap(g => g.files.map(f => ({ ...f, label: 'Global' }))),
+      ...projects.flatMap(p => [...p.files, ...p.groups.flatMap(g => g.files)]
+        .map(f => ({ ...f, label: p.displayName || p.shortName }))),
     ];
     const sig = computeIndexSignature(allFiles.map(f => ({
       filePath: f.filePath, mtimeMs: new Date(f.modified).getTime(), size: f.size || 0,

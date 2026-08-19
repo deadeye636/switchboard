@@ -10,6 +10,21 @@ const os = require('os');
 const path = require('path');
 
 const trust = require('./trust');
+const { createExpandResource } = require('../resource-expand');
+
+// Pi's customization directories, and how each is read one level deep (#440). Until then this file
+// walked both skill roots inside `listResources` with no cap and no guard, so one unreadable
+// subdirectory threw and took the whole listing with it.
+//
+// Keyed by `source`, which is why the sources below are named per directory: they all used to read
+// 'auto-discovery', and a single shared source cannot say whether a directory holds skills or themes.
+const EXPAND_RULES = {
+  'extensions-directory': { mode: 'flatFiles', kind: 'extension', exts: ['.ts', '.js'], dirWithIndex: 'index.ts' },
+  'skills-directory': { mode: 'skillTree', kind: 'skill', rootMarkdown: true },
+  'shared-skills-directory': { mode: 'skillTree', kind: 'skill' },
+  'prompts-directory': { mode: 'flatFiles', kind: 'prompt-template', exts: ['.md'] },
+  'themes-directory': { mode: 'flatFiles', kind: 'theme', exts: ['.json'] },
+};
 
 function exists(p) {
   try { fs.accessSync(p); return true; } catch { return false; }
@@ -59,39 +74,12 @@ function addSettings(out, file, scope) {
   return data;
 }
 
-function addFlatFiles(out, dir, scope, kind, exts) {
-  if (!isDir(dir)) return;
-  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, ent.name);
-    if (ent.isDirectory() && kind === 'extension' && isFile(path.join(p, 'index.ts'))) {
-      add(out, { kind, scope, name: ent.name, path: path.join(p, 'index.ts'), source: 'auto-discovery' });
-      continue;
-    }
-    if (!ent.isFile()) continue;
-    if (exts.some(ext => ent.name.toLowerCase().endsWith(ext))) {
-      add(out, { kind, scope, name: ent.name.replace(/\.[^.]+$/, ''), path: p, source: 'auto-discovery' });
-    }
-  }
-}
 
-function addSkills(out, dir, scope, includeRootMarkdown) {
+
+/** A customization directory as ONE row. Its contents come from `expandResource`. */
+function addResourceDir(out, dir, scope, kind, source) {
   if (!isDir(dir)) return;
-  const stack = [dir];
-  while (stack.length) {
-    const current = stack.pop();
-    const skillFile = path.join(current, 'SKILL.md');
-    if (isFile(skillFile)) {
-      add(out, { kind: 'skill', scope, name: path.basename(current), path: skillFile, source: 'auto-discovery' });
-      continue;
-    }
-    for (const ent of fs.readdirSync(current, { withFileTypes: true })) {
-      const p = path.join(current, ent.name);
-      if (ent.isDirectory()) stack.push(p);
-      else if (includeRootMarkdown && current === dir && ent.isFile() && ent.name.toLowerCase().endsWith('.md')) {
-        add(out, { kind: 'skill', scope, name: ent.name.replace(/\.md$/i, ''), path: p, source: 'auto-discovery' });
-      }
-    }
-  }
+  add(out, { kind, scope, name: path.basename(dir), path: dir, source });
 }
 
 function addPackageDirs(out, root, scope) {
@@ -108,21 +96,22 @@ function listResources({ projectPath } = {}) {
   const resources = [];
   const globalRoot = trust.agentDir();
   addSettings(resources, path.join(globalRoot, 'settings.json'), 'global');
-  addFlatFiles(resources, path.join(globalRoot, 'extensions'), 'global', 'extension', ['.ts', '.js']);
-  addSkills(resources, path.join(globalRoot, 'skills'), 'global', true);
-  addSkills(resources, agentSkillsDir(), 'global', false);
-  addFlatFiles(resources, path.join(globalRoot, 'prompts'), 'global', 'prompt-template', ['.md']);
-  addFlatFiles(resources, path.join(globalRoot, 'themes'), 'global', 'theme', ['.json']);
+  // Directories, not their contents (#440) — `expandResource` reads one when the user opens it.
+  addResourceDir(resources, path.join(globalRoot, 'extensions'), 'global', 'extension', 'extensions-directory');
+  addResourceDir(resources, path.join(globalRoot, 'skills'), 'global', 'skill', 'skills-directory');
+  addResourceDir(resources, agentSkillsDir(), 'global', 'skill', 'shared-skills-directory');
+  addResourceDir(resources, path.join(globalRoot, 'prompts'), 'global', 'prompt-template', 'prompts-directory');
+  addResourceDir(resources, path.join(globalRoot, 'themes'), 'global', 'theme', 'themes-directory');
   addPackageDirs(resources, globalRoot, 'global');
 
   if (projectPath) {
     const piDir = path.join(projectPath, '.pi');
     addSettings(resources, path.join(piDir, 'settings.json'), 'project');
-    addFlatFiles(resources, path.join(piDir, 'extensions'), 'project', 'extension', ['.ts', '.js']);
-    addSkills(resources, path.join(piDir, 'skills'), 'project', true);
-    addSkills(resources, path.join(projectPath, '.agents', 'skills'), 'project', false);
-    addFlatFiles(resources, path.join(piDir, 'prompts'), 'project', 'prompt-template', ['.md']);
-    addFlatFiles(resources, path.join(piDir, 'themes'), 'project', 'theme', ['.json']);
+    addResourceDir(resources, path.join(piDir, 'extensions'), 'project', 'extension', 'extensions-directory');
+    addResourceDir(resources, path.join(piDir, 'skills'), 'project', 'skill', 'skills-directory');
+    addResourceDir(resources, path.join(projectPath, '.agents', 'skills'), 'project', 'skill', 'shared-skills-directory');
+    addResourceDir(resources, path.join(piDir, 'prompts'), 'project', 'prompt-template', 'prompts-directory');
+    addResourceDir(resources, path.join(piDir, 'themes'), 'project', 'theme', 'themes-directory');
     addPackageDirs(resources, piDir, 'project');
   }
 
@@ -136,4 +125,6 @@ function listResources({ projectPath } = {}) {
   return { ok: true, resources: deduped };
 }
 
-module.exports = { listResources, _addSettings: addSettings };
+const expandResource = createExpandResource(EXPAND_RULES);
+
+module.exports = { listResources, expandResource, EXPAND_RULES, _addSettings: addSettings };

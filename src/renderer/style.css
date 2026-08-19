@@ -5049,6 +5049,27 @@ mark.jsonl-search-hit-active {
   margin-left: 4px;
 }
 
+/* A backend's own customization directory, nested inside a memory group (#440). Indented and quieter
+   than its parent so the instruction files above it stay the primary reading. */
+.memory-resource-group {
+  margin-left: 10px;
+  border-left: 1px solid rgba(255,255,255,0.07);
+}
+.memory-resource-header .project-name {
+  font-weight: 500;
+  color: #b0b0c4;
+}
+.memory-resource-backend {
+  font-size: 10px;
+  color: #7a7a90;
+  margin-left: 6px;
+}
+.memory-resource-note {
+  padding: 4px 10px;
+  font-size: 10.5px;
+  color: #7a7a90;
+}
+
 .memory-source-badge {
   display: inline-block;
   font-size: 9px;
