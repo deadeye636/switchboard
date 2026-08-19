@@ -367,6 +367,35 @@ been standing for weeks on something a five-line script disproved.
 - A concern raised and then reaffirmed by the owner is a decision, not a debate. The correction cost
   here was one message; carrying the wrong premise further would have cost the feature.
 
+## A test that greps for a sentence proves the sentence exists (#447)
+
+The Agent Files tab gained a type filter. Filtering to nothing was supposed to say "Nothing matches
+the current filter." — and the test asserted exactly that, by checking the string was present in the
+source. Green. The branch was unreachable: the empty check asked whether the RAW data was empty, so
+narrowing a non-empty list to zero fell straight past it, rendered no group, and left the panel
+**blank**. Every path that could reach the message was a path where the message was not needed.
+
+A reviewer found it by reading; the repro is four seconds in the app (search Agent Files for a string
+that matches nothing). Six source-string assertions in that file, and not one of them could have.
+
+The fix was not a better assertion. The decisions moved out of the view into
+`src/renderer/views/agent-file-filter.js` — pure functions, `require`-able — so a test can hand them
+data and check the answer. `agentFileSections(data, filters)` returns `shown`, counted from what
+survived, and the test asserts `shown === 0` *and* the message for that case. Same shape as
+`src/backends/capabilities.js` and `backend-capabilities.js` (#439): the renderer keeps the DOM, the
+decisions go somewhere they can be called.
+
+- **A source-regex test is a wiring guard, not a behaviour test.** It can say a name is referenced or
+  a tag is registered. It cannot say a line runs. `.claude/rules/renderer.md` already says this about
+  `renderer-no-undef`; it is just as true of anything hand-written that matches on source.
+- **When the renderer needs a rule, put the rule where it can be called.** The UMD-module pattern
+  costs one file and the three-file wiring; it buys tests that fail when the behaviour is wrong
+  instead of when the wording changes. Both times it was done here it immediately paid: the same file
+  later caught a crash on a malformed payload, and pinned when a badge is drawn.
+- The rewrite is the tell. Two of the old assertions broke on the *next* edit — not because the
+  behaviour changed, but because a comment moved. A test that breaks on rewording and holds through a
+  defect is measuring the wrong thing.
+
 ## A single-element PowerShell array is not an array (#281)
 
 An edit script did `$pairs = @( @('old','new') )`, then `foreach ($pair in $pairs) { $s.Replace($pair[0], $pair[1]) }`.
