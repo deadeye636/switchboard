@@ -407,6 +407,10 @@ function buildResourceGroup(rg, parentKey, projectPath) {
   nameSpan.textContent = rg.label;
   header.appendChild(nameSpan);
 
+  // The badge belongs where it DISTINGUISHES. Every row in this group has the same backend, so the
+  // badge is stated once, here, instead of repeated down eighty skill rows saying the same thing.
+  header.appendChild(memoryBackendBadge(rg.backendId));
+
   const backendSpan = document.createElement('span');
   backendSpan.className = 'memory-resource-backend';
   backendSpan.textContent = rg.backendLabel;
@@ -428,7 +432,7 @@ function buildResourceGroup(rg, parentKey, projectPath) {
   const list = document.createElement('div');
   list.className = 'project-sessions';
   for (const file of rg.files) {
-    list.appendChild(buildMemoryItem({ ...file, backendId: rg.backendId, projectPath }));
+    list.appendChild(buildMemoryItem({ ...file, backendId: rg.backendId, projectPath }, rg.backendId));
   }
   if (rg.truncated) {
     const note = document.createElement('div');
@@ -441,7 +445,14 @@ function buildResourceGroup(rg, parentKey, projectPath) {
   return block;
 }
 
-function buildMemoryItem(file) {
+/**
+ * One row. `groupBackendId` is the backend its group already names, when it has one.
+ *
+ * A row in such a group shows no badge: the group said it once and eighty repetitions of the same
+ * word are wallpaper. A row that DISAGREES with its group still shows its badges, and then the badge
+ * means something again — this one is not what the heading led you to expect.
+ */
+function buildMemoryItem(file, groupBackendId) {
   const item = document.createElement('div');
   item.className = 'session-item memory-item';
   item.dataset.filepath = file.filePath;
@@ -451,11 +462,10 @@ function buildMemoryItem(file) {
 
 
   // Which CLIs read this file — several, for the ones two backends both declare. The same monogram chip
-  // a session row wears, and the row's anchor now that the tab's brain glyph is gone: it repeated the
-  // tab's own symbol on every line and said nothing about the line it sat on. (An inline SVG badge was
-  // tried first and stacked one per line, which made every row three times as tall.)
-  for (const backendId of file.backendIds || []) {
-    row.appendChild(memoryBackendBadge(backendId));
+  // a session row wears. (An inline SVG badge was tried first and stacked one per line, which made
+  // every row three times as tall.)
+  if (window.agentFileRowShowsBadges(file, groupBackendId)) {
+    for (const backendId of file.backendIds) row.appendChild(memoryBackendBadge(backendId));
   }
 
   const info = document.createElement('div');

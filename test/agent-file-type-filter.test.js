@@ -130,6 +130,23 @@ test('narrowing to nothing says so, and an empty store says something else', () 
   assert.equal(filter.agentFileEmptyMessage({}), 'No agent files found.');
 });
 
+test('a badge is shown where it distinguishes, and nowhere else', () => {
+  const claudeOnly = { backendIds: ['claude'] };
+  const both = { backendIds: ['claude', 'pi'] };
+  // Inside a group that names Claude: the group said it, the row stays quiet.
+  assert.equal(filter.agentFileRowShowsBadges(claudeOnly, 'claude'), false);
+  // ...unless the row disagrees with its heading, and then the badge means something again.
+  assert.equal(filter.agentFileRowShowsBadges(both, 'claude'), true);
+  assert.equal(filter.agentFileRowShowsBadges({ backendIds: ['pi'] }, 'claude'), true);
+  // Outside such a group every row shows them — that is where the rows really differ.
+  assert.equal(filter.agentFileRowShowsBadges(both, null), true);
+  assert.equal(filter.agentFileRowShowsBadges(claudeOnly, null), true);
+  // Nothing to show is not an empty badge.
+  assert.equal(filter.agentFileRowShowsBadges({ backendIds: [] }, null), false);
+  assert.equal(filter.agentFileRowShowsBadges({}, 'claude'), false);
+  assert.equal(filter.agentFileRowShowsBadges(null, null), false);
+});
+
 test('a malformed payload does not take the tab down with it', () => {
   // The module exists so decisions can be handed data. Data includes the shapes a caller got wrong —
   // and an exception here blanks the whole sidebar tab, not just one row.
