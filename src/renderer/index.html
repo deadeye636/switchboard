@@ -48,6 +48,9 @@
     </div>
     <!-- Project tag filter (#98): colored chips, AND multi-select. Hidden when no project has tags. -->
     <div id="project-tag-filters" role="toolbar" aria-label="Filter projects by tag" style="display:none;"></div>
+    <!-- Agent Files type filter (#447): one chip per kind actually present, built from the rows. Its own
+         bar rather than the project-tag one above — different tab, different vocabulary. -->
+    <div id="agent-file-type-filters" role="toolbar" aria-label="Filter agent files by type" style="display:none;"></div>
     <div id="sidebar-content" class="sticky-inbox"></div>
     <!-- #183: sessions exist in projects that are not on the list. They are indexed and searchable and
          the sidebar paints none of them — without this line, nothing anywhere says so. -->
@@ -187,6 +190,8 @@
   <script src="views/format-toolbar.js"></script>
   <script src="views/viewer-toolbar.js"></script>
   <script src="views/viewer-panel.js"></script>
+  <!-- Which Agent Files rows survive the filters (#447) — pure, so it can be tested. -->
+  <script src="views/agent-file-filter.js"></script>
   <script src="views/file-panel.js"></script>
   <!-- color-utils.js backs the tag colour picker in settings-panel.js. -->
   <script src="lib/color-utils.js"></script>

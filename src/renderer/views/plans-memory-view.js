@@ -177,53 +177,164 @@ async function loadMemories() {
   renderMemories();
 }
 
+// The search filter and the type filter are two independent narrowings of one list, so each has to
+// survive a change to the other: picking a chip must not drop the query, and searching must not clear
+// the chip. `renderMemories(ids)` keeps its old meaning for search-bar.js — pass the matches, or pass
+// nothing to clear them — and the chip state lives here.
+let memorySearchIds = null;
+let memoryTypeFilter = null;
+let memoryBackendFilter = null;
+
 function renderMemories(filterIds) {
+  memorySearchIds = filterIds || null;
+  renderMemoryList();
+}
+
+/** The three filters as one value, for views/agent-file-filter.js to answer against. */
+function memoryFilters() {
+  return { searchIds: memorySearchIds, type: memoryTypeFilter, backend: memoryBackendFilter };
+}
+
+function renderMemoryList() {
   memoryContent.innerHTML = '';
+  renderMemoryTypeFilters();
+  bindMemoryTypeFilters();
   const data = cachedMemoryData;
   // Backend resource groups count as content (#440): a store can hold skills and no loose file, and
   // answering that with "no memory files found" would hide everything the tab just learned about.
-  const groupsOf = (scope) => (scope && Array.isArray(scope.groups) ? scope.groups : []);
-  const allFiles = [
-    ...data.global.files, ...groupsOf(data.global).flatMap(g => g.files),
-    ...data.projects.flatMap(p => [...p.files, ...groupsOf(p).flatMap(g => g.files)]),
-  ];
-  if (allFiles.length === 0) {
+  // Build first, count after — `shown` is what SURVIVED the filters, never the size of the raw data.
+  // Asking the raw data was the defect: with a filter on and nothing matching, every group below
+  // rendered nothing and the panel was left blank, while the "nothing matches" message sat unreachable.
+  const { globalFiles, globalGroups, projects: projectSections, shown } =
+    window.agentFileSections(data, memoryFilters());
+
+  if (shown === 0) {
     const empty = document.createElement('div');
     empty.className = 'plans-empty';
-    empty.textContent = 'No memory files found.';
+    empty.textContent = window.agentFileEmptyMessage(memoryFilters());
     memoryContent.appendChild(empty);
     return;
   }
 
-  // Global group
-  const globalFiles = filterIds ? data.global.files.filter(f => filterIds.has(f.filePath)) : data.global.files;
-  const globalGroups = filterResourceGroups(groupsOf(data.global), filterIds);
   if (globalFiles.length > 0 || globalGroups.length > 0) {
     memoryContent.appendChild(buildMemoryGroup('__global__', 'Global', globalFiles, globalGroups));
   }
-
-  // Per-project groups
-  for (const proj of data.projects) {
-    const projFiles = filterIds ? proj.files.filter(f => filterIds.has(f.filePath)) : proj.files;
-    const projGroups = filterResourceGroups(groupsOf(proj), filterIds);
-    if (projFiles.length === 0 && projGroups.length === 0) continue;
+  for (const section of projectSections) {
     memoryContent.appendChild(buildMemoryGroup(
-      proj.folder, projectDisplayLabel(proj.displayName, proj.shortName), projFiles, projGroups, proj.projectPath));
+      section.proj.folder,
+      projectDisplayLabel(section.proj.displayName, section.proj.shortName),
+      section.files, section.groups, section.proj.projectPath));
   }
 }
 
-/** A search filter applies inside a resource group too; a group with nothing left drops out. */
-function filterResourceGroups(groups, filterIds) {
-  if (!filterIds) return groups;
-  return groups
-    .map(g => ({ ...g, files: g.files.filter(f => filterIds.has(f.filePath)) }))
-    .filter(g => g.files.length > 0);
+// --- the type chips (#447) -------------------------------------------------------------------------
+//
+// Types and their labels arrive with the data (`getMemories().types`); this side counts nothing and
+// names nothing. A chip whose type has vanished from the data takes the active filter with it, or the
+// list would stay filtered by something with no chip left to switch off.
+function chipHtml(cls, group, value, label, count, active, iconHtml) {
+  return `
+    <button type="button" class="project-tag-chip ${cls}${active ? ' active' : ''}"
+            data-group="${group}" data-value="${escapeHtml(value)}" aria-pressed="${active}">
+      ${iconHtml || ''}${escapeHtml(label)}<span class="agent-type-count">${count}</span>
+    </button>`;
+}
+
+/**
+ * The monogram chip a session row wears (`session-backend-badge`), for one backend id.
+ *
+ * Built the same way sidebar-session-row.js builds it — same class, same colour lookup — so the two
+ * lists cannot drift apart. Every lookup is guarded: the registry answers asynchronously, and a badge
+ * without its colour is a smaller loss than a list that throws while rendering.
+ */
+function memoryBackendBadge(backendId) {
+  const descriptor = typeof window.getBackend === 'function' ? window.getBackend(backendId) : null;
+  const badge = document.createElement('span');
+  badge.className = 'session-backend-badge memory-backend-badge backend-' + backendId;
+  badge.textContent = (descriptor && descriptor.monogram)
+    || (window.backendMonogram ? window.backendMonogram(backendId) : backendId.slice(0, 2));
+  badge.title = descriptor ? descriptor.label : backendId;
+  if (window.backendIconColour) {
+    badge.style.background = window.backendIconColour((descriptor && descriptor.icon) || backendId);
+  }
+  return badge;
+}
+
+function renderMemoryTypeFilters() {
+  const bar = document.getElementById('agent-file-type-filters');
+  if (!bar) return;
+  const data = cachedMemoryData || {};
+  const types = Array.isArray(data.types) ? data.types : [];
+  const backendRows = Array.isArray(data.backends) ? data.backends : [];
+  // A filter whose chip left the data takes itself with it, or the list stays narrowed by something
+  // there is no longer a way to switch off.
+  memoryTypeFilter = window.agentFileLiveFilter(memoryTypeFilter, types);
+  memoryBackendFilter = window.agentFileLiveFilter(memoryBackendFilter, backendRows);
+
+  // One of a kind is no choice. Each group appears only once there is something to choose between, so
+  // a single-backend install never sees a backend row it cannot use.
+  const showTypes = types.length > 1;
+  const showBackends = backendRows.length > 1;
+  if (!showTypes && !showBackends) {
+    bar.style.display = 'none';
+    bar.innerHTML = '';
+    return;
+  }
+
+  const typeChips = showTypes
+    ? types.map(t => chipHtml('agent-type-chip', 'type', t.id, t.label, t.count, memoryTypeFilter === t.id)).join('')
+    : '';
+  // No glyph on a backend chip: for a backend without artwork the badge IS its monogram, so the chip
+  // came out reading "H Hermes", "Pi Pi", "Cx Codex". The label alone is what a filter needs; the
+  // badge belongs on the row, where it is the only thing saying which CLI reads that file.
+  const backendChips = showBackends
+    ? backendRows.map(b => chipHtml('agent-backend-chip', 'backend', b.id, b.label, b.count,
+      memoryBackendFilter === b.id)).join('')
+    : '';
+  // The two kinds AND together — "skills, from Pi" — which is the whole reason they share one bar
+  // instead of hiding behind a switch. A separator keeps them from reading as one list.
+  const separator = (typeChips && backendChips) ? '<span class="agent-chip-separator" aria-hidden="true"></span>' : '';
+  const clear = (memoryTypeFilter || memoryBackendFilter)
+    ? '<button type="button" class="project-tag-chip agent-type-clear" data-group="clear" data-value="">Show all</button>'
+    : '';
+
+  bar.style.display = '';
+  bar.innerHTML = typeChips + separator + backendChips + clear;
+}
+
+function bindMemoryTypeFilters() {
+  const bar = document.getElementById('agent-file-type-filters');
+  if (!bar || bar.dataset.bound === '1') return;
+  bar.dataset.bound = '1';
+  bar.addEventListener('click', (e) => {
+    const chip = e.target.closest('.project-tag-chip');
+    if (!chip) return;
+    const group = chip.dataset.group;
+    const value = chip.dataset.value || '';
+    // Clicking the active chip again clears it, so a filter can always be undone where it was set.
+    if (group === 'clear') { memoryTypeFilter = null; memoryBackendFilter = null; }
+    else if (group === 'type') memoryTypeFilter = (memoryTypeFilter === value) ? null : value;
+    else if (group === 'backend') memoryBackendFilter = (memoryBackendFilter === value) ? null : value;
+    renderMemoryList();
+  });
+}
+
+/** The bar belongs to one tab; every other tab hides it. Called by the tab switcher. */
+function applyAgentFileTypeFilterVisibility(activeTabName) {
+  const bar = document.getElementById('agent-file-type-filters');
+  if (!bar) return;
+  if (activeTabName !== 'memory') { bar.style.display = 'none'; return; }
+  renderMemoryTypeFilters();
 }
 
 function buildMemoryGroup(key, label, files, resourceGroups = [], projectPath = null) {
   const group = document.createElement('div');
   group.className = 'project-group';
-  const isCollapsed = memoryCollapsedState.get(key) === true; // default expanded
+  // Default expanded, and never collapsed while a filter is on — a match hidden inside a collapsed
+  // project is a match the filter appears not to have found. The stored state is read, not written,
+  // so clearing the filter puts every group back where the user left it.
+  const filtering = window.agentFileFiltering(memoryFilters());
+  const isCollapsed = !filtering && memoryCollapsedState.get(key) === true;
   if (isCollapsed) group.classList.add('collapsed');
 
   // Header
@@ -276,7 +387,11 @@ function buildResourceGroup(rg, parentKey, projectPath) {
   const key = parentKey + '::' + rg.id;
   const block = document.createElement('div');
   block.className = 'project-group memory-resource-group';
-  const isCollapsed = memoryCollapsedState.get(key) !== false;   // default collapsed
+  // Collapsed by default, but never while a filter is on: filtering to Skills and being shown one
+  // collapsed folder answers the question with the question. The stored state is left alone, so
+  // clearing the filter puts everything back the way it was.
+  const filtering = window.agentFileFiltering(memoryFilters());
+  const isCollapsed = !filtering && memoryCollapsedState.get(key) !== false;
   if (isCollapsed) block.classList.add('collapsed');
 
   const header = document.createElement('div');
@@ -334,10 +449,14 @@ function buildMemoryItem(file) {
   const row = document.createElement('div');
   row.className = 'session-row';
 
-  const icon = document.createElement('span');
-  icon.className = 'memory-brain-icon';
-  icon.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M3.477 10.896a4 4 0 0 1 .585-.396"/><path d="M19.938 10.5a4 4 0 0 1 .585.396"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>';
-  row.appendChild(icon);
+
+  // Which CLIs read this file — several, for the ones two backends both declare. The same monogram chip
+  // a session row wears, and the row's anchor now that the tab's brain glyph is gone: it repeated the
+  // tab's own symbol on every line and said nothing about the line it sat on. (An inline SVG badge was
+  // tried first and stacked one per line, which made every row three times as tall.)
+  for (const backendId of file.backendIds || []) {
+    row.appendChild(memoryBackendBadge(backendId));
+  }
 
   const info = document.createElement('div');
   info.className = 'session-info';

@@ -118,28 +118,97 @@ function scanMdFiles(dir) {
 }
 
 // Turn one declared memory Source into file entries, appended to `out` and deduped by path via `seen`.
-function collectSource(s, out, seen) {
+// Every row in this tab carries a `kind`, because the type filter (#447) is built from them and a row
+// with none would be filterable by nothing and reachable only by clearing the filter. An instruction
+// file has no kind of its own — `memorySources` describes WHERE it is, not what it is — so it gets one
+// here. `s.kind` on the source says dir-or-file, which is a different question.
+const INSTRUCTION_KIND = 'instructions';
+
+// A file can belong to SEVERAL backends, and the dedupe used to hide that. Codex and Pi both declare
+// `AGENTS.md`; Claude and Pi both declare `CLAUDE.md`. Listing it twice would be wrong — it is one
+// file — but so is attributing it to whichever backend happened to be asked first. So the second claim
+// is recorded on the row that is already there, and a row carries a LIST of backends (#447 follow-up).
+//
+// `seen` is a Map now, path -> the row, because adding to a row means finding it again.
+function claim(seen, filePath, backendId) {
+  const row = seen.get(filePath);
+  if (row && backendId && !row.backendIds.includes(backendId)) row.backendIds.push(backendId);
+  return !!row;
+}
+
+function collectSource(s, out, seen, backendId) {
   if (!s || !s.path) return;
   if (s.kind === 'dir') {
     for (const f of scanMdFiles(s.path)) {
-      if (seen.has(f.filePath)) continue;
-      out.push({ ...f, displayPath: s.displayPath, source: s.source });
-      seen.add(f.filePath);
+      if (claim(seen, f.filePath, backendId)) continue;
+      const row = { ...f, displayPath: s.displayPath, source: s.source, kind: INSTRUCTION_KIND, backendIds: backendId ? [backendId] : [] };
+      out.push(row);
+      seen.set(f.filePath, row);
     }
   } else if (s.kind === 'file') {
     try {
       if (!fs.existsSync(s.path)) return;
+      if (claim(seen, s.path, backendId)) return;
       const stat = fs.statSync(s.path);
-      if (stat.size > 0 && !seen.has(s.path)) {
-        out.push({
+      if (stat.size > 0) {
+        const row = {
           filename: path.basename(s.path), filePath: s.path,
           modified: stat.mtime.toISOString(), size: stat.size,
-          displayPath: s.displayPath, source: s.source,
-        });
-        seen.add(s.path);
+          displayPath: s.displayPath, source: s.source, kind: INSTRUCTION_KIND,
+          backendIds: backendId ? [backendId] : [],
+        };
+        out.push(row);
+        seen.set(s.path, row);
       }
     } catch {}
   }
+}
+
+// --- The type filter's chips (#447) ---
+//
+// Derived from the `kind` the rows already carry, never from a list — a list in the core would go stale
+// the day a backend names a directory nothing had named before, and a list in the RENDERER is the
+// per-backend table the rules forbid outright. A type with no rows produces no chip, so the bar shows
+// what is actually there rather than what could be.
+//
+// The label is made from the id: hyphens become spaces, and it is pluralised, because a chip reads
+// "Skills 79" and not "Skill 79". Three endings cover every kind in play and the rule degrades
+// harmlessly for one it has not seen.
+function typeLabel(kind) {
+  const words = String(kind).replace(/-/g, ' ');
+  const plural = /s$/i.test(words) ? words
+    : /[^aeiou]y$/i.test(words) ? words.replace(/y$/i, 'ies')
+      : words + 's';
+  return plural.charAt(0).toUpperCase() + plural.slice(1);
+}
+
+// The bucket for a row whose kind nothing set. It is stamped ONTO the row rather than only counted,
+// so the renderer compares against what it was given instead of keeping its own copy of this word.
+const FALLBACK_KIND = 'other';
+
+// One chip per backend that actually owns a row here. A file claimed by two backends counts for both,
+// because filtering to Pi has to show the AGENTS.md Pi really reads.
+function backendCounts(files, backendsList) {
+  const labels = new Map(backendsList.map(b => [b.id, b.label || b.id]));
+  const counts = new Map();
+  for (const f of files) {
+    for (const id of (f && f.backendIds) || []) counts.set(id, (counts.get(id) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([id, count]) => ({ id, label: labels.get(id) || id, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+function typeCounts(files) {
+  const counts = new Map();
+  for (const f of files) {
+    if (f && !f.kind) f.kind = FALLBACK_KIND;
+    const kind = (f && f.kind) || FALLBACK_KIND;
+    counts.set(kind, (counts.get(kind) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([id, count]) => ({ id, label: typeLabel(id), count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
 // --- Backend resource groups (#440) ---
@@ -196,6 +265,8 @@ function resourceFile(entry, rootPath) {
  * (Claude's CLAUDE.md is listed by memorySources AND by listResources) appears once.
  */
 function resourceGroups(projectPath, seen) {
+  // `seen` is the same Map the instruction files filled, so a resource that is also an instruction file
+  // adds its backend to that row rather than appearing twice.
   const groups = [];
   for (const b of memoryBackends()) {
     if (typeof b.listResources !== 'function' || typeof b.expandResource !== 'function') continue;
@@ -216,13 +287,15 @@ function resourceGroups(projectPath, seen) {
 
       const files = [];
       for (const child of expanded.entries) {
-        if (!child || !child.path || seen.has(child.path)) continue;
+        if (!child || !child.path) continue;
+        if (claim(seen, child.path, b.id)) continue;
         // One level is what this reads, so a child that is itself a directory has nothing to open —
         // it would sit in the list and answer a click with "that is a directory".
         try { if (fs.statSync(child.path).isDirectory()) continue; } catch { continue; }
         const file = resourceFile(child, entry.path);
         if (!file) continue;
-        seen.add(child.path);
+        file.backendIds = [b.id];
+        seen.set(child.path, file);
         files.push(file);
       }
       if (!files.length) continue;
@@ -329,11 +402,11 @@ function getMemories() {
 
   // Global files: the union of every backend's home-level instruction files (Claude's ~/.claude).
   const globalFiles = [];
-  const globalSeen = new Set();
+  const globalSeen = new Map();
   for (const b of backendsList) {
     let sources = [];
     try { sources = b.memorySources({ projectPath: null, storeFolders: [] }) || []; } catch { sources = []; }
-    for (const s of sources) collectSource(s, globalFiles, globalSeen);
+    for (const s of sources) collectSource(s, globalFiles, globalSeen, b.id);
   }
   const globalGroups = resourceGroups(null, globalSeen);
 
@@ -343,11 +416,11 @@ function getMemories() {
     const storeFolders = storeFoldersFor(projectPath);
     const short = projectShortName(projectPath);
     const files = [];
-    const seen = new Set();
+    const seen = new Map();
     for (const b of backendsList) {
       let sources = [];
       try { sources = b.memorySources({ projectPath, storeFolders }) || []; } catch { sources = []; }
-      for (const s of sources) collectSource(s, files, seen);
+      for (const s of sources) collectSource(s, files, seen, b.id);
     }
     const groups = resourceGroups(projectPath, seen);
     if (files.length || groups.length) {
@@ -367,7 +440,16 @@ function getMemories() {
   };
   projects.sort((a, b) => newestOf(b) - newestOf(a));
 
-  const result = { global: { files: globalFiles, groups: globalGroups }, projects };
+  const everyFile = [
+    ...globalFiles, ...globalGroups.flatMap(g => g.files),
+    ...projects.flatMap(p => [...p.files, ...p.groups.flatMap(g => g.files)]),
+  ];
+  const result = {
+    global: { files: globalFiles, groups: globalGroups },
+    projects,
+    types: typeCounts(everyFile),
+    backends: backendCounts(everyFile, backendsList),
+  };
 
   try {
     // Group files are indexed too (#440) — a skill the tab shows but search cannot find reads as a bug.
@@ -581,6 +663,8 @@ function registerIpc(ipcMain) {
 module.exports = {
   init,
   registerIpc,
+  // exported for the tests: the label rule and the counting are pure
+  _typeLabel: typeLabel, _typeCounts: typeCounts, _backendCounts: backendCounts,
   // exported for main.js (save-file-for-panel invalidates the FTS signature) and for tests
   invalidateFtsSignature,
   getPlans, readPlan, savePlan, getMemories, readMemory, saveMemory,

@@ -1722,6 +1722,8 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     searchBar.style.display = 'none';
     // applyProjectTagFilterVisibility is in shell/sidebar-filters.js (loads after app.js, #228).
     if (typeof applyProjectTagFilterVisibility === 'function') applyProjectTagFilterVisibility(); // #133 — chips belong to Sessions only
+    // ...and the Agent Files type chips belong to that tab alone (#447), same reason.
+    if (typeof applyAgentFileTypeFilterVisibility === 'function') applyAgentFileTypeFilterVisibility(tabName);
 
     if (tabName === 'sessions') {
       sessionFilters.style.display = '';

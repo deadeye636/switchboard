@@ -355,6 +355,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   behaviour from, beside the instruction files it already showed. A customization directory is one row
   that opens into its entries, and an entry opens in the built-in viewer instead of being handed to the
   system.
+- **Filtered by type and by backend** — the Agent Files tab filters by what a file IS (skills, rules,
+  commands, instructions) and by which CLI reads it, both at once, alongside the search. A file two
+  backends declare — `AGENTS.md` belongs to Codex and Pi, `CLAUDE.md` to Claude and Pi — wears both
+  badges and answers to both filters, rather than being attributed to whichever was asked first.
 
 ### UI / window
 - **Tabbed single-view** as the primary layout — session tabs, viewer close buttons; the

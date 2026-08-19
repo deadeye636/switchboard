@@ -5032,13 +5032,6 @@ mark.jsonl-search-hit-active {
 }
 
 /* Memory sidebar styles */
-.memory-brain-icon {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  margin-top: 5px;
-  color: #8888a8;
-}
 
 .memory-file-count {
   font-size: 10px;
@@ -8202,6 +8195,45 @@ body.grid-dragging .grid-card-header {
 /* What KIND of tag a chip is (#164). The two are not the same thing — a project chip drops whole
    projects, a session chip drops session rows — and the same word can be both, so position alone must
    not carry the distinction. Quiet enough that the tag's colour is still what you read first. */
+/* Agent Files type filter (#447) — the same chip as the project tag bar, without a tag colour: these
+   are kinds, not user-chosen labels, so they take the neutral border and let the count carry the
+   weight. */
+#agent-file-type-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 10px 6px;
+}
+.agent-type-chip { color: #b0b0c4; background: rgba(255,255,255,0.04); }
+.agent-type-chip.active {
+  color: #d8d8e8;
+  border-color: #6a6a8a;
+  background: rgba(255,255,255,0.1);
+}
+.agent-type-count {
+  margin-left: 5px;
+  font-size: 10px;
+  color: #7a7a90;
+}
+.agent-type-chip.active .agent-type-count { color: #b0b0c4; }
+.agent-type-clear { color: #7a7a90; border-style: dashed; }
+.agent-backend-chip { color: #b0b0c4; background: rgba(255,255,255,0.04); }
+.agent-backend-chip.active {
+  color: #d8d8e8;
+  border-color: #6a6a8a;
+  background: rgba(255,255,255,0.1);
+}
+.agent-backend-chip svg { margin-right: 4px; vertical-align: -1px; }
+/* Divides the two kinds of chip by BREAKING the line, not by drawing between them: in a wrapping bar a
+   1px rule lands wherever the wrap happens to leave it, and at sidebar widths that was usually
+   mid-group. Types on their line, backends on theirs, at every width. */
+.agent-chip-separator {
+  flex-basis: 100%;
+  height: 0;
+}
+/* The badge on a row: which CLIs read this file. The session row's own chip, spaced off the icon. */
+.memory-backend-badge { margin-right: 5px; }
+
 .tag-chip-glyph { flex-shrink: 0; opacity: 0.75; }
 .tag-chip-hash { font-weight: 700; font-size: 10px; line-height: 1; }
 
