@@ -359,6 +359,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   commands, instructions) and by which CLI reads it, both at once, alongside the search. A file two
   backends declare — `AGENTS.md` belongs to Codex and Pi, `CLAUDE.md` to Claude and Pi — wears both
   badges and answers to both filters, rather than being attributed to whichever was asked first.
+- **Work files in the same list** — a project's `.work-files/` directory is one more group under that
+  project, beside its instruction files and its skills, instead of a sidebar tab of its own. Filtering
+  to Work files is what the tab used to be. Deleting stayed with them and with nothing else: a work file
+  opens in the one viewer that has a delete button, which is why no other type could grow one by
+  accident.
 
 ### UI / window
 - **Tabbed single-view** as the primary layout — session tabs, viewer close buttons; the
@@ -439,7 +444,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 
 ### Projects & sidebar
 - **Projects tab** — dedicated project management: add manually vs. automatically, hide /
-  restore, rename, and a per-project `.work-files/` browser (view, delete, JSON/JSONL export).
+  restore, and rename.
 - **The project list is a stored list, not a derivation** (#167) — it used to be read out of the
   transcripts on disk, so a project without one could not exist however often you added it (the
   old "add" wrote a **fake transcript** to fake one up), and "remove" could not be implemented at

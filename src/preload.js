@@ -13,7 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   getMemories: () => ipcRenderer.invoke('get-memories'),
   readMemory: (filePath) => ipcRenderer.invoke('read-memory', filePath),
   saveMemory: (filePath, content) => ipcRenderer.invoke('save-memory', filePath, content),
-  getWorkFiles: () => ipcRenderer.invoke('get-work-files'),
+  // `getWorkFiles` was here. Work files come with `getMemories` since #448 — they are one group in the
+  // Agent Files list now, and a separate way to ask for them could answer differently.
   readWorkFile: (filePath) => ipcRenderer.invoke('read-work-file', filePath),
   deleteWorkFile: (filePath) => ipcRenderer.invoke('delete-work-file', filePath),
   getProjects: (showArchived) => ipcRenderer.invoke('get-projects', showArchived),

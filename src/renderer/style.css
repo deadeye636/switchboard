@@ -5096,17 +5096,9 @@ mark.jsonl-search-hit-active {
   transform: rotate(-90deg);
 }
 
-/* ========== WORK FILES TAB ========== */
-
-#work-files-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 0 16px;
-}
-
-#work-files-content::-webkit-scrollbar { width: 5px; }
-#work-files-content::-webkit-scrollbar-track { background: transparent; }
-#work-files-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
+/* ========== WORK FILES VIEWER ========== */
+/* The tab is gone (#448) — its rows are in the Agent Files list. The viewer stayed: it is the panel
+   that can delete, which is how deleting remains bound to work files alone. */
 
 #work-files-viewer {
   position: absolute;
@@ -5116,20 +5108,13 @@ mark.jsonl-search-hit-active {
   background: #111118;
 }
 
+/* Marks the .work-files group in the Agent Files list, where every other group opens with a
+   backend monogram and this one has no backend to name. */
 .work-file-icon {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  margin-top: 5px;
   color: #7a9aaa;
-}
-
-/* Collapse/expand for work-files groups */
-#work-files-content .project-group.collapsed .project-sessions {
-  display: none;
-}
-#work-files-content .project-group.collapsed .arrow {
-  transform: rotate(-90deg);
 }
 
 /* ========== ADD PROJECT BUTTON ========== */

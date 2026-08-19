@@ -1,8 +1,13 @@
-// --- Plans & Memory viewers ---
+// --- Plans & Agent Files viewers ---
 // Depends on globals: cachedPlans, plansContent, planPanel, planViewer,
-// memoryContent, memoryPanel, memoryViewer, placeholder, terminalArea,
-// statsViewer, jsonlViewer, timelineViewer (app.js)
+// memoryContent, memoryPanel, memoryViewer, workFilesPanel, workFilesViewer,
+// placeholder, terminalArea, statsViewer, jsonlViewer, timelineViewer (app.js)
 // Depends on: formatDate (utils.js)
+//
+// Work files have no list of their own since #448 — they arrive with `get-memories` as one group per
+// project and are drawn by the Agent Files renderer below. What stayed separate is the VIEWER: a work
+// file opens in `workFilesPanel`, which is the panel that can delete. That is not a leftover, it is how
+// the delete button stays bound to the one type that has it instead of becoming a property of the list.
 
 let currentPlanContent = "";
 let currentPlanFilePath = "";
@@ -409,16 +414,35 @@ function buildResourceGroup(rg, parentKey, projectPath) {
 
   // The badge belongs where it DISTINGUISHES. Every row in this group has the same backend, so the
   // badge is stated once, here, instead of repeated down eighty skill rows saying the same thing.
-  header.appendChild(memoryBackendBadge(rg.backendId));
+  // A group with no backend at all — `.work-files/` belongs to the project, not to a CLI (#448) — says
+  // nothing rather than picking one.
+  if (rg.backendId) {
+    header.appendChild(memoryBackendBadge(rg.backendId));
 
-  const backendSpan = document.createElement('span');
-  backendSpan.className = 'memory-resource-backend';
-  backendSpan.textContent = rg.backendLabel;
-  header.appendChild(backendSpan);
+    const backendSpan = document.createElement('span');
+    backendSpan.className = 'memory-resource-backend';
+    backendSpan.textContent = rg.backendLabel;
+    header.appendChild(backendSpan);
+  } else if (rg.kind === 'work-file') {
+    // Every other group opens with a backend monogram; this one has no backend, so that slot would sit
+    // empty next to a column of badged headers. The folder glyph the Work Files tab wore fills it.
+    const icon = document.createElement('span');
+    icon.className = 'work-file-icon';
+    icon.innerHTML = ICONS.workFiles(14);
+    header.appendChild(icon);
+  }
 
   const count = document.createElement('span');
   count.className = 'memory-file-count';
-  count.textContent = rg.files.length;
+  // `rg.total` is what the group HOLDS, against what it is allowed to show. Work files are capped at 200
+  // and a project can hold tens of thousands, so this badge is the only place the cap is admitted to —
+  // without it a truncated list looks like a complete one.
+  if (typeof rg.total === 'number' && rg.total > rg.files.length) {
+    count.textContent = rg.files.length + '/' + rg.total;
+    count.title = 'Showing ' + rg.files.length + ' of ' + rg.total + ' files';
+  } else {
+    count.textContent = rg.files.length;
+  }
   header.appendChild(count);
 
   header.addEventListener('click', (e) => {
@@ -491,9 +515,14 @@ function buildMemoryItem(file, groupBackendId) {
 
   item.appendChild(row);
 
+  // A work file opens in its own viewer, which is the one that can delete (#448). Reading it through
+  // the memory reader would fail anyway — that reader only answers for `.md` under a memory root, and a
+  // work file is as often a log or a `.jsonl`.
+  const isWorkFile = file.kind === 'work-file';
   item.addEventListener('click', async () => {
-    if (await routeFileToViewWindow('memory', file, file.filename || 'File')) return;
-    openMemory(file);
+    const kind = isWorkFile ? 'workFiles' : 'memory';
+    if (await routeFileToViewWindow(kind, file, file.filename || 'File')) return;
+    if (isWorkFile) openWorkFile(file); else openMemory(file);
   });
   return item;
 }
@@ -532,144 +561,42 @@ async function openMemory(file) {
 }
 
 // --- Work Files ---
+//
+// No list of its own since #448. The rows are built by the Agent Files renderer above, out of the group
+// `get-memories` hands over. What lives here is the viewer half: opening one, and taking one out of the
+// list after it was deleted.
 
-let cachedWorkFilesData = [];          // WorkFilesProject[]
 let currentWorkFilePath = null;
 let currentWorkFileContent = '';
-const workFilesCollapsedState = new Map();
 
-async function loadWorkFiles() {
-  const result = await window.api.getWorkFiles();
-  cachedWorkFilesData = result.projects || [];
-  renderWorkFiles();
-}
-
-// Remove a single deleted file from the in-memory model and re-render.
-// Avoids re-running the (sometimes slow) full disk scan in get-work-files.
+/**
+ * Take a deleted work file out of the cached payload and redraw.
+ *
+ * Not a reload: `get-memories` walks every project's `.work-files/` tree, and on a project with tens of
+ * thousands of them that walk freezes the UI for as long as it runs. Deleting one file is a change this
+ * side can make to its own copy exactly.
+ *
+ * The group's `total` is decremented with it, or the header would go on claiming a file that is gone —
+ * and on a capped project that number is the only thing the user has to go by.
+ */
 function removeWorkFileFromCache(filePath) {
-  for (const proj of cachedWorkFilesData) {
-    const idx = proj.files.findIndex(f => f.filePath === filePath);
-    if (idx !== -1) {
-      proj.files.splice(idx, 1);
-      if (typeof proj.totalCount === 'number') proj.totalCount = Math.max(0, proj.totalCount - 1);
-      break;
+  for (const scope of [cachedMemoryData.global, ...(cachedMemoryData.projects || [])]) {
+    for (const group of (scope && scope.groups) || []) {
+      const idx = group.files.findIndex(f => f.filePath === filePath);
+      if (idx === -1) continue;
+      group.files.splice(idx, 1);
+      if (typeof group.total === 'number') group.total = Math.max(0, group.total - 1);
     }
+    if (scope && scope.groups) scope.groups = scope.groups.filter(g => g.files.length > 0);
   }
-  // Drop projects that no longer have files
-  cachedWorkFilesData = cachedWorkFilesData.filter(p => p.files.length > 0);
-  renderWorkFiles();
-}
-
-function renderWorkFiles(filterIds) {
-  workFilesContent.innerHTML = '';
-  if (cachedWorkFilesData.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'plans-empty';
-    empty.textContent = 'No .work-files/ directories found in any project.';
-    workFilesContent.appendChild(empty);
-    return;
-  }
-
-  for (const proj of cachedWorkFilesData) {
-    const projFiles = filterIds
-      ? proj.files.filter(f => filterIds.has(f.filePath))
-      : proj.files;
-    if (projFiles.length === 0) continue;
-    workFilesContent.appendChild(buildWorkFilesGroup(proj, projFiles));
-  }
-}
-
-function buildWorkFilesGroup(proj, files) {
-  const group = document.createElement('div');
-  group.className = 'project-group';
-  const isCollapsed = workFilesCollapsedState.get(proj.projectPath) === true;
-  if (isCollapsed) group.classList.add('collapsed');
-
-  const header = document.createElement('div');
-  header.className = 'project-header';
-
-  const arrow = document.createElement('span');
-  arrow.className = 'arrow';
-  arrow.innerHTML = '&#9660;';
-  header.appendChild(arrow);
-
-  const nameSpan = document.createElement('span');
-  nameSpan.className = 'project-name';
-  nameSpan.textContent = projectDisplayLabel(proj.displayName, proj.shortName);
-  header.appendChild(nameSpan);
-
-  const countBadge = document.createElement('span');
-  countBadge.className = 'memory-file-count';
-  if (proj.totalCount > files.length) {
-    countBadge.textContent = files.length + '/' + proj.totalCount;
-    countBadge.title = 'Showing ' + files.length + ' of ' + proj.totalCount + ' files (capped at 200)';
-  } else {
-    countBadge.textContent = files.length;
-  }
-  header.appendChild(countBadge);
-
-  header.addEventListener('click', () => {
-    const nowCollapsed = !group.classList.contains('collapsed');
-    group.classList.toggle('collapsed');
-    workFilesCollapsedState.set(proj.projectPath, nowCollapsed);
-  });
-
-  group.appendChild(header);
-
-  const filesList = document.createElement('div');
-  filesList.className = 'project-sessions';
-  for (const file of files) {
-    filesList.appendChild(buildWorkFileItem(file));
-  }
-  group.appendChild(filesList);
-
-  return group;
-}
-
-function buildWorkFileItem(file) {
-  const item = document.createElement('div');
-  item.className = 'session-item work-file-item';
-  item.dataset.filepath = file.filePath;
-
-  const row = document.createElement('div');
-  row.className = 'session-row';
-
-  const icon = document.createElement('span');
-  icon.className = 'work-file-icon';
-  icon.innerHTML = ICONS.workFiles(15);
-  row.appendChild(icon);
-
-  const info = document.createElement('div');
-  info.className = 'session-info';
-
-  const titleEl = document.createElement('div');
-  titleEl.className = 'session-summary';
-  titleEl.textContent = file.filename;
-
-  const pathEl = document.createElement('div');
-  pathEl.className = 'session-id';
-  pathEl.textContent = file.relativePath;
-
-  const metaEl = document.createElement('div');
-  metaEl.className = 'session-meta';
-  metaEl.textContent = formatDate(new Date(file.modified));
-
-  info.appendChild(titleEl);
-  info.appendChild(pathEl);
-  info.appendChild(metaEl);
-  row.appendChild(info);
-  item.appendChild(row);
-
-  item.addEventListener('click', async () => {
-    if (await routeFileToViewWindow('workFiles', file, file.filename || 'File')) return;
-    openWorkFile(file);
-  });
-  return item;
+  renderMemoryList();
 }
 
 async function openWorkFile(file) {
-  workFilesContent.querySelectorAll('.work-file-item.active').forEach(el => el.classList.remove('active'));
-  const target = workFilesContent.querySelector(`.work-file-item[data-filepath="${CSS.escape(file.filePath)}"]`);
+  // The row lives in the Agent Files list now (#448), and it is a `.memory-item` like every other row
+  // there — marking `.work-file-item` here would mark nothing.
+  memoryContent.querySelectorAll('.memory-item.active').forEach(el => el.classList.remove('active'));
+  const target = memoryContent.querySelector(`.memory-item[data-filepath="${CSS.escape(file.filePath)}"]`);
   if (target) target.classList.add('active');
 
   const content = await window.api.readWorkFile(file.filePath);

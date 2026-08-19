@@ -860,7 +860,7 @@ ipcMain.handle('save-file-for-panel', async (_event, filePath, content) => {
     fs.writeFileSync(resolved, content, 'utf8');
     // Close the sub-second window between save and search: if the saved file
     // belongs to a type that the FTS index tracks, invalidate its signature so
-    // the next get-work-files / get-memories call triggers a full reindex
+    // the next get-memories call triggers a full reindex
     // (matching the explicit invalidation in save-memory / delete-work-file).
     if (resolved.includes('/.work-files/') || resolved.includes('\\.work-files\\')) plansMemory.invalidateFtsSignature('work-file');
     if (resolved.endsWith('.md')) plansMemory.invalidateFtsSignature('memory');
@@ -1177,8 +1177,9 @@ ipcMain.handle('get-usage', async () => {
   }
 });
 
-// (FTS dirty-flag block + get-memories/read-memory/save-memory + get-work-files/read-work-file/
-// delete-work-file moved to src/app/plans-memory.js — #227.)
+// (FTS dirty-flag block + get-memories/read-memory/save-memory + read-work-file/delete-work-file
+// moved to src/app/plans-memory.js — #227. `get-work-files` is gone entirely: work files come with
+// get-memories since #448.)
 // --- IPC: search ---
 // Routed through the search-query worker so that slow FTS5 phrase queries
 // (e.g. a 60-char pasted URL) do not block the Electron main event loop.

@@ -118,7 +118,9 @@ window.__sessionDragId = null;
     memory: { hostId: 'memory-viewer', title: 'Memory', watched: true, load: 'loadMemories' },
     projects: { hostId: 'projects-viewer', title: 'Projects', watched: true, close: 'admin', load: 'loadProjectsAdmin' },
     variables: { hostId: 'variables-admin-content', title: 'Variables', watched: true, close: 'admin', load: 'loadVariablesAdmin' },
-    workFiles: { hostId: 'work-files-viewer', title: 'Work files', watched: true, load: 'loadWorkFiles' },
+    // The viewer survived the tab (#448): a work file still opens in its own panel, the one that can
+    // delete. Its loader is the Agent Files one, because that is the list work files are drawn in now.
+    workFiles: { hostId: 'work-files-viewer', title: 'Work files', watched: true, load: 'loadMemories' },
     // `settings` was here. It hosted the overlay element, and the overlay is gone (#365): settings
     // open in a window of their own, which is not a surface a pane can adopt.
     tasks: { hostId: 'tasks-viewer', title: 'Tasks', watched: true },

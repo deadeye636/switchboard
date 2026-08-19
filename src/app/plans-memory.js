@@ -410,6 +410,14 @@ function getMemories() {
   }
   const globalGroups = resourceGroups(null, globalSeen);
 
+  // Work files (#448). Asked once for every project rather than once per project: `getWorkFiles` walks
+  // the whole register and reindexes for search in the same pass, so a call inside the loop below would
+  // walk every project's tree once per project.
+  const workFilesByProject = new Map();
+  try {
+    for (const p of (getWorkFiles().projects || [])) workFilesByProject.set(p.projectPath, p);
+  } catch {}
+
   // Per-project files: from the register (every backend's provenance), not one store directory.
   const projects = [];
   for (const projectPath of visible) {
@@ -423,6 +431,8 @@ function getMemories() {
       for (const s of sources) collectSource(s, files, seen, b.id);
     }
     const groups = resourceGroups(projectPath, seen);
+    const workFiles = workFilesByProject.get(projectPath);
+    if (workFiles) groups.push(workFilesGroup(workFiles));
     if (files.length || groups.length) {
       const displayName = displayNames.get(projectPath) || '';
       projects.push({
@@ -453,10 +463,18 @@ function getMemories() {
 
   try {
     // Group files are indexed too (#440) — a skill the tab shows but search cannot find reads as a bug.
+    //
+    // Work files are the exception, and they are excluded HERE rather than left out of the list above:
+    // they are in this payload since #448, but `getWorkFiles` has already indexed them under their own
+    // type, with the rules they need — a `.jsonl` and anything past 64 KB is listed and not read. This
+    // loop reads every entry whole and as UTF-8, so including them would mean pulling a project's entire
+    // `.work-files/` tree into memory, indexing each file twice, and losing the whole memory index to
+    // the first read that throws.
+    const forMemoryIndex = (files) => files.filter(f => f.kind !== WORK_FILE_KIND);
     const allFiles = [
-      ...globalFiles.map(f => ({ ...f, label: 'Global' })),
-      ...globalGroups.flatMap(g => g.files.map(f => ({ ...f, label: 'Global' }))),
-      ...projects.flatMap(p => [...p.files, ...p.groups.flatMap(g => g.files)]
+      ...forMemoryIndex(globalFiles).map(f => ({ ...f, label: 'Global' })),
+      ...globalGroups.flatMap(g => forMemoryIndex(g.files).map(f => ({ ...f, label: 'Global' }))),
+      ...projects.flatMap(p => forMemoryIndex([...p.files, ...p.groups.flatMap(g => g.files)])
         .map(f => ({ ...f, label: p.displayName || p.shortName }))),
     ];
     const sig = computeIndexSignature(allFiles.map(f => ({
@@ -536,6 +554,9 @@ function saveMemory(filePath, content) {
 // was deciding which projects to walk (out of Claude's store). That now comes from the register too.
 const WORK_FILES_CAP = 200;
 
+// The kind a work file carries into the Agent Files list, and the id of its chip in the type filter.
+const WORK_FILE_KIND = 'work-file';
+
 function walkWorkFiles(dir, baseDir, results) {
   let entries;
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
@@ -600,6 +621,32 @@ function getWorkFiles() {
   return { projects };
 }
 
+/**
+ * One project's work files, shaped as a group in the Agent Files payload (#448).
+ *
+ * A group and not loose rows, for two reasons the tab it replaces already had: `.work-files/` is a
+ * directory and reads as one, and the cap really bites (a project can hold tens of thousands of files).
+ * The group header is the only place that cap is ever admitted to, as `shown/total`.
+ *
+ * `backendId` is null because no CLI owns `.work-files/` — the project does. Everything downstream that
+ * draws a backend has to cope with that; naming one here would be the `|| 'claude'` the rules forbid.
+ */
+function workFilesGroup(proj) {
+  return {
+    id: 'work-files:' + proj.projectPath,
+    backendId: null,
+    backendLabel: null,
+    label: '.work-files',
+    kind: WORK_FILE_KIND,
+    path: path.join(proj.projectPath, '.work-files'),
+    total: proj.totalCount,
+    // `displayPath` rather than the bare filename: work files nest, and two `notes.md` in different
+    // subdirectories are told apart by nothing else. Same field the instruction rows use, so the row
+    // builder needs no branch for it.
+    files: proj.files.map(f => ({ ...f, displayPath: f.relativePath, kind: WORK_FILE_KIND, backendIds: [] })),
+  };
+}
+
 // A work-file path is allowed only inside the .work-files dir of a REGISTERED project (or a live session's
 // dir) — otherwise a compromised renderer could read/delete arbitrary .work-files dirs anywhere (#77).
 function isAllowedWorkFilePath(resolved) {
@@ -655,7 +702,8 @@ function registerIpc(ipcMain) {
   ipcMain.handle('get-memories', () => getMemories());
   ipcMain.handle('read-memory', (_e, filePath) => readMemory(filePath));
   ipcMain.handle('save-memory', (_e, filePath, content) => saveMemory(filePath, content));
-  ipcMain.handle('get-work-files', () => getWorkFiles());
+  // No `get-work-files` handler: work files arrive with `get-memories` since #448, and a second way to
+  // ask for them is a second answer that can disagree with the list the user is looking at.
   ipcMain.handle('read-work-file', (_e, filePath) => readWorkFile(filePath));
   ipcMain.handle('delete-work-file', (_e, filePath) => deleteWorkFile(filePath));
 }

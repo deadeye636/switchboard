@@ -46,7 +46,6 @@ const memoryPanel = new ViewerPanel(memoryViewer, {
   language: 'markdown', storageKey: 'markdownPreviewMode',
   onSave: (filePath, content) => window.api.saveMemory(filePath, content),
 });
-const workFilesContent = document.getElementById('work-files-content');
 const workFilesViewer = document.getElementById('work-files-viewer');
 const projectsViewer = document.getElementById('projects-viewer');
 const tasksViewer = document.getElementById('tasks-viewer');
@@ -60,8 +59,8 @@ const workFilesPanel = new ViewerPanel(workFilesViewer, {
     const result = await window.api.deleteWorkFile(filePath);
     if (result && result.ok) {
       // Hide the panel and surgically remove the entry from the cached list.
-      // We avoid loadWorkFiles() because the full disk re-scan can freeze the
-      // UI on projects with large .work-files/ trees (e.g. tagpay = 39k files).
+      // We avoid reloading because the full disk re-scan can freeze the UI on
+      // projects with large .work-files/ trees (measured: ~39k files).
       workFilesViewer.style.display = 'none';
       if (typeof removeWorkFileFromCache === 'function') removeWorkFileFromCache(filePath);
     }
@@ -1710,7 +1709,6 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     plansContent.style.display = 'none';
     statsContent.style.display = 'none';
     memoryContent.style.display = 'none';
-    workFilesContent.style.display = 'none';
     projectsViewer.style.display = 'none';
     variablesAdminContent.style.display = 'none';
     // statsViewer is the third main-area admin overlay (position:absolute; inset:0). It was omitted here and
@@ -1760,12 +1758,6 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       searchInput.placeholder = 'Search agent files...';
       memoryContent.style.display = '';
       loadMemories();
-    } else if (tabName === 'work-files') {
-      restoreMainArea();   // #301 — see the plans branch
-      searchBar.style.display = '';
-      searchInput.placeholder = 'Search work files...';
-      workFilesContent.style.display = '';
-      loadWorkFiles();
     } else if (tabName === 'projects') {
       // Big-viewport admin list in the main area (its own filter, no sidebar content).
       hideAllViewers();

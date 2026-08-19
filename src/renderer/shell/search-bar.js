@@ -1,7 +1,7 @@
 // --- The sidebar search bar (debounced, per-tab FTS) (#218, #228) ---
 //
 // The search-as-you-type box above the sidebar: the debounce, the 3-char floor, the per-tab dispatch
-// (sessions / plans / memory / work-files), and the Enter/refresh reindex. Came out of app.js.
+// (sessions / plans / agent files), and the Enter/refresh reindex. Came out of app.js.
 //
 // A PLAIN CLASSIC SCRIPT — no IIFE, no UMD factory — that reads app.js's bindings at call time through the
 // shared global scope. Two of them it WRITES: `searchMatchIds` and `searchMatchProjectPaths` (declared at
@@ -24,7 +24,7 @@
 //   app.js                     searchInput, searchBar (DOM handles), activeTab, cachedAllProjects,
 //                              cachedPlans, refreshSidebar, and it WRITES searchMatchIds /
 //                              searchMatchProjectPaths
-//   views/plans-memory-view.js  renderPlans, renderMemories, renderWorkFiles
+//   views/plans-memory-view.js  renderPlans, renderMemories
 
 // --- Search (debounced, per-tab FTS) ---
 // Trigram tokenizer makes 1-2 char queries the most expensive (they match
@@ -71,8 +71,6 @@ function clearSearch() {
     renderPlans(cachedPlans);
   } else if (activeTab === 'memory') {
     renderMemories();
-  } else if (activeTab === 'work-files') {
-    renderWorkFiles();
   }
 }
 
@@ -91,8 +89,6 @@ function resetSearchFilter() {
     renderPlans(cachedPlans);
   } else if (activeTab === 'memory') {
     renderMemories();
-  } else if (activeTab === 'work-files') {
-    renderWorkFiles();
   }
 }
 
@@ -139,16 +135,20 @@ async function runSearchQuery() {
       const results = await window.api.search('plan', query, searchTitlesOnly);
       const matchIds = new Set(results.map(r => r.id));
       // FTS ids for plans are the full filePath now (#227 — plans span every backend's plans dir, so a
-      // bare filename is no longer unique), matching how memory/work-files already filter.
+      // bare filename is no longer unique), matching how the agent files list already filters.
       renderPlans(cachedPlans.filter(p => matchIds.has(p.filePath)));
     } else if (activeTab === 'memory') {
-      const results = await window.api.search('memory', query, searchTitlesOnly);
-      const matchIds = new Set(results.map(r => r.id));
+      // TWO search types, one list (#448). Work files keep their own FTS type because they are indexed
+      // under different rules — a `.jsonl` and anything past 64 KB is listed but not read — and folding
+      // them into the memory type would mean reading every one of them as text. So the tab asks for both
+      // and unions the answers; asking only for `memory` would show work-file rows that no query can
+      // ever reach.
+      const [memoryHits, workFileHits] = await Promise.all([
+        window.api.search('memory', query, searchTitlesOnly),
+        window.api.search('work-file', query, searchTitlesOnly),
+      ]);
+      const matchIds = new Set([...memoryHits, ...workFileHits].map(r => r.id));
       renderMemories(matchIds);
-    } else if (activeTab === 'work-files') {
-      const results = await window.api.search('work-file', query, searchTitlesOnly);
-      const matchIds = new Set(results.map(r => r.id));
-      renderWorkFiles(matchIds);
     }
   } catch {
     if (activeTab === 'sessions') {
