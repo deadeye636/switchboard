@@ -704,7 +704,7 @@ input:focus-visible {
   background: #18181f;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   border-right: none;
   flex-shrink: 0;
 }
@@ -713,7 +713,7 @@ input:focus-visible {
   width: 4px;
   cursor: col-resize;
   background: transparent;
-  height: 100vh;
+  height: 100%;
   flex-shrink: 0;
   position: relative;
   z-index: 10;
