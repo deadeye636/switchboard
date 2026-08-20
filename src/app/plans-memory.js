@@ -732,10 +732,24 @@ function isAllowedMemoryPath(resolved) {
   return false;
 }
 
+// An instruction file the tab may open and save. Markdown, or one of the handful of agent-instruction
+// files that carry no extension at all (#451 — Hermes reads `.cursorrules` beside `AGENTS.md`).
+//
+// The real protection is the containment check beside this one: a path has to sit under a backend's own
+// memory root or a registered project. This narrowing is about not opening arbitrary file types in a
+// markdown editor, so a NAMED file is as safe as a `.md` — and listing a file the viewer then answers
+// with an empty editor is the worse failure.
+const EXTENSIONLESS_INSTRUCTION_FILES = new Set(['.cursorrules']);
+
+function isInstructionFile(resolved) {
+  if (resolved.endsWith('.md')) return true;
+  return EXTENSIONLESS_INSTRUCTION_FILES.has(path.basename(resolved));
+}
+
 function readMemory(filePath) {
   try {
     const resolved = path.resolve(filePath);
-    if (!resolved.endsWith('.md')) return '';
+    if (!isInstructionFile(resolved)) return '';
     if (!isAllowedMemoryPath(resolved)) return '';
     return fs.readFileSync(resolved, 'utf8');
   } catch (err) {
@@ -747,7 +761,7 @@ function readMemory(filePath) {
 function saveMemory(filePath, content) {
   try {
     const resolved = path.resolve(filePath);
-    if (!resolved.endsWith('.md')) return { ok: false, error: 'not a .md file' };
+    if (!isInstructionFile(resolved)) return { ok: false, error: 'not an instruction file' };
     if (!isAllowedMemoryPath(resolved)) return { ok: false, error: 'path not allowed' };
     if (!fs.existsSync(resolved)) return { ok: false, error: 'file does not exist' };
     fs.writeFileSync(resolved, content, 'utf8');
@@ -923,6 +937,7 @@ module.exports = {
   registerIpc,
   // exported for the tests: the label rule and the counting are pure
   _typeLabel: typeLabel, _typeCounts: typeCounts, _backendCounts: backendCounts,
+  _isInstructionFile: isInstructionFile,
   // exported for main.js (save-file-for-panel invalidates the FTS signature) and for tests
   invalidateFtsSignature,
   getPlans, readPlan, savePlan, getMemories, readMemory, saveMemory,

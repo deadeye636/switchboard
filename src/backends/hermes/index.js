@@ -205,9 +205,32 @@ module.exports = {
   resolveLineage: (row) => (row && row.lineageParentRef ? { lineageParentId: row.lineageParentRef, lineageKind: 'parent' } : null),
   // Hermes sessions are rows in state.db, not files — there is no transcript path (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
-  // Hermes keeps no plans store and no per-project instruction files (#227).
+  // Hermes keeps no plans store (#227).
   plansDir: () => null,
-  memorySources: () => [],
+  /**
+   * The instruction files Hermes reads (#451).
+   *
+   * This said `[]` and "no per-project instruction files", while the `ignoreRules` launch option fifty
+   * lines up offers to "skip AGENTS.md, SOUL.md, memory and preloaded skills for this run" — an option
+   * that only makes sense if they are read otherwise. The launch option was right. Hermes' own
+   * `coding_context` names the set: `AGENTS.md`, `CLAUDE.md`, `.cursorrules` as project context files,
+   * with `SOUL.md` and `.hermes.md` alongside them, taken from the working directory or from HERMES_HOME.
+   *
+   * So a project's `AGENTS.md` is Codex', Pi's AND Hermes' — the row wears all three badges — and a
+   * Hermes-only project now shows its instruction files instead of nothing.
+   *
+   * `SOUL.md` at the home is also in `listResources`; the tab dedupes by path, so it appears once with
+   * both claims recorded rather than twice.
+   */
+  memorySources: (scope) => {
+    const files = ['AGENTS.md', 'CLAUDE.md', '.hermes.md', 'SOUL.md', '.cursorrules'];
+    const root = (scope && scope.projectPath) ? scope.projectPath : reader.hermesHome();
+    if (!root) return [];
+    const displayPath = (scope && scope.projectPath)
+      ? require('../../session/derive-project-path').projectShortName(scope.projectPath) + '/'
+      : '';
+    return files.map(name => ({ kind: 'file', path: path.join(root, name), displayPath, source: scope && scope.projectPath ? 'project' : 'home' }));
+  },
   // No `deleteSessions` and no `rewriteProjectPath`: its sessions are rows in a database Switchboard
   // opens read-only and may never write (#2914). The Remove dialog offers no switch for Hermes and shows
   // this sentence instead of a control that could not do anything.
