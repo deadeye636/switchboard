@@ -371,6 +371,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   inserts a reference rather than the plan: a plan runs to hundreds of lines and belongs in the agent's
   context through the agent's own file tools, not pasted into a prompt. What exactly gets typed is a
   template you can change, per project if you want to.
+- **A project's own plans are found, not imposed** — plenty of projects already keep plan documents in
+  `docs/plans/` or somewhere of their own choosing. Switchboard looks for them and lists them under that
+  project, in a group named after the directory they came from, without anything being configured and
+  without writing anything. The names it looks for are a setting, so a layout nobody anticipated can be
+  added rather than argued with.
 - **A plan knows its project** — plan documents are written into one flat directory under a generated
   name, with nothing in the file to say which project they belong to. The session that wrote the plan
   recorded a reference to it and knows its project, so the Plans list groups by that instead of showing one

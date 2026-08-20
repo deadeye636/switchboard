@@ -77,6 +77,14 @@ const SETTING_DEFAULTS = {
   // In the cascade, so a project whose agents want a different phrasing can say so — the same reason
   // a saved variable carries its own insert template rather than one global one.
   planInsertTemplate: 'Follow the plan at {path}',
+  // Where a project keeps its own plan documents (#450). Relative to the project root, because that is
+  // the only kind of path Claude's own `plansDirectory` will accept — and a convention that only works
+  // for one CLI is not one. In the cascade: a project that keeps them somewhere else says so.
+  planDir: '.plans',
+  // The directory names the Plans list looks for in a project (#454). Read-only discovery: whatever is
+  // found is listed, nothing is created. A list rather than one name, because the point is to recognise
+  // what a project ALREADY does instead of insisting it does what we would have chosen.
+  planDirNames: ['.plans', 'docs/plans', 'plans', '.agent/plans'],
 };
 // NOT IN THE CASCADE (#239): `sessionMaxAgeDays` and `autoHideDays`. They read like per-project settings
 // — one project is an archive worth keeping visible, another is noise — but they are how the sidebar as a

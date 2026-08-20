@@ -21,7 +21,11 @@
   const UNATTRIBUTED = '__no_project__';
 
   function planGroupKey(plan) {
-    return (plan && plan.projectPath) ? plan.projectPath : UNATTRIBUTED;
+    if (!plan || !plan.projectPath) return UNATTRIBUTED;
+    // The DIRECTORY is part of the key when the plan came from one of the project's own (#454). A
+    // hand-written `docs/plans/` and a CLI's plan-mode output are different kinds of document, and one
+    // list that silently merged them would be a markdown browser with a plans icon.
+    return plan.sourceDir ? plan.projectPath + '::' + plan.sourceDir : plan.projectPath;
   }
 
   /**
@@ -45,6 +49,7 @@
           projectPath: key === UNATTRIBUTED ? null : plan.projectPath,
           displayName: plan.displayName || '',
           shortName: plan.shortName || '',
+          sourceDir: plan.sourceDir || null,
           plans: [],
         });
       }
@@ -73,5 +78,15 @@
     return group.displayName || group.shortName || group.projectPath || 'Project';
   }
 
-  return { planGroups, planGroupKey, planGroupLabel, PLAN_GROUP_UNATTRIBUTED: UNATTRIBUTED };
+  /**
+   * The second line of a group header, or null.
+   *
+   * A group of plans the project keeps itself says WHICH directory they came from. Without it two groups
+   * under the same project name would look like a duplicate rather than like two different places.
+   */
+  function planGroupSource(group) {
+    return (group && group.sourceDir) ? group.sourceDir : null;
+  }
+
+  return { planGroups, planGroupKey, planGroupLabel, planGroupSource, PLAN_GROUP_UNATTRIBUTED: UNATTRIBUTED };
 });

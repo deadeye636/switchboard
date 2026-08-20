@@ -8,7 +8,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { planGroups, planGroupKey, planGroupLabel, PLAN_GROUP_UNATTRIBUTED } = require('../src/renderer/views/plan-groups');
+const { planGroups, planGroupKey, planGroupLabel, planGroupSource, PLAN_GROUP_UNATTRIBUTED } = require('../src/renderer/views/plan-groups');
 
 const plan = (over) => ({ filePath: '/p/a.md', title: 'A', modified: '2026-08-01T10:00:00Z', ...over });
 
@@ -81,4 +81,35 @@ test('planGroupKey answers for a plan with no project', () => {
   assert.equal(planGroupKey({ projectPath: '/x' }), '/x');
   assert.equal(planGroupKey({}), PLAN_GROUP_UNATTRIBUTED);
   assert.equal(planGroupKey(null), PLAN_GROUP_UNATTRIBUTED);
+});
+
+// --- a project's own plan directories (#454) ---
+
+test('plans a project keeps itself form a group of their own, named after the directory', () => {
+  const groups = planGroups([
+    plan({ filePath: '/p/from-cli.md', projectPath: '/proj/one', displayName: 'One' }),
+    plan({ filePath: '/p/own.md', projectPath: '/proj/one', displayName: 'One', sourceDir: 'docs/plans' }),
+  ]);
+  assert.equal(groups.length, 2, 'a hand-written directory is not the same thing as plan-mode output');
+  const own = groups.find(g => g.sourceDir);
+  assert.equal(planGroupSource(own), 'docs/plans');
+  assert.equal(planGroupLabel(own), 'One', 'the project still names the group');
+  assert.equal(planGroupSource(groups.find(g => !g.sourceDir)), null);
+});
+
+test('two directories in one project stay apart', () => {
+  const groups = planGroups([
+    plan({ filePath: '/p/a.md', projectPath: '/proj/one', sourceDir: 'docs/plans' }),
+    plan({ filePath: '/p/b.md', projectPath: '/proj/one', sourceDir: '.plans' }),
+  ]);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups.map(g => g.sourceDir).sort(), ['.plans', 'docs/plans']);
+});
+
+test('the same directory name under two projects does not collapse', () => {
+  const groups = planGroups([
+    plan({ filePath: '/a.md', projectPath: '/proj/one', sourceDir: '.plans' }),
+    plan({ filePath: '/b.md', projectPath: '/proj/two', sourceDir: '.plans' }),
+  ]);
+  assert.equal(groups.length, 2);
 });

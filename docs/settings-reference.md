@@ -49,6 +49,8 @@ back on Save.
 | `terminalMouseReporting` | Mouse mode | `native` \| `select` \| `off` | `select` | global |
 | `externalEditorCommand` | External editor | string | `''` (OS default) | global |
 | `planInsertTemplate` | Plan insert template | string with `{path}` / `{title}` / `{filename}` | `Follow the plan at {path}` | global + project |
+| `planDirNames` | Plan directories to look for | list of project-relative paths | `['.plans', 'docs/plans', 'plans', '.agent/plans']` | global |
+| `planDir` | Where this project keeps plans | project-relative path | `.plans` | global + project |
 | `fileClickTarget` | Clicking a file link opens | `internal` \| `external` | `internal` | global |
 | `markdownDefaultView` | Previewable files open as | `code` \| `preview` | `code` | global |
 | `editorToolbarMode` | Source editor | `toolbar` \| `plain` | `toolbar` | global |

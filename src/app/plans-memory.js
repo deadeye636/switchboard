@@ -73,9 +73,17 @@ function announcePlansChanged() {
   }, PLANS_DEBOUNCE_MS);
 }
 
+// What is currently watched, so a rebuild only happens when the set actually changed. The set is not
+// fixed: a project can gain a plans directory (#454) long after the app started, and one can be removed.
+let plansWatchedKey = null;
+
 function watchPlansDirs() {
+  const dirs = plansDirs();
+  const key = [...dirs].sort().join('|');
+  if (key === plansWatchedKey) return;
   stopWatchingPlansDirs();
-  for (const dir of plansDirs()) {
+  plansWatchedKey = key;
+  for (const dir of dirs) {
     try {
       if (!fs.existsSync(dir)) continue;
       // A directory watch answers for a file appearing, being renamed and being removed — all three are
@@ -90,6 +98,7 @@ function stopWatchingPlansDirs() {
     try { plansWatchers.pop().close(); } catch { /* best effort */ }
   }
   if (plansChangeTimer) { clearTimeout(plansChangeTimer); plansChangeTimer = null; }
+  plansWatchedKey = null;
 }
 
 // The backends whose plans + instruction files this tab surfaces: every installed (ready) backend, not
@@ -409,6 +418,57 @@ function attributePlans(plans, refOf) {
   }
 }
 
+// --- What a project already does with plans (#454) --------------------------------------------------
+//
+// The Plans list used to show one thing: the directory a backend declares as its own plans store. A
+// project that keeps plan documents itself — `docs/plans/`, a spec tree, whatever the team settled on —
+// was invisible, so the people most disciplined about planning got the least out of the tab.
+//
+// This finds those directories and lists them. It writes nothing, configures nothing and creates nothing:
+// Switchboard does not produce plans, so recognising what a project does is the honest job, not insisting
+// it does what we would have chosen.
+//
+// A plan found this way needs no attribution — it is IN the project, so the path is the answer. It also
+// keeps the directory it came from, because a hand-written `docs/plans/` and a CLI's plan-mode output are
+// not the same kind of document and a list that silently merged them would be a markdown browser.
+
+/** The candidate directory names, from the settings — a list, so a project's own layout can be added. */
+function planDirCandidates() {
+  const fallback = ['.plans', 'docs/plans', 'plans', '.agent/plans'];
+  try {
+    const eff = ctx.effectiveSettings ? ctx.effectiveSettings(null) : null;
+    const names = eff && eff.planDirNames;
+    if (!Array.isArray(names)) return fallback;
+    // A blank entry would resolve to the project root and put every markdown file in the repo on the list.
+    const clean = names.map(n => String(n || '').trim()).filter(Boolean);
+    return clean.length ? clean : fallback;
+  } catch { return fallback; }
+}
+
+/**
+ * Every project-local plan directory that exists, as `{ projectPath, dir, name }`.
+ *
+ * One `existsSync` per candidate per project over the register the app already keeps. A directory that is
+ * not there costs a failed stat; a project with none costs nothing else.
+ */
+function projectPlanSources() {
+  const out = [];
+  const candidates = planDirCandidates();
+  for (const projectPath of visibleProjectPaths()) {
+    for (const name of candidates) {
+      const dir = path.resolve(projectPath, name);
+      // A candidate that escapes the project — `../elsewhere` in the setting — is not this project's
+      // plans directory, whatever it holds.
+      if (dir !== path.resolve(projectPath) && !dir.startsWith(path.resolve(projectPath) + path.sep)) continue;
+      try {
+        if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue;
+      } catch { continue; }
+      out.push({ projectPath, dir, name });
+    }
+  }
+  return out;
+}
+
 function getPlans() {
   const plans = [];
   const sigFiles = [];
@@ -439,7 +499,41 @@ function getPlans() {
     }
   }
   attributePlans(plans, refOf);
+
+  // The project's own plan directories (#454), appended AFTER the attribution pass: these plans need
+  // none — they live inside the project, so the path already answers the question.
+  let displayNames = new Map();
+  try { displayNames = ctx.db.getProjectDisplayNames(); } catch {}
+  for (const source of projectPlanSources()) {
+    let files = [];
+    try { files = fs.readdirSync(source.dir).filter(f => f.endsWith('.md')); } catch { continue; }
+    for (const file of files) {
+      const filePath = path.join(source.dir, file);
+      try {
+        const stat = fs.statSync(filePath);
+        if (!stat.isFile()) continue;
+        const content = fs.readFileSync(filePath, 'utf8');
+        const firstLine = content.split('\n').find(l => l.trim());
+        const title = firstLine && firstLine.startsWith('# ') ? firstLine.slice(2).trim() : file.replace(/\.md$/, '');
+        plans.push({
+          filename: file, filePath, title, modified: stat.mtime.toISOString(),
+          projectPath: source.projectPath,
+          shortName: projectShortName(source.projectPath),
+          displayName: displayNames.get(source.projectPath) || '',
+          // The directory is part of the row's identity, not decoration: it is what tells a project's own
+          // plan from a CLI's, and the two are different kinds of document.
+          sourceDir: source.name,
+        });
+        bodies.set(filePath, content);
+        sigFiles.push({ filePath, mtimeMs: stat.mtimeMs, size: stat.size });
+      } catch {}
+    }
+  }
+
   plans.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+  // The set of plan directories is not fixed — a project can gain one while the app runs — so the
+  // watches are re-established from what was just collected. A no-op when nothing moved.
+  watchPlansDirs();
 
   try {
     // The signature carries the ATTRIBUTION as well as the file, because the attribution is what the
@@ -467,12 +561,18 @@ function getPlans() {
   return { plans, hasStore };
 }
 
-// Every declared plans dir, resolved — the read/save guard for a plan path.
+// Every plans dir, resolved — the read/save guard for a plan path.
+//
+// Both kinds: what a backend declares as its own store, and what a project keeps itself (#454). A plan
+// the list shows and the viewer then refuses to open would be worse than not listing it, so the guard has
+// to cover exactly what `getPlans` collects — these two functions are one decision written twice, and
+// they must not drift.
 function plansDirs() {
   const dirs = [];
   for (const b of memoryBackends()) {
     try { const d = b.plansDir(); if (d) dirs.push(path.resolve(d)); } catch {}
   }
+  for (const source of projectPlanSources()) dirs.push(source.dir);
   return dirs;
 }
 

@@ -87,6 +87,16 @@ function buildPlanGroup(group) {
   }
   header.appendChild(nameSpan);
 
+  // Which directory these came from, when the project keeps them itself (#454). Without it two groups
+  // under one project name read as a duplicate rather than as two different places.
+  const sourceDir = window.planGroupSource(group);
+  if (sourceDir) {
+    const src = document.createElement('span');
+    src.className = 'memory-resource-backend plan-group-source';
+    src.textContent = sourceDir;
+    header.appendChild(src);
+  }
+
   const count = document.createElement('span');
   count.className = 'memory-file-count';
   count.textContent = group.plans.length;

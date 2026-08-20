@@ -5150,6 +5150,13 @@ mark.jsonl-search-hit-active {
 #plans-content .project-group.collapsed .arrow {
   transform: rotate(-90deg);
 }
+/* Which directory a project's own plans came from (#454) — quiet, because the project name is the
+   heading and this is the qualifier under it. */
+#plans-content .plan-group-source {
+  font-size: 10px;
+  color: #7a7a90;
+}
+
 /* The group of plans nothing can be attributed to. Stated, not hidden — and quieter than a real project,
    because it is a fact about the record, not a place. */
 #plans-content .plan-group-orphans {

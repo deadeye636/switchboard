@@ -513,6 +513,9 @@ plansMemory.init({
   // wherever the user put it.
   getMainWindow: () => mainWindow,
   getDetachedWindows: () => [...detach.detachedWindows.values()],
+  // The settings cascade (#454). Lazy, because the settings module is required further down this file
+  // than this wiring runs — and a plans list built at startup would otherwise see no settings at all.
+  effectiveSettings: (projectPath) => require('./app/settings').effectiveSettings(projectPath),
 });
 plansMemory.registerIpc(ipcMain);
 
