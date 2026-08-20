@@ -255,6 +255,14 @@ test('every backend declares plansDir and memorySources — a store or an honest
     assert.equal(typeof b.plansDir, 'function', `${id} must declare plansDir`);
     const pd = b.plansDir();
     assert.ok(pd === null || typeof pd === 'string', `${id}.plansDir() must be a string path or null`);
+    // #450: plansDir takes a SCOPE. A project can point its CLI at a plans directory of its own, and a
+    // hook that only ever answered globally would hide exactly those plans. Every backend answers for
+    // both — with a path, or with an honest null.
+    const scopedPlansDir = b.plansDir({ projectPath: '/tmp/demo' });
+    assert.ok(scopedPlansDir === null || typeof scopedPlansDir === 'string',
+      `${id}.plansDir(scope) must be a string path or null`);
+    assert.doesNotThrow(() => b.plansDir(null), `${id}.plansDir(null) must not throw`);
+    assert.doesNotThrow(() => b.plansDir({}), `${id}.plansDir({}) must not throw`);
 
     assert.equal(typeof b.memorySources, 'function', `${id} must declare memorySources`);
     // Global scope and a per-project scope both return arrays and never throw.
@@ -284,6 +292,29 @@ test('planRef belongs to a backend that has a plans store, and answers with a st
     assert.ok(ref === null || typeof ref === 'string', `${id}.planRef() must be a string or null`);
     assert.doesNotThrow(() => b.planRef(''), `${id}.planRef must survive an empty path`);
     assert.doesNotThrow(() => b.planRef(null), `${id}.planRef must survive a missing path`);
+  }
+});
+
+// #450: a backend that can be pointed at a project's plans directory declares `planDirSetup` and answers
+// with the file it needs changed, its current contents and what they would become — the CLI's config
+// format is the CLI's business, and a `.claude` literal in the core is exactly what the neutrality guard
+// exists to catch. Optional; a backend that writes no plans declares nothing.
+test('planDirSetup describes a whole file, or declines', () => {
+  const path2 = require('path');
+  for (const b of READY) {
+    const id = b.id;
+    if (typeof b.planDirSetup !== 'function') continue;
+    const res = b.planDirSetup({ projectPath: path2.join(os.tmpdir(), 'sb-plan-setup'), planDir: '.plans', shared: false });
+    assert.ok(res && typeof res === 'object', `${id}.planDirSetup must answer with an object`);
+    if (res.ok === false) { assert.ok(res.error, `${id}: a refusal needs a reason`); continue; }
+    assert.equal(typeof res.file, 'string', `${id}.planDirSetup must name the file it would write`);
+    assert.equal(typeof res.after, 'string', `${id}.planDirSetup must return the file as it would become`);
+    // The whole file, not a patch: it is someone else's configuration and only one key is ours.
+    assert.doesNotThrow(() => JSON.parse(res.after), `${id}: the result must be a valid settings file`);
+    assert.equal(JSON.parse(res.after).plansDirectory, '.plans', `${id}: the directory has to reach the file`);
+    assert.equal(typeof res.unchanged, 'boolean', `${id}: say whether this would change anything`);
+    // A missing project is a question it cannot answer, not a crash.
+    assert.doesNotThrow(() => b.planDirSetup({}), `${id}.planDirSetup({}) must not throw`);
   }
 });
 

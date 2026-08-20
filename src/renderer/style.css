@@ -5157,6 +5157,15 @@ mark.jsonl-search-hit-active {
   color: #7a7a90;
 }
 
+/* A plans directory a project configured and nothing arrived in (#450). A notice, not an error: the
+   likeliest cause is that the CLI silently declined the path. */
+#plans-content .plan-unfulfilled {
+  color: #e6c07b;
+  border-left: 2px solid rgba(230, 160, 60, 0.4);
+  padding-left: 10px;
+  margin: 6px 8px;
+}
+
 /* The group of plans nothing can be attributed to. Stated, not hidden — and quieter than a real project,
    because it is a fact about the record, not a place. */
 #plans-content .plan-group-orphans {

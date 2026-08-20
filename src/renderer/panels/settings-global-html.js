@@ -51,7 +51,7 @@
       collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
       paneCloseEmptyValue, paneBackgroundScrollbackValue,
-      externalEditorValue, planInsertTemplateValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
+      externalEditorValue, planInsertTemplateValue, planDirValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
       favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
@@ -314,6 +314,16 @@
                   </div>
                   <div class="settings-field-control">
                     <input type="text" class="settings-input" id="sv-plan-insert-template" placeholder="Follow the plan at {path}" value="${escapeHtml(planInsertTemplateValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Plans directory</span>${help}</div>
+                    <div class="settings-description">Where a project keeps its plan documents, relative to the project root. The default for every project; a project can override it in its own settings, where there is also a button that points its CLIs at it.</div>
+                    <div class="settings-more">Switchboard lists what it finds and never writes a plan itself. A dot-directory keeps plans out of the repository by default, which matters because a plan body is written by a tool that knows nothing about what may not be published.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-plan-dir" placeholder=".plans" value="${escapeHtml(planDirValue)}">
                   </div>
                 </div>
                 <div class="settings-field">

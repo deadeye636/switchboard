@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('api', {
   saveMemory: (filePath, content) => ipcRenderer.invoke('save-memory', filePath, content),
   // `getWorkFiles` was here. Work files come with `getMemories` since #448 — they are one group in the
   // Agent Files list now, and a separate way to ask for them could answer differently.
+  // #450: what pointing a project's CLIs at its plans directory would write, and writing it.
+  planConventionPreview: (projectPath, options) => ipcRenderer.invoke('plan-convention-preview', projectPath, options),
+  planConventionApply: (projectPath, options) => ipcRenderer.invoke('plan-convention-apply', projectPath, options),
   readWorkFile: (filePath) => ipcRenderer.invoke('read-work-file', filePath),
   deleteWorkFile: (filePath) => ipcRenderer.invoke('delete-work-file', filePath),
   getProjects: (showArchived) => ipcRenderer.invoke('get-projects', showArchived),

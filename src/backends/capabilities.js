@@ -147,6 +147,13 @@ const CATALOG = [
     declaredBy: 'plansDir',
   },
   {
+    id: 'planDirSetting',
+    group: 'resources',
+    label: 'Plans directory per project',
+    description: 'Can be pointed at a project\'s own plans directory, so a plan written in one CLI can be read by another.',
+    declaredBy: 'planDirSetup',
+  },
+  {
     id: 'projectConfig',
     group: 'resources',
     label: 'Per-project config outside the project',

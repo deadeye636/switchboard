@@ -113,6 +113,32 @@ function createListResources({ claudeHome }) {
   };
 }
 
+/**
+ * The `plansDirectory` a project has set for Claude, or null (#450).
+ *
+ * Claude merges several settings files; the two a project owns are `.claude/settings.json` (typically
+ * committed, so the choice reaches every collaborator) and `.claude/settings.local.json` (this machine
+ * only). Local wins, which is the order Claude itself applies.
+ *
+ * The value is returned raw and project-relative, exactly as it was written. Resolving it — and deciding
+ * whether Claude will actually accept it — belongs to the caller: Claude refuses a path outside the
+ * project root, one with a symlink component and one whose realpath disagrees, and it does so silently.
+ * Pretending here that the setting took would be the same mistake in a different file.
+ */
+function projectPlansDirectory(projectPath) {
+  if (!projectPath) return null;
+  for (const name of ['settings.local.json', 'settings.json']) {
+    try {
+      const file = path.join(projectPath, '.claude', name);
+      if (!fs.existsSync(file)) continue;
+      const blob = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const value = blob && typeof blob.plansDirectory === 'string' ? blob.plansDirectory.trim() : '';
+      if (value) return value;
+    } catch { /* an unreadable or malformed settings file is not a plans directory */ }
+  }
+  return null;
+}
+
 const expandResource = createExpandResource(EXPAND_RULES);
 
-module.exports = { createListResources, expandResource, EXPAND_RULES };
+module.exports = { createListResources, expandResource, EXPAND_RULES, projectPlansDirectory };

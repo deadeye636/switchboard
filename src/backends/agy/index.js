@@ -225,6 +225,7 @@ module.exports = {
     quota: 'yes',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
+    planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',
     viewportPaging: 'yes',

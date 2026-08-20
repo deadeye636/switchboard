@@ -371,6 +371,14 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   inserts a reference rather than the plan: a plan runs to hundreds of lines and belongs in the agent's
   context through the agent's own file tools, not pasted into a prompt. What exactly gets typed is a
   template you can change, per project if you want to.
+- **One place for plans, across CLIs** — plan documents can live in the project they are about instead of
+  in one CLI's home directory, so a plan written in Claude can be read by whatever runs next. The path is
+  a setting with a per-project override, and a button in the project's settings writes what each installed
+  CLI needs after showing every file it would change. Because Claude declines a plans directory it does
+  not like — outside the project, reached through a link — and does so silently, the list reports what
+  actually arrived rather than what was configured. The convention itself is written down in
+  `docs/plans-convention.md`, for a person and for an agent, and it degrades: a plan with no issue, no
+  tracker and no version control is still a plan.
 - **A project's own plans are found, not imposed** — plenty of projects already keep plan documents in
   `docs/plans/` or somewhere of their own choosing. Switchboard looks for them and lists them under that
   project, in a group named after the directory they came from, without anything being configured and

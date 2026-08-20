@@ -248,6 +248,7 @@ Other documents worth knowing about:
 | [`docs/development.md`](docs/development.md) | Build, run, test, package, release |
 | [`docs/demo-env.md`](docs/demo-env.md) | The isolated demo instance these screenshots come from |
 | [`docs/settings-reference.md`](docs/settings-reference.md) | Every setting with its real code default |
+| [`docs/plans-convention.md`](docs/plans-convention.md) | Where plan documents live, so a plan written in one CLI can be read by another |
 | [`docs/multi-llm.md`](docs/multi-llm.md) | How the backends, profiles and templates fit together |
 | [`docs/backend-formats.md`](docs/backend-formats.md) | Each CLI's on-disk transcript format |
 | [`docs/fork-features.md`](docs/fork-features.md) | Per-module breakdown of what is inherited and what is new here |

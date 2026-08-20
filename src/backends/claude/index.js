@@ -465,7 +465,69 @@ module.exports = {
   }),
   // Where Claude keeps its plan documents (#227) — the Plans tab reads every launchable backend's plansDir
   // and shows nothing for a backend that has none. ~/.claude/plans, or the isolated home under a demo run.
-  plansDir: () => path.join(claudeHome(), 'plans'),
+  /**
+   * Where Claude keeps its plan documents.
+   *
+   * Global (no scope, or no `projectPath`): `~/.claude/plans`, or the isolated home under a demo run.
+   *
+   * Per project (#450): Claude has an undocumented `plansDirectory` setting — *"custom directory for plan
+   * files, relative to project root"* — and a project that sets it writes its plans THERE, not into the
+   * home. Without answering for a scope, pointing Claude at a project directory would hide those plans
+   * from the list that is supposed to show them. The setting is read from the project's own Claude
+   * settings, because that is where Claude reads it from; `null` means this project adds nothing beyond
+   * the global store.
+   *
+   * Not verified against Claude's own three refusals (outside the root, a symlink component, a realpath
+   * mismatch) — that is the point of listing what is actually on disk rather than what the setting
+   * promises. A directory the setting names and Claude declined to use is simply empty here.
+   */
+  plansDir: (scope) => {
+    const projectPath = scope && scope.projectPath;
+    if (!projectPath) return path.join(claudeHome(), 'plans');
+    const configured = resources.projectPlansDirectory(projectPath);
+    return configured ? path.resolve(projectPath, configured) : null;
+  },
+  /**
+   * What it would take to point Claude at this project's plans directory (#450).
+   *
+   * Claude reads `plansDirectory` from the project's own settings, so the file to change and its format
+   * are Claude's business rather than the core's — the core asks, collects the answers from every backend
+   * that has one, and shows them before anything is written.
+   *
+   * `shared` chooses between the file a project normally commits and the one that stays on this machine.
+   * Both are real answers: a team convention belongs in the first, a personal preference in the second,
+   * and the caller is the one who knows which this is.
+   *
+   * Returns the whole file as it would become, not a patch. Everything already in it is preserved — this
+   * is someone else's configuration and only the one key is ours.
+   */
+  planDirSetup: ({ projectPath, planDir, shared }) => {
+    if (!projectPath || !planDir) return null;
+    const file = path.join(projectPath, '.claude', shared ? 'settings.json' : 'settings.local.json');
+    let before = null;
+    let current = {};
+    try {
+      if (fs.existsSync(file)) {
+        before = fs.readFileSync(file, 'utf8');
+        current = JSON.parse(before) || {};
+      }
+    } catch {
+      return { ok: false, error: path.basename(file) + ' is not readable as JSON, so it is not ours to overwrite.' };
+    }
+    const already = typeof current.plansDirectory === 'string' ? current.plansDirectory.trim() : '';
+    const notes = [];
+    if (already && already !== planDir) {
+      notes.push('already points at "' + already + '"; applying replaces that.');
+    }
+    return {
+      ok: true,
+      file,
+      before,
+      after: JSON.stringify({ ...current, plansDirectory: planDir }, null, 2) + '\n',
+      unchanged: already === planDir,
+      notes,
+    };
+  },
   // How one of THIS backend's plan files is referred to in its sessions (#449). A plan document carries no
   // project of its own — the session that wrote it does, and it records the plan under this reference.
   // Claude's is the filename without its extension: the same generated slug the session line carries.
@@ -560,6 +622,7 @@ module.exports = {
     quota: 'yes',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
+    planDirSetting: 'yes',
     plans: 'yes',
     projectConfig: 'yes',
     viewportPaging: { state: 'no', note: 'its full-screen TUI owns the bare page keys' },

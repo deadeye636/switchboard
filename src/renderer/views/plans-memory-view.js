@@ -19,11 +19,16 @@ const memoryCollapsedState = new Map();
 
 // --- Plans ---
 let plansHasStore = true; // whether any launchable backend declares a plans dir at all (#227)
+let plansUnfulfilled = [];  // { projectPath, backendId, dir, reason } — asked for, nothing there (#450)
 async function loadPlans() {
   const res = await window.api.getPlans();
   // #227: get-plans returns { plans, hasStore } — plans span every backend's plans dir, not just Claude's.
   cachedPlans = (res && res.plans) || [];
   plansHasStore = !res || res.hasStore !== false;
+  // #450: directories a project asked its CLI to use, that have no plans in them. Claude refuses a
+  // plansDirectory outside the project root, one reached through a link, and one whose real path
+  // disagrees — each silently. The list is the only place that can notice.
+  plansUnfulfilled = (res && res.unfulfilled) || [];
   renderPlans();
 }
 
@@ -40,9 +45,30 @@ if (window.api && typeof window.api.onPlansChanged === 'function') {
   });
 }
 
+function renderUnfulfilled() {
+  // What a project asked for and did not get (#450). Claude declines a plans directory outside the
+  // project root, one reached through a link and one whose real path disagrees — each of them silently,
+  // so the list is the only place that can notice.
+  for (const miss of plansUnfulfilled) {
+    const note = document.createElement('div');
+    note.className = 'plans-empty plan-unfulfilled';
+    note.textContent = miss.reason === 'not created yet'
+      ? `${miss.dir} is configured for plans but does not exist yet.`
+      : miss.reason === 'outside the project'
+        ? `${miss.dir} is configured for plans but sits outside the project — the CLI refuses that and uses its own.`
+        : `${miss.dir} is configured for plans and holds none. If plans keep arriving elsewhere, the CLI declined the path.`;
+    note.title = miss.projectPath;
+    plansContent.appendChild(note);
+  }
+}
+
 function renderPlans(plans) {
   plans = plans || cachedPlans;
   plansContent.innerHTML = '';
+  // BEFORE the empty branch, not after: a configured directory with nothing in it is exactly the case
+  // where the list is empty, and a notice that only appears when there are already plans would never be
+  // seen by the person who needs it.
+  renderUnfulfilled();
   if (plans.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'plans-empty';

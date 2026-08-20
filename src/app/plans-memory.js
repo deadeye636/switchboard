@@ -445,25 +445,87 @@ function planDirCandidates() {
   } catch { return fallback; }
 }
 
+/** Is `dir` inside `projectPath`? A candidate that escapes it is not that project's plans directory. */
+function insideProject(dir, projectPath) {
+  const root = path.resolve(projectPath);
+  return dir === root || dir.startsWith(root + path.sep);
+}
+
 /**
  * Every project-local plan directory that exists, as `{ projectPath, dir, name }`.
+ *
+ * Two sources, and the second is what makes the convention work at all (#450):
+ *
+ *   - the candidate names from the settings — what a project already does, found rather than imposed;
+ *   - what each BACKEND says it keeps for this project. Claude has a `plansDirectory` setting, and a
+ *     project that sets it writes its plans there. Without asking, pointing Claude at a project directory
+ *     would hide exactly the plans the setting was supposed to organise.
  *
  * One `existsSync` per candidate per project over the register the app already keeps. A directory that is
  * not there costs a failed stat; a project with none costs nothing else.
  */
 function projectPlanSources() {
   const out = [];
+  const seen = new Set();
+  const add = (projectPath, dir, name) => {
+    if (!insideProject(dir, projectPath)) return;
+    if (seen.has(dir)) return;
+    try {
+      if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
+    } catch { return; }
+    seen.add(dir);
+    out.push({ projectPath, dir, name });
+  };
+
   const candidates = planDirCandidates();
+  const backends = memoryBackends();
   for (const projectPath of visibleProjectPaths()) {
-    for (const name of candidates) {
-      const dir = path.resolve(projectPath, name);
-      // A candidate that escapes the project — `../elsewhere` in the setting — is not this project's
-      // plans directory, whatever it holds.
-      if (dir !== path.resolve(projectPath) && !dir.startsWith(path.resolve(projectPath) + path.sep)) continue;
-      try {
-        if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue;
-      } catch { continue; }
-      out.push({ projectPath, dir, name });
+    for (const name of candidates) add(projectPath, path.resolve(projectPath, name), name);
+    for (const b of backends) {
+      let dir = null;
+      try { dir = b.plansDir({ projectPath }); } catch { dir = null; }
+      if (!dir) continue;
+      const resolved = path.resolve(dir);
+      add(projectPath, resolved, path.relative(projectPath, resolved).split(path.sep).join('/') || '.');
+    }
+  }
+  return out;
+}
+
+/**
+ * A project that asked its CLI to write plans here, and got none (#450).
+ *
+ * Claude refuses a `plansDirectory` outside the project root, one with a symlink or junction component,
+ * and one whose realpath disagrees — and each refusal is silent but for a log line the user never sees.
+ * So the setting is not evidence that it took; the directory is. A configured directory that does not
+ * exist, or that holds nothing while the project's plans keep arriving in the global store, is reported
+ * rather than left to be discovered as an empty tab.
+ */
+function unfulfilledPlanDirs() {
+  const out = [];
+  // By directory, not by project: the register can hold the same directory under two spellings, and one
+  // missing plans directory reported twice reads as two problems.
+  const seen = new Set();
+  const backends = memoryBackends();
+  for (const projectPath of visibleProjectPaths()) {
+    for (const b of backends) {
+      let dir = null;
+      try { dir = b.plansDir({ projectPath }); } catch { dir = null; }
+      if (!dir) continue;
+      const resolved = path.resolve(dir);
+      let reason = null;
+      if (!insideProject(resolved, projectPath)) reason = 'outside the project';
+      else {
+        try {
+          if (!fs.existsSync(resolved)) reason = 'not created yet';
+          else if (!fs.readdirSync(resolved).some(f => f.endsWith('.md'))) reason = 'empty';
+        } catch { reason = 'unreadable'; }
+      }
+      if (!reason) continue;
+      const key = b.id + '::' + resolved.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ projectPath, backendId: b.id, dir: resolved, reason });
     }
   }
   return out;
@@ -558,7 +620,9 @@ function getPlans() {
     }
   } catch {}
 
-  return { plans, hasStore };
+  // What a project asked for and did not get (#450). Carried in the payload rather than logged, because
+  // the person who set it is the one who needs to know it did not take.
+  return { plans, hasStore, unfulfilled: unfulfilledPlanDirs() };
 }
 
 // Every plans dir, resolved — the read/save guard for a plan path.
@@ -918,6 +982,153 @@ function deleteWorkFile(filePath) {
   }
 }
 
+
+// --- Pointing a project's CLIs at its plans directory (#450) ----------------------------------------
+//
+// Switchboard never writes a plan; a skill or the model does. What it may do is CONFIGURE — point a CLI
+// at a directory, reversibly, after showing exactly what it would write. That is the same act the app
+// already performs when it wires its attention hook into Claude's settings, and the same rules apply:
+// show it first, touch only what is ours, leave a way back.
+//
+// The preview and the apply are separate calls, and the apply recomputes the preview rather than
+// trusting one from the renderer. A dialog that describes one thing and writes another is the failure
+// this shape exists to prevent.
+
+/** Is this project under version control? Decides the retirement rule and the ignore warning. */
+function isVersioned(projectPath) {
+  try { return fs.existsSync(path.join(projectPath, '.git')); } catch { return false; }
+}
+
+/** Does the project's .gitignore name this directory? A plain text check, not a git evaluation. */
+function isIgnored(projectPath, planDir) {
+  try {
+    const file = path.join(projectPath, '.gitignore');
+    if (!fs.existsSync(file)) return false;
+    const needle = planDir.replace(/^[.\/\\]+/, '').replace(/[\/\\]+$/, '');
+    return fs.readFileSync(file, 'utf8').split(/\r?\n/)
+      .map(l => l.trim().replace(/^\/+/, '').replace(/\/+$/, ''))
+      .some(l => l && !l.startsWith('#') && l === needle);
+  } catch { return false; }
+}
+
+//** The plans directory this project should use: its own setting, else the global default. */
+function planDirFor(projectPath) {
+  try {
+    const eff = ctx.effectiveSettings ? ctx.effectiveSettings(projectPath) : null;
+    const value = eff && typeof eff.planDir === 'string' ? eff.planDir.trim() : '';
+    return value || '.plans';
+  } catch { return '.plans'; }
+}
+
+/**
+ * What setting up the convention for this project would do — and nothing else.
+ *
+ * WHICH FILE each CLI needs changed is the CLI's business, not this module's: a backend that can be
+ * pointed at a plans directory declares `planDirSetup` and answers with the file, its current contents
+ * and what they would become. The core collects those answers, adds what it can see for itself — whether
+ * the path is one Claude will accept, whether version control would carry plan bodies into a shared
+ * history — and hands the whole thing over to be looked at. A backend that has no such setting declares
+ * nothing and simply does not appear.
+ */
+function planConventionPreview(projectPath, options) {
+  const opts = options || {};
+  if (!projectPath) return { ok: false, error: 'no project' };
+  const shared = !!opts.shared;
+  const planDir = String(opts.planDir || planDirFor(projectPath)).trim() || '.plans';
+  const resolved = path.resolve(projectPath, planDir);
+  const notes = [];
+
+  if (!insideProject(resolved, projectPath) || resolved === path.resolve(projectPath)) {
+    return { ok: false, error: 'The plans directory has to be a directory inside the project — Claude refuses anything else.' };
+  }
+
+  // Claude walks the path for a symlink and refuses one, silently but for a log line nobody reads.
+  try {
+    let walk = resolved;
+    const root = path.resolve(projectPath);
+    while (walk.length >= root.length) {
+      if (fs.existsSync(walk) && fs.lstatSync(walk).isSymbolicLink()) {
+        notes.push('Part of this path is a link. Claude refuses a plans directory that goes through one, and falls back to its own without saying so.');
+        break;
+      }
+      const up = path.dirname(walk);
+      if (up === walk) break;
+      walk = up;
+    }
+  } catch { /* an unreadable path is the write's problem, not the preview's */ }
+
+  const versioned = isVersioned(projectPath);
+  if (versioned && !isIgnored(projectPath, planDir)) {
+    notes.push('"' + planDir + '" is not ignored by version control. A plan is written by a tool that knows nothing about what may not be published, so consider adding it to .gitignore.');
+  }
+  if (shared) {
+    notes.push('Shared means the choice is written where a project normally commits it, so it applies to everyone who works on the project.');
+  }
+
+  const writes = [];
+  for (const b of memoryBackends()) {
+    if (typeof b.planDirSetup !== 'function') continue;
+    let setup = null;
+    try { setup = b.planDirSetup({ projectPath, planDir, shared }); } catch { setup = null; }
+    if (!setup) continue;
+    if (setup.ok === false) {
+      notes.push((b.label || b.id) + ': ' + (setup.error || 'cannot be set up here'));
+      continue;
+    }
+    writes.push({
+      backendId: b.id,
+      backendLabel: b.label || b.id,
+      file: setup.file,
+      before: setup.before === undefined ? null : setup.before,
+      after: setup.after,
+      unchanged: !!setup.unchanged,
+    });
+    for (const note of setup.notes || []) notes.push((b.label || b.id) + ': ' + note);
+  }
+
+  if (!writes.length) {
+    return { ok: false, error: 'No installed CLI can be pointed at a plans directory. The convention still applies — the plans simply have to be written there by a skill or by the model.' };
+  }
+
+  return {
+    ok: true,
+    planDir,
+    dir: resolved,
+    dirExists: fs.existsSync(resolved),
+    versioned,
+    writes,
+    unchanged: writes.every(w => w.unchanged),
+    notes,
+  };
+}
+
+/**
+ * Apply exactly what the preview described.
+ *
+ * The preview is recomputed here rather than taken from the renderer: what arrives is a request, not a
+ * payload, and a dialog that showed one thing must not be able to write another.
+ */
+function planConventionApply(projectPath, options) {
+  const preview = planConventionPreview(projectPath, options);
+  if (!preview.ok) return preview;
+  const written = [];
+  try {
+    for (const w of preview.writes) {
+      fs.mkdirSync(path.dirname(w.file), { recursive: true });
+      fs.writeFileSync(w.file, w.after, 'utf8');
+      written.push(w.file);
+    }
+    // The directory too, so the CLI has somewhere to write and the user has something to look at.
+    fs.mkdirSync(preview.dir, { recursive: true });
+    invalidateFtsSignature('plan');
+    announcePlansChanged();
+    return { ok: true, planDir: preview.planDir, dir: preview.dir, written };
+  } catch (err) {
+    ctx.log.error('[plans] could not apply the plan convention:', err && err.message);
+    return { ok: false, error: err.message, written };
+  }
+}
+
 /** Wire the IPC surface. main.js hands in ipcMain; this file never requires electron. */
 function registerIpc(ipcMain) {
   ipcMain.handle('get-plans', () => getPlans());
@@ -930,6 +1141,10 @@ function registerIpc(ipcMain) {
   // ask for them is a second answer that can disagree with the list the user is looking at.
   ipcMain.handle('read-work-file', (_e, filePath) => readWorkFile(filePath));
   ipcMain.handle('delete-work-file', (_e, filePath) => deleteWorkFile(filePath));
+  // #450: what pointing this project's CLIs at its plans directory would do, and doing it. Two calls,
+  // because a preview the user approved and a write that does something else is the failure to avoid.
+  ipcMain.handle('plan-convention-preview', (_e, projectPath, options) => planConventionPreview(projectPath, options));
+  ipcMain.handle('plan-convention-apply', (_e, projectPath, options) => planConventionApply(projectPath, options));
 }
 
 module.exports = {
@@ -941,6 +1156,7 @@ module.exports = {
   // exported for main.js (save-file-for-panel invalidates the FTS signature) and for tests
   invalidateFtsSignature,
   getPlans, readPlan, savePlan, getMemories, readMemory, saveMemory,
+  planConventionPreview, planConventionApply,
   getWorkFiles, readWorkFile, deleteWorkFile,
   // The plans-directory watch (#452) — started by init, stopped by the ordered teardown.
   stopWatchingPlansDirs,

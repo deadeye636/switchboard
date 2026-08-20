@@ -124,6 +124,9 @@
     }
 
     const displayNameValue = isProject && typeof current.displayName === 'string' ? current.displayName : '';
+    // #450 where this project keeps its plans. In the cascade, so a project that keeps them somewhere
+    // else says so; the default has to match SETTING_DEFAULTS in src/app/settings.js.
+    const planDirValue = fieldValue('planDir', '.plans');
     // `normalizeAfk` lived here and was never called — by anything, anywhere. Deleted with #218's first
     // cut of this function: a 2250-line body is exactly where a dead helper survives being read past.
     const visCountValue = fieldValue('visibleSessionCount', 10);
@@ -371,6 +374,32 @@
         </div>
 
         <div class="settings-section">
+          <div class="settings-section-title">Plans</div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Plans directory</span>
+                ${useGlobalCheckbox('planDir')}
+              </div>
+              <div class="settings-description">Where this project keeps its plan documents, relative to the project root. Switchboard lists what is there; it never writes a plan itself.</div>
+              <div class="settings-more">Pointing a CLI at it is the button below. Claude refuses a directory outside the project root, one reached through a link, and one whose real path disagrees — and it falls back to its own without saying so, which is why the list shows what actually arrived rather than what was configured.</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-plan-dir" placeholder=".plans" value="${escapeHtml(planDirValue)}" ${fieldDisabled('planDir')}>
+            </div>
+          </div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header"><span class="settings-label">Point this project's CLIs at it</span></div>
+              <div class="settings-description">Writes the setting each installed CLI needs, so plans land in the directory above instead of in the CLI's own home. You are shown every file it would change before anything is written.</div>
+            </div>
+            <div class="settings-field-control">
+              <button type="button" class="settings-action-btn" id="sv-plan-convention">Set up…</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
           <div class="settings-section-title">Shells</div>
 
           <div class="settings-field">
@@ -430,7 +459,7 @@
         collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
         confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
         paneCloseEmptyValue, paneBackgroundScrollbackValue,
-        externalEditorValue, planInsertTemplateValue, fileClickTargetValue, markdownDefaultViewValue,
+        externalEditorValue, planInsertTemplateValue, planDirValue, fileClickTargetValue, markdownDefaultViewValue,
         editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
         favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
@@ -592,6 +621,7 @@
         const fieldMap = {
           shellProfile: 'sv-shell-profile',
           terminalShellProfile: 'sv-terminal-shell-profile',
+          planDir: 'sv-plan-dir',
         };
         const input = settingsViewerBody.querySelector('#' + fieldMap[field]);
         if (input) input.disabled = cb.checked;
@@ -637,6 +667,52 @@
       }).initProjectTagsEditor();
     }
 
+    // #450 — pointing this project's CLIs at its plans directory.
+    //
+    // Two calls, never one: the preview says what would be written, and the apply recomputes it in the
+    // main process rather than writing back whatever the dialog was holding. A dialog that describes one
+    // thing and writes another is exactly the failure a preview is supposed to prevent.
+    if (isProject) {
+      const planBtn = settingsViewerBody.querySelector('#sv-plan-convention');
+      if (planBtn) planBtn.addEventListener('click', async () => {
+        const planDir = (settingsViewerBody.querySelector('#sv-plan-dir')?.value || '').trim() || '.plans';
+        let preview = null;
+        try {
+          preview = await window.api.planConventionPreview(projectPath, { planDir, shared: false });
+        } catch (err) {
+          showControlMessage({ title: 'Could not check', message: err.message, tone: 'danger' });
+          return;
+        }
+        if (!preview || !preview.ok) {
+          showControlMessage({ title: 'Cannot set this up', message: (preview && preview.error) || 'unknown error', tone: 'warning' });
+          return;
+        }
+        if (preview.unchanged && preview.dirExists) {
+          showControlMessage({ title: 'Already set up', message: `Every installed CLI already writes its plans to ${preview.planDir}.` });
+          return;
+        }
+        // Every file by name, so nothing is written that was not read out first.
+        const details = preview.writes.map(w => ({ label: w.backendLabel, value: w.file }));
+        details.push({ label: 'Directory', value: preview.dir + (preview.dirExists ? '' : ' (will be created)') });
+        const ok = await showControlDialog({
+          title: 'Point this project\'s CLIs at its plans directory',
+          message: preview.notes.length
+            ? preview.notes.join('\n\n')
+            : `The setting is added to the files below. Everything already in them is kept.`,
+          details,
+          confirmLabel: 'Write it',
+          tone: preview.versioned ? 'warning' : 'default',
+        });
+        if (!ok) return;
+        const res = await window.api.planConventionApply(projectPath, { planDir, shared: false });
+        if (res && res.ok) {
+          showControlToast({ message: `Plans for this project now go to ${res.planDir}`, timeoutMs: 4000 });
+        } else {
+          showControlMessage({ title: 'Could not write it', message: (res && res.error) || 'unknown error', tone: 'danger' });
+        }
+      }, { signal: listenerSignal });
+    }
+
 
     // Everything Save writes — the settings blob plus the stores that are not in it
     // (project tags, templates, the profiles default, the attention hook, the log
@@ -654,6 +730,7 @@
               // Both shells cascade per project (T-2.5). `terminalShellProfile` is not consumed yet
               // (Phase 3, T-3.7); 'inherit' means "use the CLI shell", so this is a no-op today.
               shellProfile: () => settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto',
+              planDir: () => (settingsViewerBody.querySelector('#sv-plan-dir')?.value || '').trim() || '.plans',
               terminalShellProfile: () => settingsViewerBody.querySelector('#sv-terminal-shell-profile').value || 'inherit',
               // Custom launchers (T-3.10): the project stores only its OWN entries. The effective
               // list a launch menu shows is global ⊕ project (project wins by id) — merged at read
@@ -740,6 +817,8 @@
         // Empty means "use the default", so it is stored as an empty string rather than as the default
         // text — otherwise changing the default later would not reach anyone who had ever opened Settings.
         settings.planInsertTemplate = (settingsViewerBody.querySelector('#sv-plan-insert-template')?.value || '').trim();
+        const svPlanDir = settingsViewerBody.querySelector('#sv-plan-dir');
+        if (svPlanDir) settings.planDir = (svPlanDir.value || '').trim() || '.plans';
         settings.fileClickTarget = settingsViewerBody.querySelector('#sv-file-click-target')?.value === 'external' ? 'external' : 'internal';
         settings.markdownDefaultView = settingsViewerBody.querySelector('#sv-markdown-default-view')?.value === 'preview' ? 'preview' : 'code';
         settings.editorToolbarMode = settingsViewerBody.querySelector('#sv-editor-toolbar-mode')?.value === 'plain' ? 'plain' : 'toolbar';
