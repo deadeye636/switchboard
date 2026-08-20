@@ -1904,7 +1904,7 @@ const backendModels = require('./app/backend-models');
 backendModels.init({ backends });
 backendModels.registerIpc(ipcMain);
 const backendResources = require('./app/backend-resources');
-backendResources.init({ backends, shell });
+backendResources.init({ backends, shell, log });
 backendResources.registerIpc(ipcMain);
 const { detectSessionTransitions } = sessionTransitions;
 

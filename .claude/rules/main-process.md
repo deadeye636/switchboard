@@ -31,7 +31,10 @@ machine — #386; one global fact, because every renderer has its own `windowFoc
 the others), `timeline.js` (what happened to a session — #396; the one writer of the record, so a
 session has one history however its windows come and go), `session-shutdown.js` (stopping every CLI
 process and CHECKING that it stopped — #424), `db-upkeep.js` (when the database is compacted and how
-much of it — #430; the SQL is `src/db/compact.js`, what needs to know about the app is here) and
+much of it — #430; the SQL is `src/db/compact.js`, what needs to know about the app is here),
+`readable-error.js` (what a THROWN filesystem error may say to a user — #444; it names the path it
+failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
+the log instead. A reason a module wrote itself is not an error and never goes through it) and
 `terminal/` (`spawn.js` = open-terminal,
 `io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
 **The directory is the truth** — this enumeration silently missed two modules for as long as they

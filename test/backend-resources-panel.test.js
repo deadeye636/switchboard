@@ -149,6 +149,62 @@ test('a successful Open leaves no failure behind, and the next attempt starts cl
   } finally { ctx.dom.window.close(); }
 });
 
+test('a failure right after a success does not leave the button contradicting the row', async () => {
+  // The flash runs for over a second. Without calling it off, a button reading "Opened" sits above a
+  // line saying the open failed — and the button is the thing the eye goes to.
+  const ctx = setup({ openResult: { ok: true } });
+  try {
+    await mountProject(ctx);
+    const row = rowFor(ctx, 'CLAUDE.md');
+    const button = row.querySelector('.backend-resource-open');
+
+    button.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(button.textContent, 'Opened');
+
+    ctx.window.api.backends.openResource = async () => ({ ok: false, reason: 'It is no longer there.' });
+    button.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(button.textContent, 'Open', 'the flash was called off, not left to run out');
+    assert.equal(row.querySelector('.backend-resource-error').hidden, false);
+  } finally { ctx.dom.window.close(); }
+});
+
+test('a run of successes never records a flashed label as the real one', async () => {
+  const ctx = setup({ openResult: { ok: true } });
+  try {
+    await mountProject(ctx);
+    const button = rowFor(ctx, 'CLAUDE.md').querySelector('.backend-resource-open');
+
+    for (let i = 0; i < 3; i++) {
+      button.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(button.textContent, 'Opened');
+    }
+
+    // Let the last flash run out on its own rather than being replaced.
+    await new Promise((resolve) => setTimeout(resolve, 1600));
+    assert.equal(button.textContent, 'Open', 'the button came back to its own label, not to "Opened"');
+  } finally { ctx.dom.window.close(); }
+});
+
+test('a row with no path carries no error line to fill', async () => {
+  const ctx = setup();
+  try {
+    // A configured resource the backend knows by name only — it gets no buttons, so nothing can ever
+    // write into an error line, and shipping one would be markup that cannot be reached.
+    ctx.window.api.backends.listResources = async () => ({
+      ok: true, resources: [{ kind: 'skill', scope: 'global', name: 'named-only', path: null, source: 'settings.json:skills' }],
+    });
+    await mountProject(ctx);
+    const row = rowFor(ctx, 'named-only');
+    assert.ok(row);
+    assert.equal(row.querySelector('.backend-resource-open'), null);
+    assert.equal(row.querySelector('.backend-resource-error'), null);
+  } finally { ctx.dom.window.close(); }
+});
+
 test('the reason a failure carries is never a raw filesystem error', async () => {
   // The pairing that makes #444 whole: the main process refuses to word an error with a path in it
   // (backend-resources.test.js), and the renderer shows whatever it was given. So what is asserted here

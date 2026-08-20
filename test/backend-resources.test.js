@@ -84,6 +84,31 @@ test('an unrecognised throw falls back to the caller sentence and nothing else',
   assert.equal(res.reason, 'Could not list backend resources.');
 });
 
+test('what the user is not told, the log still is', async () => {
+  // Dropping the detail in BOTH places would make a failure nobody can explain and nobody can look up.
+  const lines = [];
+  backendResources.init({
+    log: { debug: (line) => lines.push(line) },
+    backends: fakeRegistry({
+      pi: { listResources: async () => { throw new Error(`something odd about ${SECRET_PATH}`); } },
+    }),
+  });
+  const res = await backendResources.listResources('pi', null);
+  assert.equal(res.reason, 'Could not list backend resources.');
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].includes(SECRET_PATH), 'the raw message is the whole point of the log entry');
+});
+
+test('the module works with no log at all', async () => {
+  // main.js hands one in, `node --test` does not, and a missing logger must not turn a handled failure
+  // into a thrown one.
+  backendResources.init({ backends: fakeRegistry({
+    pi: { listResources: async () => { throw errnoError('EACCES'); } },
+  }) });
+  const res = await backendResources.listResources('pi', null);
+  assert.match(res.reason, /Permission was denied/);
+});
+
 test('a directory that cannot be read is reported in words', async () => {
   backendResources.init({ backends: fakeRegistry({
     pi: {

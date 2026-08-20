@@ -3,47 +3,23 @@
 const fs = require('fs');
 const path = require('path');
 
+// Shared with the Plans and Agent Files tabs, which write and delete the same files this module reads.
+// Why a thrown error is translated rather than forwarded: `src/app/readable-error.js`.
+const { readableError: toReadable } = require('./readable-error');
+
 let backends = null;
 let shell = null;
+let log = null;
 
 function init(ctx) {
   backends = ctx && ctx.backends;
   shell = ctx && ctx.shell;
+  // Optional: the detail dropped from a user-facing reason is written here instead, so an error whose
+  // code we cannot translate is still diagnosable from the log rather than nowhere at all.
+  log = (ctx && ctx.log) || null;
 }
 
-/**
- * What went wrong, in words, from a thrown error (#444).
- *
- * A filesystem error carries the path it failed on — `EACCES: permission denied, scandir
- * 'C:\Users\<name>\.pi\skills'` — and this app puts such a reason straight on screen. That is a home
- * directory, a user name and a layout the reader did not ask to publish, in a line they may well
- * screenshot into a bug report. It also says nothing they can act on that the code alone does not.
- *
- * So the errno is TRANSLATED and the rest of the message is dropped. Not shortened, not scrubbed of the
- * quoted path — dropped: a message this function has not recognised may carry anything, and there is no
- * way to tell from here. An unrecognised error is answered with the caller's own sentence and nothing
- * else, which is honest about the app not knowing more.
- *
- * Reasons a backend AUTHORED (`{ ok: false, reason: '…' }`) are not errors and never pass through here.
- */
-const ERRNO_WORDS = {
-  EACCES: 'Permission was denied.',
-  EPERM: 'Permission was denied.',
-  ENOENT: 'It is no longer there.',
-  ENOTDIR: 'Part of that path is not a directory.',
-  EISDIR: 'That is a directory, not a file.',
-  ELOOP: 'The path leads through too many symbolic links.',
-  ENAMETOOLONG: 'The path is too long for this system.',
-  EMFILE: 'Too many files are open on this system right now.',
-  ENFILE: 'Too many files are open on this system right now.',
-  EBUSY: 'Another program is holding it.',
-  EIO: 'The disk reported a read error.',
-};
-
-function readableError(err, fallback) {
-  const words = err && err.code ? ERRNO_WORDS[err.code] : null;
-  return words ? `${fallback} ${words}` : fallback;
-}
+const readableError = (err, fallback) => toReadable(err, fallback, log);
 
 async function listResources(backendId, projectPath) {
   const backend = backends && backends.get && backends.get(backendId);

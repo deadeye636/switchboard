@@ -417,15 +417,24 @@ Two defects in the same listing, both about what the row says rather than what i
 
 - **A thrown filesystem error is translated, not forwarded.** `EACCES: permission denied, scandir
   '<home>/.pi/skills'` names a home directory, a user name and a layout, and the app used to put that on
-  screen verbatim. `readableError` in `src/app/backend-resources.js` maps the errno to a sentence and
+  screen verbatim. `readableError` in `src/app/readable-error.js` maps the errno to a sentence and
   **drops the rest of the message** — an error whose code it does not recognise is answered with the
   caller's own sentence and nothing else. Shortening the message or scrubbing the quoted path would be a
   guess about a string that may carry anything. A reason a backend *authored*
-  (`{ ok: false, reason: '…' }`) is not an error and passes through untouched.
+  (`{ ok: false, reason: '…' }`) is not an error and passes through untouched. The dropped detail is
+  **moved, not lost**: the code and the raw message go to the log, because a failure nobody can explain
+  from the screen and nobody can look up either is the worse end of the trade.
+- **Reading a resource and writing one are the same surface**, and the first pass fixed only the reading
+  half. The Agent Files tab opens a discovered resource through the sanitised path and used to save it
+  through one that answered with the errno's own words, in a dialog. `savePlan`, `saveMemory`,
+  `deleteWorkFile` and the plan-convention writer in `src/app/plans-memory.js` go through the same helper
+  now — which is why it is its own module rather than a private function of the listing. An adversarial
+  review found that half; the tests did not, because there were none over those four paths.
 - **The failure goes into the row, not into the button.** "Open failed" was written into the label of
   the control that had just said what it does, and it stayed there — so the reason was lost and the
   button was too. The row carries a line of its own; the button keeps its label and flashes only on
-  success.
+  success — and a failure calls a running flash off, so the button never reads "Opened" above a line
+  saying it did not open.
 - **The project scope has a pill of its own.** It wore the amber `soon` class, which on the same page
   means "not built yet" and "not saved yet" — so a `CLAUDE.md` sitting on disk read as something still to
   come. Alongside it the project section names the project it is showing, rather than leaving that to the

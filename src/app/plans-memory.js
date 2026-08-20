@@ -20,6 +20,10 @@ const path = require('path');
 const projectRegistry = require('../projects/project-registry');
 const { encodeProjectPath } = require('../session/encode-project-path');
 const { projectShortName } = require('../session/derive-project-path');
+// A write that fails must not answer with the errno's own words: they name the file's full path, and
+// the viewer puts that answer in a dialog. Why the message is dropped rather than trimmed, and where
+// the detail goes instead: `src/app/readable-error.js` (#444).
+const { readableError } = require('./readable-error');
 
 let ctx = null;
 
@@ -663,7 +667,7 @@ function savePlan(filePath, content) {
     return { ok: true };
   } catch (err) {
     ctx.log.error('Error saving plan:', err && err.message);
-    return { ok: false, error: err.message };
+    return { ok: false, error: readableError(err, 'Could not save that plan.') };
   }
 }
 
@@ -833,7 +837,7 @@ function saveMemory(filePath, content) {
     return { ok: true };
   } catch (err) {
     ctx.log.error('Error saving memory file:', err && err.message);
-    return { ok: false, error: err.message };
+    return { ok: false, error: readableError(err, 'Could not save that file.') };
   }
 }
 
@@ -978,7 +982,7 @@ function deleteWorkFile(filePath) {
     return { ok: true };
   } catch (err) {
     ctx.log.error('Error deleting work file:', err && err.message);
-    return { ok: false, error: err.message };
+    return { ok: false, error: readableError(err, 'Could not delete that file.') };
   }
 }
 
@@ -1125,7 +1129,7 @@ function planConventionApply(projectPath, options) {
     return { ok: true, planDir: preview.planDir, dir: preview.dir, written };
   } catch (err) {
     ctx.log.error('[plans] could not apply the plan convention:', err && err.message);
-    return { ok: false, error: err.message, written };
+    return { ok: false, error: readableError(err, 'Could not write that configuration.'), written };
   }
 }
 

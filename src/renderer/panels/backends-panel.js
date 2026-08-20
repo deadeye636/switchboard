@@ -229,7 +229,7 @@
           </div>
           ${r.source ? `<div class="settings-description">${esc(r.source)}</div>` : ''}
           ${r.path ? `<div class="settings-more open"><code>${esc(r.path)}</code></div>` : ''}
-          <div class="settings-description backend-resource-error" hidden></div>
+          ${r.path ? '<div class="settings-description backend-resource-error" hidden></div>' : ''}
         </div>
         <div class="settings-field-control">
           ${r.path ? `<button type="button" class="backend-btn backend-resource-open" data-path="${esc(r.path)}">Open</button><button type="button" class="backend-btn backend-resource-copy" data-path="${esc(r.path)}">Copy path</button>` : ''}
@@ -263,6 +263,9 @@
     const row = button.closest && button.closest('.backend-resource-row');
     const line = row && row.querySelector('.backend-resource-error');
     if (!line) return;
+    // A success still flashing from the previous click is called off. Otherwise a button reading
+    // "Opened" sits above a line saying the open failed, for as long as that flash had left to run.
+    endFlash(button);
     line.textContent = message;
     line.hidden = false;
   }
@@ -275,12 +278,26 @@
     line.hidden = true;
   }
 
+  /** Stop a pending flash and put the button's own label back. Safe on a button that is not flashing. */
+  function endFlash(button) {
+    const timer = Number(button.dataset.flashTimer) || 0;
+    if (timer) clearTimeout(timer);
+    delete button.dataset.flashTimer;
+    if (button.dataset.label) { button.textContent = button.dataset.label; delete button.dataset.label; }
+  }
+
   function flashButton(button, label) {
+    // The label is captured BEFORE any flash is in flight, so a second flash cannot record "Opened" as
+    // the thing to restore.
     const original = button.dataset.label || button.textContent;
+    endFlash(button);
     button.dataset.label = original;
     button.textContent = label;
-    clearTimeout(Number(button.dataset.flashTimer) || 0);
-    button.dataset.flashTimer = String(setTimeout(() => { button.textContent = original; }, RESOURCE_FLASH_MS));
+    button.dataset.flashTimer = String(setTimeout(() => {
+      button.textContent = original;
+      delete button.dataset.flashTimer;
+      delete button.dataset.label;
+    }, RESOURCE_FLASH_MS));
   }
 
   function bindResourceCopy(root) {
