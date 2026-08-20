@@ -206,8 +206,13 @@ answer that stays true.
   into `src/app/` is the wrong direction. `err.code` in a sentence of the backend's own is enough.
 - **A handler that does NOT catch is the worst case, not the safe one.** Electron serialises a thrown
   Error across `invoke`, so the renderer's own `catch (err)` receives `err.message` verbatim. `main.js`
-  wraps the registration once, covering every handler and every one added later — do not undo that by
-  catching inside a handler and returning the raw text instead.
+  installs `guardIpcHandlers` before it requires a single module, which covers every handler and every
+  one added later — do not undo that by catching inside a handler and returning the raw text instead.
+- **What the renderer receives is not what you threw.** Electron's main half sends `err.toString()` and
+  its renderer half re-wraps that, so a toast reads
+  `Error invoking remote method '<channel>': Error: <your sentence>`. The prefix carries the channel and
+  nothing else — no path, no argument — so it does not undo any of this. It is why nothing may compare an
+  error message for equality: assert on a substring, or you are asserting Electron's formatting.
 - `test/no-raw-fs-errors.test.js` walks `src/` and fails on all three shapes: the field, the
   concatenation, and a field split across lines. An exemption needs a reason, and one that stops matching
   is reported as stale. Its first version had one pattern, and an adversarial review walked past it

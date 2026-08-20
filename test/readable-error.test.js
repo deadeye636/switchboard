@@ -226,3 +226,28 @@ test('main.js installs it before anything registers a handler', () => {
   assert.ok(firstRegistration === -1 || installed < firstRegistration,
     'the guard has to be installed before the first handler is registered');
 });
+
+test('what the renderer actually receives, prefix and all', () => {
+  // The fake above stops at the wrapper's own thrown Error, and a reader could take its `.message` for
+  // what lands in a toast. It is not. Electron's two halves each add something, verified against the
+  // strings in the shipped `node_modules/electron/dist/electron.exe`:
+  //
+  //   main      `sendReply({ error: err.toString() })`            → "Error: <sentence>"
+  //   renderer  ``throw new Error(`Error invoking remote method   → "Error invoking remote method
+  //             '${channel}': ${error}`)``                           '<channel>': Error: <sentence>"
+  //
+  // Two things follow, and both matter. The prefix carries the CHANNEL and nothing else — no path, no
+  // argument — so it does not undo the fix. And every renderer that shows `err.message` shows that whole
+  // string, which is why none of them may parse it: the assertions in this file use `match`, not
+  // `equal`, for the same reason.
+  const asElectronDelivers = (channel, thrown) =>
+    new Error(`Error invoking remote method '${channel}': ${thrown.toString()}`);
+
+  const wrapperThrew = new Error(readableError(errnoError('EACCES'), 'The app could not complete that request.'));
+  const seen = asElectronDelivers('task-create', wrapperThrew);
+
+  assert.match(seen.message, /could not complete that request\. Permission was denied\./);
+  assert.ok(seen.message.includes('task-create'), 'the channel rides along, and is not secret');
+  assert.ok(!seen.message.includes(SECRET), 'and the transport adds no path of its own');
+  assert.notEqual(seen.message, wrapperThrew.message, 'so a test that asserted equality would be wrong');
+});

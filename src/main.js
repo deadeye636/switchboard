@@ -980,6 +980,11 @@ ipcMain.handle('get-projects', async (_event, showArchived) => {
     // renderer dutifully replaced a populated sidebar with nothing. Rejecting is the only way the other
     // side can tell "none" from "unknown". The cause goes to the log FILE: console.error reaches nobody
     // in a packaged build, which is why this failure could happen quietly for as long as it did.
+    //
+    // This logs and the IPC guard logs again, and the duplicate is on purpose: this line carries the
+    // argument that produced the failure and the whole error object (so, the stack), while the guard's
+    // line carries the channel and the message. Neither is a superset of the other, and this is the one
+    // failure where the argument matters — `showArchived` decides which query ran.
     log.error(`[get-projects] listing failed (showArchived=${!!showArchived}):`, err);
     throw err;
   }
