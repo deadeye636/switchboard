@@ -133,7 +133,8 @@ function set(projectPath, trusted) {
     writeTrustFile(data);
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err.message };
+    // Same reasoning as Codex': the raw message names a file under the user's home (#457).
+    return { ok: false, error: `Pi's trust file could not be written (${err && err.code ? err.code : 'unknown error'}).` };
   }
 }
 

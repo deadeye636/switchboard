@@ -443,3 +443,34 @@ business, and the core is better off not knowing.
 Worth remembering when the same shape appears again: the guard is not being pedantic about a string. A
 `.claude` literal in the core is the point where a second backend's version of the feature becomes a
 branch instead of an answer.
+
+## A rule established on one surface, and nowhere else (#444, #457)
+
+#444 asked that no message shown to the user carry a raw filesystem error string. The fix held for the
+listing it was filed against, the issue was closed with the acceptance box ticked, and the app went on
+answering `EACCES: permission denied, open '<home>/…'` in a dialog on the very next screen — the Agent
+Files tab, on the same class of file, one button along. The reading path had been sanitised and the
+writing path had not.
+
+An adversarial review found it. Nothing else could have: the four `catch (err) { return { ok: false,
+error: err.message } }` blocks had no test over them at all, and a green suite says nothing about code
+it never calls. A sweep afterwards found **thirty-one more**, across `main.js`, `projects/projects.js`,
+three usage probes, two trust writers and the PTY spawn. Every one of them was written by someone who
+had never heard of the rule, because the rule lived in one file's comments.
+
+Three things worth carrying:
+
+- **A rule enforced by one fix is a coincidence.** The question after fixing a class of defect is not
+  "is this file right now" but "what else is written this way" — and the answer is a grep, not a memory.
+- **Scope the acceptance to the app, not to the diff.** "No message shown to the user contains a raw
+  filesystem error string" was false the day it was ticked. Closing on the narrow reading would have
+  left a checked box that was not true, which is worse than an open issue.
+- **The guard has to be able to fail.** `test/no-raw-fs-errors.test.js` derives its targets by walking
+  `src/`, its exemptions carry reasons, an exemption that stops matching is reported as stale, and it
+  tests its own pattern against the six shapes actually found in the wild. A guard whose regex has never
+  been shown to catch anything is decoration — see the guard-shape lesson above.
+
+And the thing that made it cheap to fix everywhere: the translation drops the message rather than
+trimming it, so there is no per-site judgement about which part of a string is safe. Where the detail
+matters it goes to the log. Dropping it in both places would have been the tempting version, and it
+turns a support question into an unanswerable one.

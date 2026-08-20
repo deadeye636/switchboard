@@ -130,7 +130,7 @@ async function fetchUsage(sessionsRoot) {
     // Codex is installed and enabled but has never reported a limit. Say so; do not invent a 0%.
     return { backendId: 'codex', live: false, buckets: [], quota: null, _noData: true };
   } catch (err) {
-    return { backendId: 'codex', live: false, _error: true, message: err.message };
+    return { backendId: 'codex', live: false, _error: true, message: `Usage could not be read (${err && err.code ? err.code : 'unknown error'}).` };
   }
 }
 

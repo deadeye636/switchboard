@@ -23,6 +23,8 @@ const registry = require('./project-registry');
 // Global-only setting defaults (#239). Requiring app/settings.js here is safe: it pulls in no Electron
 // and no db at load — both arrive through its own ctx.
 const { GLOBAL_ONLY_DEFAULTS } = require('../app/settings');
+// These answers reach the renderer, and a thrown one names the store it failed against (#457).
+const { readableError } = require('../app/readable-error');
 // No `require` of a backend-specific module here (#211): per-project trust, meta, config and transcript
 // paths are all declared capabilities the core reaches through `ctx.backends`, so the Projects admin does
 // not know that Claude — or any one backend — exists.
@@ -299,7 +301,7 @@ function addProject(projectPath) {
 
     return { ok: true, folder: encodeProjectPath(projectPath), projectPath };
   } catch (err) {
-    return { error: err.message };
+    return { error: readableError(err, 'That project could not be added.', ctx && ctx.log) };
   }
 }
 
@@ -322,7 +324,7 @@ function hideProject(projectPath) {
     ctx.cache.notifyRendererProjectsChanged();
     return { ok: true };
   } catch (err) {
-    return { error: err.message };
+    return { error: readableError(err, 'That project could not be hidden.', ctx && ctx.log) };
   }
 }
 
@@ -359,7 +361,7 @@ function removeProject(projectPath) {
     ctx.cache.notifyRendererProjectsChanged();
     return { ok: true, cleared: rows.length };
   } catch (err) {
-    return { error: err.message };
+    return { error: readableError(err, "That project's settings could not be cleared.", ctx && ctx.log) };
   }
 }
 
@@ -389,7 +391,7 @@ function unhideProject(projectPath) {
     ctx.cache.notifyRendererProjectsChanged();
     return { ok: true };
   } catch (err) {
-    return { error: err.message };
+    return { error: readableError(err, 'That project could not be shown again.', ctx && ctx.log) };
   }
 }
 
@@ -412,7 +414,7 @@ function setProjectAutoAdd(enabled) {
     ctx.cache.notifyRendererProjectsChanged();
     return { ok: true };
   } catch (err) {
-    return { error: err.message };
+    return { error: readableError(err, 'That setting could not be saved.', ctx && ctx.log) };
   }
 }
 
@@ -667,7 +669,7 @@ function remapProject(oldPath, newPath) {
     // to us, so its sessions keep the old path and would re-form a project there).
     return { ok: true, moved, cannotMove };
   } catch (err) {
-    return { error: err.message };
+    return { error: readableError(err, 'That project could not be moved.', ctx && ctx.log) };
   }
 }
 
@@ -841,7 +843,7 @@ function getProjectsAdmin() {
     }));
     return { ok: true, autoAdd, trustable, metaBackends: metaBackendsOut, projects: rows };
   } catch (err) {
-    return { error: err.message };
+    return { error: readableError(err, 'The project list could not be read.', ctx && ctx.log) };
   }
 }
 
@@ -975,7 +977,7 @@ function deleteProjectSessions(projectPath, backendIds) {
     ctx.cache.notifyRendererProjectsChanged();
     return { ok: true, removed, deleted, refused };
   } catch (err) {
-    return { error: err.message };
+    return { error: readableError(err, 'That project could not be removed.', ctx && ctx.log) };
   }
 }
 

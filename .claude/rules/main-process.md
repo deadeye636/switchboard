@@ -186,6 +186,25 @@ How every `src/app/*` and `src/watch/*` module gets what main.js owns.
 - **Where a `let` lives is decided by counting readers, not taste.** Still read in main.js → it
   stays there and the module takes a getter. Read nowhere else → it moves into the module.
 
+## A caught error's own text never crosses IPC (#444, #457)
+
+`catch (err) { return { ok: false, error: err.message } }` is the shape, and it was written thirty-five
+times before anyone noticed. That message names the file it failed on — always somewhere under the
+user's home — and the renderer puts it in a dialog the user may screenshot into a bug report. It also
+says nothing they can act on.
+
+- **Translate through `src/app/readable-error.js`.** It maps the errno to a sentence and **drops** the
+  rest of the message. Not trims, not scrubs: an unrecognised code means there is no way to tell what
+  the message carries, so none of it is passed on.
+- **The detail is moved, not lost** — pass the module's `log` and the raw text lands there. A failure
+  the user cannot explain from the screen and nobody can look up afterwards is the worse trade.
+- **A reason you WROTE is not an error.** `'path outside a plans directory'` is already for a reader
+  and stays as it is. Only thrown things go through the translator.
+- **`src/backends/**` words its own refusals** rather than importing the helper — a backend reaching
+  into `src/app/` is the wrong direction. `err.code` in a sentence of the backend's own is enough.
+- `test/no-raw-fs-errors.test.js` walks `src/` and fails on the shape. An exemption needs a reason, and
+  one that stops matching is reported as stale.
+
 ## Preload is the only IPC surface
 
 `src/preload.js`: the renderer talks to main exclusively through `window.api.*` defined here

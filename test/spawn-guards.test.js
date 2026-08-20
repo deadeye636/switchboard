@@ -218,7 +218,19 @@ test('a backend that reports its binary missing says what is wrong instead of sp
 test('a probe that throws is a refusal, not a crash', async () => {
   setup({ backend: fakeBackend({ probe: () => { throw new Error('probe blew up'); } }) });
   const r = await spawn.openTerminal('s', CWD, true, { backendId: 'codex' });
-  assert.deepEqual(r, { ok: false, error: 'probe blew up' });
+  assert.equal(r.ok, false);
+  // The thrown text is not the answer (#457): a probe blows up with the path it looked in, and this
+  // reason goes straight to the renderer. What the user gets is which backend could not be checked.
+  assert.equal(r.error, 'Codex could not be checked for.');
+  assert.ok(!r.error.includes('probe blew up'));
+});
+
+test('a probe that REFUSES still says why, in the descriptor own words', async () => {
+  // The distinction the sanitising must not flatten: a backend declining is an authored sentence, and
+  // it is the one thing here a user can act on.
+  setup({ backend: fakeBackend({ probe: () => ({ ok: false, reason: 'Install the Codex CLI first.' }) }) });
+  const r = await spawn.openTerminal('s', CWD, true, { backendId: 'codex' });
+  assert.deepEqual(r, { ok: false, error: 'Install the Codex CLI first.' });
 });
 
 // Forking an id the backend never issued produces a dead tab ("No session found").

@@ -158,7 +158,7 @@ async function fetchUsage() {
     }
     return transformUsageResponse(raw);
   } catch (err) {
-    return { backendId: 'claude', live: true, _error: true, message: err.message };
+    return { backendId: 'claude', live: true, _error: true, message: `Usage could not be read (${err && err.code ? err.code : 'unknown error'}).` };
   }
 }
 

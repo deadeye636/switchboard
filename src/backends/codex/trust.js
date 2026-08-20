@@ -189,7 +189,9 @@ function set(projectPath, trusted) {
     fs.renameSync(tmp, file);
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err.message };
+    // The message names `config.toml` under the user's Codex home, and this answer is shown in a
+    // dialog (#457). A backend words its own refusal rather than reaching into `src/app/`.
+    return { ok: false, error: `Codex' trust file could not be written (${err && err.code ? err.code : 'unknown error'}).` };
   }
 }
 

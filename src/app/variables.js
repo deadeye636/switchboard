@@ -26,6 +26,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+// Never hand a thrown message to the renderer: an fs failure names the secret-ref file it was writing,
+// and a store failure names the database (#457). The detail goes to the log instead.
+const { readableError } = require('./readable-error');
 // Pure insert-template helpers (no Electron deps — unit-tested separately).
 // Lives under shared/ so the renderer can load it as a plain <script> too: the template editor's preview has
 // to compose with the SAME code the insert runs, or it drifts from what it claims to show.
@@ -54,6 +57,9 @@ const secretRefBySession = new Map(); // sessionId -> Set<path>
 function init(context) {
   ctx = context;
 }
+
+/** Every handler in this file answers a failure the same way: worded for the reader, detailed in the log. */
+const failed = (err, sentence) => ({ ok: false, error: readableError(err, sentence, ctx && ctx.log) });
 
 // --- CRUD ----------------------------------------------------------------------
 // Named, reusable values shown in the terminal Saved Variables panel. Secret
@@ -346,7 +352,7 @@ function resolveVariableInsert(id, sessionId) {
     return { ok: true, text };
   } catch (err) {
     for (const f of written) { try { untrackSecretRef(f, sessionId); } catch {} }
-    return { ok: false, error: err.message };
+    return failed(err, 'Could not prepare that variable for the terminal.');
   }
 }
 
@@ -360,7 +366,7 @@ function registerIpc(ipc) {
       return ctx.db.listSavedVariables(typeof projectPath === 'string' ? projectPath : null)
         .map(row => serializeSavedVariable(row));
     } catch (err) {
-      return { ok: false, error: err.message };
+      return failed(err, 'Could not read your saved variables.');
     }
   });
 
@@ -370,7 +376,7 @@ function registerIpc(ipc) {
       if (!row) return { ok: false, error: 'Variable not found' };
       return { ok: true, variable: serializeSavedVariable(row, true) };
     } catch (err) {
-      return { ok: false, error: err.message };
+      return failed(err, 'Could not read that variable.');
     }
   });
 
@@ -440,7 +446,7 @@ function registerIpc(ipc) {
       announceVariablesChanged(event);
       return { ok: true, variable: serializeSavedVariable(row) };
     } catch (err) {
-      return { ok: false, error: err.message };
+      return failed(err, 'Could not save that variable.');
     }
   });
 
@@ -450,7 +456,7 @@ function registerIpc(ipc) {
       announceVariablesChanged(event);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err.message };
+      return failed(err, 'Could not delete that variable.');
     }
   });
 
@@ -472,7 +478,7 @@ function registerIpc(ipc) {
         .map((row) => ({ id: row.id, name: row.name, scope: row.scope || 'global' }));
       return { ok: true, referencedBy };
     } catch (err) {
-      return { ok: false, error: err.message };
+      return failed(err, 'Could not work out what references that variable.');
     }
   });
 
@@ -481,7 +487,7 @@ function registerIpc(ipc) {
     try {
       return ctx.db.listAllSavedVariables().map(row => serializeSavedVariable(row));
     } catch (err) {
-      return { ok: false, error: err.message };
+      return failed(err, 'Could not read your saved variables.');
     }
   });
 

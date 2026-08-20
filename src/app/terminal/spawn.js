@@ -34,6 +34,7 @@ const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
 const { decideOsc94 } = require('./osc-busy');
 const { afkTimeoutToEnvMs, resolveAfkTimeoutSec } = require('./afk-timeout');
 const { encodeProjectPath } = require('../../session/encode-project-path');
+const { readableError } = require('../readable-error');
 const { conptyBuildHint } = require('./conpty');
 
 let ctx = null;
@@ -403,7 +404,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // install — the descriptor already knows the answer, so say it here instead of spawning.
       if (typeof backend.probe === 'function') {
         let avail;
-        try { avail = backend.probe(); } catch (err) { avail = { ok: false, reason: err?.message || String(err) }; }
+        // A probe that THREW says nothing a user can act on, and its message names the binary it looked
+        // for (#457). The line below already reports the descriptor's own reason when there is one.
+        try { avail = backend.probe(); } catch (err) { avail = { ok: false, reason: readableError(err, `${backend.label || backend.id} could not be checked for.`, ctx && ctx.log) }; }
         if (avail && avail.ok === false) {
           ctx.log.info(`[spawn] backend=${backend.id} unavailable: ${avail.reason}`);
           return { ok: false, error: avail.reason || `${backend.label || backend.id} is not available.` };
@@ -664,7 +667,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
 
     }
   } catch (err) {
-    return { ok: false, error: `Error spawning PTY: ${err.message}` };
+    // The message names the shell and its arguments, which is a path under the user's home as often
+    // as not (#457). The detail goes to the log; the terminal gets a sentence.
+    return { ok: false, error: readableError(err, 'The terminal could not be started.', ctx && ctx.log) };
   }
 
   const session = {

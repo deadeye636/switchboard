@@ -33,6 +33,8 @@
 const fs = require('fs');
 const profiles = require('../backends/profiles');
 const settingsTransfer = require('./settings-transfer');
+// A thrown fs error names the file it failed on, and this one is a path the user picked (#457).
+const { readableError } = require('./readable-error');
 
 let ctx = null;
 
@@ -374,7 +376,7 @@ function registerIpc(ipc) {
       return { ok: true, filePath: result.filePath, keys: Object.keys(payload.global).length };
     } catch (err) {
       ctx.log.error('[settings] export failed:', err);
-      return { ok: false, error: err.message };
+      return { ok: false, error: readableError(err, 'Could not write that file.') };
     }
   });
 
@@ -412,7 +414,7 @@ function registerIpc(ipc) {
       return { ok: true, keys, projects: incoming.length };
     } catch (err) {
       ctx.log.error('[settings] import failed:', err);
-      return { ok: false, error: err.message };
+      return { ok: false, error: readableError(err, 'Could not read that file.') };
     }
   });
 }

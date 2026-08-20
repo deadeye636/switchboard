@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const log = require('electron-log');
+// A caught error's own text names the file it failed on, and these handlers answer the renderer (#457).
+const { readableError } = require('./app/readable-error');
 // getFolderIndexMtimeMs moved to session-cache.js
 const { shouldNoticeMissingRecord, missingRecordMessage } = require('./app/terminal/live-record-notice');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, hasPendingDiffsForWindow, rejectPendingDiffsForWindow, rekeyMcpServer, cleanStaleLockFiles } = require('./servers/mcp-bridge');
@@ -654,7 +656,7 @@ ipcMain.handle('open-in-editor', (_event, filePath) => {
     return { ok: true };
   } catch (err) {
     shell.openPath(resolved);
-    return { ok: true, fallback: true, error: err.message };
+    return { ok: true, fallback: true, error: readableError(err, 'Your editor could not be started, so the system default was used.', log) };
   }
 });
 
@@ -704,7 +706,7 @@ ipcMain.handle('open-external-terminal', (_event, cwdPath) => {
     return { ok: true };
   } catch (e) {
     log.warn('[open-external-terminal]', e?.message || String(e));
-    return { ok: false, error: String(e?.message || e) };
+    return { ok: false, error: readableError(e, 'The system terminal could not be opened.') };
   }
 });
 
@@ -788,7 +790,7 @@ ipcMain.handle('run-custom-launcher', (_event, payload) => {
     return { ok: true };
   } catch (err) {
     log.warn('[launcher] external launch failed:', err?.message || String(err));
-    return { ok: false, error: String(err?.message || err) };
+    return { ok: false, error: readableError(err, 'That tool could not be started.') };
   }
 });
 
@@ -834,7 +836,7 @@ ipcMain.handle('read-file-for-panel', async (_event, filePath) => {
     const content = fs.readFileSync(resolved, 'utf8');
     return { ok: true, content };
   } catch (err) {
-    return { ok: false, error: err.message };
+    return { ok: false, error: readableError(err, 'That file could not be read.', log) };
   }
 });
 
@@ -856,7 +858,7 @@ ipcMain.handle('read-file-dataurl', async (_event, filePath) => {
     const buf = await fs.promises.readFile(resolved);
     return { ok: true, dataUrl: `data:${mime};base64,${buf.toString('base64')}` };
   } catch (err) {
-    return { ok: false, error: err.message };
+    return { ok: false, error: readableError(err, 'That file could not be read.', log) };
   }
 });
 
@@ -874,7 +876,7 @@ ipcMain.handle('save-file-for-panel', async (_event, filePath, content) => {
     if (resolved.endsWith('.md')) plansMemory.invalidateFtsSignature('memory');
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err.message };
+    return { ok: false, error: readableError(err, 'That file could not be saved.', log) };
   }
 });
 
@@ -910,7 +912,7 @@ ipcMain.handle('rebuild-cache', async () => {
     return { ok: true };
   } catch (err) {
     console.error('Error rebuilding cache:', err);
-    return { ok: false, error: err.message };
+    return { ok: false, error: readableError(err, 'The session index could not be rebuilt.', log) };
   }
 });
 
@@ -1123,7 +1125,7 @@ async function collectUsage() {
       usage = await b.usage.fetch() || {};
     } catch (err) {
       log.error(`[usage] ${b.id} fetch threw`, err?.message || String(err));
-      usage = { backendId: b.id, _error: true, message: err.message };
+      usage = { backendId: b.id, _error: true, message: readableError(err, `${b.label || b.id} did not answer.`) };
     }
     // Identity comes from the descriptor, not from the backend's own module — one place decides what a
     // backend is called and what badge it wears, and the usage module cannot disagree with the sidebar.
@@ -1606,7 +1608,7 @@ ipcMain.handle('handoff-transcript-path', (_event, sessionId) => {
     return { ok: false, reason: `${backend.label || row.backendId} cannot expose this session's transcript.` };
   }
   let entries;
-  try { entries = backend.readMessages(sessionId) || []; } catch (err) { return { ok: false, reason: err.message }; }
+  try { entries = backend.readMessages(sessionId) || []; } catch (err) { return { ok: false, reason: readableError(err, "This session's transcript could not be read.", log) }; }
   if (!entries.length) return { ok: false, reason: 'This session has no messages to read.' };
 
   try {
@@ -1622,7 +1624,7 @@ ipcMain.handle('handoff-transcript-path', (_event, sessionId) => {
     handoffExports.add(out);
     return { ok: true, path: out, exported: true };
   } catch (err) {
-    return { ok: false, reason: err.message };
+    return { ok: false, reason: readableError(err, 'The transcript could not be written out.', log) };
   }
 });
 
@@ -1694,22 +1696,22 @@ ipcMain.handle('project-tags-all', () => {
 // Every handler returns { ok, error? } so the renderer can surface the reason —
 // notably "a tag with that name already exists" on rename.
 ipcMain.handle('tag-defs-list', (_event, kind) => {
-  try { return { ok: true, tags: listTagDefs(kind) }; } catch (err) { return { ok: false, error: err.message }; }
+  try { return { ok: true, tags: listTagDefs(kind) }; } catch (err) { return { ok: false, error: readableError(err, 'The tag store could not be reached.', log) }; }
 });
 ipcMain.handle('tag-def-create', (_event, kind, name, color) => {
-  try { return createTagDef(kind, name, color); } catch (err) { return { ok: false, error: err.message }; }
+  try { return createTagDef(kind, name, color); } catch (err) { return { ok: false, error: readableError(err, 'The tag store could not be reached.', log) }; }
 });
 ipcMain.handle('tag-def-rename', (_event, kind, oldName, newName) => {
-  try { return renameTagDef(kind, oldName, newName); } catch (err) { return { ok: false, error: err.message }; }
+  try { return renameTagDef(kind, oldName, newName); } catch (err) { return { ok: false, error: readableError(err, 'The tag store could not be reached.', log) }; }
 });
 ipcMain.handle('tag-def-color', (_event, kind, name, color) => {
-  try { return setTagDefColor(kind, name, color); } catch (err) { return { ok: false, error: err.message }; }
+  try { return setTagDefColor(kind, name, color); } catch (err) { return { ok: false, error: readableError(err, 'The tag store could not be reached.', log) }; }
 });
 ipcMain.handle('tag-def-flags', (_event, kind, name, flags) => {
-  try { return setTagDefFlags(kind, name, flags || {}); } catch (err) { return { ok: false, error: err.message }; }
+  try { return setTagDefFlags(kind, name, flags || {}); } catch (err) { return { ok: false, error: readableError(err, 'The tag store could not be reached.', log) }; }
 });
 ipcMain.handle('tag-def-delete', (_event, kind, name) => {
-  try { return deleteTagDef(kind, name); } catch (err) { return { ok: false, error: err.message }; }
+  try { return deleteTagDef(kind, name); } catch (err) { return { ok: false, error: readableError(err, 'The tag store could not be reached.', log) }; }
 });
 
 // --- IPC: rename-session ---
@@ -1736,7 +1738,7 @@ async function readJsonlEntries(jsonlPath) {
     }
     return { entries };
   } catch (err) {
-    return { error: err.message };
+    return { error: readableError(err, 'That transcript could not be read.', log) };
   }
 }
 
@@ -1746,7 +1748,7 @@ function normalizeTranscriptResult(backend, result) {
   try {
     return { ...result, entries: backend.normalizeTranscriptEntries(result.entries) || [] };
   } catch (err) {
-    return { error: err.message };
+    return { error: readableError(err, 'That transcript could not be read.', log) };
   }
 }
 
@@ -1768,7 +1770,7 @@ ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
     try {
       return normalizeTranscriptResult(b, { entries: b.readMessages(sessionId) || [] });
     } catch (err) {
-      return { error: err.message };
+      return { error: readableError(err, 'That transcript could not be read.', log) };
     }
   }
 

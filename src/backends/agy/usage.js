@@ -240,7 +240,7 @@ async function fetchUsage() {
     if (usage.buckets.length === 0) return { backendId: 'agy', live: true, buckets: [], quota: null, _noData: true };
     return usage;
   } catch (err) {
-    return { backendId: 'agy', live: true, _error: true, message: err.message };
+    return { backendId: 'agy', live: true, _error: true, message: `Usage could not be read (${err && err.code ? err.code : 'unknown error'}).` };
   }
 }
 

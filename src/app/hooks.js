@@ -24,6 +24,8 @@ const crypto = require('crypto');
 const attentionSource = require('../shared/attention-source');
 
 const clearClaims = require('../session/clear-claims');
+// The CLI's own settings file lives under the user's home, so a failure to write it must not say where.
+const { readableError } = require('./readable-error');
 
 // Claude's shared settings file — in the ISOLATED home when there is one (#241). A demo/sandbox run is
 // normally a no-op here anyway (the whole write path is dev-gated, #219), but the sanctioned way to work
@@ -367,7 +369,7 @@ function registerIpc(ipc) {
       return { ok: true };
     } catch (err) {
       ctx.log.error(`[attention-hook] configure failed: ${err.message}`);
-      return { ok: false, error: err.message };
+      return { ok: false, error: readableError(err, "Could not update the CLI's settings file.") };
     }
   });
 }
