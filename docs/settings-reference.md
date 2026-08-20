@@ -48,6 +48,7 @@ back on Save.
 | `terminalRightClick` | Right-click action | `menu` \| `copy-paste` \| `copy` \| `action-bar` \| `default` | `menu` | global |
 | `terminalMouseReporting` | Mouse mode | `native` \| `select` \| `off` | `select` | global |
 | `externalEditorCommand` | External editor | string | `''` (OS default) | global |
+| `planInsertTemplate` | Plan insert template | string with `{path}` / `{title}` / `{filename}` | `Follow the plan at {path}` | global + project |
 | `fileClickTarget` | Clicking a file link opens | `internal` \| `external` | `internal` | global |
 | `markdownDefaultView` | Previewable files open as | `code` \| `preview` | `code` | global |
 | `editorToolbarMode` | Source editor | `toolbar` \| `plain` | `toolbar` | global |

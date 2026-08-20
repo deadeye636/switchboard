@@ -70,6 +70,13 @@ const SETTING_DEFAULTS = {
   // 'inherit' = use the CLI shell (`shellProfile`) — the default, so behaviour is unchanged.
   terminalShellProfile: 'inherit',
   conptyBackend: 'bundled',
+  // What the plan picker types into the prompt (#453). A template rather than a fixed sentence: what
+  // a CLI should be told about a plan is a matter of taste and of which CLI it is. `{path}`,
+  // `{title}` and `{filename}` are substituted; the plan itself is never inserted.
+  //
+  // In the cascade, so a project whose agents want a different phrasing can say so — the same reason
+  // a saved variable carries its own insert template rather than one global one.
+  planInsertTemplate: 'Follow the plan at {path}',
 };
 // NOT IN THE CASCADE (#239): `sessionMaxAgeDays` and `autoHideDays`. They read like per-project settings
 // — one project is an archive worth keeping visible, another is noise — but they are how the sidebar as a

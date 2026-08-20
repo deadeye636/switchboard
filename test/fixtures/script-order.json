@@ -65,6 +65,7 @@
     "variable-insert.js",
     "variables-panel.js",
     "variable-palette.js",
+    "plan-palette.js",
     "terminal-fit.js",
     "page-key-routing.js",
     "terminal-manager.js",

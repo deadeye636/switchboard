@@ -51,7 +51,7 @@
       collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
       paneCloseEmptyValue, paneBackgroundScrollbackValue,
-      externalEditorValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
+      externalEditorValue, planInsertTemplateValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
       favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
@@ -304,6 +304,16 @@
                   </div>
                   <div class="settings-field-control">
                     <input type="text" class="settings-input" id="sv-external-editor" placeholder="OS default" value="${escapeHtml(externalEditorValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Plan insert template</span>${help}</div>
+                    <div class="settings-description">What the plan picker types into the prompt. The plan itself is never inserted — an agent reads it with its own file tools.</div>
+                    <div class="settings-more">Placeholders: <code>{path}</code> the full path, <code>{title}</code> the plan's heading, <code>{filename}</code> the file name. Leave empty for the default.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-plan-insert-template" placeholder="Follow the plan at {path}" value="${escapeHtml(planInsertTemplateValue)}">
                   </div>
                 </div>
                 <div class="settings-field">

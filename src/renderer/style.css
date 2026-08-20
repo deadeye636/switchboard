@@ -10892,6 +10892,17 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
   padding: 1px 4px;
 }
 
+/* The plan picker reuses the variable palette's rows, but its right-hand chip is a FILENAME, not a
+   warning (#453). Same shape, none of the alarm: the amber border and the uppercasing say "be careful"
+   about a secret, and a generated slug has nothing to be careful about. */
+.plan-palette .vpal-secret.ppal-file {
+  text-transform: none;
+  letter-spacing: 0;
+  color: #7a7a90;
+  border-color: rgba(255,255,255,0.10);
+  font-size: 10px;
+}
+
 .vpal-status {
   flex: none;
   padding: 12px 10px;

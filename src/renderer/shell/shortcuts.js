@@ -44,6 +44,9 @@ const DEFAULT_SHORTCUTS = {
   // (The Ctrl/Cmd+Shift+V paste event is suppressed for this press in
   // setupTerminalKeyBindings so it doesn't also paste.)
   insertVariable: { primary: true, alt: false, shift: true, key: 'v' },
+  // Ctrl/Cmd+Shift+P — open the plan picker in the focused terminal (#453). Same family as the
+  // variable picker beside it, and the same shape of popover, so one is learned from the other.
+  insertPlan: { primary: true, alt: false, shift: true, key: 'p' },
   // Ctrl/Cmd+Shift+M — enter "move mode" on the focused grid card: bare arrows
   // reorder it, Shift+arrows resize it, Esc/Enter leave. A mode (rather than a
   // second arrow chord) keeps this off Ctrl+Alt+Arrow, which is the workspace
@@ -124,6 +127,13 @@ const SHORTCUT_DEFS = [
     id: 'insertVariable',
     label: 'Insert variable',
     description: 'Open the saved-variable picker in the focused terminal and insert one at the cursor',
+    family: 'key',
+    group: 'general',
+  },
+  {
+    id: 'insertPlan',
+    label: 'Insert plan',
+    description: 'Open the plan picker in the focused terminal and insert a reference to one at the cursor',
     family: 'key',
     group: 'general',
   },

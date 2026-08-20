@@ -556,6 +556,7 @@ function showGridView(opts) {
   // (#207). The palette anchors to one terminal's rectangle, so it would end up hanging over a
   // different session's card while still inserting into the one it captured.
   if (typeof closeVariablePalette === 'function') closeVariablePalette({ refocus: false });
+  if (typeof closePlanPalette === 'function') closePlanPalette({ refocus: false });
   gridViewActive = true;
   localStorage.setItem('gridViewActive', '1');
   renderGridStatusFilters();
@@ -788,6 +789,7 @@ function toggleGridView() {
   // The palette is anchored to a terminal rectangle that this re-wraps into (or out of) a grid card,
   // and the anchor only re-runs on a window resize — so it would hang over stale coordinates (#207).
   if (typeof closeVariablePalette === 'function') closeVariablePalette({ refocus: false });
+  if (typeof closePlanPalette === 'function') closePlanPalette({ refocus: false });
   if (gridViewActive) {
     const restoreId = gridFocusedSessionId || activeSessionId;
     hideGridView();

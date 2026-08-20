@@ -185,6 +185,9 @@
     const mouseReportingRaw = fieldValue('terminalMouseReporting', 'select');
     const mouseModeValue = mouseReportingRaw === 'on' ? 'native' : mouseReportingRaw; // legacy 'on' → native
     const externalEditorValue = fieldValue('externalEditorCommand', '');
+    // #453 what the plan picker types into the prompt. Kept in the cascade, so a project may phrase it
+    // its own way; the default has to match SETTING_DEFAULTS in src/app/settings.js.
+    const planInsertTemplateValue = fieldValue('planInsertTemplate', 'Follow the plan at {path}');
     // #280 default target for a terminal file link (Ctrl/Cmd+click opens the other one).
     const fileClickTargetValue = fieldValue('fileClickTarget', 'internal');
     // #279 how a Markdown file first opens in the internal editor (per-file toggle still overrides).
@@ -427,7 +430,7 @@
         collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
         confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
         paneCloseEmptyValue, paneBackgroundScrollbackValue,
-        externalEditorValue, fileClickTargetValue, markdownDefaultViewValue,
+        externalEditorValue, planInsertTemplateValue, fileClickTargetValue, markdownDefaultViewValue,
         editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
         favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
@@ -734,6 +737,9 @@
         settings.terminalRightClick = settingsViewerBody.querySelector('#sv-right-click').value || 'menu';
         settings.terminalMouseReporting = settingsViewerBody.querySelector('#sv-mouse-reporting').value || 'native';
         settings.externalEditorCommand = (settingsViewerBody.querySelector('#sv-external-editor')?.value || '').trim();
+        // Empty means "use the default", so it is stored as an empty string rather than as the default
+        // text — otherwise changing the default later would not reach anyone who had ever opened Settings.
+        settings.planInsertTemplate = (settingsViewerBody.querySelector('#sv-plan-insert-template')?.value || '').trim();
         settings.fileClickTarget = settingsViewerBody.querySelector('#sv-file-click-target')?.value === 'external' ? 'external' : 'internal';
         settings.markdownDefaultView = settingsViewerBody.querySelector('#sv-markdown-default-view')?.value === 'preview' ? 'preview' : 'code';
         settings.editorToolbarMode = settingsViewerBody.querySelector('#sv-editor-toolbar-mode')?.value === 'plain' ? 'plain' : 'toolbar';

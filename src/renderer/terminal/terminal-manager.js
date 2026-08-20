@@ -200,6 +200,17 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
       return false;
     }
 
+    // Insert a reference to a plan at the cursor (default Cmd/Ctrl+Shift+P) — the same keyboard-driven
+    // palette shape as the variable picker above (#453). No paste to suppress here: the chord carries no
+    // native clipboard action.
+    if (matchShortcut('insertPlan', e, isMac, appShortcuts)) {
+      if (e.type === 'keydown') {
+        e._handled = true;
+        if (typeof openPlanPalette === 'function') openPlanPalette(terminal, getSessionId());
+      }
+      return false;
+    }
+
     // Session navigation: Cmd+Shift+[/], Cmd+Arrow
     if (isSessionNavKey(e)) {
       if (e.type === 'keydown') { e._handled = true; handleSessionNavKey(e); }
@@ -1544,6 +1555,7 @@ function destroySession(sessionId) {
   if (typeof closeSelectionBarForSession === 'function') closeSelectionBarForSession(sessionId);
   // Same reason for the variable palette (#207): it holds the terminal for its insert.
   if (typeof closeVariablePaletteForSession === 'function') closeVariablePaletteForSession(sessionId);
+  if (typeof closePlanPaletteForSession === 'function') closePlanPaletteForSession(sessionId);
   window.api.closeTerminal(sessionId);
   // Drop any pending write buffer before disposing — a scheduled rAF/timeout
   // flush would otherwise call terminal.write() on a disposed instance if

@@ -366,6 +366,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   only. If you have edits of your own when the file moves, nothing is overwritten in either direction —
   a bar says so and offers to show you what changed, and a save over a file that moved underneath is
   refused rather than silently winning.
+- **Hand a plan to the running CLI from the keyboard** — a shortcut opens a plan picker anchored in the
+  focused terminal, with that terminal's project listed first and everything else still reachable. It
+  inserts a reference rather than the plan: a plan runs to hundreds of lines and belongs in the agent's
+  context through the agent's own file tools, not pasted into a prompt. What exactly gets typed is a
+  template you can change, per project if you want to.
 - **A plan knows its project** — plan documents are written into one flat directory under a generated
   name, with nothing in the file to say which project they belong to. The session that wrote the plan
   recorded a reference to it and knows its project, so the Plans list groups by that instead of showing one
