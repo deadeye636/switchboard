@@ -1,6 +1,7 @@
 # 20 — Plans
 
-Status: **built** (#448, #449, #450, #452, #453, #454). Written after the fact, as a design record.
+Status: **built** (#448, #449, #450, #452, #453, #454), with follow-ups in #442, #455 and #456.
+Written after the fact, as a design record.
 
 The user-facing half is [`docs/plans-convention.md`](../plans-convention.md). This file is the why.
 
@@ -121,13 +122,19 @@ user. It is the whole feature once an agent is rewriting a plan for twenty minut
 it. Six defects, none of which raised an error — the document simply stopped being true. They are
 recorded in #452 and the fix lives in `src/app/file-watch.js` and `src/renderer/views/text-sync.js`.
 
-The three that shape the design:
+The four that shape the design:
 
 - **The reload applies a change, not a replacement.** Every position inside a replaced range maps to its
   boundary, so a full-document swap moved the cursor and scrolled the view away on every write.
 - **The conflict is symmetric.** An external change that would overwrite edits is announced instead of
   applied, and a save over a file that moved underneath is refused. The second direction is the one that
   costs more: a reflexive Ctrl+S used to write a stale copy over twenty minutes of an agent's work.
+- **The side-by-side view follows the conflict it is about** (#456). It is a snapshot of two strings,
+  and the file can move again while it is up — this panel is the one surface where a document is read
+  while an agent rewrites it, so a second write mid-decision is the expected case. Leaving the first
+  version on screen meant the reader compared their edits against something that was no longer there and
+  then answered a bar that had quietly moved on: "Reload" applied content they had never seen. The view
+  repaints from the same field the buttons read, and the change is announced rather than swapped in.
 - **Answering the bar moves the baseline, whichever answer it was** (#442). The baseline is what both
   directions measure against, so "Keep mine" has to adopt the version it was shown before discarding it —
   otherwise the user answers the bar, presses Ctrl+S, and the save's own readback raises the same bar
@@ -145,3 +152,6 @@ The three that shape the design:
 - Only the plans directories are watched for liveness. The other lists this module serves walk project
   trees reaching tens of thousands of files, where a recursive watch would cost more than the staleness
   it fixes.
+- A watch whose file is renamed away keeps looking for it, backing off, and stops after a bounded window
+  (#455). Stopping is a state `watchStats()` reports rather than a silence, and reopening the document
+  revives it — but a file that comes back after that window is not noticed until something asks again.
