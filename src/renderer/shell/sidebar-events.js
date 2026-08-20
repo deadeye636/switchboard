@@ -257,7 +257,12 @@ function dispatchSidebarActivation(e) {
     if (t.closest('.session-stop-btn')) { e.stopPropagation(); confirmAndStopSession(session.sessionId); return; }
     if (t.closest('.session-launch-config-btn')) { e.stopPropagation(); showResumeSessionDialog(session); return; }
     if (t.closest('.session-handoff-btn') || t.closest('.session-health-chip')) { e.stopPropagation(); showHandoffPrompt(session); return; }
-    if (t.closest('.session-fork-btn')) { e.stopPropagation(); forkSessionFromRow(session); return; }
+    // A backend that cannot fork now gets the button anyway, dimmed and saying so, instead of nothing at
+    // all (#446). It is marked `aria-disabled` rather than `disabled` — a disabled control gets no hover
+    // styling in Chromium and would never show the tooltip that carries the explanation — so it still
+    // dispatches clicks, and THIS line is what refuses them. Without it a withheld Fork would launch a
+    // fresh empty session unrelated to the one under the pointer.
+    if (t.closest('.session-fork-btn:not([aria-disabled="true"])')) { e.stopPropagation(); forkSessionFromRow(session); return; }
     if (t.closest('.session-jsonl-btn')) { e.stopPropagation(); showJsonlViewer(session); return; }
     if (t.closest('.session-copy-id-btn')) { e.stopPropagation(); copySessionId(session); return; }
     if (t.closest('.session-tags-btn')) { e.stopPropagation(); window.bookmarksTags?.openTagPicker(session, t.closest('.session-tags-btn')); return; }

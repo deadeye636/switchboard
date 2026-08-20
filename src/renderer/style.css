@@ -2395,6 +2395,26 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   background: rgba(62,207,90,0.1);
 }
 
+/* Fork withheld (#446): the backend cannot do it, and the button says so through its tooltip instead of
+   disappearing. Dimmed through the COLOUR, never `opacity` — opacity composites the ::after tooltip with
+   the button, so the sentence explaining the withheld button would be the faintest thing on the row. The
+   glyph follows `currentColor`, so the colour alone dims it. The row is marked `aria-disabled` and not
+   `disabled` for the same reason the tooltip exists: a disabled control takes no pointer events, and the
+   tooltip IS the explanation. What goes away is the green hover of a live Fork, nothing else. */
+.session-fork-btn.session-fork-off,
+.session-fork-btn.session-fork-off:hover {
+  color: #3f5348;
+  background: none;
+  cursor: default;
+}
+/* And the glyph is dimmed AT THE GLYPH, not left to `currentColor`. These buttons carry
+   `transition: all`, and the sidebar re-renders on every status tick — measured on a live row, the
+   button's own `color` stays at the value it is transitioning FROM, so the icon never reached the
+   dimmed tone. `stroke` on the SVG lands immediately. */
+.session-fork-btn.session-fork-off svg {
+  stroke: #3f5348;
+}
+
 .session-timeline-btn:hover {
   color: #b08cff;
   background: rgba(176,140,255,0.1);
@@ -10385,6 +10405,10 @@ body.pane-sashing .terminal-container { pointer-events: none; }
 .backend-back:hover { color: #d0d0e8; border-color: rgba(255,255,255,0.12); }
 .backend-page-title { display: flex; align-items: center; gap: 9px; }
 .backend-page-title h3 { margin: 0; font-size: 16px; font-weight: 600; color: #d8d8e8; }
+/* The way into the capability matrix from a single backend's page (#446). Pushed to the far end of the
+   title row rather than appended to .backend-page-head, which is a COLUMN — a child there would sit on
+   a line of its own under the heading. */
+.backend-page-title #sv-capability-matrix { margin-left: auto; }
 
 .backend-inline-title { display: flex; align-items: center; gap: 7px; }
 

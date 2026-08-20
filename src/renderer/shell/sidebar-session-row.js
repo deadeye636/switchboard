@@ -308,7 +308,32 @@ function buildSessionItem(session, opts = {}) {
     const canFork = sessionBackend
       ? (sessionBackend.isProfile ? true : sessionBackend.supportsFork === true)
       : false;
-    if (canFork) actions.appendChild(forkBtn);
+    // A withheld Fork says why (#446). It used to be silently absent, which reads as a missing feature
+    // rather than one this backend does not have — and the user had no way to find out which.
+    //
+    // The button itself, not a marker of its own: it inherits `.session-fork-btn`, including the rule
+    // that hides it on a terminal row. The reason comes off the descriptor (`capabilities.fork`, #439),
+    // so the renderer holds no sentence about any one backend.
+    //
+    // `aria-disabled`, NOT the `disabled` attribute, and that is the whole point of the control. The
+    // explanation is a HOVER affordance — the row's CSS tooltip (`[data-tooltip]::after`, filled from
+    // `title` by syncTitleToTooltip) — and a disabled control is a dead surface for hover-driven UI:
+    // it takes no pointer events, so a button that only speaks when hovered would stay silent. It
+    // therefore stays a live control and its click is refused instead, by the delegated handler in
+    // sidebar-events.js matching `:not([aria-disabled="true"])`.
+    //
+    // An unknown backend still gets NOTHING. Without a descriptor there is no name and no reason, and a
+    // sentence about a backend that is no longer registered would be invented rather than read.
+    if (!canFork && sessionBackend) {
+      const answer = (sessionBackend.capabilities && sessionBackend.capabilities.fork) || null;
+      const note = answer && answer.note ? ` — ${answer.note}` : '';
+      const label = sessionBackend.label || 'This backend';
+      forkBtn.setAttribute('aria-disabled', 'true');
+      forkBtn.classList.add('session-fork-off');
+      forkBtn.title = `${label} cannot fork a session${note}`;
+      forkBtn.setAttribute('aria-label', forkBtn.title);
+    }
+    if (canFork || sessionBackend) actions.appendChild(forkBtn);
     actions.appendChild(timelineBtn);
     actions.appendChild(jsonlBtn);
     // "Resume with config" sits next to the other session-starting actions; Archive is the odd one out

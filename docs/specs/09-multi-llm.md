@@ -478,6 +478,20 @@ capabilities: {
   the base's binary, so its answers are the base's, and a column would be a copy under another name.
 - **A disabled backend keeps its column**, marked. The matrix says what a backend can do, not whether it is
   switched on today.
+- **It opens from the global Backends page and from a single backend's page** (#446). It shipped on the
+  global header alone, which is not where the question is asked — someone on one backend's page is already
+  asking what that one can do. That page opens the FULL matrix rather than its own column: the neighbouring
+  column is the answer.
+  **The project scope deliberately has no way in.** What a backend can do does not vary per project, so it
+  stays with the other global backend controls (enabling one, the default launch target) rather than sitting
+  above per-project launch options. `test/backend-capability-entry.test.js` asserts the absence as well as
+  the two entries, so the branch cannot drift back untested.
+- **A capability the user can SEE missing says why** (#446). Fork was withheld silently on a backend that
+  cannot fork — correct (offering it launches an unrelated empty session) and unreadable, because a missing
+  control looks the same as a feature the app does not have. The button stays, disabled, and its tooltip
+  names the backend and the declared `note` if there is one. The sentence is built from the descriptor's
+  answer, so the renderer still holds no per-backend text. A session whose backend is no longer registered
+  gets nothing: without a descriptor there is no name and no reason, and inventing one is not an answer.
 
 Adding a row means every backend answers it, declining included. That is the point of the catalog living in
 one file: the question cannot be asked of four backends and skipped for the fifth.

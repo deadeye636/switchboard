@@ -156,29 +156,93 @@ test('a terminal row carries no provider badge at all', () => {
 });
 
 // --- Fork button visibility: the other #225 surface ---
+//
+// These used to assert that the element is ABSENT when the backend cannot fork. Since #446 it is
+// present and marked `aria-disabled`, saying why — so "not offered" is now the selector the delegated
+// click handler in sidebar-events.js matches on, and the two must stay the same string. Asserting the
+// bare class again would pass for a button the user can actually press.
+const OFFERED = '.session-fork-btn:not([aria-disabled="true"])';
 
 test('Fork is offered only when the backend supports it', () => {
   const withFork = setup({ getBackend: () => ({ supportsFork: true, label: 'Claude' }) });
   try {
-    assert.notEqual(withFork.build(SESSION).querySelector('.session-fork-btn'), null);
+    assert.notEqual(withFork.build(SESSION).querySelector(OFFERED), null);
   } finally { withFork.destroy(); }
 
   const noFork = setup({ getBackend: () => ({ supportsFork: false, label: 'Codex' }) });
   try {
-    assert.equal(noFork.build(SESSION).querySelector('.session-fork-btn'), null);
+    assert.equal(noFork.build(SESSION).querySelector(OFFERED), null);
   } finally { noFork.destroy(); }
 });
 
 test('a profile backend forks like Claude; an unknown backend does not', () => {
   const profile = setup({ getBackend: () => ({ isProfile: true }) });
   try {
-    assert.notEqual(profile.build(SESSION).querySelector('.session-fork-btn'), null);
+    assert.notEqual(profile.build(SESSION).querySelector(OFFERED), null);
   } finally { profile.destroy(); }
 
   const unknown = setup({ getBackend: () => null });
   try {
-    assert.equal(unknown.build(SESSION).querySelector('.session-fork-btn'), null);
+    assert.equal(unknown.build(SESSION).querySelector(OFFERED), null);
   } finally { unknown.destroy(); }
+});
+
+// --- A withheld Fork explains itself (#446) ---
+
+test('a backend that cannot fork says so where the button would be', () => {
+  const { build, destroy } = setup({ getBackend: () => ({ supportsFork: false, label: 'Hermes' }) });
+  try {
+    const btn = build(SESSION).querySelector('.session-fork-btn');
+    assert.notEqual(btn, null, 'the withheld button is present, not missing');
+    assert.equal(btn.getAttribute('aria-disabled'), 'true');
+    // NOT the `disabled` attribute: the explanation is the row's hover tooltip (`[data-tooltip]::after`),
+    // and a disabled control takes no pointer events — it would carry a sentence nobody can summon.
+    assert.equal(btn.disabled, false, 'it must stay hoverable, or it explains nothing');
+    assert.equal(btn.classList.contains('session-fork-off'), true);
+    assert.equal(btn.title, 'Hermes cannot fork a session');
+    // The row's tooltip is drawn from `title` (syncTitleToTooltip), and a11y reads the aria-label.
+    assert.equal(btn.getAttribute('aria-label'), 'Hermes cannot fork a session');
+  } finally { destroy(); }
+});
+
+test('the declared note is what the withheld button says, when there is one', () => {
+  // The reason comes off the descriptor's capability answer (#439) — the renderer holds no sentence
+  // about any one backend, so a backend that explains itself gets its own words through.
+  const { build, destroy } = setup({
+    getBackend: () => ({
+      supportsFork: false,
+      label: 'Codex',
+      capabilities: { fork: { state: 'no', note: 'the CLI has no fork flag' } },
+    }),
+  });
+  try {
+    const btn = build(SESSION).querySelector('.session-fork-btn');
+    assert.equal(btn.title, 'Codex cannot fork a session — the CLI has no fork flag');
+  } finally { destroy(); }
+});
+
+test('an unknown backend gets no explanation either — there is nothing to say', () => {
+  // No descriptor means no name and no reason. A sentence here would be invented rather than read.
+  const { build, destroy } = setup({ getBackend: () => null });
+  try {
+    assert.equal(build(SESSION).querySelector('.session-fork-btn'), null);
+  } finally { destroy(); }
+});
+
+test('the delegated click handler refuses exactly what this row marks as withheld', () => {
+  // The row and the handler are in different files, and the whole refusal rests on the two agreeing on
+  // one selector — the button is NOT `disabled`, so a click on it really is dispatched. A wiring guard,
+  // not a behaviour test: what it catches is one of the two being changed alone.
+  const events = fs.readFileSync(path.join(REN, 'shell', 'sidebar-events.js'), 'utf8');
+  assert.match(events, /\.session-fork-btn:not\(\[aria-disabled="true"\]\)/,
+    'sidebar-events.js must skip the withheld Fork by the same marker the row sets');
+});
+
+test('a terminal row gets neither the Fork button nor the explanation', () => {
+  const { build, destroy } = setup({ getBackend: () => ({ supportsFork: false, label: 'Hermes' }) });
+  try {
+    assert.equal(build({ ...SESSION, type: 'terminal' }).querySelector('.session-fork-btn'), null);
+  } finally { destroy(); }
 });
 
 // A lineage ancestor renders as a SECOND row for a session that may already have one elsewhere (#288).

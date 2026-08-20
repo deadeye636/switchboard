@@ -347,10 +347,13 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Identity, resume and fork done honestly** — a backend that names its own sessions (Codex, Hermes,
   Pi) has its id adopted, so one session is one row; resume reapplies the recorded backend and never
   falls back to Claude; Fork is only offered where the backend can actually fork.
-- **What each backend supports, as one table** — the Backends settings page opens a matrix: one row per
-  capability, one column per installed backend, each cell supported / limited / not supported with a
-  short note saying what is limited. Every answer is declared on the backend's own descriptor, so a new
-  backend fills its column without a renderer change.
+- **What each backend supports, as one table** — a matrix with one row per capability, one column per
+  installed backend, each cell supported / limited / not supported with a short note saying what is
+  limited. It opens from the global Backends settings page and from the page of a single backend, which
+  is where someone is already asking what that one can do. Every answer is declared on the backend's own
+  descriptor, so a new backend fills its column without a renderer change. Where a capability is missing
+  the app says so rather than going quiet — a session whose backend cannot fork keeps the Fork button,
+  greyed, and it names the backend that cannot do it.
 - **Its skills, rules and commands, in the app** — the Agent Files tab lists what each CLI reads its own
   behaviour from, beside the instruction files it already showed. A customization directory is one row
   that opens into its entries, and an entry opens in the built-in viewer instead of being handed to the

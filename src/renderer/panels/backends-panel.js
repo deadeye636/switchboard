@@ -370,6 +370,17 @@
       </div>`;
   }
 
+  // The way into the capability matrix (#439), as one string, because there are two ways in (#446): the
+  // global Backends page and a single backend's own page. Both are the GLOBAL branch — the project scope
+  // deliberately has none. What a backend can do is the same everywhere, so the answer does not belong
+  // beside per-project launch options; a project scope reaches it through global settings, like it
+  // reaches enabling a backend and the default launch target.
+  //
+  // The same id in both: only ever ONE of them is in the DOM — the per-backend page replaces the root.
+  function capabilityMatrixButtonHtml() {
+    return '<button type="button" class="backend-btn" id="sv-capability-matrix">What each backend supports</button>';
+  }
+
   // The GLOBAL scope's page for one backend. Each option carries its own "Use the backend's default"
   // checkbox — the same marker the project scope has had since #149, for the same reason one level up
   // (#163): without it, saving this page pinned EVERY option of this backend at whatever happened to be
@@ -414,6 +425,7 @@
           <div class="backend-page-title">
             <span class="backend-icon-slot" data-icon="${esc(backend.icon || backend.colour || backend.id)}" data-size="20" ${backend.monogram ? `data-monogram="${esc(backend.monogram)}"` : ''}></span>
             <h3>${esc(backend.label)}</h3>
+            ${capabilityMatrixButtonHtml()}
           </div>
         </div>
         ${backend.caveat ? `<div class="settings-notice backend-caveat">${esc(backend.caveat)}</div>` : ''}
@@ -1036,6 +1048,19 @@
       profiles = (res && res.profiles) || [];
     } catch { profiles = []; }
 
+    // The matrix is a read-only overlay, so it hangs off its own listener rather than any of the
+    // delegated handlers below — nothing about it survives the surface being re-mounted. Reads
+    // `backends` at CLICK time on purpose: the variable is rebuilt further down (built-ins plus the
+    // templates as shown), and the overlay wants that list, not the one that had just arrived.
+    const bindCapabilityMatrix = (container) => {
+      const btn = container.querySelector('#sv-capability-matrix');
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        if (typeof window.openBackendCapabilityMatrix !== 'function') return;
+        window.openBackendCapabilityMatrix({ backends, catalog: capabilityCatalog });
+      });
+    };
+
     const builtins = backends.filter(b => !b.isProfile);
 
     // The first LAUNCHABLE backend, for the one caller that needs it: a blank template has no base yet, and
@@ -1219,7 +1244,7 @@
       <div class="settings-section">
         <div class="settings-section-title backend-defaults-head">
           <span>Built-in</span>
-          <button type="button" class="backend-btn" id="sv-capability-matrix">What each backend supports</button>
+          ${capabilityMatrixButtonHtml()}
         </div>
         ${builtins.map(builtinRow).join('')}
       </div>
@@ -1261,15 +1286,7 @@
     root.replaceChildren(box);
     paintIcons(box);
 
-    // The capability matrix (#439). A read-only overlay, so it hangs off its own button rather than the
-    // delegated handler below — nothing about it survives the panel being re-mounted.
-    const capabilityBtn = box.querySelector('#sv-capability-matrix');
-    if (capabilityBtn) {
-      capabilityBtn.addEventListener('click', () => {
-        if (typeof window.openBackendCapabilityMatrix !== 'function') return;
-        window.openBackendCapabilityMatrix({ backends, catalog: capabilityCatalog });
-      });
-    }
+    bindCapabilityMatrix(box);
 
     // --- the per-backend page (gear) -------------------------------------------------------------
     // Only ONE backend's inputs are in the DOM at a time, so the Save button can no longer read the
@@ -1294,6 +1311,9 @@
       root.replaceChildren(page);
       paintIcons(page);
 
+      // The matrix answers "can THIS one do X", which is the question someone on a single backend's page
+      // is already asking — and the neighbouring column is the answer, so it opens unfiltered (#446).
+      bindCapabilityMatrix(page);
       bindResourceCopy(page);
       loadResources(page, backend.id, null);
       page.addEventListener('click', (e) => {
