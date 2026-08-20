@@ -121,13 +121,18 @@ user. It is the whole feature once an agent is rewriting a plan for twenty minut
 it. Six defects, none of which raised an error — the document simply stopped being true. They are
 recorded in #452 and the fix lives in `src/app/file-watch.js` and `src/renderer/views/text-sync.js`.
 
-The two that shape the design:
+The three that shape the design:
 
 - **The reload applies a change, not a replacement.** Every position inside a replaced range maps to its
   boundary, so a full-document swap moved the cursor and scrolled the view away on every write.
 - **The conflict is symmetric.** An external change that would overwrite edits is announced instead of
   applied, and a save over a file that moved underneath is refused. The second direction is the one that
   costs more: a reflexive Ctrl+S used to write a stale copy over twenty minutes of an agent's work.
+- **Answering the bar moves the baseline, whichever answer it was** (#442). The baseline is what both
+  directions measure against, so "Keep mine" has to adopt the version it was shown before discarding it —
+  otherwise the user answers the bar, presses Ctrl+S, and the save's own readback raises the same bar
+  again, forever. Keeping a version is a decision about that one change and not a standing waiver: a
+  later external write is measured against what was kept and announces itself as usual.
 
 ## Known gaps
 

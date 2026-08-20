@@ -843,6 +843,10 @@ class ViewerPanel {
    */
   _setConflict(diskContent) {
     this._conflict = diskContent === null ? null : { diskContent };
+    // The side-by-side view is a view OF the conflict. Once the conflict is answered — or overtaken by a
+    // save, or by the file coming back into step on its own — it is showing two versions that no longer
+    // stand against each other, so it goes with it.
+    if (!this._conflict) this._closeConflictDiff();
     if (!this.conflictBar) return;
     if (!this._conflict) { this.conflictBar.el.style.display = 'none'; return; }
     this.conflictBar.msg.textContent = 'This file changed on disk while you were editing it.';
@@ -852,10 +856,25 @@ class ViewerPanel {
   _resolveConflict(answer) {
     const disk = this._conflict ? this._conflict.diskContent : null;
     this._setConflict(null);
-    if (answer !== 'reload' || disk === null) return;
-    // Reload discards the panel's edits deliberately — the button says so. Applying it as a CHANGE rather
-    // than a replacement keeps the reading position, exactly like an ordinary refresh.
-    this._applyDiskContent(disk);
+    if (disk === null) return;
+    if (answer === 'reload') {
+      // Reload discards the panel's edits deliberately — the button says so. Applying it as a CHANGE
+      // rather than a replacement keeps the reading position, exactly like an ordinary refresh.
+      this._applyDiskContent(disk);
+      return;
+    }
+
+    // "Keep mine" has to move the baseline as well (#442), and it is not obvious why.
+    //
+    // The baseline answers two questions at once: what an external write is measured against, and what
+    // `_save` re-reads the file for. Leaving it where it was would mean the user answers the bar, presses
+    // Ctrl+S, and gets the SAME bar back — the save's own readback compares the file against a baseline
+    // from before the change it was just told to disregard. The panel would have no way to write at all.
+    //
+    // So the disk content becomes what this panel last knew the file to hold. The edits are untouched —
+    // they are now a divergence from the version the user has seen and chosen against, which is what
+    // keeping them means. A LATER external write still raises the bar again, measured against this one.
+    this._baseline = disk;
   }
 
   /**
