@@ -169,6 +169,87 @@ window.__sessionDragId = null;
     viewHomes.set(kind, { parent: host.parentElement, next: host.nextElementSibling });
   }
 
+  // --- Where a hosted view was scrolled to, across a rebuild (#458) ----------------------------
+  //
+  // Every render builds a fresh `pane-body` and moves the hosted elements into it, and a tab that is
+  // not on top is additionally `display: none` (`.pane-hosted-hidden`). Both take the scroll offset:
+  // an element out of the DOM has none to keep, and one without a layout box has nowhere to keep it.
+  // So a preview scrolled to line 100 came back at line 1 on the next tab switch.
+  //
+  // Nothing ELSE about the view is lost — the document, the caret and unsaved edits live in CodeMirror
+  // and survive the move untouched (measured: `ViewerPanel.open` is not called on this path). The
+  // scroll is the one piece of the view that lives in the DOM, which is why it is the one piece that
+  // has to be carried by hand.
+  //
+  // Keyed by ELEMENT, and a WeakMap so a closed tab's instance takes its entry with it: the elements
+  // are moved rather than rebuilt, so the reference on the far side of a render is the same object.
+  const hostedScroll = new WeakMap();   // host element → how to put it back
+
+  /** Is this element laid out right now? A hidden one reports 0 and must not overwrite a real value. */
+  const isLaidOut = (el) => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+
+  /**
+   * Every scrolled element inside a hosted view, as raw offsets.
+   *
+   * Raw DOM offsets, deliberately, and not CodeMirror's `scrollSnapshot()`. The snapshot restores a
+   * position by DOCUMENT coordinates, which sounds like the better answer — but it restores what the
+   * editor believes it is showing, and that belief is not what is being lost here. Measured: with a
+   * scroller sitting at 2500px, dispatching the snapshot on the far side of a rebuild put it back at
+   * 0. What disappears is a DOM property, so a DOM property is what gets carried.
+   *
+   * READ at render time rather than recorded from a `scroll` listener, which was the other candidate
+   * and is cheaper on paper: an occluded window fires no scroll events at all (measured — a scroller
+   * driven from 0 to 1800 produced not one, on the element itself or on any ancestor), so a listener
+   * would have nothing to record precisely where a window has been sitting in the background. Reading
+   * the offsets costs ~1.8 ms per render on a two-pane layout with a document open.
+   *
+   * The same walk covers every hosted kind — a preview and the plan viewer scroll their editor's
+   * `.cm-scroller`, a review scrolls its `.fp-body` — without naming any of them.
+   */
+  function scrollStateOf(host) {
+    const scrollers = [];
+    if (host.scrollTop || host.scrollLeft) scrollers.push({ el: host, top: host.scrollTop, left: host.scrollLeft });
+    for (const el of host.querySelectorAll('*')) {
+      if (el.scrollTop || el.scrollLeft) scrollers.push({ el, top: el.scrollTop, left: el.scrollLeft });
+    }
+    return scrollers.length ? { scrollers } : null;
+  }
+
+  /** Remember every hosted element that is on screen right now, just before the rebuild takes it apart. */
+  function captureHostedScroll() {
+    for (const host of document.querySelectorAll('.pane-hosted')) {
+      // A hidden host reports zeros. Leaving its previous entry in place is the point: that entry is
+      // from the last time it WAS on screen, which is exactly what to restore when it returns.
+      if (!isLaidOut(host)) continue;
+      const state = scrollStateOf(host);
+      if (state) hostedScroll.set(host, state);
+      else hostedScroll.delete(host);                      // genuinely at the top now
+    }
+  }
+
+  /** Put it back, for the hosts that are on screen again. */
+  function restoreHostedScroll() {
+    for (const host of document.querySelectorAll('.pane-hosted')) {
+      const state = hostedScroll.get(host);
+      if (!state || !isLaidOut(host)) continue;
+      for (const { el, top, left } of state.scrollers) {
+        if (!el.isConnected) continue;
+        el.scrollTop = top;
+        el.scrollLeft = left;
+      }
+      // And tell any editor in there to measure again. CodeMirror renders a WINDOW of the document
+      // around where it believes it is scrolled to; moving its scroller from outside does not change
+      // that belief, and the pane came back showing empty space above the lines it had already drawn.
+      // Measured, and it is why setting the offset alone is not the fix.
+      for (const dom of host.querySelectorAll('.cm-editor')) {
+        const view = (window.CMEditorView && window.CMEditorView.findFromDOM)
+          ? window.CMEditorView.findFromDOM(dom)
+          : null;
+        try { if (view) view.requestMeasure(); } catch { /* went away with its tab */ }
+      }
+    }
+  }
+
   // Leaf ids are `pane-N`, N one past the highest in the tree — deterministic, so
   // nothing here needs a random source and the tests can predict every id.
   function nextLeafId() {
@@ -406,6 +487,10 @@ window.__sessionDragId = null;
     // is the user's, and the alternative is a sentence that vanishes when a tab opens somewhere.
     if (window.isSessionRenaming?.()) window.endSessionRename?.(true);
     adoptOrphans();
+    // Before anything moves (#458). Both steps below take a hosted element out of the DOM, and a
+    // scroll offset does not survive that — see `scrollStateOf` for why it is the only part of a
+    // hosted view that has to be carried by hand.
+    captureHostedScroll();
     // Park every view element at home first. The rebuild below re-adopts the ones
     // that still have a tab; anything left inside the old pane DOM would be
     // destroyed with it by replaceChildren — and these are singletons, so that
@@ -443,6 +528,9 @@ window.__sessionDragId = null;
     drainRevealed();
     applyWebglPolicy();
     refitVisible();
+    // AFTER refitVisible (#458): a re-fit changes the height a hosted view is scrolled within, and a
+    // position restored before it would be measured against the old one.
+    restoreHostedScroll();
     updateStripChrome();
     // A detached window is named after the tab it is showing (#366). This is the one place every
     // layout and active-tab change funnels through — `setActiveSession` is not, because selecting a

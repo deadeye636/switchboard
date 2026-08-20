@@ -3520,3 +3520,99 @@ test('#436: a point over the tabs answers "reorder", not a split across the whol
     assert.deepEqual({ ...h.panes.dropTargetAt(500, 15) }, { kind: 'tab', leafId: 'pane-1', index: -1 });
   } finally { h.destroy(); }
 });
+
+// --- #458: a hosted view comes back where it was scrolled to -----------------------------------
+//
+// A render builds a fresh pane body and MOVES the hosted elements into it; the tab that is not on top
+// is additionally `display:none`. Both take the scroll offset with them — an element out of the DOM
+// has none to keep. Nothing else about the view is lost (the document, the caret and unsaved edits
+// live in CodeMirror and are not touched), which is why the offset is carried by hand.
+//
+// jsdom performs no layout, so two things are staged here that a browser does for free: the host is
+// given a box, and the offset is zeroed by hand while the tab is away — that zeroing IS the bug, and
+// without it the test would pass against the unfixed code.
+
+/**
+ * Give an element a layout box, so `isLaidOut` counts it as on screen — and NO box while it is
+ * hidden, which is the half that matters. `.pane-hosted-hidden` is `display: none !important`, and a
+ * browser answers 0 for everything there. A stub that reports a box regardless would have the code
+ * capture a hidden element's zeros over the position it is holding, which is the bug this guards.
+ */
+function giveBox(el, height = 400) {
+  const hidden = () => el.classList.contains('pane-hosted-hidden');
+  Object.defineProperty(el, 'offsetHeight', { configurable: true, get: () => (hidden() ? 0 : height) });
+  Object.defineProperty(el, 'offsetWidth', { configurable: true, get: () => (hidden() ? 0 : 600) });
+}
+
+test('#458: a hosted view keeps its scroll position across a tab switch', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.openViewTab('plan');
+    await h.settle();
+
+    const host = h.document.getElementById('plan-viewer');
+    assert.equal(host.classList.contains('pane-hosted'), true, 'the plan viewer is hosted in the pane');
+    giveBox(host);
+    host.scrollTop = 500;
+
+    // Away: the session tab goes on top, so the plan viewer is hidden.
+    h.document.querySelector('.pane-strip .session-tab:not(.session-tab-view)').click();
+    await h.settle();
+    assert.equal(host.classList.contains('pane-hosted-hidden'), true, 'it went out of sight');
+    // What the browser does to an element with no layout box, and jsdom does not.
+    host.scrollTop = 0;
+
+    // Back.
+    h.document.querySelector('.pane-strip .session-tab-view').click();
+    await h.settle();
+    assert.equal(host.classList.contains('pane-hosted-hidden'), false, 'it is on top again');
+    assert.equal(host.scrollTop, 500, 'and it is where it was left');
+  } finally { h.destroy(); }
+});
+
+test('#458: a hidden view does not record itself as scrolled to the top', async () => {
+  // The trap in the other direction. A hidden element reports 0 for everything, so capturing it while
+  // it is away would overwrite the very position that is being kept — and the second switch would
+  // land at the top, which is the original bug with an extra step.
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.openViewTab('plan');
+    await h.settle();
+
+    const host = h.document.getElementById('plan-viewer');
+    giveBox(host);
+    host.scrollTop = 320;
+
+    for (let i = 0; i < 3; i++) {
+      h.document.querySelector('.pane-strip .session-tab:not(.session-tab-view)').click();
+      await h.settle();
+      host.scrollTop = 0;
+      h.document.querySelector('.pane-strip .session-tab-view').click();
+      await h.settle();
+      assert.equal(host.scrollTop, 320, `still there after switch ${i + 1}`);
+    }
+  } finally { h.destroy(); }
+});
+
+test('#458: a view that was never scrolled is left alone', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    h.panes.openViewTab('plan');
+    await h.settle();
+
+    const host = h.document.getElementById('plan-viewer');
+    giveBox(host);
+
+    h.document.querySelector('.pane-strip .session-tab:not(.session-tab-view)').click();
+    await h.settle();
+    h.document.querySelector('.pane-strip .session-tab-view').click();
+    await h.settle();
+    assert.equal(host.scrollTop, 0, 'nothing to restore, nothing restored');
+  } finally { h.destroy(); }
+});

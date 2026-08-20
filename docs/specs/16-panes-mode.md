@@ -491,6 +491,7 @@ and per-panel visibility events are what the WebGL policy needs.
 | The display mode is applied **before** the restore mounts anything | So the stored layout can only be validated against the session list, never against `openSessions` — see `docs/ai/lessons.md` |
 | The terminal container claims every drop it is offered | A tab drag has to carry its own MIME type so the container can ignore it |
 | `WebglAddon.dispose()` leaves its canvases in the DOM | They cover the DOM renderer's rows; a demoted terminal shows nothing until they are removed |
+| A render moves every hosted view into a freshly built `pane-body`, and hides the ones not on top with `display: none` (#458) | Both throw away the scroll offset — an element out of the DOM has none to keep, one without a layout box has nowhere to keep it. So `render()` reads the offsets before it starts and puts them back after `refitVisible`. Nothing else about a hosted view is lost: the document, the caret and unsaved edits live in CodeMirror and are untouched, which is why the offset is the only thing carried. It applies to every hosted kind at once — a preview and the plan viewer scroll their editor, a review scrolls its body |
 | Several live WebGL terminals share one texture atlas (#118, #262) | Every terminal renders the same way, and from two visible panes up that way is DOM (#320). Following the focus, as grid does, split the *metric*: at dpr 2 the cell is 8.000 px under WebGL and 8.2065 px under DOM, so the unfocused pane drew heavier and a line off |
 
 ## 6 · Risks
