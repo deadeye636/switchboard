@@ -3452,6 +3452,53 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   position: relative;
 }
 
+/* The file moved under edits the panel is holding (#452). A strip in the flow, not a toast: it has to
+   stay until it is answered, because a notice that fades leaves the reader believing a stale document. */
+.viewer-conflict-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  background: #2a2013;
+  border-bottom: 1px solid rgba(230, 160, 60, 0.35);
+  font-size: 12px;
+}
+.viewer-conflict-message {
+  flex: 1;
+  color: #e6c07b;
+}
+.viewer-conflict-bar .new-session-secondary-btn.danger {
+  color: #ff9a9a;
+  border-color: rgba(220, 60, 60, 0.5);
+}
+
+/* What is on disk beside what the panel holds. Over the editor rather than in a dialog — the app's
+   dialogs build their body from escaped text and have nowhere to put an editor. */
+.viewer-conflict-diff {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: #111118;
+}
+.viewer-conflict-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  background: #15151c;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  font-size: 12px;
+  color: #9aa0a6;
+}
+.viewer-conflict-diff-head span { flex: 1; }
+.viewer-conflict-diff-body {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
 /* Three placements, one bar. `bar` is a strip in the flow; `overlay` floats over
    the editor; `selection` is a popup the panel positions beside the selection. */
 .viewer-format-bar {

@@ -42,7 +42,7 @@ const GRANDFATHERED = [
   'session-tags-set', 'set-log-level', 'start-subagent-watch', 'stop-session', 'stop-subagent-watch',
   'tag-def-color', 'tag-def-create', 'tag-def-delete', 'tag-def-flags', 'tag-def-rename', 'tag-defs-list',
   'tags-list-all', 'task-create', 'task-list', 'task-open-counts', 'task-remove', 'task-update',
-  'toggle-star', 'unwatch-file', 'watch-file',
+  'toggle-star',
 ];
 // 'worktree-status' moved to src/app/vcs.js (#277 F5) — deleted from this list so it cannot be written
 // back into main.js and pass.

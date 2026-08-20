@@ -101,6 +101,14 @@ class ViewerPanel {
     this._formatKind = null;
     this._watchedPath = null;
     this._saving = false;
+    // What this panel last knew the file to hold on disk (#452). Everything about the live document is
+    // decided against it: the panel is DIRTY when the editor no longer matches it, an external write is
+    // detected by the file no longer matching it, and a save is refused when the two disagree.
+    //
+    // It is the content and not the mtime on purpose. mtime has a resolution, a clock and a filesystem
+    // behind it; the text either changed or it did not.
+    this._baseline = null;
+    this._conflict = null;   // { diskContent } while the panel is holding edits the file has moved past
 
     // Create toolbar — always include the mode control, wrap and save; visibility
     // managed in open()
@@ -154,6 +162,11 @@ class ViewerPanel {
 
     // Listen for Cmd/Ctrl+S from CM editors
     container.addEventListener('cm-save', () => this._save());
+
+    // The bar that appears when the file moved under edits this panel is holding (#452). Built once and
+    // hidden, so nothing has to be inserted into the DOM at the moment the user is about to lose work.
+    this.conflictBar = this._buildConflictBar();
+    container.insertBefore(this.conflictBar.el, this.editorEl);
 
     // Listen for file changes from main process
     this._onFileChanged = (changedPath) => {
@@ -288,6 +301,11 @@ class ViewerPanel {
    */
   open(title, filePath, content, options = {}) {
     this._unwatchFile();
+
+    // A new document starts in step with its file, and carries none of the previous one's conflict (#452).
+    this._baseline = typeof content === 'string' ? content : null;
+    this._setConflict(null);
+    this._closeConflictDiff();
 
     this.filePath = filePath;
     this.readOnly = !!options.readOnly;
@@ -633,11 +651,39 @@ class ViewerPanel {
     if (!this.opts.onSave || !this.filePath) return;
     // Cmd/Ctrl+S reaches here even with the button hidden (#281).
     if (this.readOnly) return;
+
+    // The other direction of the same conflict, and the one that costs more (#452). While the user has a
+    // document open an agent may have been rewriting it for twenty minutes; a reflexive Ctrl+S wrote the
+    // panel's stale copy straight over that work, with nothing to notice it by. So the file is read back
+    // first and compared against what this panel last knew it to hold.
+    //
+    // Content, not mtime: mtime has a resolution and a clock behind it. A window of milliseconds remains
+    // between this read and the write below — against a writer that saves every few seconds that is the
+    // difference between a certainty and a coincidence.
+    if (this._baseline !== null && window.api.readFileForPanel) {
+      try {
+        const onDisk = await window.api.readFileForPanel(this.filePath);
+        if (onDisk && onDisk.ok && onDisk.content !== this._baseline) {
+          if (onDisk.content === this.getContent()) {
+            this._baseline = onDisk.content;   // someone saved exactly what we hold; nothing to do
+            this._setConflict(null);
+            return;
+          }
+          this._setConflict(onDisk.content);
+          return;
+        }
+      } catch { /* an unreadable file is the save path's problem, not this check's */ }
+    }
+
     this._saving = true;
     const content = this.getContent();
     try {
       const result = await this.opts.onSave(this.filePath, content);
       if (result && result.ok !== false) {
+        // What was written IS what the file holds now, so the panel is back in step with it. Without
+        // this the next external write would read as a conflict against a baseline from before the save.
+        this._baseline = content;
+        this._setConflict(null);
         this.toolbar.flashSave();
       } else {
         showControlMessage({ title: 'Save failed', message: result?.error || 'unknown error', tone: 'danger' });
@@ -658,6 +704,8 @@ class ViewerPanel {
     this._openGen = (this._openGen || 0) + 1;  // invalidate in-flight open() closure
     if (this._offFileChanged) { this._offFileChanged(); this._offFileChanged = null; }
     this._unwatchFile();
+    this._closeConflictDiff();
+    this._setConflict(null);
     if (this.editorView) {
       this.editorView.destroy();
       this.editorView = null;
@@ -725,15 +773,172 @@ class ViewerPanel {
     if (!result.ok) return;
 
     const newContent = result.content;
-    const currentContent = this.getContent();
-    if (newContent === currentContent) return;
-
-    if (this.editorView) {
-      this.editorView.dispatch({
-        changes: { from: 0, to: this.editorView.state.doc.length, insert: newContent },
-      });
+    if (newContent === this.getContent()) {
+      // The panel already holds what the file holds — nothing to apply, and the two are back in step, so
+      // whatever the panel was carrying is no longer a divergence.
+      this._baseline = newContent;
+      this._setConflict(null);
+      return;
     }
 
+    // The panel is holding edits the file has moved past. Replacing the document here is what silently
+    // destroyed them; the only guard before this was a 500 ms flag around the panel's own save, which
+    // covered nothing an agent does. So the change is NOT applied — it is announced, and the user decides.
+    if (this._isDirty()) {
+      this._setConflict(newContent);
+      return;
+    }
+
+    this._applyDiskContent(newContent);
+  }
+
+  // --- staying live while someone else writes (#452) ---------------------------------------------
+
+  /** Does the editor hold something the file does not? */
+  _isDirty() {
+    if (this._baseline === null || !this.editorView) return false;
+    return this.getContent() !== this._baseline;
+  }
+
+  /**
+   * The bar that says the file moved and the panel is holding edits.
+   *
+   * It offers three answers, and the third is the one that turns a frightening choice into an informed
+   * one: seeing what actually changed. Reusing the existing button class rather than shipping a bare
+   * `<button>`, which would render as the browser's own control next to the styled ones.
+   */
+  _buildConflictBar() {
+    const el = document.createElement('div');
+    el.className = 'viewer-conflict-bar';
+    el.style.display = 'none';
+
+    const msg = document.createElement('span');
+    msg.className = 'viewer-conflict-message';
+    el.appendChild(msg);
+
+    const mk = (label, cls) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'new-session-secondary-btn' + (cls ? ' ' + cls : '');
+      b.textContent = label;
+      el.appendChild(b);
+      return b;
+    };
+    const showBtn = mk('Show changes');
+    const reloadBtn = mk('Reload', 'danger');
+    const keepBtn = mk('Keep mine');
+
+    showBtn.addEventListener('click', () => this._showConflictDiff());
+    reloadBtn.addEventListener('click', () => this._resolveConflict('reload'));
+    keepBtn.addEventListener('click', () => this._resolveConflict('keep'));
+
+    return { el, msg, showBtn, reloadBtn, keepBtn };
+  }
+
+  /**
+   * Announce a conflict, or clear it.
+   *
+   * The bar STAYS until it is answered. A notice that fades leaves the reader looking at a document they
+   * believe is current, which is the state this whole thing exists to prevent.
+   */
+  _setConflict(diskContent) {
+    this._conflict = diskContent === null ? null : { diskContent };
+    if (!this.conflictBar) return;
+    if (!this._conflict) { this.conflictBar.el.style.display = 'none'; return; }
+    this.conflictBar.msg.textContent = 'This file changed on disk while you were editing it.';
+    this.conflictBar.el.style.display = '';
+  }
+
+  _resolveConflict(answer) {
+    const disk = this._conflict ? this._conflict.diskContent : null;
+    this._setConflict(null);
+    if (answer !== 'reload' || disk === null) return;
+    // Reload discards the panel's edits deliberately — the button says so. Applying it as a CHANGE rather
+    // than a replacement keeps the reading position, exactly like an ordinary refresh.
+    this._applyDiskContent(disk);
+  }
+
+  /**
+   * Side by side: what is on disk against what this panel holds.
+   *
+   * Rendered INSIDE the panel rather than in a dialog. `showControlDialog` builds its body from escaped
+   * HTML and has nowhere to put an editor, and the app's diff window answers only for file versions git
+   * knows about — neither can show two strings that exist nowhere but here.
+   */
+  _showConflictDiff() {
+    if (!this._conflict) return;
+    if (typeof window.createMergeViewer !== 'function') {
+      window.showControlToast?.('The diff viewer is not available.');
+      return;
+    }
+    if (this._conflictDiffEl) { this._closeConflictDiff(); return; }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'viewer-conflict-diff';
+
+    const bar = document.createElement('div');
+    bar.className = 'viewer-conflict-diff-head';
+    const label = document.createElement('span');
+    label.textContent = 'On disk (left) against your version (right)';
+    bar.appendChild(label);
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'new-session-secondary-btn';
+    back.textContent = 'Back';
+    back.addEventListener('click', () => this._closeConflictDiff());
+    bar.appendChild(back);
+    overlay.appendChild(bar);
+
+    const host = document.createElement('div');
+    host.className = 'viewer-conflict-diff-body';
+    overlay.appendChild(host);
+
+    this.container.appendChild(overlay);
+    this._conflictDiffEl = overlay;
+    // "Theirs" then "mine", the order every merge tool uses.
+    window.createMergeViewer(host, this._conflict.diskContent, this.getContent(), this.filePath || '');
+  }
+
+  _closeConflictDiff() {
+    if (!this._conflictDiffEl) return;
+    this._conflictDiffEl.remove();
+    this._conflictDiffEl = null;
+  }
+
+  /**
+   * Put the file's content into the editor as a CHANGE, keeping the reader where they were.
+   *
+   * The old path replaced the whole document, and every position inside a replaced range maps to its
+   * boundary — so the cursor jumped and the view scrolled away on every write. Here the shared head and
+   * tail are left untouched, the selection is mapped across what actually moved, and the scroll position
+   * is restored unless the reader was following the end, in which case it follows.
+   */
+  _applyDiskContent(newContent) {
+    this._baseline = newContent;
+    if (!this.editorView) { if (this.previewMode) this._renderPreview(); return; }
+
+    const change = window.textSyncChange(this.getContent(), newContent);
+    if (!change) return;
+
+    const scroller = this.editorView.scrollDOM;
+    const follow = scroller
+      ? window.isPinnedToBottom(scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight)
+      : false;
+    const scrollTop = scroller ? scroller.scrollTop : 0;
+    const sel = this.editorView.state.selection.main;
+
+    this.editorView.dispatch({
+      changes: change,
+      selection: { anchor: window.mapPosition(sel.anchor, change), head: window.mapPosition(sel.head, change) },
+      scrollIntoView: false,
+    });
+
+    if (scroller) {
+      // After the layout settles, not before — the document just got longer or shorter.
+      requestAnimationFrame(() => {
+        scroller.scrollTop = follow ? scroller.scrollHeight : scrollTop;
+      });
+    }
     if (this.previewMode) this._renderPreview();
   }
 

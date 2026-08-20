@@ -16,6 +16,7 @@
     "viewer-panel.js",
     "agent-file-filter.js",
     "plan-groups.js",
+    "text-sync.js",
     "file-panel.js",
     "color-utils.js",
     "backend-presets.js",

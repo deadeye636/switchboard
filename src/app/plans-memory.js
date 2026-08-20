@@ -33,6 +33,63 @@ let ctx = null;
  */
 function init(context) {
   ctx = context;
+  watchPlansDirs();
+}
+
+// --- The plans list, kept live (#452) ---------------------------------------------------------------
+//
+// The open document already refreshed itself; the LIST never did. `loadPlans()` ran on a tab switch and
+// nowhere else, so a plan an agent had just written did not appear, an existing row's timestamp was
+// frozen, and the list is sorted by that timestamp — the ordering the user was looking at was a snapshot
+// of whenever they last changed tabs.
+//
+// Only the plans directories are watched, and that is deliberate: they are flat and small. The other
+// lists this file serves walk project trees that reach tens of thousands of files, where a recursive
+// watch would cost more than the staleness it fixes.
+const plansWatchers = [];
+let plansChangeTimer = null;
+const PLANS_DEBOUNCE_MS = 400;
+
+function liveWindows() {
+  const out = [];
+  const main = ctx && typeof ctx.getMainWindow === 'function' ? ctx.getMainWindow() : null;
+  if (main && !main.isDestroyed()) out.push(main);
+  const others = ctx && typeof ctx.getDetachedWindows === 'function' ? ctx.getDetachedWindows() : [];
+  for (const win of others || []) {
+    if (win && !win.isDestroyed() && win !== main) out.push(win);
+  }
+  return out;
+}
+
+function announcePlansChanged() {
+  if (plansChangeTimer) clearTimeout(plansChangeTimer);
+  plansChangeTimer = setTimeout(() => {
+    // The signature guard would otherwise skip the reindex on a write that did not move any mtime the
+    // list had already seen — and the list about to be rebuilt is exactly the one asking for fresh rows.
+    invalidateFtsSignature('plan');
+    for (const win of liveWindows()) {
+      try { win.webContents.send('plans-changed'); } catch { /* a window on its way out */ }
+    }
+  }, PLANS_DEBOUNCE_MS);
+}
+
+function watchPlansDirs() {
+  stopWatchingPlansDirs();
+  for (const dir of plansDirs()) {
+    try {
+      if (!fs.existsSync(dir)) continue;
+      // A directory watch answers for a file appearing, being renamed and being removed — all three are
+      // list changes and none of them touches a file this side already had open.
+      plansWatchers.push(fs.watch(dir, () => announcePlansChanged()));
+    } catch { /* a plans dir that cannot be watched is one whose list simply stays as stale as before */ }
+  }
+}
+
+function stopWatchingPlansDirs() {
+  while (plansWatchers.length) {
+    try { plansWatchers.pop().close(); } catch { /* best effort */ }
+  }
+  if (plansChangeTimer) { clearTimeout(plansChangeTimer); plansChangeTimer = null; }
 }
 
 // The backends whose plans + instruction files this tab surfaces: every installed (ready) backend, not
@@ -770,4 +827,6 @@ module.exports = {
   invalidateFtsSignature,
   getPlans, readPlan, savePlan, getMemories, readMemory, saveMemory,
   getWorkFiles, readWorkFile, deleteWorkFile,
+  // The plans-directory watch (#452) — started by init, stopped by the ordered teardown.
+  stopWatchingPlansDirs,
 };

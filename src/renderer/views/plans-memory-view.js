@@ -27,6 +27,19 @@ async function loadPlans() {
   renderPlans();
 }
 
+// The list follows the directory (#452). Reloading only when the tab is on screen: a rebuild costs a read
+// of every plan file, and doing that for a panel nobody is looking at buys a list that is refreshed again
+// the moment the tab comes back anyway.
+//
+// Guarded because this file is loaded by pages that have no plans list at all.
+if (window.api && typeof window.api.onPlansChanged === 'function') {
+  window.api.onPlansChanged(() => {
+    const listVisible = plansContent && plansContent.style.display !== 'none';
+    const planViewVisible = planViewer && planViewer.style.display !== 'none';
+    if (listVisible || planViewVisible) loadPlans();
+  });
+}
+
 function renderPlans(plans) {
   plans = plans || cachedPlans;
   plansContent.innerHTML = '';

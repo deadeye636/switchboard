@@ -509,6 +509,10 @@ plansMemory.init({
   log,
   db: { getProjectStates, getProjectDisplayNames, getAllFolderMeta, deleteSearchType, upsertSearchEntries,
     getPlanRefAttributions },
+  // Who to tell when a plans directory changes (#452). Every window, not just main: a plans list is drawn
+  // wherever the user put it.
+  getMainWindow: () => mainWindow,
+  getDetachedWindows: () => [...detach.detachedWindows.values()],
 });
 plansMemory.registerIpc(ipcMain);
 
@@ -872,39 +876,12 @@ ipcMain.handle('save-file-for-panel', async (_event, filePath, content) => {
 });
 
 // ── File Watching (for viewer panels) ────────────────────────────────
-const fileWatchers = new Map(); // filePath → FSWatcher
-
-ipcMain.handle('watch-file', (_event, filePath) => {
-  const resolved = resolvePanelFilePath(filePath);
-  if (isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
-  if (fileWatchers.has(resolved)) return { ok: true };
-  try {
-    let debounce = null;
-    const watcher = fs.watch(resolved, (eventType) => {
-      if (eventType !== 'change') return;
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('file-changed', filePath);
-        }
-      }, 300);
-    });
-    fileWatchers.set(resolved, watcher);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
-});
-
-ipcMain.handle('unwatch-file', (_event, filePath) => {
-  const resolved = resolvePanelFilePath(filePath);
-  const watcher = fileWatchers.get(resolved);
-  if (watcher) {
-    watcher.close();
-    fileWatchers.delete(resolved);
-  }
-  return { ok: true };
-});
+// Moved into src/app/file-watch.js (#452). What lived here watched a file for the MAIN window only, kept
+// no refcount, and dropped `rename` — three ways for an open document to stop being live without anything
+// reporting a fault. The module takes the two path helpers from here because they are main's.
+const fileWatch = require('./app/file-watch');
+fileWatch.init({ resolvePanelFilePath, isSensitivePath });
+fileWatch.registerIpc(ipcMain);
 
 // Full re-scan triggered from the UI. Re-reads every jsonl file in the worker
 // thread, which is the only path that rebuilds search_fts with the live tail
@@ -2153,6 +2130,9 @@ const lifecycleCtx = {
   terminateScanWorker: () => sessionCache.terminateScanWorker(),
   terminateIndexWorker: () => indexWorker.terminate(),
   shutdownSearchClient: () => searchClient.shutdown(),
+  // Both viewer-side watches (#452): the per-file ones the panels hold and the plans-directory one
+  // that keeps the list live.
+  stopFileWatches: () => { fileWatch.closeAll(); plansMemory.stopWatchingPlansDirs(); },
   closeDb,
 };
 

@@ -402,4 +402,11 @@ contextBridge.exposeInMainWorld('api', {
     // (issue #75) — otherwise repeated instantiation leaks listeners.
     return () => ipcRenderer.removeListener('file-changed', listener);
   },
+  // A plans directory gained, lost or renamed a file (#452). The open document had its own watch already;
+  // this is the LIST, which used to refresh only when the tab was switched.
+  onPlansChanged: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('plans-changed', listener);
+    return () => ipcRenderer.removeListener('plans-changed', listener);
+  },
 });

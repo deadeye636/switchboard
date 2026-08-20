@@ -359,6 +359,13 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   commands, instructions) and by which CLI reads it, both at once, alongside the search. A file two
   backends declare — `AGENTS.md` belongs to Codex and Pi, `CLAUDE.md` to Claude and Pi — wears both
   badges and answers to both filters, rather than being attributed to whichever was asked first.
+- **A document stays live while an agent rewrites it** — the viewer already reloaded a file that changed
+  on disk, which was enough while the only writer was the user. Now the change arrives as a change: the
+  reading position and the cursor survive it, a document being appended to follows the writer if you were
+  already at the end, and it reaches whichever window the document was pushed to rather than the main one
+  only. If you have edits of your own when the file moves, nothing is overwritten in either direction —
+  a bar says so and offers to show you what changed, and a save over a file that moved underneath is
+  refused rather than silently winning.
 - **A plan knows its project** — plan documents are written into one flat directory under a generated
   name, with nothing in the file to say which project they belong to. The session that wrote the plan
   recorded a reference to it and knows its project, so the Plans list groups by that instead of showing one

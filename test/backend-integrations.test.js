@@ -197,6 +197,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/views/plans-memory-view.js': [],
   'src/renderer/views/agent-file-filter.js': [],
   'src/renderer/views/plan-groups.js': [],
+  'src/renderer/views/text-sync.js': [],
   // #439 — the capability matrix. It renders the catalog and the answers main sent it, so it names no
   // backend and holds no per-backend table; if it ever needs one, the descriptor is the place.
   'src/renderer/panels/backend-capabilities.js': [],

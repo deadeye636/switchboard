@@ -286,6 +286,9 @@ function registerQuitHandlers(ctx) {
   // Close SQLite after all windows are closed to avoid "connection is not open" errors
   app.on('will-quit', () => {
     step('closing the workers and the database');
+    // The file and directory watches the viewers hold (#452). An FSWatcher keeps a handle on the
+    // filesystem, and #397's whole point is that anything still open here is a handle we opened.
+    try { ctx.stopFileWatches(); } catch {}
     // Flush any debounced per-file re-index so the last transcript edits inside a
     // debounce window are persisted before we close the DB (perf review item H).
     try { ctx.flushPendingReindex(); } catch {}
