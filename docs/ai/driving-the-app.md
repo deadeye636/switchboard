@@ -206,6 +206,23 @@ Two things now stop it: every build takes the single-instance lock (dev included
 own `userData`, and Electron scopes the lock to `userData`), and `start:debug` refuses to launch when
 9222 is already bound (`scripts/check-debug-port.js`).
 
+**A refusal only helps if you read it.** The guard exits non-zero and explains itself — and then the
+old process is still answering on 9222, so `drive-app.js` connects, the console is clean and every
+query returns something sensible. The reading looks exactly like a successful one. There is no symptom
+to notice, because the symptom is that nothing changed.
+
+So the check after launching is the **exit code**, not whether CDP answers:
+
+```
+node scripts/demo-start.js --debug   # non-zero here means you are about to test the old build
+npm run stop:dev                     # …then this, and launch again
+```
+
+Backgrounding the launcher makes this easy to miss — the exit arrives as a notification long after the
+queries have already run. If a fix "does not work", check this before checking the fix. It cost a full
+round of live verification in the #455/#457 session, and the same trap in reverse is the one #220 was
+filed for.
+
 To run two dev builds deliberately: `SWITCHBOARD_ALLOW_MULTIPLE_INSTANCES=1`, or better, the two-var
 isolation in `docs/ai/running-and-data.md`. When stopping a leftover run, filter on
 `node_modules\electron\dist` and stop **only** those PIDs — a blanket kill of `electron.exe` takes
