@@ -196,6 +196,7 @@ const ALLOWED_BINDINGS = {
   // read call, which is data from main, never a literal it decides on.
   'src/renderer/views/plans-memory-view.js': [],
   'src/renderer/views/agent-file-filter.js': [],
+  'src/renderer/views/plan-groups.js': [],
   // #439 — the capability matrix. It renders the catalog and the answers main sent it, so it names no
   // backend and holds no per-backend table; if it ever needs one, the descriptor is the place.
   'src/renderer/panels/backend-capabilities.js': [],

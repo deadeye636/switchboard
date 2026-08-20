@@ -37,9 +37,61 @@ function renderPlans(plans) {
     plansContent.appendChild(empty);
     return;
   }
-  for (const plan of plans) {
-    plansContent.appendChild(buildPlanItem(plan));
+  // Grouped by project (#449). A plan's project comes from the session that wrote it, so the group is a
+  // fact about the plan rather than a folder it happens to sit in — every plan still lives in the same
+  // flat directory on disk.
+  for (const group of window.planGroups(plans)) {
+    plansContent.appendChild(buildPlanGroup(group));
   }
+}
+
+const planCollapsedState = new Map();
+
+function buildPlanGroup(group) {
+  const block = document.createElement('div');
+  block.className = 'project-group plan-group';
+  const isCollapsed = planCollapsedState.get(group.key) === true;
+  if (isCollapsed) block.classList.add('collapsed');
+
+  const header = document.createElement('div');
+  header.className = 'project-header';
+
+  const arrow = document.createElement('span');
+  arrow.className = 'arrow';
+  arrow.innerHTML = '&#9660;';
+  header.appendChild(arrow);
+
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'project-name';
+  nameSpan.textContent = window.planGroupLabel(group);
+  // The plans with no project are not an error state, and the header says why rather than shrugging.
+  if (!group.projectPath) {
+    nameSpan.classList.add('plan-group-orphans');
+    header.title = 'The session that wrote these plans is no longer on disk, so there is nothing left to '
+      + 'attribute them to.';
+  } else {
+    header.title = group.projectPath;
+  }
+  header.appendChild(nameSpan);
+
+  const count = document.createElement('span');
+  count.className = 'memory-file-count';
+  count.textContent = group.plans.length;
+  header.appendChild(count);
+
+  header.addEventListener('click', () => {
+    const nowCollapsed = !block.classList.contains('collapsed');
+    block.classList.toggle('collapsed');
+    planCollapsedState.set(group.key, nowCollapsed);
+  });
+  block.appendChild(header);
+
+  const list = document.createElement('div');
+  list.className = 'project-sessions';
+  for (const plan of group.plans) list.appendChild(buildPlanItem(plan));
+  block.appendChild(list);
+
+  return block;
 }
 
 function buildPlanItem(plan) {

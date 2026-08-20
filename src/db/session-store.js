@@ -104,6 +104,17 @@ const stmts = {
     + ' FROM session_cache WHERE projectPath IS NOT NULL'
     + ' GROUP BY projectPath, COALESCE(backendId, \'claude\') ORDER BY n DESC'
   ),
+  // Which project a session's plan belongs to (#449). A CLI that writes a plan document records its
+  // reference on the session, and the session knows its project — so the attribution the plan file itself
+  // carries nowhere is already in this table, served by idx_session_cache_slug.
+  //
+  // Newest first, because a reference is not unique: resuming or forking a session copies the plan, and a
+  // fork into a worktree can put the same reference under a second project. First row wins, and that is
+  // the most recent session that used it.
+  cachePlanRefs: db.prepare(
+    "SELECT slug, projectPath, sessionId, COALESCE(backendId, 'claude') AS backendId, modified"
+    + ' FROM session_cache WHERE slug IS NOT NULL AND projectPath IS NOT NULL ORDER BY modified DESC'
+  ),
   cacheGetFolder: db.prepare('SELECT folder FROM session_cache WHERE sessionId = ?'),
   cacheGetSession: db.prepare('SELECT * FROM session_cache WHERE sessionId = ?'),
   cacheDeleteSession: db.prepare('DELETE FROM session_cache WHERE sessionId = ?'),
@@ -293,6 +304,30 @@ function getFolderLineage(folder, scope) {
 }
 
 /**
+ * Every plan reference the session cache knows, as `ref -> { projectPath, sessionId, backendId }` (#449).
+ *
+ * A plan document names no project and its filename carries nothing, but the session that produced it
+ * recorded a reference to it, and that session knows its project. This is the whole of the attribution.
+ *
+ * A Map rather than a query per plan: the list resolves every row it is about to draw, so one pass over
+ * an indexed column beats one statement per plan. The first row for a reference wins and the statement
+ * orders newest first — a reference belongs to several sessions once a plan has been carried into a
+ * resumed or forked one, and a fork into a worktree can even put it under a second project.
+ *
+ * It is DERIVED, not stored: a session whose transcript has been cleaned up takes its answer with it.
+ * That is deliberate for now — how large that residue turns out to be is what decides whether the
+ * mapping has to be kept in a table of its own.
+ */
+function getPlanRefAttributions() {
+  const out = new Map();
+  for (const row of stmts.cachePlanRefs.all()) {
+    if (!row || !row.slug || out.has(row.slug)) continue;
+    out.set(row.slug, { projectPath: row.projectPath, sessionId: row.sessionId, backendId: row.backendId || null });
+  }
+  return out;
+}
+
+/**
  * Every cached session of a project, whatever backend wrote it — with the path to its transcript (#171).
  *
  * A remap has to move a project's sessions, and they do not all live in Claude's store: a project's
@@ -405,7 +440,7 @@ function setFolderMeta(folder, projectPath, indexMtimeMs) {
 
 module.exports = {
   isCachePopulated, getAllCached, getCachedByFolder, getFolderLineage, getCachedByParent,
-  getCachedByProjectPath,
+  getCachedByProjectPath, getPlanRefAttributions,
   getBackendsByProjectPath, getCachedFolder, getCachedSession, upsertCachedSessions,
   deleteCachedSession, deleteCachedFolder, setSessionLineage,
   replaceSessionMetrics,

@@ -144,7 +144,7 @@ const {
   getMeta, getAllMeta, toggleStar, setName, setArchived,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
-  setProjectState, getProjectStates, getProjectTombstones,
+  setProjectState, getProjectStates, getProjectTombstones, getPlanRefAttributions,
   renameProjectRefs, deleteProjectRefs,
   toggleBookmark, removeBookmark, listBookmarks,
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
@@ -507,7 +507,8 @@ plansMemory.init({
   backends,
   activeSessions,
   log,
-  db: { getProjectStates, getProjectDisplayNames, getAllFolderMeta, deleteSearchType, upsertSearchEntries },
+  db: { getProjectStates, getProjectDisplayNames, getAllFolderMeta, deleteSearchType, upsertSearchEntries,
+    getPlanRefAttributions },
 });
 plansMemory.registerIpc(ipcMain);
 

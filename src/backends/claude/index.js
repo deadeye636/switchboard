@@ -466,6 +466,14 @@ module.exports = {
   // Where Claude keeps its plan documents (#227) — the Plans tab reads every launchable backend's plansDir
   // and shows nothing for a backend that has none. ~/.claude/plans, or the isolated home under a demo run.
   plansDir: () => path.join(claudeHome(), 'plans'),
+  // How one of THIS backend's plan files is referred to in its sessions (#449). A plan document carries no
+  // project of its own — the session that wrote it does, and it records the plan under this reference.
+  // Claude's is the filename without its extension: the same generated slug the session line carries.
+  //
+  // Optional, and it belongs to whoever declares `plansDir` — a backend with no plans store has nothing to
+  // name. The core does the lookup and never learns what the string means, which is what keeps a slug from
+  // becoming a Claude-ism in the middle of the Plans list.
+  planRef: (filePath) => path.basename(filePath || '').replace(/\.md$/i, '') || null,
   // The memory / instruction files Claude exposes for one scope (#227). Global = its home-level files; a
   // project = its store-side .md files (per store folder — legacy encodings mean several, plus the
   // canonical encoded name so a not-yet-indexed project still resolves) and the project-root CLAUDE.md +

@@ -117,6 +117,7 @@ module.exports = {
   getFolderLineage: sessionStore.getFolderLineage,
   getCachedByParent: sessionStore.getCachedByParent,
   getCachedByProjectPath: sessionStore.getCachedByProjectPath,
+  getPlanRefAttributions: sessionStore.getPlanRefAttributions,
   getBackendsByProjectPath: sessionStore.getBackendsByProjectPath,
   getCachedFolder: sessionStore.getCachedFolder,
   getCachedSession: sessionStore.getCachedSession,

@@ -317,10 +317,46 @@ function resourceGroups(projectPath, seen) {
 
 // --- Plans ---
 
+// Which project each plan belongs to (#449).
+//
+// The file cannot say: its name is generated and it carries no header. The SESSION that wrote it can —
+// it records a reference to the plan, and it knows its project. So the answer is a lookup, not a guess.
+//
+// The backend that owns the plans store says how one of its files is referred to (`planRef`); the core
+// never learns what that string means. A backend that declares no such hook gets no attribution, which
+// is the honest answer for one whose plans nothing has ever recorded.
+//
+// DERIVED on the spot rather than stored: a plan whose session has been cleaned off disk has no answer
+// here, and is then listed without a project rather than dropped.
+function attributePlans(plans, refOf) {
+  let attributions;
+  try {
+    attributions = ctx.db.getPlanRefAttributions();
+  } catch (err) {
+    // Loud on purpose. `ctx.db` is an enumerated surface built in main.js, so a reader missing from it
+    // throws here — and a silent catch turned that into "no plan has a project", which looks exactly like
+    // a machine whose sessions have all been cleaned up. It cost a full round of tests-green-click-dead.
+    ctx.log.warn('[plans] no attribution available:', err && err.message);
+    return;
+  }
+  let names;
+  try { names = ctx.db.getProjectDisplayNames(); } catch { names = new Map(); }
+  for (const plan of plans) {
+    const ref = refOf.get(plan.filePath);
+    const hit = ref ? attributions.get(ref) : null;
+    if (!hit) continue;
+    plan.projectPath = hit.projectPath;
+    plan.sessionId = hit.sessionId;
+    plan.shortName = projectShortName(hit.projectPath);
+    plan.displayName = names.get(hit.projectPath) || '';
+  }
+}
+
 function getPlans() {
   const plans = [];
   const sigFiles = [];
   const bodies = new Map(); // filePath -> content (single read: title + FTS body)
+  const refOf = new Map();  // filePath -> the reference its own backend knows it by
   let hasStore = false;
   for (const b of memoryBackends()) {
     let dir = null;
@@ -336,20 +372,37 @@ function getPlans() {
         const content = fs.readFileSync(filePath, 'utf8');
         const firstLine = content.split('\n').find(l => l.trim());
         const title = firstLine && firstLine.startsWith('# ') ? firstLine.slice(2).trim() : file.replace(/\.md$/, '');
-        plans.push({ filename: file, filePath, title, modified: stat.mtime.toISOString() });
+        plans.push({ filename: file, filePath, title, modified: stat.mtime.toISOString(), backendId: b.id });
         bodies.set(filePath, content);
         sigFiles.push({ filePath, mtimeMs: stat.mtimeMs, size: stat.size });
+        if (typeof b.planRef === 'function') {
+          try { const ref = b.planRef(filePath); if (ref) refOf.set(filePath, ref); } catch {}
+        }
       } catch {}
     }
   }
+  attributePlans(plans, refOf);
   plans.sort((a, b) => new Date(b.modified) - new Date(a.modified));
 
   try {
-    const sig = computeIndexSignature(sigFiles);
+    // The signature carries the ATTRIBUTION as well as the file, because the attribution is what the
+    // indexed title is built from and it changes without any plan file being touched — a project renamed,
+    // a session scanned for the first time. On mtime and size alone the index would be right on the day it
+    // was written and wrong from then on.
+    const attributedBy = new Map(plans.map(p => [p.filePath, p.displayName || p.shortName || '']));
+    const sig = computeIndexSignature(sigFiles.map(f => ({ ...f, filePath: f.filePath + '\x00' + (attributedBy.get(f.filePath) || '') })));
     if (shouldReindex('plan', sig)) {
       ctx.db.deleteSearchType('plan');
       ctx.db.upsertSearchEntries(plans.map(p => ({
-        id: p.filePath, type: 'plan', folder: null, title: p.title, body: bodies.get(p.filePath) || '',
+        // The project rides in the TITLE, not only in `folder`: the search worker's query filters on type
+        // and matches the FTS text, and nothing there reads `folder` — so a project written into that
+        // column alone would be a fact no query could reach. In the title it is searchable today, which
+        // is how the memory index already names its scope.
+        id: p.filePath, type: 'plan', folder: p.projectPath || null,
+        title: (p.displayName || p.shortName)
+          ? (p.displayName || p.shortName) + ' ' + p.title
+          : p.title,
+        body: bodies.get(p.filePath) || '',
       })));
     }
   } catch {}

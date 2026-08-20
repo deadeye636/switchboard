@@ -269,6 +269,24 @@ test('every backend declares plansDir and memorySources — a store or an honest
   }
 });
 
+// #449: a plan document names no project, so the project comes from the session that wrote it — and the
+// session records the plan under a reference only its own backend can derive from the file. `planRef` is
+// that derivation, optional and bound to `plansDir`: a backend with no plans store has nothing to name,
+// and one that has a store but declares no `planRef` gets no attribution rather than a guessed one.
+test('planRef belongs to a backend that has a plans store, and answers with a string or null', () => {
+  for (const b of READY) {
+    const id = b.id;
+    if (typeof b.planRef !== 'function') {
+      continue; // declining is a valid answer — the plans then list without a project
+    }
+    assert.ok(b.plansDir(), `${id} declares planRef but no plansDir — a reference to plans it does not keep`);
+    const ref = b.planRef(require('path').join(b.plansDir(), 'some-plan.md'));
+    assert.ok(ref === null || typeof ref === 'string', `${id}.planRef() must be a string or null`);
+    assert.doesNotThrow(() => b.planRef(''), `${id}.planRef must survive an empty path`);
+    assert.doesNotThrow(() => b.planRef(null), `${id}.planRef must survive a missing path`);
+  }
+});
+
 // #211: per-project config/meta is an OPTIONAL capability. A backend that keeps a projects table in its
 // own config (Claude's ~/.claude.json) declares projectMeta; one that keeps none declares nothing, and
 // the admin shows no columns for it rather than borrowing Claude's. When present, it must be complete.

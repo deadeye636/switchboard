@@ -15,6 +15,7 @@
     "viewer-toolbar.js",
     "viewer-panel.js",
     "agent-file-filter.js",
+    "plan-groups.js",
     "file-panel.js",
     "color-utils.js",
     "backend-presets.js",

@@ -5096,6 +5096,20 @@ mark.jsonl-search-hit-active {
   transform: rotate(-90deg);
 }
 
+/* Collapse/expand for plan groups (#449) — the plans list groups by the project its session belonged to. */
+#plans-content .project-group.collapsed .project-sessions {
+  display: none;
+}
+#plans-content .project-group.collapsed .arrow {
+  transform: rotate(-90deg);
+}
+/* The group of plans nothing can be attributed to. Stated, not hidden — and quieter than a real project,
+   because it is a fact about the record, not a place. */
+#plans-content .plan-group-orphans {
+  font-style: italic;
+  opacity: 0.75;
+}
+
 /* ========== WORK FILES VIEWER ========== */
 /* The tab is gone (#448) — its rows are in the Agent Files list. The viewer stayed: it is the panel
    that can delete, which is how deleting remains bound to work files alone. */

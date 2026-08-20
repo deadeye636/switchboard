@@ -359,6 +359,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   commands, instructions) and by which CLI reads it, both at once, alongside the search. A file two
   backends declare — `AGENTS.md` belongs to Codex and Pi, `CLAUDE.md` to Claude and Pi — wears both
   badges and answers to both filters, rather than being attributed to whichever was asked first.
+- **A plan knows its project** — plan documents are written into one flat directory under a generated
+  name, with nothing in the file to say which project they belong to. The session that wrote the plan
+  recorded a reference to it and knows its project, so the Plans list groups by that instead of showing one
+  undifferentiated pile. A plan whose session is no longer on disk keeps its place in a group of its own
+  that says so, rather than being dropped or labelled as an error.
 - **Work files in the same list** — a project's `.work-files/` directory is one more group under that
   project, beside its instruction files and its skills, instead of a sidebar tab of its own. Filtering
   to Work files is what the tab used to be. Deleting stayed with them and with nothing else: a work file
