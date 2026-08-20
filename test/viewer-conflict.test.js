@@ -68,14 +68,19 @@ function setupPanelDom() {
   // The real one is CodeMirror's merge view, out of reach here. What the panel needs from it is that it
   // exists and paints something into the host it is handed — which is enough to tell an open
   // side-by-side view from a closed one.
+  // The real one returns a CodeMirror MergeView — two EditorViews with observers on each — and the
+  // panel is obliged to destroy it before taking its DOM away. So the stub returns something with a
+  // `destroy`, and counts the calls: a leak has no visible symptom, and this is the only place that can
+  // see one.
+  const merges = { made: 0, destroyed: 0, live: () => merges.made - merges.destroyed };
   window.createMergeViewer = (host, theirs, mine) => {
     host.dataset.theirs = theirs;
     host.dataset.mine = mine;
-    // The real one fills the host with an editor. Appending something keeps "is anything drawn here"
-    // an honest question for the panel to ask.
     const pane = host.ownerDocument.createElement('div');
     pane.className = 'merge-stub';
     host.appendChild(pane);
+    merges.made += 1;
+    return { destroy() { merges.destroyed += 1; } };
   };
 
   window.previewKindForExt = (ext) => (ext === 'md' ? 'markdown' : 'text');
@@ -126,6 +131,7 @@ function setupPanelDom() {
     window,
     container,
     disk,
+    merges,
     write: (text) => { disk.content = text; },
     fire: (p) => { if (fileChangedListener) fileChangedListener(p); },
     destroy: () => window.close(),
@@ -445,21 +451,98 @@ test('Reload after a mid-read change applies what the view was showing', async (
   } finally { ctx.destroy(); }
 });
 
-test('a second write that matches what is already shown changes nothing', async () => {
+test('the announcement tells a real second write from an empty one', async () => {
+  // Both halves in one test on purpose. Asserting only "nothing changed" passes against code that can
+  // never change anything, which is exactly the pre-fix behaviour it is meant to guard against.
   const ctx = setupPanelDom();
   try {
     const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
     await raiseConflict(ctx, panel);
     panel.conflictBar.showBtn.click();
-    const note = diffNote(panel);
+    const firstNote = diffNote(panel);
 
     // A watcher fires on a touch as readily as on a rewrite. Announcing "it changed again" for a write
     // that changed nothing would train the reader to ignore the line that matters.
     ctx.fire(panel._watchedPath);
     await settle();
-
-    assert.equal(diffNote(panel), note, 'no announcement for a write with nothing in it');
+    assert.equal(diffNote(panel), firstNote, 'no announcement for a write with nothing in it');
     assert.match(panel.conflictBar.msg.textContent, /while you were editing/);
+
+    // ...and the same panel, one real write later, must move. Without this half the assertion above is
+    // true of a panel that cannot announce anything at all.
+    ctx.write('genuinely different\n');
+    ctx.fire(panel._watchedPath);
+    await settle();
+    assert.notEqual(diffNote(panel), firstNote, 'a real second write is announced');
+    assert.match(panel.conflictBar.msg.textContent, /changed on disk again/);
+  } finally { ctx.destroy(); }
+});
+
+// --- the merge editors are given back ------------------------------------------
+
+test('a repaint destroys the view it replaces', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+    panel.conflictBar.showBtn.click();
+    assert.equal(ctx.merges.live(), 1);
+
+    for (const text of ['second\n', 'third\n', 'fourth\n']) {
+      ctx.write(text);
+      ctx.fire(panel._watchedPath);
+      await settle();
+    }
+
+    assert.equal(ctx.merges.made, 4, 'one view per version shown');
+    assert.equal(ctx.merges.live(), 1, 'and only ever one of them alive');
+  } finally { ctx.destroy(); }
+});
+
+test('closing the view gives the last one back too', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+
+    panel.conflictBar.showBtn.click();
+    panel.conflictBar.keepBtn.click();
+    assert.equal(ctx.merges.live(), 0, 'answering the bar took the editors with the overlay');
+
+    // ...and the Back button, by the same route.
+    ctx.write('again\n');
+    ctx.fire(panel._watchedPath);
+    await settle();
+    panel.conflictBar.showBtn.click();
+    assert.equal(ctx.merges.live(), 1);
+    panel._conflictDiffEl.querySelector('.viewer-conflict-diff-head button').click();
+    assert.equal(ctx.merges.live(), 0);
+  } finally { ctx.destroy(); }
+});
+
+test('the bar still says the file moved when the merge viewer refuses', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+    panel.conflictBar.showBtn.click();
+
+    // The one step in here that runs someone else's code. If it throws, what must survive is the part
+    // the user acts on: the panel still says the file moved, and the buttons still work.
+    ctx.window.createMergeViewer = () => { throw new Error('merge view unavailable'); };
+    ctx.write('second\n');
+    // No try here on purpose: this runs on the reload path, so an escaping throw would surface as an
+    // unhandled rejection and take the refresh with it. The panel has to swallow it, not the test.
+    ctx.fire(panel._watchedPath);
+    await settle();
+
+    assert.match(panel.conflictBar.msg.textContent, /changed on disk again/);
+    assert.equal(panel.conflictBar.el.style.display !== 'none', true);
+    assert.equal(panel._conflict.diskContent, 'second\n');
+    assert.equal(!!panel._conflictDiffEl, false, 'the view that failed is gone, not left half-drawn');
+    // And the bar still answers — a broken diff must not cost the user the decision.
+    panel.conflictBar.reloadBtn.click();
+    assert.equal(panel.getContent(), 'second\n');
   } finally { ctx.destroy(); }
 });
 

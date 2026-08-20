@@ -109,6 +109,9 @@ class ViewerPanel {
     // behind it; the text either changed or it did not.
     this._baseline = null;
     this._conflict = null;   // { diskContent } while the panel is holding edits the file has moved past
+    this._conflictDiffEl = null;      // the side-by-side overlay, while it is open
+    this._conflictDiffNote = null;    // its heading, which says whether the disk side moved under it
+    this._conflictMergeView = null;   // the MergeView inside it — held so it can be destroyed (#456)
 
     // Create toolbar — always include the mode control, wrap and save; visibility
     // managed in open()
@@ -853,16 +856,31 @@ class ViewerPanel {
     // save, or by the file coming back into step on its own — it is showing two versions that no longer
     // stand against each other, so it goes with it.
     if (!this._conflict) this._closeConflictDiff();
-    // …and while it stands, it follows. Repainting from the CURRENT `_conflict` is what keeps "Reload"
-    // honest: both read the same field, so what the button applies is what the view showed.
-    else if (moved) this._paintConflictDiff(true);
 
-    if (!this.conflictBar) return;
-    if (!this._conflict) { this.conflictBar.el.style.display = 'none'; return; }
-    this.conflictBar.msg.textContent = moved
-      ? 'This file changed on disk again — what you are being asked about has been updated.'
-      : 'This file changed on disk while you were editing it.';
-    this.conflictBar.el.style.display = '';
+    if (this.conflictBar) {
+      if (!this._conflict) {
+        this.conflictBar.el.style.display = 'none';
+      } else {
+        this.conflictBar.msg.textContent = moved
+          ? 'This file changed on disk again — what you are being asked about has been updated.'
+          : 'This file changed on disk while you were editing it.';
+        this.conflictBar.el.style.display = '';
+      }
+    }
+
+    // The repaint goes LAST, and inside a guard. It is the only step here that runs someone else's code,
+    // and this runs on the reload path — an exception escaping would surface as an unhandled rejection
+    // and take the refresh down with it. If the merge viewer refuses, the state above is already
+    // consistent: the panel says the file moved, and the side-by-side view is the part that failed
+    // rather than the part that is lying. So the view goes, and the notice stays.
+    if (this._conflict && moved) {
+      try {
+        this._paintConflictDiff(true);
+      } catch (err) {
+        this._closeConflictDiff();
+        window.showControlToast?.('The diff viewer stopped working; the notice above is still current.');
+      }
+    }
   }
 
   _resolveConflict(answer) {
@@ -948,9 +966,14 @@ class ViewerPanel {
     // Told, not inferred. Whether this is a repaint is the CALLER's fact; reading it off the host would
     // make the heading depend on what the merge viewer happens to put in there.
     const repaint = moved;
+    // A MergeView is two EditorViews with observers on each, and `replaceChildren` takes the DOM without
+    // telling them. That was survivable while the view was built once; repainting on every write turns it
+    // into one abandoned pair per write. `file-panel.js` destroys its diff editors for the same reason.
+    this._destroyConflictMergeView();
     host.replaceChildren();
     // "Theirs" then "mine", the order every merge tool uses.
-    window.createMergeViewer(host, this._conflict.diskContent, this.getContent(), this.filePath || '');
+    this._conflictMergeView = window.createMergeViewer(
+      host, this._conflict.diskContent, this.getContent(), this.filePath || '') || null;
     if (this._conflictDiffNote) {
       // The heading is where a reader looks to find out what they are looking at, so it carries the fact
       // that it is not what they opened.
@@ -960,8 +983,18 @@ class ViewerPanel {
     }
   }
 
+  /** Give the merge editors back before their DOM goes. Safe when there is none. */
+  _destroyConflictMergeView() {
+    const view = this._conflictMergeView;
+    this._conflictMergeView = null;
+    if (view && typeof view.destroy === 'function') {
+      try { view.destroy(); } catch { /* a view that is already gone is the state we wanted */ }
+    }
+  }
+
   _closeConflictDiff() {
     if (!this._conflictDiffEl) return;
+    this._destroyConflictMergeView();
     this._conflictDiffEl.remove();
     this._conflictDiffEl = null;
     this._conflictDiffNote = null;
