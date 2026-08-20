@@ -132,11 +132,12 @@ function scheduleRetry(resolved, entry) {
     const live = entries.get(resolved);
     if (!live || live !== entry) return;          // closed, or replaced by a fresh entry
     if (live.watcher) { live.state = 'watching'; return; }
-    if (!fs.existsSync(resolved)) {
-      live.retryDelay = Math.min(live.retryDelay * 2, REWATCH_MAX_MS);
-      scheduleRetry(resolved, live);
-      return;
-    }
+    // Backing off belongs to the ATTEMPT, not to one of its two failure modes. It used to be doubled
+    // only when the file was still missing, so an `attach` that kept throwing — EMFILE, a watch
+    // descriptor shortage, a permission race — retried at 120 ms until the window ran out. That is the
+    // case where backing off matters most, and it was the one case without it.
+    live.retryDelay = Math.min(live.retryDelay * 2, REWATCH_MAX_MS);
+    if (!fs.existsSync(resolved)) { scheduleRetry(resolved, live); return; }
     // It is back. Whatever is there now is not what the subscribers were shown, so they are told —
     // re-attaching without notifying is how a rewritten file reads as unchanged.
     if (attach(resolved, live).ok) notify(resolved);
@@ -206,7 +207,10 @@ function watchFile(wc, filePath) {
     entry = { watcher: null, state: 'waiting', retryTimer: null, retryDelay: REWATCH_MS, retryUntil: 0, subscribers: new Map() };
     entries.set(resolved, entry);
     const started = attach(resolved, entry);
-    if (!started.ok) { entries.delete(resolved); return started; }
+    // Through `closeEntry`, not `entries.delete`. A brand-new entry has no timer today, so the two are
+    // the same thing — but that is an invariant nobody states, and the day `attach`'s catch schedules
+    // one, the direct delete would leak it silently. One way out of the map.
+    if (!started.ok) { closeEntry(resolved); return started; }
   } else if (!entry.watcher) {
     // An entry that is waiting, or one that gave up, gets another go — reopening the document is exactly
     // the moment to try again, and the second subscriber of a dead entry used to be handed `{ ok: true }`

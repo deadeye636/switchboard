@@ -6,7 +6,12 @@ const fs = require('fs');
 const os = require('os');
 const log = require('electron-log');
 // A caught error's own text names the file it failed on, and these handlers answer the renderer (#457).
-const { readableError } = require('./app/readable-error');
+const { readableError, guardIpcHandlers } = require('./app/readable-error');
+
+// FIRST, before a single handler is registered anywhere — in this file or in any `src/app/` module that
+// takes `ipcMain` from here. A handler registered before this line keeps the old behaviour, and the
+// failure is invisible: it only shows up the day that one throws. The reasoning is in the helper.
+guardIpcHandlers(ipcMain, log);
 // getFolderIndexMtimeMs moved to session-cache.js
 const { shouldNoticeMissingRecord, missingRecordMessage } = require('./app/terminal/live-record-notice');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, hasPendingDiffsForWindow, rejectPendingDiffsForWindow, rekeyMcpServer, cleanStaleLockFiles } = require('./servers/mcp-bridge');
@@ -885,7 +890,7 @@ ipcMain.handle('save-file-for-panel', async (_event, filePath, content) => {
 // no refcount, and dropped `rename` — three ways for an open document to stop being live without anything
 // reporting a fault. The module takes the two path helpers from here because they are main's.
 const fileWatch = require('./app/file-watch');
-fileWatch.init({ resolvePanelFilePath, isSensitivePath });
+fileWatch.init({ resolvePanelFilePath, isSensitivePath, log });
 fileWatch.registerIpc(ipcMain);
 
 // Full re-scan triggered from the UI. Re-reads every jsonl file in the worker
