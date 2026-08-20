@@ -411,3 +411,35 @@ had worked four times before.
 - If a script must do the replacing, force the shape: `@(,@('old','new'))`, or iterate an array of
   hashtables. Never index into a loop variable whose type you have not pinned.
 - Commit before running a rewrite over a file you have uncommitted work in.
+
+## An enumerated ctx is a place a reader can go missing (#449)
+
+The plans list gained a project per row, read through `ctx.db.getPlanRefAttributions()`. The suite was
+green, the probe against a real database answered with twelve attributions, and the app showed every
+plan as unattributed.
+
+`ctx.db` is not the database module. It is an object literal built in `main.js` naming exactly the
+readers a module may use — so a reader added to `db.js` and used in `src/app/**` throws until it is
+added there too. The `catch` around the call turned that throw into "no plan has a project", which is
+indistinguishable from a machine whose sessions have all been cleaned up.
+
+- **A catch around a dependency lookup must say something.** The one that swallowed this now logs, and
+  the difference between "there is nothing to attribute" and "the reader is missing" is one line in the
+  log instead of a silent shrug.
+- The probe was not wrong and neither was the suite: both asked the database. Neither could ask the
+  question the app asks, which is whether the module can *reach* the database. The click could.
+
+## The neutrality guard catches what an id-hunt cannot (#450)
+
+Pointing a project's CLIs at a plans directory needs to know which file to write. The first version put
+`path.join(projectPath, '.claude', 'settings.local.json')` in `src/app/plans-memory.js` — no backend id
+anywhere in it, and `test/backend-path-neutrality.test.js` failed anyway: a hardcoded store path is a
+backend id the id-hunt cannot see.
+
+The fix was the seam, not an allow-list entry: a backend declares `planDirSetup` and answers with the
+file, its current contents and what they would become. Which config file a CLI reads is the CLI's
+business, and the core is better off not knowing.
+
+Worth remembering when the same shape appears again: the guard is not being pedantic about a string. A
+`.claude` literal in the core is the point where a second backend's version of the feature becomes a
+branch instead of an answer.

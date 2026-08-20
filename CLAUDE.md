@@ -30,6 +30,7 @@ table is the fallback and it is binding.
 | `src/db/**`, `src/index/**`, `src/workers/**` | `.claude/rules/db.md` |
 | `src/backends/**`, `src/session/**`, `src/servers/**`, `src/projects/**`, `src/vcs/**` | `.claude/rules/backends.md` |
 | `docs/**`, `README.md` | `.claude/rules/docs.md` |
+| plans — the list, the picker, the convention, the viewer's liveness | `docs/specs/20-plans.md` (why) + `docs/plans-convention.md` (what) |
 | a release, a tag, an installer | `docs/ai/release.md` |
 | the human-facing build/run/package instructions | `docs/development.md` |
 | running/verifying, databases, store isolation | `docs/ai/running-and-data.md` |

@@ -21,7 +21,10 @@ moving them buys churn).
 `notifications.js`, `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`,
 `settings-transfer.js`, `backend-models.js` + `backend-resources.js` (backend-owned model and
 resource discovery — the core asks the descriptor, each backend owns how it shells out and fails),
-`plans-memory.js` (Plans/Memory/Work-Files tabs — #227),
+`plans-memory.js` (the Plans and Agent Files tabs — #227; work files lost their own tab in #448 and
+are one group in Agent Files, and #450 put the plan convention here too),
+`file-watch.js` (keeping an open document live while something else rewrites it — #452; the watch
+moved out of main.js because it only ever told the main window and kept no refcount),
 `vcs.js` (the VCS poller + its standalone windows — #277), `detach.js` (detached session
 windows — #2, and since #316 which window renders which session), `presence.js` (is the USER at the
 machine — #386; one global fact, because every renderer has its own `windowFocused` and none can see

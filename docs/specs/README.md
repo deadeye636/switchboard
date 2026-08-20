@@ -31,6 +31,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 17 | [Detached session windows](17-detached-windows.md) — **built**; the routing separation, the one-session-one-renderer invariant, and (#316) a window owning a set of sessions that move in any direction | #2 | No — main-process routing + every renderer mount path |
 | 18 | [Pi RPC runtime evaluation](18-pi-rpc-evaluation.md) — **evaluated**; keep Pi on PTY/TUI for now, revisit RPC as a separate structured-runtime capability | #413 | No — future runtime architecture |
 | 19 | [Live Preview + formatting bar in the internal editor](19-editor-live-preview.md) — **built**; the Obsidian model (decorations over the source, never a serialiser), three modes, the read-only pin, and the sanitiser claim that turned out to be false | #281 | Yes — the viewer, plus one module inside the CodeMirror bundle |
+| 20 | [Plans](20-plans.md) — **built**; why a plan file carries no identity and cannot be given one, the attribution that was already indexed, the three refusals Claude makes silently, and why the app reads plans but does not write them | #448–#454 | Yes — the plans list, the picker, and the viewer's liveness |
 
 ## Shared architecture (read once, applies to all specs)
 

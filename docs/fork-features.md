@@ -355,6 +355,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   behaviour from, beside the instruction files it already showed. A customization directory is one row
   that opens into its entries, and an entry opens in the built-in viewer instead of being handed to the
   system.
+- **Every CLI that reads a file is credited on it** — a project's `AGENTS.md` is Codex', Pi's and
+  Hermes'; `CLAUDE.md` is Claude's, Pi's and Hermes'. Hermes had declared no per-project instruction
+  files at all while its own launch option offered to skip them, so a Hermes-only project showed nothing;
+  its own source settles the set, and files without an extension (`.cursorrules`) open like the rest.
 - **Filtered by type and by backend** — the Agent Files tab filters by what a file IS (skills, rules,
   commands, instructions) and by which CLI reads it, both at once, alongside the search. A file two
   backends declare — `AGENTS.md` belongs to Codex and Pi, `CLAUDE.md` to Claude and Pi — wears both

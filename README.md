@@ -114,8 +114,14 @@ chart rather than a row of zeroes.
   → [spec 15](docs/specs/15-vcs-status.md)
 - **Grid overview** — every open session as a live terminal card, resizable and drag-reorderable,
   with status filters and bulk actions
-- **Plans & memory** — browse and edit plan files and each backend's memory files (CLAUDE.md,
-  AGENTS.md, GEMINI.md) across every project the app knows
+- **Plans** — every plan document grouped by the project it belongs to, whether the CLI wrote it into
+  its own home or the project keeps its own `docs/plans/`. A shortcut hands one to the running terminal
+  as a reference, and a project can point its CLIs at one directory so a plan written in Claude is
+  readable by whatever runs next. → [the convention](docs/plans-convention.md)
+- **Agent files** — browse and edit every instruction file, skill, rule and work file each backend
+  reads, filtered by type and by backend, with each row saying which CLIs actually read it
+- **Documents stay live** — a file open in the viewer follows an agent rewriting it, keeping your
+  place in it, and says so instead of overwriting when both of you have changed it
 - **Stats** — heatmap, per-backend tokens and cost, model share, and a when-you-work grid, all behind
   one backend filter
 - **Usage monitoring** — a status-bar segment per backend that reports a quota, with a durable cache

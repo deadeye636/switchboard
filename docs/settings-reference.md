@@ -216,6 +216,7 @@ character `\` could not be pressed on any keyboard (#353). The four punctuation 
 | `toggleBookmark` | Bookmark message | primary+Shift+B |
 | `createTask` | Create task | primary+Shift+T |
 | `insertVariable` | Insert variable | primary+Shift+V |
+| `insertPlan` | Insert plan | primary+Shift+P |
 | `gridToggle` | Toggle grid view | primary+Shift+G |
 | `gridMoveMode` | Move / resize grid card | primary+Shift+M |
 | `paneSplit` | Split pane to the right (panes mode) | primary+Shift+`\` |
