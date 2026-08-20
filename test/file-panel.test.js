@@ -697,3 +697,74 @@ test('a preview opened over a review does not hide it (#398)', async () => {
     assert.deepEqual(h.calls.diffResponses, [], 'and it was not answered to make room');
   } finally { h.destroy(); }
 });
+
+// --- #458 outside panes: a switch away and back is not a re-open ------------------------------
+//
+// The side panel shows one entry at a time and `switchPanel` hides it for the session being left,
+// which takes the entry's root out of the DOM. Coming back re-ran `instance.render()` — and render
+// used to call `viewerPanel.open()` unconditionally, which writes `tab.content` (the file AS FIRST
+// READ) back into the editor. Measured in the running app before this changed: an edit made without
+// saving was gone after one switch away and back. What is safe to repeat is the reveal, not the open.
+
+test('#458: switching away and back does not re-open the file', async () => {
+  const h = setupFilePanelDom();
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.files.set('/notes.md', 'first line\nsecond line\n');
+    await h.openFileInPanel('s1', '/notes.md');
+    await h.settle();
+    assert.deepEqual(h.calls.viewerOpens, [['notes.md', '/notes.md']], 'opened once');
+
+    h.switchPanel('s2');
+    await h.settle();
+    h.switchPanel('s1');
+    await h.settle();
+
+    assert.deepEqual(h.calls.viewerOpens, [['notes.md', '/notes.md']],
+      'still once — a second open would have overwritten whatever was typed since the first');
+  } finally { h.destroy(); }
+});
+
+test('#458: a different file in the same panel still opens', async () => {
+  // The guard is "this file is already open", not "never open again". Getting that wrong would leave
+  // the panel showing the previous document under the new one's name.
+  const h = setupFilePanelDom();
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.files.set('/a.md', 'A');
+    h.files.set('/b.md', 'B');
+    await h.openFileInPanel('s1', '/a.md');
+    await h.settle();
+    await h.openFileInPanel('s1', '/b.md');
+    await h.settle();
+
+    assert.deepEqual(h.calls.viewerOpens, [['a.md', '/a.md'], ['b.md', '/b.md']]);
+  } finally { h.destroy(); }
+});
+
+test('#458: the side panel comes back where it was scrolled to', async () => {
+  const h = setupFilePanelDom();
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.files.set('/notes.md', 'x\n'.repeat(400));
+    await h.openFileInPanel('s1', '/notes.md');
+    await h.settle();
+
+    const root = h.panel().firstElementChild;
+    const scroller = root.querySelector('.fp-viewer');
+    scroller.scrollTop = 640;
+
+    h.switchPanel('s2');
+    await h.settle();
+    assert.equal(h.panel().firstElementChild, null, 'the root left the DOM');
+    // What a browser does to a detached element, and jsdom does not.
+    scroller.scrollTop = 0;
+
+    h.switchPanel('s1');
+    await h.settle();
+    assert.equal(root.querySelector('.fp-viewer').scrollTop, 640, 'and it is back where it was');
+  } finally { h.destroy(); }
+});

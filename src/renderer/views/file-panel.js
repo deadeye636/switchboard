@@ -213,7 +213,13 @@ function createPanelInstance(parent, hooks = {}) {
       if (tab.type === 'file') {
         diffContainer.style.display = 'none';
         viewerContainer.style.display = 'flex';
-        viewerPanel.open(tab.label, tab.filePath, tab.content);
+        // Only OPEN a file that is not already open (#458). Outside panes mode this runs on every
+        // switch back to the session — `switchPanel` → `showPanel` → here — and `open()` is a full
+        // re-open: it writes `tab.content` (the file as it was FIRST read) back into the editor. So a
+        // glance at another session threw away whatever had been typed since, along with the caret.
+        // Measured in the running app: an edit made without saving was gone after one switch away and
+        // back. What is safe to repeat is the reveal, not the open.
+        if (viewerPanel.filePath !== tab.filePath) viewerPanel.open(tab.label, tab.filePath, tab.content);
       } else {
         viewerContainer.style.display = 'none';
         diffContainer.style.display = 'flex';
@@ -726,6 +732,46 @@ function closeDiffByDiffId(sessionId, diffId) {
 
 // ── Panel Show/Hide ─────────────────────────────────────────────────
 
+// --- Where the side panel was scrolled to, across a session switch (#458) -----------------------
+//
+// The panes-mode half of this lives in `views/panes-view.js`; this is the same problem one layout
+// over. `hidePanel` takes the entry's root out of the DOM with `replaceChildren`, and an element out
+// of the DOM has no scroll offset to keep — so the panel came back at the top. Two small functions
+// rather than one shared module: each side reaches its own elements, and the shared part would be
+// three lines of `el.scrollTop`.
+const panelScroll = new WeakMap();   // instance root → the offsets it had when it was last on screen
+
+/** Read the offsets, just before the root leaves the DOM. */
+function capturePanelScroll(root) {
+  if (!root) return;
+  const scrollers = [];
+  for (const el of root.querySelectorAll('*')) {
+    if (el.scrollTop || el.scrollLeft) scrollers.push({ el, top: el.scrollTop, left: el.scrollLeft });
+  }
+  if (scrollers.length) panelScroll.set(root, scrollers);
+  else panelScroll.delete(root);
+}
+
+/** Put them back, once the root is in the DOM again. */
+function restorePanelScroll(root) {
+  const scrollers = root && panelScroll.get(root);
+  if (!scrollers) return;
+  for (const { el, top, left } of scrollers) {
+    if (!el.isConnected) continue;
+    el.scrollTop = top;
+    el.scrollLeft = left;
+  }
+  // CodeMirror renders a window of the document around where it believes it is scrolled to, and
+  // moving its scroller from outside does not change that belief — without this the panel comes back
+  // showing empty space above the lines it had already drawn.
+  for (const dom of root.querySelectorAll('.cm-editor')) {
+    const view = (window.CMEditorView && window.CMEditorView.findFromDOM)
+      ? window.CMEditorView.findFromDOM(dom)
+      : null;
+    try { if (view) view.requestMeasure(); } catch { /* disposed with its tab */ }
+  }
+}
+
 function showPanel(state) {
   if (!filePanelEl) return;
   filePanelEl.classList.add('open');
@@ -744,6 +790,8 @@ function showPanel(state) {
   filePanelEl.style.width = (state.panelWidth || DEFAULT_PANEL_WIDTH) + 'px';
   filePanelResizeHandle.style.display = 'block';
   refitActiveTerminal();
+  // After the width and the re-fit, so the position is applied against the box it will be read in.
+  if (entry) restorePanelScroll(entry.instance.root);
 }
 
 function hidePanel() {
@@ -755,6 +803,11 @@ function hidePanel() {
     filePanelEl.style.width = '';
     return;
   }
+  // Before `replaceChildren` takes it out of the DOM. Read from the element that is ACTUALLY in the
+  // panel, not from `shownEntryFor(currentPanelSessionId)`: `switchPanel` sets that id to the session
+  // being switched TO before it calls here, so asking it would capture the wrong entry — and capture
+  // it detached, reporting zeros over the position being kept.
+  capturePanelScroll(filePanelEl.firstElementChild);
   filePanelEl.replaceChildren();
   filePanelEl.style.width = '0';
   filePanelResizeHandle.style.display = 'none';

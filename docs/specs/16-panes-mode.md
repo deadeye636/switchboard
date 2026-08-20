@@ -397,6 +397,12 @@ is unique, so there could only ever be one of each, which IS the symptom. Step 2
 - **One model in every display mode.** The mode decides one thing only: outside panes the side panel shows
   one entry per session, so opening closes the previous — which is what tabs and grid always promised. In
   panes nothing closes.
+- **A switch back is a REVEAL, not an open** (#458). `switchPanel` hides the panel for the session being
+  left, which takes the entry's root out of the DOM, and showing it again re-runs `instance.render()`.
+  That used to call `viewerPanel.open()` every time — and `open()` writes `tab.content`, the file as it
+  was FIRST read, back into the editor. Measured in the running app: an edit made without saving was gone
+  after one glance at another session. The reveal is what repeats; the open happens once per file, and the
+  scroll offset is carried across the detach by hand, exactly as the panes half does.
 - **`diff` is its own kind now.** It used to render through the `preview` host because both were
   `#file-panel`.
 - **A review has NO tab of its own (#398).** It rides with its session's tab: `buildPane` asks
