@@ -146,3 +146,83 @@ test('the refusals a module AUTHORED are left alone', () => {
       'access denied');
   } finally { box.cleanup(); }
 });
+
+// --- a handler that does not catch is the worst case, not the safe one (#457) ---
+//
+// Roughly forty handlers had no `try` at all, and Electron serialises a thrown Error across `invoke`
+// straight into the renderer's own `catch`. The sweep looked inside `catch` blocks, so those were
+// invisible to it by construction. The wrapper is what a later handler inherits without being told,
+// which makes it the piece most worth pinning.
+
+const { guardIpcHandlers } = require('../src/app/readable-error');
+
+function fakeIpc() {
+  const handlers = new Map();
+  return {
+    handlers,
+    handle(channel, listener) { handlers.set(channel, listener); },
+    call(channel, ...args) { return handlers.get(channel)({}, ...args); },
+  };
+}
+
+test('a handler that returns is untouched', async () => {
+  const ipc = guardIpcHandlers(fakeIpc());
+  ipc.handle('give', (_e, n) => ({ ok: true, n }));
+  assert.deepEqual(await ipc.call('give', 7), { ok: true, n: 7 });
+});
+
+test('a handler that throws still rejects — with words, not the thrown text', async () => {
+  // The contract must not change. A handler that threw rejected the promise before, and callers are
+  // written against that; turning it into a resolved `{ ok: false }` would make every `catch` dead code.
+  const ipc = guardIpcHandlers(fakeIpc());
+  ipc.handle('boom', () => { throw errnoError('EACCES'); });
+  await assert.rejects(
+    () => ipc.call('boom'),
+    (err) => {
+      assert.match(err.message, /could not complete that request\. Permission was denied\./);
+      assert.ok(!err.message.includes(SECRET));
+      assert.ok(!err.message.includes('EACCES'));
+      return true;
+    });
+});
+
+test('an async handler that rejects is wrapped too', async () => {
+  const ipc = guardIpcHandlers(fakeIpc());
+  ipc.handle('boom-later', async () => { throw errnoError('ENOENT'); });
+  await assert.rejects(() => ipc.call('boom-later'), (err) => {
+    assert.match(err.message, /It is no longer there\./);
+    assert.ok(!err.message.includes(SECRET));
+    return true;
+  });
+});
+
+test('the channel and the raw text go to the log', async () => {
+  const lines = [];
+  const ipc = guardIpcHandlers(fakeIpc(), { error: (...a) => lines.push(a.join(' ')) });
+  ipc.handle('boom', () => { throw errnoError('EACCES'); });
+  await assert.rejects(() => ipc.call('boom'));
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].includes('boom'), 'which channel it was');
+  assert.ok(lines[0].includes(SECRET), 'and what actually happened');
+});
+
+test('wrapping twice does not double up', () => {
+  const ipc = fakeIpc();
+  const first = ipc.handle;
+  guardIpcHandlers(ipc);
+  const wrapped = ipc.handle;
+  guardIpcHandlers(ipc);
+  assert.notEqual(wrapped, first);
+  assert.equal(ipc.handle, wrapped, 'the second call is a no-op');
+});
+
+test('main.js installs it before anything registers a handler', () => {
+  // Order is the whole of it: a handler registered above this line keeps the old behaviour, and nothing
+  // fails until the day it throws. A source check is the only thing that can see an ordering mistake.
+  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  const installed = main.indexOf('guardIpcHandlers(ipcMain');
+  assert.ok(installed > 0, 'main.js installs the guard');
+  const firstRegistration = main.search(/ipcMain\.(?:handleOnce|handle|once|on)\(/);
+  assert.ok(firstRegistration === -1 || installed < firstRegistration,
+    'the guard has to be installed before the first handler is registered');
+});

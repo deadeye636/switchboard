@@ -61,4 +61,39 @@ function readableError(err, fallback, log) {
   return words ? `${fallback} ${words}` : fallback;
 }
 
-module.exports = { readableError, ERRNO_WORDS };
+/**
+ * Make every IPC handler answer a worded failure, whether it catches or not (#457).
+ *
+ * The sweep that wrote this rule looked inside `catch` blocks, and roughly forty handlers have none.
+ * A handler that does not catch is not safe from the rule — it is the WORST case of it: Electron
+ * serialises a thrown Error across `invoke`, so the renderer's own `catch (err)` receives `err.message`
+ * verbatim and paints it into a toast. The same leak, arrived at by doing nothing.
+ *
+ * Wrapping the REGISTRATION rather than forty bodies is the only version a later handler inherits for
+ * free. The contract is unchanged — a throw still rejects the promise, so no caller's `try`/`catch`
+ * changes meaning — and only the words are replaced. The raw text goes to the log with the channel
+ * beside it, which is more than most of these had.
+ *
+ * Idempotent: wrapping twice would double the log line and hide the channel, so it refuses.
+ *
+ * @param {{handle: Function}} ipc  Electron's `ipcMain`, or anything with `handle`
+ * @param {{error?: Function, debug?: Function}} [log]
+ */
+function guardIpcHandlers(ipc, log) {
+  if (!ipc || typeof ipc.handle !== 'function' || ipc.__sbHandlersGuarded) return ipc;
+  const raw = ipc.handle.bind(ipc);
+  ipc.handle = (channel, listener) => raw(channel, async (event, ...args) => {
+    try {
+      return await listener(event, ...args);
+    } catch (err) {
+      if (log && typeof log.error === 'function') {
+        log.error(`[ipc] ${channel} threw:`, (err && err.message) || err);
+      }
+      throw new Error(readableError(err, 'The app could not complete that request.'));
+    }
+  });
+  ipc.__sbHandlersGuarded = true;
+  return ipc;
+}
+
+module.exports = { readableError, guardIpcHandlers, ERRNO_WORDS };

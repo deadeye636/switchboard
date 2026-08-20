@@ -34,5 +34,9 @@ try {
   }
   parentPort.postMessage({ ok: true, results });
 } catch (err) {
-  parentPort.postMessage({ ok: false, error: err.message });
+  // This string is NOT internal. The client turns it into a status-bar line in the main window
+  // (`store-indexer.js` -> `sendStatus`), and a scandir failure here names the store root — a path under
+  // the user's home (#457). The worker has no `log`, so the code rides along and stderr keeps the rest.
+  console.error('[scan-projects] scan failed:', err && err.message);
+  parentPort.postMessage({ ok: false, status: `the project store could not be read (${err && err.code ? err.code : 'unknown error'})` });
 }

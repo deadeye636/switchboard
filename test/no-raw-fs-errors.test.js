@@ -20,16 +20,27 @@ const path = require('node:path');
 const SRC = path.join(__dirname, '..', 'src');
 
 /**
- * A returned field that carries a caught error's own text.
+ * Every way a caught error's own text has been seen reaching a reader.
  *
- * Matched on the shape rather than on a name: `error:`/`reason:`/`message:` taking `<something>.message`
- * off an identifier that reads like a caught error, or the error itself. Interpolating it into a
- * template counts too — `` `failed: ${err.message}` `` is the same string with a prefix.
+ * Three patterns rather than one, because the first version of this guard had exactly one and an
+ * adversarial review walked past it twice:
+ *
+ *   FIELD    `error: err.message` and its family — the shape the original sweep was written for.
+ *   JOINED   `'Scan failed: ' + msg.error` and `` `died: ${err.message}` `` — string building, which
+ *            never has a field colon in front of it. This is not hypothetical: it was the live leak
+ *            the first guard missed, painting a scandir error into the status bar.
+ *   SPLIT    a field and its value on separate lines. Nothing in the tree does this today, but a
+ *            formatter rewrapping one of these blocks would have silently left the guard's coverage.
+ *
+ * The file is scanned as a whole for SPLIT, line by line for the other two, so a report can name a line.
  */
-const OFFENDER = /(?<![.\w'"])(?:error|reason|message)\s*:\s*(?:`[^`]*\$\{\s*)?(?:String\(\s*)?\b(?:err|error|e|ex|_err)\b(?:\s*&&\s*\b(?:err|error|e|ex|_err)\b)?\s*(?:\.message)?\s*(?:\)|\}|,|\?|$)/;
+const FIELD = /(?<![.\w'"])(?:error|reason|message)\s*:\s*(?:`[^`]*\$\{\s*)?(?:String\(\s*)?\b(?:err|error|e|ex|_err|msg)\b(?:\s*&&\s*\b(?:err|error|e|ex|_err|msg)\b)?\s*(?:\.(?:message|error))?\s*(?:\)|\}|,|\?|$)/;
+const JOINED = /(?:\+\s*|\$\{\s*)\b(?:err|error|e|ex|_err|msg)\b\s*(?:&&\s*\b(?:err|error|e|ex|_err|msg)\b\s*)?\.(?:message|stack|error)\b/;
+const SPLIT = /(?<![.\w'"])(?:error|reason|message)\s*:\s*\r?\n\s*\b(?:err|error|e|ex|_err|msg)\b\s*(?:&&[^\n]*)?\.(?:message|error)\b/;
 
-// A line that names one of these is not reporting a caught error, whatever it looks like.
-const NOT_AN_ERROR_FIELD = /^\s*(?:\/\/|\*)/;
+// A comment, or a line whose only mention of the error goes to a logger. The log is where the raw text
+// is SUPPOSED to end up, so flagging it would make the guard argue against its own remedy.
+const NOT_A_LEAK = /^\s*(?:\/\/|\*)|(?:\blog\.\w+\(|\bconsole\.\w+\(|\bctx\.log\.\w+\()/;
 
 /**
  * Where a thrown message may still be forwarded, and why.
@@ -44,9 +55,6 @@ const ALLOWED = {
   'db/compact.js':
     'Its result never reaches a window. `src/app/db-upkeep.js` is the only reader and it builds a log '
     + 'line out of it, so the SQLite message is already where a dropped message would have been sent.',
-  'workers/scan-projects.js':
-    'Same: a worker channel, not an IPC reply. What the renderer eventually sees is a project list that '
-    + 'came back empty, and the reason belongs in the log beside it.',
 };
 
 function sourceFiles(dir, out = []) {
@@ -66,11 +74,18 @@ function sourceFiles(dir, out = []) {
 function offendingLines(file) {
   const rel = path.relative(SRC, file).split(path.sep).join('/');
   const hits = [];
-  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+  const src = fs.readFileSync(file, 'utf8');
+  const lines = src.split(/\r?\n/);
   lines.forEach((line, i) => {
-    if (NOT_AN_ERROR_FIELD.test(line)) return;
-    if (OFFENDER.test(line)) hits.push(`${rel}:${i + 1}  ${line.trim()}`);
+    if (NOT_A_LEAK.test(line)) return;
+    if (FIELD.test(line) || JOINED.test(line)) hits.push(`${rel}:${i + 1}  ${line.trim()}`);
   });
+  // The split shape spans lines, so it is looked for in the whole file and reported by offset.
+  const split = SPLIT.exec(src);
+  if (split) {
+    const line = src.slice(0, split.index).split(/\r?\n/).length;
+    hits.push(`${rel}:${line}  ${split[0].replace(/\s+/g, ' ')}`);
+  }
   return { rel, hits };
 }
 
@@ -104,24 +119,53 @@ test('every exemption says why', () => {
   }
 });
 
-// The guard has to be able to fail, or it is decoration. These are the exact shapes found in the wild.
-test('the pattern catches what it was written for', () => {
+// The guard has to be able to fail, or it is decoration. Every line below was in the tree at some point;
+// the JOINED ones are the shapes the first version of this guard walked straight past, one of which was
+// painting a scandir error into the status bar while the guard reported success.
+const catches = (line) => FIELD.test(line) || JOINED.test(line);
+
+test('the patterns catch what they were written for', () => {
   const wild = [
+    // FIELD
     'return { ok: false, error: err.message };',
     'return { ok: false, reason: err && err.message ? err.message : \'fallback\' };',
     'return { ok: false, error: err.message, written };',
     'return { ok: false, error: String(err) };',
     'catch (e) { return { ok: false, error: e.message }; }',
     'return { ok: false, message: `could not write: ${err.message}` };',
+    // JOINED — no field colon anywhere, which is why the first guard could not see them
+    "sendStatus('Scan failed: ' + msg.error, 'error');",
+    "sendStatus('Worker error: ' + err.message, 'error');",
+    "return { error: 'Cannot read ~/.claude.json: ' + err.message };",
+    'throw new Error(`Failed to read the trust store: ${err.message}`);',
+    "toast('Error: ' + e.message);",
+    'return { ok: false, error: `spawn failed: ${err.stack}` };',
   ];
-  for (const line of wild) assert.ok(OFFENDER.test(line), `missed: ${line}`);
+  for (const line of wild) assert.ok(catches(line), `missed: ${line}`);
 
   const fine = [
     "return { ok: false, error: 'path outside a plans directory' };",
     "return { ok: false, error: readableError(err, 'Could not save that plan.') };",
     "return { ok: false, reason: 'That path is not a discovered resource for this backend.' };",
-    'ctx.log.error(\'[settings] export failed:\', err.message);',
     "return { ok: false, error: `Codex' trust file could not be written (${err && err.code ? err.code : 'unknown error'}).` };",
   ];
-  for (const line of fine) assert.ok(!OFFENDER.test(line), `false positive: ${line}`);
+  for (const line of fine) assert.ok(!catches(line), `false positive: ${line}`);
+
+  // A logger is where the raw text is SUPPOSED to go, so these must not be flagged even though they
+  // match a shape. A guard that argues against its own remedy gets switched off.
+  const logs = [
+    'ctx.log.error(\'[settings] export failed:\', err.message);',
+    "log.warn('[launcher] external launch failed: ' + err.message);",
+    "console.error('Worker error:', err.message);",
+    "ctx.log.warn('[db-upkeep] pass failed:', err && err.message ? err.message : err);",
+  ];
+  for (const line of logs) assert.ok(NOT_A_LEAK.test(line), `wrongly flagged a log call: ${line}`);
+});
+
+test('the split-across-lines shape is caught too', () => {
+  // Nothing in the tree is written this way today. The point is that a formatter rewrapping one of the
+  // FIELD lines above must not carry it out of the guard's sight.
+  const wrapped = 'try { x(); } catch (err) {\n  return {\n    ok: false,\n    error:\n      err.message,\n  };\n}';
+  assert.ok(SPLIT.test(wrapped));
+  assert.ok(!SPLIT.test('const error =\n  buildMessage();'), 'an ordinary wrapped assignment is not this');
 });

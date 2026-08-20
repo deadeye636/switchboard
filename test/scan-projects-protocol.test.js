@@ -50,10 +50,17 @@ test('scan worker emits progress messages then a final {ok:true, results}', asyn
   }
 });
 
-test('scan worker reports {ok:false, error} when the projects dir is unreadable', async () => {
+test('scan worker reports {ok:false, status} when the projects dir is unreadable', async () => {
   const missing = path.join(os.tmpdir(), 'scan-proj-missing-' + process.pid + '-' + process.hrtime.bigint());
   const msgs = await runWorker(missing);
   const final = msgs[msgs.length - 1];
   assert.equal(final.ok, false, 'a readdir failure must surface as {ok:false}');
-  assert.equal(typeof final.error, 'string', 'error must be a string message');
+
+  // `status`, not `error`, since #457. This string is not internal: `store-indexer.js` puts it straight
+  // into the main window's status bar, so the field name says which of the two it is — and the worker
+  // words it, because the thrown message names the store root, a path under the user's home.
+  assert.equal(typeof final.status, 'string', 'the reader-facing line must be a string');
+  assert.equal(final.error, undefined, 'nothing here forwards the thrown message any more');
+  assert.ok(!final.status.includes(missing), 'and it does not carry the path it failed on');
+  assert.ok(!/^E[A-Z]+:/.test(final.status), 'nor the raw errno');
 });

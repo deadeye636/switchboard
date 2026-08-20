@@ -75,7 +75,8 @@ function readTrustFile(file = trustPath()) {
   try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); }
   catch (err) {
     if (err && err.code === 'ENOENT') return {};
-    throw new Error(`Failed to read Pi trust store: ${err.message}`);
+    // This escapes to callers and can reach a dialog; the errno names the file (#457).
+    throw new Error(`Failed to read Pi trust store (${err && err.code ? err.code : 'unknown error'}).`);
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Invalid Pi trust store: expected an object');

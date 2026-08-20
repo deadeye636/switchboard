@@ -620,7 +620,7 @@ async function processTriggerFile(name, ctx, triggersDir, processedDir) {
       if (v.writeError) throw v.writeError;
     } catch (err) {
       ctx.log.error('[trigger-watcher] PTY write failed:', err.message);
-      await writeResult({ ok: false, error: 'pty write failed: ' + err.message, sessionId });
+      await writeResult({ ok: false, error: `pty write failed (${err && err.code ? err.code : 'unknown error'})`, sessionId });
       return;
     }
 
@@ -750,7 +750,7 @@ async function processTriggerFile(name, ctx, triggersDir, processedDir) {
       verify = await submitWithVerify(entry.ptyProcess, sessionId, step.command, ctx, stepDeadline);
     } catch (err) {
       ctx.log.error(`[trigger-watcher] PTY write failed at chain step ${i}:`, err.message);
-      await writeResult({ ok: false, error: 'pty write failed: ' + err.message, partial: true, steps_completed: i, sessionId, sent_at: step0SentAt, steps, total_waited_ms: totalWaitedMs });
+      await writeResult({ ok: false, error: `pty write failed (${err && err.code ? err.code : 'unknown error'})`, partial: true, steps_completed: i, sessionId, sent_at: step0SentAt, steps, total_waited_ms: totalWaitedMs });
       return;
     }
     if (verify.writeError) {

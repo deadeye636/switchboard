@@ -394,8 +394,10 @@ function populateCacheViaWorker() {
     }
 
     if (!msg.ok) {
-      console.error('Worker scan error:', msg.error);
-      sendStatus('Scan failed: ' + msg.error, 'error');
+      console.error('Worker scan error:', msg.status);
+      // `msg.status` and not `msg.error`: the worker words this for a reader, because `sendStatus` paints
+      // it into the status bar. The name says which of the two it is (#457).
+      sendStatus('Scan failed: ' + msg.status, 'error');
       settle();
       return;
     }
@@ -443,7 +445,9 @@ function populateCacheViaWorker() {
 
   worker.on('error', (err) => {
     console.error('Worker error:', err);
-    sendStatus('Worker error: ' + err.message, 'error');
+    // `sendStatus` paints this into the status bar, so it must not be the thrown text: an uncaught
+    // worker exception names the file it died on (#457). The line above keeps the detail.
+    sendStatus(`Scan failed (${err && err.code ? err.code : 'the scanner stopped unexpectedly'})`, 'error');
     settle();
   });
 

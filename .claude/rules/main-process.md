@@ -188,10 +188,12 @@ How every `src/app/*` and `src/watch/*` module gets what main.js owns.
 
 ## A caught error's own text never crosses IPC (#444, #457)
 
-`catch (err) { return { ok: false, error: err.message } }` is the shape, and it was written thirty-five
-times before anyone noticed. That message names the file it failed on — always somewhere under the
-user's home — and the renderer puts it in a dialog the user may screenshot into a bug report. It also
-says nothing they can act on.
+`catch (err) { return { ok: false, error: err.message } }` is one shape of it; `'failed: ' + err.message`
+is the other, and the second hid longer because it has no field name in front of it to grep for. That
+message names the file it failed on — always somewhere under the user's home — and the renderer puts it in
+a dialog, or straight into the status bar. It also says nothing anyone can act on. **How many sites there
+were is deliberately not written here**: `test/no-raw-fs-errors.test.js` walks `src/`, and it is the only
+answer that stays true.
 
 - **Translate through `src/app/readable-error.js`.** It maps the errno to a sentence and **drops** the
   rest of the message. Not trims, not scrubs: an unrecognised code means there is no way to tell what
@@ -202,8 +204,14 @@ says nothing they can act on.
   and stays as it is. Only thrown things go through the translator.
 - **`src/backends/**` words its own refusals** rather than importing the helper — a backend reaching
   into `src/app/` is the wrong direction. `err.code` in a sentence of the backend's own is enough.
-- `test/no-raw-fs-errors.test.js` walks `src/` and fails on the shape. An exemption needs a reason, and
-  one that stops matching is reported as stale.
+- **A handler that does NOT catch is the worst case, not the safe one.** Electron serialises a thrown
+  Error across `invoke`, so the renderer's own `catch (err)` receives `err.message` verbatim. `main.js`
+  wraps the registration once, covering every handler and every one added later — do not undo that by
+  catching inside a handler and returning the raw text instead.
+- `test/no-raw-fs-errors.test.js` walks `src/` and fails on all three shapes: the field, the
+  concatenation, and a field split across lines. An exemption needs a reason, and one that stops matching
+  is reported as stale. Its first version had one pattern, and an adversarial review walked past it
+  twice — one of those misses was live, painting a scandir error into the status bar.
 
 ## Preload is the only IPC surface
 

@@ -454,21 +454,40 @@ writing path had not.
 
 An adversarial review found it. Nothing else could have: the four `catch (err) { return { ok: false,
 error: err.message } }` blocks had no test over them at all, and a green suite says nothing about code
-it never calls. A sweep afterwards found **thirty-one more**, across `main.js`, `projects/projects.js`,
-three usage probes, two trust writers and the PTY spawn. Every one of them was written by someone who
-had never heard of the rule, because the rule lived in one file's comments.
+it never calls. The sweep afterwards ran through `main.js`, `projects/projects.js`, three usage probes,
+two trust writers, the PTY spawn and the settings, variable and hook stores — every one written by
+someone who had never heard of the rule, because the rule lived in one file's comments.
 
-Three things worth carrying:
+Then a second review found the sweep's own blind spots, which is the part worth remembering:
+
+- **The guard only saw the shape the sweep already knew.** `error: err.message` has a field name in
+  front of it and greps beautifully. `'Scan failed: ' + msg.error` does not, and that one was **live** —
+  a scandir error under the user's home, painted into the status bar — while the guard reported success
+  about the file it was in. The exemption written for that file even explained, wrongly, why its text
+  could never reach a window.
+- **A handler that does not catch is not safe from the rule; it is the worst case of it.** Roughly forty
+  handlers had no `try` at all, and Electron serialises a thrown Error across `invoke` straight into the
+  renderer's own `catch`. The sweep looked inside `catch` blocks, so those were invisible by construction.
+  The fix is one wrapper around the registration rather than forty bodies — the version a later handler
+  inherits without being told.
+- **Counts written into prose go stale immediately, and this lesson said two different wrong ones.** The
+  answer is the guard, which is why the rule now refuses to name a number at all.
+
+Four things worth carrying:
 
 - **A rule enforced by one fix is a coincidence.** The question after fixing a class of defect is not
   "is this file right now" but "what else is written this way" — and the answer is a grep, not a memory.
+- **Then ask what the grep cannot see.** The first sweep was a grep, and it was still half the problem:
+  it matched one syntax for one mechanism. Write down the mechanisms — returned, concatenated, thrown —
+  before writing the pattern.
 - **Scope the acceptance to the app, not to the diff.** "No message shown to the user contains a raw
-  filesystem error string" was false the day it was ticked. Closing on the narrow reading would have
-  left a checked box that was not true, which is worse than an open issue.
-- **The guard has to be able to fail.** `test/no-raw-fs-errors.test.js` derives its targets by walking
-  `src/`, its exemptions carry reasons, an exemption that stops matching is reported as stale, and it
-  tests its own pattern against the six shapes actually found in the wild. A guard whose regex has never
-  been shown to catch anything is decoration — see the guard-shape lesson above.
+  filesystem error string" was false the day it was ticked, and false again after the first sweep.
+  Closing on the narrow reading leaves a checked box that is not true, which is worse than an open issue.
+- **The guard has to be able to fail, and be shown failing.** `test/no-raw-fs-errors.test.js` derives its
+  targets by walking `src/`, its exemptions carry reasons, an exemption that stops matching is reported
+  as stale, and it runs its own patterns against every shape actually found in the wild plus the log
+  calls that must NOT be flagged. A guard whose pattern has never been shown to catch anything is
+  decoration — see the guard-shape lesson above.
 
 And the thing that made it cheap to fix everywhere: the translation drops the message rather than
 trimming it, so there is no per-site judgement about which part of a string is safe. Where the detail

@@ -95,13 +95,14 @@ function mutateClaudeConfig(configPath, mutate) {
   try {
     raw = fs.readFileSync(configPath, 'utf8');
   } catch (err) {
-    return { error: 'Cannot read ~/.claude.json: ' + err.message };
+    // The errno spells out the absolute path; the file's well-known name says more to a reader (#457).
+    return { error: `Cannot read ~/.claude.json (${err && err.code ? err.code : 'unknown error'}).` };
   }
   let cfg;
   try {
     cfg = JSON.parse(raw);
   } catch (err) {
-    return { error: 'Cannot parse ~/.claude.json: ' + err.message };
+    return { error: 'Cannot parse ~/.claude.json: it is not valid JSON.' };
   }
 
   const outcome = mutate(cfg);
@@ -115,7 +116,7 @@ function mutateClaudeConfig(configPath, mutate) {
     fs.renameSync(tmp, configPath);
     return outcome.result;
   } catch (err) {
-    return { error: 'Cannot write ~/.claude.json: ' + err.message };
+    return { error: `Cannot write ~/.claude.json (${err && err.code ? err.code : 'unknown error'}).` };
   }
 }
 
