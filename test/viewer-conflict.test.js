@@ -65,6 +65,10 @@ function setupPanelDom() {
   window.showControlMessage = () => {};
   window.showControlToast = () => {};
   window.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+  // The real one is CodeMirror's merge view, out of reach here. What the panel needs from it is that it
+  // exists and paints something into the host it is handed — which is enough to tell an open
+  // side-by-side view from a closed one.
+  window.createMergeViewer = (host, theirs, mine) => { host.dataset.theirs = theirs; host.dataset.mine = mine; };
 
   window.previewKindForExt = (ext) => (ext === 'md' ? 'markdown' : 'text');
   window.extOf = (filePath) => (filePath.split('.').pop() || '').toLowerCase();
@@ -231,6 +235,107 @@ test('after Keep mine a LATER external write raises the notice again', async () 
 
     assert.equal(conflictShown(panel), true, 'keeping one version is not a standing waiver');
     assert.equal(panel.getContent(), 'mine\n');
+  } finally { ctx.destroy(); }
+});
+
+// --- the side-by-side view is a view OF the conflict ---------------------------
+//
+// It shipped alongside the baseline fix with no test behind it, which is the shape the renderer rules
+// warn about: it looks right read, and reading is not the standard. What it must not do is outlive the
+// question it was opened to answer — two versions side by side, one of which the app has since applied
+// or discarded, is a worse lie than not showing the diff at all.
+
+const diffOpen = (panel) => !!panel._conflictDiffEl;
+
+async function raiseConflict(ctx, panel) {
+  type(panel, 'mine\n');
+  ctx.write('theirs\n');
+  ctx.fire(panel._watchedPath);
+  await settle();
+}
+
+test('Show changes puts both versions on screen, theirs first', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+
+    panel.conflictBar.showBtn.click();
+
+    assert.equal(diffOpen(panel), true);
+    const host = panel._conflictDiffEl.querySelector('.viewer-conflict-diff-body');
+    assert.equal(host.dataset.theirs, 'theirs\n', 'the disk version is the left side');
+    assert.equal(host.dataset.mine, 'mine\n', 'and the panel version the right');
+  } finally { ctx.destroy(); }
+});
+
+test('answering the bar takes the side-by-side view with it', async () => {
+  for (const answer of ['keepBtn', 'reloadBtn']) {
+    const ctx = setupPanelDom();
+    try {
+      const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+      await raiseConflict(ctx, panel);
+      panel.conflictBar.showBtn.click();
+      assert.equal(diffOpen(panel), true);
+
+      panel.conflictBar[answer].click();
+
+      assert.equal(diffOpen(panel), false, `${answer} left a diff of a conflict that no longer exists`);
+      assert.equal(ctx.window.document.querySelectorAll('.viewer-conflict-diff').length, 0,
+        'and left nothing of it in the DOM');
+    } finally { ctx.destroy(); }
+  }
+});
+
+test('a save that resolves the conflict closes the view too', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+    panel.conflictBar.showBtn.click();
+    assert.equal(diffOpen(panel), true);
+
+    // Someone else saves exactly what this panel holds — the two are back in step, so there is no
+    // conflict left for the view to be about, and nobody pressed a button to say so.
+    ctx.write('mine\n');
+    await panel._save();
+    await settle();
+
+    assert.equal(conflictShown(panel), false);
+    assert.equal(diffOpen(panel), false);
+  } finally { ctx.destroy(); }
+});
+
+test('opening another file carries no diff over from the last one', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+    panel.conflictBar.showBtn.click();
+    assert.equal(diffOpen(panel), true);
+
+    ctx.write('a different document\n');
+    panel.open('B', '/tmp/b.md', 'a different document\n');
+    await settle();
+
+    assert.equal(diffOpen(panel), false, 'a new document starts with no argument about the last one');
+    assert.equal(conflictShown(panel), false);
+  } finally { ctx.destroy(); }
+});
+
+test('Show changes toggles rather than stacking overlays', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+
+    panel.conflictBar.showBtn.click();
+    panel.conflictBar.showBtn.click();
+    assert.equal(diffOpen(panel), false, 'the second press closes it');
+
+    panel.conflictBar.showBtn.click();
+    assert.equal(ctx.window.document.querySelectorAll('.viewer-conflict-diff').length, 1,
+      'and reopening leaves exactly one');
   } finally { ctx.destroy(); }
 });
 
