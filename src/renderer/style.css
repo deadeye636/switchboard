@@ -10329,7 +10329,20 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   border-color: rgba(111,202,143,0.32);
   background: rgba(111,202,143,0.1);
 }
+/* A resource that belongs to THIS project (#445). It wore the amber `soon` pill, which on the same
+   page means "not built yet" and "not saved yet" — so a CLAUDE.md sitting on disk right now read as
+   something still to come. The app's own accent instead: present, and not to be confused with either
+   the neutral kind pill beside it or the amber one further down. */
+.backend-pill.scope-project {
+  color: #9aa0ff;
+  border-color: rgba(154,160,255,0.34);
+  background: rgba(154,160,255,0.11);
+}
 .backend-planned-note { font-size: 11.5px; color: #6a6a80; }
+
+/* A failed Open or Copy says why, in the row, instead of overwriting the button's label (#444). */
+.backend-resource-error { color: #d98080; }
+.backend-resources-project code { color: #b8b8d0; }
 
 /* Gear on a backend row → that backend's own Launch-defaults page. Same icon, same meaning as the
    gear in the launch picker. Visible at rest (an invisible affordance is one nobody finds). */

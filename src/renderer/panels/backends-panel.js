@@ -196,12 +196,21 @@
     }).join('');
   }
 
-  function resourcesShell(backend, title) {
+  // The last segment of a path, whichever separator wrote it. The settings window has no project
+  // registry — `app.js` and its display-name map are not loaded here — so the folder is what there is
+  // to name a project by, and the full path is shown beside it because two projects may end the same.
+  function projectFolderName(projectPath) {
+    const parts = String(projectPath || '').split(/[\\/]/).filter(Boolean);
+    return parts[parts.length - 1] || String(projectPath || '');
+  }
+
+  function resourcesShell(backend, title, projectPath) {
     if (!backend.resourceDiscovery) return '';
     return `
       <details class="settings-adv backend-resources" data-resources-for="${esc(backend.id)}" open>
         <summary><svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>${esc(title || 'Resources')}</summary>
         <div class="backend-env-hint">Read-only view of backend-owned resources. Switchboard does not install or execute them from here.</div>
+        ${projectPath ? `<div class="backend-env-hint backend-resources-project">Project-scoped rows come from <code>${esc(projectPath)}</code>.</div>` : ''}
         <div class="backend-resource-list" data-resource-list="${esc(backend.id)}"><div class="settings-hint">Loading resources…</div></div>
       </details>`;
   }
@@ -216,10 +225,11 @@
           <div class="settings-field-header">
             <span class="backend-pill">${esc(r.kind || 'resource')}</span>
             <span class="settings-label">${esc(r.name || r.path || 'Resource')}</span>
-            ${r.scope ? `<span class="backend-pill ${r.scope === 'project' ? 'soon' : ''}">${esc(r.scope)}</span>` : ''}
+            ${r.scope ? `<span class="backend-pill ${r.scope === 'project' ? 'scope-project' : ''}">${esc(r.scope)}</span>` : ''}
           </div>
           ${r.source ? `<div class="settings-description">${esc(r.source)}</div>` : ''}
           ${r.path ? `<div class="settings-more open"><code>${esc(r.path)}</code></div>` : ''}
+          <div class="settings-description backend-resource-error" hidden></div>
         </div>
         <div class="settings-field-control">
           ${r.path ? `<button type="button" class="backend-btn backend-resource-open" data-path="${esc(r.path)}">Open</button><button type="button" class="backend-btn backend-resource-copy" data-path="${esc(r.path)}">Copy path</button>` : ''}
@@ -233,8 +243,44 @@
     list.dataset.projectPath = projectPath || '';
     let result;
     try { result = await window.api.backends.listResources(backendId, projectPath || null); }
-    catch (err) { result = { ok: false, reason: err && err.message }; }
+    catch { result = { ok: false, reason: 'Switchboard could not reach the backend list.' }; }
     list.innerHTML = renderResources(result);
+  }
+
+  // Why a resource action reports into the ROW and not into its own button (#444).
+  //
+  // The failure used to be written into the button's label: "Open failed", and there it stayed. The
+  // reason — `openResource` words several, "That path is not a discovered resource for this backend."
+  // among them — was thrown away, and the control that a moment ago said what it does now said what
+  // went wrong instead, permanently. Two things a control must not do at once.
+  //
+  // So the message goes into a line of its own inside the row, the button keeps its label, and the
+  // next attempt clears the previous message rather than leaving the reader to guess whether it is
+  // about this click or the last one.
+  const RESOURCE_FLASH_MS = 1400;
+
+  function showResourceError(button, message) {
+    const row = button.closest && button.closest('.backend-resource-row');
+    const line = row && row.querySelector('.backend-resource-error');
+    if (!line) return;
+    line.textContent = message;
+    line.hidden = false;
+  }
+
+  function clearResourceError(button) {
+    const row = button.closest && button.closest('.backend-resource-row');
+    const line = row && row.querySelector('.backend-resource-error');
+    if (!line) return;
+    line.textContent = '';
+    line.hidden = true;
+  }
+
+  function flashButton(button, label) {
+    const original = button.dataset.label || button.textContent;
+    button.dataset.label = original;
+    button.textContent = label;
+    clearTimeout(Number(button.dataset.flashTimer) || 0);
+    button.dataset.flashTimer = String(setTimeout(() => { button.textContent = original; }, RESOURCE_FLASH_MS));
   }
 
   function bindResourceCopy(root) {
@@ -242,20 +288,23 @@
       const copy = e.target.closest && e.target.closest('.backend-resource-copy');
       if (copy) {
         e.preventDefault();
-        try { await navigator.clipboard.writeText(copy.dataset.path || ''); copy.textContent = 'Copied'; }
-        catch { copy.textContent = 'Copy failed'; }
+        clearResourceError(copy);
+        try { await navigator.clipboard.writeText(copy.dataset.path || ''); flashButton(copy, 'Copied'); }
+        catch { showResourceError(copy, 'Could not put that path on the clipboard.'); }
         return;
       }
       const open = e.target.closest && e.target.closest('.backend-resource-open');
       if (!open) return;
       e.preventDefault();
+      clearResourceError(open);
       const list = open.closest('.backend-resource-list');
       const backendId = list && list.dataset.resourceList;
       const projectPath = list && list.dataset.projectPath;
       let res = null;
-      try { res = await window.api.backends.openResource(backendId, open.dataset.path || '', projectPath || null); } catch {}
-      if (res && res.ok) open.textContent = 'Opened';
-      else open.textContent = 'Open failed';
+      try { res = await window.api.backends.openResource(backendId, open.dataset.path || '', projectPath || null); }
+      catch { res = { ok: false, reason: 'Switchboard could not reach the backend.' }; }
+      if (res && res.ok) { flashButton(open, 'Opened'); return; }
+      showResourceError(open, (res && res.reason) || 'Could not open that resource.');
     });
   }
 
@@ -1049,9 +1098,9 @@
           <div class="settings-section">
             <div class="settings-section-title backend-inline-title">
               <span class="backend-icon-slot" data-icon="${esc(b.icon || b.colour || b.id)}" data-size="16" ${b.monogram ? `data-monogram="${esc(b.monogram)}"` : ''}></span>
-              ${esc(b.label)} resources
+              ${esc(b.label)} resources${ctx.projectPath ? ` · ${esc(projectFolderName(ctx.projectPath))}` : ''}
             </div>
-            ${resourcesShell(b, 'Project and global resources')}
+            ${resourcesShell(b, 'Project and global resources', ctx.projectPath || null)}
           </div>`).join('')}`;
       bindResourceCopy(box);
       readyBackends.filter(b => b.resourceDiscovery).forEach(b => loadResources(box, b.id, ctx.projectPath || null));

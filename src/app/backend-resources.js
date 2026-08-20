@@ -11,6 +11,40 @@ function init(ctx) {
   shell = ctx && ctx.shell;
 }
 
+/**
+ * What went wrong, in words, from a thrown error (#444).
+ *
+ * A filesystem error carries the path it failed on — `EACCES: permission denied, scandir
+ * 'C:\Users\<name>\.pi\skills'` — and this app puts such a reason straight on screen. That is a home
+ * directory, a user name and a layout the reader did not ask to publish, in a line they may well
+ * screenshot into a bug report. It also says nothing they can act on that the code alone does not.
+ *
+ * So the errno is TRANSLATED and the rest of the message is dropped. Not shortened, not scrubbed of the
+ * quoted path — dropped: a message this function has not recognised may carry anything, and there is no
+ * way to tell from here. An unrecognised error is answered with the caller's own sentence and nothing
+ * else, which is honest about the app not knowing more.
+ *
+ * Reasons a backend AUTHORED (`{ ok: false, reason: '…' }`) are not errors and never pass through here.
+ */
+const ERRNO_WORDS = {
+  EACCES: 'Permission was denied.',
+  EPERM: 'Permission was denied.',
+  ENOENT: 'It is no longer there.',
+  ENOTDIR: 'Part of that path is not a directory.',
+  EISDIR: 'That is a directory, not a file.',
+  ELOOP: 'The path leads through too many symbolic links.',
+  ENAMETOOLONG: 'The path is too long for this system.',
+  EMFILE: 'Too many files are open on this system right now.',
+  ENFILE: 'Too many files are open on this system right now.',
+  EBUSY: 'Another program is holding it.',
+  EIO: 'The disk reported a read error.',
+};
+
+function readableError(err, fallback) {
+  const words = err && err.code ? ERRNO_WORDS[err.code] : null;
+  return words ? `${fallback} ${words}` : fallback;
+}
+
 async function listResources(backendId, projectPath) {
   const backend = backends && backends.get && backends.get(backendId);
   if (!backend || typeof backend.listResources !== 'function') {
@@ -19,7 +53,7 @@ async function listResources(backendId, projectPath) {
   try {
     return await backend.listResources({ projectPath: projectPath || null });
   } catch (err) {
-    return { ok: false, reason: err && err.message ? err.message : 'Could not list backend resources.' };
+    return { ok: false, reason: readableError(err, 'Could not list backend resources.') };
   }
 }
 
@@ -88,8 +122,10 @@ async function openResource(backendId, resourcePath, projectPath) {
   if (!reachable(backend, listed.resources, resourcePath)) {
     return { ok: false, reason: 'That path is not a discovered resource for this backend.' };
   }
+  // `shell.openPath` answers with the OS's own words, localized and with the path quoted into them.
+  // Same problem as an errno and no code to translate, so what is reported is that the system refused.
   const err = await shell.openPath(resourcePath);
-  return err ? { ok: false, reason: err } : { ok: true };
+  return err ? { ok: false, reason: 'Your system would not open that path.' } : { ok: true };
 }
 
 /**
@@ -114,7 +150,7 @@ async function expandResource(backendId, resourcePath, projectPath) {
   try {
     result = await backend.expandResource({ path: resourcePath, source: parent.source, scope: parent.scope, projectPath: projectPath || null });
   } catch (err) {
-    return { ok: false, reason: err && err.message ? err.message : 'Could not read that directory.' };
+    return { ok: false, reason: readableError(err, 'Could not read that directory.') };
   }
   if (!result || result.ok === false) return result || { ok: false, reason: 'Could not read that directory.' };
 
@@ -164,7 +200,7 @@ async function readResource(backendId, resourcePath, projectPath) {
     return { ok: false, reason: `Too large to show here (${Math.round(stat.size / 1024)} KB, limit ${MAX_READ_BYTES / 1024} KB).` };
   }
   let buf;
-  try { buf = fs.readFileSync(resourcePath); } catch (err) { return { ok: false, reason: err && err.message ? err.message : 'Could not read that file.' }; }
+  try { buf = fs.readFileSync(resourcePath); } catch (err) { return { ok: false, reason: readableError(err, 'Could not read that file.') }; }
   if (buf.includes(0)) return { ok: false, reason: 'That file is not text.' };
 
   return { ok: true, content: buf.toString('utf8'), mtimeMs: stat.mtimeMs, size: stat.size };
@@ -177,4 +213,4 @@ function registerIpc(ipc) {
   ipc.handle('backend-read-resource', (_event, backendId, resourcePath, projectPath) => readResource(backendId, resourcePath, projectPath));
 }
 
-module.exports = { init, registerIpc, listResources, openResource, expandResource, readResource, _isInside: isInside };
+module.exports = { init, registerIpc, listResources, openResource, expandResource, readResource, _isInside: isInside, _readableError: readableError };

@@ -48,6 +48,76 @@ test('opening a backend resource is restricted to discovered paths', async () =>
   assert.match(denied.reason, /not a discovered resource/);
 });
 
+// --- what a failure is allowed to say (#444) ---------------------------------
+//
+// These reasons are put on screen verbatim. A filesystem error names the path it failed on, which here
+// is always somewhere under the user's home — so an errno is translated and the rest of the message is
+// dropped rather than trimmed. The assertions look for the home marker the fixture plants, because a
+// check for "no path" cannot be written and a check for "not THIS path" can.
+
+const SECRET_PATH = '/home/someone/.pi/skills';
+
+function errnoError(code) {
+  const err = new Error(`${code}: whatever the OS said, scandir '${SECRET_PATH}'`);
+  err.code = code;
+  return err;
+}
+
+test('a listing that throws is reported in words, without the path it failed on', async () => {
+  backendResources.init({ backends: fakeRegistry({
+    pi: { listResources: async () => { throw errnoError('EACCES'); } },
+  }) });
+  const res = await backendResources.listResources('pi', null);
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /Could not list backend resources/);
+  assert.match(res.reason, /Permission was denied/, 'the errno is translated, so the user learns something');
+  assert.ok(!res.reason.includes(SECRET_PATH), 'and never carries the path');
+  assert.ok(!/EACCES|scandir/.test(res.reason), 'nor the raw error string');
+});
+
+test('an unrecognised throw falls back to the caller sentence and nothing else', async () => {
+  backendResources.init({ backends: fakeRegistry({
+    pi: { listResources: async () => { throw new Error(`something odd about ${SECRET_PATH}`); } },
+  }) });
+  const res = await backendResources.listResources('pi', null);
+  // No code to translate means no way to tell what the message carries — so none of it is passed on.
+  assert.equal(res.reason, 'Could not list backend resources.');
+});
+
+test('a directory that cannot be read is reported in words', async () => {
+  backendResources.init({ backends: fakeRegistry({
+    pi: {
+      listResources: async () => ({ ok: true, resources: [{ kind: 'skill', path: '/ok/skills', source: 'skills-directory' }] }),
+      expandResource: async () => { throw errnoError('EACCES'); },
+    },
+  }) });
+  const res = await backendResources.expandResource('pi', '/ok/skills', null);
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /Could not read that directory\. Permission was denied\./);
+  assert.ok(!res.reason.includes(SECRET_PATH));
+});
+
+test('a system that refuses to open a path does not quote itself at the user', async () => {
+  backendResources.init({
+    shell: { openPath: async () => `Failed to open path ${SECRET_PATH}` },
+    backends: fakeRegistry({
+      pi: { listResources: async () => ({ ok: true, resources: [{ kind: 'settings', path: '/ok/settings.json' }] }) },
+    }),
+  });
+  const res = await backendResources.openResource('pi', '/ok/settings.json', null);
+  assert.equal(res.ok, false);
+  assert.ok(!res.reason.includes(SECRET_PATH), 'the OS message is localized, quoted and full of path');
+  assert.match(res.reason, /would not open/);
+});
+
+test('a backend-authored reason is not an error and passes through untouched', async () => {
+  backendResources.init({ backends: fakeRegistry({
+    pi: { listResources: async () => ({ ok: false, reason: 'Pi is configured to keep its skills elsewhere.' }) },
+  }) });
+  const res = await backendResources.listResources('pi', null);
+  assert.equal(res.reason, 'Pi is configured to keep its skills elsewhere.');
+});
+
 test('Claude resource discovery exposes safe settings and project customizations only', () => {
   const home = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'claude-resources-'));
   const project = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'claude-project-resources-'));

@@ -411,6 +411,27 @@ row, and `expandResource` reads one level into it when the user opens it.
   backend lists: plan documents have their own tab, and a plugin directory opened in a text editor is a
   dead end.
 
+### How a resource row reports a failure (#444, #445)
+
+Two defects in the same listing, both about what the row says rather than what it lists.
+
+- **A thrown filesystem error is translated, not forwarded.** `EACCES: permission denied, scandir
+  '<home>/.pi/skills'` names a home directory, a user name and a layout, and the app used to put that on
+  screen verbatim. `readableError` in `src/app/backend-resources.js` maps the errno to a sentence and
+  **drops the rest of the message** — an error whose code it does not recognise is answered with the
+  caller's own sentence and nothing else. Shortening the message or scrubbing the quoted path would be a
+  guess about a string that may carry anything. A reason a backend *authored*
+  (`{ ok: false, reason: '…' }`) is not an error and passes through untouched.
+- **The failure goes into the row, not into the button.** "Open failed" was written into the label of
+  the control that had just said what it does, and it stayed there — so the reason was lost and the
+  button was too. The row carries a line of its own; the button keeps its label and flashes only on
+  success.
+- **The project scope has a pill of its own.** It wore the amber `soon` class, which on the same page
+  means "not built yet" and "not saved yet" — so a `CLAUDE.md` sitting on disk read as something still to
+  come. Alongside it the project section names the project it is showing, rather than leaving that to the
+  window title: the settings window has no project registry to ask, so the folder name is the heading and
+  the full path is beside the list.
+
 ## The capability matrix (#439)
 
 Each backend covers a different part of what the app can do, and until #439 the only way to see that was to
