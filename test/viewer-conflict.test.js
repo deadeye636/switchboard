@@ -68,7 +68,15 @@ function setupPanelDom() {
   // The real one is CodeMirror's merge view, out of reach here. What the panel needs from it is that it
   // exists and paints something into the host it is handed — which is enough to tell an open
   // side-by-side view from a closed one.
-  window.createMergeViewer = (host, theirs, mine) => { host.dataset.theirs = theirs; host.dataset.mine = mine; };
+  window.createMergeViewer = (host, theirs, mine) => {
+    host.dataset.theirs = theirs;
+    host.dataset.mine = mine;
+    // The real one fills the host with an editor. Appending something keeps "is anything drawn here"
+    // an honest question for the panel to ask.
+    const pane = host.ownerDocument.createElement('div');
+    pane.className = 'merge-stub';
+    host.appendChild(pane);
+  };
 
   window.previewKindForExt = (ext) => (ext === 'md' ? 'markdown' : 'text');
   window.extOf = (filePath) => (filePath.split('.').pop() || '').toLowerCase();
@@ -369,5 +377,106 @@ test('a save whose file already matches the editor just re-syncs', async () => {
 
     assert.deepEqual(ctx.disk.writes, [], 'there was nothing to write');
     assert.equal(conflictShown(panel), false, 'and nothing to ask about');
+  } finally { ctx.destroy(); }
+});
+
+// --- the file moves again while the user is deciding (#456) --------------------
+//
+// The panel is the one surface where a document is read while an agent rewrites it, so a second write
+// arriving mid-decision is the expected case. The view used to keep showing the FIRST disk version while
+// the bar had already moved on to the second — so the user compared their edits against something that
+// was no longer there, and "Reload" then applied content that had never been on screen.
+
+const diffNote = (panel) => panel._conflictDiffEl.querySelector('.viewer-conflict-diff-head span').textContent;
+const diffTheirs = (panel) => panel._conflictDiffEl.querySelector('.viewer-conflict-diff-body').dataset.theirs;
+
+test('a second write repaints the open view instead of leaving it stale', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+    panel.conflictBar.showBtn.click();
+    assert.equal(diffTheirs(panel), 'theirs\n');
+
+    ctx.write('theirs, second thoughts\n');
+    ctx.fire(panel._watchedPath);
+    await settle();
+
+    assert.equal(diffTheirs(panel), 'theirs, second thoughts\n', 'the left side is what is on disk now');
+    assert.equal(panel.getContent(), 'mine\n', 'and the edits are still untouched');
+  } finally { ctx.destroy(); }
+});
+
+test('the second write is announced rather than swapped in silently', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+    panel.conflictBar.showBtn.click();
+    const firstNote = diffNote(panel);
+    assert.match(panel.conflictBar.msg.textContent, /changed on disk while you were editing/);
+
+    ctx.write('theirs, second thoughts\n');
+    ctx.fire(panel._watchedPath);
+    await settle();
+
+    assert.match(panel.conflictBar.msg.textContent, /changed on disk again/,
+      'the bar says the question is not the one it was');
+    assert.notEqual(diffNote(panel), firstNote, 'and the view says which side moved');
+  } finally { ctx.destroy(); }
+});
+
+test('Reload after a mid-read change applies what the view was showing', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+    panel.conflictBar.showBtn.click();
+
+    ctx.write('theirs, second thoughts\n');
+    ctx.fire(panel._watchedPath);
+    await settle();
+    const shown = diffTheirs(panel);
+
+    panel.conflictBar.reloadBtn.click();
+
+    assert.equal(panel.getContent(), shown, 'the button applied the version on screen, not an older one');
+    assert.equal(diffOpen(panel), false);
+  } finally { ctx.destroy(); }
+});
+
+test('a second write that matches what is already shown changes nothing', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+    panel.conflictBar.showBtn.click();
+    const note = diffNote(panel);
+
+    // A watcher fires on a touch as readily as on a rewrite. Announcing "it changed again" for a write
+    // that changed nothing would train the reader to ignore the line that matters.
+    ctx.fire(panel._watchedPath);
+    await settle();
+
+    assert.equal(diffNote(panel), note, 'no announcement for a write with nothing in it');
+    assert.match(panel.conflictBar.msg.textContent, /while you were editing/);
+  } finally { ctx.destroy(); }
+});
+
+test('a second write with the view closed still moves the question', async () => {
+  const ctx = setupPanelDom();
+  try {
+    const panel = await openPanel(ctx, '/tmp/a.md', 'original\n');
+    await raiseConflict(ctx, panel);
+
+    ctx.write('theirs, second thoughts\n');
+    ctx.fire(panel._watchedPath);
+    await settle();
+
+    // Nothing to repaint, but the bar is about a different version now and has to say so — the user may
+    // open the view at any point, and it must not be the only place that knows.
+    assert.match(panel.conflictBar.msg.textContent, /changed on disk again/);
+    panel.conflictBar.showBtn.click();
+    assert.equal(diffTheirs(panel), 'theirs, second thoughts\n');
   } finally { ctx.destroy(); }
 });

@@ -842,14 +842,26 @@ class ViewerPanel {
    * believe is current, which is the state this whole thing exists to prevent.
    */
   _setConflict(diskContent) {
+    // A conflict that is REPLACED rather than raised is the case #456 was about: the file moved a second
+    // time while the user was still deciding about the first move. The version they are being asked about
+    // is now a different one, and saying nothing turns their next answer into an answer about something
+    // they never saw — "Reload" would apply content that was never on screen.
+    const moved = !!(this._conflict && diskContent !== null && diskContent !== this._conflict.diskContent);
+
     this._conflict = diskContent === null ? null : { diskContent };
     // The side-by-side view is a view OF the conflict. Once the conflict is answered — or overtaken by a
     // save, or by the file coming back into step on its own — it is showing two versions that no longer
     // stand against each other, so it goes with it.
     if (!this._conflict) this._closeConflictDiff();
+    // …and while it stands, it follows. Repainting from the CURRENT `_conflict` is what keeps "Reload"
+    // honest: both read the same field, so what the button applies is what the view showed.
+    else if (moved) this._paintConflictDiff(true);
+
     if (!this.conflictBar) return;
     if (!this._conflict) { this.conflictBar.el.style.display = 'none'; return; }
-    this.conflictBar.msg.textContent = 'This file changed on disk while you were editing it.';
+    this.conflictBar.msg.textContent = moved
+      ? 'This file changed on disk again — what you are being asked about has been updated.'
+      : 'This file changed on disk while you were editing it.';
     this.conflictBar.el.style.display = '';
   }
 
@@ -914,14 +926,45 @@ class ViewerPanel {
 
     this.container.appendChild(overlay);
     this._conflictDiffEl = overlay;
+    this._conflictDiffNote = label;
+    this._paintConflictDiff();
+  }
+
+  /**
+   * Draw (or redraw) the two versions into the open overlay.
+   *
+   * Separate from opening it because the file can move again while it is up (#456). A merge view is a
+   * snapshot of two strings; leaving it on the first one meant the user compared their edits against
+   * something that was no longer on disk, and then answered a bar that had quietly moved on.
+   *
+   * The whole body is rebuilt rather than patched: `createMergeViewer` owns what it puts in the host, and
+   * a merge view has no "and now show these two instead".
+   */
+  _paintConflictDiff(moved = false) {
+    if (!this._conflictDiffEl || !this._conflict) return;
+    if (typeof window.createMergeViewer !== 'function') return;
+    const host = this._conflictDiffEl.querySelector('.viewer-conflict-diff-body');
+    if (!host) return;
+    // Told, not inferred. Whether this is a repaint is the CALLER's fact; reading it off the host would
+    // make the heading depend on what the merge viewer happens to put in there.
+    const repaint = moved;
+    host.replaceChildren();
     // "Theirs" then "mine", the order every merge tool uses.
     window.createMergeViewer(host, this._conflict.diskContent, this.getContent(), this.filePath || '');
+    if (this._conflictDiffNote) {
+      // The heading is where a reader looks to find out what they are looking at, so it carries the fact
+      // that it is not what they opened.
+      this._conflictDiffNote.textContent = repaint
+        ? 'On disk (left) against your version (right) — the disk side changed while you were reading it'
+        : 'On disk (left) against your version (right)';
+    }
   }
 
   _closeConflictDiff() {
     if (!this._conflictDiffEl) return;
     this._conflictDiffEl.remove();
     this._conflictDiffEl = null;
+    this._conflictDiffNote = null;
   }
 
   /**
