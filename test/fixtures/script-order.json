@@ -87,6 +87,7 @@
     "sidebar.js",
     "sidebar-vcs.js",
     "plans-memory-view.js",
+    "live-session-rows.js",
     "session-tabs.js",
     "session-tags-logic.js",
     "bookmarks-tags.js",

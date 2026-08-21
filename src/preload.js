@@ -315,6 +315,10 @@ contextBridge.exposeInMainWorld('api', {
   onLiveOwners: (callback) => {
     ipcRenderer.on('live-owners', (_event, owners) => callback(owners || []));
   },
+  // The same set `getActiveSessions` returns as bare ids, with enough on each to draw a row for it (#461):
+  // `{ sessionId, projectPath, backendId, isPlainTerminal, startedAt }`. A session whose backend never
+  // recorded it is in no index, so this is the only place a window can learn what it is.
+  getLiveSessions: () => ipcRenderer.invoke('live-sessions:get'),
   // Live sessions their backend has never recorded, so no working/idle state can be shown for them
   // (#151, #460). Same shape of contract as the owners above — asked for once on open, kept current by
   // the broadcast, and the broadcast is always the WHOLE list. Entries are `{ sessionId, message }`.

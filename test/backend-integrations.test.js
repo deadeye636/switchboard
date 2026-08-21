@@ -186,6 +186,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/handoff/handoff-extract.js': [],
   'src/renderer/panels/projects-admin.js': [],
   'src/renderer/session/session-health.js': [],
+  'src/renderer/session/live-session-rows.js': [],
   'src/renderer/views/stats-view.js': [],
   'src/renderer/terminal/variable-palette.js': [],
   'src/renderer/terminal/plan-palette.js': [],

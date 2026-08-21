@@ -880,6 +880,17 @@ async function pollActiveSessions() {
   try {
     const ids = await window.api.getActiveSessions();
     activePtyIds = new Set(ids);
+    // The same set again, with enough on it to draw a row for a session the index does not know (#461).
+    // Two calls rather than one: `getActiveSessions` reports every key a live session is held under,
+    // including the launch id during an adoption, and `getLiveSessions` deduplicates to the id the row is
+    // drawn for. Deriving the running set from the shorter answer would blank a session's Running state
+    // for the moment it takes the fold to arrive.
+    if (window.api.getLiveSessions) {
+      const live = await window.api.getLiveSessions().catch(() => null);
+      // Only when the invented set actually moved: this runs every three seconds while anything is alive,
+      // and a sidebar rebuild per tick is exactly the churn the poll is careful about elsewhere.
+      if (live && syncLiveUnindexedSessions(live) && !window.__restoringOpenSessions) refreshSidebar();
+    }
     // A live PTY under an id we had marked as exited means it was relaunched (every launch path polls
     // immediately after spawning). Clearing here rather than at the four openTerminal call sites keeps
     // the marker honest for a session started from anywhere — including another window.
@@ -1003,6 +1014,90 @@ function dedup(projects) {
   }
 }
 
+// --- Live sessions the index has never seen (#461) -----------------------------------------------
+//
+// The sidebar list and `sessionMap` are both built out of the projects payload, which is the session
+// INDEX. A session whose backend never recorded it is not in there — that is the premise of #151 — and it
+// is drawn anyway only because the window that launched it holds it in `pendingSessions` and in a pane
+// tab. Both are memory. Reload the window and it is a running process with nothing on screen.
+//
+// So a live session the index does not know gets a row invented for it here, out of what main can say
+// about a running process (`getLiveSessions`). Downstream nothing knows the difference: the sidebar draws
+// it, the restore can look it up, panes keeps its tab, and the muted no-record marker from #460 has
+// something to hang on.
+//
+// It is RECOMPUTED, never accumulated. `loadProjects` replaces both cached lists wholesale on every store
+// write, so a set patched once would be wiped within the second; and the reap below is what makes adoption
+// need no special case at all — a session re-keyed onto the id its backend chose stops being live under
+// the old one, the invented row goes, and the new id gets its own on the same pass.
+const syntheticLiveSessions = new Set(); // sessionIds this window invented a row for
+
+// What a session looks like when the only thing known about it is that its process is running.
+//
+// `modified` carries the spawn time rather than 0: a row at the epoch sorts below everything alive and
+// reads to spring cleaning as twenty thousand days old.
+//
+// `summary` carries the session's own id, because there is nothing else — no transcript, so no first
+// prompt and no title anyone could have generated. A row with an empty name renders as a backend badge and
+// a status and nothing to tell two of them apart, which is being present without being identifiable. The
+// id is what the pane tab falls back to for the same reason, so the two agree.
+function syntheticSessionRow(live) {
+  const when = new Date(live.startedAt || Date.now()).toISOString();
+  return {
+    sessionId: live.sessionId,
+    projectPath: live.projectPath,
+    backendId: live.backendId || undefined,
+    name: null, summary: live.sessionId, firstPrompt: '',
+    starred: 0, archived: 0, messageCount: 0,
+    created: when, modified: when,
+  };
+}
+
+function dropSessionFromCachedLists(sessionId) {
+  for (const projList of [cachedProjects, cachedAllProjects]) {
+    for (const proj of projList) {
+      const i = proj.sessions.findIndex((s) => s.sessionId === sessionId);
+      if (i >= 0) proj.sessions.splice(i, 1);
+    }
+  }
+}
+
+/**
+ * Bring the invented rows in line with what is actually running.
+ *
+ * `indexedIds` is passed only from `loadProjects`, where a fresh payload says what the index now holds.
+ * An id in it is the index's session from that moment on — this stops claiming it, so a later exit reaps
+ * a row that belongs to somebody else. Without that hand-off the answer would be cached, and a healed row
+ * that ended would be taken off the sidebar.
+ *
+ * Returns whether anything changed, so the 3-second poll can leave the sidebar alone when nothing did.
+ */
+function syncLiveUnindexedSessions(liveList, indexedIds = null) {
+  const { add, drop, release } = planLiveSessionRows(liveList, {
+    indexedIds, synthetic: syntheticLiveSessions, known: sessionMap,
+  });
+
+  for (const sessionId of release) syntheticLiveSessions.delete(sessionId);
+
+  let changed = false;
+  for (const sessionId of drop) {
+    syntheticLiveSessions.delete(sessionId);
+    sessionMap.delete(sessionId);
+    dropSessionFromCachedLists(sessionId);
+    changed = true;
+  }
+
+  for (const entry of add) {
+    const existing = sessionMap.get(entry.sessionId);
+    const session = existing || syntheticSessionRow(entry);
+    if (!existing) { sessionMap.set(entry.sessionId, session); changed = true; }
+    syntheticLiveSessions.add(entry.sessionId);
+    // Re-inserted on every pass, because `loadProjects` has just replaced the lists this row was in.
+    injectPendingSession(session, entry.projectPath, encodeProjectPath(entry.projectPath));
+  }
+  return changed;
+}
+
 // The list, before it exists (#186). Placeholder rows in the shape of what is coming — a project header
 // and a few session cards — so the sidebar has the same silhouette while it loads and the real list grows
 // out of it. No text, no toolbar movement. Replaced wholesale by the first render.
@@ -1105,11 +1200,16 @@ async function loadProjects({ resort = false } = {}) {
   // sidebar can be rebuilt from. Everything below the assignment is skipped in that case, so what is on
   // screen stays exactly where it is, and the failure gets a line of its own instead of looking like a
   // user with no projects.
-  let defaultProjects, allProjects;
+  let defaultProjects, allProjects, liveSessions;
   try {
-    [defaultProjects, allProjects] = await Promise.all([
+    // The live set is fetched HERE, with the lists, and not after them (#461). `sessionMap` must never
+    // exist in a state that has the index's sessions and not the running-but-unindexed ones: panes prunes
+    // a tab whose session it cannot find in that map, and a gap of one IPC round trip is enough for it to
+    // throw away the tab of the very session this exists to keep.
+    [defaultProjects, allProjects, liveSessions] = await Promise.all([
       window.api.getProjects(false),
       window.api.getProjects(true),
+      window.api.getLiveSessions ? window.api.getLiveSessions().catch(() => []) : Promise.resolve([]),
     ]);
   } catch (err) {
     // The generation check belongs here too: a stale failure must not overwrite the state a newer call
@@ -1133,6 +1233,12 @@ async function loadProjects({ resort = false } = {}) {
   cachedAllProjects = allProjects;
   dedup(cachedProjects);
   dedup(cachedAllProjects);
+  // …and the running sessions the index has never heard of (#461), before anything renders or reads
+  // `sessionMap`. `allProjects` is the widest answer the index has, so it decides which ids have stopped
+  // being this window's to invent.
+  const indexedIds = new Set();
+  for (const proj of cachedAllProjects) for (const s of proj.sessions) indexedIds.add(s.sessionId);
+  syncLiveUnindexedSessions(liveSessions, indexedIds);
   rebuildProjectDisplayNames();
 
   // Reconcile pending sessions: remove ones that now have real data
