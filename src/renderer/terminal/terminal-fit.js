@@ -96,6 +96,14 @@
   // Only a COLUMN change does that. Rows do not re-wrap anything, and neither does a repaint or a
   // pure devicePixelRatio change — and clearing on those would take the selection away on every
   // unrelated refit, which is most of them. So the column count is the whole condition.
+  //
+  // The other half is xterm's, and knowing which half is whose is what keeps this from being widened
+  // by mistake: its selection service clears on `rowsChanged` and on nothing else. Measured in a
+  // running terminal — a rows-only resize (53 → 48, same columns) drops the selection with no help
+  // from us, while a columns-only fit (62 → 34, same rows) leaves it sitting there, which is the
+  // defect. So a change that moves BOTH is already covered upstream; a change that moves only the
+  // width is the case this exists for, and it is the common one: a side-panel drag, a vertical
+  // window edge, a pane split.
   function resizeInvalidatesSelection(colsBefore, colsAfter) {
     if (!(colsBefore > 0) || !(colsAfter > 0)) return false; // unmeasured — nothing to compare
     return colsBefore !== colsAfter;
