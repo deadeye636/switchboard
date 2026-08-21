@@ -35,6 +35,22 @@ comes back empty. Nothing errors; you just get an answer about the wrong page.
 `--target=settings shot s.png` photographs the settings window whatever the list order is, and the
 ordering stops mattering. Without the flag the behaviour is unchanged — first page wins.
 
+**A DETACHED session window is the same file, so the obvious targets stop being unique.** It loads
+`index.html?win=detached&detached=<id>`, which means `--target=index.html` matches it as readily as the
+main window — and so does `--target=Switchboard`, because the repo path itself contains the word. Detach
+one session and every reading taken that way is about whichever page CDP happens to list first, silently.
+The one substring that is always unique to a detached window is its session id; the main window has no
+unique substring at all, so address it by **closing the children** and dropping the flag, or by picking
+the page whose URL carries no query:
+
+```
+curl -s http://127.0.0.1:9222/json/list        # the detached ones carry ?win=detached
+curl -s http://127.0.0.1:9222/json/close/<id>  # close a child, main is addressable again
+```
+
+Cheap guard on any reading that matters: have the page say which one it is — `!location.search` is true
+only in the main window.
+
 ```
 node scripts/drive-app.js --target=settings shot settings.png   # the pop-out settings window
 node scripts/drive-app.js --target=changes eval "…"             # the changes window
