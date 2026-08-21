@@ -176,6 +176,25 @@ second while the window is not in front, so a sampling loop reports two data poi
 "nothing changed". Drive the code path directly, or bring the page to front, rather than believing the
 gaps.
 
+**And a window that is not VISIBLE starves `requestAnimationFrame` outright — it is not throttled, it
+never fires.** Neither do `ResizeObserver` callbacks (not even the initial one on `observe()`), `scroll`
+events, or `matchMedia` `change` events. `Page.bringToFront` does not fix it; the window has to genuinely
+be on screen, which on Windows means asking the user to bring it up. What this looks like from the
+outside is a code path that does nothing: a function whose whole body sits inside a frame callback
+returns, and nothing happens, forever. `refitActiveTerminal` in `views/file-panel.js` is one, and
+believing its silence cost two rounds in #459.
+
+Check before trusting any deferred measurement, and read `visibilityState` rather than `hasFocus()` — an
+`eval` never takes focus, so `hasFocus()` is false even on a window in front:
+
+```
+node scripts/drive-app.js eval "window.__raf=0; requestAnimationFrame(()=>{window.__raf=1}); document.visibilityState"
+node scripts/drive-app.js eval "window.__raf"    # 0 after a second → nothing deferred will run
+```
+
+Layout still measures correctly there: `clientWidth`, `getBoundingClientRect` and a synchronous
+`safeFit` all answer honestly on a hidden window. It is only the deferred and the observed that stop.
+
 ## Opening several terminal tabs to verify (WebGL, shared atlas)
 
 To reproduce more than one live terminal at once — needed to see the tabs-mode shared-atlas behaviour

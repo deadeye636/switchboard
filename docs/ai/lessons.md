@@ -493,3 +493,31 @@ And the thing that made it cheap to fix everywhere: the translation drops the me
 trimming it, so there is no per-site judgement about which part of a string is safe. Where the detail
 matters it goes to the log. Dropping it in both places would have been the tempting version, and it
 turns a support question into an unanswerable one.
+
+## A measurement that cannot tell your code from the library's (#459)
+
+The fix was one line of condition: clear a terminal selection when a re-wrap has moved the text under
+it. Three live measurements were taken and reported as proof — a font-size change, a UI zoom, a sidebar
+collapse, each one dropping the selection exactly as intended. All three were worthless.
+
+xterm clears the selection itself on `rowsChanged`, and on nothing else. A font-size change moves the
+column count and the row count together, so the library was clearing it before our line ever ran. The
+control that was missing is the boring one: hold the rows constant and move only the width. That
+measurement, taken afterwards, is the whole proof — 78 columns to 45, 53 rows to 53, a selection of 270
+characters gone — next to its opposite, a raw `fitAddon.fit()` at the same shape leaving all 190
+characters of it in place.
+
+- **Before claiming a behaviour, ask what else could produce it.** Both the code under test and the
+  library it sits on were plausible causes, and the measurement did not separate them. A proof that a
+  fix works has to be a measurement the un-fixed version fails.
+- **Read the library rather than inferring its behaviour from yours.** One grep of the bundled
+  `xterm.js` for `onResize` answered it: `onResize(e => e.rowsChanged && this.clearSelection())`. That
+  is now in the code comment beside the condition, because the next person to widen it to rows would be
+  reintroducing something upstream already does.
+- **Correct the record where the claim was made.** The issue comment had already been posted with the
+  three worthless rows in it. Editing it to say so is cheaper than leaving a false proof behind for
+  whoever reads the issue next.
+
+The second half of the same issue cost two more rounds for an unrelated reason: **a window that is not
+visible starves `requestAnimationFrame` entirely**, and the code path under test deferred to one. It
+read exactly like a function that does nothing. `docs/ai/driving-the-app.md` carries the check.
