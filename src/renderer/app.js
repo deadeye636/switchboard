@@ -1084,6 +1084,19 @@ function syncLiveUnindexedSessions(liveList, indexedIds = null) {
     syntheticLiveSessions.delete(sessionId);
     sessionMap.delete(sessionId);
     dropSessionFromCachedLists(sessionId);
+    // …and the pane tab, but ONLY a dormant one. A tab for a session this window has no record of any
+    // more is inert: nothing can mount it, and `loadTree` is the only thing that prunes it, which means
+    // not before the next start. It gets there when a backend adopts the session onto its own id while
+    // the tab was dormant — `session-forked` re-keys a MOUNTED tab and bails on one that was never
+    // clicked, which is exactly the state a reload leaves behind.
+    //
+    // Dormant is the whole condition. A mounted entry is a terminal on screen, and a tab whose process
+    // exited but which the auto-close setting deliberately KEEPS still holds its entry — taking either
+    // would be this code overruling something the user can see or has asked for.
+    if (typeof openSessions !== 'undefined' && !openSessions.has(sessionId)
+        && window.panesView && typeof window.panesView.dropSession === 'function') {
+      window.panesView.dropSession(sessionId);
+    }
     changed = true;
   }
 
