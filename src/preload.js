@@ -315,6 +315,13 @@ contextBridge.exposeInMainWorld('api', {
   onLiveOwners: (callback) => {
     ipcRenderer.on('live-owners', (_event, owners) => callback(owners || []));
   },
+  // Live sessions their backend has never recorded, so no working/idle state can be shown for them
+  // (#151, #460). Same shape of contract as the owners above — asked for once on open, kept current by
+  // the broadcast, and the broadcast is always the WHOLE list. Entries are `{ sessionId, message }`.
+  getStoreRecordNotices: () => ipcRenderer.invoke('store-record-notice:get'),
+  onStoreRecordNotices: (callback) => {
+    ipcRenderer.on('store-record-notice', (_event, list) => callback(list || []));
+  },
   // A resume that DID start and died because the session was held elsewhere — the net under the guard
   // that can only refuse from a warm cache. Carries the same entry plus the sentence to show.
   onResumeConflict: (callback) => {

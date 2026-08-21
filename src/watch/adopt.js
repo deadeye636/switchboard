@@ -150,12 +150,20 @@ function updateBackendLiveStates() {
         session._noRecordNoticed = true;
         const message = missingRecordMessage(backend.label || backend.id);
         ctx.log.warn(`[${backend.id}] session=${liveId} has no store record — reporting no busy/idle state`);
-        const mainWindow = ctx.getMainWindow();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('session-notice', liveId, message);
-        }
+        // Published as a STATE rather than sent as a toast (#460): the condition outlives any message
+        // that fades, and the tab it explains is still blank minutes later.
+        if (ctx.noteMissingStoreRecord) ctx.noteMissingStoreRecord(liveId, message);
       }
       continue;
+    }
+
+    // The record turned up after we had spoken up about it (#460). A session that pairs late shows its
+    // state like any other, so the explanation goes with the condition. Both ids, because a session
+    // noticed before adoption carries the marker under the id it launched with, and the row on screen
+    // is drawn for the one the backend chose.
+    if (session._noRecordNoticed && ctx.clearMissingStoreRecord) {
+      ctx.clearMissingStoreRecord(liveId);
+      if (sessionId !== liveId) ctx.clearMissingStoreRecord(sessionId);
     }
 
     let state;

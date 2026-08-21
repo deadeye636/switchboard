@@ -882,6 +882,15 @@ function patchSidebarStatuses() {
       dot.classList.remove(...SESSION_STATUS_CLASSES);
       dot.classList.add(status.className);
     }
+    // Patched here as well as built in the row (#460): this path is what runs on a status edge, and a
+    // rebuild is skipped whenever it succeeds — so a session that pairs with its record late would keep
+    // a muted dot and a sentence that is no longer true.
+    if (dot) {
+      const noRecord = typeof noStoreRecordFor === 'function' ? noStoreRecordFor(sid) : null;
+      dot.classList.toggle('status-unpaired', !!noRecord);
+      if (noRecord) dot.title = noRecord;
+      else dot.removeAttribute('title');
+    }
     if (!item.classList.contains(status.className)) {
       item.classList.remove(...SESSION_STATUS_CLASSES);
       item.classList.add(status.className);

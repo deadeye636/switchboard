@@ -40,6 +40,35 @@ test('the tooltip survives an empty call', () => {
   assert.equal(buildTabTooltip({}), '');
 });
 
+// #460: why the state line can never say working or idle for this session. Its own line, because it is a
+// sentence and the line above it is a list of words — and it is the only place the reason is readable at
+// the tab, the toast that used to carry it having faded eight seconds after it appeared.
+test('the tooltip carries a note about the state on its own line', () => {
+  assert.equal(
+    buildTabTooltip({
+      name: 'Solo', project: 'api', backend: 'Codex', state: 'Running',
+      note: 'Codex has not recorded this session in its store.',
+    }),
+    ['Solo', 'api · Codex · Running', 'Codex has not recorded this session in its store.'].join('\n'),
+  );
+});
+
+test('no note costs no line', () => {
+  assert.equal(buildTabTooltip({ name: 'Solo', state: 'Idle', note: '' }), 'Solo\nIdle');
+  assert.equal(buildTabTooltip({ name: 'Solo', state: 'Idle', note: null }), 'Solo\nIdle');
+});
+
+test('the session bar tooltip carries the note too', () => {
+  // The pane's action row shows the same session; a reason readable at the tab and not at the row under
+  // it would be a fact that depends on where you point.
+  const text = buildSessionBarTooltip({
+    name: 'Solo', project: 'api', backend: 'Codex', state: 'Running',
+    note: 'Codex has not recorded this session in its store.',
+  });
+  assert.equal(text.split('\n').slice(0, 3).join('\n'),
+    ['Solo', 'api · Codex · Running', 'Codex has not recorded this session in its store.'].join('\n'));
+});
+
 test('projectTailOf reads the last segment of either path flavour', () => {
   assert.equal(projectTailOf('/srv/projects/api-gateway'), 'api-gateway');
   assert.equal(projectTailOf('D:\\work\\frontend'), 'frontend');

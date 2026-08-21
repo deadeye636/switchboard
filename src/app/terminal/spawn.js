@@ -946,6 +946,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // The timeline's own busy latch (#396) — same reason, same place: it exists to tell a busy→idle
       // edge from a repeated report, and a dead session has neither.
       if (ctx.forgetTimelineSession) ctx.forgetTimelineSession(id);
+      // The "this backend has no record of the session" marker (#460) — a session that has exited
+      // explains nothing, and the marker would otherwise outlive the row it hangs on.
+      if (ctx.clearStoreRecordNotice) ctx.clearStoreRecordNotice(id);
     }
     // #223: this terminal is gone. Drop any clear claim it left behind — a claim from a dead terminal
     // can never be paired with a child, and leaving it would let it win a pairing that is not its own.

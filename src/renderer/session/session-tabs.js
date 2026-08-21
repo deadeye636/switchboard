@@ -46,10 +46,13 @@ function shouldAutoClose(mode, exitCode) {
 // in full and the one place "which of these two is the one in the other project" can be answered.
 // Empty parts are left out rather than shown blank: a backend that declares no label, or a session
 // with no project, should cost a line, not an empty one.
-function buildTabTooltip({ name, project, backend, state } = {}) {
+// `note` is a sentence that qualifies the state rather than describing it — today the one case is a
+// backend that has no record of the session, which is why the state line can never say working or idle
+// (#460). Its own line, after the detail: it is a full sentence, and the detail line is a list of words.
+function buildTabTooltip({ name, project, backend, state, note } = {}) {
   const title = String(name || '').trim();
   const detail = [project, backend, state].map((v) => String(v || '').trim()).filter(Boolean);
-  return [title, detail.join(' · ')].filter(Boolean).join('\n');
+  return [title, detail.join(' · '), String(note || '').trim()].filter(Boolean).join('\n');
 }
 
 // The tooltip for a session BAR — the row under the tabs, which shows the name and the project and
@@ -59,8 +62,8 @@ function buildTabTooltip({ name, project, backend, state } = {}) {
 //
 // Each extra line is dropped when it repeats one already there. A row whose name IS the AI title would
 // otherwise show the same sentence three times, which is the thing this issue removed from the row.
-function buildSessionBarTooltip({ name, aiTitle, ptyTitle, sessionId, project, backend, state } = {}) {
-  const head = buildTabTooltip({ name, project, backend, state });
+function buildSessionBarTooltip({ name, aiTitle, ptyTitle, sessionId, project, backend, state, note } = {}) {
+  const head = buildTabTooltip({ name, project, backend, state, note });
   // Compared without a leading marker, because a CLI's own title is usually the AI title with an
   // activity glyph in front of it ("✳ Review the handoff"). Those are two different strings and one
   // sentence, and listing both is the repetition this issue removed one level up. Only the leading
@@ -258,6 +261,7 @@ if (typeof module !== 'undefined' && module.exports) {
       project: projectTailOf(session.projectPath),
       backend: backend && backend.label,
       state: status && status.label,
+      note: (typeof noStoreRecordFor === 'function') ? noStoreRecordFor(session.sessionId) : null,
     });
   };
 
@@ -278,6 +282,7 @@ if (typeof module !== 'undefined' && module.exports) {
       project: sessionProjectName(session),
       backend: backend && backend.label,
       state: status && status.label,
+      note: (typeof noStoreRecordFor === 'function') ? noStoreRecordFor(session.sessionId) : null,
     });
   };
   window.sessionProjectLabel = (session) => sessionProjectName(session);

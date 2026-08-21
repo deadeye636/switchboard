@@ -366,6 +366,40 @@ const lastActivityTime = new Map(); // sessionId → Date of last terminal outpu
 // return. See shell/away-overview-view.js.
 const sessionTimelineStore = createTimelineStore();
 
+// --- Sessions their backend has no record of (#151, #460) ---------------------------------------
+//
+// A backend whose busy/idle comes from its own store can only report a state once the live session has
+// been paired with a record. Where that pairing never happens the tab shows no working/idle for as long
+// as the session lives — and until #460 the only thing that said so was a toast that faded in eight
+// seconds. Main holds the fact (`app/store-record-notice.js`) and publishes the whole list; this window
+// keeps the latest one and the three surfaces that draw a status dot read it while rendering.
+//
+// It is a cache of someone else's fact: nothing in this window may add to it, and nothing here may turn
+// it into an attention signal. The user is not being waited on — this says a state is UNKNOWN.
+let noStoreRecordBySession = new Map(); // sessionId → the sentence to show
+
+/** Same sessions, same sentences? A broadcast that changed nothing must not repaint every view. */
+function sameStoreRecordNotices(a, b) {
+  if (a.size !== b.size) return false;
+  for (const [id, message] of a) if (b.get(id) !== message) return false;
+  return true;
+}
+
+function setStoreRecordNotices(list) {
+  const next = new Map();
+  for (const entry of list || []) {
+    if (entry && entry.sessionId && entry.message) next.set(entry.sessionId, entry.message);
+  }
+  if (sameStoreRecordNotices(noStoreRecordBySession, next)) return;
+  noStoreRecordBySession = next;
+  refreshSessionStatusViews();
+}
+
+/** Why this session can show no working/idle state, or null. Read by the row/tab/card builders. */
+function noStoreRecordFor(sessionId) {
+  return (sessionId && noStoreRecordBySession.get(sessionId)) || null;
+}
+
 // Noise patterns — these don't count as activity
 const activityNoiseRe = /file-history-snapshot|^\s*$/;
 // The attention/activity engine — setActivity, applyAttention, announceAttentionSummary and the

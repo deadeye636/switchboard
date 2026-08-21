@@ -1911,6 +1911,20 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
 }
 .status-dot.status-needs-attention::after { animation-delay: 1s; }
 
+/* The backend has no record of this session, so the dot can never say working or idle (#460). The
+   quietest thing this dot does: hollow, in the idle grey, no motion, no colour of its own — a mark to
+   hover, not a signal. Nothing is waiting for the user; the state is simply unknown, and the tooltip
+   says why. LAST in this block on purpose: same specificity as the fills above, so it wins by order and
+   mutes whichever state was painted underneath (a session with no record still reads as Running). */
+.status-dot.status-unpaired {
+  background: transparent;
+  border: 1px solid var(--status-idle-dot);
+  box-shadow: none;
+  animation: none;
+}
+.status-dot.status-unpaired::before,
+.status-dot.status-unpaired::after { content: none; }
+
 /* Sidebar dot: size + base fill (colour/motion come from .status-dot above). */
 .session-status-dot {
   width: 6px;

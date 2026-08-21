@@ -26,10 +26,14 @@ function fakeBackend(over = {}) {
   };
 }
 
-function setup({ sessions = [], backend = fakeBackend(), echo = null } = {}) {
+function setup({ sessions = [], backend = fakeBackend(), echo = null, noticeHooks = true } = {}) {
   const sent = [];
   const activeSessions = new Map(sessions);
   const rekeyed = [];
+  // "This backend has no record of the session" is published as a state now (#460), not sent as a toast.
+  // Recorded here as the two calls adopt makes, so a test can see both the saying and the taking back.
+  const noticed = [];   // [sessionId, message]
+  const cleared = [];   // sessionId
   adopt.liveStoreRef.clear();
   adopt.liveBusy.clear();
   adopt.init({
@@ -44,8 +48,12 @@ function setup({ sessions = [], backend = fakeBackend(), echo = null } = {}) {
     // The record-only echo to a window of its own (#395). Absent in the older cases on purpose: a ctx
     // without it must not throw.
     sendTimelineSignal: echo ? (id, signal) => echo.push([id, signal]) : undefined,
+    // Omitted entirely when `noticeHooks` is false: a ctx without them must not throw, the same
+    // contract every other optional hook here has.
+    noteMissingStoreRecord: noticeHooks ? (id, message) => noticed.push([id, message]) : undefined,
+    clearMissingStoreRecord: noticeHooks ? (id) => cleared.push(id) : undefined,
   });
-  return { activeSessions, sent, rekeyed, backend };
+  return { activeSessions, sent, rekeyed, backend, noticed, cleared };
 }
 
 const live = (over = {}) => ({ _openedAt: Date.now(), _resumed: false, projectPath: '/p', ...over });
@@ -223,7 +231,7 @@ test('Claude and plain terminals are skipped — they own their id and report th
 // there. Say so once — a blank indicator the user cannot explain is worse than a notice.
 test('a session with no record is noticed once, not on every flush', () => {
   const session = live({ _openedAt: Date.now() - 60_000 });
-  const { sent } = setup({
+  const { sent, noticed } = setup({
     sessions: [['temp-1', session]],
     backend: fakeBackend({ matchLiveSession: () => null }),
   });
@@ -232,9 +240,61 @@ test('a session with no record is noticed once, not on every flush', () => {
   adopt.updateBackendLiveStates();
   adopt.updateBackendLiveStates();
 
-  const notices = sent.filter(([ch]) => ch === 'session-notice');
-  assert.equal(notices.length, 1, 'once');
-  assert.equal(notices[0][1], 'temp-1');
+  assert.equal(noticed.length, 1, 'once');
+  assert.equal(noticed[0][0], 'temp-1');
+  assert.match(noticed[0][1], /has not recorded this session/);
+  // #460 moved it off the toast channel. It went out as a message that faded in eight seconds while the
+  // condition it explains lasts as long as the session — the tab is still blank minutes later.
+  assert.equal(sent.filter(([ch]) => ch === 'session-notice').length, 0,
+    'not a toast any more — the fact is published as a state');
+});
+
+// #460: the record can still turn up (the store watcher fires the moment anything is written). A session
+// that pairs late shows its state like any other, so the explanation has to go with the condition —
+// otherwise the app keeps saying "no state can be shown" beside a dot that is showing one.
+test('a record that turns up later takes the explanation back', () => {
+  let ref = null;
+  const session = live({ _openedAt: Date.now() - 60_000 });
+  const { noticed, cleared } = setup({
+    sessions: [['temp-1', session]],
+    backend: fakeBackend({ matchLiveSession: () => (ref ? { sessionId: 'temp-1', ref } : null), liveState: () => 'idle' }),
+  });
+
+  adopt.updateBackendLiveStates();
+  assert.equal(noticed.length, 1, 'said once while there was no record');
+  assert.deepEqual(cleared, [], 'and nothing taken back while it is still true');
+
+  ref = '/store/rec.jsonl';                  // the backend finally writes it
+  adopt.updateBackendLiveStates();
+  assert.deepEqual(cleared, ['temp-1'], 'taken back the moment it pairs');
+});
+
+test('a session noticed before adoption has the explanation taken back under BOTH ids', () => {
+  // The marker is published under the id the session was running as. Adoption renames it, and the row on
+  // screen is drawn for the backend's own id — clear only one and a marker outlives its session.
+  let match = null;
+  const session = live({ _openedAt: Date.now() - 60_000 });
+  const { cleared } = setup({
+    sessions: [['temp-1', session]],
+    backend: fakeBackend({ matchLiveSession: () => match, liveState: () => 'idle' }),
+  });
+
+  adopt.updateBackendLiveStates();          // no record yet → noticed under 'temp-1'
+  match = { sessionId: 'codex-real', ref: '/store/rec.jsonl' };
+  adopt.updateBackendLiveStates();          // adopted AND paired on the same tick
+
+  assert.deepEqual(cleared.sort(), ['codex-real', 'temp-1']);
+});
+
+test('a ctx without the notice hooks does not throw', () => {
+  const session = live({ _openedAt: Date.now() - 60_000 });
+  setup({
+    sessions: [['temp-1', session]],
+    backend: fakeBackend({ matchLiveSession: () => null }),
+    noticeHooks: false,
+  });
+
+  assert.doesNotThrow(() => adopt.updateBackendLiveStates());
 });
 
 test('hasUnclaimedStoreSession stops counting a session it has already spoken up about', () => {

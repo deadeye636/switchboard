@@ -171,7 +171,19 @@ backend can only report a state once the live session is paired with its store r
 degraded mode — it writes sessions as JSON when it cannot open its own database, and our reader *is* that
 database — so a session running in front of the user may have no record we can see. The tab then shows no
 state, forever, with nothing to explain it. A session left unpaired past a grace window (60 s; Hermes alone
-needs ~12 s just to paint) raises a one-time notice naming the backend.
+needs ~12 s just to paint) is marked as one the backend cannot see.
+
+**The mark lasts as long as the condition does** (#460). It was a toast at first, and a toast is the wrong
+shape for this: it faded after eight seconds while the thing it explained stayed for good, so looking away
+left the user with exactly the unexplained blank indicator #151 set out to remove. The fact is held in
+`src/app/store-record-notice.js` and published as a list — every window receives it, a window that opens or
+reloads asks for it (`store-record-notice:get`), and it is withdrawn the moment the record turns up or the
+session exits. The renderer draws it as a **hollow, muted dot** plus a line in the tab's tooltip, on all
+three surfaces that show a status dot.
+
+Quiet is a requirement, not a style choice: no attention colour, no badge, no tray count, no chime. Nothing
+is waiting for the user. What is being reported is the ABSENCE of a state, and a signal saying otherwise
+would be a second lie beside the blank one.
 
 Which means the slow re-check tick must run **while a session is unpaired**, not only while one is busy.
 The store-changed watcher cannot fire when the store does not exist, and an unpaired session can never be

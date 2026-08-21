@@ -200,6 +200,20 @@ if (window.api.getLiveOwners) {
     .catch(() => { /* an older main process without the poller */ });
 }
 
+// Live sessions their backend has no record of, so no working/idle can be shown for them (#151, #460).
+// Same two halves as the owners above, and for the same reason: main says it once, but the condition
+// lasts as long as the session, so a window that opens or reloads has to be able to ASK. Without the
+// second half the explanation would be gone for good after a reload — which is the shelf-life bug this
+// issue is about, one layer down.
+window.api.onStoreRecordNotices?.((list) => {
+  if (typeof setStoreRecordNotices === 'function') setStoreRecordNotices(list);
+});
+if (window.api.getStoreRecordNotices) {
+  window.api.getStoreRecordNotices()
+    .then((list) => { if (typeof setStoreRecordNotices === 'function') setStoreRecordNotices(list); })
+    .catch(() => { /* an older main process that does not publish it */ });
+}
+
 window.api.onProcessExited((sessionId, exitCode) => {
   const entry = openSessions.get(sessionId);
   const session = sessionMap.get(sessionId);

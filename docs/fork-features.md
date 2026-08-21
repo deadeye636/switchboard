@@ -336,6 +336,12 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   global → project. Claude's permission mode is never shown to Codex.
 - **Provider badges + mixed mode** — a badge per session row, shown only once more than one backend is
   actually in use. A Claude-only user sees the app unchanged.
+- **Busy/idle from four different sources, and an honest answer when there is none** — Claude states it
+  in the terminal; Codex, Hermes, Pi and agy have it read out of their own store. When a live session
+  never pairs with a store record — Hermes writes plain JSON when it cannot open its own database, and
+  the database is what we read — no state can be reported for as long as it runs. The session then
+  carries a **hollow dot and the reason on hover** (#151, #460) instead of a blank indicator. It is
+  never inferred from PTY output: output is liveness, never work.
 - **Cost analytics** — where a backend prices its own turns (Hermes, Pi), Stats shows it per backend.
   An estimate is labelled as an estimate, a zero estimate reads as "no cost reported" rather than
   `$0.00`, and a token-only backend shows an em dash.

@@ -364,6 +364,17 @@ liveOwners.init({
 });
 liveOwners.registerIpc(ipcMain);
 
+// --- Which live sessions their backend has no record of (#151, #460) -> app/store-record-notice.js ---
+// The fact that a tab can show no working/idle state, held for as long as it is true instead of sent as
+// a message that fades. watch/adopt.js decides it; this publishes it to every window and answers the one
+// a reload asks.
+const storeRecordNotice = require('./app/store-record-notice');
+storeRecordNotice.init({
+  getMainWindow: () => mainWindow,
+  getDetachedWindows: () => [...detach.detachedWindows.values()],
+});
+storeRecordNotice.registerIpc(ipcMain);
+
 // --- Native notifications, dock/taskbar badge, and tray (Spec 01) -> app/notifications.js ---
 const notifications = require('./app/notifications');
 notifications.init({ getMainWindow: () => mainWindow, log });
@@ -1947,6 +1958,10 @@ watchAdopt.init({
   // Adoption moves a session onto the id its backend chose; the record's busy latch has to move with it,
   // exactly as adopt.js's own liveBusy does, or the turn spanning the move never ends.
   rekeyTimelineSession: (fromId, toId) => timeline.rekeySession(fromId, toId),
+  // "No record for this session" is published as a state rather than sent as a toast (#460) — the tab
+  // it explains stays blank for as long as the session lives.
+  noteMissingStoreRecord: (sessionId, message) => storeRecordNotice.notice(sessionId, message),
+  clearMissingStoreRecord: (sessionId) => storeRecordNotice.clear(sessionId),
   backends,
   sessionBackends,
   log,
@@ -1990,6 +2005,9 @@ spawn.init({
   sendTimelineSignal: recordAndRouteTimelineSignal,
   // The record's busy latch, dropped where every other per-session map is dropped on exit.
   forgetTimelineSession: (sessionId) => timeline.forgetSession(sessionId),
+  // …and the "no record for this session" marker (#460), for the same reason: a dead session explains
+  // nothing, and a marker left behind would outlive the row it belongs to.
+  clearStoreRecordNotice: (sessionId) => storeRecordNotice.clear(sessionId),
   // …and the lifecycle facts, which are not signals: a spawn and an exit each happen once, here.
   recordTimelineLifecycle: (sessionId, kind, label, detail) => timeline.recordLifecycle(sessionId, kind, label, detail),
   getAppQuitting: () => appQuitting,

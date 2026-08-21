@@ -1184,6 +1184,9 @@ window.__sessionDragId = null;
     el.title = (session && typeof window.tabTooltipFor === 'function' && window.tabTooltipFor(session, status)) || name;
     const dot = document.createElement('span');
     dot.className = 'session-tab-dot status-dot' + (status ? ' ' + status.className : '');
+    // No store record for this session, so the dot can never say working or idle (#460). Muted rather
+    // than coloured, and the sentence rides in the tooltip `tabTooltipFor` already built above.
+    if (typeof noStoreRecordFor === 'function' && noStoreRecordFor(sessionId)) dot.classList.add('status-unpaired');
     el.appendChild(dot);
 
     const label = document.createElement('span');
@@ -3628,6 +3631,13 @@ window.__sessionDragId = null;
       }
       tab.classList.toggle('subagent-active',
         typeof subagentActiveSessions !== 'undefined' && subagentActiveSessions.has(tab.dataset.sessionId));
+      // The muting is not a status class, so the strip above does not take it off — and a session that
+      // pairs with its record late must lose it (#460). The tooltip that carries the sentence is rebuilt
+      // by refreshChrome, which every caller of this runs immediately after.
+      if (dot) {
+        dot.classList.toggle('status-unpaired',
+          typeof noStoreRecordFor === 'function' && !!noStoreRecordFor(tab.dataset.sessionId));
+      }
     }
     return true;
   }

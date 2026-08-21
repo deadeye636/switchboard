@@ -41,6 +41,28 @@ and all of them are in the same full-text search. Hermes sessions that genuinely
 directory (its gateway/cron chats) collect in a backend-scoped bucket rather than being forced under a
 project.
 
+### A hollow status dot: the state is unknown
+
+Most rows show a filled dot: green while a session runs, a spinning ring while its CLI is working. A
+**hollow, grey dot** means neither. The app cannot tell whether that session is working or idle, and it
+says so instead of guessing. Hover the dot, or the session's tab, and the reason is spelled out.
+
+Where the answer comes from is what decides it. Claude states its state in the terminal, so it is always
+known. **Codex, Hermes, Pi and the Antigravity CLI take it from their own store**, which means the app has
+to pair the running session with the record that backend wrote for it. Until it does, there is nothing to
+read. That record normally appears within seconds. Sometimes it never does: Hermes falls back to writing
+plain JSON files when it cannot open its own database, and the database is what the app reads. The pairing
+then never happens, and no state can be reported for as long as that session lives.
+
+The session itself is fine. It runs and it answers, and the terminal shows everything it always did. What
+is missing is the status indicator and nothing else. Nothing flashes, nothing lands in the attention inbox,
+nothing counts it as waiting for you: the mark is there to be found, not to interrupt. If the record does
+turn up later, the dot fills in and the explanation goes away on its own.
+
+The app deliberately does **not** infer a state from terminal output. Output means a session is alive, not
+that it is working. A spinner frame is output, and so is the echo of a key you pressed; guessing from that
+would leave a CLI which redraws while idle looking busy forever.
+
 ## Cost
 
 Some backends price their own turns. Where they do, **Stats → By backend** shows it:

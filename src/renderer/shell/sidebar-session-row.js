@@ -81,6 +81,13 @@ function buildSessionItem(session, opts = {}) {
   // `status-dot` is the shared marker every view's dot carries (#269): the spinner/ripple/glow motion
   // is defined once against `.status-dot.status-*` and the sidebar, grid and tab dots all get it.
   dot.className = 'session-status-dot status-dot ' + status.className;
+  // The backend has no record of this session, so working/idle can never be shown for it (#460). A
+  // muted dot and a sentence on hover — findable, but not a signal: nothing is waiting for the user.
+  const noRecord = typeof noStoreRecordFor === 'function' ? noStoreRecordFor(session.sessionId) : null;
+  if (noRecord) {
+    dot.classList.add('status-unpaired');
+    dot.title = noRecord;
+  }
 
   const indicators = document.createElement('div');
   indicators.className = 'session-indicators';
