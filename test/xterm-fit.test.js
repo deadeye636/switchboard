@@ -1,7 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { clampRowsToContentBox, bottomRowClipped, screenOutsideBuffer, repairScreenPastBuffer } = require('../src/renderer/terminal/terminal-fit');
+const {
+  clampRowsToContentBox, bottomRowClipped, screenOutsideBuffer, repairScreenPastBuffer,
+  resizeInvalidatesSelection, clearSelectionAfterReflow,
+} = require('../src/renderer/terminal/terminal-fit');
 
 // --- clampRowsToContentBox (regression guard for the original clip fix) ---
 
@@ -161,4 +164,62 @@ test('repairScreenPastBuffer: a terminal that never converges gives up instead o
 
 test('repairScreenPastBuffer: a terminal with no buffer yet is not an error', () => {
   assert.equal(repairScreenPastBuffer({ cols: 80, rows: 24, buffer: null }), false);
+});
+
+// --- clearSelectionAfterReflow (#459 stale-selection guard) ---
+//
+// A selection points at buffer cells. A column change re-wraps the buffer, so those cells hold
+// different text afterwards and a copy returns lines that were never selected. Row changes,
+// repaints and pure devicePixelRatio changes do not re-wrap and must leave the selection alone.
+
+function fakeSelectionTerminal({ cols = 80, selected = true } = {}) {
+  return {
+    cols,
+    selected,
+    clears: 0,
+    hasSelection() { return this.selected; },
+    clearSelection() { this.selected = false; this.clears++; },
+  };
+}
+
+test('resizeInvalidatesSelection: a column change re-wraps and invalidates', () => {
+  assert.equal(resizeInvalidatesSelection(95, 74), true);
+  assert.equal(resizeInvalidatesSelection(74, 95), true);
+});
+
+test('resizeInvalidatesSelection: the same column count does not', () => {
+  assert.equal(resizeInvalidatesSelection(95, 95), false);
+});
+
+test('resizeInvalidatesSelection: an unmeasured column count is not a change', () => {
+  // A brand-new terminal has no cols yet; treating undefined as "changed" would clear on open.
+  assert.equal(resizeInvalidatesSelection(undefined, 95), false);
+  assert.equal(resizeInvalidatesSelection(95, undefined), false);
+  assert.equal(resizeInvalidatesSelection(0, 95), false);
+});
+
+test('clearSelectionAfterReflow: a selection is dropped when the width changed', () => {
+  const t = fakeSelectionTerminal({ cols: 74 });
+  assert.equal(clearSelectionAfterReflow(t, 95), true);
+  assert.equal(t.selected, false);
+  assert.equal(t.clears, 1);
+});
+
+test('clearSelectionAfterReflow: a selection survives a row-only change', () => {
+  // Same cols either side — the fit changed the height, which re-wraps nothing.
+  const t = fakeSelectionTerminal({ cols: 95 });
+  assert.equal(clearSelectionAfterReflow(t, 95), false);
+  assert.equal(t.selected, true);
+  assert.equal(t.clears, 0);
+});
+
+test('clearSelectionAfterReflow: nothing selected is not an error', () => {
+  const t = fakeSelectionTerminal({ cols: 74, selected: false });
+  assert.equal(clearSelectionAfterReflow(t, 95), false);
+  assert.equal(t.clears, 0);
+});
+
+test('clearSelectionAfterReflow: a terminal without the selection API is left alone', () => {
+  assert.equal(clearSelectionAfterReflow({ cols: 74 }, 95), false);
+  assert.equal(clearSelectionAfterReflow(null, 95), false);
 });

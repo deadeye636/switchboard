@@ -411,6 +411,7 @@ function safeFit(entry) {
   // returns nothing and the retry loop below would spin its ~30-frame budget for nothing,
   // per hidden terminal. A real show refits anyway — same guard scheduleObservedRefit has (#265).
   if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
+  const colsBefore = entry.terminal.cols; // for the selection check below (#459)
   const dims = entry.fitAddon.proposeDimensions();
   // Was this fit clamped against a real, measured cell height? A brand-new
   // terminal hasn't painted yet, so cellH is 0 and the clamp is a no-op — the
@@ -448,6 +449,10 @@ function safeFit(entry) {
   // is a side-panel width drag, so it does not currently change the row count — the day it
   // does, it needs this call too.
   repairTerminalScreen(entry);
+  // A column change re-wraps the buffer under whatever was selected, so the selection has to go
+  // with it (#459). Every fit that can change the width passes here — font size, window resize,
+  // pane split, UI zoom — except the side-panel drag, which does its own call.
+  clearSelectionAfterReflow(entry.terminal, colsBefore);
   if (el && measured) {
     // Cache the container size this fit was computed for, so showSession can skip
     // a redundant resize (and its reflow) when the box hasn't changed on a tab

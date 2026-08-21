@@ -768,3 +768,41 @@ test('#458: the side panel comes back where it was scrolled to', async () => {
     assert.equal(root.querySelector('.fp-viewer').scrollTop, 640, 'and it is back where it was');
   } finally { h.destroy(); }
 });
+
+// The side panel's width drag re-fits the terminal beside it with its own `fitAddon.fit()` — it does
+// not go through safeFit, so it owes the selection the same treatment (#459): a narrower terminal
+// re-wraps the buffer, and a selection left pointing at those cells copies text nobody selected.
+
+test('#459: the width drag drops a selection when the terminal loses columns', async () => {
+  const h = setupFilePanelDom();
+  try {
+    h.init();
+    const entry = h.mount('s1', { cols: 95, colsAfterFit: 74 });
+    h.switchPanel('s1');
+    entry.terminal.selected = true;
+
+    h.inCtx('refitActiveTerminal()');
+    await h.frame();
+
+    assert.equal(h.calls.fits > 0, true, 'the terminal was re-fitted');
+    assert.equal(entry.terminal.hasSelection(), false, 'and the stale selection went with it');
+    assert.equal(h.calls.selectionClears, 1);
+  } finally { h.destroy(); }
+});
+
+test('#459: a drag that leaves the column count alone keeps the selection', async () => {
+  const h = setupFilePanelDom();
+  try {
+    h.init();
+    const entry = h.mount('s1', { cols: 95 }); // the fit proposes the same width
+    h.switchPanel('s1');
+    entry.terminal.selected = true;
+
+    h.inCtx('refitActiveTerminal()');
+    await h.frame();
+
+    assert.equal(h.calls.fits > 0, true, 'the terminal was re-fitted');
+    assert.equal(entry.terminal.hasSelection(), true, 'nothing re-wrapped, so nothing is dropped');
+    assert.equal(h.calls.selectionClears, 0);
+  } finally { h.destroy(); }
+});

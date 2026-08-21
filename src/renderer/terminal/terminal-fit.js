@@ -85,5 +85,38 @@
     return false;
   }
 
-  return { clampRowsToContentBox, bottomRowClipped, screenOutsideBuffer, repairScreenPastBuffer };
+  // Does a resize invalidate the selection that was made before it (#459)?
+  //
+  // A selection is a range of buffer CELLS, not of text. Change the column count and xterm re-wraps
+  // the buffer, so the same cells afterwards hold different characters — a copy then returns lines
+  // the user never selected. Measured with a CLI writing lines wider than the terminal: five copied
+  // lines came back as four, one of them 191 characters with two rejoined halves and the padding of
+  // the seam in the middle.
+  //
+  // Only a COLUMN change does that. Rows do not re-wrap anything, and neither does a repaint or a
+  // pure devicePixelRatio change — and clearing on those would take the selection away on every
+  // unrelated refit, which is most of them. So the column count is the whole condition.
+  function resizeInvalidatesSelection(colsBefore, colsAfter) {
+    if (!(colsBefore > 0) || !(colsAfter > 0)) return false; // unmeasured — nothing to compare
+    return colsBefore !== colsAfter;
+  }
+
+  // Drop a selection that a re-wrap has just made meaningless, and say whether it dropped one.
+  // Takes the terminal as an argument so `node --test` can drive it without a DOM, like
+  // repairScreenPastBuffer above. Callers capture `terminal.cols` before their fit and pass it here
+  // after. Clearing goes through the public `clearSelection`, so xterm fires `onSelectionChange` and
+  // the selection action bar (#88) closes with it.
+  function clearSelectionAfterReflow(terminal, colsBefore) {
+    if (!terminal) return false;
+    if (!resizeInvalidatesSelection(colsBefore, terminal.cols)) return false;
+    if (typeof terminal.hasSelection !== 'function' || !terminal.hasSelection()) return false;
+    if (typeof terminal.clearSelection !== 'function') return false;
+    terminal.clearSelection();
+    return true;
+  }
+
+  return {
+    clampRowsToContentBox, bottomRowClipped, screenOutsideBuffer, repairScreenPastBuffer,
+    resizeInvalidatesSelection, clearSelectionAfterReflow,
+  };
 });

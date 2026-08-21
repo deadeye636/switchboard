@@ -111,6 +111,27 @@ them live would swap the mode out from under someone who is mid-edit.
 `tabsLiveRender` is retired too (#339): it is read as the fallback for `liveRenderBackground`, so a
 stored preference survives — the setting stopped being about tabs when panes started obeying it.
 
+### Copying after the terminal changes width (#459)
+
+`terminalFontSize` is the easiest way to change a terminal's column count, but a window resize, a
+pane split and the UI zoom do the same thing, and every one of them re-wraps the buffer. A selection
+is a range of cells rather than of text, so after a re-wrap it points at different characters — which
+is why Switchboard **drops the selection** whenever the column count changes. Copy after such a change
+and you get nothing, instead of lines you never selected. A change that only alters the height leaves
+the selection alone.
+
+The other half of this is not Switchboard's to fix. A CLI that draws a line **wider than the
+terminal** pads it out to the right edge. While that line is wrapped across two rows the padding sits
+at the end of a row, where it is invisible; widen the terminal and xterm rejoins the halves, leaving
+a run of spaces in the middle of the line. Copy that line and the spaces come with it. They belong to
+the line the CLI wrote — xterm has no option to turn reflow off, and throwing the scrollback away on
+every resize would cost more than it saves.
+
+Which CLIs this can affect depends on what they draw, not on which one it is: measured against
+Switchboard's own terminal, Claude Code and Pi write lines that reach or exceed the width, Codex and
+agy stay well inside it and are unaffected. **The workaround is to copy from the message history**
+(the session's Messages view), which reads the CLI's own transcript and never wrapped anything.
+
 ## Terminal tools
 
 | Key | Label | Values | Default | Scope |

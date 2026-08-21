@@ -980,7 +980,12 @@ function refitActiveTerminal() {
     if (typeof openSessions !== 'undefined' && currentPanelSessionId) {
       const entry = openSessions.get(currentPanelSessionId);
       if (entry && entry.fitAddon) {
+        // A width drag changes the column count, which re-wraps the buffer under whatever was
+        // selected — so the selection goes with it (#459). This path does its own fit rather than
+        // going through safeFit, so it has to make the call itself.
+        const colsBefore = entry.terminal?.cols;
         try { entry.fitAddon.fit(); } catch {}
+        clearSelectionAfterReflow(entry.terminal, colsBefore);
       }
     }
   });

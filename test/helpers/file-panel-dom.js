@@ -61,6 +61,7 @@ function setupFilePanelDom(opts = {}) {
     refreshSidebar: 0,
     toasts: [],
     fits: 0,
+    selectionClears: 0,
   };
 
   // What `readFileForPanel` answers, per path. A test that previews a file seeds it here.
@@ -100,10 +101,22 @@ function setupFilePanelDom(opts = {}) {
     },
   });
 
-  // A mounted session as app.js holds it. `refitActiveTerminal` reaches for `fitAddon`.
+  // A mounted session as app.js holds it. `refitActiveTerminal` reaches for `fitAddon` and, since
+  // #459, for the terminal's column count and selection either side of the fit. `colsAfterFit` is
+  // what the width drag does: a narrower panel leaves the terminal with fewer columns.
   const openSessions = new Map();
-  function mount(sessionId) {
-    const entry = { session: { sessionId }, fitAddon: { fit: () => { calls.fits++; } } };
+  function mount(sessionId, { cols = 80, colsAfterFit = null } = {}) {
+    const terminal = {
+      cols,
+      selected: false,
+      hasSelection: () => terminal.selected,
+      clearSelection: () => { terminal.selected = false; calls.selectionClears++; },
+    };
+    const entry = {
+      session: { sessionId },
+      terminal,
+      fitAddon: { fit: () => { calls.fits++; if (colsAfterFit !== null) terminal.cols = colsAfterFit; } },
+    };
     openSessions.set(sessionId, entry);
     return entry;
   }
@@ -189,6 +202,7 @@ function setupFilePanelDom(opts = {}) {
     'shared/preview-kind.js',        // previewKindForExt + extOf, both read as bare globals
     'renderer/lib/utils.js',            // cleanDisplayName and friends, read bare all over the renderer
     'renderer/lib/a11y-utils.js',       // syncTitleToAriaLabel, which viewer-toolbar calls on every button
+    'renderer/terminal/terminal-fit.js', // clearSelectionAfterReflow, which the width drag's refit calls
     'renderer/views/viewer-toolbar.js', // flashButtonText + createViewerToolbar
     'renderer/views/viewer-panel.js',   // the real ViewerPanel — it takes a container already
     'renderer/views/file-panel.js',
@@ -235,6 +249,8 @@ function setupFilePanelDom(opts = {}) {
     state: (sessionId) => inCtx(`filePanelState.get(${JSON.stringify(sessionId)})`),
     // A tick for the deferred merge-viewer creation (`loadCodeMirrorBundle().then(...)`).
     settle: () => new Promise((r) => setTimeout(r, 0)),
+    // A real animation frame, for what the panel defers to one — the terminal re-fit.
+    frame: () => new Promise((r) => window.requestAnimationFrame(() => r())),
     panel: () => window.document.getElementById('file-panel'),
     q: (sel) => window.document.querySelector(sel),
     qa: (sel) => [...window.document.querySelectorAll(sel)],

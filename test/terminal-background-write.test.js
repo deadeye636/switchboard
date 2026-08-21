@@ -40,8 +40,11 @@ function makeTerminalStub(spies) {
     resize(cols, rows) { spies.resize++; spies.lastResize = [cols, rows]; this.cols = cols; this.rows = rows; }
     scrollToBottom() {}
     scrollLines() {}
-    hasSelection() { return false; }
-    getSelection() { return ''; }
+    // `selected` is what a test sets to put a selection on the terminal (#459); nothing selects by
+    // default, so every other test sees the old behaviour.
+    hasSelection() { return this.selected === true; }
+    getSelection() { return this.selected ? 'selected text' : ''; }
+    clearSelection() { this.selected = false; spies.clearSelection++; }
     attachCustomKeyEventHandler() {}
     onData() {}
     onResize() {}
@@ -51,6 +54,9 @@ function makeTerminalStub(spies) {
 }
 
 function setupDom({ fitDims = null } = {}) {
+  // Mutable so a test can change what the next fit proposes — the width change is the whole
+  // trigger for #459, and it has to happen between two fits of the same terminal.
+  const fit = { dims: fitDims };
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="terminals"></div></body></html>', {
     url: 'http://localhost/',
     runScripts: 'outside-only',
@@ -67,7 +73,7 @@ function setupDom({ fitDims = null } = {}) {
   Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', {
     configurable: true, get() { return this.classList?.contains('terminal-container') ? 600 : 0; },
   });
-  const spies = { dispose: 0, write: 0, closeTerminal: 0, lastWriteData: null, resize: 0, refresh: 0, lastResize: null, lastRefresh: null, onContextLoss: null };
+  const spies = { dispose: 0, write: 0, closeTerminal: 0, lastWriteData: null, resize: 0, refresh: 0, lastResize: null, lastRefresh: null, onContextLoss: null, clearSelection: 0 };
 
   window.api = new Proxy({ platform: 'linux' }, {
     get(target, prop) {
@@ -81,7 +87,7 @@ function setupDom({ fitDims = null } = {}) {
   const noopClass = class { dispose() {} onContextLoss() {} };
   const stubGlobals = {
     Terminal: makeTerminalStub(spies),
-    FitAddon: { FitAddon: class { proposeDimensions() { return fitDims; } fit() {} } },
+    FitAddon: { FitAddon: class { proposeDimensions() { return fit.dims; } fit() {} } },
     WebLinksAddon: { WebLinksAddon: noopClass },
     SearchAddon: { SearchAddon: class { clearDecorations() {} findNext() {} findPrevious() {} } },
     UnicodeGraphemesAddon: { UnicodeGraphemesAddon: noopClass },
@@ -127,8 +133,9 @@ function setupDom({ fitDims = null } = {}) {
 
   const ctx = dom.getInternalVMContext();
   for (const rel of ['renderer/lib/utils.js', 'renderer/shell/shortcuts.js',
-                     // terminal-fit.js holds the pure geometry helpers terminal-manager.js calls
-                     // (clampRowsToContentBox / bottomRowClipped) — reachable once a fit is "measured".
+                     // terminal-fit.js holds the pure helpers terminal-manager.js calls
+                     // (clampRowsToContentBox / bottomRowClipped, and clearSelectionAfterReflow
+                     // since #459) — reachable once a fit is "measured".
                      'renderer/terminal/terminal-fit.js',
                      'renderer/terminal/terminal-context-menu.js', 'renderer/terminal/terminal-manager.js',
                      'renderer/views/grid-view.js']) {
@@ -137,7 +144,7 @@ function setupDom({ fitDims = null } = {}) {
   }
 
   const inCtx = (code) => vm.runInContext(code, ctx);
-  return { window, spies, inCtx, destroy: () => window.close() };
+  return { window, spies, inCtx, setFitDims: (d) => { fit.dims = d; }, destroy: () => window.close() };
 }
 
 // ---------------------------------------------------------------------------
@@ -542,6 +549,65 @@ test('#339: the switch still turns it off', () => {
     window.flushTerminalBuffer('s1');
 
     assert.strictEqual(spies.write, 0, 'buffered on request, in every mode');
+  } finally {
+    destroy();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// #459 — a selection does not survive a re-wrap
+// ---------------------------------------------------------------------------
+// Every fit that can change the terminal's width goes through safeFit: the font size, a window
+// resize, a pane split, a UI zoom. A width change re-wraps the buffer under the selected cells, so
+// copying afterwards returns text that was never selected. What safeFit owes the selection is to
+// drop it — and only when the width actually moved, or a terminal would be unusable for copying.
+
+test('#459: a width change on re-fit clears the selection', () => {
+  const { window, spies, inCtx, setFitDims, destroy } = setupDom({ fitDims: { cols: 95, rows: 40 } });
+  try {
+    window.createTerminalEntry({ sessionId: 's1' }); // first fit settles the terminal at 95 columns
+    const entry = window.openSessions.get('s1');
+    entry.terminal.selected = true; // the user drags a selection across a wrapped line
+
+    setFitDims({ cols: 74, rows: 40 }); // a larger font, a narrower pane — same thing to the grid
+    inCtx(`safeFit(openSessions.get('s1'))`);
+
+    assert.equal(entry.terminal.hasSelection(), false, 'the stale selection is gone');
+    assert.equal(spies.clearSelection, 1, 'cleared through xterm, so onSelectionChange fires');
+  } finally {
+    destroy();
+  }
+});
+
+test('#459: a height-only change leaves the selection alone', () => {
+  const { window, spies, inCtx, setFitDims, destroy } = setupDom({ fitDims: { cols: 95, rows: 40 } });
+  try {
+    window.createTerminalEntry({ sessionId: 's1' });
+    const entry = window.openSessions.get('s1');
+    entry.terminal.selected = true;
+
+    setFitDims({ cols: 95, rows: 30 }); // shorter box, same width — nothing re-wraps
+    inCtx(`safeFit(openSessions.get('s1'))`);
+
+    assert.equal(entry.terminal.hasSelection(), true, 'the selection still points at its own text');
+    assert.equal(spies.clearSelection, 0);
+  } finally {
+    destroy();
+  }
+});
+
+test('#459: a re-fit that changes nothing leaves the selection alone', () => {
+  const { window, spies, inCtx, destroy } = setupDom({ fitDims: { cols: 95, rows: 40 } });
+  try {
+    window.createTerminalEntry({ sessionId: 's1' });
+    const entry = window.openSessions.get('s1');
+    entry.terminal.selected = true;
+
+    inCtx(`safeFit(openSessions.get('s1'))`); // a repaint-driven refit with the same box
+    inCtx(`safeFit(openSessions.get('s1'))`);
+
+    assert.equal(entry.terminal.hasSelection(), true);
+    assert.equal(spies.clearSelection, 0);
   } finally {
     destroy();
   }
