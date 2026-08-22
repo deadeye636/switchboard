@@ -81,7 +81,7 @@ test('a body without a class list does not block the toggle', () => {
 const GRID_SRC = path.join(__dirname, '..', 'src', 'renderer', 'views', 'grid-view.js');
 
 // Load grid-view.js far enough to call showGridView(). Only the gate is exercised, so the globals
-// beyond it are deliberately absent: `closeVariablePalette` is the first statement past the gate, so
+// beyond it are deliberately absent: `closePalette` is the first statement past the gate, so
 // whether it ran is the honest answer to "did the gate hold".
 function loadGridView(bodyClass) {
   const dom = new JSDOM(`<!DOCTYPE html><html><body class="${bodyClass}"><div id="terminals"></div></body></html>`, {
@@ -100,7 +100,7 @@ function loadGridView(bodyClass) {
     terminalsEl: window.document.getElementById('terminals'),
     sidebarContent: window.document.createElement('div'),
     normalizeShortcuts: () => ({}),
-    closeVariablePalette: () => { seen.paletteClosed++; },
+    closePalette: () => { seen.paletteClosed++; },
   };
   for (const [k, v] of Object.entries(stubs)) {
     Object.defineProperty(window, k, { value: v, writable: true, configurable: true });

@@ -1558,9 +1558,8 @@ function destroySession(sessionId) {
   // terminal — its action closures hold the (about-to-be-disposed) xterm.
   if (typeof closeTerminalContextMenuForSession === 'function') closeTerminalContextMenuForSession(sessionId);
   if (typeof closeSelectionBarForSession === 'function') closeSelectionBarForSession(sessionId);
-  // Same reason for the variable palette (#207): it holds the terminal for its insert.
-  if (typeof closeVariablePaletteForSession === 'function') closeVariablePaletteForSession(sessionId);
-  if (typeof closePlanPaletteForSession === 'function') closePlanPaletteForSession(sessionId);
+  // Same reason for a picker palette (#207): it holds the terminal for its insert.
+  if (typeof closePaletteForSession === 'function') closePaletteForSession(sessionId);
   window.api.closeTerminal(sessionId);
   // Drop any pending write buffer before disposing — a scheduled rAF/timeout
   // flush would otherwise call terminal.write() on a disposed instance if

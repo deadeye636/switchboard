@@ -188,6 +188,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/session/session-health.js': [],
   'src/renderer/session/live-session-rows.js': [],
   'src/renderer/views/stats-view.js': [],
+  'src/renderer/terminal/palette-core.js': [],
   'src/renderer/terminal/variable-palette.js': [],
   'src/renderer/terminal/plan-palette.js': [],
   'src/renderer/terminal/page-key-routing.js': [],

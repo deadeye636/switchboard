@@ -64,6 +64,7 @@
     "terminal-context-menu.js",
     "variable-insert.js",
     "variables-panel.js",
+    "palette-core.js",
     "variable-palette.js",
     "plan-palette.js",
     "terminal-fit.js",

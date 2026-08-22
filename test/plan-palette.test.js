@@ -7,7 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  filterPlans, nextIndex, plansForProject, planInsertText, DEFAULT_PLAN_INSERT_TEMPLATE,
+  filterPlans, plansForProject, planInsertText, DEFAULT_PLAN_INSERT_TEMPLATE,
 } = require('../src/renderer/terminal/plan-palette');
 
 const plan = (over) => ({
@@ -64,13 +64,6 @@ test('a terminal with no project of its own is offered nothing', () => {
 test('plansForProject survives a missing list', () => {
   assert.deepEqual(plansForProject(null, HERE), []);
   assert.deepEqual(plansForProject([null, undefined], HERE), []);
-});
-
-test('the highlight wraps at both ends and an empty list has none', () => {
-  assert.equal(nextIndex(0, 3, 1), 1);
-  assert.equal(nextIndex(2, 3, 1), 0);
-  assert.equal(nextIndex(0, 3, -1), 2);
-  assert.equal(nextIndex(-1, 0, 1), -1, 'nothing to highlight means Enter inserts nothing');
 });
 
 test('the template substitutes every placeholder', () => {

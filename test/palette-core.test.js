@@ -1,0 +1,97 @@
+'use strict';
+// #462 — the popover every insert picker opens, tested where it is pure.
+//
+// These two functions were the variable palette's until the third picker made a shared core the only
+// sane place for them, and the cases they cover are the ones that were found by looking at a wrong
+// palette on screen: a highlight that walked off the end, a palette hanging over the card below it.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const { nextIndex, paletteGeometry } = require('../src/renderer/terminal/palette-core');
+
+test('the highlight wraps at both ends', () => {
+  assert.equal(nextIndex(0, 3, 1), 1);
+  assert.equal(nextIndex(2, 3, 1), 0);   // past the end → first
+  assert.equal(nextIndex(0, 3, -1), 2);  // before the start → last
+  assert.equal(nextIndex(1, 3, -1), 0);
+});
+
+test('an empty list has no highlight, so Enter cannot insert', () => {
+  assert.equal(nextIndex(0, 0, 1), -1);
+  assert.equal(nextIndex(-1, 0, -1), -1);
+});
+
+test('a highlight of -1 moving forward lands on the first row', () => {
+  // After a filter emptied the list and a new one refilled it, the index is restored from -1.
+  assert.equal(nextIndex(-1, 3, 1), 1);
+  assert.equal(nextIndex(-1, 3, -1), 2);
+});
+
+// --- Where the palette sits ---
+// The anchor is "the lower half of the terminal", but a small grid card makes half of it all chrome
+// and no list, and a terminal near the viewport edge must not push the footer off-screen.
+
+const R = (top, height, left = 0, width = 800) => ({ top, height, left, width });
+
+test('a tall terminal gets exactly its lower half', () => {
+  const g = paletteGeometry(R(50, 800), 900);
+  assert.deepEqual(g, { left: 0, width: 800, top: 450, height: 400 });
+});
+
+test('the palette never spills below its own terminal', () => {
+  // A card shorter than the minimum height gets covered entirely rather than overhanging the card
+  // below it — overhang would put the palette on top of a DIFFERENT session.
+  const rect = R(300, 200);
+  const g = paletteGeometry(rect, 1000);
+  assert.ok(g.top + g.height <= rect.top + rect.height,
+    `palette ${g.top}+${g.height} overhangs terminal bottom ${rect.top + rect.height}`);
+  // It keeps the usable minimum and sits flush with the card's bottom instead of overhanging it.
+  assert.equal(g.height, 190);
+  assert.equal(g.top, 310);
+});
+
+test('a terminal at the viewport bottom keeps the footer on screen', () => {
+  const g = paletteGeometry(R(700, 180), 900);
+  assert.ok(g.top + g.height <= 900 - 8, `bottom ${g.top + g.height} is off-screen`);
+  assert.ok(g.top >= 8);
+});
+
+test('a terminal scrolled above the viewport still lands on screen', () => {
+  const g = paletteGeometry(R(-500, 400), 900);
+  assert.ok(g.top >= 8);
+  assert.ok(g.height >= 1);
+});
+
+test('the minimum height applies only where the terminal can carry it', () => {
+  // Room to spare → the floor lifts a short-but-not-tiny palette to something usable.
+  assert.equal(paletteGeometry(R(0, 300), 900).height, 190);
+  // No room → the terminal's own height wins, never more.
+  assert.equal(paletteGeometry(R(0, 120), 900).height, 120);
+});
+
+test('left and width always track the terminal', () => {
+  const g = paletteGeometry(R(0, 600, 137, 421), 900);
+  assert.equal(g.left, 137);
+  assert.equal(g.width, 421);
+});
+
+// --- The pickers agree on the shape the core requires ---
+//
+// A picker is a plain description, so a missing key is not a syntax error anywhere — it is a palette
+// that opens and then throws on the first render. This is the guard that says so at test time.
+const REQUIRED = ['id', 'shortcut', 'placeholder', 'ariaLabel', 'listLabel', 'failedText',
+  'load', 'filter', 'rowKey', 'row', 'emptyText', 'noMatchText', 'pick'];
+
+test('every picker config carries what the core reads', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = path.join(__dirname, '..', 'src', 'renderer', 'terminal');
+  const files = fs.readdirSync(dir).filter(f => /-palette\.js$/.test(f));
+  assert.ok(files.length >= 2, 'expected the picker files to be found');
+  for (const file of files) {
+    const src = fs.readFileSync(path.join(dir, file), 'utf8');
+    for (const key of REQUIRED) {
+      assert.ok(new RegExp('(^|\\s)' + key + ':').test(src), `${file} declares no ${key}`);
+    }
+  }
+});
