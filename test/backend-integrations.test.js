@@ -191,6 +191,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/terminal/palette-core.js': [],
   'src/renderer/terminal/variable-palette.js': [],
   'src/renderer/terminal/plan-palette.js': [],
+  'src/renderer/terminal/skill-palette.js': [],
   'src/renderer/terminal/page-key-routing.js': [],
   // #281 — the editor's formatting bar. Both files are about file kinds, not backends.
   'src/renderer/views/format-commands.js': [],

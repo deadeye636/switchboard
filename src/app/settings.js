@@ -83,6 +83,21 @@ const SETTING_DEFAULTS = {
   // the only kind of path Claude's own `plansDirectory` will accept — and a convention that only works
   // for one CLI is not one. In the cascade: a project that keeps them somewhere else says so.
   planDir: '.plans',
+  // What the skill picker types when the backend in the terminal cannot run a skill from its prompt
+  // (#462) — and what EVERY Switchboard skill inserts, because those belong to no CLI. `{path}` and
+  // `{name}` are substituted. In the cascade for the same reason the plan template is: how a CLI should
+  // be told about a document is a matter of taste and of which CLI it is.
+  skillInsertTemplate: 'Use the skill at {path}',
+  // Where the app's own skills live (#462). Unset means the `skills` directory beside the database,
+  // which is the case that needs no decision from anyone. A value set here is a path: absolute as given,
+  // otherwise resolved against the project when there is one and against the data directory when there
+  // is not — so a project can keep its skills in the repository without every other project inheriting
+  // a relative path that means nothing there.
+  skillsDir: '',
+  // Whether picking a skill presses Enter (#462). It does, and that is deliberately the opposite of the
+  // variable and plan pickers: those insert material INTO a sentence the user is still writing, while
+  // picking a skill is asking for it to run. Off leaves the line in the prompt with the cursor after it.
+  submitSkillOnPick: true,
   // The directory names the Plans list looks for in a project (#454). Read-only discovery: whatever is
   // found is listed, nothing is created. A list rather than one name, because the point is to recognise
   // what a project ALREADY does instead of insisting it does what we would have chosen.

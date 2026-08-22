@@ -541,6 +541,18 @@ module.exports = {
   // canonical encoded name so a not-yet-indexed project still resolves) and the project-root CLAUDE.md +
   // .claude dirs. Each source is display-ready; the neutral Plans/Memory module scans/stats them and never
   // hardcodes ~/.claude itself.
+  /**
+   * How Claude is asked to run one of its skills (#462).
+   *
+   * MEASURED, not read out of a help text: typing `/git-com` into a running session offers
+   * `/git-commit` with the skill's own description and a `(user)` marker, so a skill IS a slash command
+   * here and the command is the skill's directory name.
+   *
+   * A plugin's skills are a different name (`/plugin:skill`) — and a different listing: they sit under
+   * `plugins/`, which `listResources` reports as plugins rather than skills, so nothing here ever sees
+   * one. Read that as a gap, not as a decision, if plugin skills are ever listed.
+   */
+  skillInvocation: ({ name }) => (name ? '/' + name : null),
   listResources: resources.createListResources({ claudeHome }),
   // One level into a listed directory (#440) — the shared walker, this backend's rules.
   expandResource: resources.expandResource,
@@ -622,6 +634,7 @@ module.exports = {
     quota: 'yes',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
+    skillInvoke: 'yes',
     planDirSetting: 'yes',
     plans: 'yes',
     projectConfig: 'yes',

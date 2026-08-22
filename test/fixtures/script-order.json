@@ -67,6 +67,7 @@
     "palette-core.js",
     "variable-palette.js",
     "plan-palette.js",
+    "skill-palette.js",
     "terminal-fit.js",
     "page-key-routing.js",
     "terminal-manager.js",

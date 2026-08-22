@@ -237,6 +237,7 @@ module.exports = {
     quota: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
+    skillInvoke: { state: 'no', note: 'it lists skills but its command palette does not offer them' },
     planDirSetting: { state: 'no', note: 'writes no plan documents at all yet' },
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',

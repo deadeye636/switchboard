@@ -140,6 +140,13 @@ const CATALOG = [
     declaredBy: 'expandResource',
   },
   {
+    id: 'skillInvoke',
+    group: 'resources',
+    label: 'Run one of its skills from the prompt',
+    description: 'Whether the skill picker can hand a skill over as this CLI\'s own command, or has to insert it as a reference the CLI then reads.',
+    declaredBy: 'skillInvocation',
+  },
+  {
     id: 'plans',
     group: 'resources',
     label: 'Plan documents',

@@ -264,6 +264,7 @@ module.exports = {
     quota: { state: 'no', note: 'reports no plan allowance' },
     resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
     resourceDepth: 'yes',
+    skillInvoke: 'yes',
     planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',
@@ -273,6 +274,14 @@ module.exports = {
   buildLaunch,
   probe,
   findExecutable,
+  /**
+   * How Hermes is asked to run one of its skills (#462). Measured in a running session: typing `/air`
+   * offers `/airtable` with the skill's own description, so the command is the skill's directory name.
+   *
+   * Not to be confused with the `--skills` LAUNCH flag above, which preloads skills for a whole run and
+   * says nothing about what a session already at its prompt accepts.
+   */
+  skillInvocation: ({ name }) => (name ? '/' + name : null),
   listResources: resources.listResources,
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
 

@@ -544,6 +544,20 @@ plansMemory.init({
 });
 plansMemory.registerIpc(ipcMain);
 
+// The skills a running session can be handed (#462) — the backend's own, plus the app's. Its own module
+// rather than a handler here, and it reads the descriptor for both the listing and the invocation, so
+// no path and no slash command for any CLI is written in the core.
+const skills = require('./app/skills');
+skills.init({
+  backends,
+  log,
+  // The data directory, from the one module that resolves it (db.js, at module load — see :86-89).
+  dataDir: require('./db/connection').DATA_DIR,
+  // Lazy for the same reason the plans wiring is: the settings module is required further down this file.
+  effectiveSettings: (projectPath) => require('./app/settings').effectiveSettings(projectPath),
+});
+skills.registerIpc(ipcMain);
+
 // --- IPC: delete-worktree ---
 // Validated path pattern: <project>/.<segment>/[worktrees/]<name>
 // Matches .claude/worktrees/<n>, .claude-worktrees/<n>, .worktrees/<n>

@@ -47,6 +47,10 @@ const DEFAULT_SHORTCUTS = {
   // Ctrl/Cmd+Shift+P — open the plan picker in the focused terminal (#453). Same family as the
   // variable picker beside it, and the same shape of popover, so one is learned from the other.
   insertPlan: { primary: true, alt: false, shift: true, key: 'p' },
+  // Ctrl/Cmd+Shift+S — open the skill picker in the focused terminal (#462). Third of the same family.
+  // Unlike the two above it, taking a row RUNS it: the picker submits the line unless the setting says
+  // otherwise, because picking a skill is asking for it rather than quoting it.
+  insertSkill: { primary: true, alt: false, shift: true, key: 's' },
   // Ctrl/Cmd+Shift+M — enter "move mode" on the focused grid card: bare arrows
   // reorder it, Shift+arrows resize it, Esc/Enter leave. A mode (rather than a
   // second arrow chord) keeps this off Ctrl+Alt+Arrow, which is the workspace
@@ -134,6 +138,13 @@ const SHORTCUT_DEFS = [
     id: 'insertPlan',
     label: 'Insert plan',
     description: 'Open the plan picker in the focused terminal and insert a reference to one at the cursor',
+    family: 'key',
+    group: 'general',
+  },
+  {
+    id: 'insertSkill',
+    label: 'Insert skill',
+    description: 'Open the skill picker in the focused terminal and hand the chosen skill to the CLI',
     family: 'key',
     group: 'general',
   },

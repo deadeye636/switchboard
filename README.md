@@ -118,6 +118,9 @@ chart rather than a row of zeroes.
   its own home or the project keeps its own `docs/plans/`. A shortcut hands one to the running terminal
   as a reference, and a project can point its CLIs at one directory so a plan written in Claude is
   readable by whatever runs next. → [the convention](docs/plans-convention.md)
+- **Skills** — a shortcut hands the CLI in the terminal one of its own skills, or one you keep in
+  Switchboard for every CLI. A CLI that can run a skill from its prompt gets its own command; the rest
+  get a reference to the document. → [spec 21](docs/specs/21-skills.md)
 - **Agent files** — browse and edit every instruction file, skill, rule and work file each backend
   reads, filtered by type and by backend, with each row saying which CLIs actually read it
 - **Documents stay live** — a file open in the viewer follows an agent rewriting it, keeping your

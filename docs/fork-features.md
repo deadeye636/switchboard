@@ -386,6 +386,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   inserts a reference rather than the plan: a plan runs to hundreds of lines and belongs in the agent's
   context through the agent's own file tools, not pasted into a prompt. What exactly gets typed is a
   template you can change, per project if you want to.
+- **Hand a skill to the running CLI from the keyboard** — a shortcut opens a skill picker in the focused
+  terminal, listing the CLI's own skills alongside skills you keep in Switchboard for every CLI. A CLI that
+  can run a skill from its prompt gets its own command, measured for each one rather than guessed; the rest
+  get a reference to the document, and a note saying so. Taking a row runs it, which a setting turns off.
 - **One place for plans, across CLIs** — plan documents can live in the project they are about instead of
   in one CLI's home directory, so a plan written in Claude can be read by whatever runs next. The path is
   a setting with a per-project override, and a button in the project's settings writes what each installed

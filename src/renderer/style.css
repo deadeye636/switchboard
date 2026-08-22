@@ -10970,6 +10970,17 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
   font-size: 10px;
 }
 
+/* Where a skill came from (#462) — the CLI and scope, or Switchboard. Reads as a label rather than a
+   warning: it is on every row, and a badge in the secret colour on every row is a colour that stops
+   meaning anything. */
+.skill-palette .vpal-secret.spal-origin {
+  text-transform: none;
+  letter-spacing: 0;
+  color: #7a7a90;
+  border-color: rgba(255,255,255,0.10);
+  font-size: 10px;
+}
+
 .vpal-status {
   flex: none;
   padding: 12px 10px;

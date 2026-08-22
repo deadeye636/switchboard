@@ -32,6 +32,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 | 18 | [Pi RPC runtime evaluation](18-pi-rpc-evaluation.md) — **evaluated**; keep Pi on PTY/TUI for now, revisit RPC as a separate structured-runtime capability | #413 | No — future runtime architecture |
 | 19 | [Live Preview + formatting bar in the internal editor](19-editor-live-preview.md) — **built**; the Obsidian model (decorations over the source, never a serialiser), three modes, the read-only pin, and the sanitiser claim that turned out to be false | #281 | Yes — the viewer, plus one module inside the CodeMirror bundle |
 | 20 | [Plans](20-plans.md) — **built**; why a plan file carries no identity and cannot be given one, the attribution that was already indexed, the three refusals Claude makes silently, and why the app reads plans but does not write them | #448–#454 | Yes — the plans list, the picker, and the viewer's liveness |
+| 21 | [Skills](21-skills.md) — **built**; the picker that hands a skill to the CLI in the terminal, the measured answer for each backend on whether it can run one from its prompt, the app's own skills, and the palette core the three pickers now share | #462 | Yes — one main module, the descriptors, and the terminal pickers |
 
 ## Shared architecture (read once, applies to all specs)
 

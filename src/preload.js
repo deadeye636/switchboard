@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('api', {
   // A full filePath now (#227): plans can live under any backend's plans dir, not just ~/.claude/plans.
   readPlan: (filePath) => ipcRenderer.invoke('read-plan', filePath),
   savePlan: (filePath, content) => ipcRenderer.invoke('save-plan', filePath, content),
+  // #462: the skills this session may be handed — its backend's, plus the app's own.
+  getSkills: (projectPath, backendId) => ipcRenderer.invoke('get-skills', projectPath, backendId),
   // backendId (optional): scope every figure to one backend. Omitted / 'all' = the whole corpus (#159).
   getStatsFromDb: (backendId) => ipcRenderer.invoke('get-stats-from-db', backendId),
   refreshStats: (backendId) => ipcRenderer.invoke('refresh-stats', backendId),

@@ -51,7 +51,7 @@
       collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
       paneCloseEmptyValue, paneBackgroundScrollbackValue,
-      externalEditorValue, planInsertTemplateValue, planDirValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
+      externalEditorValue, planInsertTemplateValue, planDirValue, skillInsertTemplateValue, skillsDirValue, submitSkillOnPickValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
       favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
@@ -324,6 +324,36 @@
                   </div>
                   <div class="settings-field-control">
                     <input type="text" class="settings-input" id="sv-plan-dir" placeholder=".plans" value="${escapeHtml(planDirValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Skills directory</span>${help}</div>
+                    <div class="settings-description">Where the app's own skills live — offered in every session whatever CLI is running there. Empty = the <code>skills</code> directory beside the database.</div>
+                    <div class="settings-more">A skill is a folder holding <code>SKILL.md</code>, or a single markdown file. A project can point somewhere else in its own settings, where a relative path is read from the project root.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-skills-dir" placeholder="the app's own skills" value="${escapeHtml(skillsDirValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Skill insert template</span>${help}</div>
+                    <div class="settings-description">What the skill picker types when the CLI in the terminal has no skill command of its own, and for every skill of the app's own. A CLI that can run a skill gets its own invocation instead.</div>
+                    <div class="settings-more">Placeholders: <code>{path}</code> the full path to <code>SKILL.md</code>, <code>{name}</code> the skill's name. Leave empty for the default.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-skill-insert-template" placeholder="Use the skill at {path}" value="${escapeHtml(skillInsertTemplateValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Picking a skill runs it</span>${help}</div>
+                    <div class="settings-description">The skill picker submits the line it types. Off leaves it in the prompt with the cursor after it, so you can add to it first.</div>
+                    <div class="settings-more">On by default, and deliberately unlike the variable and plan pickers: those insert material into a sentence you are still writing, while picking a skill is asking for it to run.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-submit-skill-on-pick" ${submitSkillOnPickValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">

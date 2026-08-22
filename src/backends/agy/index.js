@@ -225,6 +225,7 @@ module.exports = {
     quota: 'yes',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
+    skillInvoke: { state: 'no', note: 'it declares no skills directory, so there is nothing to run' },
     planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',

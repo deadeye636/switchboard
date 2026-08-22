@@ -191,6 +191,11 @@
     // #453 what the plan picker types into the prompt. Kept in the cascade, so a project may phrase it
     // its own way; the default has to match SETTING_DEFAULTS in src/app/settings.js.
     const planInsertTemplateValue = fieldValue('planInsertTemplate', 'Follow the plan at {path}');
+    // #462 what the skill picker types when the CLI has no skill command of its own, and where the app's
+    // own skills live. Both in the cascade; the defaults have to match SETTING_DEFAULTS in src/app/settings.js.
+    const skillInsertTemplateValue = fieldValue('skillInsertTemplate', 'Use the skill at {path}');
+    const skillsDirValue = fieldValue('skillsDir', '');
+    const submitSkillOnPickValue = fieldValue('submitSkillOnPick', true) !== false;
     // #280 default target for a terminal file link (Ctrl/Cmd+click opens the other one).
     const fileClickTargetValue = fieldValue('fileClickTarget', 'internal');
     // #279 how a Markdown file first opens in the internal editor (per-file toggle still overrides).
@@ -390,6 +395,32 @@
           </div>
           <div class="settings-field">
             <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Skills directory</span>
+                ${useGlobalCheckbox('skillsDir')}
+              </div>
+              <div class="settings-description">Where this project keeps skills of its own, offered in every session here whatever CLI is running. Relative to the project root, or an absolute path.</div>
+              <div class="settings-more">A skill is a folder holding <code>SKILL.md</code>, or a single markdown file. These are handed over as text, because they belong to no CLI — the CLI's own skills are offered beside them and run through its own command.</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-skills-dir" placeholder="the app's own skills" value="${escapeHtml(skillsDirValue)}" ${fieldDisabled('skillsDir')}>
+            </div>
+          </div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Skill insert template</span>
+                ${useGlobalCheckbox('skillInsertTemplate')}
+              </div>
+              <div class="settings-description">What the skill picker types when the CLI in the terminal cannot run a skill from its prompt, and for every skill of this project's own.</div>
+              <div class="settings-more">Placeholders: <code>{path}</code> the full path to <code>SKILL.md</code>, <code>{name}</code> the skill's name. Leave empty for the default.</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-skill-insert-template" placeholder="Use the skill at {path}" value="${escapeHtml(skillInsertTemplateValue)}" ${fieldDisabled('skillInsertTemplate')}>
+            </div>
+          </div>
+          <div class="settings-field">
+            <div class="settings-field-info">
               <div class="settings-field-header"><span class="settings-label">Point this project's CLIs at it</span></div>
               <div class="settings-description">Writes the setting each installed CLI needs, so plans land in the directory above instead of in the CLI's own home. You are shown every file it would change before anything is written.</div>
             </div>
@@ -459,7 +490,8 @@
         collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
         confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
         paneCloseEmptyValue, paneBackgroundScrollbackValue,
-        externalEditorValue, planInsertTemplateValue, planDirValue, fileClickTargetValue, markdownDefaultViewValue,
+        externalEditorValue, planInsertTemplateValue, planDirValue, skillInsertTemplateValue, skillsDirValue,
+        submitSkillOnPickValue, fileClickTargetValue, markdownDefaultViewValue,
         editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
         favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
@@ -622,6 +654,8 @@
           shellProfile: 'sv-shell-profile',
           terminalShellProfile: 'sv-terminal-shell-profile',
           planDir: 'sv-plan-dir',
+          skillsDir: 'sv-skills-dir',
+          skillInsertTemplate: 'sv-skill-insert-template',
         };
         const input = settingsViewerBody.querySelector('#' + fieldMap[field]);
         if (input) input.disabled = cb.checked;
@@ -819,6 +853,14 @@
         settings.planInsertTemplate = (settingsViewerBody.querySelector('#sv-plan-insert-template')?.value || '').trim();
         const svPlanDir = settingsViewerBody.querySelector('#sv-plan-dir');
         if (svPlanDir) settings.planDir = (svPlanDir.value || '').trim() || '.plans';
+        // Same rule for the skill fields: empty is stored as empty, meaning "whatever the default is",
+        // so changing a default later still reaches everyone who has opened Settings once.
+        const svSkillTemplate = settingsViewerBody.querySelector('#sv-skill-insert-template');
+        if (svSkillTemplate) settings.skillInsertTemplate = (svSkillTemplate.value || '').trim();
+        const svSkillsDir = settingsViewerBody.querySelector('#sv-skills-dir');
+        if (svSkillsDir) settings.skillsDir = (svSkillsDir.value || '').trim();
+        const svSubmitSkill = settingsViewerBody.querySelector('#sv-submit-skill-on-pick');
+        if (svSubmitSkill) settings.submitSkillOnPick = !!svSubmitSkill.checked;
         settings.fileClickTarget = settingsViewerBody.querySelector('#sv-file-click-target')?.value === 'external' ? 'external' : 'internal';
         settings.markdownDefaultView = settingsViewerBody.querySelector('#sv-markdown-default-view')?.value === 'preview' ? 'preview' : 'code';
         settings.editorToolbarMode = settingsViewerBody.querySelector('#sv-editor-toolbar-mode')?.value === 'plain' ? 'plain' : 'toolbar';

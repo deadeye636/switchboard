@@ -403,6 +403,7 @@ module.exports = {
     quota: { state: 'no', note: 'reports no plan allowance' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
+    skillInvoke: 'yes',
     planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',
@@ -413,6 +414,12 @@ module.exports = {
   probe,
   findExecutable,
   listModels,
+  /**
+   * How pi is asked to run one of its skills (#462). Measured in a running session: typing `/git` offers
+   * `skill:git-commit`, and completing it puts `/skill:git-commit` in the prompt — the prefix is part of
+   * the command, so a bare `/git-commit` is not the same thing.
+   */
+  skillInvocation: ({ name }) => (name ? '/skill:' + name : null),
   listResources: resources.listResources,
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
   _parseModelList: parseModelList,

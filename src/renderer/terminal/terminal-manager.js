@@ -211,6 +211,16 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
       return false;
     }
 
+    // Hand a skill to the CLI in this terminal (default Cmd/Ctrl+Shift+S) — the same palette again
+    // (#462), except that taking a row submits the line rather than leaving it to be finished.
+    if (matchShortcut('insertSkill', e, isMac, appShortcuts)) {
+      if (e.type === 'keydown') {
+        e._handled = true;
+        if (typeof openSkillPalette === 'function') openSkillPalette(terminal, getSessionId());
+      }
+      return false;
+    }
+
     // Session navigation: Cmd+Shift+[/], Cmd+Arrow
     if (isSessionNavKey(e)) {
       if (e.type === 'keydown') { e._handled = true; handleSessionNavKey(e); }
