@@ -45,7 +45,7 @@ back on Save.
 | `terminalTheme` | Theme | a key from `TERMINAL_THEMES` | `switchboard` | **cascades** |
 | `terminalFontFamily` | Font / Custom font family | CSS font stack | `'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace` | global |
 | `terminalFontSize` | Font size | 8–28 | `12` | global |
-| `terminalRightClick` | Right-click action | `menu` \| `copy-paste` \| `copy` \| `action-bar` \| `default` | `menu` | global |
+| `terminalRightClick` | Right-click action | `menu` \| `copy-paste` \| `copy-on-select` \| `action-bar` \| `default` | `menu` | global |
 | `terminalMouseReporting` | Mouse mode | `native` \| `select` \| `off` | `select` | global |
 | `externalEditorCommand` | External editor | string | `''` (OS default) | global |
 | `planInsertTemplate` | Plan insert template | string with `{path}` / `{title}` / `{filename}` | `Follow the plan at {path}` | global + project |

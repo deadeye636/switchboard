@@ -12,12 +12,20 @@
 // Behavior is gated by the global `terminalRightClickMode`, persisted as the
 // `terminalRightClick` global setting and pushed live via
 // window._applyTerminalRightClick:
-//   'menu'       → show this context menu (default)
-//   'copy-paste' → copy the selection, or paste when nothing is selected
-//   'copy'       → copy the selection (no paste)
-//   'paste'      → right-click pastes the clipboard (PuTTY-style), no menu
-//   'default'    → leave xterm's native right-click behavior untouched
-//   'none'       → right-click does nothing
+//   'menu'           → show this context menu (default)
+//   'copy-paste'     → copy the selection, or paste when nothing is selected
+//   'copy-on-select' → finishing a selection copies it; the right button always pastes (#464)
+//   'paste'          → right-click pastes the clipboard (PuTTY-style), no menu
+//   'default'        → leave xterm's native right-click behavior untouched
+//   'none'           → right-click does nothing
+//
+// `paste` and `none` are reachable only by editing the stored settings: `none` is a mode whose whole
+// behaviour is "nothing happens", and `paste` is the half of `copy-on-select` that nobody asked for
+// separately. They stay implemented because a stored value must not become an unknown one.
+//
+// 'copy' was a MODE and is now a stored value that resolves to `copy-on-select` (#464). It copied the
+// selection and, with nothing selected, did nothing — while switching the menu off, so pasting was left
+// to Ctrl/Cmd+V. `resolveRightClickMode` is where that value lands now; nothing rewrites the database.
 //
 // Depends on globals: openFileInPanel (file-panel.js), window.api.
 // `pasteIntoTerminal` / `insertResolvedText` live here but are the app's paste path: terminal/variable-palette.js
@@ -26,6 +34,17 @@
 // unit-tested; showTerminalContextMenu does the DOM rendering.
 
 let terminalRightClickMode = 'menu';
+
+// The stored value → the mode that runs. A migration in a function, the same shape as
+// `resolveSessionDisplayMode` (grid-layout.js) and for the same reason: nothing rewrites the settings
+// blob, so an install that never opens Settings has to land on the right mode the first time it is read.
+// Anything unknown falls to the default rather than to whatever happens to be first.
+const RIGHT_CLICK_MODES = ['menu', 'copy-paste', 'copy-on-select', 'action-bar', 'paste', 'default', 'none'];
+
+function resolveRightClickMode(stored) {
+  if (stored === 'copy') return 'copy-on-select';
+  return RIGHT_CLICK_MODES.includes(stored) ? stored : 'menu';
+}
 
 // Convert a file:// URI to a filesystem path, or null if it isn't one.
 function fileUriToPath(uri) {
@@ -500,19 +519,22 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
     e.preventDefault();
     e.stopPropagation();
     if (terminalRightClickMode === 'none') return;
-    // Copy-on-right-click modes (Windows/PuTTY convention). The right-button
-    // mousedown was swallowed above, so the selection is still intact here.
-    if (terminalRightClickMode === 'copy' || terminalRightClickMode === 'copy-paste') {
+    // Copy-on-right-click (Windows/PuTTY convention). The right-button mousedown was swallowed above,
+    // so the selection is still intact here.
+    if (terminalRightClickMode === 'copy-paste') {
       if (terminal.hasSelection && terminal.hasSelection()) {
         window.api.writeClipboard(terminal.getSelection());
         if (terminal.clearSelection) terminal.clearSelection();
-      } else if (terminalRightClickMode === 'copy-paste') {
+      } else {
         window.api.readClipboard().then((t) => { if (t) pasteIntoTerminal(terminal, getSessionId(), t); }).catch(() => {});
       }
       terminal.focus(); // the swallowed right-button never focused the terminal
       return;
     }
-    if (terminalRightClickMode === 'paste') {
+    // In `copy-on-select` the selection was already copied when it was made, so the right button has
+    // one job and does it whether or not something is selected — the X11 split, where the two halves
+    // never contend for the same click.
+    if (terminalRightClickMode === 'paste' || terminalRightClickMode === 'copy-on-select') {
       window.api.readClipboard().then((t) => { if (t) pasteIntoTerminal(terminal, getSessionId(), t); }).catch(() => {});
       terminal.focus();
       return;
@@ -537,6 +559,22 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
       linkUri: getHoveredLinkUri(),
     });
   }, { capture: true });
+
+  // Copy on selection (#464): a left-button release that leaves a selection puts it on the clipboard.
+  //
+  // The selection is deliberately NOT cleared — it is the only thing on screen saying what was copied,
+  // and clearing it here would also fight the action bar in the mode next door. Deferred a tick for the
+  // same reason that one is: xterm finalises the selection after this mouseup.
+  container.addEventListener('mouseup', (e) => {
+    if (e.button !== 0 || terminalRightClickMode !== 'copy-on-select') return;
+    setTimeout(() => {
+      if (!terminal.hasSelection || !terminal.hasSelection()) return;
+      const text = terminal.getSelection();
+      // A selection of nothing but whitespace is a stray drag, not a copy — and overwriting the
+      // clipboard with it would lose whatever the user was about to paste.
+      if (text && text.trim()) window.api.writeClipboard(text);
+    }, 0);
+  });
 
   // Selection action bar (#88): on a left-button mouseup that leaves a selection,
   // pop the bar above the release point. Only in 'action-bar' mode.
@@ -576,5 +614,9 @@ if (typeof module !== 'undefined' && module.exports) {
     // Test seam: in the renderer the mode is a shared global set by app.js's
     // window._applyTerminalRightClick; under require() it's module-scoped.
     _setTerminalRightClickMode: (m) => { terminalRightClickMode = m; },
+    // The stored value → the mode that runs (#464), and the list of modes that exist. Pure, so the
+    // settings list can be checked against it without a DOM.
+    resolveRightClickMode,
+    RIGHT_CLICK_MODES,
   };
 }

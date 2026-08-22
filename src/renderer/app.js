@@ -326,7 +326,9 @@ function getNextAttentionBinding() {
 // Live-apply the terminal right-click behavior (terminalRightClickMode lives in
 // terminal-context-menu.js); takes effect on the next right-click, no relaunch.
 window._applyTerminalRightClick = (mode) => {
-  terminalRightClickMode = mode || 'menu';
+  terminalRightClickMode = (typeof resolveRightClickMode === 'function')
+    ? resolveRightClickMode(mode)
+    : (mode || 'menu');
   // Leaving 'action-bar' mode: drop any open selection bar (#88).
   if (typeof closeSelectionBar === 'function') closeSelectionBar();
 };
@@ -2275,7 +2277,7 @@ setTimeout(() => {
     if (global.runningInbox) {
       window._setRunningInboxSetting(global.runningInbox);
     }
-    if (global.terminalRightClick) terminalRightClickMode = global.terminalRightClick;
+    if (global.terminalRightClick) terminalRightClickMode = resolveRightClickMode(global.terminalRightClick);
     if (global.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') {
       setTerminalMouseReporting(global.terminalMouseReporting);
     }

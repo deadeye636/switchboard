@@ -184,7 +184,11 @@
     const terminalFontIsPreset = TERMINAL_FONT_PRESETS.some(f => f.value === terminalFontFamilyValue);
     const terminalFontSelectValue = terminalFontIsPreset ? terminalFontFamilyValue : 'custom';
     const terminalFontCustomValue = terminalFontIsPreset ? '' : terminalFontFamilyValue;
-    const rightClickValue = fieldValue('terminalRightClick', 'menu');
+    // A stored `copy` selects the option it now means rather than none of them (#464). The resolver
+    // itself lives in terminal-context-menu.js, which the settings window does not load — so this one
+    // rule is written twice on purpose and pinned against it by test/terminal-right-click.test.js.
+    const rightClickStored = fieldValue('terminalRightClick', 'menu');
+    const rightClickValue = rightClickStored === 'copy' ? 'copy-on-select' : rightClickStored;
     const mouseReportingRaw = fieldValue('terminalMouseReporting', 'select');
     const mouseModeValue = mouseReportingRaw === 'on' ? 'native' : mouseReportingRaw; // legacy 'on' → native
     const externalEditorValue = fieldValue('externalEditorCommand', '');
