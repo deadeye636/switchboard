@@ -14,6 +14,14 @@
 // What it inserts is a REFERENCE, never the plan itself. A plan runs to hundreds of lines; it belongs in
 // the agent's context through the agent's own file tools, not pasted into a prompt.
 //
+// It offers THIS project's plans and nothing else. `getPlans()` returns every project's, and the picker
+// used to draw the rest under their project names — reachable, on the argument that a plan written in one
+// project is sometimes what you want to hand to another. It is the wrong default: the list a hotkey opens
+// mid-session is a list of things about to be handed to an agent, and a foreign plan in it is a foreign
+// codebase's instructions one Enter away. A plan nothing could attribute is dropped for the same reason —
+// unattributed is not "mine", it is unknown. The Plans tab still lists everything, and that is where
+// borrowing across projects belongs, deliberately rather than by keystroke.
+//
 // Free globals it reaches for, all at CALL time so tag order does not decide them — guarded anyway:
 //   `insertResolvedText`, `closeTerminalContextMenu`, `closeSelectionBar` (terminal-context-menu.js)
 //   `sessionMap` (app.js) · `escapeHtml` (lib/utils.js) · `matchShortcut`, `isMac`, `appShortcuts`
@@ -57,39 +65,18 @@
   }
 
   /**
-   * The groups, in the order they are drawn: this terminal's project first, then every other project,
-   * then the plans nothing could be attributed to.
+   * The rows this terminal may be offered: the plans attributed to ITS project, in the order they came.
    *
-   * This project first is the whole point of the picker — someone reaching for a plan while a session
-   * runs wants that session's plan, and any other order makes them hunt for it. The rest stay reachable
-   * rather than being filtered away: a plan written in one project is often exactly what you want to hand
-   * to another, and a plan whose session is gone is still a plan.
+   * A terminal with no project of its own gets nothing rather than everything — "I could not tell which
+   * project this is" is not a licence to offer every project's plans, it is the case where the picker has
+   * no answer. Same for a plan with no `projectPath`: attribution is a lookup against the session that
+   * wrote it (`attributePlans` in `src/app/plans-memory.js`), so a miss means the plan's origin is
+   * unknown, not that it is local.
    */
-  function groupForList(rows, projectPath) {
-    const mine = [];
-    const others = new Map();
-    const orphans = [];
-    for (const plan of rows) {
-      if (!plan) continue;
-      if (!plan.projectPath) { orphans.push(plan); continue; }
-      if (projectPath && plan.projectPath === projectPath) { mine.push(plan); continue; }
-      if (!others.has(plan.projectPath)) others.set(plan.projectPath, []);
-      others.get(plan.projectPath).push(plan);
-    }
-    const label = (plan) => plan.displayName || plan.shortName || plan.projectPath;
-    const groups = [];
-    if (mine.length) groups.push({ key: 'project', label: 'This project', plans: mine });
-    // `proj:` and not `p:` — a one-letter prefix in front of a path is indistinguishable from a Windows
-    // drive letter, to a reader and to anything that scans for paths.
-    for (const [path, plans] of others) groups.push({ key: 'proj:' + path, label: label(plans[0]), plans });
-    if (orphans.length) groups.push({ key: 'orphans', label: 'No session on record', plans: orphans });
-    return groups;
-  }
-
-  // The list the arrow keys walk MUST be the list the eye reads — the rows arrive sorted by date while
-  // the groups render project-first, so walking the raw order would make the highlight jump around.
-  function displayOrder(rows, projectPath) {
-    return groupForList(rows, projectPath).flatMap(g => g.plans);
+  function plansForProject(rows, projectPath) {
+    const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    if (!projectPath) return [];
+    return list.filter(plan => plan.projectPath === projectPath);
   }
 
   /**
@@ -201,7 +188,12 @@
     // "None" means "not yet" until the rows arrive; saying "no plans" here would be a lie.
     if (!paletteState.loaded) { setStatus('Loading…'); return; }
     if (paletteState.failed) { setStatus('Could not load plans.'); return; }
-    if (!rows.length) { setStatus('No plans yet.'); return; }
+    if (!rows.length) {
+      // Which of the two nothings this is, said plainly: a project with no plans reads as a broken hotkey
+      // otherwise, and a terminal the app cannot place is a different problem with a different fix.
+      setStatus(paletteState.projectPath ? 'No plans in this project.' : 'This session has no project.');
+      return;
+    }
     if (!shown.length) {
       // Stay open and keep what was typed — closing would throw the query away.
       setStatus(`No plan matches “${inputEl.value}”.`);
@@ -209,12 +201,10 @@
     }
     setStatus('');
     let html = '';
-    let i = 0; // `shown` is already in render order, so this IS the highlight index
-    for (const group of groupForList(shown, paletteState.projectPath)) {
-      // A listbox may own options only — a heading has to say it is decoration.
-      html += `<div class="vpal-group" role="presentation">${esc(group.label)}</div>`;
-      for (const p of group.plans) { html += rowHtml(p, i, i === index); i++; }
-    }
+    // One project's plans in the order they arrived, so the list the arrow keys walk IS the list the eye
+    // reads and the index is simply the row number.
+    let i = 0;
+    for (const p of shown) { html += rowHtml(p, i, i === index); i++; }
     listEl.innerHTML = html;
     const active = listEl.querySelector('.vpal-row.active');
     if (active) {
@@ -224,7 +214,7 @@
   }
 
   function applyFilter(query) {
-    paletteState.shown = displayOrder(filterPlans(paletteState.rows, query), paletteState.projectPath);
+    paletteState.shown = filterPlans(paletteState.rows, query);
     paletteState.index = paletteState.shown.length ? 0 : -1;
     renderList();
   }
@@ -358,7 +348,9 @@
     } catch { failed = true; }
     // Closed, or superseded by a later open — either way these rows are not ours to write.
     if (epoch !== openEpoch || !palette || !paletteState) return;
-    paletteState.rows = Array.isArray(rows) ? rows.filter(Boolean) : [];
+    // Scoped HERE, once, rather than at render: the count in the corner, the filter and the highlight all
+    // read `rows`, and a filter applied in only some of those places is how a foreign plan gets back in.
+    paletteState.rows = plansForProject(rows, projectPath);
     paletteState.failed = failed || !Array.isArray(rows);
     paletteState.template = template;
     paletteState.loaded = true;
@@ -367,7 +359,7 @@
   }
 
   return {
-    filterPlans, nextIndex, groupForList, displayOrder, planInsertText, DEFAULT_PLAN_INSERT_TEMPLATE,
+    filterPlans, nextIndex, plansForProject, planInsertText, DEFAULT_PLAN_INSERT_TEMPLATE,
     openPlanPalette, closePlanPalette, closePlanPaletteForSession,
   };
 });

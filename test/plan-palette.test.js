@@ -2,13 +2,12 @@
 // #453 — the plan picker's decisions, handed data instead of a keyboard.
 //
 // The parts worth guarding are the ones that decide what the user sees and what lands in the prompt:
-// which group a plan falls into and in what order, that the walk order matches the read order, and that
-// the template can never resolve to nothing.
+// which plans the picker may offer at all, and that the template can never resolve to nothing.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  filterPlans, nextIndex, groupForList, displayOrder, planInsertText, DEFAULT_PLAN_INSERT_TEMPLATE,
+  filterPlans, nextIndex, plansForProject, planInsertText, DEFAULT_PLAN_INSERT_TEMPLATE,
 } = require('../src/renderer/terminal/plan-palette');
 
 const plan = (over) => ({
@@ -30,49 +29,41 @@ test('the filter matches the title and the filename', () => {
   assert.equal(filterPlans(null, 'x').length, 0);
 });
 
-test('this project comes first, then other projects, then the unattributed', () => {
-  const groups = groupForList([
+test('only this project\'s plans are offered', () => {
+  const rows = plansForProject([
     plan({ filePath: '/p/orphan.md' }),
     plan({ filePath: '/p/other.md', projectPath: '/proj/other', displayName: 'Other' }),
     plan({ filePath: '/p/mine.md', projectPath: HERE, displayName: 'Here' }),
   ], HERE);
-  assert.deepEqual(groups.map(g => g.key), ['project', 'proj:/proj/other', 'orphans']);
-  assert.equal(groups[0].label, 'This project');
-  assert.equal(groups[1].label, 'Other');
+  // A foreign plan in a hotkey list is a foreign codebase's instructions one Enter away, and a plan
+  // nothing could attribute is unknown rather than local.
+  assert.deepEqual(rows.map(p => p.filePath), ['/p/mine.md']);
 });
 
-test('a plan from another project stays reachable rather than being filtered away', () => {
-  const rows = [plan({ filePath: '/p/other.md', projectPath: '/proj/other', displayName: 'Other' })];
-  const groups = groupForList(rows, HERE);
-  assert.equal(groups.length, 1);
-  assert.equal(groups[0].plans.length, 1, 'handing another project\'s plan over is a normal thing to do');
-});
-
-test('a project falls back to its short name, then to its path', () => {
-  const groups = groupForList([
-    plan({ filePath: '/a.md', projectPath: '/proj/x', shortName: 'work/x' }),
-    plan({ filePath: '/b.md', projectPath: '/proj/y' }),
-  ], HERE);
-  assert.deepEqual(groups.map(g => g.label), ['work/x', '/proj/y']);
-});
-
-test('with no project of its own, everything is simply another project', () => {
-  const groups = groupForList([
-    plan({ filePath: '/a.md', projectPath: '/proj/x', displayName: 'X' }),
-  ], null);
-  assert.deepEqual(groups.map(g => g.key), ['proj:/proj/x'], 'nothing claims to be "this project"');
-});
-
-test('the walk order is the read order', () => {
-  const rows = [
-    plan({ filePath: '/p/orphan.md' }),
+test('the order the rows arrived in is kept', () => {
+  const rows = plansForProject([
+    plan({ filePath: '/p/newer.md', projectPath: HERE }),
     plan({ filePath: '/p/other.md', projectPath: '/proj/other' }),
-    plan({ filePath: '/p/mine.md', projectPath: HERE }),
+    plan({ filePath: '/p/older.md', projectPath: HERE }),
+  ], HERE);
+  // The rows arrive sorted by date and nothing reorders them, so the list the arrows walk is the list
+  // the eye reads and the highlight index is simply the row number.
+  assert.deepEqual(rows.map(p => p.filePath), ['/p/newer.md', '/p/older.md']);
+});
+
+test('a terminal with no project of its own is offered nothing', () => {
+  const rows = [
+    plan({ filePath: '/a.md', projectPath: '/proj/x', displayName: 'X' }),
+    plan({ filePath: '/b.md' }),
   ];
-  // The rows arrive sorted by date; if the arrows walked THAT order the highlight would jump around the
-  // screen, because the groups render project-first.
-  assert.deepEqual(displayOrder(rows, HERE).map(p => p.filePath),
-    ['/p/mine.md', '/p/other.md', '/p/orphan.md']);
+  // "I cannot tell which project this is" is not a licence to offer every project's plans.
+  assert.deepEqual(plansForProject(rows, null), []);
+  assert.deepEqual(plansForProject(rows, ''), []);
+});
+
+test('plansForProject survives a missing list', () => {
+  assert.deepEqual(plansForProject(null, HERE), []);
+  assert.deepEqual(plansForProject([null, undefined], HERE), []);
 });
 
 test('the highlight wraps at both ends and an empty list has none', () => {

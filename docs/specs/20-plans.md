@@ -112,8 +112,18 @@ It inserts a **reference**, never the plan: hundreds of lines do not belong in a
 agent has file tools. The wording is a template in the settings cascade, so a project can phrase it its
 own way, and an empty template falls back to the default rather than inserting nothing.
 
-The picker depends on the attribution above. Without it, it would open on the same flat pile the tab used
-to show, only smaller.
+The picker depends on the attribution above, and it is a filter rather than a sort order: the list holds
+this session's project and nothing else. It once drew the other projects underneath, grouped by name, on
+the argument that a plan written in one project is sometimes what you want to hand to another. That is
+true and it is still the wrong default — a list opened by hotkey mid-session is a list of things about to
+be handed to a running agent, and a foreign plan sitting in it is another codebase's instructions one
+Enter away. A plan nothing could attribute is dropped on the same reading: unattributed is unknown, not
+local. The Plans tab keeps the full list, which is where borrowing across projects belongs — chosen, not
+mistyped.
+
+Two ways to end up with an empty picker, and the palette names which one it is: a project with no plans
+yet, and a terminal the app cannot place. They have different fixes, and one message for both reads as a
+broken hotkey.
 
 ## A plan changes while you read it
 

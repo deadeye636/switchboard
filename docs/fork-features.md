@@ -380,7 +380,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   a bar says so and offers to show you what changed, and a save over a file that moved underneath is
   refused rather than silently winning.
 - **Hand a plan to the running CLI from the keyboard** — a shortcut opens a plan picker anchored in the
-  focused terminal, with that terminal's project listed first and everything else still reachable. It
+  focused terminal, holding that terminal's project and nothing else — a foreign plan in a list opened by
+  hotkey is another codebase's instructions one Enter away, and the Plans tab is where you go to borrow
+  one deliberately. It
   inserts a reference rather than the plan: a plan runs to hundreds of lines and belongs in the agent's
   context through the agent's own file tools, not pasted into a prompt. What exactly gets typed is a
   template you can change, per project if you want to.
