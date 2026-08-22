@@ -123,6 +123,8 @@ chart rather than a row of zeroes.
   get a reference to the document. → [spec 21](docs/specs/21-skills.md)
 - **Agent files** — browse and edit every instruction file, skill, rule and work file each backend
   reads, filtered by type and by backend, with each row saying which CLIs actually read it
+- **PDFs open in the app** — rendered page by page in the panel, instead of arriving in the source
+  editor as unreadable bytes. → [spec 22](docs/specs/22-pdf-preview.md)
 - **Documents stay live** — a file open in the viewer follows an agent rewriting it, keeping your
   place in it, and says so instead of overwriting when both of you have changed it
 - **Stats** — heatmap, per-backend tokens and cost, model share, and a when-you-work grid, all behind

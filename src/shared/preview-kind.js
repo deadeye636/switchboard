@@ -8,6 +8,10 @@
 const PREVIEW_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'];
 const PREVIEW_HTML_EXTS = ['html', 'htm'];
 const PREVIEW_MARKDOWN_EXTS = ['md', 'mdx'];
+// A PDF is neither text nor an image: Chromium can display it, nothing can edit it here (#465). Its own
+// kind, so the viewer opens a VIEW rather than decoding the bytes into the source editor — which is what
+// it did, Save button and all, until this existed.
+const PREVIEW_PDF_EXTS = ['pdf'];
 
 const PREVIEW_MIME = {
   png: 'image/png',
@@ -21,12 +25,19 @@ const PREVIEW_MIME = {
   avif: 'image/avif',
   html: 'text/html',
   htm: 'text/html',
+  pdf: 'application/pdf',
 };
 
-// Classify a file extension into a preview kind: 'image' | 'html' | 'markdown' | 'text'.
+// Classify a file extension into a preview kind: 'image' | 'pdf' | 'html' | 'markdown' | 'text'.
+//
+// 'text' is the fallback, and that is a decision with a cost: anything unknown lands in the source
+// editor. For a binary format that means bytes read as UTF-8, shown as replacement characters, over a
+// Save button that would write them back destroyed (#465). A binary kind Switchboard can display gets
+// its own entry here; one it cannot should be refused rather than decoded.
 function previewKindForExt(ext) {
   const e = String(ext || '').toLowerCase();
   if (PREVIEW_IMAGE_EXTS.includes(e)) return 'image';
+  if (PREVIEW_PDF_EXTS.includes(e)) return 'pdf';
   if (PREVIEW_HTML_EXTS.includes(e)) return 'html';
   if (PREVIEW_MARKDOWN_EXTS.includes(e)) return 'markdown';
   return 'text';
@@ -71,6 +82,7 @@ function htmlWithBase(html, dirUrl) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     PREVIEW_IMAGE_EXTS,
+  PREVIEW_PDF_EXTS,
     PREVIEW_HTML_EXTS,
     PREVIEW_MARKDOWN_EXTS,
     previewKindForExt,

@@ -7,8 +7,8 @@
   "author": "Doctly <support@doctly.ai>",
   "main": "src/main.js",
   "scripts": {
-    "start": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron .",
-    "start:debug": "node scripts/check-debug-port.js && node scripts/gen-build-info.js && npm run bundle:codemirror && electron --remote-debugging-port=9222 .",
+    "start": "node scripts/gen-build-info.js && npm run bundle:codemirror && npm run bundle:pdf && electron .",
+    "start:debug": "node scripts/check-debug-port.js && node scripts/gen-build-info.js && npm run bundle:codemirror && npm run bundle:pdf && electron --remote-debugging-port=9222 .",
     "demo:start": "node scripts/demo-start.js",
     "demo:seed": "node scripts/seed-demo.js",
     "demo:auth": "node scripts/demo-auth.js",
@@ -16,6 +16,7 @@
     "electron": "electron .",
     "stop:dev": "node scripts/stop-dev.js",
     "bundle:codemirror": "esbuild src/renderer/jsonl/codemirror-setup.js --bundle --outfile=src/renderer/codemirror-bundle.js --format=iife --platform=browser --minify",
+    "bundle:pdf": "esbuild src/renderer/views/pdf-setup.js --bundle --outfile=src/renderer/pdf-bundle.js --format=iife --platform=browser --minify && esbuild node_modules/pdfjs-dist/build/pdf.worker.mjs --bundle --outfile=src/renderer/pdf-worker.js --format=iife --platform=browser --minify",
     "generate-icons": "node scripts/generate-icons.js && node scripts/generate-dmg-background.js",
     "upstream:check": "node scripts/upstream-check.js",
     "upstream:seen": "node scripts/upstream-check.js --seen",
@@ -25,12 +26,12 @@
     "pi:help-check": "node scripts/check-pi-help.js",
     "agy:help-check": "node scripts/check-agy-help.js",
     "backends:help-check": "npm run claude:help-check && npm run codex:help-check && npm run hermes:help-check && npm run pi:help-check && npm run agy:help-check",
-    "build": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder",
-    "build:mac": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --mac && node scripts/postinstall.js && codesign --sign - --force --deep dist/mac-arm64/Switchboard.app 2>/dev/null; true",
+    "build": "node scripts/gen-build-info.js && npm run bundle:codemirror && npm run bundle:pdf && electron-builder",
+    "build:mac": "node scripts/gen-build-info.js && npm run bundle:codemirror && npm run bundle:pdf && electron-builder --mac && node scripts/postinstall.js && codesign --sign - --force --deep dist/mac-arm64/Switchboard.app 2>/dev/null; true",
     "build:mac:arm64": "electron-builder --mac --arm64 2>/dev/null; true",
-    "build:win": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --win",
-    "build:linux": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --linux",
-    "release": "node scripts/gen-build-info.js && npm run bundle:codemirror && electron-builder --publish always",
+    "build:win": "node scripts/gen-build-info.js && npm run bundle:codemirror && npm run bundle:pdf && electron-builder --win",
+    "build:linux": "node scripts/gen-build-info.js && npm run bundle:codemirror && npm run bundle:pdf && electron-builder --linux",
+    "release": "node scripts/gen-build-info.js && npm run bundle:codemirror && npm run bundle:pdf && electron-builder --publish always",
     "postinstall": "patch-package && node scripts/postinstall.js && node scripts/ensure-conpty-dll.js"
   },
   "dependencies": {
@@ -46,6 +47,7 @@
     "marked": "^18.0.7",
     "morphdom": "^2.7.8",
     "node-pty": "^1.2.0-beta.14",
+    "pdfjs-dist": "^6.2.108",
     "ws": "^8.21.1"
   },
   "devDependencies": {

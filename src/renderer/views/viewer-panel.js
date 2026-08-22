@@ -58,6 +58,24 @@ function loadCodeMirrorBundle() {
 
 window.loadCodeMirrorBundle = loadCodeMirrorBundle;
 
+// The PDF viewer's bundle (#465), loaded the same way and for the same reasons: at RUNTIME, so the
+// minified library never enters a lint environment, and only when a PDF is actually opened — most
+// sessions never open one, and 400 KB parsed at start-up for a file nobody asked for is a cost with no
+// payer.
+let _pdfBundlePromise = null;
+function loadPdfBundle() {
+  if (_pdfBundlePromise) return _pdfBundlePromise;
+  _pdfBundlePromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'pdf-bundle.js';
+    script.onload = () => resolve();
+    script.onerror = (err) => { _pdfBundlePromise = null; reject(err); };
+    document.head.appendChild(script);
+  });
+  return _pdfBundlePromise;
+}
+window.loadPdfBundle = loadPdfBundle;
+
 // Every live panel, so a settings change reaches the formatting bar without
 // reopening the file (#281). app.js calls the hook below from
 // reapplyGlobalSettings, AFTER it has refreshed appGlobalSettings — a listener
@@ -325,6 +343,11 @@ class ViewerPanel {
       this._openImage(title, filePath, content);
       return;
     }
+    // PDF: Chromium's own viewer, no CodeMirror editor (#465).
+    if (this._previewKind === 'pdf') {
+      this._openPdf(title, filePath, content);
+      return;
+    }
     this._imageMode = false;
     // Restore editor + editor-only buttons (a prior image open may have hidden them).
     this.editorEl.style.display = '';
@@ -451,6 +474,80 @@ class ViewerPanel {
     img.src = dataUrl;
     this.previewEl.appendChild(img);
     this.previewEl.style.display = 'block';
+  }
+
+  /**
+   * A PDF, shown rather than decoded (#465).
+   *
+   * Through a BLOB url and not the data url itself: Chromium refuses a `data:` document in an embed on
+   * the same reasoning it refuses a top-level data navigation, and the base64 is already in hand, so the
+   * conversion costs one pass. The CSP had to learn `object-src 'self' blob:` for this, and the window
+   * `plugins: true` — Chromium's PDF viewer is a plugin, and without the flag the embed renders nothing
+   * at all rather than reporting anything.
+   *
+   * Everything the editor offers is hidden, exactly as for an image: there is nothing here to save, wrap
+   * or format, and a Save button over bytes read as text is how a PDF gets destroyed.
+   */
+  _openPdf(title, filePath, dataUrl) {
+    this._imageMode = true;   // "not an editor" is what this flag gates; the name predates PDFs
+    this._watchFile(filePath);
+    if (this.editorView) { this.editorView.destroy(); this.editorView = null; }
+    this.editorEl.style.display = 'none';
+    for (const b of [this.toolbar.previewBtn, this.toolbar.formatBtn, this.toolbar.wrapBtn,
+                     this.toolbar.saveBtn, this.toolbar.gotoLineBtn]) {
+      if (b) b.style.display = 'none';
+    }
+    this.toolbar.setViewModesVisible(false);
+    this._previewable = false;
+    this._formatKind = null;
+    this.viewMode = 'live';
+    this._applyFormatBar();
+    this.previewEl.innerHTML = '';
+    const host = document.createElement('div');
+    host.className = 'fp-pdf-preview';
+    this.previewEl.appendChild(host);
+    this.previewEl.style.display = 'block';
+
+    // Same generation guard as the source path: the bundle and the decode are both awaited, and a
+    // second open during either must win.
+    this._openGen = (this._openGen || 0) + 1;
+    const myGen = this._openGen;
+    const stillMine = () => this._openGen === myGen && this.filePath === filePath;
+
+    const bytes = this._pdfBytes(dataUrl);
+    if (!bytes) { this._pdfMessage(host, 'That PDF could not be read.'); return; }
+    this._pdfMessage(host, 'Rendering…');
+    loadPdfBundle()
+      .then(() => {
+        if (!stillMine()) return null;
+        host.innerHTML = '';
+        return window.renderPdfInto(host, bytes, { isCurrent: stillMine });
+      })
+      .then((res) => {
+        if (!stillMine() || !res || res.stale) return;
+        if (!res.ok) this._pdfMessage(host, res.error || 'That PDF could not be drawn.');
+      })
+      .catch(() => { if (stillMine()) this._pdfMessage(host, 'The PDF viewer could not be loaded.'); });
+  }
+
+  /** base64 data url → bytes, without fetch(): `connect-src` would have to allow `data:` for that. */
+  _pdfBytes(dataUrl) {
+    const comma = typeof dataUrl === 'string' ? dataUrl.indexOf(',') : -1;
+    if (comma < 0) return null;
+    try {
+      const binary = atob(dataUrl.slice(comma + 1));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    } catch { return null; }
+  }
+
+  _pdfMessage(host, text) {
+    host.innerHTML = '';
+    const msg = document.createElement('div');
+    msg.className = 'fp-pdf-message';
+    msg.textContent = text;
+    host.appendChild(msg);
   }
 
   _createEditor(content, filePath) {

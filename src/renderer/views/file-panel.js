@@ -702,11 +702,15 @@ function revealEntry(state, sessionId, entry) {
 }
 
 async function openFileInPanel(sessionId, filePath) {
-  // Images are binary — read them as a data URL instead of UTF-8 text (#49).
-  if (typeof previewKindForExt === 'function' && previewKindForExt(extOf(filePath)) === 'image') {
+  // Images and PDFs are binary — read them as a data URL instead of UTF-8 text (#49, #465). Reading a
+  // PDF as text is what put its bytes in the editor, with a Save button over them.
+  const binaryKind = typeof previewKindForExt === 'function' ? previewKindForExt(extOf(filePath)) : 'text';
+  if (binaryKind === 'image' || binaryKind === 'pdf') {
     const res = await window.api.readFileDataUrl(filePath);
     if (!res || !res.ok) {
-      window.showControlToast?.({ message: (res && res.error) || 'Cannot preview image', timeoutMs: 3000 });
+      window.showControlToast?.({
+        message: (res && res.error) || `Cannot preview this ${binaryKind}`, timeoutMs: 3000,
+      });
       return;
     }
     openFileTab(sessionId, { filePath, content: res.dataUrl });

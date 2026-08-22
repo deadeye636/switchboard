@@ -76,16 +76,25 @@ function main() {
 
   execFileSync('node', [path.join(ROOT, 'scripts', 'gen-build-info.js')], { stdio: 'inherit', cwd: ROOT });
 
-  // Bundle CodeMirror via esbuild's JS API — same flags as the `bundle:codemirror` npm script, without
-  // shelling out to npm (no shell string interpolation).
-  require('esbuild').buildSync({
-    entryPoints: [path.join(ROOT, 'src', 'renderer', 'jsonl', 'codemirror-setup.js')],
-    outfile: path.join(ROOT, 'src', 'renderer', 'codemirror-bundle.js'),
-    bundle: true,
-    format: 'iife',
-    platform: 'browser',
-    minify: true,
-  });
+  // Bundle the renderer's two esbuild targets via its JS API — same flags as the `bundle:codemirror`
+  // and `bundle:pdf` npm scripts, without shelling out to npm (no shell string interpolation). Both,
+  // because a demo run that is missing one of them fails at the moment a file is opened, which is the
+  // worst place to find out.
+  for (const [entry, out] of [
+    [['src', 'renderer', 'jsonl', 'codemirror-setup.js'], 'codemirror-bundle.js'],
+    [['src', 'renderer', 'views', 'pdf-setup.js'], 'pdf-bundle.js'],
+    // pdf.js parses in a worker and refuses to work without one, so the worker is a bundle of its own.
+    [['node_modules', 'pdfjs-dist', 'build', 'pdf.worker.mjs'], 'pdf-worker.js'],
+  ]) {
+    require('esbuild').buildSync({
+      entryPoints: [path.join(ROOT, ...entry)],
+      outfile: path.join(ROOT, 'src', 'renderer', out),
+      bundle: true,
+      format: 'iife',
+      platform: 'browser',
+      minify: true,
+    });
+  }
 
   // ── Launch Electron. `require('electron')` resolves to the electron binary path. ──
   const electron = require('electron');

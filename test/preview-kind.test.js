@@ -26,11 +26,32 @@ test('previewKindForExt classifies html, markdown, and text', () => {
   assert.equal(previewKindForExt(''), 'text');
 });
 
+// #465 — a PDF used to classify as text, so its bytes were read as UTF-8 and handed to the source
+// editor, Save button and all. Its own kind is what makes the viewer open a view instead.
+test('previewKindForExt classifies a pdf as its own kind, not as text', () => {
+  assert.equal(previewKindForExt('pdf'), 'pdf');
+  assert.equal(previewKindForExt('PDF'), 'pdf');
+});
+
+test('the readers that must not decode a pdf as text ask for the kind', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const panel = fs.readFileSync(path.join(__dirname, '..', 'src/renderer/views/file-panel.js'), 'utf8');
+  // The panel picks the reader: a binary kind goes through readFileDataUrl, everything else through the
+  // text read. A pdf missing from that branch is the whole of this bug, and it is one word.
+  assert.match(panel, /binaryKind === 'image' \|\| binaryKind === 'pdf'/);
+  const viewer = fs.readFileSync(path.join(__dirname, '..', 'src/renderer/views/viewer-panel.js'), 'utf8');
+  assert.match(viewer, /_previewKind === 'pdf'/, 'the viewer must route a pdf away from the editor');
+});
+
 test('mimeForExt maps known types, null otherwise', () => {
   assert.equal(mimeForExt('png'), 'image/png');
   assert.equal(mimeForExt('JPG'), 'image/jpeg');
   assert.equal(mimeForExt('svg'), 'image/svg+xml');
   assert.equal(mimeForExt('html'), 'text/html');
+  // Without this the data-url reader hands the PDF over as application/octet-stream, which Chromium
+  // downloads rather than displays.
+  assert.equal(mimeForExt('pdf'), 'application/pdf');
   assert.equal(mimeForExt('xyz'), null);
 });
 

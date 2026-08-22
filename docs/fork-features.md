@@ -390,6 +390,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   terminal, listing the CLI's own skills alongside skills you keep in Switchboard for every CLI. A CLI that
   can run a skill from its prompt gets its own command, measured for each one rather than guessed; the rest
   get a reference to the document, and a note saying so. Taking a row runs it, which a setting turns off.
+- **PDFs open in the app** — a PDF from a terminal file link or the file list is rendered page by page
+  in the panel instead of being decoded into the source editor, where it used to arrive as unreadable
+  bytes over a Save button that would have written them back destroyed.
 - **One place for plans, across CLIs** — plan documents can live in the project they are about instead of
   in one CLI's home directory, so a plan written in Claude can be read by whatever runs next. The path is
   a setting with a per-project override, and a button in the project's settings writes what each installed

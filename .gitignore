@@ -6,6 +6,8 @@ build-info.json
 *.db-wal
 *.db-shm
 src/renderer/codemirror-bundle.js
+src/renderer/pdf-bundle.js
+src/renderer/pdf-worker.js
 .DS_Store
 *.pem
 .env

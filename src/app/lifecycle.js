@@ -101,6 +101,10 @@ function start(ctx) {
       callback({
         responseHeaders: {
           ...details.responseHeaders,
+          // UNCHANGED for the PDF viewer (#465), and that is the point of how it was built: pdf.js
+          // draws the pages into canvases this app owns, so the document never becomes a frame and
+          // needs no `object-src`/`frame-src` of its own. Widening those was tried first, together
+          // with Chromium's built-in viewer, and measured as useless — see spec 21.
           'Content-Security-Policy': ["default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'"],
         },
       });

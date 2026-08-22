@@ -4286,6 +4286,28 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   object-fit: contain;
 }
 
+/* A PDF is drawn page by page into this container (#465) — pdf.js, because Chromium's own viewer is
+   not available in the renderer. It scrolls with the panel; the pages size themselves to its width. */
+.fp-pdf-preview {
+  display: block;
+  width: 100%;
+  padding: 12px 0;
+}
+.fp-pdf-page {
+  display: block;
+  margin: 0 auto 12px;
+  background: #ffffff;      /* a page is white; the panel behind it is not */
+  border-radius: 2px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.45);
+  max-width: 100%;
+}
+.fp-pdf-message {
+  padding: 24px 16px;
+  text-align: center;
+  color: #8b8b9e;
+  font-size: 13px;
+}
+
 .markdown-preview h1, .markdown-preview h2, .markdown-preview h3,
 .markdown-preview h4, .markdown-preview h5, .markdown-preview h6 {
   color: #bd93f9;
