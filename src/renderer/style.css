@@ -7693,6 +7693,36 @@ body.grid-dragging .grid-card-header {
   font-size: 9px;
 }
 
+/* Archive the whole older group. Same quiet-until-hover treatment as .slug-group-archive-btn, pushed
+   to the far edge of the toggle row. */
+.sessions-more-archive-btn {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid #555570;
+  color: #808098;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  opacity: 0;
+}
+
+.sessions-more-toggle:hover .sessions-more-archive-btn,
+.sessions-more-archive-btn:focus-visible {
+  opacity: 1;
+}
+
+.sessions-more-archive-btn:hover {
+  background: rgba(120,130,255,0.1);
+  color: #8088ff;
+}
+
 /* Container for the child subagent items */
 .sidebar-subagents-container {
   /* display toggled via JS */

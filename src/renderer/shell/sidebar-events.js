@@ -321,6 +321,9 @@ function dispatchSidebarActivation(e) {
   // --- "+ N older" toggle ---
   const olderToggle = t.closest('.sessions-more-toggle');
   if (olderToggle) {
+    // The archive button sits INSIDE the toggle, so it is answered before the fold — otherwise every
+    // archive click also opened the group it was about to empty.
+    if (t.closest('.sessions-more-archive-btn')) { e.stopPropagation(); archiveOlderGroup(olderToggle); return; }
     const olderList = olderToggle.nextElementSibling;
     if (!olderList || !olderList.classList.contains('sessions-older')) return;
     // The count comes from the dataset, not from the DOM: this list also holds the subagent carets
@@ -330,7 +333,9 @@ function dispatchSidebarActivation(e) {
     olderList.style.display = showing ? 'none' : '';
     olderToggle.classList.toggle('expanded', !showing);
     olderToggle.setAttribute('aria-expanded', showing ? 'false' : 'true');
-    olderToggle.innerHTML = `<span class="caret-arrow">&#9654;</span> ${count} older`;
+    // Only the label is rewritten — rewriting the row's innerHTML would drop the archive button.
+    const olderLabel = olderToggle.querySelector('.sessions-more-label');
+    if (olderLabel) olderLabel.textContent = `${count} older`;
     return;
   }
 
@@ -588,6 +593,32 @@ async function archiveSlugGroup(slugHeader) {
   const name = slugHeader.querySelector('.slug-group-name')?.textContent || 'session group';
   const targets = await confirmArchiveScope('Archive Session Group', { Group: name }, archiveTargets);
   if (targets) await applyBulkArchive(targets, name);
+}
+
+// The "N older" group's own archive: everything the sidebar folded away, in one act. The rows are read
+// from the list beside the toggle rather than recomputed — sidebar.js decided what counts as older
+// (count limit, age cutoff, running and pinned exempt), and this must not disagree with what is shown.
+async function archiveOlderGroup(olderToggle) {
+  const olderList = olderToggle.nextElementSibling;
+  if (!olderList || !olderList.classList.contains('sessions-older')) return;
+  // DIRECT CHILDREN ONLY. The lineage thread nests ancestor rows as full `.session-item`s inside a row
+  // (#193), and those ancestors are sessions this group never folded away — a plain `.session-item`
+  // sweep archived 22 sessions where the toggle said 20. Subagents are not rows here either: they sit
+  // in their own container beside the rows, and come back below with their parent.
+  const roots = [];
+  for (const item of olderList.querySelectorAll(':scope > .session-item')) {
+    const session = sessionMap.get(item.dataset.sessionId);
+    if (!session || session.archived) continue;
+    roots.push(session);
+  }
+  if (roots.length === 0) return;
+  const project = sidebarProjectForEl(olderToggle);
+  const name = project ? sidebarShortName(project.projectPath) : 'this project';
+  const pool = project ? project.sessions.filter(s => !s.archived) : roots;
+  const withChildren = sessionsWithSubagents(roots, pool);
+  const archiveTargets = pool.filter(s => withChildren.has(s.sessionId));
+  const targets = await confirmArchiveScope('Archive Older Sessions', { Project: name, Group: 'Older' }, archiveTargets);
+  if (targets) await applyBulkArchive(targets, `older in ${name}`);
 }
 
 async function toggleSessionPin(session) {

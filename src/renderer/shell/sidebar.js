@@ -452,9 +452,18 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath, know
     moreBtn.className = 'sidebar-children-caret sessions-more-toggle';
     moreBtn.id = 'older-' + fId;
     moreBtn.dataset.olderCount = String(older.length);
-    moreBtn.innerHTML = `<span class="caret-arrow">&#9654;</span> ${older.length} older`;
+    // The label is its own span: the toggle rewrites it on every click, and an innerHTML rewrite of the
+    // whole row would take the archive button with it.
+    moreBtn.innerHTML = `<span class="caret-arrow">&#9654;</span> <span class="sessions-more-label">${older.length} older</span>`;
     moreBtn.setAttribute('aria-expanded', 'false');
     ariaButton(moreBtn, `${older.length} older sessions`); // click/keyboard delegated in sidebar-events.js (#218 opt6)
+    // Archive the whole folded-away group without unfolding it first. Hidden until the row is hovered,
+    // like the slug group's archive button — the toggle is the loud element in this row, not this.
+    const archiveOlderBtn = document.createElement('button');
+    archiveOlderBtn.className = 'sessions-more-archive-btn';
+    archiveOlderBtn.title = 'Archive all older sessions';
+    archiveOlderBtn.innerHTML = ICONS.archive(14);
+    moreBtn.appendChild(archiveOlderBtn);
     const olderList = document.createElement('div');
     olderList.className = 'sessions-older';
     olderList.id = 'older-list-' + fId;
