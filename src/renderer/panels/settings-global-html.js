@@ -48,7 +48,7 @@
   function settingsGlobalHtml(v) {
     const {
       DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
-      collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
+      collapseDefaultValue, collapseAgeValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
       paneCloseEmptyValue, paneBackgroundScrollbackValue,
       externalEditorValue, planInsertTemplateValue, planDirValue, skillInsertTemplateValue, skillsDirValue, submitSkillOnPickValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
@@ -585,14 +585,24 @@
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Sidebar on startup</span>
-                    <div class="settings-description">Start with project/group sections expanded, collapsed, or in the last state.</div>
+                    <div class="settings-description">Auto keeps recently active projects open and starts the stale ones collapsed; last state reopens exactly what you left.</div>
                   </div>
                   <div class="settings-field-control">
                     <select class="settings-select" id="sv-collapse-default">
+                      <option value="auto" ${collapseDefaultValue === 'auto' ? 'selected' : ''}>Auto (fold stale projects)</option>
                       <option value="expanded" ${collapseDefaultValue === 'expanded' ? 'selected' : ''}>All expanded</option>
                       <option value="collapsed" ${collapseDefaultValue === 'collapsed' ? 'selected' : ''}>All collapsed</option>
                       <option value="remember" ${collapseDefaultValue === 'remember' ? 'selected' : ''}>Last state</option>
                     </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Fold projects idle for (days)</span>
+                    <div class="settings-description">How stale a project has to be for Auto to start it collapsed. 0 = collapse nothing. Used by Auto only.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-collapse-age" min="0" max="365" value="${collapseAgeValue}">
                   </div>
                 </div>
               </div>

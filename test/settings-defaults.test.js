@@ -63,6 +63,22 @@ test('the renderer\'s sessionMaxAgeDays literals match GLOBAL_ONLY_DEFAULTS', ()
   assert.equal(Number(write[1]), want, 'and what it WRITES back on an empty field must match too');
 });
 
+test('the renderer\'s sidebarCollapseAgeDays literals match GLOBAL_ONLY_DEFAULTS', () => {
+  const want = settings.GLOBAL_ONLY_DEFAULTS.sidebarCollapseAgeDays;
+
+  const boot = /let sidebarCollapseAgeDays = (\d+);/.exec(APP_JS);
+  assert.ok(boot, 'app.js must still declare a starting sidebarCollapseAgeDays (renamed? update this test)');
+  assert.equal(Number(boot[1]), want, 'app.js and the single source must agree');
+
+  const read = /fieldValue\('sidebarCollapseAgeDays', (\d+)\)/.exec(PANEL_JS);
+  assert.ok(read, 'the panel must still read sidebarCollapseAgeDays with a fallback');
+  assert.equal(Number(read[1]), want, 'what the panel SHOWS when unset must be the same number');
+
+  const write = /parseLimit\('#sv-collapse-age', (\d+)\)/.exec(PANEL_JS);
+  assert.ok(write, 'the panel must still parse #sv-collapse-age with a fallback');
+  assert.equal(Number(write[1]), want, 'and what it WRITES back on an empty field must match too');
+});
+
 test('the renderer\'s autoHideDays literals match GLOBAL_ONLY_DEFAULTS', () => {
   const want = settings.GLOBAL_ONLY_DEFAULTS.autoHideDays;
 

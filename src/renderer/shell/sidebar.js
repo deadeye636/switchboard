@@ -633,23 +633,20 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
 
     const sessionsList = buildSessionsList(fId, visible, older, buildSubagentIndex(project.sessions), project.projectPath, buildKnownSessionIds(project.sessions));
 
-    // Explicit user collapse/expand (persisted) overrides the age heuristic, so the
-    // "last state" startup default remembers project headers. Falls back to the
-    // heuristic only when the user never toggled this project.
-    const explicitCollapsed = getProjectCollapseState()[project.projectPath];
-    if (explicitCollapsed === true) {
+    // Whether this project starts folded — explicit toggle, missing path, search-matched-only, and the
+    // age heuristic that now only runs in `auto` mode (#278). The decision itself is in sidebar-state.js
+    // so both this site and the worktree one below cannot drift apart.
+    if (typeof projectStartCollapsed === 'function' && projectStartCollapsed({
+      explicit: getProjectCollapseState()[project.projectPath],
+      missing: project.missing,
+      projectMatchedOnly: project._projectMatchedOnly,
+      filtersActive: searchMatchIds !== null || showStarredOnly || showRunningOnly,
+      mostRecent: filtered[0]?.modified,
+      mode: sidebarCollapseDefault,
+      ageDays: sidebarCollapseAgeDays,
+      now: Date.now(),
+    })) {
       header.classList.add('collapsed');
-    } else if (explicitCollapsed === false) {
-      // user explicitly expanded → leave open, skip heuristic
-    } else if (project.missing) {
-      header.classList.add('collapsed');
-    } else if (project._projectMatchedOnly) {
-      header.classList.add('collapsed');
-    } else if (searchMatchIds === null && !showStarredOnly && !showRunningOnly) {
-      const mostRecent = filtered[0]?.modified;
-      if (sessionMaxAgeDays > 0 && mostRecent && (Date.now() - new Date(mostRecent)) > sessionMaxAgeDays * 86400000) {
-        header.classList.add('collapsed');
-      }
     }
 
     group.appendChild(header);
@@ -698,12 +695,17 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
       const wtSessionsList = buildSessionsList(wtFId, wtResult.visible, wtResult.older, buildSubagentIndex(wt.sessions), wt.projectPath, buildKnownSessionIds(wt.sessions));
       wtSessionsList.className = 'worktree-sessions';
 
-      // Auto-collapse worktree if stale
-      if (searchMatchIds === null && !showStarredOnly && !showRunningOnly) {
-        const mostRecent = wtResult.filtered[0]?.modified;
-        if (sessionMaxAgeDays > 0 && mostRecent && (Date.now() - new Date(mostRecent)) > sessionMaxAgeDays * 86400000) {
-          wtHeader.classList.add('collapsed');
-        }
+      // Auto-collapse worktree if stale — same decision as the project header above, and the same mode
+      // gate (#278). A worktree keeps no explicit per-path state; its collapse survives a render through
+      // morphdom, not through the store.
+      if (typeof projectStartCollapsed === 'function' && projectStartCollapsed({
+        filtersActive: searchMatchIds !== null || showStarredOnly || showRunningOnly,
+        mostRecent: wtResult.filtered[0]?.modified,
+        mode: sidebarCollapseDefault,
+        ageDays: sidebarCollapseAgeDays,
+        now: Date.now(),
+      })) {
+        wtHeader.classList.add('collapsed');
       }
 
       wtGroup.appendChild(wtHeader);
@@ -738,52 +740,12 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder) {
 
   morphdom(sidebarContent, newSidebar, {
     childrenOnly: true,
-    onBeforeElUpdated(fromEl, toEl) {
-      // Skip updating session items that have an active rename input
-      if (fromEl.classList.contains('session-item') && fromEl.querySelector('.session-rename-input')) {
-        return false;
-      }
-      if (fromEl.classList.contains('project-header')) {
-        if (fromEl.classList.contains('collapsed')) {
-          toEl.classList.add('collapsed');
-        } else {
-          toEl.classList.remove('collapsed');
-        }
-      }
-      if (fromEl.classList.contains('slug-group') || fromEl.classList.contains('worktree-header')) {
-        if (fromEl.classList.contains('collapsed')) {
-          toEl.classList.add('collapsed');
-        } else {
-          toEl.classList.remove('collapsed');
-        }
-      }
-      if (fromEl.classList.contains('sessions-older') && fromEl.style.display !== 'none') {
-        toEl.style.display = '';
-      }
-      if (fromEl.classList.contains('sessions-more-toggle') && fromEl.classList.contains('expanded')) {
-        // Only the open/closed state carries over — the label is the same in both states now, and
-        // rewriting it here is what used to plant "- hide older" on a rebuilt node.
-        toEl.classList.add('expanded');
-        toEl.setAttribute('aria-expanded', 'true');
-      }
-      if (fromEl.classList.contains('slug-group-older') && fromEl.style.display !== 'none') {
-        toEl.style.display = '';
-      }
-      // #229: the lineage thread is built collapsed (sidebar-lineage.js sets display:none), so without
-      // this a re-render folds an expanded thread back up — the sidebar re-renders on every store
-      // event, so it closed itself while the user was reading it.
-      if (fromEl.classList.contains('session-lineage-ancestors') && fromEl.style.display !== 'none') {
-        toEl.style.display = '';
-      }
-      if (fromEl.classList.contains('session-lineage-toggle') && fromEl.classList.contains('expanded')) {
-        toEl.classList.add('expanded');
-        toEl.setAttribute('aria-expanded', 'true');
-      }
-      if (fromEl.classList.contains('slug-group-more') && fromEl.classList.contains('expanded')) {
-        toEl.classList.add('expanded');
-      }
-      return true;
-    },
+    // Every clause that used to sit here inline is `preserveSidebarState` in sidebar-state.js (#229) —
+    // an anonymous callback inside the render could only be checked by driving the app, which is how the
+    // one regression in it got as far as it did.
+    onBeforeElUpdated: (fromEl, toEl) => (typeof preserveSidebarState === 'function'
+      ? preserveSidebarState(fromEl, toEl)
+      : true),
     getNodeKey(node) {
       return node.id || undefined;
     }

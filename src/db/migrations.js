@@ -447,6 +447,35 @@ const migrations = [
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_session_timeline_session_at ON session_timeline(sessionId, at)'); } catch {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_session_timeline_at ON session_timeline(at)'); } catch {}
   },
+  // Move a stored `sidebarCollapseDefault: 'remember'` to the new `auto` mode, and seed the threshold it
+  // now reads (#278).
+  //
+  // The sidebar has always collapsed a project whose newest session is older than `sessionMaxAgeDays`,
+  // whatever the startup mode said — the mode only ever forced everything open or shut. #278 puts that
+  // heuristic behind `auto` and gives it a threshold of its own, so `remember` can finally mean what it
+  // says. Which leaves the users who chose `remember`: without this they keep the word and lose the
+  // behaviour, and an old project that always started folded would start open. That reads as a bug, so
+  // they are moved to the mode that still does what they had.
+  //
+  // The threshold is seeded from THEIR `sessionMaxAgeDays`, not from the new default: a user at 14 days
+  // would otherwise upgrade into a 3-day fold, which is the silent change this migration exists to
+  // prevent. A stored `0` copies as `0` and collapses nothing, matching the old `> 0` gate.
+  //
+  // Installs that never stored the mode are not touched here and do not need to be — the renderer's
+  // fallback moves from `remember` to `auto` in the same change, and old-default equals new mode.
+  (db) => {
+    try {
+      const row = db.prepare("SELECT value FROM settings WHERE key = 'global'").get();
+      if (!row || !row.value) return;
+      const global = JSON.parse(row.value);
+      if (!global || typeof global !== 'object' || global.sidebarCollapseDefault !== 'remember') return;
+      global.sidebarCollapseDefault = 'auto';
+      if (!('sidebarCollapseAgeDays' in global) && Number.isFinite(global.sessionMaxAgeDays) && global.sessionMaxAgeDays >= 0) {
+        global.sidebarCollapseAgeDays = global.sessionMaxAgeDays;
+      }
+      db.prepare("UPDATE settings SET value = ? WHERE key = 'global'").run(JSON.stringify(global));
+    } catch { /* an unreadable blob is not worth failing a migration over */ }
+  },
 ];
 
 /**

@@ -180,3 +180,145 @@ test('#248: the age cut applies only after the orphan decision, never to a neste
     now: NOW,
   }), []);
 });
+
+// --- #278: which projects start collapsed, and in which mode ---
+
+const { projectStartCollapsed } = require('../src/renderer/shell/sidebar-state');
+
+const NOW_278 = Date.UTC(2026, 0, 20);
+const staleBy = (n) => new Date(NOW_278 - n * 86400000).toISOString();
+
+test('#278: auto folds a project whose newest session is past the threshold', () => {
+  assert.equal(projectStartCollapsed({
+    mode: 'auto', ageDays: 3, mostRecent: staleBy(10), now: NOW_278,
+  }), true);
+});
+
+test('#278: auto leaves a recently active project open', () => {
+  assert.equal(projectStartCollapsed({
+    mode: 'auto', ageDays: 3, mostRecent: staleBy(1), now: NOW_278,
+  }), false);
+});
+
+test('#278: remember applies no age heuristic at all', () => {
+  // The whole point of the mode: last state means last state. Before this the heuristic ran in every
+  // mode, so a project the user had left open reopened folded and nothing said why.
+  assert.equal(projectStartCollapsed({
+    mode: 'remember', ageDays: 3, mostRecent: staleBy(400), now: NOW_278,
+  }), false);
+});
+
+test('#278: the forcing modes decide nothing here — applyCollapseDefault does that after the render', () => {
+  for (const mode of ['expanded', 'collapsed']) {
+    assert.equal(projectStartCollapsed({
+      mode, ageDays: 3, mostRecent: staleBy(400), now: NOW_278,
+    }), false, mode);
+  }
+});
+
+test('#278: a threshold of 0 collapses nothing, like every other day limit', () => {
+  assert.equal(projectStartCollapsed({
+    mode: 'auto', ageDays: 0, mostRecent: staleBy(9999), now: NOW_278,
+  }), false);
+});
+
+test('#278: an explicit toggle wins over the heuristic, in both directions and in every mode', () => {
+  assert.equal(projectStartCollapsed({
+    explicit: false, mode: 'auto', ageDays: 3, mostRecent: staleBy(400), now: NOW_278,
+  }), false);
+  assert.equal(projectStartCollapsed({
+    explicit: true, mode: 'remember', ageDays: 3, mostRecent: staleBy(1), now: NOW_278,
+  }), true);
+  // …and over the missing-path and matched-only rules, which sit below it.
+  assert.equal(projectStartCollapsed({
+    explicit: false, missing: true, projectMatchedOnly: true, mode: 'auto', ageDays: 3, now: NOW_278,
+  }), false);
+});
+
+test('#278: a missing path and a project that only matched the search itself still start folded', () => {
+  assert.equal(projectStartCollapsed({ missing: true, mode: 'remember', now: NOW_278 }), true);
+  assert.equal(projectStartCollapsed({ projectMatchedOnly: true, mode: 'expanded', now: NOW_278 }), true);
+});
+
+test('#278: an active filter suspends the heuristic — a match must not be hidden behind a fold', () => {
+  assert.equal(projectStartCollapsed({
+    mode: 'auto', ageDays: 3, mostRecent: staleBy(400), filtersActive: true, now: NOW_278,
+  }), false);
+});
+
+test('#278: a project with no timestamp is left open — an unknown age is not an old one', () => {
+  assert.equal(projectStartCollapsed({
+    mode: 'auto', ageDays: 3, mostRecent: null, now: NOW_278,
+  }), false);
+});
+
+// --- #229: what a morphdom pass carries from the live node to its replacement ---
+
+const { preserveSidebarState } = require('../src/renderer/shell/sidebar-state');
+
+// Stub elements rather than jsdom: the clauses only read classList, style.display and one querySelector,
+// and a fake keeps what each case actually depends on visible in the test.
+function el(classes = [], { display = 'none', renaming = false } = {}) {
+  const set = new Set(classes);
+  return {
+    classList: {
+      contains: (c) => set.has(c),
+      add: (c) => set.add(c),
+      remove: (c) => set.delete(c),
+      toggle: (c, on) => { if (on) set.add(c); else set.delete(c); return on; },
+    },
+    style: { display },
+    attrs: {},
+    setAttribute(name, value) { this.attrs[name] = value; },
+    querySelector: (sel) => (renaming && sel === '.session-rename-input' ? {} : null),
+    has: (c) => set.has(c),
+  };
+}
+
+test('#229: a row with a rename in flight is skipped entirely — that is the false', () => {
+  assert.equal(preserveSidebarState(el(['session-item'], { renaming: true }), el(['session-item'])), false);
+  assert.equal(preserveSidebarState(el(['session-item']), el(['session-item'])), true);
+});
+
+test('#229: a collapsed header stays collapsed, and an expanded one stays expanded', () => {
+  for (const cls of ['project-header', 'slug-group', 'worktree-header']) {
+    const openTo = el([cls, 'collapsed']);
+    preserveSidebarState(el([cls]), openTo);
+    assert.equal(openTo.has('collapsed'), false, `${cls}: an open section must not be re-folded`);
+
+    const foldedTo = el([cls]);
+    preserveSidebarState(el([cls, 'collapsed']), foldedTo);
+    assert.equal(foldedTo.has('collapsed'), true, `${cls}: a folded section stays folded`);
+  }
+});
+
+test('#229: a revealed list keeps its display, a hidden one is left alone', () => {
+  for (const cls of ['sessions-older', 'slug-group-older', 'session-lineage-ancestors']) {
+    const shown = el([cls], { display: 'none' });
+    preserveSidebarState(el([cls], { display: '' }), shown);
+    assert.equal(shown.style.display, '', `${cls}: an open list stays open`);
+
+    const hidden = el([cls], { display: 'none' });
+    preserveSidebarState(el([cls], { display: 'none' }), hidden);
+    assert.equal(hidden.style.display, 'none', `${cls}: a closed list stays closed`);
+  }
+});
+
+test('#229: an expanded caret carries its state and its aria, in both flavours', () => {
+  for (const cls of ['sessions-more-toggle', 'session-lineage-toggle']) {
+    const to = el([cls]);
+    preserveSidebarState(el([cls, 'expanded']), to);
+    assert.equal(to.has('expanded'), true, cls);
+    assert.equal(to.attrs['aria-expanded'], 'true', cls);
+  }
+  const more = el(['slug-group-more']);
+  preserveSidebarState(el(['slug-group-more', 'expanded']), more);
+  assert.equal(more.has('expanded'), true);
+});
+
+test('#229: a caret nobody opened is not marked expanded by the copy', () => {
+  const to = el(['sessions-more-toggle']);
+  preserveSidebarState(el(['sessions-more-toggle']), to);
+  assert.equal(to.has('expanded'), false);
+  assert.equal(to.attrs['aria-expanded'], undefined);
+});

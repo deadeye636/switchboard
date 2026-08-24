@@ -227,7 +227,8 @@
     // moment it is empty, and shrink the scrollback of a pane tab that is not on top.
     const paneCloseEmptyValue = fieldValue('paneCloseEmpty', false);
     const paneBackgroundScrollbackValue = String(fieldValue('paneBackgroundScrollback', 0) || 0);
-    const collapseDefaultValue = fieldValue('sidebarCollapseDefault', 'remember');
+    const collapseDefaultValue = fieldValue('sidebarCollapseDefault', 'auto');
+    const collapseAgeValue = fieldValue('sidebarCollapseAgeDays', 3);
     // #277 VCS chip (global): master switch, poll interval, untracked counting.
     const vcsChipEnabledValue = fieldValue('vcsChipEnabled', true);
     const vcsShowBadgeValue = fieldValue('vcsShowBadge', false);
@@ -491,7 +492,7 @@
       // mattered: a mistyped read renders an empty field rather than throwing.
       settingsViewerBody.innerHTML = window.settingsGlobalHtml({
         DEFAULT_TERMINAL_FONT, TERMINAL_FONT_PRESETS, advChev, attentionSoundValue, autoHideDaysValue,
-        collapseDefaultValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
+        collapseDefaultValue, collapseAgeValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
         confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
         paneCloseEmptyValue, paneBackgroundScrollbackValue,
         externalEditorValue, planInsertTemplateValue, planDirValue, skillInsertTemplateValue, skillsDirValue,
@@ -812,6 +813,8 @@
           };
           settings.visibleSessionCount = parseLimit('#sv-visible-count', 10);
           settings.sessionMaxAgeDays = parseLimit('#sv-max-age', 3);
+          // #278: the age Auto folds a project at. Same 0-is-a-value reading as the two above.
+          settings.sidebarCollapseAgeDays = parseLimit('#sv-collapse-age', 3);
         }
         settings.autoHideDays = parseInt(settingsViewerBody.querySelector('#sv-auto-hide-days').value) || 0;
         {
@@ -884,7 +887,7 @@
         // `settingsOpenMode` was written here. Settings open in a window of their own and there is
         // nothing left to choose (#365); a migration takes the stored value out of the blob, so a
         // save from here does not put it back.
-        settings.sidebarCollapseDefault = settingsViewerBody.querySelector('#sv-collapse-default').value || 'remember';
+        settings.sidebarCollapseDefault = settingsViewerBody.querySelector('#sv-collapse-default').value || 'auto';
         // #277 VCS chip settings (global).
         settings.vcsChipEnabled = !!settingsViewerBody.querySelector('#sv-vcs-enabled')?.checked;
         settings.vcsShowBadge = !!settingsViewerBody.querySelector('#sv-vcs-badge')?.checked;
@@ -1045,6 +1048,14 @@
         }
         if (settings.sessionMaxAgeDays != null && typeof window._setSessionMaxAge === 'function') {
           window._setSessionMaxAge(settings.sessionMaxAgeDays);
+        }
+        // #278: the startup fold applies to the NEXT render, so it has to reach the sidebar's copy here
+        // as well — a save that only wrote the blob would leave this session on the old mode.
+        if (settings.sidebarCollapseDefault && typeof window._setSidebarCollapseDefault === 'function') {
+          window._setSidebarCollapseDefault(settings.sidebarCollapseDefault);
+        }
+        if (settings.sidebarCollapseAgeDays != null && typeof window._setSidebarCollapseAgeDays === 'function') {
+          window._setSidebarCollapseAgeDays(settings.sidebarCollapseAgeDays);
         }
         if (settings.terminalTheme && typeof window._applyTerminalTheme === 'function') {
           window._applyTerminalTheme(settings.terminalTheme);

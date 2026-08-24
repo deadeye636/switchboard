@@ -229,6 +229,12 @@ let cachedPlans = [];
 // must not drift, which test/settings-defaults.test.js pins.
 let visibleSessionCount = 10;
 let sessionMaxAgeDays = 3;
+// The sidebar's startup fold (#278). `auto` folds a project whose newest session is older than
+// sidebarCollapseAgeDays; `remember` is pure last state; `expanded`/`collapsed` force everything and are
+// applied after the render by sidebar-collapse.js. `auto` is the default because it is what every install
+// did before the mode existed — the heuristic used to run whatever the setting said.
+let sidebarCollapseDefault = 'auto';
+let sidebarCollapseAgeDays = 3;
 let vcsChipEnabled = true;   // #277: master switch for the sidebar/card VCS chip (read by sidebar-vcs.js)
 let vcsShowBadge = false;    // #277: show the branch/counts badge (default off — the glyph button alone opens the window)
 const pendingSessions = new Map(); // sessionId → { session, projectPath, folder }
@@ -277,6 +283,8 @@ function injectPendingSession(session, projectPath, folder) {
 // Bridge functions for settings-panel.js
 window._setVisibleSessionCount = (v) => { visibleSessionCount = v; };
 window._setSessionMaxAge = (v) => { sessionMaxAgeDays = v; };
+window._setSidebarCollapseDefault = (v) => { sidebarCollapseDefault = v; };
+window._setSidebarCollapseAgeDays = (v) => { sidebarCollapseAgeDays = v; };
 window._applyTerminalTheme = (themeName) => {
   currentThemeName = themeName;
   TERMINAL_THEME = getTerminalTheme();
@@ -2074,6 +2082,8 @@ async function reapplyGlobalSettings() {
   window._setUsageBackendSelection?.(g.usageBackends || {});
   if (g.visibleSessionCount != null) window._setVisibleSessionCount?.(g.visibleSessionCount);
   if (g.sessionMaxAgeDays != null) window._setSessionMaxAge?.(g.sessionMaxAgeDays);
+  if (g.sidebarCollapseDefault) window._setSidebarCollapseDefault?.(g.sidebarCollapseDefault);
+  if (Number.isFinite(g.sidebarCollapseAgeDays)) window._setSidebarCollapseAgeDays?.(g.sidebarCollapseAgeDays);
   if (g.shortcuts && typeof setAppShortcuts === 'function') setAppShortcuts(g.shortcuts);
   window._applySessionDisplaySettings?.(g);
   window._applyProjectSortSettings?.(g);
@@ -2258,6 +2268,11 @@ setTimeout(() => {
     if (global.sessionMaxAgeDays != null) {
       sessionMaxAgeDays = global.sessionMaxAgeDays;
     }
+    // Read before the first render, not from the later applyCollapseDefault call: the fold is decided
+    // while the rows are built, so a boot that learned the mode afterwards would paint one render on the
+    // defaults. A stored 0 must survive, which `||` would eat.
+    if (global.sidebarCollapseDefault) sidebarCollapseDefault = global.sidebarCollapseDefault;
+    if (Number.isFinite(global.sidebarCollapseAgeDays)) sidebarCollapseAgeDays = global.sidebarCollapseAgeDays;
     vcsChipEnabled = global.vcsChipEnabled !== false;   // #277: default on
     vcsShowBadge = global.vcsShowBadge === true;        // #277: badge default off
     if (global.terminalTheme && TERMINAL_THEMES[global.terminalTheme]) {
@@ -2326,7 +2341,7 @@ loadProjects().then(async () => {
     const g = await window.api.getSetting('global');
     // applyCollapseDefault is in shell/sidebar-collapse.js (loads after app.js, #228); guard so a boot that
     // reaches here before that script parses degrades to a no-op rather than throwing and skipping the mode.
-    if (typeof applyCollapseDefault === 'function') applyCollapseDefault(g?.sidebarCollapseDefault || 'remember');
+    if (typeof applyCollapseDefault === 'function') applyCollapseDefault(g?.sidebarCollapseDefault || 'auto');
     gridAllowed = gridAllowedForMode(g?.sessionDisplayMode);
   } catch { /* ignore */ }
 

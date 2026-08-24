@@ -117,6 +117,12 @@ const SETTING_DEFAULTS = {
 const GLOBAL_ONLY_DEFAULTS = {
   sessionMaxAgeDays: 3,   // hide sessions older than N days; 0 = no limit
   autoHideDays: 0,        // auto-hide inactive projects after N days; 0 = off
+  // How stale a project has to be to start collapsed in `auto` mode (#278); 0 = collapse nothing.
+  // Deliberately NOT sessionMaxAgeDays: that one decides which SESSIONS of a project are folded away,
+  // this one decides whether the PROJECT starts open, and tying both to one number means neither can be
+  // tuned. The default matches sessionMaxAgeDays so a fresh install behaves as it always has; an install
+  // that had chosen a different value keeps it through the migration that seeds this key.
+  sidebarCollapseAgeDays: 3,
 };
 
 /**

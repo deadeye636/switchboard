@@ -151,7 +151,8 @@ agy stay well inside it and are unaffected. **The workaround is to copy from the
 | `paneCloseEmpty` | Close a pane when it becomes empty | `true` \| `false` | `false` | global |
 | `paneBackgroundScrollback` | Scrollback of a background pane tab | `0` (keep all) \| `5000` \| `2000` \| `1000` | `0` | global |
 | ~~`settingsOpenMode`~~ | *removed in #365* | — | — | *the overlay it chose between is gone — settings always open in a window of their own, and a migration takes the stored value out of the global blob* |
-| `sidebarCollapseDefault` | Sidebar on startup | `expanded` \| `collapsed` \| `remember` | `remember` | global |
+| `sidebarCollapseDefault` | Sidebar on startup | `auto` \| `expanded` \| `collapsed` \| `remember` | `auto` | global |
+| `sidebarCollapseAgeDays` | Fold projects idle for (days) | 0–365, `0` = collapse nothing | `3` | global — read by `auto` only |
 | ~~`tabPosition`~~ | *removed in #368* | — | — | *it moved the retired tabs-mode strip, and that strip is gone (#367). Kept for a while because a per-pane version would have reused the key; that version is not being built, and a migration takes the stored value out of the global blob* |
 | `tabCloseBehavior` | Closing a tab (×) | `closeView` \| `stopSession` | `closeView` | global |
 | `tabMiddleClickCloses` | Middle-click closes a tab | bool | `true` | global |
@@ -181,8 +182,17 @@ agy stay well inside it and are unaffected. **The workaround is to copy from the
 | `subagentLayout` | Subagent row layout | `a` \| `b` \| `c` | `a` | global |
 | `orphanSubagentMaxAgeDays` | Hide orphan subagents older than (days) | 0–365, `0` = never hide | `14` | global — hidden with the rest of the subagent section |
 | `visibleSessionCount` | Max visible sessions | 0–100, `0` = all | `10` | **cascades** |
-| `sessionMaxAgeDays` | Hide sessions older than (days) | 0–365, `0` = no limit | `3` | global — [deliberately not per project](#why-two-of-these-are-global-only) |
+| `sessionMaxAgeDays` | Hide sessions older than (days) | 0–365, `0` = no limit | `3` | global — [deliberately not per project](#why-these-are-global-only) |
 | `autoHideDays` | Auto-hide inactive projects after (days) | 0–3650, `0` = off | `0` | global — same |
+
+`sidebarCollapseDefault: auto` is what the sidebar always did, now with a name and a switch (#278): a
+project whose newest session is older than `sidebarCollapseAgeDays` starts collapsed, a recently active one
+starts open, and a project you collapsed or expanded by hand keeps that answer whatever the mode says. The
+threshold is separate from `sessionMaxAgeDays` on purpose — that one decides which SESSIONS of a project
+fold behind "+N older", this one whether the PROJECT starts open, and one number could not serve both.
+`remember` is pure last state: it applies no age rule at all. An install that had stored `remember` before
+this existed is moved to `auto` by a migration, which also copies its `sessionMaxAgeDays` into the new
+threshold, so the behaviour it had is the behaviour it keeps.
 
 `visibleSessionCount` limits how many sessions a project lists directly; the rest fold into "older".
 Running and pinned sessions are always shown regardless of it.
@@ -197,9 +207,9 @@ out. Off by default, and while it is off the pixel element is never built.
 session is gone from the project. Subagents nested under a parent that is merely filtered out are not
 listed there at all (#247) and this setting never touches them. It hides rows; it deletes nothing.
 
-### Why two of these are global-only
+### Why these are global-only
 
-`sessionMaxAgeDays` and `autoHideDays` trim the sidebar **as a whole**. A per-project override would mean
+`sessionMaxAgeDays`, `autoHideDays` and `sidebarCollapseAgeDays` trim the sidebar **as a whole**. A per-project override would mean
 one list pruned by different rules depending on which project a row came from, and the rule that applied
 would not be visible anywhere. They stay global on purpose (#239) — revisit only together with a UI that
 shows the override, or it becomes invisible state.

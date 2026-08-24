@@ -41,10 +41,15 @@ function updateCollapseAllToggle() {
 }
 
 // Apply the startup collapse default (sidebarCollapseDefault setting):
-// 'expanded' / 'collapsed' force all sections; 'remember' leaves the persisted
-// state alone. Called once after the initial sidebar render.
+// 'expanded' / 'collapsed' force all sections; 'remember' leaves the persisted state alone and 'auto'
+// (#278) was already decided per project while the rows were built, so both are no-ops here. Called once
+// after the initial sidebar render.
+//
+// It must NOT persist what it forces: writing the forced state through setProjectCollapsed would mark
+// every project as explicitly toggled, and the explicit answer outranks the heuristic — one start in
+// 'collapsed' would kill 'auto' for good.
 function applyCollapseDefault(mode) {
-  if (mode !== 'expanded' && mode !== 'collapsed') return; // 'remember' = persisted state
+  if (mode !== 'expanded' && mode !== 'collapsed') return; // 'remember'/'auto' = decided elsewhere
   const sections = getCollapsibleSections();
   if (sections.length === 0) return;
   const collapse = mode === 'collapsed';
