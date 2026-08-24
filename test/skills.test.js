@@ -26,14 +26,15 @@ function writeSkill(root, name, body = '# skill\n') {
 }
 
 /** A descriptor that reports one skills directory per scope and expands it the way the real ones do. */
-function stubBackend({ id = 'stub', label = 'Stub', globalDir = null, projectDir = null, invocation = null } = {}) {
+function stubBackend({ id = 'stub', label = 'Stub', globalDir = null, projectDir = null, invocation = null,
+  originLabel = null } = {}) {
   return {
     id,
     label,
     listResources: ({ projectPath }) => ({
       ok: true,
       resources: [
-        ...(globalDir ? [{ kind: 'skill', scope: 'global', name: 'skills', path: globalDir, source: 'skills-directory' }] : []),
+        ...(globalDir ? [{ kind: 'skill', scope: 'global', name: 'skills', path: globalDir, source: 'skills-directory', originLabel }] : []),
         ...(projectPath && projectDir
           ? [{ kind: 'skill', scope: 'project', name: 'skills', path: projectDir, source: 'skills-directory' }] : []),
         // A directory that is NOT skills, to prove the kind filter is real.
@@ -75,6 +76,27 @@ test('a backend\'s skills are listed for both scopes, with the invocation it dec
   assert.deepEqual(rows.map(r => r.scope), ['global', 'project']);
   // The origin is what the row shows, so the same name from two places stays two readable rows.
   assert.deepEqual(rows.map(r => r.origin), ['Stub · global', 'Stub · project']);
+});
+
+// #463: a listing entry may say what a reader should CALL it, for a directory whose path does not — a
+// plugin's skills are cached under the marketplace's name, so "Stub · global" would be true and useless.
+// The core does not know what makes a label special, only to prefer one over the scope.
+test('a label on the listing entry replaces the scope in the origin', () => {
+  const globalDir = tmpdir('labelled');
+  writeSkill(globalDir, 'do-a-thing');
+  setup({ backend: stubBackend({ globalDir, originLabel: 'Plugin toolkit' }) });
+
+  const { skills: rows } = skills.getSkills({ projectPath: null, backendId: 'stub' });
+  assert.deepEqual(rows.map(r => r.origin), ['Stub · Plugin toolkit']);
+  assert.deepEqual(rows.map(r => r.scope), ['global'], 'the scope itself is unchanged, only what is shown');
+});
+
+test('without such a label the origin still names the scope', () => {
+  const globalDir = tmpdir('unlabelled');
+  writeSkill(globalDir, 'do-a-thing');
+  setup({ backend: stubBackend({ globalDir }) });
+  assert.deepEqual(skills.getSkills({ projectPath: null, backendId: 'stub' }).skills.map(r => r.origin),
+    ['Stub · global']);
 });
 
 test('a backend with no invocation hook leaves every row on the text fallback', () => {

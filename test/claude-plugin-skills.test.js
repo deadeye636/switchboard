@@ -172,3 +172,21 @@ test('a plugin skill is invoked as /<plugin>:<skill>, a plain one keeps /<skill>
   assert.equal(claude.skillInvocation({ name: 'git-commit' }), '/git-commit');
   assert.equal(claude.skillInvocation({ name: '' }), null);
 });
+
+test('a marketplace checkout whose plugin was never installed is not offered', () => {
+  // The case the issue names: a marketplace directory holds skills for plugins nobody installed, and
+  // offering one produces a slash command the CLI answers with an error. Both checkouts sit in the same
+  // cache, with the same shape — only the install record tells them apart.
+  const { home } = makeHome({ installKey: 'tools@market', manifestName: 'toolkit' });
+  const strangerPath = path.join(home, 'plugins', 'cache', 'market', 'stranger', '9.9.9');
+  writeJson(path.join(strangerPath, '.claude-plugin', 'plugin.json'), { name: 'stranger' });
+  writeSkill(path.join(strangerPath, 'skills'), 'not-mine');
+  // …and it is even enabled, so the flag alone cannot be what excludes it.
+  writeJson(path.join(home, 'settings.json'), {
+    enabledPlugins: { 'tools@market': true, 'stranger@market': true },
+  });
+
+  const found = plugins.installedPluginSkillDirs(home, null);
+  assert.deepEqual(found.map(p => p.name), ['toolkit']);
+  assert.ok(!found.some(p => p.skillsDir.includes('stranger')), 'nothing walks the cache directory itself');
+});
