@@ -51,6 +51,10 @@ const DEFAULT_SHORTCUTS = {
   // insert pickers share: those act on the terminal you are in, this one acts on the app, and Ctrl/Cmd+K
   // is the chord every editor has trained that meaning into.
   commandPalette: { primary: true, alt: false, shift: false, key: 'k' },
+  // Ctrl/Cmd+Shift+H — open the handoff picker in the focused terminal (#469). Fourth of the family, and
+  // it behaves like the plan picker rather than the skill one below: a handoff is context for what comes
+  // next, so the reference is left in the prompt instead of being submitted.
+  insertHandoff: { primary: true, alt: false, shift: true, key: 'h' },
   // Ctrl/Cmd+Shift+S — open the skill picker in the focused terminal (#462). Third of the same family.
   // Unlike the two above it, taking a row RUNS it: the picker submits the line unless the setting says
   // otherwise, because picking a skill is asking for it rather than quoting it.
@@ -149,6 +153,13 @@ const SHORTCUT_DEFS = [
     id: 'commandPalette',
     label: 'Command palette',
     description: 'Jump to a session or project, or run an app command, from anywhere in the app',
+    family: 'key',
+    group: 'general',
+  },
+  {
+    id: 'insertHandoff',
+    label: 'Insert handoff',
+    description: 'Open the handoff picker in the focused terminal and insert a reference to one at the cursor',
     family: 'key',
     group: 'general',
   },

@@ -70,6 +70,7 @@
     "variable-palette.js",
     "plan-palette.js",
     "skill-palette.js",
+    "handoff-palette.js",
     "terminal-fit.js",
     "page-key-routing.js",
     "terminal-manager.js",

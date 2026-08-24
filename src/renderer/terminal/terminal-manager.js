@@ -222,6 +222,16 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
       return false;
     }
 
+    // Insert a reference to a saved handoff (default Cmd/Ctrl+Shift+H) — the plan picker's behaviour
+    // rather than the skill picker's below, because a handoff is context and not an instruction (#469).
+    if (matchShortcut('insertHandoff', e, isMac, appShortcuts)) {
+      if (e.type === 'keydown') {
+        e._handled = true;
+        if (typeof openHandoffPalette === 'function') openHandoffPalette(terminal, getSessionId());
+      }
+      return false;
+    }
+
     // Hand a skill to the CLI in this terminal (default Cmd/Ctrl+Shift+S) — the same palette again
     // (#462), except that taking a row submits the line rather than leaving it to be finished.
     if (matchShortcut('insertSkill', e, isMac, appShortcuts)) {
