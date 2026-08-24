@@ -157,7 +157,7 @@ const {
   renameProjectRefs, deleteProjectRefs,
   toggleBookmark, removeBookmark, listBookmarks,
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
-  saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
+  readLegacyHandoffs, dropLegacyHandoffTable,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
@@ -1243,6 +1243,24 @@ settings.init({
   log,
 });
 settings.registerIpc(ipcMain);
+
+// Where a handoff packet lives (#468). Files in the project rather than rows in the database, so this
+// module owns the directories, the file format, and getting the old rows out of the table before it goes.
+//
+// Wired BELOW the settings module on purpose, not with the other tabs above: `init` migrates the old rows
+// on the spot, and which directory each packet lands in is a cascade answer. Wired earlier it would read
+// no settings at all and write every project's packets into the default directory.
+const handoffs = require('./app/handoffs');
+handoffs.init({
+  backends,
+  db: { getProjectStates, getProjectDisplayNames, readLegacyHandoffs, dropLegacyHandoffTable },
+  log,
+  effectiveSettings: (projectPath) => require('./app/settings').effectiveSettings(projectPath),
+  // For the one dialog this module opens: picking another folder when a write was refused.
+  dialog,
+  getMainWindow: () => mainWindow,
+});
+handoffs.registerIpc(ipcMain);
 const { effectiveSettings, migrateClaudeLaunchDefaults, SETTING_DEFAULTS } = settings;
 
 
@@ -1504,19 +1522,7 @@ ipcMain.handle('task-open-counts', () => {
   return { sessions: openTaskCountsBySession(), projects: openTaskCountsByProject() };
 });
 
-// --- IPC: project handoffs (Handoff library) ---
-ipcMain.handle('save-handoff', (_event, payload) => {
-  const { projectPath, label, content, backendId } = payload || {};
-  if (!projectPath || !content) return null;
-  return saveProjectHandoff(projectPath, label || null, content, backendId || null);
-});
-ipcMain.handle('list-handoffs', (_event, projectPath) => {
-  return listProjectHandoffs(projectPath || null);
-});
-ipcMain.handle('delete-handoff', (_event, id) => {
-  deleteProjectHandoff(id);
-  return { ok: true };
-});
+// (the handoff library's handlers moved to src/app/handoffs.js — #468, where the packets now live.)
 
 // --- IPC: session tags ---
 ipcMain.handle('session-tags-get', (_event, sessionId) => {

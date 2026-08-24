@@ -68,9 +68,13 @@ contextBridge.exposeInMainWorld('api', {
   taskUpdate: (payload) => ipcRenderer.invoke('task-update', payload),
   taskRemove: (id) => ipcRenderer.invoke('task-remove', id),
   taskOpenCounts: () => ipcRenderer.invoke('task-open-counts'),
+  // The handoff library (#468). A handoff is a FILE in its project now, so everything below is keyed by
+  // path rather than by a row id, and `saveHandoff` answers with the path it wrote.
   saveHandoff: (payload) => ipcRenderer.invoke('save-handoff', payload),
   listHandoffs: (projectPath) => ipcRenderer.invoke('list-handoffs', projectPath),
-  deleteHandoff: (id) => ipcRenderer.invoke('delete-handoff', id),
+  readHandoff: (filePath) => ipcRenderer.invoke('read-handoff', filePath),
+  deleteHandoff: (filePath) => ipcRenderer.invoke('delete-handoff', filePath),
+  chooseHandoffDir: (projectPath) => ipcRenderer.invoke('choose-handoff-dir', projectPath),
   sessionTagsGet: (sessionId) => ipcRenderer.invoke('session-tags-get', sessionId),
   sessionTagsSet: (sessionId, tags) => ipcRenderer.invoke('session-tags-set', { sessionId, tags }),
   tagsListAll: () => ipcRenderer.invoke('tags-list-all'),

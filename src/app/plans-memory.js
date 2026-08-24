@@ -26,6 +26,9 @@ const { projectShortName } = require('../session/derive-project-path');
 const { readableError } = require('./readable-error');
 const { writeTextFile } = require('./safe-write');
 const { isDeletableKind } = require('./backend-resources');
+// Handoff packets are files in the project since #468, and their own module owns where those live. This
+// tab only shows them, beside the project's other agent files.
+const handoffs = require('./handoffs');
 
 let ctx = null;
 
@@ -785,6 +788,9 @@ function getMemories() {
     const groups = resourceGroups(projectPath, seen);
     const workFiles = workFilesByProject.get(projectPath);
     if (workFiles) groups.push(workFilesGroup(workFiles));
+    // A handoff directory is a group like any other: rows open in the same editor, through the same
+    // memory read/save path, because a packet is markdown inside a registered project.
+    try { for (const group of handoffs.handoffGroups(projectPath)) groups.push(group); } catch {}
     if (files.length || groups.length) {
       const displayName = displayNames.get(projectPath) || '';
       projects.push({

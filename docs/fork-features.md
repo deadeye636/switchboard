@@ -673,6 +673,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Design record: [`docs/specs/19-editor-live-preview.md`](specs/19-editor-live-preview.md).
 
 ### Supervision extensions
+- **Handoffs as files** — a packet is markdown in the project (`.handoffs/` by default, plus the directories a project or a CLI already uses), so it is editable, greppable and travels with the repo. A picker on Ctrl/Cmd+Shift+H hands one to the session you are already in as a reference.
 - **Handoff library** — save packets, editable prompt, resume, direct "New session" seed,
   and target selection in the review dialog (extends inherited feature #03/#04).
 - **Per-session AFK timeout.**

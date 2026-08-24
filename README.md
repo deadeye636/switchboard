@@ -84,7 +84,9 @@ chart rather than a row of zeroes.
 - **Attention inbox** — a prioritized queue of every session needing you, with "focus next" and a hotkey
 - **Native notifications** — OS toasts, dock/taskbar badge, tray icon; coalesced and throttled
 - **Session health & handoff** — flags long/expensive sessions; one-click fresh start with a context
-  packet; a handoff library to save, edit and resume packets
+  packet; packets are markdown files in the project, so they are editable, greppable and travel with it,
+  and a picker hands one to the session you are already in
+  → [`docs/handoffs-convention.md`](docs/handoffs-convention.md)
 - **Session lineage** — a session that continued another's work reads as one, with the earlier ones
   folded behind a caret. Backend-neutral, and a Claude `/clear` is inferred.
   → [spec 13](docs/specs/13-session-lineage.md)

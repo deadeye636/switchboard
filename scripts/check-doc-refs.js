@@ -61,6 +61,17 @@ const DELIBERATE = {
   'docs/specs/04-one-click-handoff.md': {
     'test/handoff-flow.test.js': 'conditional on a pure module that was not added; the shipped tests are test/handoff-{actions,extract,prompt,submit}.test.js',
   },
+  // The handoff convention names directories in the USER's project, not paths in this repo. They read as
+  // repo paths to this guard because their prefixes exist here; the trailing slash is the tell that they
+  // are directories somebody else keeps.
+  'docs/handoffs-convention.md': {
+    'docs/handoffs/': "a directory name in the reader's own project, not a path in this repo",
+    '.claude/handoffs/': "ditto — where Claude's handoff skills write inside a user's project",
+  },
+  'docs/specs/25-handoffs.md': {
+    'docs/handoffs/': "a directory name in the reader's own project, not a path in this repo",
+    '.claude/handoffs/': "ditto — where Claude's handoff skills write inside a user's project",
+  },
   'docs/specs/05-hook-attention-detection.md': {
     'src/servers/schedule-runner.js': 'named as removed with the scheduler (#246) — spec 14 is the record',
   },

@@ -54,6 +54,9 @@ back on Save.
 | `skillInsertTemplate` | Skill insert template | string with `{path}` / `{name}` | `Use the skill at {path}` | global + project |
 | `skillsDir` | Where the app's own skills live | absolute path, or project-relative in a project | `''` (the `skills` directory beside the database) | global + project |
 | `submitSkillOnPick` | Picking a skill runs it | `true` \| `false` | `true` | global |
+| `handoffDirNames` | Handoff directories | list of project-relative paths | `['.handoffs', 'docs/handoffs', 'handoffs', '.agent/handoffs']` | global + project |
+| `handoffDir` | Save handoffs to | project-relative path | `.handoffs` | global + project |
+| `handoffInsertTemplate` | Handoff insert template | string with `{path}` / `{title}` / `{filename}` | `Continue from the handoff at {path}` | global + project |
 | `fileClickTarget` | Clicking a file link opens | `internal` \| `external` | `internal` | global |
 | `markdownDefaultView` | Previewable files open as | `code` \| `preview` | `code` | global |
 | `editorToolbarMode` | Source editor | `toolbar` \| `plain` | `toolbar` | global |

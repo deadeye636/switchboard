@@ -168,18 +168,8 @@ function applySchema(db) {
     )
   `);
 
-  // Project handoffs — saved handoff packets (markdown) per project, for the
-  // Handoff library: created from a running session, later seeded into a fresh one.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS project_handoffs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      projectPath TEXT NOT NULL,
-      label TEXT,
-      content TEXT NOT NULL,
-      createdAt TEXT NOT NULL
-    )
-  `);
-  db.exec('CREATE INDEX IF NOT EXISTS idx_project_handoffs_project ON project_handoffs(projectPath)');
+  // No `project_handoffs` table: a handoff is a markdown file in its project since #468, and a fresh
+  // database is never given the old one. `src/db/legacy-handoffs.js` is what empties it where it exists.
 
   // Saved variables — named, reusable values (name+value) shown in the terminal
   // Saved Variables panel. Optionally secret (value encrypted at-rest via Electron

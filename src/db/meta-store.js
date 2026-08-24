@@ -10,7 +10,7 @@
 // imports settings-store — a real dependency, small and one-directional.
 //
 // `stmts` is exported for project-refs.js: renaming a project moves its project_meta row inside the same
-// transaction that moves its tags, handoffs and settings blob.
+// transaction that moves its tags and settings blob.
 'use strict';
 
 const { db } = require('./connection');

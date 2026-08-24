@@ -1,12 +1,9 @@
-// Tasks and project handoffs — the two per-project lists (#217 step 6).
+// Tasks — the scoped task/note system (project / session / message scope), #217 step 6.
 //
-// Tasks are the scoped task/note system (project / session / message scope). Handoffs are the Handoff
-// library: a saved packet an agent wrote, belonging to a project.
-//
-// They share a module because they share a lifecycle, not because they are the same thing: both are
-// keyed by projectPath, and both are rewritten wholesale when a project is renamed or deleted. That is
-// why `stmts` is exported — project-refs.js needs projectHandoffsRename/DeleteAll RAW, inside its
-// cross-domain transaction, where the runWithBusyRetry the functions carry would be wrong.
+// It shared this module with the handoff library until #468 moved a handoff out of the database and into
+// its project as a file. What is left keys on projectPath and is rewritten wholesale when a project is
+// renamed or deleted, which is why `stmts` is still exported: project-refs.js needs the raw statements
+// inside its cross-domain transaction, where the runWithBusyRetry the functions carry would be wrong.
 'use strict';
 
 const { db } = require('./connection');
@@ -29,14 +26,6 @@ const stmts = {
   taskListBySession: db.prepare('SELECT * FROM tasks WHERE sessionId = ? ORDER BY createdAt DESC'),
   taskOpenCountsBySession: db.prepare("SELECT sessionId, COUNT(*) AS n FROM tasks WHERE sessionId IS NOT NULL AND status IN ('open','in_progress') GROUP BY sessionId"),
   taskOpenCountsByProject: db.prepare("SELECT projectPath, COUNT(*) AS n FROM tasks WHERE projectPath IS NOT NULL AND status IN ('open','in_progress') GROUP BY projectPath"),
-  // Project handoffs (Handoff library)
-  handoffInsert: db.prepare('INSERT INTO project_handoffs (projectPath, label, content, createdAt, backendId) VALUES (?, ?, ?, ?, ?)'),
-  handoffListByProject: db.prepare('SELECT id, label, content, createdAt, backendId FROM project_handoffs WHERE projectPath = ? ORDER BY createdAt DESC'),
-  handoffDeleteById: db.prepare('DELETE FROM project_handoffs WHERE id = ?'),
-  // Project path lifecycle (#55). Handoffs are a list, so a remap lets them accrue
-  // to the destination rather than conflicting.
-  projectHandoffsRename: db.prepare('UPDATE project_handoffs SET projectPath = ? WHERE projectPath = ?'),
-  projectHandoffsDeleteAll: db.prepare('DELETE FROM project_handoffs WHERE projectPath = ?'),
 };
 
 
@@ -136,29 +125,9 @@ function openTaskCountsByProject() {
   return out;
 }
 
-// --- Project handoffs (Handoff library) ---
-// `backendId` = where the packet came from (#148). It is a hint, not a binding: resuming a handoff
-// starts a NEW session, so the user may run it on any backend — this just makes the picker default to
-// the one that wrote it. NULL for handoffs saved before this existed (they are Claude's).
-function saveProjectHandoff(projectPath, label, content, backendId) {
-  const info = runWithBusyRetry(() =>
-    stmts.handoffInsert.run(projectPath, label || null, String(content || ''), new Date().toISOString(),
-      backendId || null));
-  return info.lastInsertRowid;
-}
-
-function listProjectHandoffs(projectPath) {
-  return projectPath ? stmts.handoffListByProject.all(projectPath) : [];
-}
-
-function deleteProjectHandoff(id) {
-  runWithBusyRetry(() => stmts.handoffDeleteById.run(Number(id)));
-}
-
 module.exports = {
   createTask, listTasks, getTask, updateTask, removeTask,
   openTaskCountsBySession, openTaskCountsByProject,
-  saveProjectHandoff, listProjectHandoffs, deleteProjectHandoff,
   // For project-refs.js's cross-domain transactions only — see the header.
   stmts,
 };

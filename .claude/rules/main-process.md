@@ -23,6 +23,7 @@ moving them buys churn).
 resource discovery — the core asks the descriptor, each backend owns how it shells out and fails),
 `plans-memory.js` (the Plans and Agent Files tabs — #227; work files lost their own tab in #448 and
 are one group in Agent Files, and #450 put the plan convention here too),
+`handoffs.js` (where a handoff packet lives — #468; the directories it is read from and written to, the file format, and the one-time export of the rows it used to be),
 `file-watch.js` (keeping an open document live while something else rewrites it — #452; the watch
 moved out of main.js because it only ever told the main window and kept no refcount),
 `vcs.js` (the VCS poller + its standalone windows — #277), `detach.js` (detached session
@@ -170,6 +171,7 @@ detached → detached. Four things follow, and `docs/specs/17-detached-windows.m
 | Opening a terminal | `src/app/terminal/spawn.js` |
 | Terminal input/resize/redraw/flow control | `src/app/terminal/io.js` |
 | The Plans, Memory and Work-Files tabs | `src/app/plans-memory.js` |
+| Handoff packets — listing, saving, deleting | `src/app/handoffs.js` |
 | Version-control status, the changes/diff windows | `src/app/vcs.js` (the seam it drives is `src/vcs/`) |
 | Detached session windows, which window a session renders in, moving one between windows | `src/app/detach.js` |
 | Whether the user is at the machine (focus + input, across every window) | `src/app/presence.js` |

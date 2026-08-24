@@ -12,7 +12,7 @@
 //   session-store.js  — what the SCANNER derived: the session cache, metrics, folder bookkeeping.
 //   search-store.js   — the FTS5 index, its backing tables and every query against them.
 //   tags-store.js     — bookmarks, session tags, project tags, tag defs.
-//   tasks-store.js    — tasks and project handoffs.
+//   tasks-store.js    — tasks.
 //   settings-store.js — settings blobs and saved variables.
 //   project-refs.js   — a project's whole footprint, moved or dropped ATOMICALLY across four of the above.
 //   stats-store.js    — the Stats screen's aggregates (SQL in stats-queries.js).
@@ -58,6 +58,9 @@ const projectRefs = require('./project-refs');
 const sessionStore = require('./session-store');
 const searchStore = require('./search-store');
 const timelineStore = require('./timeline-store');
+// The handoff library's old table, and only the two calls that empty it (#468). Its statements are
+// prepared inside its functions, so its position here is tidiness rather than an ordering constraint.
+const legacyHandoffs = require('./legacy-handoffs');
 // Not a store — it prepares nothing at load and owns no table, so its position here is only tidiness.
 const compact = require('./compact');
 
@@ -85,7 +88,7 @@ module.exports = {
   toggleBookmark: tagsStore.toggleBookmark,
   removeBookmark: tagsStore.removeBookmark,
   listBookmarks: tagsStore.listBookmarks,
-  // --- tasks + handoffs (tasks-store.js) ---
+  // --- tasks (tasks-store.js) ---
   createTask: tasksStore.createTask,
   listTasks: tasksStore.listTasks,
   getTask: tasksStore.getTask,
@@ -93,9 +96,9 @@ module.exports = {
   removeTask: tasksStore.removeTask,
   openTaskCountsBySession: tasksStore.openTaskCountsBySession,
   openTaskCountsByProject: tasksStore.openTaskCountsByProject,
-  saveProjectHandoff: tasksStore.saveProjectHandoff,
-  listProjectHandoffs: tasksStore.listProjectHandoffs,
-  deleteProjectHandoff: tasksStore.deleteProjectHandoff,
+  // --- the handoff library's old rows, on their way out (legacy-handoffs.js, #468) ---
+  readLegacyHandoffs: legacyHandoffs.readLegacyHandoffs,
+  dropLegacyHandoffTable: legacyHandoffs.dropLegacyHandoffTable,
   getSessionTags: tagsStore.getSessionTags,
   setSessionTags: tagsStore.setSessionTags,
   listAllTags: tagsStore.listAllTags,

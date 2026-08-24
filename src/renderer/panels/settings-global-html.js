@@ -51,7 +51,8 @@
       collapseDefaultValue, collapseAgeValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
       paneCloseEmptyValue, paneBackgroundScrollbackValue,
-      externalEditorValue, planInsertTemplateValue, planDirValue, skillInsertTemplateValue, skillsDirValue, submitSkillOnPickValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
+      externalEditorValue, planInsertTemplateValue, planDirValue, skillInsertTemplateValue, skillsDirValue, submitSkillOnPickValue,
+      handoffDirValue, handoffDirNamesValue, handoffInsertTemplateValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
       favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
@@ -344,6 +345,36 @@
                   </div>
                   <div class="settings-field-control">
                     <input type="text" class="settings-input" id="sv-skill-insert-template" placeholder="Use the skill at {path}" value="${escapeHtml(skillInsertTemplateValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Handoff directories</span>${help}</div>
+                    <div class="settings-description">Where a project's handoff packets are read from, comma separated and relative to the project root. Every directory that exists is listed; nothing is created.</div>
+                    <div class="settings-more">The default for every project, overridable in a project's own settings. The list is what lets a packet a handoff skill wrote into a project show up beside the ones this app saved.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-handoff-dir-names" placeholder=".handoffs, docs/handoffs" value="${escapeHtml(handoffDirNamesValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Save handoffs to</span>${help}</div>
+                    <div class="settings-description">The one directory a new packet is written to, relative to the project root. Created on the first save.</div>
+                    <div class="settings-more">Its own setting rather than the first entry above, so reordering the read list cannot silently move where future packets land. A dot-directory by default, because a packet is full of paths and machine names.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-handoff-dir" placeholder=".handoffs" value="${escapeHtml(handoffDirValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Handoff insert template</span>${help}</div>
+                    <div class="settings-description">What the handoff picker types into the prompt. The packet itself is never inserted — an agent reads it with its own file tools.</div>
+                    <div class="settings-more">Placeholders: <code>{path}</code> the full path, <code>{title}</code> the packet's heading, <code>{filename}</code> the file name. Leave empty for the default.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-handoff-insert-template" placeholder="Continue from the handoff at {path}" value="${escapeHtml(handoffInsertTemplateValue)}">
                   </div>
                 </div>
                 <div class="settings-field">

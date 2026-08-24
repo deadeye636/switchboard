@@ -489,6 +489,20 @@ module.exports = {
     return configured ? path.resolve(projectPath, configured) : null;
   },
   /**
+   * Where Claude keeps handoff packets inside a project (#468).
+   *
+   * Not a CLI feature: the handoff skills that ship with Claude write markdown into `.claude/handoffs`,
+   * and Switchboard reads it rather than insisting the packets move. Project-scoped only — a handoff
+   * belongs to the work it hands over, and there is no global pile of them.
+   *
+   * Declared here rather than listed in the core's default directories, for the reason every path in this
+   * file is: `.claude/` is Claude's folder, and a core that spells it has learned one backend's layout.
+   */
+  handoffDirs: (scope) => {
+    const projectPath = scope && scope.projectPath;
+    return projectPath ? [path.join(projectPath, '.claude', 'handoffs')] : [];
+  },
+  /**
    * What it would take to point Claude at this project's plans directory (#450).
    *
    * Claude reads `plansDirectory` from the project's own settings, so the file to change and its format

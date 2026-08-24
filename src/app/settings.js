@@ -102,6 +102,27 @@ const SETTING_DEFAULTS = {
   // found is listed, nothing is created. A list rather than one name, because the point is to recognise
   // what a project ALREADY does instead of insisting it does what we would have chosen.
   planDirNames: ['.plans', 'docs/plans', 'plans', '.agent/plans'],
+  // Where a project's handoff packets are READ from (#468). Same shape and same reason as the plans list
+  // above: a handoff skill has been writing markdown into projects for longer than this app has known
+  // about it, so the job is to recognise those directories rather than insist on one of ours.
+  //
+  // `prompts/` is deliberately not here although the skills write there first: in many repositories that
+  // directory is prompt assets, and scanning it would offer files that are not handoffs at all. A project
+  // that does keep them there adds it.
+  //
+  // Neither is any backend's own folder, and that is a rule rather than an omission: where a CLI keeps
+  // things is a DECLARED capability. A backend that has a handoff directory of its own says so through
+  // `handoffDirs()` on its descriptor, and `src/app/handoffs.js` reads both.
+  handoffDirNames: ['.handoffs', 'docs/handoffs', 'handoffs', '.agent/handoffs'],
+  // …and where a NEW packet is written. Its own setting rather than "the first entry of the list above",
+  // because reordering a read list must not silently move where future packets land. Relative to the
+  // project root, and a dot-directory by default for the reason `planDir` is one: a packet is full of
+  // paths and machine names, so the default is the one that cannot leak into a repository unnoticed.
+  handoffDir: '.handoffs',
+  // What the handoff picker types into the prompt (#469). `{path}`, `{title}` and `{filename}` are
+  // substituted; the packet itself is never inserted — it runs to hundreds of lines and belongs in the
+  // agent's context through its own file tools.
+  handoffInsertTemplate: 'Continue from the handoff at {path}',
 };
 // NOT IN THE CASCADE (#239): `sessionMaxAgeDays` and `autoHideDays`. They read like per-project settings
 // — one project is an archive worth keeping visible, another is noise — but they are how the sidebar as a

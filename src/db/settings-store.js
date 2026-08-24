@@ -6,7 +6,7 @@
 // from the list statements, which is why there are separate list/get shapes.
 //
 // THE STATEMENTS ARE EXPORTED, and that is a deliberate seam, not laziness. The cross-domain transactions
-// in project-refs.js rename and delete a project's whole footprint — meta, tags, handoffs AND its settings
+// in project-refs.js rename and delete a project's whole footprint — meta, tags AND its settings
 // blob — in ONE transaction. They cannot call the functions below, because those wrap themselves in
 // runWithBusyRetry, and retrying inside an open transaction is a different behaviour, not a tidier one.
 // So a sibling inside src/db/ takes the raw statement; nothing outside src/db/ ever sees them.

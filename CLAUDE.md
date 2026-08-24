@@ -30,6 +30,7 @@ table is the fallback and it is binding.
 | `src/db/**`, `src/index/**`, `src/workers/**` | `.claude/rules/db.md` |
 | `src/backends/**`, `src/session/**`, `src/servers/**`, `src/projects/**`, `src/vcs/**` | `.claude/rules/backends.md` |
 | `docs/**`, `README.md` | `.claude/rules/docs.md` |
+| handoffs — where a packet lives, the picker, leaving the database | `docs/specs/25-handoffs.md` (why) + `docs/handoffs-convention.md` (what) |
 | plans — the list, the picker, the convention, the viewer's liveness | `docs/specs/20-plans.md` (why) + `docs/plans-convention.md` (what) |
 | writing a file a CLI reads — a skill, a rule, a settings blob | `docs/specs/24-resource-editing.md` (why) + `.claude/rules/main-process.md` (the rule) |
 | a release, a tag, an installer | `docs/ai/release.md` |

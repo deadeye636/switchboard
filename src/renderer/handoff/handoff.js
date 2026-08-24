@@ -1,6 +1,8 @@
 // --- Handoff orchestration ---
 // Moved out of dialogs.js for cohesion. Drives the (one-click / Integrated Handoff
 // System) flow: request packet, review, save-to-library, resume, and direct "New session".
+// Since #468 the library is FILES in the project rather than rows in a database, so saving can fail in
+// ways a row could not — `saveHandoffPacket` is where that is answered without dropping the packet.
 // Depends on globals from other classic scripts (shared top-level scope):
 //   getSessionHealth, buildHandoffTemplate, buildHandoffRequestPrompt,
 //   DEFAULT_HANDOFF_PROMPT, fillHandoffPrompt (session-health.js);
@@ -124,13 +126,11 @@ async function reviewAndPlacePacket(session, project, packet) {
   if (review.action === 'save') {
     const label = await showHandoffSaveDialog(session);
     if (label === null) return;
-    await window.api.saveHandoff({
-      projectPath: project.projectPath,
+    await saveHandoffPacket(project, {
       label,
       content: review.text,
       backendId: backendOfSession(session),   // provenance: the resume picker defaults to it
     });
-    showControlToast({ message: 'Handoff saved to this project.' });
     return;
   }
 
@@ -263,6 +263,66 @@ async function showHandoffReviewDialog(session, _unused, packet) {
 
 // Small dialog to name a handoff before saving it to the project library.
 // Resolves the (trimmed) label, or null on cancel.
+/** Where the packet landed, relative to its project — an absolute path is noise in a toast. */
+function handoffPathInProject(project, filePath) {
+  const root = String((project && project.projectPath) || '');
+  const full = String(filePath || '');
+  if (root && full.toLowerCase().startsWith(root.toLowerCase())) {
+    return full.slice(root.length).replace(/^[\/]+/, '');
+  }
+  return full;
+}
+
+/**
+ * Put the packet on disk, and do not lose it when that fails (#468).
+ *
+ * A handoff is written in the moment right after an expensive session, and it is a FILE now — so a
+ * read-only directory, a full disk or a folder outside the project are all failures a row in a database
+ * never had. None of them may end with the text gone: the refusal comes back still holding the packet,
+ * with the two ways out that do not need this dialog to have guessed right — another folder, or the
+ * clipboard. `dismissible: false` for the same reason the review dialog has it: a stray Escape here
+ * discards work an agent spent tokens writing.
+ */
+async function saveHandoffPacket(project, packet) {
+  let dir = null;
+  for (;;) {
+    let result = null;
+    try {
+      result = await window.api.saveHandoff({ ...packet, projectPath: project.projectPath, dir });
+    } catch (err) {
+      result = { ok: false, error: err && err.message };
+    }
+    if (result && result.ok) {
+      showControlToast({ message: `Handoff saved to ${handoffPathInProject(project, result.filePath)}.` });
+      return result;
+    }
+
+    const choice = await showControlDialog({
+      title: 'The handoff was not saved',
+      message: `${(result && result.error) || 'The file could not be written.'} `
+        + 'The packet is still here — put it somewhere else, or take it to the clipboard. Discarding loses it.',
+      confirmLabel: 'Choose another folder',
+      secondaryLabel: 'Copy to clipboard',
+      cancelLabel: 'Discard',
+      tone: 'warning',
+      dismissible: false,
+    });
+    if (choice === 'secondary') {
+      try {
+        await window.api.writeClipboard(packet.content);
+        showControlToast({ message: 'Handoff copied to the clipboard.' });
+      } catch { showControlToast({ message: 'The clipboard refused it too — the packet is in this session.' }); }
+      return null;
+    }
+    if (choice !== true) return null;
+    let picked = null;
+    try { picked = await window.api.chooseHandoffDir(project.projectPath); } catch { picked = null; }
+    // A cancelled folder picker goes back to the dialog rather than out of it: leaving here on a cancel
+    // is the one path that drops the packet without anybody choosing to.
+    if (picked && picked.ok) dir = picked.dir;
+  }
+}
+
 function showHandoffSaveDialog(session) {
   const overlay = document.createElement('div');
   overlay.className = 'new-session-overlay';
@@ -274,7 +334,7 @@ function showHandoffSaveDialog(session) {
   const suggested = `${title} · ${stamp}`;
   dialog.innerHTML = `
     <h3>Save Handoff</h3>
-    <div class="add-project-hint">Stored with this project. Resume it later from the new-session menu → "Resume from handoff", on any backend you like.</div>
+    <div class="add-project-hint">Saved as a markdown file in this project. Resume it later from the new-session menu → "Resume from handoff", on any backend you like — or hand it to a running session with the handoff picker.</div>
     <input type="text" id="handoff-save-label" class="settings-input" style="width:100%;box-sizing:border-box;">
     <div class="new-session-actions">
       <button type="button" class="new-session-cancel-btn">Cancel</button>
@@ -431,7 +491,7 @@ async function showHandoffResumePicker(project) {
   function render() {
     dialog.innerHTML = `
       <h3>Resume from Handoff</h3>
-      <div class="add-project-hint">Starts a fresh session seeded with the saved packet. Pick which backend runs it — a handoff is context, not a continuation, so it is not tied to the CLI that wrote it.</div>
+      <div class="add-project-hint">Starts a fresh session seeded with a packet from this project's handoff directories. Pick which backend runs it — a handoff is context, not a continuation, so it is not tied to the CLI that wrote it.</div>
       <div class="handoff-list"></div>
       <div class="new-session-actions"><button type="button" class="new-session-cancel-btn">Cancel</button></div>
     `;
@@ -450,13 +510,16 @@ async function showHandoffResumePicker(project) {
         const row = document.createElement('div');
         row.className = 'handoff-row';
         row.innerHTML = '<button type="button" class="handoff-pick"><span class="handoff-row-label"></span><span class="handoff-row-date"></span></button><select class="handoff-backend settings-select" title="Which backend runs this handoff"></select><button type="button" class="handoff-del" title="Delete handoff">✕</button>';
-        row.querySelector('.handoff-row-label').textContent = h.label || 'Handoff';
+        row.querySelector('.handoff-row-label').textContent = h.label || h.filename || 'Handoff';
         row.querySelector('.handoff-row-date').textContent = fmt(h.createdAt);
+        // Which directory it came from: a packet this app wrote and one a handoff skill left in
+        // `docs/handoffs` are both here, and that is worth seeing rather than flattening away (#468).
+        row.querySelector('.handoff-pick').title = h.sourceDir ? `${h.sourceDir}/${h.filename}` : h.filename;
 
         // The rules (default, unavailable source, single-backend user) live in resolveHandoffTarget so
         // they are testable — a DOM callback is where behaviour goes to hide.
         const select = row.querySelector('.handoff-backend');
-        const source = h.backendId || null;   // NULL = saved before handoffs recorded their origin
+        const source = h.backendId || null;   // NULL = the file does not say which CLI wrote it
         // `_defaultBackendId` is already resolved to something launchable, or '' when nothing is (#225) —
         // it needs no `|| 'claude'` rescuing, and giving it one meant a disabled backend could be the
         // handoff's preselected target.
@@ -503,13 +566,13 @@ async function showHandoffResumePicker(project) {
           // previously the failure was swallowed and the row removed anyway (issue #78).
           const ok = await showControlDialog({
             title: 'Delete handoff?',
-            message: `"${h.label || h.id}" will be permanently removed.`,
+            message: `"${h.label || h.filename}" will be deleted from this project. This removes the file.`,
             confirmLabel: 'Delete',
             tone: 'danger',
           });
           if (!ok) return;
           try {
-            const res = await window.api.deleteHandoff(h.id);
+            const res = await window.api.deleteHandoff(h.filePath);
             if (res && res.ok === false) {
               showControlMessage({ title: 'Delete failed', message: res.error || 'unknown error', tone: 'danger' });
               return;
@@ -518,7 +581,7 @@ async function showHandoffResumePicker(project) {
             showControlMessage({ title: 'Delete failed', message: err.message, tone: 'danger' });
             return;
           }
-          handoffs = handoffs.filter(x => x.id !== h.id);
+          handoffs = handoffs.filter(x => x.filePath !== h.filePath);
           render();
         };
         listEl.appendChild(row);

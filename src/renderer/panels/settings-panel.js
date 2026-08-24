@@ -199,6 +199,15 @@
     // own skills live. Both in the cascade; the defaults have to match SETTING_DEFAULTS in src/app/settings.js.
     const skillInsertTemplateValue = fieldValue('skillInsertTemplate', 'Use the skill at {path}');
     const skillsDirValue = fieldValue('skillsDir', '');
+    // #468/#469 where this project's handoff packets are read from and written to, and what the handoff
+    // picker types. All three in the cascade; the defaults have to match SETTING_DEFAULTS in
+    // src/app/settings.js. The read list is one comma-separated field rather than a list editor: it is
+    // half a dozen directory names, and a widget for that costs more than it explains.
+    const handoffDirValue = fieldValue('handoffDir', '.handoffs');
+    const handoffDirNamesRaw = fieldValue('handoffDirNames',
+      ['.handoffs', 'docs/handoffs', 'handoffs', '.agent/handoffs']);
+    const handoffDirNamesValue = Array.isArray(handoffDirNamesRaw) ? handoffDirNamesRaw.join(', ') : '';
+    const handoffInsertTemplateValue = fieldValue('handoffInsertTemplate', 'Continue from the handoff at {path}');
     const submitSkillOnPickValue = fieldValue('submitSkillOnPick', true) !== false;
     // #280 default target for a terminal file link (Ctrl/Cmd+click opens the other one).
     const fileClickTargetValue = fieldValue('fileClickTarget', 'internal');
@@ -436,6 +445,49 @@
         </div>
 
         <div class="settings-section">
+          <div class="settings-section-title">Handoffs</div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Handoff directories</span>
+                ${useGlobalCheckbox('handoffDirNames')}
+              </div>
+              <div class="settings-description">Where this project's handoff packets are read from, comma separated and relative to the project root. Every directory that exists is listed.</div>
+              <div class="settings-more">Discovery only — nothing is created here. The list is what lets a packet a handoff skill wrote into the project show up beside the ones this app saved.</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-handoff-dir-names" placeholder=".handoffs, docs/handoffs" value="${escapeHtml(handoffDirNamesValue)}" ${fieldDisabled('handoffDirNames')}>
+            </div>
+          </div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Save handoffs to</span>
+                ${useGlobalCheckbox('handoffDir')}
+              </div>
+              <div class="settings-description">The one directory a new packet is written to, relative to the project root. Created on the first save.</div>
+              <div class="settings-more">Its own setting rather than the first entry above, so reordering the read list cannot silently move where future packets land. A packet is full of paths and machine names, which is why the default is a dot-directory.</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-handoff-dir" placeholder=".handoffs" value="${escapeHtml(handoffDirValue)}" ${fieldDisabled('handoffDir')}>
+            </div>
+          </div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
+                <span class="settings-label">Handoff insert template</span>
+                ${useGlobalCheckbox('handoffInsertTemplate')}
+              </div>
+              <div class="settings-description">What the handoff picker types into the prompt. The packet itself is never inserted — an agent reads it with its own file tools.</div>
+              <div class="settings-more">Placeholders: <code>{path}</code> the full path, <code>{title}</code> the packet's heading, <code>{filename}</code> the file name. Leave empty for the default.</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-handoff-insert-template" placeholder="Continue from the handoff at {path}" value="${escapeHtml(handoffInsertTemplateValue)}" ${fieldDisabled('handoffInsertTemplate')}>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
           <div class="settings-section-title">Shells</div>
 
           <div class="settings-field">
@@ -496,6 +548,7 @@
         confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
         paneCloseEmptyValue, paneBackgroundScrollbackValue,
         externalEditorValue, planInsertTemplateValue, planDirValue, skillInsertTemplateValue, skillsDirValue,
+        handoffDirValue, handoffDirNamesValue, handoffInsertTemplateValue,
         submitSkillOnPickValue, fileClickTargetValue, markdownDefaultViewValue,
         editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
         favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
@@ -661,6 +714,9 @@
           planDir: 'sv-plan-dir',
           skillsDir: 'sv-skills-dir',
           skillInsertTemplate: 'sv-skill-insert-template',
+          handoffDir: 'sv-handoff-dir',
+          handoffDirNames: 'sv-handoff-dir-names',
+          handoffInsertTemplate: 'sv-handoff-insert-template',
         };
         const input = settingsViewerBody.querySelector('#' + fieldMap[field]);
         if (input) input.disabled = cb.checked;
@@ -757,6 +813,19 @@
     // (project tags, templates, the profiles default, the attention hook, the log
     // level) — and everything it applies live. Apply runs exactly this and stays
     // open; Save runs it and closes (#177). One body, so the two can never drift.
+    /**
+     * The handoff read list, from its comma-separated field.
+     *
+     * An empty field is not "no directories": it means the user cleared it, and storing an empty list
+     * would hide every packet they have. It falls back to the defaults, which is what the main process
+     * does with an empty list anyway — the two agreeing is the point.
+     */
+    function readHandoffDirNames() {
+      const raw = settingsViewerBody.querySelector('#sv-handoff-dir-names')?.value || '';
+      const names = raw.split(',').map(n => n.trim()).filter(Boolean);
+      return names.length ? names : ['.handoffs', 'docs/handoffs', 'handoffs', '.agent/handoffs'];
+    }
+
     async function persistSettings() {
       let settings = {};
 
@@ -770,6 +839,9 @@
               // (Phase 3, T-3.7); 'inherit' means "use the CLI shell", so this is a no-op today.
               shellProfile: () => settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto',
               planDir: () => (settingsViewerBody.querySelector('#sv-plan-dir')?.value || '').trim() || '.plans',
+              handoffDir: () => (settingsViewerBody.querySelector('#sv-handoff-dir')?.value || '').trim() || '.handoffs',
+              handoffDirNames: () => readHandoffDirNames(),
+              handoffInsertTemplate: () => (settingsViewerBody.querySelector('#sv-handoff-insert-template')?.value || '').trim(),
               terminalShellProfile: () => settingsViewerBody.querySelector('#sv-terminal-shell-profile').value || 'inherit',
               // Custom launchers (T-3.10): the project stores only its OWN entries. The effective
               // list a launch menu shows is global ⊕ project (project wins by id) — merged at read
@@ -868,6 +940,14 @@
         if (svSkillsDir) settings.skillsDir = (svSkillsDir.value || '').trim();
         const svSubmitSkill = settingsViewerBody.querySelector('#sv-submit-skill-on-pick');
         if (svSubmitSkill) settings.submitSkillOnPick = !!svSubmitSkill.checked;
+        // The handoff fields (#468/#469). Same empty-means-default rule as the two above; the read list
+        // is a comma-separated field, so an empty one falls back rather than storing "no directories at
+        // all" — which would be a setting that hides every packet the user has.
+        const svHandoffTemplate = settingsViewerBody.querySelector('#sv-handoff-insert-template');
+        if (svHandoffTemplate) settings.handoffInsertTemplate = (svHandoffTemplate.value || '').trim();
+        const svHandoffDir = settingsViewerBody.querySelector('#sv-handoff-dir');
+        if (svHandoffDir) settings.handoffDir = (svHandoffDir.value || '').trim() || '.handoffs';
+        if (settingsViewerBody.querySelector('#sv-handoff-dir-names')) settings.handoffDirNames = readHandoffDirNames();
         settings.fileClickTarget = settingsViewerBody.querySelector('#sv-file-click-target')?.value === 'external' ? 'external' : 'internal';
         settings.markdownDefaultView = settingsViewerBody.querySelector('#sv-markdown-default-view')?.value === 'preview' ? 'preview' : 'code';
         settings.editorToolbarMode = settingsViewerBody.querySelector('#sv-editor-toolbar-mode')?.value === 'plain' ? 'plain' : 'toolbar';

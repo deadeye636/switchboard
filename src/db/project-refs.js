@@ -1,7 +1,7 @@
 // A project's whole footprint, moved or dropped in one transaction (#217 step 9).
 //
 // Everything Switchboard keys by projectPath: project_meta (favourite, auto-hide), project_tags,
-// project_handoffs, and the `project:<path>` settings blob (display name, permission mode, worktree
+// and the `project:<path>` settings blob (display name, permission mode, worktree
 // prefs, AFK timeout). A remap moves the project to a new path; a hard delete removes it for good.
 // Neither used to touch any of this, so a remap silently dropped the project's favourite, tags and
 // settings and left the old path behind as a phantom.
@@ -23,7 +23,6 @@ const { db } = require('./connection');
 const { runWithBusyRetry } = require('./sqlite-busy-retry');
 const metaStore = require('./meta-store');
 const tagsStore = require('./tags-store');
-const tasksStore = require('./tasks-store');
 const settingsStore = require('./settings-store');
 const timelineStore = require('./timeline-store');
 
@@ -40,9 +39,6 @@ const renameProjectRefsTx = db.transaction((oldPath, newPath) => {
   tagsStore.stmts.projectTagsMerge.run(newPath, oldPath);
   tagsStore.stmts.projectTagDeleteAll.run(oldPath);
 
-  // Handoffs are a list, so they simply accrue to the destination.
-  tasksStore.stmts.projectHandoffsRename.run(newPath, oldPath);
-
   const destSettings = settingsStore.stmts.settingsGet.get('project:' + newPath);
   if (destSettings) settingsStore.stmts.settingsDelete.run('project:' + oldPath);
   else settingsStore.stmts.settingsRename.run('project:' + newPath, 'project:' + oldPath);
@@ -58,7 +54,6 @@ function renameProjectRefs(oldPath, newPath) {
 const deleteProjectRefsTx = db.transaction((projectPath) => {
   metaStore.stmts.projectMetaDelete.run(projectPath);
   tagsStore.stmts.projectTagDeleteAll.run(projectPath);
-  tasksStore.stmts.projectHandoffsDeleteAll.run(projectPath);
   settingsStore.stmts.settingsDelete.run('project:' + projectPath);
   // What happened to this project's sessions (#396). THIS is the deletion path — the cache deletes in
   // session-store.js are the index rebuilding itself and must not touch a history. Sub-selects on
