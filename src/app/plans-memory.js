@@ -1239,6 +1239,10 @@ module.exports = {
   registerIpc,
   // exported for the tests: the label rule and the counting are pure
   _typeLabel: typeLabel, _typeCounts: typeCounts, _backendCounts: backendCounts,
+  // …and the group builder, which decides what the tab may create and delete (#441). It is not pure —
+  // it stats the filesystem — but it is the wiring behind every affordance in that tab, and clicking
+  // was the only thing exercising it.
+  _resourceGroups: resourceGroups,
   _isInstructionFile: isInstructionFile,
   // exported for main.js (save-file-for-panel invalidates the FTS signature) and for tests
   invalidateFtsSignature,

@@ -307,10 +307,22 @@ async function handleDiffSave(entry) {
   }
   if (content == null) return;
 
-  const result = await window.api.saveFileForPanel(tab.filePath, content);
+  // The baseline is what the file held when this diff arrived (#441). A review can sit on screen for a
+  // long time, and writing the merged result over a file something else has changed since is the case
+  // the whole baseline exists for — a diff save is not a lesser save.
+  const result = await window.api.saveFileForPanel(tab.filePath, content, tab.oldContent ?? null);
   if (result.ok) {
     const btn = entry.instance.root.querySelector('.fp-save-btn');
     if (btn) flashButtonText(btn, 'Saved!');
+    return;
+  }
+  if (result.conflict && typeof showControlMessage === 'function') {
+    showControlMessage({
+      title: 'Not saved',
+      message: 'The file changed since this diff was made. Close it and ask for the change again, so you '
+        + 'are merging against what is there now.',
+      tone: 'warning',
+    });
   }
 }
 

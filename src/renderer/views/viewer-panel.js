@@ -803,6 +803,11 @@ class ViewerPanel {
         this._baseline = (result && typeof result.content === 'string') ? result.content : content;
         this._setConflict(null);
         this.toolbar.flashSave();
+        // A format this app has no parser for is saved, and says so (#441). The flash above means "it is
+        // on disk"; without this line it would also read as "and it is valid", which nobody checked.
+        if (result && result.unchecked && typeof showControlToast === 'function') {
+          showControlToast({ message: 'Saved. Switchboard cannot check this format for you.', timeoutMs: 3000 });
+        }
       } else {
         // A refusal is not a disaster: an invalid TOML file or a path the backend will not edit is
         // something to correct, and the danger tone heads the dialog with "DESTRUCTIVE ACTION" over a

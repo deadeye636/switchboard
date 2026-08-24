@@ -252,7 +252,11 @@ async function writeResource(backendId, resourcePath, content, projectPath, base
     return { ok: false, reason: result.error, error: result.error };
   }
   if (invalidateFts) { try { invalidateFts('memory'); } catch { /* the index heals on its next scan */ } }
-  return { ok: true, content: result.content, mtimeMs: result.mtimeMs };
+  // Whether the format could be checked at all travels with the answer: a backend may declare an
+  // extension this app has no parser for, and "saved without a check" is a different promise from
+  // "checked and fine". The panel says which one happened.
+  const checked = validateContent(resourcePath, content);
+  return { ok: true, content: result.content, mtimeMs: result.mtimeMs, unchecked: !!checked.unchecked };
 }
 
 /**
@@ -296,13 +300,20 @@ async function createResource(backendId, { kind, name, parentDir, projectPath = 
     return { ok: false, reason: `A ${kind} does not belong in that directory.` };
   }
 
+  // The REAL directory, not the one that was named: everything else in this file checks containment
+  // against what the filesystem says a path is, and a create that only checked the spelling would be
+  // the one guard here that a link could walk past.
+  let realParent;
+  try { realParent = fs.realpathSync(parentDir); } catch { return { ok: false, reason: 'That directory is no longer there.' }; }
+
   const target = scaffold.layout === 'dir'
-    ? path.join(parentDir, name, scaffold.entryFile || 'SKILL.md')
-    : path.join(parentDir, name + (scaffold.ext || '.md'));
+    ? path.join(realParent, name, scaffold.entryFile || 'SKILL.md')
+    : path.join(realParent, name + (scaffold.ext || '.md'));
   // Belt and braces over the name check: whatever the name did, the result has to be inside the
-  // directory that was approved.
-  const holder = scaffold.layout === 'dir' ? path.join(parentDir, name) : target;
-  if (path.relative(parentDir, holder).split(path.sep)[0] === '..') {
+  // directory that was approved. The holder cannot be realpath'd — it is what is about to be created.
+  const holder = scaffold.layout === 'dir' ? path.join(realParent, name) : target;
+  const within = path.relative(realParent, holder);
+  if (!within || path.isAbsolute(within) || within.split(path.sep)[0] === '..') {
     return { ok: false, reason: 'That name would put the file outside the directory.' };
   }
 
