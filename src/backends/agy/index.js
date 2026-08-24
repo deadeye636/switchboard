@@ -194,6 +194,8 @@ module.exports = {
   transcriptPathFor: (row) => (row && row.filePath) || null,
   listResources: resources.createListResources({ conversationsRoot }),
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
+  // agy lists markdown instructions and a JSON settings file; nothing else is offered for editing (#441).
+  resourceEditing: { extensions: ['.md', '.markdown', '.json'] },
   // agy keeps no plans store (#227).
   plansDir: () => null,
   // agy's per-project instruction file is GEMINI.md (#227) — it used to be guessed under Claude's branch.
@@ -225,6 +227,7 @@ module.exports = {
     quota: 'yes',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
+    resourceWrite: 'yes',
     skillInvoke: { state: 'no', note: 'it declares no skills directory, so there is nothing to run' },
     planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },

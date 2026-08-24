@@ -1961,7 +1961,12 @@ const backendModels = require('./app/backend-models');
 backendModels.init({ backends });
 backendModels.registerIpc(ipcMain);
 const backendResources = require('./app/backend-resources');
-backendResources.init({ backends, shell, log });
+backendResources.init({
+  backends, shell, log,
+  // A written resource is a document the Agent Files search covers (#440/#441), so the writer tells the
+  // index the same way a saved instruction file does.
+  invalidateFts: (kind) => plansMemory.invalidateFtsSignature(kind),
+});
 backendResources.registerIpc(ipcMain);
 const { detectSessionTransitions } = sessionTransitions;
 

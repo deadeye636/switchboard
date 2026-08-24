@@ -561,6 +561,10 @@ module.exports = {
   listResources: resources.createListResources({ claudeHome }),
   // One level into a listed directory (#440) — the shared walker, this backend's rules.
   expandResource: resources.expandResource,
+  // What the app may write back (#441). Markdown for skills, commands, agents and instruction files;
+  // JSON for the settings files it already lists. Deliberately nothing executable: Claude's hooks are
+  // commands, and an editor over those is a different feature with a different conversation.
+  resourceEditing: { extensions: ['.md', '.markdown', '.json'] },
   memorySources: (scope) => {
     scope = scope || {};
     if (!scope.projectPath) {
@@ -639,6 +643,7 @@ module.exports = {
     quota: 'yes',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
+    resourceWrite: 'yes',
     skillInvoke: 'yes',
     planDirSetting: 'yes',
     plans: 'yes',

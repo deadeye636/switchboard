@@ -44,7 +44,11 @@ const memoryViewer = document.getElementById('memory-viewer');
 const memoryPanel = new ViewerPanel(memoryViewer, {
   copyPath: true, copyContent: true,
   language: 'markdown', storageKey: 'markdownPreviewMode',
-  onSave: (filePath, content, baseline) => window.api.saveMemory(filePath, content, baseline),
+  // Agent Files holds two kinds of row and they are written through different doors (#441) — the routing
+  // lives with the tab that knows which row is open, in plans-memory-view.js.
+  onSave: (filePath, content, baseline) => (typeof saveOpenAgentFile === 'function'
+    ? saveOpenAgentFile(filePath, content, baseline)
+    : window.api.saveMemory(filePath, content, baseline)),
 });
 const workFilesViewer = document.getElementById('work-files-viewer');
 const projectsViewer = document.getElementById('projects-viewer');

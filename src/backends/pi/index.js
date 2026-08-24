@@ -403,6 +403,7 @@ module.exports = {
     quota: { state: 'no', note: 'reports no plan allowance' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
+    resourceWrite: { state: 'limited', note: 'its skills and instructions, but not its TypeScript extensions' },
     skillInvoke: 'yes',
     planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },
@@ -422,6 +423,8 @@ module.exports = {
   skillInvocation: ({ name }) => (name ? '/skill:' + name : null),
   listResources: resources.listResources,
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
+  // Pi's skills can be plain markdown files; its extensions are `.ts`/`.js` and are not offered (#441).
+  resourceEditing: { extensions: ['.md', '.markdown', '.json'] },
   _parseModelList: parseModelList,
 
   // the dual-mode seam, file side (backends/file-store.js)

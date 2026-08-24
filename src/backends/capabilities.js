@@ -140,6 +140,13 @@ const CATALOG = [
     declaredBy: 'expandResource',
   },
   {
+    id: 'resourceWrite',
+    group: 'resources',
+    label: 'Edit those files in the app',
+    description: 'Whether a skill, rule or settings file this backend lists can be saved from Switchboard, or only read.',
+    declaredBy: 'resourceEditing',
+  },
+  {
     id: 'skillInvoke',
     group: 'resources',
     label: 'Run one of its skills from the prompt',

@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('api', {
     // One level into a listed directory (#440). Main re-derives the listing and checks containment.
     expandResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-expand-resource', backendId, resourcePath, projectPath),
     readResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-read-resource', backendId, resourcePath, projectPath),
+    writeResource: (backendId, resourcePath, content, projectPath, baseline) => ipcRenderer.invoke('backend-write-resource', backendId, resourcePath, content, projectPath ?? null, baseline ?? null),
     openResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-open-resource', backendId, resourcePath, projectPath),
     transcriptPath: (sessionId) => ipcRenderer.invoke('handoff-transcript-path', sessionId),
   },

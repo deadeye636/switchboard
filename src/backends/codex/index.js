@@ -214,6 +214,8 @@ module.exports = {
   // the core, so a Codex project's own file was attributed to Claude; now Codex declares it.
   listResources: resources.createListResources({ codexHome }),
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
+  // Codex keeps its config in TOML and its prompts in markdown (#441). Nothing executable.
+  resourceEditing: { extensions: ['.md', '.markdown', '.toml', '.json'] },
   memorySources: (scope) => {
     if (!scope || !scope.projectPath) return [];
     const short = require('../../session/derive-project-path').projectShortName(scope.projectPath);
@@ -237,6 +239,7 @@ module.exports = {
     quota: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
+    resourceWrite: 'yes',
     skillInvoke: { state: 'no', note: 'it lists skills but its command palette does not offer them' },
     planDirSetting: { state: 'no', note: 'writes no plan documents at all yet' },
     plans: { state: 'no', note: 'keeps no plans store' },

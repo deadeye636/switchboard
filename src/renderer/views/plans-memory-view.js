@@ -628,6 +628,25 @@ function buildMemoryItem(file, groupBackendId) {
   return item;
 }
 
+// The identity of the row the Agent Files panel currently holds, when it came from a backend's own
+// resource listing rather than from the instruction-file scan (#441). Null for an instruction file.
+let currentMemoryResource = null;
+
+/**
+ * Save whatever the Agent Files panel is holding, through the door that row came in by.
+ *
+ * `baseline` is what the panel believed the file to hold; main compares it against the file immediately
+ * before writing and refuses rather than overwriting a change nobody in this window has seen.
+ */
+async function saveOpenAgentFile(filePath, content, baseline) {
+  if (currentMemoryResource && currentMemoryResource.backendId) {
+    return window.api.backends.writeResource(
+      currentMemoryResource.backendId, filePath, content, currentMemoryResource.projectPath, baseline,
+    );
+  }
+  return window.api.saveMemory(filePath, content, baseline);
+}
+
 async function openMemory(file) {
   // Mark active in sidebar
   memoryContent.querySelectorAll('.memory-item.active').forEach(el => el.classList.remove('active'));
@@ -650,6 +669,12 @@ async function openMemory(file) {
   }
   currentMemoryFilePath = file.filePath;
   currentMemoryContent = content;
+  // Which door this row's SAVE goes through (#441). The read above already made this decision; keeping
+  // the answer means the save cannot make a different one — a backend resource is written through the
+  // backend, with its guards, and an instruction file through the memory writer, with its.
+  currentMemoryResource = file.backendId
+    ? { backendId: file.backendId, projectPath: file.projectPath || null }
+    : null;
 
   // Hide every other viewer (draining JSONL file-watches) before showing this one (issue #75).
   hideAllViewers();

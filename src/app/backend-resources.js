@@ -6,10 +6,13 @@ const path = require('path');
 // Shared with the Plans and Agent Files tabs, which write and delete the same files this module reads.
 // Why a thrown error is translated rather than forwarded: `src/app/readable-error.js`.
 const { readableError: toReadable } = require('./readable-error');
+const { writeTextFile } = require('./safe-write');
+const { validateContent } = require('./format-validate');
 
 let backends = null;
 let shell = null;
 let log = null;
+let invalidateFts = null;
 
 function init(ctx) {
   backends = ctx && ctx.backends;
@@ -17,6 +20,9 @@ function init(ctx) {
   // Optional: the detail dropped from a user-facing reason is written here instead, so an error whose
   // code we cannot translate is still diagnosable from the log rather than nowhere at all.
   log = (ctx && ctx.log) || null;
+  // A written resource is a searchable document (#440 put skills in the index), so the tab's search has
+  // to be told the same way a saved instruction file tells it.
+  invalidateFts = (ctx && typeof ctx.invalidateFts === 'function') ? ctx.invalidateFts : null;
 }
 
 const readableError = (err, fallback) => toReadable(err, fallback, log);
@@ -182,11 +188,80 @@ async function readResource(backendId, resourcePath, projectPath) {
   return { ok: true, content: buf.toString('utf8'), mtimeMs: stat.mtimeMs, size: stat.size };
 }
 
+/**
+ * May this backend's file be written from the app at all (#441)?
+ *
+ * The answer is the BACKEND's, not this module's: pi keeps skills as markdown but extensions as `.ts`,
+ * hermes hooks are arbitrary executables, and a list here naming which is which would be backend
+ * knowledge in the one place the rules forbid it. Each descriptor declares the extensions it will let
+ * the app edit; a backend that declares nothing is read-only, which is the honest default rather than a
+ * guess about what is safe to overwrite.
+ *
+ * So "nothing executable" holds mechanically: no descriptor lists `.sh`, `.ps1`, `.ts` or `.js`, and if
+ * one ever did it would be that backend saying so in its own file.
+ */
+function editableHere(backend, resourcePath) {
+  const declared = backend && backend.resourceEditing;
+  const exts = declared && Array.isArray(declared.extensions) ? declared.extensions : null;
+  if (!exts || exts.length === 0) return false;
+  return exts.includes(path.extname(String(resourcePath || '')).toLowerCase());
+}
+
+/**
+ * Write one resource (#441).
+ *
+ * Every guard is re-derived here, per call, and none of it is trusted from the renderer: the listing
+ * (so a store override that changed since the list was drawn fails closed), the containment check, the
+ * backend's own editable-extension declaration, and the format check. Only then do the bytes go through
+ * the shared write core, which refuses a file that no longer holds what the editor last saw.
+ *
+ * `baseline` is that text. A caller with none passes null and gets an unconditional write — which is
+ * what a create is, and nothing else should be.
+ */
+async function writeResource(backendId, resourcePath, content, projectPath, baseline = null) {
+  if (!resourcePath) return { ok: false, reason: 'No file given.' };
+  if (typeof content !== 'string') return { ok: false, reason: 'Nothing to write.' };
+
+  const backend = backends && backends.get && backends.get(backendId);
+  const listed = await listResources(backendId, projectPath || null);
+  if (!listed || listed.ok === false || !Array.isArray(listed.resources)) {
+    return { ok: false, reason: (listed && listed.reason) || 'Could not list backend resources.' };
+  }
+  if (!reachable(backend, listed.resources, resourcePath)) {
+    return { ok: false, reason: 'That path is not a discovered resource for this backend.' };
+  }
+  if (!editableHere(backend, resourcePath)) {
+    return { ok: false, reason: 'Switchboard does not edit this kind of file for this backend.' };
+  }
+
+  const result = writeTextFile(resourcePath, content, {
+    expectPrevious: baseline,
+    mustExist: true,
+    validate: (text) => validateContent(resourcePath, text),
+  });
+  if (!result.ok) {
+    if (result.code === 'stale') {
+      // Not an error: the caller raises the same conflict view an external change raises, and it needs
+      // the file's current text to do it.
+      return { ok: false, conflict: true, diskContent: result.diskContent, reason: result.error, error: result.error };
+    }
+    if (result.code === 'failed') {
+      const reason = readableError(result.cause, 'That file could not be saved.');
+      return { ok: false, reason, error: reason };
+    }
+    return { ok: false, reason: result.error, error: result.error };
+  }
+  if (invalidateFts) { try { invalidateFts('memory'); } catch { /* the index heals on its next scan */ } }
+  return { ok: true, content: result.content, mtimeMs: result.mtimeMs };
+}
+
 function registerIpc(ipc) {
   ipc.handle('backend-list-resources', (_event, backendId, projectPath) => listResources(backendId, projectPath));
   ipc.handle('backend-open-resource', (_event, backendId, resourcePath, projectPath) => openResource(backendId, resourcePath, projectPath));
   ipc.handle('backend-expand-resource', (_event, backendId, resourcePath, projectPath) => expandResource(backendId, resourcePath, projectPath));
   ipc.handle('backend-read-resource', (_event, backendId, resourcePath, projectPath) => readResource(backendId, resourcePath, projectPath));
+  ipc.handle('backend-write-resource', (_event, backendId, resourcePath, content, projectPath, baseline) =>
+    writeResource(backendId, resourcePath, content, projectPath, baseline ?? null));
 }
 
-module.exports = { init, registerIpc, listResources, openResource, expandResource, readResource, _isInside: isInside, _readableError: readableError };
+module.exports = { init, registerIpc, listResources, openResource, expandResource, readResource, writeResource, _isInside: isInside, _editableHere: editableHere, _readableError: readableError };

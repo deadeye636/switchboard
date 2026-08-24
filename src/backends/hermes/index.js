@@ -264,6 +264,7 @@ module.exports = {
     quota: { state: 'no', note: 'reports no plan allowance' },
     resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
     resourceDepth: 'yes',
+    resourceWrite: 'yes',
     skillInvoke: 'yes',
     planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },
@@ -284,6 +285,9 @@ module.exports = {
   skillInvocation: ({ name }) => (name ? '/' + name : null),
   listResources: resources.listResources,
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
+  // Hermes' own settings are `config.yaml` (#441). Its hooks are arbitrary files and stay out — a hook
+  // is something that RUNS, and this is an editor for what a CLI reads.
+  resourceEditing: { extensions: ['.md', '.markdown', '.yaml', '.yml', '.json'] },
 
   // --- the dual-mode seam, db side ---
   discoverSessions: reader.discoverSessions,
