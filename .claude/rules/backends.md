@@ -65,6 +65,34 @@ where symlinks live; `path.relative` alone passes a link that points at a privat
 `app/backend-resources.js` re-derives the listing per call and refuses anything not under a listed
 directory — that re-derivation is also what makes a changed store override fail closed.
 
+## Writing one back is a SECOND declaration (#441)
+
+Reading a resource asks whether the path is reachable. WRITING one asks two more questions, and both
+are the backend's:
+
+- **`resourceEditing: { extensions: [...] }`** — which of its files the app may save at all. This is
+  what makes "nothing executable" mechanical rather than a promise: pi keeps skills as markdown but
+  extensions as `.ts`, hermes hooks are arbitrary files, and a list in the core naming which is which
+  would be backend knowledge in the one place this file forbids it. **A backend that declares nothing is
+  read-only** — the honest default, rather than a guess about what is safe to overwrite.
+- **`resourceScaffolds: [{ kind, layout, sources, template }]`** — what it can CREATE and where. `sources`
+  is the same key `expandResource` reads, which is what ties a scaffold to a directory the listing
+  already names: a new directory in the listing cannot silently become a create target, and a kind
+  cannot be created in a directory that holds a different one. An empty array is an answer.
+
+Three rules around them that are not the backend's:
+
+- **Every guard is re-derived per call** — the listing, the containment check, the format check. Nothing
+  is cached in the renderer, so a store override that changed since the list was drawn fails closed.
+- **The bytes go through `src/app/safe-write.js`**, never `fs.writeFileSync`: the baseline compare that
+  refuses to overwrite a change the editor has not seen, the atomic rename, and the file's own line
+  endings and BOM. `src/app/format-validate.js` decides whether the text still parses — by extension,
+  because TOML is TOML for every backend.
+- **Deleting is narrower than writing.** The path must be one the EXPANSION named, of a kind with a
+  lifecycle. A settings file is a listed FILE and never an expansion entry, so it is unreachable by
+  construction rather than by a deny-list. Which kinds those are is the core's vocabulary, and the
+  payload stamps each row with the answer so the renderer never names one.
+
 ## The capability matrix is DECLARED, not derived (#439)
 
 `src/backends/capabilities.js` holds the catalog of "what can this backend do"; each descriptor answers

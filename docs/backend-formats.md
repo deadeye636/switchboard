@@ -310,6 +310,23 @@ per-model request quotas, which are enough for a status-bar figure.
 
 ---
 
+## What each CLI lets the app edit and create (#441)
+
+Declared on the descriptor (`resourceEditing`, `resourceScaffolds`), because the layouts differ and the
+core must not know one backend from another. Nothing executable appears here on purpose: an editor over
+something that RUNS is a different feature with a different conversation.
+
+| Backend | Editable | Creates | Scaffold |
+|---|---|---|---|
+| Claude | `.md`, `.markdown`, `.json` | skill, command, agent | skill = a directory with `SKILL.md` and frontmatter; command and agent = one `.md` |
+| Codex | `.md`, `.markdown`, `.toml`, `.json` | skill, rule | skill = directory with `SKILL.md`; rule = one `.md` |
+| Hermes | `.md`, `.markdown`, `.yaml`, `.yml`, `.json` | skill | directory with `SKILL.md`. Its hooks and skill bundles are not offered |
+| Pi | `.md`, `.markdown`, `.json` | skill, prompt template | skill = directory with `SKILL.md`, even though pi also reads a bare `.md` — the directory is the shape that stays right when the skill grows. Its `.ts`/`.js` extensions are not offered |
+| agy | `.md`, `.markdown`, `.json` | — | lists no skills, rules, commands or agents directory of its own; an empty declaration is the answer |
+
+A settings file is editable (that is what the TOML and YAML validation is for) and never deletable: it
+is a file the CLI owns, and this app edits it rather than deciding whether it should exist.
+
 ## Terminal page-key ownership
 
 Bare PageUp/PageDown are not generic terminal-scroll shortcuts when a full-screen TUI owns the visible
