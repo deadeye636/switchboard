@@ -121,8 +121,14 @@ chart rather than a row of zeroes.
 - **Skills** — a shortcut hands the CLI in the terminal one of its own skills, or one you keep in
   Switchboard for every CLI. A CLI that can run a skill from its prompt gets its own command; the rest
   get a reference to the document. → [spec 21](docs/specs/21-skills.md)
-- **Agent files** — browse and edit every instruction file, skill, rule and work file each backend
-  reads, filtered by type and by backend, with each row saying which CLIs actually read it
+- **Agent files** — every instruction file, skill, rule, command and settings file each backend reads,
+  filtered by type and by backend, with each row saying which CLIs actually read it. Editing one saves it
+  back: the format is checked first, the file's own line endings survive, and a save built on a version
+  something else has changed since is refused rather than winning. Skills, commands, rules and agents can
+  be created from a template and deleted. → [spec 24](docs/specs/24-resource-editing.md)
+- **Command palette** — Ctrl/Cmd+K over your sessions, your projects and the app's own actions, in one
+  ranked list. It answers the first keystroke, and an empty query is simply what you were last working
+  on. → [spec 23](docs/specs/23-command-palette.md)
 - **PDFs open in the app** — rendered page by page in the panel, instead of arriving in the source
   editor as unreadable bytes. → [spec 22](docs/specs/22-pdf-preview.md)
 - **Documents stay live** — a file open in the viewer follows an agent rewriting it, keeping your

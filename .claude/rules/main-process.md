@@ -34,7 +34,8 @@ process and CHECKING that it stopped — #424), `db-upkeep.js` (when the databas
 much of it — #430; the SQL is `src/db/compact.js`, what needs to know about the app is here),
 `readable-error.js` (what a THROWN filesystem error may say to a user — #444; it names the path it
 failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
-the log instead. A reason a module wrote itself is not an error and never goes through it) and
+the log instead. A reason a module wrote itself is not an error and never goes through it),
+`safe-write.js` + `format-validate.js` (how this app overwrites a file a CLI also owns — #441, below) and
 `terminal/` (`spawn.js` = open-terminal,
 `io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
 **The directory is the truth** — this enumeration silently missed two modules for as long as they
@@ -73,6 +74,26 @@ not tell a finished teardown from a stuck one. `lifecycle.js`'s `step()` writes 
 last of them comes **after** `closeDb()`: a log that stops before it names the step that hung, and one
 that reaches it says the handle belongs to something this file never opened. Keep that ordering, and do
 not make the good path silent again to save lines — quitting happens once.
+
+## Never `fs.writeFileSync` a file a CLI reads (#441)
+
+`src/app/safe-write.js` is the one way. Three properties, and the reason each exists is a failure that
+had already happened somewhere:
+
+- **A baseline compare**, so a stale editor cannot overwrite what an agent wrote while it was open. It is
+  CONTENT, not an mtime — `viewer-panel.js` argued that first and the argument holds: an mtime has a
+  resolution and a clock behind it. Check-then-write, not a lock, and the module says so.
+- **A temp file and a rename**, so a CLI reading its config mid-save never gets half of one. With a short
+  retry, because Windows fails a rename-over-target while anything holds a handle — and never a fallback
+  to a truncating write, which is the thing atomicity is for.
+- **The file's own line endings and BOM**, because CodeMirror hands back LF with neither, and the first
+  save would otherwise rewrite every line of a CRLF file.
+
+`format-validate.js` decides whether the text still parses, by EXTENSION rather than by backend. Syntax
+only, never schema: the CLIs change their own schemas whenever they like.
+
+Every writer goes through it — `saveMemory`, `savePlan`, `save-file-for-panel` and the resource writer in
+`backend-resources.js`. A new one that does not is a second set of guarantees for the same files.
 
 ## What routes per session, and what stays in main (#2, #393, #395)
 

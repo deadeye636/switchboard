@@ -15,7 +15,7 @@ Is it a reflex needed everywhere? -> here, one line, with its consequence.
 ## What this is
 
 Switchboard — an Electron desktop app to browse, search, launch, and monitor coding-CLI sessions
-(Claude, Codex, Hermes, Pi) across projects. `README.md` has the user-facing feature list.
+(Claude, Codex, Hermes, Pi, agy) across projects. `README.md` has the user-facing feature list.
 
 ## Read this first
 
@@ -31,6 +31,7 @@ table is the fallback and it is binding.
 | `src/backends/**`, `src/session/**`, `src/servers/**`, `src/projects/**`, `src/vcs/**` | `.claude/rules/backends.md` |
 | `docs/**`, `README.md` | `.claude/rules/docs.md` |
 | plans — the list, the picker, the convention, the viewer's liveness | `docs/specs/20-plans.md` (why) + `docs/plans-convention.md` (what) |
+| writing a file a CLI reads — a skill, a rule, a settings blob | `docs/specs/24-resource-editing.md` (why) + `.claude/rules/main-process.md` (the rule) |
 | a release, a tag, an installer | `docs/ai/release.md` |
 | the human-facing build/run/package instructions | `docs/development.md` |
 | running/verifying, databases, store isolation | `docs/ai/running-and-data.md` |
@@ -64,6 +65,9 @@ table is the fallback and it is binding.
 9. **A setting added/renamed/re-scoped/re-defaulted → `docs/settings-reference.md`.** Same for a new
    `SWITCHBOARD_*` env var or script.
 10. **Prefer `execFile`** over shell string interpolation for any external process.
+11. **Never `fs.writeFileSync` a file a CLI reads** — `src/app/safe-write.js` is the one way: a baseline
+    compare so a stale editor cannot overwrite an agent's work, an atomic rename so a half-written config
+    is impossible, and the file's own line endings and BOM kept.
 
 ## Backlog & workflow
 

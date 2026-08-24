@@ -364,6 +364,18 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   behaviour from, beside the instruction files it already showed. A customization directory is one row
   that opens into its entries, and an entry opens in the built-in viewer instead of being handed to the
   system.
+- **And they can be changed there** — a skill, a rule, a command or a CLI's settings file is saved back
+  from the same panel. The format is checked before anything is written (JSON, TOML, YAML, a skill's
+  frontmatter), the file's own line endings and BOM survive the round trip, the write is atomic so a CLI
+  reading its config mid-save never sees half of one, and a save built on a version something else has
+  changed since is refused with the same conflict bar an external change raises. Which files a CLI lets
+  the app touch is that CLI's own declaration, so nothing executable is on the list. Skills, commands,
+  rules and agents can also be created from a per-backend template and deleted, the deletion asking a
+  narrower question than the reading did.
+- **A command palette** — Ctrl/Cmd+K over sessions, projects and the app's own actions in one ranked
+  list, matching from the first keystroke rather than the third, and opening on what you were last
+  working on. The actions are declared by whatever owns them, so a feature that gains one does not have
+  to be remembered in a list somewhere else.
 - **Every CLI that reads a file is credited on it** — a project's `AGENTS.md` is Codex', Pi's and
   Hermes'; `CLAUDE.md` is Claude's, Pi's and Hermes'. Hermes had declared no per-project instruction
   files at all while its own launch option offered to skip them, so a Hermes-only project showed nothing;

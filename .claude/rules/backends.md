@@ -8,7 +8,7 @@ paths:
 
 # Backends
 
-The app runs **several coding CLIs** (Claude, Codex, Hermes, Pi; `agy` planned), not just Claude.
+The app runs **several coding CLIs** (Claude, Codex, Hermes, Pi, agy — all five ready), not just Claude.
 One folder per backend — `index.js` (registry) + `claude/` (a **thin adapter**: the core still
 imports Claude's readers directly instead of going through the descriptor, which is why they are not
 in that folder) + a folder per Axis-B binary.
