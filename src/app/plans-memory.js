@@ -301,6 +301,12 @@ function typeCounts(files) {
 //               a plugin is a directory, and a directory opened in a text editor is a dead end. They
 //               stay in the Backends settings list, where "Open" hands them to the system.
 //
+// And one kind that is not a directory at all: a backend's own SETTINGS file (#441). It is grouped
+// separately below rather than through the walk above, because there is nothing to walk — Claude's
+// `settings.json`, Codex' `config.toml` and Hermes' `config.yaml` are single files, and until this tab
+// showed them the app could validate TOML and YAML for a file nobody could open. `model-catalog` stays
+// out: it is a cache the CLI rewrites, and editing one is a trap rather than a feature.
+//
 // This is a property of the tab, not of any backend — it names kinds, which are the shared vocabulary,
 // and no backend id appears here.
 const TAB_KINDS = new Set([
@@ -380,6 +386,36 @@ function resourceGroups(projectPath, seen) {
         path: entry.path,
         truncated: !!expanded.truncated,
         files,
+      });
+    }
+
+    // The settings files, as one group per backend (#441). Not a directory walk: these are the listed
+    // files themselves, and the group exists so they sit in the tab with the same open-and-save
+    // affordance as everything else rather than only behind the OS Open button.
+    const settingsFiles = [];
+    for (const entry of listed.resources) {
+      if (!entry || entry.kind !== 'settings' || !entry.path) continue;
+      if ((entry.scope || 'global') !== (projectPath ? 'project' : 'global')) continue;
+      try { if (!fs.statSync(entry.path).isFile()) continue; } catch { continue; }
+      if (claim(seen, entry.path, b.id)) continue;
+      const file = resourceFile(entry, path.dirname(entry.path));
+      if (!file) continue;
+      file.backendIds = [b.id];
+      file.kind = 'settings';
+      seen.set(entry.path, file);
+      settingsFiles.push(file);
+    }
+    if (settingsFiles.length) {
+      groups.push({
+        id: b.id + ':settings:' + (projectPath ? 'project' : 'global'),
+        backendId: b.id,
+        backendLabel: b.label || b.id,
+        label: 'settings',
+        kind: 'settings',
+        // The directory the files sit in, for the relative display path. Nothing is created here —
+        // a settings file is one the CLI owns and this app edits, never one it invents.
+        path: path.dirname(settingsFiles[0].filePath),
+        files: settingsFiles,
       });
     }
   }

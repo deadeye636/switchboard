@@ -800,7 +800,14 @@ class ViewerPanel {
         this._setConflict(null);
         this.toolbar.flashSave();
       } else {
-        showControlMessage({ title: 'Save failed', message: result?.error || 'unknown error', tone: 'danger' });
+        // A refusal is not a disaster: an invalid TOML file or a path the backend will not edit is
+        // something to correct, and the danger tone heads the dialog with "DESTRUCTIVE ACTION" over a
+        // save that changed nothing. The danger tone stays for the throw below, which is a real failure.
+        showControlMessage({
+          title: 'Not saved',
+          message: result?.error || result?.reason || 'unknown error',
+          tone: 'warning',
+        });
       }
     } catch (err) {
       // Without this the user got no feedback when onSave threw (issue #78).
