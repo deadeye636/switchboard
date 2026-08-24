@@ -10931,6 +10931,34 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
   overflow: hidden;
 }
 
+/* The command palette (#274) is the same popover centred on the window rather than sitting on a
+   terminal's lower edge, so it rounds on all four corners and drops its shadow downwards. */
+.command-palette-modal {
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0,0,0,0.6);
+}
+
+/* Its backdrop swallows the click that dismisses it — without one, dismissing the palette would also
+   land on whatever sits underneath and open it. */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3999;
+  background: rgba(10,10,16,0.45);
+}
+
+/* An action row's meta is a category, not a path — quieter than a session's project tail. */
+.vpal-meta-action {
+  color: #8088ff;
+  opacity: 0.85;
+}
+
+/* Where the palette jumped to. Long enough to find with the eye, short enough not to linger. */
+.project-group.palette-revealed > .project-header {
+  box-shadow: inset 0 0 0 1px #8088ff;
+  transition: box-shadow 0.3s;
+}
+
 .vpal-filter {
   display: flex;
   align-items: center;

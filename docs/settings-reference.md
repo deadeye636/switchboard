@@ -252,6 +252,7 @@ character `\` could not be pressed on any keyboard (#353). The four punctuation 
 | `insertVariable` | Insert variable | primary+Shift+V |
 | `insertPlan` | Insert plan | primary+Shift+P |
 | `insertSkill` | Insert skill | primary+Shift+S |
+| `commandPalette` | Command palette | primary+K |
 | `gridToggle` | Toggle grid view | primary+Shift+G |
 | `gridMoveMode` | Move / resize grid card | primary+Shift+M |
 | `paneSplit` | Split pane to the right (panes mode) | primary+Shift+`\` |

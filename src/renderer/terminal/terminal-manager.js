@@ -186,6 +186,17 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
       return false;
     }
 
+    // The command palette (default Cmd/Ctrl+K, #274). A focused xterm swallows the chord before the
+    // document handler in app.js can see it, so it is answered here too — and it is the one picker chord
+    // that does not act on this terminal.
+    if (matchShortcut('commandPalette', e, isMac, appShortcuts)) {
+      if (e.type === 'keydown') {
+        e._handled = true;
+        if (typeof openCommandPalette === 'function') openCommandPalette();
+      }
+      return false;
+    }
+
     // Insert a saved variable at the cursor (default Cmd/Ctrl+Shift+V) — the keyboard-driven palette
     // anchored in the terminal's lower half (#207; it replaced the caret-anchored context menu from
     // #89). Ctrl/Cmd+Shift+V also fires a native paste; suppress that one paste so it doesn't dump

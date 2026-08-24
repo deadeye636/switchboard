@@ -72,3 +72,15 @@ if (collapseAllToggle) {
   collapseAllToggle.addEventListener('click', toggleCollapseAllSections);
   updateCollapseAllToggle();
 }
+
+// The command palette does not know what the app can do; each owner says so (#274). This file owns the
+// fold, so it declares it here rather than being listed in a table somewhere else.
+if (typeof registerCommandAction === 'function') {
+  registerCommandAction({
+    id: 'sidebar.collapseAll',
+    title: 'Collapse or expand all sidebar sections',
+    keywords: 'fold unfold projects groups sidebar',
+    group: 'Sidebar',
+    run: () => toggleCollapseAllSections(),
+  });
+}

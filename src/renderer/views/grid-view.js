@@ -955,3 +955,16 @@ function handleGridMoveModeKey(e) {
   return true;
 }
 
+// Declared here because this file owns the mode (#274) — the palette holds no list of what the app can do.
+// `available` is asked per open: whether the overview applies depends on the display mode, which changes
+// while the app runs, and a detached window never shows it.
+if (typeof registerCommandAction === 'function') {
+  registerCommandAction({
+    id: 'grid.toggle',
+    title: 'Toggle session overview',
+    keywords: 'grid mosaic cards overview',
+    group: 'View',
+    available: () => !(typeof window.isDetachedWindow === 'function' && window.isDetachedWindow()),
+    run: () => toggleGridView(),
+  });
+}

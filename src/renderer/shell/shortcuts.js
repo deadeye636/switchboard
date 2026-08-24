@@ -47,6 +47,10 @@ const DEFAULT_SHORTCUTS = {
   // Ctrl/Cmd+Shift+P — open the plan picker in the focused terminal (#453). Same family as the
   // variable picker beside it, and the same shape of popover, so one is learned from the other.
   insertPlan: { primary: true, alt: false, shift: true, key: 'p' },
+  // Ctrl/Cmd+K — the command palette (#274). Deliberately NOT in the Ctrl/Cmd+Shift family the three
+  // insert pickers share: those act on the terminal you are in, this one acts on the app, and Ctrl/Cmd+K
+  // is the chord every editor has trained that meaning into.
+  commandPalette: { primary: true, alt: false, shift: false, key: 'k' },
   // Ctrl/Cmd+Shift+S — open the skill picker in the focused terminal (#462). Third of the same family.
   // Unlike the two above it, taking a row RUNS it: the picker submits the line unless the setting says
   // otherwise, because picking a skill is asking for it rather than quoting it.
@@ -138,6 +142,13 @@ const SHORTCUT_DEFS = [
     id: 'insertPlan',
     label: 'Insert plan',
     description: 'Open the plan picker in the focused terminal and insert a reference to one at the cursor',
+    family: 'key',
+    group: 'general',
+  },
+  {
+    id: 'commandPalette',
+    label: 'Command palette',
+    description: 'Jump to a session or project, or run an app command, from anywhere in the app',
     family: 'key',
     group: 'general',
   },

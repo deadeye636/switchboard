@@ -85,13 +85,21 @@ const REQUIRED = ['id', 'shortcut', 'placeholder', 'ariaLabel', 'listLabel', 'fa
 test('every picker config carries what the core reads', () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  const dir = path.join(__dirname, '..', 'src', 'renderer', 'terminal');
-  const files = fs.readdirSync(dir).filter(f => /-palette\.js$/.test(f));
-  assert.ok(files.length >= 2, 'expected the picker files to be found');
+  // Two homes, because the fourth picker is not a terminal one: the command palette (#274) belongs to
+  // the app, not to a session, and lives in shell/. Scanning only terminal/ left it unguarded — the gap
+  // this test exists to close.
+  const dirs = [
+    path.join(__dirname, '..', 'src', 'renderer', 'terminal'),
+    path.join(__dirname, '..', 'src', 'renderer', 'shell'),
+  ];
+  const files = dirs.flatMap(dir => fs.readdirSync(dir)
+    .filter(f => /palette\.js$/.test(f) && f !== 'palette-core.js')
+    .map(f => path.join(dir, f)));
+  assert.ok(files.length >= 4, `expected the picker files to be found, saw ${files.length}`);
   for (const file of files) {
-    const src = fs.readFileSync(path.join(dir, file), 'utf8');
+    const src = fs.readFileSync(file, 'utf8');
     for (const key of REQUIRED) {
-      assert.ok(new RegExp('(^|\\s)' + key + ':').test(src), `${file} declares no ${key}`);
+      assert.ok(new RegExp('(^|\\s)' + key + ':').test(src), `${path.basename(file)} declares no ${key}`);
     }
   }
 });

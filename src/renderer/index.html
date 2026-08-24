@@ -230,6 +230,10 @@
   <script src="handoff/handoff-actions.js"></script>
   <script src="session/session-card-details.js"></script>
   <script src="session/session-cleanup.js"></script>
+  <!-- The command palette's two pure halves (#274). command-actions.js defines registerCommandAction and
+       must parse BEFORE any file that registers at its tail (grid-view.js, sidebar-collapse.js). -->
+  <script src="shell/command-actions.js"></script>
+  <script src="shell/command-palette-rank.js"></script>
   <script src="shell/sidebar-state.js"></script>
   <script src="shell/terminal-pressure.js"></script>
   <script src="shell/usage-status.js"></script>
@@ -319,6 +323,9 @@
   <script src="shell/search-bar.js"></script>
   <script src="shell/native-notifications.js"></script>
   <script src="shell/sidebar-collapse.js"></script>
+  <!-- The command palette itself (#274). AFTER app.js and after every registrar: it only READS, and it
+       reaches app.js's maps at call time. -->
+  <script src="shell/command-palette.js"></script>
   <script src="shell/sidebar-filters.js"></script>
   <script src="shell/sidebar-sort.js"></script>
   <script src="shell/session-ipc.js"></script>

@@ -136,8 +136,12 @@ let navigatingHistory = false;
 function setActiveSession(id) {
   // A picker palette captured ONE terminal when it opened (#207). Leaving it up across a session
   // switch would aim its Enter at the session the user just left, so it goes with the switch —
-  // whatever caused it, keyboard or click.
-  if (id !== activeSessionId && typeof closePalette === 'function') closePalette({ refocus: false });
+  // whatever caused it, keyboard or click. The command palette (#274) captured no terminal and is
+  // often what CAUSED the switch, so it is exempt: closing it here would shut it on its own pick.
+  if (id !== activeSessionId && typeof closePalette === 'function'
+      && !(typeof paletteIsSessionless === 'function' && paletteIsSessionless())) {
+    closePalette({ refocus: false });
+  }
   activeSessionId = id;
   if (id) sessionStorage.setItem('activeSessionId', id);
   else sessionStorage.removeItem('activeSessionId');
@@ -2195,6 +2199,13 @@ async function reapplyGlobalSettings() {
     if (e.key === 'Escape' && ADMIN_TABS.includes(activeTab)) {
       e.preventDefault();
       closeAdminView();
+      return;
+    }
+    // The command palette (default Cmd/Ctrl+K, #274). Before the view shortcuts below so it opens from
+    // anywhere; a focused terminal never reaches here, which is why terminal-manager has its own branch.
+    if (matchShortcut('commandPalette', e, isMac, appShortcuts)) {
+      e.preventDefault();
+      if (typeof openCommandPalette === 'function') openCommandPalette();
       return;
     }
     // Toggle grid view (default Cmd/Ctrl+Shift+G)

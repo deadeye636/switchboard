@@ -76,9 +76,29 @@
     return { left: Math.round(rect.left), width: Math.round(rect.width), top, height };
   }
 
+  // A palette with no terminal to sit in — the command palette (#274) belongs to the app, not to a
+  // session, and it is opened from anywhere including a window with nothing running. Centred near the
+  // top, the place every command palette has been since the first one, and clamped so a short window
+  // still gets a list rather than a sliver.
+  const CENTERED_W = 620;
+  const CENTERED_MIN_H = 220;
+
+  function centeredGeometry(viewportWidth, viewportHeight) {
+    const vw = Math.max(0, viewportWidth);
+    const vh = Math.max(0, viewportHeight);
+    const width = Math.max(280, Math.min(CENTERED_W, vw - 32));
+    const height = Math.max(1, Math.min(Math.max(Math.round(vh * 0.6), CENTERED_MIN_H), Math.max(1, vh - 32)));
+    const left = Math.max(8, Math.round((vw - width) / 2));
+    // A sixth of the way down reads as "over the app" rather than "in the middle of it", but never so
+    // far that the bottom leaves the viewport.
+    const top = Math.max(8, Math.min(Math.round(vh / 6), vh - height - 8));
+    return { left: Math.round(left), width: Math.round(width), top, height };
+  }
+
   // --- The palette itself ---
 
   let palette = null;      // the live element, or null
+  let backdrop = null;     // the modal backdrop of a `centered` palette (#274), or null
   let paletteState = null; // { config, rows, shown, index, terminal, sessionId, projectPath, extra, loaded }
   // A chord that opens the palette may also fire a native paste (Ctrl/Cmd+Shift+V). terminal-manager
   // swallows that paste for the TERMINAL, but the filter input now holds the focus, so the clipboard
@@ -113,11 +133,20 @@
     document.removeEventListener('mousedown', onOutsideClick, true);
     window.removeEventListener('focus', onWindowFocus);
     window.removeEventListener('resize', onWindowResize);
+    if (backdrop) { backdrop.remove(); backdrop = null; }
     palette.remove();
     palette = null;
     const term = paletteState && paletteState.terminal;
+    // A session-less palette (#274) has no terminal to hand the focus back to, so it hands it back to
+    // whatever held it when the palette opened. Without this the focus falls to <body> and the app is
+    // keyboard-dead until something is clicked.
+    const returnTo = paletteState && paletteState.returnFocus;
     paletteState = null;
-    if (refocus && term) { try { term.focus(); } catch {} }
+    if (!refocus) return;
+    if (term) { try { term.focus(); } catch {} return; }
+    if (returnTo && typeof returnTo.focus === 'function' && returnTo.isConnected !== false) {
+      try { returnTo.focus(); } catch {}
+    }
   }
 
   function onOutsideClick(event) {
@@ -129,6 +158,14 @@
     if (palette && paletteState) position(paletteState.terminal);
   }
 
+  // Is the palette that is open right now a session-less one (#274)? `setActiveSession` closes any open
+  // palette on a switch, because a picker captured ONE terminal and its Enter would aim at the session
+  // the user just left — but the command palette captured no terminal and has no such problem. Asked
+  // here rather than reading paletteState from outside, which is this module's private slot.
+  function paletteIsSessionless() {
+    return !!(paletteState && !paletteState.sessionId);
+  }
+
   // Called from destroySession: the palette holds the terminal for its insert, so it must go before
   // the xterm is disposed — otherwise it floats over the app pointing at a dead instance.
   function closePaletteForSession(sessionId) {
@@ -138,12 +175,15 @@
   // Falls back to the viewport if xterm has no element yet — the palette must still be reachable,
   // just less precisely placed.
   function position(terminal) {
+    const centered = paletteState && paletteState.config && paletteState.config.centered;
     let rect = null;
     try { rect = terminal && terminal.element && terminal.element.getBoundingClientRect(); } catch {}
     if (!rect || !rect.width || !rect.height) {
       rect = { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
     }
-    const g = paletteGeometry(rect, window.innerHeight);
+    const g = centered
+      ? centeredGeometry(window.innerWidth, window.innerHeight)
+      : paletteGeometry(rect, window.innerHeight);
     palette.style.position = 'fixed';
     palette.style.left = g.left + 'px';
     palette.style.width = g.width + 'px';
@@ -279,7 +319,10 @@
     const ctx = pickerContext();
     closePalette({ refocus: false });
     try { await config.pick(row, ctx); } catch { /* the picker reports its own failures */ }
-    try { ctx.terminal.focus(); } catch {}
+    // closePalette has already handed the focus back (to the terminal, or to whatever held it for a
+    // session-less palette). Re-focusing the terminal here would take it away from whatever the picked
+    // row just opened, and there is no terminal at all for the command palette.
+    if (ctx.terminal) { try { ctx.terminal.focus(); } catch {} }
   }
 
   // While the palette is open its keys are ITS keys. Without this the document-level handler in
@@ -311,7 +354,15 @@
       closePalette();
       return;
     }
-    if (event.ctrlKey || event.metaKey || event.altKey) return; // a chord — not ours to interpret
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      // A chord is not ours to INTERPRET, but a modal palette must not let it reach the app either:
+      // the document-level dispatcher in app.js answers these, so with the command palette open and
+      // focused, Ctrl/Cmd+Shift+G switched the whole view and Ctrl/Cmd+Shift+B bookmarked the session
+      // underneath — while the backdrop was still up. Stopped, not prevented: the editing chords the
+      // filter box itself needs (copy, paste, select all) keep their native behaviour.
+      if (paletteState && paletteState.config.centered) event.stopPropagation();
+      return;
+    }
     if (event.key === 'Escape') { claim(event); closePalette(); return; }
     if (event.key === 'ArrowDown') { claim(event); move(1); return; }
     if (event.key === 'ArrowUp') { claim(event); move(-1); return; }
@@ -331,8 +382,17 @@
       ? (sessionMap.get(sessionId)?.projectPath || null) : null;
     const listboxId = config.id + '-pal-listbox';
 
+    // A modal palette gets a backdrop: without one the outside click that closes it ALSO reaches the UI
+    // underneath, so dismissing it could open a session on the way out. The backdrop is a sibling, added
+    // first, and removed by closePalette.
+    if (config.centered) {
+      backdrop = document.createElement('div');
+      backdrop.className = 'palette-backdrop';
+      document.body.appendChild(backdrop);
+    }
+
     palette = document.createElement('div');
-    palette.className = 'popover variable-palette' + (config.extraClass ? ' ' + config.extraClass : '');
+    palette.className = 'popover variable-palette' + (config.centered ? ' command-palette-modal' : '') + (config.extraClass ? ' ' + config.extraClass : '');
     palette.innerHTML = `
       <div class="vpal-filter">
         <span class="vpal-glyph" aria-hidden="true">⌕</span>
@@ -347,11 +407,16 @@
         <span><kbd>Esc</kbd> close</span>
       </div>`;
     document.body.appendChild(palette);
-    position(terminal);
 
     paletteState = {
       config, rows: [], shown: [], index: -1, terminal, sessionId, projectPath, extra: null, loaded: false,
+      // Where the focus goes when a session-less palette closes (#274). Captured BEFORE the filter input
+      // takes it, and only useful when there is no terminal to fall back on.
+      returnFocus: terminal ? null : document.activeElement,
     };
+    // Positioned after paletteState exists: `position` asks the config whether this palette is anchored
+    // in a terminal or centred on the window (#274).
+    position(terminal);
     renderList(); // paint "Loading…" now — otherwise the list is blank until the IPC returns
     const input = el('.vpal-input');
     input.addEventListener('keydown', onKey);
@@ -429,5 +494,5 @@
     position(terminal);
   }
 
-  return { nextIndex, paletteGeometry, openPalette, closePalette, closePaletteForSession };
+  return { nextIndex, paletteGeometry, centeredGeometry, openPalette, closePalette, closePaletteForSession, paletteIsSessionless };
 });
